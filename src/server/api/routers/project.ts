@@ -3,8 +3,15 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getProjectAccess, canEditProject, hasProjectAccess } from "~/server/services/access/resolvers/projectResolver";
+import {
+  getProjectAccess,
+  canEditProject,
+  canManageProjectMembers,
+  hasProjectAccess,
+  buildProjectAccessWhere,
+  requireProjectAccess,
+  AccessControlService,
+} from "~/server/services/access";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export const projectRouter = createTRPCRouter({
@@ -25,18 +32,7 @@ export const projectRouter = createTRPCRouter({
       const projects = await ctx.db.project.findMany({
         where: {
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
-          OR: [
-            // User is the project creator
-            { createdById: userId },
-            // User is a member of the project's team
-            { team: { members: { some: { userId } } } },
-            // User is a direct member of the workspace
-            { workspace: { members: { some: { userId } } } },
-            // User is a member of a team linked to the project's workspace
-            { workspace: { teams: { some: { members: { some: { userId } } } } } },
-            // Public projects (only when not filtering by workspace)
-            ...(!input?.workspaceId ? [{ isPublic: true }] : []),
-          ],
+          ...buildProjectAccessWhere(userId),
         },
         select: {
           id: true,
@@ -78,46 +74,7 @@ export const projectRouter = createTRPCRouter({
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
           // Filter by goal if provided
           ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
-          OR: [
-            // User is the project creator
-            { createdById: ctx.session.user.id },
-            // User is a member of the project's team
-            {
-              team: {
-                members: {
-                  some: {
-                    userId: ctx.session.user.id
-                  }
-                }
-              }
-            },
-            // User is a direct member of the workspace
-            {
-              workspace: {
-                members: {
-                  some: {
-                    userId: ctx.session.user.id
-                  }
-                }
-              }
-            },
-            // User is a member of a team linked to the project's workspace
-            {
-              workspace: {
-                teams: {
-                  some: {
-                    members: {
-                      some: {
-                        userId: ctx.session.user.id
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            // Public projects visible when not filtering by workspace
-            ...(!input?.workspaceId ? [{ isPublic: true }] : []),
-          ]
+          ...buildProjectAccessWhere(ctx.session.user.id),
         },
         orderBy: {
           createdAt: "desc",
@@ -209,6 +166,7 @@ export const projectRouter = createTRPCRouter({
         workspaceId: z.string().optional(),
         driId: z.string().nullable().optional(),
         isPublic: z.boolean().optional().default(false),
+        isRestricted: z.boolean().optional().default(false),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -241,6 +199,7 @@ export const projectRouter = createTRPCRouter({
           teamId: input.teamId ?? null,
           driId: input.driId ?? null,
           isPublic: input.isPublic ?? false,
+          isRestricted: input.isRestricted ?? false,
         },
       });
 
@@ -292,11 +251,19 @@ export const projectRouter = createTRPCRouter({
       id: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return await ctx.db.project.delete({
-        where: {
-          id: input.id,
-          createdById: ctx.session.user.id,
-        },
+      const service = new AccessControlService(ctx.db);
+      const result = await service.canAccess({
+        userId: ctx.session.user.id,
+        resourceType: "project",
+        resourceId: input.id,
+        permission: "delete",
+      });
+      if (!result.allowed) {
+        throw new TRPCError({ code: "FORBIDDEN", message: result.reason });
+      }
+
+      return ctx.db.project.delete({
+        where: { id: input.id },
       });
     }),
 
@@ -310,8 +277,16 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
       return ctx.db.project.update({
-        where: { id: input.id, createdById: ctx.session.user.id },
+        where: { id: input.id },
         data: { priority: input.priority },
         select: { id: true, priority: true },
       });
@@ -338,29 +313,30 @@ export const projectRouter = createTRPCRouter({
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
         isPublic: z.boolean().optional(),
+        isRestricted: z.boolean().optional(),
         enableDetailedActions: z.boolean().nullable().optional(),
         enableBounties: z.boolean().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, isPublic, enableDetailedActions, enableBounties, ...updateData } = input;
-      
+      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
+
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
       let slug = baseSlug;
       let counter = 1;
-      
+
       // Check if slug exists (excluding current project) and increment counter until we find a unique one
-      while (await ctx.db.project.findFirst({ 
-        where: { 
+      while (await ctx.db.project.findFirst({
+        where: {
           slug,
           id: { not: id }
-        } 
+        }
       })) {
         slug = `${baseSlug}_${counter}`;
         counter++;
       }
-      
+
       // Check edit access (creator, workspace admin+, team admin+)
       const access = await getProjectAccess(ctx.db, ctx.session.user.id, id);
       if (!canEditProject(access)) {
@@ -368,6 +344,17 @@ export const projectRouter = createTRPCRouter({
           code: "FORBIDDEN",
           message: "You do not have edit access to this project",
         });
+      }
+
+      // Flipping isRestricted requires manage_members (creator, project admin,
+      // workspace owner/admin escape hatch). Plain editors cannot change it.
+      if (isRestricted !== undefined && isRestricted !== access.isRestricted) {
+        if (!canManageProjectMembers(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only project admins can change the restriction setting",
+          });
+        }
       }
 
       const updated = await ctx.db.project.update({
@@ -398,6 +385,8 @@ export const projectRouter = createTRPCRouter({
               : undefined,
           // Handle public visibility toggle
           ...(isPublic !== undefined ? { isPublic } : {}),
+          // Handle restriction toggle (gated above by canManageProjectMembers)
+          ...(isRestricted !== undefined ? { isRestricted } : {}),
           // Handle detailed actions override (null = inherit from workspace)
           ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
           // Handle bounties override (null = inherit from workspace)
@@ -459,12 +448,10 @@ export const projectRouter = createTRPCRouter({
         teamId: z.string().nullable(),
       })
     )
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.project.update({
-        where: {
-          id: input.projectId,
-          createdById: ctx.session.user.id,
-        },
+        where: { id: input.projectId },
         data: {
           team: input.teamId ? {
             connect: { id: input.teamId }
@@ -549,16 +536,7 @@ export const projectRouter = createTRPCRouter({
         where: {
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           ...(input.goalId ? { goals: { some: { id: input.goalId } } } : {}),
-          OR: [
-            { createdById: userId },
-            { team: { members: { some: { userId } } } },
-            ...(input.workspaceId ? [
-              { workspace: { members: { some: { userId } } } },
-              { workspace: { teams: { some: { members: { some: { userId } } } } } },
-            ] : []),
-            // Public projects visible when not filtering by workspace
-            ...(!input.workspaceId ? [{ isPublic: true }] : []),
-          ]
+          ...buildProjectAccessWhere(userId),
         },
         include: {
           actions: {
@@ -747,25 +725,10 @@ export const projectRouter = createTRPCRouter({
       return ctx.db.project.findMany({
         where: {
           AND: [
-            {
-              OR: [
-                // User is the project creator
-                { createdById: ctx.session.user.id },
-                // User is a member of the project's team (for already assigned projects)
-                {
-                  team: {
-                    members: {
-                      some: {
-                        userId: ctx.session.user.id
-                      }
-                    }
-                  }
-                }
-              ]
-            },
+            buildProjectAccessWhere(ctx.session.user.id),
             // Project is not assigned to any team
-            { teamId: null }
-          ]
+            { teamId: null },
+          ],
         },
         orderBy: {
           name: "asc",
@@ -785,7 +748,7 @@ export const projectRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       // Try finding by id first, then fall back to slug lookup
-      const selectFields = { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true } as const;
+      const selectFields = { id: true } as const;
 
       let projectExists = await ctx.db.project.findUnique({
         where: { id: input.id },
@@ -818,36 +781,8 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Check permission: user is creator OR public project OR team member OR workspace member
-      let hasPermission = projectExists.createdById === ctx.session.user.id;
-
-      // Public projects are accessible to all authenticated users
-      if (!hasPermission && projectExists.isPublic) {
-        hasPermission = true;
-      }
-
-      // Check team membership
-      if (!hasPermission && projectExists.teamId) {
-        const teamMembership = await ctx.db.teamUser.findFirst({
-          where: {
-            teamId: projectExists.teamId,
-            userId: ctx.session.user.id,
-          },
-        });
-        hasPermission = !!teamMembership;
-      }
-
-      // Check workspace membership (includes team-based workspace access)
-      if (!hasPermission && projectExists.workspaceId) {
-        const workspaceMembership = await getWorkspaceMembership(
-          ctx.db,
-          ctx.session.user.id,
-          projectExists.workspaceId,
-        );
-        hasPermission = !!workspaceMembership;
-      }
-
-      if (!hasPermission) {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, projectExists.id);
+      if (!hasProjectAccess(access)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Access denied - you don't have permission to view this project",
@@ -945,11 +880,159 @@ export const projectRouter = createTRPCRouter({
 
   getTeamMembers: protectedProcedure
     .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.projectMember.findMany({
         where: {
           projectId: input.projectId,
         },
+      });
+    }),
+
+  // ── Restriction & Membership Management ──────────────────────────
+  setRestricted: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        isRestricted: z.boolean(),
+      }),
+    )
+    .use(requireProjectAccess("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.project.update({
+        where: { id: input.projectId },
+        data: { isRestricted: input.isRestricted },
+        select: { id: true, isRestricted: true },
+      });
+    }),
+
+  listMembers: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.projectMember.findMany({
+        where: { projectId: input.projectId },
+        select: {
+          id: true,
+          role: true,
+          name: true,
+          responsibilities: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
+          },
+        },
+        orderBy: { name: "asc" },
+      });
+    }),
+
+  addMember: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        userId: z.string(),
+        role: z.enum(["admin", "editor", "viewer"]),
+        name: z.string().optional(),
+        responsibilities: z.array(z.string()).optional(),
+      }),
+    )
+    .use(requireProjectAccess("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: input.userId },
+        select: { name: true, email: true },
+      });
+      if (!user) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      }
+
+      // Idempotent via @@unique([projectId, userId]): upsert keeps repeated
+      // calls from failing and lets the same call adjust the role.
+      return ctx.db.projectMember.upsert({
+        where: {
+          projectId_userId: {
+            projectId: input.projectId,
+            userId: input.userId,
+          },
+        },
+        create: {
+          projectId: input.projectId,
+          userId: input.userId,
+          role: input.role,
+          name: input.name ?? user.name ?? user.email ?? "Member",
+          responsibilities: input.responsibilities ?? [],
+        },
+        update: {
+          role: input.role,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.responsibilities !== undefined
+            ? { responsibilities: input.responsibilities }
+            : {}),
+        },
+      });
+    }),
+
+  removeMember: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        userId: z.string(),
+      }),
+    )
+    .use(requireProjectAccess("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const project = await ctx.db.project.findUnique({
+        where: { id: input.projectId },
+        select: { createdById: true },
+      });
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      if (project.createdById === input.userId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The project creator cannot be removed",
+        });
+      }
+
+      await ctx.db.projectMember.deleteMany({
+        where: {
+          projectId: input.projectId,
+          userId: input.userId,
+        },
+      });
+
+      return { success: true };
+    }),
+
+  updateMemberRole: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        userId: z.string(),
+        role: z.enum(["admin", "editor", "viewer"]),
+      }),
+    )
+    .use(requireProjectAccess("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.db.projectMember.findFirst({
+        where: { projectId: input.projectId, userId: input.userId },
+        select: { id: true },
+      });
+      if (!member) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project member not found",
+        });
+      }
+
+      return ctx.db.projectMember.update({
+        where: { id: member.id },
+        data: { role: input.role },
       });
     }),
 
