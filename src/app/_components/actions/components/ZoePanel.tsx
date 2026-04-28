@@ -2,6 +2,7 @@ import { IconCheck, IconSparkles, IconX } from "@tabler/icons-react";
 import { addDays } from "~/lib/actions/dates";
 import type { Action } from "~/lib/actions/types";
 import type { SchedulingSuggestionData } from "../../SchedulingSuggestion";
+import { HTMLContent } from "../../HTMLContent";
 import styles from "./ZoePanel.module.css";
 
 interface ZoePanelProps {
@@ -82,7 +83,15 @@ export function ZoePanel({
           return (
             <div key={s.actionId} className={styles.sug}>
               <div className={styles.sugText}>
-                Move <b>{action?.name ?? "this action"}</b> to{" "}
+                Move{" "}
+                <b>
+                  {action?.name ? (
+                    <HTMLContent html={action.name} compactUrls />
+                  ) : (
+                    "this action"
+                  )}
+                </b>{" "}
+                to{" "}
                 <b>
                   {dateLabel} {timeStr}
                 </b>
