@@ -7,7 +7,7 @@ import {
   IconCalendar,
   IconHome,
   IconUsers,
-  IconPlayerPlay,
+  IconClock,
   IconChartBar,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
@@ -25,8 +25,8 @@ const mainNavIconMap = {
 type MainNavIconKey = keyof typeof mainNavIconMap;
 
 // Reusable NavLink component
-export function NavLink({ href, icon: Icon, children, count }: { 
-  href: string; 
+export function NavLink({ href, icon: Icon, children, count }: {
+  href: string;
   icon?: React.ComponentType<any>;
   children: React.ReactNode;
   count?: React.ReactNode;
@@ -34,34 +34,20 @@ export function NavLink({ href, icon: Icon, children, count }: {
   const pathname = usePathname();
   const hrefPath = href.split("?")[0];
   const isActive = pathname === hrefPath;
-  
+
   return (
     <Link
       href={href}
-      className={`group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-        isActive 
-          ? 'bg-surface-secondary text-text-primary' 
-          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-      }`}
+      className={`sb-nav-item ${isActive ? 'sb-nav-item--active' : ''}`}
+      aria-current={isActive ? 'page' : undefined}
     >
-      {isActive && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-blue-500 rounded-r-full" />
-      )}
       {Icon && (
-        <Icon className={`mr-3 h-4 w-4 transition-colors duration-200 ${
-          isActive ? 'text-blue-500' : 'text-text-muted group-hover:text-text-secondary'
-        }`} />
-      )}
-      <span className="flex-1 min-w-0 truncate">{children}</span>
-      {count && (
-        <span className={`ml-auto pl-2 px-2 py-0.5 rounded-md text-xs font-medium transition-all duration-200 flex-shrink-0 empty:hidden ${
-          isActive 
-            ? 'bg-blue-500/20 text-blue-400' 
-            : 'bg-surface-tertiary text-text-secondary group-hover:bg-surface-hover'
-        }`}>
-          {count}
+        <span className="sb-nav-item__icon">
+          <Icon size={16} />
         </span>
       )}
+      <span className="sb-nav-item__label">{children}</span>
+      {count && <span className="sb-nav-item__count empty:hidden">{count}</span>}
     </Link>
   );
 }
@@ -88,14 +74,14 @@ export function NavLinks() {
     .sort((a, b) => a.order - b.order) ?? [];
 
   return (
-    <div className="space-y-1">
+    <>
       <NavLink href={homePath} icon={IconHome}>
         Home
       </NavLink>
       <NavLink href="/inbox" icon={IconInbox} count={<InboxCount />}>
         Inbox
       </NavLink>
-      <NavLink href="/today" icon={IconPlayerPlay} count={<TodayCount />}>
+      <NavLink href="/today" icon={IconClock} count={<TodayCount />}>
         Today
       </NavLink>
       {/* Plugin navigation items for main section */}
@@ -115,6 +101,6 @@ export function NavLinks() {
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
       </NavLink>
-    </div>
+    </>
   );
 }

@@ -959,3 +959,32 @@
   --pr-ws-5: #4ADE8C;
   --pr-ws-6: #9CA3B5;
 }
+
+/* ==========================================================================
+   App sidebar (left nav) — scoped design tokens.
+   Consumed by src/app/_components/layout/sidebar.css.
+   Mirrors the today-surface / portfolio-review-surface pattern: all hex lives
+   here, the feature CSS uses only var(). Dark-only design.
+   ========================================================================== */
+.app-sidebar {
+  /* Brand */
+  --sb-accent: #4F8FE8;
+  --sb-accent-10: rgba(79, 143, 232, 0.10);
+  --sb-accent-12: rgba(79, 143, 232, 0.12);
+  --sb-accent-18: rgba(79, 143, 232, 0.18);
+  --sb-accent-30: rgba(79, 143, 232, 0.30);
+  --sb-accent-55: rgba(79, 143, 232, 0.55);
+
+  /* Surfaces */
+  --sb-bg: #0E1320;
+
+  /* Lines & text */
+  --sb-hair: rgba(255, 255, 255, 0.06);
+  --sb-text: #EAECEF;
+  --sb-muted: rgba(234, 236, 239, 0.55);
+  --sb-faint: rgba(234, 236, 239, 0.32);
+  --sb-wash: rgba(255, 255, 255, 0.03);
+
+  /* Type */
+  --sb-font: "Inter Tight", -apple-system, system-ui, sans-serif;
+}
