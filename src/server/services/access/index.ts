@@ -37,6 +37,7 @@ export type {
   WorkspaceRole,
   TeamRole,
   ProjectRole,
+  ProjectMemberRole,
   WorkspaceMembership,
   TeamMembership,
   ProjectAccess,
@@ -45,10 +46,13 @@ export type {
 export {
   hasMinimumWorkspaceRole,
   hasMinimumTeamRole,
+  hasMinimumProjectRole,
   WORKSPACE_ROLE_HIERARCHY,
   TEAM_ROLE_HIERARCHY,
+  PROJECT_ROLE_HIERARCHY,
   WORKSPACE_PERMISSION_MAP,
   TEAM_PERMISSION_MAP,
+  PROJECT_PERMISSION_MAP,
 } from "./types";
 
 // Middleware
@@ -67,6 +71,8 @@ export {
   getProjectAccess,
   hasProjectAccess,
   canEditProject,
+  canManageProjectMembers,
+  buildProjectAccessWhere,
 } from "./resolvers/projectResolver";
 export {
   getActionAccess,

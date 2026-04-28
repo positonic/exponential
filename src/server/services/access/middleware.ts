@@ -16,7 +16,12 @@
 import { TRPCError } from "@trpc/server";
 import type { Permission, ResourceType } from "./types";
 import { AccessControlService } from "./AccessControlService";
-import { getProjectAccess, hasProjectAccess, canEditProject } from "./resolvers/projectResolver";
+import {
+  getProjectAccess,
+  hasProjectAccess,
+  canEditProject,
+  canManageProjectMembers,
+} from "./resolvers/projectResolver";
 import { getActionAccess, canViewAction, canEditAction } from "./resolvers/actionResolver";
 
 // ── Type for the tRPC middleware context ────────────────────────────
@@ -226,10 +231,22 @@ export function requireProjectAccess(
       });
     }
 
-    if ((permission === "edit" || permission === "delete") && !canEditProject(access)) {
+    if (
+      (permission === "edit" ||
+        permission === "delete" ||
+        permission === "assign") &&
+      !canEditProject(access)
+    ) {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: `You do not have ${permission} access to this project`,
+      });
+    }
+
+    if (permission === "manage_members" && !canManageProjectMembers(access)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "You cannot manage members on this project",
       });
     }
 
