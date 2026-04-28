@@ -71,9 +71,12 @@ export async function truncateAllTables(): Promise<void> {
   // Delete in dependency order (children before parents) to avoid FK violations.
   // This is faster than TRUNCATE CASCADE for small test datasets.
   await db.$transaction([
+    db.$executeRawUnsafe(`DELETE FROM "ActionParticipantAssignee"`),
     db.$executeRawUnsafe(`DELETE FROM "ActionAssignee"`),
     db.$executeRawUnsafe(`DELETE FROM "ActionTag"`),
     db.$executeRawUnsafe(`DELETE FROM "Action"`),
+    db.$executeRawUnsafe(`DELETE FROM "TranscriptionSessionParticipant"`),
+    db.$executeRawUnsafe(`DELETE FROM "TranscriptionSession"`),
     // Product Management plugin tables (children before parents)
     db.$executeRawUnsafe(`DELETE FROM "TicketDependency"`),
     db.$executeRawUnsafe(`DELETE FROM "TicketTag"`),

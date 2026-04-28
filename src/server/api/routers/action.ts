@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -10,6 +11,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, buildActionAccessWhere } from "~/server/services/access";
+import { findUserByEmailInWorkspace } from "~/server/services/access/resolvers/workspaceResolver";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
@@ -2276,4 +2278,264 @@ export const actionRouter = createTRPCRouter({
 
       return { url: blob.url };
     }),
-}); 
+
+  // ────────────────────────────────────────────────────────────────────
+  // One2b agent integration: bulk-create actions extracted from a meeting
+  // transcript. Each item may carry an assignee email which is resolved
+  // via a 3-tier strategy (workspace user → existing participant → new
+  // participant). Per-item failures are collected in `skipped` rather
+  // than aborting the entire batch.
+  // ────────────────────────────────────────────────────────────────────
+  bulkCreateFromTranscript: protectedProcedure
+    .input(
+      z.object({
+        transcriptionSessionId: z.string(),
+        workspaceId: z.string(),
+        projectId: z.string().nullable().optional(),
+        items: z
+          .array(
+            z.object({
+              description: z.string().min(1),
+              assigneeEmail: z.string().email().optional(),
+              assigneeName: z.string().optional(),
+              priority: z.enum(["HIGH", "MEDIUM", "LOW"]).default("MEDIUM"),
+              dueDate: z.string().datetime().optional(),
+              category: z.string().optional(),
+              rawText: z.string().optional(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // 1. Verify caller workspace membership.
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: { userId, workspaceId: input.workspaceId },
+        },
+        select: { userId: true },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
+      }
+
+      // 2. Verify the transcript exists and belongs to this workspace.
+      const transcript = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionSessionId },
+        select: { id: true, workspaceId: true },
+      });
+      if (!transcript) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription session not found",
+        });
+      }
+      if (transcript.workspaceId !== input.workspaceId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Transcription session does not belong to this workspace",
+        });
+      }
+
+      // 3. Resolve effective projectId. Verify ownership if provided.
+      const resolvedProjectId: string | null = input.projectId ?? null;
+      if (resolvedProjectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: resolvedProjectId },
+          select: { id: true, workspaceId: true },
+        });
+        if (!project || project.workspaceId !== input.workspaceId) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Project does not belong to this workspace",
+          });
+        }
+      }
+
+      // 4. Map agent priority strings to internal priority values.
+      const mapPriority = (p: "HIGH" | "MEDIUM" | "LOW"): string => {
+        if (p === "HIGH") return "1st Priority";
+        if (p === "LOW") return "5th Priority";
+        return "Quick";
+      };
+
+      const includeShape = {
+        project: true,
+        transcriptionSession: { select: { id: true, title: true } },
+        assignees: {
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+          },
+        },
+        participantAssignees: true,
+      } satisfies Prisma.ActionInclude;
+
+      type CreatedAction = Prisma.ActionGetPayload<{ include: typeof includeShape }>;
+      const created: CreatedAction[] = [];
+      const skipped: { rawText: string | undefined; reason: string }[] = [];
+
+      // 5. Process each item with a per-item try/catch so one failure
+      //    doesn't abort the whole batch. We deliberately do NOT wrap the
+      //    loop in an outer transaction — each item is logically independent
+      //    and we want partial successes to persist.
+      for (const item of input.items) {
+        try {
+          const dueDate = item.dueDate ? new Date(item.dueDate) : null;
+
+          const action = await ctx.db.action.create({
+            data: {
+              name: item.description,
+              description: item.rawText ?? null,
+              dueDate,
+              priority: mapPriority(item.priority),
+              status: "ACTIVE",
+              workspaceId: input.workspaceId,
+              projectId: resolvedProjectId,
+              transcriptionSessionId: input.transcriptionSessionId,
+              createdById: userId,
+              source: "agent-transcript",
+              sourceType: "meeting",
+              sourceId: input.transcriptionSessionId,
+              lastUpdatedBy: "AGENT",
+              lastUpdatedSource: "agent-action-items-tool",
+            },
+          });
+
+          // 5b. Resolve assignee using 3-tier strategy.
+          if (item.assigneeEmail) {
+            const workspaceUser = await findUserByEmailInWorkspace(
+              item.assigneeEmail,
+              input.workspaceId,
+            );
+
+            if (workspaceUser) {
+              await ctx.db.actionAssignee.create({
+                data: { actionId: action.id, userId: workspaceUser.id },
+              });
+            } else {
+              const existingParticipant =
+                await ctx.db.transcriptionSessionParticipant.findUnique({
+                  where: {
+                    transcriptionSessionId_email: {
+                      transcriptionSessionId: input.transcriptionSessionId,
+                      email: item.assigneeEmail,
+                    },
+                  },
+                  select: { id: true },
+                });
+
+              const participantId =
+                existingParticipant?.id ??
+                (
+                  await ctx.db.transcriptionSessionParticipant.create({
+                    data: {
+                      transcriptionSessionId: input.transcriptionSessionId,
+                      workspaceId: input.workspaceId,
+                      email: item.assigneeEmail,
+                      name: item.assigneeName ?? null,
+                    },
+                    select: { id: true },
+                  })
+                ).id;
+
+              await ctx.db.actionParticipantAssignee.create({
+                data: {
+                  actionId: action.id,
+                  participantId,
+                  workspaceId: input.workspaceId,
+                },
+              });
+            }
+          }
+
+          // Reload with the include shape so the returned object is consistent.
+          const hydrated = await ctx.db.action.findUniqueOrThrow({
+            where: { id: action.id },
+            include: includeShape,
+          });
+          created.push(hydrated);
+        } catch (err) {
+          const reason =
+            err instanceof Error ? err.message : "Unknown error creating action";
+          skipped.push({ rawText: item.rawText, reason });
+        }
+      }
+
+      return { created, skipped };
+    }),
+
+  // Look up actions by their (sourceType, sourceId) provenance, optionally
+  // filtered by assignee email and status. Used by the one2b agent to
+  // surface actions tied to a meeting/email/etc.
+  findBySource: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        sourceType: z.string(),
+        sourceId: z.string().optional(),
+        assigneeEmail: z.string().email().optional(),
+        status: z.string().optional(),
+        limit: z.number().min(1).max(100).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify caller workspace membership.
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: { userId, workspaceId: input.workspaceId },
+        },
+        select: { userId: true },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const where: any = {
+        workspaceId: input.workspaceId,
+        sourceType: input.sourceType,
+      };
+      if (input.sourceId) where.sourceId = input.sourceId;
+      if (input.status) where.status = input.status;
+
+      if (input.assigneeEmail) {
+        const user = await findUserByEmailInWorkspace(
+          input.assigneeEmail,
+          input.workspaceId,
+        );
+        if (user) {
+          where.assignees = { some: { userId: user.id } };
+        } else {
+          where.participantAssignees = {
+            some: { participant: { email: input.assigneeEmail } },
+          };
+        }
+      }
+
+      return ctx.db.action.findMany({
+        where,
+        include: {
+          project: true,
+          transcriptionSession: { select: { id: true, title: true } },
+          assignees: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+          participantAssignees: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: input.limit,
+      });
+    }),
+});
