@@ -314,6 +314,64 @@ export async function createResearch(
   return db.research.create({ data: overrides });
 }
 
+// ── Tag Factory ──────────────────────────────────────────────────────
+
+interface TagAttrs {
+  name: string;
+  slug: string;
+  color: string;
+  workspaceId?: string;
+  createdById?: string;
+}
+
+export const tagFactory = Factory.define<TagAttrs>(({ sequence }) => ({
+  name: `Test Tag ${sequence}`,
+  slug: `test-tag-${uid()}-${sequence}`,
+  color: "brand-primary",
+}));
+
+export async function createTag(
+  db: PrismaClient,
+  overrides: Partial<TagAttrs> & { workspaceId?: string } = {},
+) {
+  const attrs = tagFactory.build(overrides);
+  return db.tag.create({ data: attrs });
+}
+
+// ── List Factory ─────────────────────────────────────────────────────
+
+interface ListAttrs {
+  name: string;
+  slug: string;
+  workspaceId: string;
+  createdById: string;
+  listType?: "CUSTOM" | "FOCUS" | "SPRINT" | "WEEK" | "MONTH";
+}
+
+export const listFactory = Factory.define<ListAttrs>(({ sequence }) => ({
+  name: `Test List ${sequence}`,
+  slug: `test-list-${uid()}-${sequence}`,
+  workspaceId: "",
+  createdById: "",
+}));
+
+export async function createList(
+  db: PrismaClient,
+  overrides: Partial<ListAttrs> & { workspaceId: string; createdById: string },
+) {
+  const attrs = listFactory.build(overrides);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return db.list.create({ data: attrs as any });
+}
+
+export async function addActionToList(
+  db: PrismaClient,
+  listId: string,
+  actionId: string,
+) {
+  return db.actionList.create({ data: { listId, actionId } });
+}
+
 export async function createCycle(
   db: PrismaClient,
   overrides: {
