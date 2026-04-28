@@ -1,7 +1,12 @@
+import { useState } from "react";
 import { IconCalendar, IconClock } from "@tabler/icons-react";
 import type { Action } from "~/lib/actions/types";
 import { toVisualPriority } from "~/lib/actions/priority";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
+import {
+  ReschedulePopover,
+  type RescheduleChoice,
+} from "../actions/components/ReschedulePopover";
 import { Checkbox } from "./Checkbox";
 import { TagChip, tagTone } from "./TagChip";
 
@@ -14,7 +19,7 @@ interface TaskRowProps {
   onBulkToggle?: (id: string) => void;
   onComplete: (id: string) => void;
   onOpen: (action: Action) => void;
-  onReschedule?: (action: Action) => void;
+  onReschedule?: (id: string, choice: RescheduleChoice) => void;
   onTagClick?: (tagId: string) => void;
 }
 
@@ -40,6 +45,8 @@ export function TaskRow({
   const primaryTag = tags[0];
   const fallbackTagLabel = action.project?.name ?? "Unassigned";
   const fallbackTone = action.project ? "ops" : "unas";
+
+  const [popOpen, setPopOpen] = useState(false);
 
   const handleRowClick = () => {
     if (bulkMode) {
@@ -110,17 +117,30 @@ export function TaskRow({
           )}
         </div>
       </div>
-      <button
-        type="button"
-        className="td-task__action"
-        aria-label="Reschedule"
-        onClick={(e) => {
-          e.stopPropagation();
-          onReschedule?.(action);
-        }}
+      <div
+        className="td-task__reschedule"
+        onClick={(e) => e.stopPropagation()}
       >
-        <IconCalendar size={14} />
-      </button>
+        <button
+          type="button"
+          className="td-task__action"
+          aria-label="Reschedule"
+          onClick={(e) => {
+            e.stopPropagation();
+            setPopOpen((v) => !v);
+          }}
+        >
+          <IconCalendar size={14} />
+        </button>
+        {popOpen && (
+          <ReschedulePopover
+            onChoose={(c) => {
+              setPopOpen(false);
+              onReschedule?.(action.id, c);
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

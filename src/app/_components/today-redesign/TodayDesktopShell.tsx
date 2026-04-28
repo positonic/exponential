@@ -21,6 +21,7 @@ import {
   BulkEditToolbar,
   type BulkActionDef,
 } from "../actions/components/BulkEditToolbar";
+import type { RescheduleChoice } from "../actions/components/ReschedulePopover";
 import { useActionMutations } from "../actions/hooks/useActionMutations";
 import { useActionPartition } from "../actions/hooks/useActionPartition";
 import { useBulkActionMutations } from "../actions/hooks/useBulkActionMutations";
@@ -145,6 +146,11 @@ export function TodayDesktopShell({
         ? { kanbanStatus: nextStatus === "COMPLETED" ? "DONE" : "TODO" }
         : {}),
     });
+  };
+
+  const handleReschedule = (id: string, choice: RescheduleChoice) => {
+    const newDate = choice.date ?? null;
+    updateAction({ id, scheduledStart: newDate, dueDate: newDate });
   };
 
   const handleAcceptSuggestion = (s: {
@@ -415,6 +421,7 @@ export function TodayDesktopShell({
                       onBulkToggle={selection.toggle}
                       onComplete={handleComplete}
                       onOpen={handleOpen}
+                      onReschedule={handleReschedule}
                       onTagClick={(tagId) => {
                         if (!selectedTagIds.includes(tagId)) {
                           onSelectedTagIdsChange([...selectedTagIds, tagId]);

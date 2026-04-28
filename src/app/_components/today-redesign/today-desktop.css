@@ -330,6 +330,11 @@
   flex-shrink: 0;
 }
 
+.td-task__reschedule {
+  position: relative;
+  display: inline-flex;
+}
+
 .td-task__action {
   width: 28px;
   height: 28px;
