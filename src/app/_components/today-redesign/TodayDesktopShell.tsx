@@ -17,7 +17,6 @@ import { CreateActionModal } from "../CreateActionModal";
 import { EditActionModal } from "../EditActionModal";
 import { ScoreBreakdown } from "../scoring/ScoreBreakdown";
 import { ZoePanel } from "../actions/components/ZoePanel";
-import { WorkspaceTopNav } from "../layout/WorkspaceTopNav";
 import { useActionMutations } from "../actions/hooks/useActionMutations";
 import { useActionPartition } from "../actions/hooks/useActionPartition";
 import type { RailBlock } from "../actions/components/TimelineRail";
@@ -290,55 +289,52 @@ export function TodayDesktopShell({
             </button>
           </div>
 
-          {/* ===== Sub-menu nav (Home / Projects / Agent / …) ===== */}
-          <WorkspaceTopNav />
-
-          {/* ===== Filter row ===== */}
-          <div className="td-filter-row">
-            <button
-              type="button"
-              className={`td-filter-input ${
-                tagSelectedLabel ? "" : "td-filter-input--placeholder"
-              }`}
-              onClick={() => setTagPickerOpen(true)}
-            >
-              <span className="td-filter-input__hash">#</span>
-              {tagSelectedLabel ?? "Filter by tags…"}
-            </button>
-            <div className="td-filter-row__spacer" />
-            <div className="td-filter-row__show">
-              Show: <span className="td-filter-row__show-value">Active</span>
-            </div>
-            <button
-              type="button"
-              className={`td-bulk-btn ${bulkMode ? "td-bulk-btn--active" : ""}`}
-              onClick={() => setBulkMode((v) => !v)}
-            >
-              {bulkMode ? "Exit bulk" : "Bulk edit"}
-            </button>
-          </div>
-
-          {/* ===== Tag picker (Mantine MultiSelect rendered inline when open) ===== */}
-          {tagPickerOpen && tagOptions.length > 0 && (
-            <div style={{ padding: "8px 24px", borderBottom: "1px solid var(--td-hair)" }}>
-              <MultiSelect
-                data={tagOptions}
-                value={selectedTagIds}
-                onChange={onSelectedTagIdsChange}
-                placeholder="Filter by tags…"
-                leftSection={<IconHash size={14} />}
-                clearable
-                searchable
-                size="sm"
-                autoFocus
-                onBlur={() => setTagPickerOpen(false)}
-              />
-            </div>
-          )}
-
           {/* ===== Body: list + rail ===== */}
           <div className="td-body">
             <div className="td-tasklist">
+              {/* ===== Filter row (scoped to left panel so rail header aligns) ===== */}
+              <div className="td-filter-row">
+                <button
+                  type="button"
+                  className={`td-filter-input ${
+                    tagSelectedLabel ? "" : "td-filter-input--placeholder"
+                  }`}
+                  onClick={() => setTagPickerOpen(true)}
+                >
+                  <span className="td-filter-input__hash">#</span>
+                  {tagSelectedLabel ?? "Filter by tags…"}
+                </button>
+                <div className="td-filter-row__spacer" />
+                <div className="td-filter-row__show">
+                  Show: <span className="td-filter-row__show-value">Active</span>
+                </div>
+                <button
+                  type="button"
+                  className={`td-bulk-btn ${bulkMode ? "td-bulk-btn--active" : ""}`}
+                  onClick={() => setBulkMode((v) => !v)}
+                >
+                  {bulkMode ? "Exit bulk" : "Bulk edit"}
+                </button>
+              </div>
+
+              {/* ===== Tag picker (Mantine MultiSelect rendered inline when open) ===== */}
+              {tagPickerOpen && tagOptions.length > 0 && (
+                <div style={{ padding: "8px 24px", borderBottom: "1px solid var(--td-hair)" }}>
+                  <MultiSelect
+                    data={tagOptions}
+                    value={selectedTagIds}
+                    onChange={onSelectedTagIdsChange}
+                    placeholder="Filter by tags…"
+                    leftSection={<IconHash size={14} />}
+                    clearable
+                    searchable
+                    size="sm"
+                    autoFocus
+                    onBlur={() => setTagPickerOpen(false)}
+                  />
+                </div>
+              )}
+
               {zoeOpen && activeSuggestions.length > 0 && (
                 <div style={{ padding: "12px 24px 0" }}>
                   <ZoePanel
