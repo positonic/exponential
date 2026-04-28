@@ -747,10 +747,8 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     }
   };
 
-  // Declarative bulk-action config; the new ActionsList uses this in place of
-  // the old ActionList's enableBulkEditFor{Overdue,Project,Focus,Inbox} pairs.
-  // Recomputed each render — the handlers are not stable, so memoizing buys
-  // nothing.
+  // Declarative bulk-action config. Recomputed each render — the handlers
+  // are not stable, so memoizing buys nothing.
   const bulkActions: BulkActionDef[] = (() => {
     const list: BulkActionDef[] = [];
     if (projectId) {

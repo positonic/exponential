@@ -22,10 +22,10 @@ interface OptimisticSnapshot {
 }
 
 /**
- * Wraps `api.action.update.useMutation` with the cache-routing,
- * optimistic-update, and toast behavior previously inlined in
- * ActionList and TodayView. Caller is responsible for computing
- * `kanbanStatus` (e.g. when toggling completion of a project task).
+ * Wraps `api.action.update.useMutation` with cache-routing,
+ * optimistic-update, and toast behavior. Caller is responsible for
+ * computing `kanbanStatus` (e.g. when toggling completion of a project
+ * task).
  */
 export function useActionMutations(
   context: ActionMutationsContext,

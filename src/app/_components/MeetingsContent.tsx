@@ -56,7 +56,6 @@ import {
   IconCheck,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
-// import { ActionList } from "./ActionList";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";

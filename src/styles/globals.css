@@ -70,11 +70,11 @@
     --accent-quick: #5AC8E0;
 
     /* Today page palette (project chips, timeline) */
-    --today-proj-5: #F472B6;
-    --today-proj-6: #34D399;
-    --today-proj-7: #FBBF24;
-    --today-proj-8: #A3E635;
-    --today-proj-9: #818CF8;
+    --actions-proj-5: #F472B6;
+    --actions-proj-6: #34D399;
+    --actions-proj-7: #FBBF24;
+    --actions-proj-8: #A3E635;
+    --actions-proj-9: #818CF8;
     --today-zoe-text: #C5B1FD;
     --today-zoe-text-strong: #DACBFF;
     --today-rail-cal-text: #A8C5FF;
@@ -93,13 +93,6 @@
     --actions-proj-2: var(--accent-okr);
     --actions-proj-3: var(--accent-crm);
     --actions-proj-4: var(--brand-400);
-
-    /* Backwards-compat aliases for --today-proj-{0..4} (removed in Phase 8) */
-    --today-proj-0: var(--actions-proj-0);
-    --today-proj-1: var(--actions-proj-1);
-    --today-proj-2: var(--actions-proj-2);
-    --today-proj-3: var(--actions-proj-3);
-    --today-proj-4: var(--actions-proj-4);
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #fdf4f3;
@@ -203,11 +196,11 @@
     --accent-quick: #5AC8E0;
 
     /* Today page palette (project chips, timeline) */
-    --today-proj-5: #F472B6;
-    --today-proj-6: #34D399;
-    --today-proj-7: #FBBF24;
-    --today-proj-8: #A3E635;
-    --today-proj-9: #818CF8;
+    --actions-proj-5: #F472B6;
+    --actions-proj-6: #34D399;
+    --actions-proj-7: #FBBF24;
+    --actions-proj-8: #A3E635;
+    --actions-proj-9: #818CF8;
     --today-zoe-text: #C5B1FD;
     --today-zoe-text-strong: #DACBFF;
     --today-rail-cal-text: #A8C5FF;
@@ -226,13 +219,6 @@
     --actions-proj-2: var(--accent-okr);
     --actions-proj-3: var(--accent-crm);
     --actions-proj-4: var(--brand-400);
-
-    /* Backwards-compat aliases for --today-proj-{0..4} (removed in Phase 8) */
-    --today-proj-0: var(--actions-proj-0);
-    --today-proj-1: var(--actions-proj-1);
-    --today-proj-2: var(--actions-proj-2);
-    --today-proj-3: var(--actions-proj-3);
-    --today-proj-4: var(--actions-proj-4);
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;
@@ -336,11 +322,11 @@
     --accent-quick: #5AC8E0;
 
     /* Today page palette (project chips, timeline) */
-    --today-proj-5: #F472B6;
-    --today-proj-6: #34D399;
-    --today-proj-7: #FBBF24;
-    --today-proj-8: #A3E635;
-    --today-proj-9: #818CF8;
+    --actions-proj-5: #F472B6;
+    --actions-proj-6: #34D399;
+    --actions-proj-7: #FBBF24;
+    --actions-proj-8: #A3E635;
+    --actions-proj-9: #818CF8;
     --today-zoe-text: #C5B1FD;
     --today-zoe-text-strong: #DACBFF;
     --today-rail-cal-text: #A8C5FF;
@@ -359,13 +345,6 @@
     --actions-proj-2: var(--accent-okr);
     --actions-proj-3: var(--accent-crm);
     --actions-proj-4: var(--brand-400);
-
-    /* Backwards-compat aliases for --today-proj-{0..4} (removed in Phase 8) */
-    --today-proj-0: var(--actions-proj-0);
-    --today-proj-1: var(--actions-proj-1);
-    --today-proj-2: var(--actions-proj-2);
-    --today-proj-3: var(--actions-proj-3);
-    --today-proj-4: var(--actions-proj-4);
 
     /* Onboarding */
     --color-onboarding-illustration-bg: #141E32;

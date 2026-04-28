@@ -74,7 +74,7 @@ export class SprintAnalyticsService {
       },
     });
 
-    // Map ActionList entries to include both the action data and the list-join createdAt
+    // Map list-action entries to include both the action data and the list-join createdAt
     const actionEntries = list.actions.map((al) => ({
       ...al.action,
       addedToListAt: al.createdAt,

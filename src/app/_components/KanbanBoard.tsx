@@ -61,7 +61,8 @@ const KANBAN_COLUMNS: { id: ActionStatus; title: string; accent: ColumnAccent }[
   { id: "CANCELLED", title: "Cancelled", accent: "red" },
 ];
 
-// Priority order mapping (matching ActionList.tsx for consistency)
+// Priority order mapping (mirror of ~/lib/actions/priority#PRIORITY_ORDER —
+// kept inline here to avoid a runtime import in the kanban hot path)
 const priorityOrder: Record<string, number> = {
   '1st Priority': 1, '2nd Priority': 2, '3rd Priority': 3, '4th Priority': 4,
   '5th Priority': 5, 'Quick': 6, 'Scheduled': 7, 'Errand': 8,

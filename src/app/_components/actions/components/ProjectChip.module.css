@@ -41,22 +41,22 @@
   border-color: color-mix(in srgb, var(--actions-proj-4) 27%, transparent);
 }
 .proj5 {
-  color: var(--today-proj-5);
-  border-color: color-mix(in srgb, var(--today-proj-5) 27%, transparent);
+  color: var(--actions-proj-5);
+  border-color: color-mix(in srgb, var(--actions-proj-5) 27%, transparent);
 }
 .proj6 {
-  color: var(--today-proj-6);
-  border-color: color-mix(in srgb, var(--today-proj-6) 27%, transparent);
+  color: var(--actions-proj-6);
+  border-color: color-mix(in srgb, var(--actions-proj-6) 27%, transparent);
 }
 .proj7 {
-  color: var(--today-proj-7);
-  border-color: color-mix(in srgb, var(--today-proj-7) 27%, transparent);
+  color: var(--actions-proj-7);
+  border-color: color-mix(in srgb, var(--actions-proj-7) 27%, transparent);
 }
 .proj8 {
-  color: var(--today-proj-8);
-  border-color: color-mix(in srgb, var(--today-proj-8) 27%, transparent);
+  color: var(--actions-proj-8);
+  border-color: color-mix(in srgb, var(--actions-proj-8) 27%, transparent);
 }
 .proj9 {
-  color: var(--today-proj-9);
-  border-color: color-mix(in srgb, var(--today-proj-9) 27%, transparent);
+  color: var(--actions-proj-9);
+  border-color: color-mix(in srgb, var(--actions-proj-9) 27%, transparent);
 }
