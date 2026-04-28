@@ -19,6 +19,8 @@ export class OptimizedQueries {
           where: { id: configId },
           select: {
             id: true,
+            provider: true,
+            providerConfig: true,
             phoneNumberId: true,
             businessAccountId: true,
             webhookVerifyToken: true,
