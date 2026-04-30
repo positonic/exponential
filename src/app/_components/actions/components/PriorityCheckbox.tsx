@@ -2,6 +2,7 @@ import { Checkbox } from "@mantine/core";
 import {
   priorityCheckboxBorderVar,
   toVisualPriority,
+  type VisualPriority,
 } from "~/lib/actions/priority";
 import styles from "./PriorityCheckbox.module.css";
 
@@ -16,11 +17,20 @@ interface PriorityCheckboxProps {
   title?: string;
 }
 
-const visualClass: Record<"urgent" | "high" | "normal" | "low", string> = {
+const visualClass: Record<VisualPriority, string> = {
   urgent: styles.urgent ?? "",
-  high: styles.high ?? "",
+  p1: styles.p1 ?? "",
+  p2: styles.p2 ?? "",
+  p3: styles.p3 ?? "",
+  p4: styles.p4 ?? "",
+  p5: styles.p5 ?? "",
+  quick: styles.quick ?? "",
+  scheduled: styles.scheduled ?? "",
+  errand: styles.errand ?? "",
+  remember: styles.remember ?? "",
+  watch: styles.watch ?? "",
+  someday: styles.low ?? "",
   normal: "",
-  low: styles.low ?? "",
 };
 
 export function PriorityCheckbox({

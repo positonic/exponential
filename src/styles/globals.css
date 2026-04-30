@@ -888,11 +888,34 @@
   --td-tag-pipe-dot: var(--td-accent);
 
   /* Priority — encodes the checkbox ring color.
-     Solid = priority hue. Dim = resting ring (~55-65% alpha). */
+     Solid = priority hue. Dim = resting ring (~55-65% alpha).
+     Numbered priorities (p1–p5) follow the project's
+     red→orange→yellow→green→blue scale used in priorityCheckboxBorderVar. */
   --td-prio-urgent:     #E47A6F;
   --td-prio-urgent-dim: rgba(228, 122, 111, 0.55);
-  --td-prio-high:       #F4B96A;
-  --td-prio-high-dim:   rgba(244, 185, 106, 0.65);
+
+  --td-prio-p1:         #E47A6F;
+  --td-prio-p1-dim:     rgba(228, 122, 111, 0.55);
+  --td-prio-p2:         #F4B96A;
+  --td-prio-p2-dim:     rgba(244, 185, 106, 0.65);
+  --td-prio-p3:         #E8D26B;
+  --td-prio-p3-dim:     rgba(232, 210, 107, 0.65);
+  --td-prio-p4:         #7AC97D;
+  --td-prio-p4-dim:     rgba(122, 201, 125, 0.60);
+  --td-prio-p5:         #7C9BD0;
+  --td-prio-p5-dim:     rgba(124, 155, 208, 0.60);
+
+  --td-prio-quick:      #B58CE3;
+  --td-prio-quick-dim:  rgba(181, 140, 227, 0.55);
+  --td-prio-scheduled:  #E08CC0;
+  --td-prio-scheduled-dim: rgba(224, 140, 192, 0.55);
+  --td-prio-errand:     #6FCBD4;
+  --td-prio-errand-dim: rgba(111, 203, 212, 0.55);
+  --td-prio-remember:   #8C9BE0;
+  --td-prio-remember-dim: rgba(140, 155, 224, 0.55);
+  --td-prio-watch:      #C97DC9;
+  --td-prio-watch-dim:  rgba(201, 125, 201, 0.55);
+
   --td-prio-normal:     #7C9BD0;
   --td-prio-normal-dim: rgba(124, 155, 208, 0.60);
   --td-prio-low:        #7A8294;

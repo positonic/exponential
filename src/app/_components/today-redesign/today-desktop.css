@@ -282,10 +282,20 @@
   transition: background 120ms, border-color 120ms;
 }
 
-.td .td-checkbox--prio-urgent { --_ring: var(--td-prio-urgent-dim); --_fill: var(--td-prio-urgent); border-color: var(--_ring); }
-.td .td-checkbox--prio-high   { --_ring: var(--td-prio-high-dim);   --_fill: var(--td-prio-high);   border-color: var(--_ring); }
-.td .td-checkbox--prio-normal { --_ring: var(--td-prio-normal-dim); --_fill: var(--td-prio-normal); border-color: var(--_ring); }
-.td .td-checkbox--prio-low    { --_ring: var(--td-prio-low-dim);    --_fill: var(--td-prio-low);    border-color: var(--_ring); }
+.td .td-checkbox--prio-urgent    { --_ring: var(--td-prio-urgent-dim);    --_fill: var(--td-prio-urgent);    border-color: var(--_ring); }
+.td .td-checkbox--prio-p1        { --_ring: var(--td-prio-p1-dim);        --_fill: var(--td-prio-p1);        border-color: var(--_ring); }
+.td .td-checkbox--prio-p2        { --_ring: var(--td-prio-p2-dim);        --_fill: var(--td-prio-p2);        border-color: var(--_ring); }
+.td .td-checkbox--prio-p3        { --_ring: var(--td-prio-p3-dim);        --_fill: var(--td-prio-p3);        border-color: var(--_ring); }
+.td .td-checkbox--prio-p4        { --_ring: var(--td-prio-p4-dim);        --_fill: var(--td-prio-p4);        border-color: var(--_ring); }
+.td .td-checkbox--prio-p5        { --_ring: var(--td-prio-p5-dim);        --_fill: var(--td-prio-p5);        border-color: var(--_ring); }
+.td .td-checkbox--prio-quick     { --_ring: var(--td-prio-quick-dim);     --_fill: var(--td-prio-quick);     border-color: var(--_ring); }
+.td .td-checkbox--prio-scheduled { --_ring: var(--td-prio-scheduled-dim); --_fill: var(--td-prio-scheduled); border-color: var(--_ring); }
+.td .td-checkbox--prio-errand    { --_ring: var(--td-prio-errand-dim);    --_fill: var(--td-prio-errand);    border-color: var(--_ring); }
+.td .td-checkbox--prio-remember  { --_ring: var(--td-prio-remember-dim);  --_fill: var(--td-prio-remember);  border-color: var(--_ring); }
+.td .td-checkbox--prio-watch     { --_ring: var(--td-prio-watch-dim);     --_fill: var(--td-prio-watch);     border-color: var(--_ring); }
+.td .td-checkbox--prio-someday   { --_ring: var(--td-prio-low-dim);       --_fill: var(--td-prio-low);       border-color: var(--_ring); }
+.td .td-checkbox--prio-normal    { --_ring: var(--td-prio-normal-dim);    --_fill: var(--td-prio-normal);    border-color: var(--_ring); }
+.td .td-checkbox--prio-low       { --_ring: var(--td-prio-low-dim);       --_fill: var(--td-prio-low);       border-color: var(--_ring); }
 
 .td .td-checkbox--focused { border-color: var(--td-accent); }
 .td .td-checkbox--done    { background: var(--_fill); border-color: var(--_fill); }
