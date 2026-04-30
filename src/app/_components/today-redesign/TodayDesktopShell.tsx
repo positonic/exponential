@@ -176,20 +176,25 @@ export function TodayDesktopShell({
     setEditModalOpened(true);
   };
 
-  // Deep link
-  const deepLinkHandled = useRef(false);
+  // Deep link: open modal once per unique URL actionId. We track the last
+  // handled id (rather than a boolean reset on URL change) because the optimistic
+  // cache update on Save can change `filteredActions` before the URL transition
+  // clears `actionIdFromUrl` — without this guard the effect re-opens the modal
+  // the user just closed.
+  const handledActionIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!actionIdFromUrl || deepLinkHandled.current) return;
+    if (!actionIdFromUrl) {
+      handledActionIdRef.current = null;
+      return;
+    }
+    if (handledActionIdRef.current === actionIdFromUrl) return;
     const found = filteredActions.find((a) => a.id === actionIdFromUrl);
     if (found) {
       setSelectedAction(found as unknown as Action);
       setEditModalOpened(true);
-      deepLinkHandled.current = true;
+      handledActionIdRef.current = actionIdFromUrl;
     }
   }, [actionIdFromUrl, filteredActions]);
-  useEffect(() => {
-    deepLinkHandled.current = false;
-  }, [actionIdFromUrl]);
 
   // ---- Rail blocks ---------------------------------------------------------
   const railBlocks: RailBlock[] = useMemo(() => {

@@ -339,32 +339,40 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     // Capture new screenshots before resetting
     pendingScreenshotsRef.current = [...pastedScreenshots];
 
-    // Close modal immediately for better UX
-    onClose();
-
-    // Trigger mutation in background (tags and sprint changes handled in onSuccess)
-    updateAction.mutate({
+    // Snapshot mutation payload before onClose() — parent may null out
+    // selectedAction synchronously, which would clear currentAction.id.
+    const updateData = {
       id: currentAction.id,
       name,
       description: description || undefined,
       projectId: projectId || undefined,
       priority,
-      dueDate: dueDate, // Pass null explicitly to clear the date
-      scheduledStart: scheduledStart,
-      duration: duration,
-      epicId: epicId,
-      effortEstimate: effortEstimate,
-      blockedByIds: blockedByIds,
-      // Bounty fields
+      dueDate, // Pass null explicitly to clear the date
+      scheduledStart,
+      duration,
+      epicId,
+      effortEstimate,
+      blockedByIds,
       isBounty,
       bountyAmount,
       bountyToken,
       bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | null | undefined,
-      bountySkills: bountySkills,
+      bountySkills,
       bountyDeadline,
       bountyMaxClaimants,
       bountyExternalUrl,
-    });
+    };
+
+    // Close modal immediately for better UX
+    onClose();
+
+    // Defer mutation to the next task so the close render commits and paints
+    // before the optimistic update + cache cancels run. Without this, React 18
+    // batches both into one heavy commit and the modal feels like it waits for
+    // the XHR. Tags/sprint changes are handled in onSuccess.
+    setTimeout(() => {
+      updateAction.mutate(updateData);
+    }, 0);
   };
 
   const handleAssigneeClick = () => {
