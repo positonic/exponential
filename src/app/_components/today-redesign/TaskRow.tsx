@@ -3,6 +3,8 @@ import { IconCalendar, IconClock } from "@tabler/icons-react";
 import type { Action } from "~/lib/actions/types";
 import { toVisualPriority } from "~/lib/actions/priority";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
+import { stripHtml } from "~/lib/utils";
+import { HTMLContent } from "../HTMLContent";
 import {
   ReschedulePopover,
   type RescheduleChoice,
@@ -47,6 +49,7 @@ export function TaskRow({
   const fallbackTone = action.project ? "ops" : "unas";
 
   const [popOpen, setPopOpen] = useState(false);
+  const plainName = stripHtml(action.name);
 
   const handleRowClick = () => {
     if (bulkMode) {
@@ -81,7 +84,7 @@ export function TaskRow({
           checked={bulkSelected}
           onChange={() => onBulkToggle?.(action.id)}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Select ${action.name}`}
+          aria-label={`Select ${plainName}`}
         />
       )}
       <Checkbox
@@ -89,10 +92,12 @@ export function TaskRow({
         focused={focused}
         priority={visualPrio}
         onClick={() => onComplete(action.id)}
-        ariaLabel={`Mark ${action.name} as complete`}
+        ariaLabel={`Mark ${plainName} as complete`}
       />
       <div className="td-task__body">
-        <div className="td-task__title">{action.name}</div>
+        <div className="td-task__title">
+          <HTMLContent html={action.name} compactUrls />
+        </div>
         <div className="td-task__meta">
           {due && (
             <span className="td-task__meta-item">

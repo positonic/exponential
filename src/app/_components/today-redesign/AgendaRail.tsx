@@ -1,6 +1,7 @@
 import React from "react";
 import type { RailBlock } from "../actions/components/TimelineRail";
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
+import { stripHtml } from "~/lib/utils";
 
 const HOUR_PX = 48;
 const START_HR = 7;
@@ -71,7 +72,7 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
                   height: (clampedEnd - clampedStart) * HOUR_PX - 4,
                 }}
               >
-                <div className="td-event__title">{b.title}</div>
+                <div className="td-event__title">{stripHtml(b.title)}</div>
                 <div className="td-event__meta">
                   {formatHourMinute12(b.start)} – {formatHourMinute12(b.end)}
                 </div>
