@@ -209,7 +209,7 @@ export default function TeamWeeklyPlanningPage() {
                   Try with Your Team Project →
                 </Link>
                 <Text size="sm" className="text-text-muted">•</Text>
-                <Link href="/productivity-methods/weekly-review" className="text-text-secondary hover:text-text-primary underline">
+                <Link href="/productivity-methods/weekly-plan" className="text-text-secondary hover:text-text-primary underline">
                   Learn Individual Weekly Review
                 </Link>
               </Group>

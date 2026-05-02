@@ -263,7 +263,7 @@ Remove completely:
 
 ### Weekly Review
 
-During [Weekly Review](/docs/features/weekly-review):
+During [Weekly Review](/docs/features/weekly-plan):
 - Review week's habit consistency
 - Celebrate streak achievements
 - Adjust habits as needed

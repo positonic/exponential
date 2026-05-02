@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters } from "~/types/view";
 import type { Prisma } from "@prisma/client";
+import { buildProjectAccessWhere } from "~/server/services/access";
 
 const kanbanStatusSchema = z.enum([
   "BACKLOG",
@@ -394,9 +395,39 @@ export const viewRouter = createTRPCRouter({
         ],
       };
 
-      // Filter by projects
+      // Filter by projects, intersected with the projects the caller can access
+      // so saved views can never leak restricted projects.
       if (filters.projectIds?.length) {
-        whereClause.projectId = { in: filters.projectIds };
+        const accessibleProjects = await ctx.db.project.findMany({
+          where: {
+            id: { in: filters.projectIds },
+            ...buildProjectAccessWhere(ctx.session.user.id),
+          },
+          select: { id: true },
+        });
+        const allowedIds = accessibleProjects.map((p) => p.id);
+        if (allowedIds.length === 0) {
+          // No accessible projects in the filter — return nothing.
+          return [];
+        }
+        whereClause.projectId = { in: allowedIds };
+      } else {
+        // No explicit project filter — restrict to actions whose project the
+        // caller can access (or actions with no project).
+        const existingAnd = Array.isArray(whereClause.AND)
+          ? whereClause.AND
+          : whereClause.AND
+            ? [whereClause.AND]
+            : [];
+        whereClause.AND = [
+          ...existingAnd,
+          {
+            OR: [
+              { projectId: null },
+              { project: buildProjectAccessWhere(ctx.session.user.id) },
+            ],
+          },
+        ];
       }
 
       // Filter by kanban statuses

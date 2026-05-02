@@ -68,7 +68,7 @@ export class PMScheduler {
         enabled: true,
       },
       {
-        id: 'weekly-review-prep',
+        id: 'weekly-plan-prep',
         name: 'Weekly Review Preparation',
         cronExpression: '0 14 * * 5', // 2 PM on Fridays
         handler: this.prepareWeeklyReview.bind(this),

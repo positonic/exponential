@@ -213,7 +213,7 @@ const SLIDE_ICONS: Record<string, string> = {
   goals: "🎯",
   projects: "📊",
   "ai-chat": "🤖",
-  "weekly-review": "🔄",
+  "weekly-plan": "🔄",
   outcomes: "📈",
   journal: "📝",
   crm: "🤝",

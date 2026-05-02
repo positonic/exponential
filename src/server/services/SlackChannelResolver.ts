@@ -1,4 +1,8 @@
 import { db } from '~/server/db';
+import {
+  getProjectAccess,
+  hasProjectAccess,
+} from '~/server/services/access';
 
 export class SlackChannelResolver {
   /**
@@ -213,22 +217,8 @@ export class SlackChannelResolver {
     workspaceId?: string
   ): Promise<boolean> {
     if (projectId) {
-      const project = await db.project.findFirst({
-        where: {
-          id: projectId,
-          OR: [
-            // User is the project creator
-            { createdById: userId },
-            // User is a member of the project's team
-            { team: { members: { some: { userId } } } },
-            // User is a direct project member
-            { projectMembers: { some: { userId } } },
-            // User is a member of the project's workspace
-            { workspace: { members: { some: { userId } } } }
-          ]
-        }
-      });
-      return !!project;
+      const access = await getProjectAccess(db, userId, projectId);
+      return hasProjectAccess(access);
     }
 
     if (teamId) {

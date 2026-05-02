@@ -2,6 +2,13 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
+import {
+  requireProjectAccess,
+  getProjectAccess,
+  hasProjectAccess,
+  canEditProject,
+} from "~/server/services/access";
+import type { PrismaClient } from "@prisma/client";
 
 const DEFAULT_STAGES = [
   { name: "Lead", color: "gray", order: 0, type: "active" },
@@ -11,6 +18,57 @@ const DEFAULT_STAGES = [
   { name: "Won", color: "green", order: 4, type: "won" },
   { name: "Lost", color: "red", order: 5, type: "lost" },
 ] as const;
+
+async function ensurePipelineProjectAccess(
+  db: PrismaClient,
+  userId: string,
+  projectId: string,
+  permission: "view" | "edit",
+): Promise<void> {
+  const access = await getProjectAccess(db, userId, projectId);
+  const allowed =
+    permission === "view" ? hasProjectAccess(access) : canEditProject(access);
+  if (!allowed) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `You do not have ${permission} access to this pipeline`,
+    });
+  }
+}
+
+async function ensureDealAccess(
+  db: PrismaClient,
+  userId: string,
+  dealId: string,
+  permission: "view" | "edit",
+): Promise<{ projectId: string }> {
+  const deal = await db.deal.findUnique({
+    where: { id: dealId },
+    select: { projectId: true },
+  });
+  if (!deal) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Deal not found" });
+  }
+  await ensurePipelineProjectAccess(db, userId, deal.projectId, permission);
+  return { projectId: deal.projectId };
+}
+
+async function ensureStageAccess(
+  db: PrismaClient,
+  userId: string,
+  stageId: string,
+  permission: "view" | "edit",
+): Promise<{ projectId: string }> {
+  const stage = await db.pipelineStage.findUnique({
+    where: { id: stageId },
+    select: { projectId: true },
+  });
+  if (!stage) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Stage not found" });
+  }
+  await ensurePipelineProjectAccess(db, userId, stage.projectId, permission);
+  return { projectId: stage.projectId };
+}
 
 export const pipelineRouter = createTRPCRouter({
   // ─── Pipeline (Project) management ──────────────────────────
@@ -22,7 +80,7 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      return ctx.db.project.findFirst({
+      const pipeline = await ctx.db.project.findFirst({
         where: {
           workspaceId: input.workspaceId,
           type: "pipeline",
@@ -33,6 +91,14 @@ export const pipelineRouter = createTRPCRouter({
           },
         },
       });
+      if (!pipeline) return null;
+      const access = await getProjectAccess(
+        ctx.db,
+        ctx.session.user.id,
+        pipeline.id,
+      );
+      if (!hasProjectAccess(access)) return null;
+      return pipeline;
     }),
 
   create: protectedProcedure
@@ -42,6 +108,22 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Verify workspace membership before creating a pipeline project for it.
+      const workspaceUser = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+      if (!workspaceUser) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You must be a workspace member to create a pipeline",
+        });
+      }
+
       // Check if one already exists
       const existing = await ctx.db.project.findFirst({
         where: {
@@ -100,6 +182,7 @@ export const pipelineRouter = createTRPCRouter({
         description: z.string().nullable().optional(),
       }),
     )
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       return ctx.db.project.update({
         where: { id: input.projectId },
@@ -114,6 +197,7 @@ export const pipelineRouter = createTRPCRouter({
 
   getStages: protectedProcedure
     .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.pipelineStage.findMany({
         where: { projectId: input.projectId },
@@ -134,6 +218,7 @@ export const pipelineRouter = createTRPCRouter({
         order: z.number().int().min(0),
       }),
     )
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       // Shift existing stages at or after the target order
       await ctx.db.pipelineStage.updateMany({
@@ -168,6 +253,7 @@ export const pipelineRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      await ensureStageAccess(ctx.db, ctx.session.user.id, id, "edit");
       return ctx.db.pipelineStage.update({
         where: { id },
         data,
@@ -186,6 +272,7 @@ export const pipelineRouter = createTRPCRouter({
         ),
       }),
     )
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       // Use a transaction to update all stage orders atomically
       // First set all to negative to avoid unique constraint conflicts
@@ -220,6 +307,7 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await ensureStageAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const stage = await ctx.db.pipelineStage.findUniqueOrThrow({
         where: { id: input.id },
         include: { _count: { select: { deals: true } } },
@@ -269,6 +357,7 @@ export const pipelineRouter = createTRPCRouter({
         projectId: z.string(),
       }),
     )
+    .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.deal.findMany({
         where: { projectId: input.projectId },
@@ -302,6 +391,7 @@ export const pipelineRouter = createTRPCRouter({
   getDeal: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await ensureDealAccess(ctx.db, ctx.session.user.id, input.id, "view");
       return ctx.db.deal.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -358,6 +448,7 @@ export const pipelineRouter = createTRPCRouter({
         workspaceId: z.string(),
       }),
     )
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       // Get the max stageOrder for positioning at the end
       const lastDeal = await ctx.db.deal.findFirst({
@@ -426,6 +517,7 @@ export const pipelineRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
+      await ensureDealAccess(ctx.db, ctx.session.user.id, id, "edit");
 
       const oldDeal = await ctx.db.deal.findUniqueOrThrow({
         where: { id },
@@ -474,6 +566,7 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await ensureDealAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const oldDeal = await ctx.db.deal.findUniqueOrThrow({
         where: { id: input.id },
         include: { stage: true },
@@ -529,6 +622,7 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await ensureDealAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       return ctx.db.deal.update({
         where: { id: input.id },
         data: { stageOrder: input.stageOrder },
@@ -538,6 +632,7 @@ export const pipelineRouter = createTRPCRouter({
   deleteDeal: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await ensureDealAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       return ctx.db.deal.delete({ where: { id: input.id } });
     }),
 
@@ -552,6 +647,7 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
+      await ensureDealAccess(ctx.db, ctx.session.user.id, input.dealId, "view");
       const activities = await ctx.db.dealActivity.findMany({
         where: { dealId: input.dealId },
         orderBy: { createdAt: "desc" },
@@ -581,6 +677,7 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await ensureDealAccess(ctx.db, ctx.session.user.id, input.dealId, "edit");
       return ctx.db.dealActivity.create({
         data: {
           dealId: input.dealId,
@@ -600,6 +697,7 @@ export const pipelineRouter = createTRPCRouter({
 
   getStats: protectedProcedure
     .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       const deals = await ctx.db.deal.findMany({
         where: { projectId: input.projectId },

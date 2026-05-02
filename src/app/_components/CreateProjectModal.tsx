@@ -59,6 +59,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [startDate, setStartDate] = useState<Date | null>(project?.startDate ?? null);
   const [endDate, setEndDate] = useState<Date | null>(project?.endDate ?? null);
   const [isPublic, setIsPublic] = useState(project?.isPublic ?? false);
+  const [isRestricted, setIsRestricted] = useState(project?.isRestricted ?? false);
 
   // Get current workspace context for new projects
   const { workspaceId: currentWorkspaceId, workspaceSlug } = useWorkspace();
@@ -256,6 +257,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
       setStartDate(null);
       setEndDate(null);
       setIsPublic(false);
+      setIsRestricted(false);
     }
     
     close();
@@ -354,6 +356,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 startDate: startDate,
                 endDate: endDate,
                 isPublic,
+                isRestricted,
               });
             } else {
               createMutation.mutate({
@@ -370,6 +373,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 startDate: startDate ?? undefined,
                 endDate: endDate ?? undefined,
                 isPublic,
+                isRestricted,
               });
             }
           }}
@@ -708,6 +712,35 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               />
             </div>
           </Tooltip>
+
+          {/* Restricted project toggle - only owner / project admin can change */}
+          <Tooltip
+            label={cannotEditMessage}
+            disabled={isOwner}
+            position="top-start"
+            withArrow
+          >
+            <div>
+              <Switch
+                label="Restricted project"
+                description="Only project members and workspace admins can access this project"
+                checked={isRestricted}
+                onChange={(event) => setIsRestricted(event.currentTarget.checked)}
+                disabled={!isOwner}
+                mt="md"
+                styles={{
+                  label: { color: 'var(--color-text-primary)' },
+                  description: { color: 'var(--color-text-secondary)' },
+                }}
+              />
+            </div>
+          </Tooltip>
+
+          {isPublic && isRestricted && (
+            <Text size="xs" c="dimmed" mt={4}>
+              Public visibility wins for view; edit access still respects the restriction.
+            </Text>
+          )}
 
           <Group justify="flex-end" mt="xl">
             <Button variant="subtle" color="gray" onClick={handleClose}>

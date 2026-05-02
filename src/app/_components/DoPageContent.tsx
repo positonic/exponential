@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button, Divider, Group, MultiSelect, Title, SegmentedControl, Modal, Text } from "@mantine/core";
+import { Divider, Group, MultiSelect, Title, SegmentedControl, Modal, Text } from "@mantine/core";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
-import { IconCalendarEvent, IconHash } from "@tabler/icons-react";
+import { IconHash } from "@tabler/icons-react";
 import { Actions } from "./Actions";
 import { TodayLayout } from "./actions/TodayLayout";
+import { TodayDesktopShell } from "./today-redesign/TodayDesktopShell";
 import { ScoreBreakdown } from "./scoring/ScoreBreakdown";
 import { StreakBadge } from "./scoring/StreakBadge";
 import { ToolbarActions } from "./toolbar";
@@ -167,6 +167,18 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
     );
   }
 
+  // Desktop "today" — new redesign shell owns its own top bar and tag filter.
+  if (filter === "today") {
+    return (
+      <TodayDesktopShell
+        filter={filter}
+        onFilterChange={handleFilterChange}
+        selectedTagIds={selectedTagIds}
+        onSelectedTagIdsChange={setSelectedTagIds}
+      />
+    );
+  }
+
   return (
     <>
       {/* Page Header */}
@@ -203,17 +215,6 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
                 </button>
                 <Divider orientation="vertical" className="border-border-primary" />
               </>
-            )}
-            {filter === "today" && (
-              <Button
-                component={Link}
-                href="/daily-plan"
-                variant="subtle"
-                size="sm"
-                leftSection={<IconCalendarEvent size={16} />}
-              >
-                Daily plan
-              </Button>
             )}
             <SegmentedControl
               value={filter}
@@ -275,16 +276,13 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         </div>
       )}
 
-      {/* Actions List */}
-      {filter === "today" ? (
-        <TodayLayout tagIds={selectedTagIds} />
-      ) : (
-        <Actions
-          viewName={getViewName(filter)}
-          searchQuery={searchQuery}
-          tagIds={selectedTagIds}
-        />
-      )}
+      {/* Actions List (filter is "tomorrow" or "upcoming" here — today is
+          handled by the redesigned TodayDesktopShell above). */}
+      <Actions
+        viewName={getViewName(filter)}
+        searchQuery={searchQuery}
+        tagIds={selectedTagIds}
+      />
     </>
   );
 }

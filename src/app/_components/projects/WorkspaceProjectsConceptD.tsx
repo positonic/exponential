@@ -35,6 +35,7 @@ import {
   IconUser,
   IconEdit,
   IconTrash,
+  IconLock,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -233,6 +234,16 @@ function ProjectTableRow({
               </Link>
               {project.isPublic && (
                 <Badge variant="light" color="green" size="xs">Public</Badge>
+              )}
+              {project.isRestricted && (
+                <Tooltip label="Restricted — only members can access" withArrow>
+                  <span
+                    aria-label="Restricted project"
+                    className="inline-flex items-center text-text-muted"
+                  >
+                    <IconLock size={14} />
+                  </span>
+                </Tooltip>
               )}
             </Group>
             {taskCount > 0 && (

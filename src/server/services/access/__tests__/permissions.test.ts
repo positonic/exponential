@@ -4,10 +4,13 @@ import * as fc from "fast-check";
 import {
   hasMinimumWorkspaceRole,
   hasMinimumTeamRole,
+  hasMinimumProjectRole,
   WORKSPACE_ROLE_HIERARCHY,
   TEAM_ROLE_HIERARCHY,
+  PROJECT_ROLE_HIERARCHY,
   type WorkspaceRole,
   type TeamRole,
+  type ProjectMemberRole,
   type ProjectAccess,
 } from "../types";
 
@@ -21,6 +24,8 @@ import {
 import {
   hasProjectAccess,
   canEditProject,
+  canManageProjectMembers,
+  buildProjectAccessWhere,
 } from "../resolvers/projectResolver";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -47,6 +52,7 @@ function makeProjectAccess(overrides: Partial<ProjectAccess> = {}): ProjectAcces
     isTeamMember: false,
     isWorkspaceMember: false,
     isPublic: false,
+    isRestricted: false,
     ...overrides,
   };
 }
@@ -206,10 +212,10 @@ describe("checkActionPermission", () => {
 // ── buildActionAccessWhere ───────────────────────────────────────────
 
 describe("buildActionAccessWhere", () => {
-  it("returns OR clause with 8 access paths", () => {
+  it("returns OR clause with 7 access paths", () => {
     const where = buildActionAccessWhere("user-123");
     expect(where).toHaveProperty("OR");
-    expect(where.OR).toHaveLength(8);
+    expect(where.OR).toHaveLength(7);
   });
 
   it("includes creator path", () => {
@@ -227,23 +233,136 @@ describe("buildActionAccessWhere", () => {
     expect(where.OR[2]).toEqual({ project: { createdById: "user-123" } });
   });
 
+  it("includes direct project member path", () => {
+    const where = buildActionAccessWhere("user-123");
+    expect(where.OR[3]).toEqual({
+      project: { projectMembers: { some: { userId: "user-123" } } },
+    });
+  });
+
   it("includes public project path", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[5]).toEqual({ project: { isPublic: true } });
+    expect(where.OR[4]).toEqual({ project: { isPublic: true } });
   });
 
-  it("includes workspace member path", () => {
+  it("gates team/workspace paths on isRestricted: false", () => {
+    const where = buildActionAccessWhere("user-123");
+    expect(where.OR[5]).toEqual({
+      project: {
+        isRestricted: false,
+        OR: [
+          { team: { members: { some: { userId: "user-123" } } } },
+          { workspace: { members: { some: { userId: "user-123" } } } },
+          { workspace: { teams: { some: { members: { some: { userId: "user-123" } } } } } },
+        ],
+      },
+    });
+  });
+
+  it("includes restricted-project escape hatch for workspace owner/admin", () => {
     const where = buildActionAccessWhere("user-123");
     expect(where.OR[6]).toEqual({
-      project: { workspace: { members: { some: { userId: "user-123" } } } },
+      project: {
+        isRestricted: true,
+        workspace: {
+          members: {
+            some: { userId: "user-123", role: { in: ["owner", "admin"] } },
+          },
+        },
+      },
+    });
+  });
+});
+
+// ── buildProjectAccessWhere ──────────────────────────────────────────
+
+describe("buildProjectAccessWhere", () => {
+  it("returns OR clause with 5 access paths", () => {
+    const where = buildProjectAccessWhere("user-123");
+    expect(where).toHaveProperty("OR");
+    expect(where.OR).toHaveLength(5);
+  });
+
+  it("includes creator path", () => {
+    const where = buildProjectAccessWhere("user-123");
+    expect(where.OR?.[0]).toEqual({ createdById: "user-123" });
+  });
+
+  it("includes public path", () => {
+    const where = buildProjectAccessWhere("user-123");
+    expect(where.OR?.[1]).toEqual({ isPublic: true });
+  });
+
+  it("includes direct member path", () => {
+    const where = buildProjectAccessWhere("user-123");
+    expect(where.OR?.[2]).toEqual({
+      projectMembers: { some: { userId: "user-123" } },
     });
   });
 
-  it("includes team-based workspace member path", () => {
-    const where = buildActionAccessWhere("user-123");
-    expect(where.OR[7]).toEqual({
-      project: { workspace: { teams: { some: { members: { some: { userId: "user-123" } } } } } },
+  it("gates team/workspace paths on isRestricted: false", () => {
+    const where = buildProjectAccessWhere("user-123");
+    expect(where.OR?.[3]).toEqual({
+      AND: [
+        { isRestricted: false },
+        {
+          OR: [
+            { team: { members: { some: { userId: "user-123" } } } },
+            { workspace: { members: { some: { userId: "user-123" } } } },
+            { workspace: { teams: { some: { members: { some: { userId: "user-123" } } } } } },
+          ],
+        },
+      ],
     });
+  });
+
+  it("includes restricted-project escape hatch for workspace owner/admin", () => {
+    const where = buildProjectAccessWhere("user-123");
+    expect(where.OR?.[4]).toEqual({
+      AND: [
+        { isRestricted: true },
+        {
+          workspace: {
+            members: {
+              some: { userId: "user-123", role: { in: ["owner", "admin"] } },
+            },
+          },
+        },
+      ],
+    });
+  });
+});
+
+// ── hasMinimumProjectRole ────────────────────────────────────────────
+
+describe("hasMinimumProjectRole", () => {
+  it("viewer meets viewer", () => {
+    expect(hasMinimumProjectRole("viewer", "viewer")).toBe(true);
+  });
+
+  it("viewer does NOT meet editor", () => {
+    expect(hasMinimumProjectRole("viewer", "editor")).toBe(false);
+  });
+
+  it("editor meets editor", () => {
+    expect(hasMinimumProjectRole("editor", "editor")).toBe(true);
+  });
+
+  it("admin meets all", () => {
+    const roles: ProjectMemberRole[] = ["viewer", "editor", "admin"];
+    for (const min of roles) {
+      expect(hasMinimumProjectRole("admin", min)).toBe(true);
+    }
+  });
+
+  it("matches hierarchy ordering for all role pairs (fast-check)", () => {
+    const roleArb = fc.constantFrom<ProjectMemberRole>("viewer", "editor", "admin");
+    fc.assert(
+      fc.property(roleArb, roleArb, (actual, minimum) => {
+        const expected = PROJECT_ROLE_HIERARCHY[actual] >= PROJECT_ROLE_HIERARCHY[minimum];
+        expect(hasMinimumProjectRole(actual, minimum)).toBe(expected);
+      })
+    );
   });
 });
 
@@ -272,6 +391,85 @@ describe("hasProjectAccess", () => {
 
   it("returns true for public project", () => {
     expect(hasProjectAccess(makeProjectAccess({ isPublic: true }))).toBe(true);
+  });
+
+  // ── Restriction matrix ───────────────────────────────────────────
+  describe("when project is restricted", () => {
+    it("denies workspace member without ProjectMember row", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({
+            isRestricted: true,
+            isWorkspaceMember: true,
+            workspaceRole: "member",
+          })
+        )
+      ).toBe(false);
+    });
+
+    it("denies team member without ProjectMember row", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({
+            isRestricted: true,
+            isTeamMember: true,
+            teamRole: "member",
+          })
+        )
+      ).toBe(false);
+    });
+
+    it("allows the creator", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({ isRestricted: true, isCreator: true })
+        )
+      ).toBe(true);
+    });
+
+    it("allows a ProjectMember (any role)", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({
+            isRestricted: true,
+            isMember: true,
+            memberRole: "viewer",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("allows a workspace owner via escape hatch", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({
+            isRestricted: true,
+            isWorkspaceMember: true,
+            workspaceRole: "owner",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("allows a workspace admin via escape hatch", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({
+            isRestricted: true,
+            isWorkspaceMember: true,
+            workspaceRole: "admin",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("public project overrides restriction for view", () => {
+      expect(
+        hasProjectAccess(
+          makeProjectAccess({ isRestricted: true, isPublic: true })
+        )
+      ).toBe(true);
+    });
   });
 });
 
@@ -312,5 +510,153 @@ describe("canEditProject", () => {
 
   it("public project visitor cannot edit", () => {
     expect(canEditProject(makeProjectAccess({ isPublic: true }))).toBe(false);
+  });
+
+  describe("when project is restricted", () => {
+    it("creator can still edit", () => {
+      expect(
+        canEditProject(makeProjectAccess({ isRestricted: true, isCreator: true }))
+      ).toBe(true);
+    });
+
+    it("ProjectMember admin can edit", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isMember: true,
+            memberRole: "admin",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("ProjectMember editor can edit", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isMember: true,
+            memberRole: "editor",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("ProjectMember viewer cannot edit", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isMember: true,
+            memberRole: "viewer",
+          })
+        )
+      ).toBe(false);
+    });
+
+    it("workspace owner can edit (escape hatch)", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isWorkspaceMember: true,
+            workspaceRole: "owner",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("workspace admin can edit (escape hatch)", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isWorkspaceMember: true,
+            workspaceRole: "admin",
+          })
+        )
+      ).toBe(true);
+    });
+
+    it("plain workspace member cannot edit", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isWorkspaceMember: true,
+            workspaceRole: "member",
+          })
+        )
+      ).toBe(false);
+    });
+
+    it("team member cannot edit", () => {
+      expect(
+        canEditProject(
+          makeProjectAccess({
+            isRestricted: true,
+            isTeamMember: true,
+            teamRole: "admin",
+          })
+        )
+      ).toBe(false);
+    });
+  });
+});
+
+// ── canManageProjectMembers ──────────────────────────────────────────
+
+describe("canManageProjectMembers", () => {
+  it("creator can manage", () => {
+    expect(canManageProjectMembers(makeProjectAccess({ isCreator: true }))).toBe(true);
+  });
+
+  it("ProjectMember admin can manage", () => {
+    expect(
+      canManageProjectMembers(
+        makeProjectAccess({ isMember: true, memberRole: "admin" })
+      )
+    ).toBe(true);
+  });
+
+  it("ProjectMember editor cannot manage", () => {
+    expect(
+      canManageProjectMembers(
+        makeProjectAccess({ isMember: true, memberRole: "editor" })
+      )
+    ).toBe(false);
+  });
+
+  it("ProjectMember viewer cannot manage", () => {
+    expect(
+      canManageProjectMembers(
+        makeProjectAccess({ isMember: true, memberRole: "viewer" })
+      )
+    ).toBe(false);
+  });
+
+  it("workspace owner can manage (escape hatch)", () => {
+    expect(
+      canManageProjectMembers(
+        makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "owner" })
+      )
+    ).toBe(true);
+  });
+
+  it("workspace admin can manage (escape hatch)", () => {
+    expect(
+      canManageProjectMembers(
+        makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "admin" })
+      )
+    ).toBe(true);
+  });
+
+  it("plain workspace member cannot manage", () => {
+    expect(
+      canManageProjectMembers(
+        makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "member" })
+      )
+    ).toBe(false);
   });
 });

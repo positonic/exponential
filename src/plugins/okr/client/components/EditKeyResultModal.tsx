@@ -316,7 +316,7 @@ export function EditKeyResultModal({
   const isReview = variant === "review";
 
   // Token map: in 'review' variant, swap to portfolio-review tokens so the
-  // modal blends with the weekly-review surface. The `pr-modal-surface`
+  // modal blends with the weekly-plan surface. The `pr-modal-surface`
   // class (defined in globals.css) re-declares `--pr-*` outside the
   // surface element so they resolve inside the Mantine Portal.
   const bgElevated = isReview

@@ -28,6 +28,7 @@ export type ResourceType =
 export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
 export type TeamRole = "owner" | "admin" | "member";
 export type ProjectRole = "creator" | "member";
+export type ProjectMemberRole = "admin" | "editor" | "viewer";
 
 // ── Role Hierarchy (higher index = more permissions) ────────────────
 export const WORKSPACE_ROLE_HIERARCHY: Record<WorkspaceRole, number> = {
@@ -41,6 +42,12 @@ export const TEAM_ROLE_HIERARCHY: Record<TeamRole, number> = {
   member: 0,
   admin: 1,
   owner: 2,
+};
+
+export const PROJECT_ROLE_HIERARCHY: Record<ProjectMemberRole, number> = {
+  viewer: 0,
+  editor: 1,
+  admin: 2,
 };
 
 // ── Access Context ──────────────────────────────────────────────────
@@ -75,6 +82,8 @@ export interface ProjectAccess {
   isTeamMember: boolean;
   isWorkspaceMember: boolean;
   isPublic: boolean;
+  isRestricted: boolean;
+  memberRole?: ProjectMemberRole;
   teamRole?: TeamRole;
   workspaceRole?: WorkspaceRole;
 }
@@ -101,6 +110,16 @@ export const TEAM_PERMISSION_MAP: Record<Permission, TeamRole> = {
   admin: "owner",
 };
 
+/** Minimum ProjectMember role required for each permission (when project is restricted) */
+export const PROJECT_PERMISSION_MAP: Record<Permission, ProjectMemberRole> = {
+  view: "viewer",
+  edit: "editor",
+  assign: "editor",
+  delete: "admin",
+  manage_members: "admin",
+  admin: "admin",
+};
+
 // ── DB Context (passed to resolvers) ────────────────────────────────
 export interface AccessDbContext {
   db: PrismaClient;
@@ -119,4 +138,11 @@ export function hasMinimumTeamRole(
   minimum: TeamRole,
 ): boolean {
   return TEAM_ROLE_HIERARCHY[actual] >= TEAM_ROLE_HIERARCHY[minimum];
+}
+
+export function hasMinimumProjectRole(
+  actual: ProjectMemberRole,
+  minimum: ProjectMemberRole,
+): boolean {
+  return PROJECT_ROLE_HIERARCHY[actual] >= PROJECT_ROLE_HIERARCHY[minimum];
 }

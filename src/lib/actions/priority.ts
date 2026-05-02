@@ -29,7 +29,20 @@ export function sortByPriority(
   return a.id.localeCompare(b.id);
 }
 
-export type VisualPriority = "urgent" | "high" | "normal" | "low";
+export type VisualPriority =
+  | "urgent"
+  | "p1"
+  | "p2"
+  | "p3"
+  | "p4"
+  | "p5"
+  | "quick"
+  | "scheduled"
+  | "errand"
+  | "remember"
+  | "watch"
+  | "someday"
+  | "normal";
 
 export function toVisualPriority(
   priority: string | null | undefined,
@@ -37,10 +50,32 @@ export function toVisualPriority(
 ): VisualPriority {
   if (isOverdue) return "urgent";
   const p = (priority ?? "") as Priority | "";
-  if (p === "1st Priority") return "urgent";
-  if (p === "2nd Priority" || p === "3rd Priority") return "high";
-  if (p === "Remember" || p === "Watch") return "low";
-  return "normal";
+  switch (p) {
+    case "1st Priority":
+      return "p1";
+    case "2nd Priority":
+      return "p2";
+    case "3rd Priority":
+      return "p3";
+    case "4th Priority":
+      return "p4";
+    case "5th Priority":
+      return "p5";
+    case "Quick":
+      return "quick";
+    case "Scheduled":
+      return "scheduled";
+    case "Errand":
+      return "errand";
+    case "Remember":
+      return "remember";
+    case "Watch":
+      return "watch";
+    case "Someday Maybe":
+      return "someday";
+    default:
+      return "normal";
+  }
 }
 
 // Returns the CSS string used for the Mantine checkbox border color.

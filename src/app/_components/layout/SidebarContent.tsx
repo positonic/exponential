@@ -19,7 +19,7 @@ export function SidebarContent(): React.JSX.Element {
   const isProductEnabled = enabledPlugins?.includes("product") ?? false;
 
   return (
-    <div className="space-y-1">
+    <>
       <NavLink href="/projects" icon={IconDeviceProjector}>
         Projects
       </NavLink>
@@ -35,6 +35,6 @@ export function SidebarContent(): React.JSX.Element {
           Alignment
         </NavLink>
       )}
-    </div>
+    </>
   );
 }

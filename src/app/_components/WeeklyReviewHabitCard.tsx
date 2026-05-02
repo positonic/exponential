@@ -49,7 +49,7 @@ export function WeeklyReviewHabitCard() {
     return null;
   }
 
-  const reviewUrl = `/w/${firstWorkspace.slug}/weekly-review`;
+  const reviewUrl = `/w/${firstWorkspace.slug}/weekly-plan`;
 
   return (
     <Card withBorder className="border-brand-primary/30 bg-brand-primary/5" p="md" radius="md">

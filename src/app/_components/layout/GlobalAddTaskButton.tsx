@@ -1,7 +1,7 @@
 "use client";
 
 import { Modal, ActionIcon, Tooltip } from "@mantine/core";
-import { useDisclosure, useViewportSize } from "@mantine/hooks";
+import { useDisclosure, useViewportSize, useHotkeys } from "@mantine/hooks";
 import { useState, useRef } from "react";
 import { api } from "~/trpc/react";
 import type { ActionPriority } from "~/types/action";
@@ -13,10 +13,11 @@ import { useSession } from "next-auth/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import type { EffortUnit } from "~/types/effort";
 
-export function GlobalAddTaskButton() {
+export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "sidebar" } = {}) {
   const { data: session } = useSession();
   const { width } = useViewportSize();
   const [opened, { open, close }] = useDisclosure(false);
+  useHotkeys([["mod+N", () => open()]]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | undefined>(undefined);
@@ -330,18 +331,32 @@ export function GlobalAddTaskButton() {
 
   return (
     <>
-      <Tooltip label="Add task" position="bottom" withArrow>
-        <ActionIcon
+      {variant === "sidebar" ? (
+        <button
           onClick={open}
-          variant="subtle"
-          size="lg"
-          radius="md"
-          className="text-text-secondary hover:text-text-primary hover:bg-surface-hover"
-          aria-label="Add task"
+          aria-label="Create action"
+          className="sb-create"
         >
-          <IconPlus size={20} />
-        </ActionIcon>
-      </Tooltip>
+          <span className="sb-create__icon">
+            <IconPlus size={14} />
+          </span>
+          <span className="sb-create__label">Create Action</span>
+          <span className="sb-create__shortcut">⌘N</span>
+        </button>
+      ) : (
+        <Tooltip label="Add task" position="bottom" withArrow>
+          <ActionIcon
+            onClick={open}
+            variant="subtle"
+            size="lg"
+            radius="md"
+            className="text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+            aria-label="Add task"
+          >
+            <IconPlus size={20} />
+          </ActionIcon>
+        </Tooltip>
+      )}
 
       <Modal
         opened={opened}

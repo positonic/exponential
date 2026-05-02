@@ -9,7 +9,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getSundayWeekStart } from "~/lib/weekUtils";
 import { HomeTile } from "./HomeTile";
 
-const BANNER_DISMISS_KEY = "weekly-review-banner-dismissed";
+const BANNER_DISMISS_KEY = "weekly-plan-banner-dismissed";
 
 function getDismissedWeek(): string | null {
   if (typeof window === "undefined") return null;
@@ -47,7 +47,7 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
   );
 
   const hasProjects = (projectsData?.length ?? 0) > 0;
-  const reviewPath = `/w/${workspace?.slug ?? ""}/weekly-review`;
+  const reviewPath = `/w/${workspace?.slug ?? ""}/weekly-plan`;
 
   const isBusinessHidden =
     isLoading ||
@@ -61,7 +61,7 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
   if (compact) {
     return (
       <HomeTile
-        tileId="weekly-review"
+        tileId="weekly-plan"
         href={reviewPath}
         icon={
           <IconCalendarCheck

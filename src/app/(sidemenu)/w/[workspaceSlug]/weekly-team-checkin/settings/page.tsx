@@ -305,7 +305,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
                 variant="subtle"
                 size="sm"
                 component={Link}
-                href="/productivity-methods/weekly-review"
+                href="/productivity-methods/weekly-plan"
               >
                 Learn about Weekly Reviews →
               </Button>

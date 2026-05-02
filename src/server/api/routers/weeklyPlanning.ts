@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import {
+  getProjectAccess,
+  hasProjectAccess,
+  canEditProject,
+} from "~/server/services/access";
 
 // Helper function to get start of week (Monday)
 function getWeekStart(date: Date): Date {
@@ -21,22 +26,22 @@ export const weeklyPlanningRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const { projectId, weekStartDate } = input;
       const weekStart = getWeekStart(weekStartDate);
-      
+
       // Verify user has access to this project
-      const project = await ctx.db.project.findFirst({
-        where: {
-          id: projectId,
-          OR: [
-            { createdById: ctx.session.user.id },
-            { 
-              team: {
-                members: {
-                  some: { userId: ctx.session.user.id }
-                }
-              }
-            }
-          ]
-        },
+      const access = await getProjectAccess(
+        ctx.db,
+        ctx.session.user.id,
+        projectId,
+      );
+      if (!hasProjectAccess(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this project",
+        });
+      }
+
+      const project = await ctx.db.project.findUnique({
+        where: { id: projectId },
         include: {
           team: {
             include: {
@@ -164,28 +169,17 @@ export const weeklyPlanningRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const { projectId, weekStartDate } = input;
       const weekStart = getWeekStart(weekStartDate);
-      
-      // Verify user has access to this project
-      const project = await ctx.db.project.findFirst({
-        where: {
-          id: projectId,
-          OR: [
-            { createdById: ctx.session.user.id },
-            { 
-              team: {
-                members: {
-                  some: { userId: ctx.session.user.id }
-                }
-              }
-            }
-          ]
-        }
-      });
 
-      if (!project) {
+      // Verify user has access to this project
+      const access = await getProjectAccess(
+        ctx.db,
+        ctx.session.user.id,
+        projectId,
+      );
+      if (!hasProjectAccess(access)) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found or access denied"
+          code: "FORBIDDEN",
+          message: "Project not found or access denied",
         });
       }
 
@@ -347,7 +341,21 @@ export const weeklyPlanningRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { assigneeIds, ...outcomeData } = input;
       const weekStart = getWeekStart(input.weekStartDate);
-      
+
+      // Verify user can edit the project (project access trumps team access
+      // when the project is restricted)
+      const access = await getProjectAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.projectId,
+      );
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to create outcomes on this project",
+        });
+      }
+
       // Verify user can create outcomes for this team
       const teamMembership = await ctx.db.teamUser.findFirst({
         where: {
@@ -458,7 +466,22 @@ export const weeklyPlanningRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const weekStart = getWeekStart(input.weekStartDate);
-      
+
+      // If the capacity is project-scoped, verify project access first.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Not authorized to set capacity on this project",
+          });
+        }
+      }
+
       // Verify user can set capacity for this team
       const teamMembership = await ctx.db.teamUser.findFirst({
         where: {

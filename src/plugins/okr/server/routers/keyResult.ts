@@ -343,7 +343,7 @@ export const keyResultRouter = createTRPCRouter({
           workspaceId: true,
           goalId: true,
           goal: { select: { id: true, title: true } },
-          // Full linked-project ids so callers (e.g. weekly-review Phase 3
+          // Full linked-project ids so callers (e.g. weekly-plan Phase 3
           // recap card) can mutate via okr.updateLinkedProjects without
           // dropping links to projects outside the active-only view.
           projects: { select: { projectId: true } },

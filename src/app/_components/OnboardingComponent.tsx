@@ -201,6 +201,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
   const updateTools = api.onboarding.updateTools.useMutation();
   const updateWorkHours = api.onboarding.updateWorkHours.useMutation();
   const completeOnboarding = api.onboarding.completeOnboarding.useMutation();
+  const skipOnboardingMutation = api.onboarding.skipOnboarding.useMutation();
 
   // Set initial step based on current progress
   useEffect(() => {
@@ -463,6 +464,21 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
     }
   };
 
+  const handleDismissOnboarding = async () => {
+    setIsLoading(true);
+    try {
+      await skipOnboardingMutation.mutateAsync();
+      router.push('/home');
+    } catch {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to skip onboarding. Please try again.',
+        color: 'red'
+      });
+      setIsLoading(false);
+    }
+  };
+
   const handleSkipOnboarding = async () => {
     setIsLoading(true);
     try {
@@ -619,6 +635,15 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
             >
               Continue
             </Button>
+            <Anchor
+              component="button"
+              type="button"
+              onClick={handleDismissOnboarding}
+              className="block text-center mt-4 mx-auto text-text-muted hover:text-text-secondary"
+              disabled={isLoading}
+            >
+              Skip onboarding
+            </Anchor>
           </div>
         </div>
 

@@ -1,0 +1,187 @@
+/* ============================================================
+   Sidebar (Left Nav) — design tokens live in globals.css under
+   .app-sidebar; this file uses only var().
+   ============================================================ */
+
+.app-sidebar {
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-hair);
+  font-family: var(--sb-font);
+  color: var(--sb-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-sidebar .sb-workspace-divider {
+  border-bottom: 1px solid var(--sb-hair);
+}
+
+/* ============================================================
+   Create Action — soft tinted CTA
+   ============================================================ */
+.sb-create {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--sb-accent-10);
+  border: 1px solid var(--sb-accent-18);
+  border-radius: 8px;
+  color: var(--sb-accent);
+  font-family: var(--sb-font);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.sb-create:hover {
+  background: var(--sb-accent-12);
+  border-color: var(--sb-accent-30);
+}
+
+.sb-create:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 2px;
+}
+
+.sb-create__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--sb-accent);
+}
+
+.sb-create__label {
+  flex: 1;
+  text-align: left;
+}
+
+.sb-create__shortcut {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--sb-accent-55);
+  font-feature-settings: "tnum";
+}
+
+/* ============================================================
+   Nav groups
+   ============================================================ */
+.sb-group {
+  padding: 6px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sb-group--secondary {
+  padding: 4px 10px;
+}
+
+.sb-divider {
+  height: 1px;
+  background: var(--sb-hair);
+  margin: 12px 14px;
+}
+
+.sb-section-label {
+  padding: 0 14px 6px;
+  font-size: 10.5px;
+  color: var(--sb-faint);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+/* ============================================================
+   Nav item
+   ============================================================ */
+.sb-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--sb-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  width: 100%;
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sb-nav-item:hover {
+  background: var(--sb-wash);
+  color: var(--sb-text);
+}
+
+.sb-nav-item:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: -2px;
+}
+
+.sb-nav-item__icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--sb-faint);
+  transition: color 120ms ease;
+}
+
+.sb-nav-item:hover .sb-nav-item__icon {
+  color: var(--sb-muted);
+}
+
+.sb-nav-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-nav-item__count {
+  font-size: 11px;
+  color: var(--sb-faint);
+  font-feature-settings: "tnum";
+  flex-shrink: 0;
+}
+
+.sb-nav-item--active {
+  background: var(--sb-accent-10);
+  color: var(--sb-accent);
+}
+
+.sb-nav-item--active:hover {
+  background: var(--sb-accent-12);
+  color: var(--sb-accent);
+}
+
+.sb-nav-item--active .sb-nav-item__icon,
+.sb-nav-item--active:hover .sb-nav-item__icon {
+  color: var(--sb-accent);
+}
+
+.sb-nav-item--active .sb-nav-item__count {
+  color: var(--sb-accent);
+}
+
+/* Vertical bar at left of active row, sitting in the sidebar gutter */
+.sb-nav-item--active::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--sb-accent);
+}

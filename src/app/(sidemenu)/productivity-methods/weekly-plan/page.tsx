@@ -257,7 +257,7 @@ export default function WeeklyReviewPage() {
                 Start your Weekly Review practice today. Set aside one hour this week to step back, 
                 reflect, and plan. Your future self will thank you.
               </Text>
-              <Link href="/weekly-review" className="text-brand-primary hover:text-brand-primary-hover underline font-medium">
+              <Link href="/weekly-plan" className="text-brand-primary hover:text-brand-primary-hover underline font-medium">
                 Try our Weekly Review Dashboard →
               </Link>
             </Paper>

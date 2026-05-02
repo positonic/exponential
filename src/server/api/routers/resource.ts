@@ -2,6 +2,11 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import {
+  getProjectAccess,
+  hasProjectAccess,
+  canEditProject,
+} from "~/server/services/access";
 
 const contentTypeEnum = z.enum([
   "web_page",
@@ -34,14 +39,13 @@ export const resourceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Verify project access if specified
+      // Verify project access if specified — creating a resource in a project
+      // requires edit access to that project.
       if (input.projectId) {
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId, createdById: userId },
-        });
-        if (!project) {
+        const access = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!canEditProject(access)) {
           throw new TRPCError({
-            code: "NOT_FOUND",
+            code: "FORBIDDEN",
             message: "Project not found or access denied",
           });
         }
@@ -150,6 +154,17 @@ export const resourceRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
+      // Gate: filtering by a specific project requires access to that project.
+      if (input.projectId) {
+        const access = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
+
       const where: Record<string, unknown> = {
         userId,
         ...(input.projectId && { projectId: input.projectId }),
@@ -233,14 +248,13 @@ export const resourceRouter = createTRPCRouter({
         });
       }
 
-      // Verify new project access if changing
+      // Verify new project access if changing — moving a resource into a
+      // project requires edit access to that project.
       if (input.projectId) {
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId, createdById: userId },
-        });
-        if (!project) {
+        const access = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!canEditProject(access)) {
           throw new TRPCError({
-            code: "NOT_FOUND",
+            code: "FORBIDDEN",
             message: "Project not found or access denied",
           });
         }
@@ -405,6 +419,17 @@ export const resourceRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Gate: searching within a specific project requires access to that project.
+      if (input.projectId) {
+        const access = await getProjectAccess(ctx.db, userId, input.projectId);
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
 
       const { KnowledgeService } = await import("~/server/services/KnowledgeService");
       const knowledgeService = getKnowledgeService(ctx.db);

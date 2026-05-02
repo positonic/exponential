@@ -10,8 +10,8 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, buildActionAccessWhere } from "~/server/services/access";
 import { findUserByEmailInWorkspace } from "~/server/services/access/resolvers/workspaceResolver";
+import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
@@ -388,50 +388,25 @@ export const actionRouter = createTRPCRouter({
         throw new Error(`User not found: ${ctx.session.user.id}. Please ensure your account is properly set up.`);
       }
 
-      // Verify user has access to the target project
+      // Verify user has access to the target project (creating actions == edit)
       let projectWorkspaceId: string | null = null;
       if (input.projectId) {
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { id: true, createdById: true, teamId: true, workspaceId: true, isPublic: true },
-        });
-
-        if (!project) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Project not found",
-          });
-        }
-
-        let hasAccess = project.createdById === ctx.session.user.id || project.isPublic;
-
-        if (!hasAccess && project.teamId) {
-          const teamMembership = await ctx.db.teamUser.findFirst({
-            where: { teamId: project.teamId, userId: ctx.session.user.id },
-          });
-          hasAccess = !!teamMembership;
-        }
-
-        if (!hasAccess && project.workspaceId) {
-          const workspaceMembership = await ctx.db.workspaceUser.findUnique({
-            where: {
-              userId_workspaceId: {
-                userId: ctx.session.user.id,
-                workspaceId: project.workspaceId,
-              },
-            },
-          });
-          hasAccess = !!workspaceMembership;
-        }
-
-        if (!hasAccess) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(access)) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You don't have permission to create actions on this project",
           });
         }
-
-        projectWorkspaceId = project.workspaceId;
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        projectWorkspaceId = project?.workspaceId ?? null;
       }
 
       // Set default kanban status for project tasks
@@ -1089,13 +1064,26 @@ export const actionRouter = createTRPCRouter({
       // Update all actions associated with this transcription session
       let result;
       try {
-        // Fetch project's workspaceId to keep in sync
-        const targetProject = input.projectId
-          ? await ctx.db.project.findUnique({
-              where: { id: input.projectId },
-              select: { workspaceId: true },
-            })
-          : null;
+        // Verify edit access on the target project (no-op when clearing project)
+        let targetProject: { workspaceId: string | null } | null = null;
+        if (input.projectId) {
+          const access = await getProjectAccess(
+            ctx.db,
+            ctx.session.user.id,
+            input.projectId,
+          );
+          if (!canEditProject(access)) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "You don't have permission to assign actions to this project",
+            });
+          }
+          targetProject = await ctx.db.project.findUnique({
+            where: { id: input.projectId },
+            select: { workspaceId: true },
+          });
+        }
 
         result = await ctx.db.action.updateMany({
           where: {
@@ -1264,9 +1252,22 @@ export const actionRouter = createTRPCRouter({
       projectId: z.string().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Fetch project's workspaceId to keep actions in sync
+      // Fetch project's workspaceId to keep actions in sync. Verify the
+      // current user can edit the destination project before reassigning.
       let bulkWorkspaceId: string | null | undefined;
       if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "You don't have permission to assign actions to this project",
+          });
+        }
         const proj = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { workspaceId: true },
@@ -1345,37 +1346,23 @@ export const actionRouter = createTRPCRouter({
         throw new Error("You don't have permission to modify this action");
       }
 
-      // Validate that all users can be assigned to this action
+      // Validate that all users can be assigned to this action.
+      // Restricted projects: only ProjectMembers, the creator, and workspace
+      // owners/admins can be assigned. Team/workspace fallback is disabled.
       for (const userId of input.userIds) {
         let canAssign = false;
-        
-        // Check if action has a project - users must be project members, team members, project creator, or workspace members
+
         if (action.projectId && action.project) {
-          // Check if user is a project member
-          const isProjectMember = action.project.projectMembers.some((member: any) => member.userId === userId);
+          const candidateAccess = await getProjectAccess(
+            ctx.db,
+            userId,
+            action.projectId,
+          );
+          canAssign = hasProjectAccess(candidateAccess);
 
-          // Check if user is a team member (if project has a team)
-          const isTeamMember = action.project.team?.members.some((member: any) => member.userId === userId);
-
-          // Check if user is the project creator
-          const isProjectCreator = action.project.createdById === userId;
-
-          // Check if user is a workspace member
-          let isWorkspaceMember = false;
-          if (action.project.workspaceId) {
-            const workspaceUser = await ctx.db.workspaceUser.findFirst({
-              where: {
-                workspaceId: action.project.workspaceId,
-                userId,
-              },
-              select: { id: true },
-            });
-            isWorkspaceMember = !!workspaceUser;
-          }
-
-          // Check if user shares a team with the assigning user
-          let sharesTeam = false;
-          if (!isProjectMember && !isTeamMember && !isProjectCreator && !isWorkspaceMember) {
+          // Unrestricted-only fallback: shared-team membership with the
+          // assigning user (legacy assignment ergonomics).
+          if (!canAssign && !candidateAccess.isRestricted) {
             const sharedTeam = await ctx.db.team.findFirst({
               where: {
                 AND: [
@@ -1385,30 +1372,30 @@ export const actionRouter = createTRPCRouter({
               },
               select: { id: true },
             });
-            sharesTeam = !!sharedTeam;
+            canAssign = !!sharedTeam;
           }
-
-          canAssign = isProjectMember || isTeamMember || isProjectCreator || isWorkspaceMember || sharesTeam;
         }
-        // Check if action has a team (but no project) - users must be team members
+        // Action has a team (but no project) — users must be team members
         else if (action.teamId && action.team) {
-          const isTeamMember = action.team.members.some((member: any) => member.userId === userId);
-          canAssign = isTeamMember;
+          canAssign = action.team.members.some(
+            (member: { userId: string }) => member.userId === userId,
+          );
         }
-        // If action has neither project nor team, allow assignment to any user
+        // No project or team — allow assignment to any user
         else {
           canAssign = true;
         }
 
         if (!canAssign) {
-          // Get user info for better error message
           const user = await ctx.db.user.findUnique({
             where: { id: userId },
-            select: { name: true, email: true }
+            select: { name: true, email: true },
           });
-          const userName = user?.name || user?.email || userId;
+          const userName = user?.name ?? user?.email ?? userId;
 
-          throw new Error(`User ${userName} cannot be assigned to this action. They must be a member of the ${action.projectId ? 'project' : 'team'}.`);
+          throw new Error(
+            `User ${userName} cannot be assigned to this action. They must be a member of the ${action.projectId ? "project" : "team"}.`,
+          );
         }
       }
 
@@ -1535,56 +1522,42 @@ export const actionRouter = createTRPCRouter({
         throw new Error("Some actions not found or you don't have permission to modify them");
       }
 
-      // Validate assignments for each action-user combination
+      // Validate assignments for each action-user combination.
+      // Restricted projects: only project access paths grant assignment;
+      // team/workspace fallback is gated by hasProjectAccess.
       for (const action of actions) {
         for (const userId of input.userIds) {
           let canAssign = false;
-          
-          // Check if action has a project - users must be project members, team members, project creator, or workspace members
+
           if (action.projectId && action.project) {
-            // Check if user is a project member
-            const isProjectMember = action.project.projectMembers.some((member: any) => member.userId === userId);
-
-            // Check if user is a team member (if project has a team)
-            const isTeamMember = action.project.team?.members.some((member: any) => member.userId === userId);
-
-            // Check if user is the project creator
-            const isProjectCreator = action.project.createdById === userId;
-
-            // Check if user is a workspace member
-            let isWorkspaceMember = false;
-            if (action.project.workspaceId) {
-              const workspaceUser = await ctx.db.workspaceUser.findFirst({
-                where: {
-                  workspaceId: action.project.workspaceId,
-                  userId,
-                },
-                select: { id: true },
-              });
-              isWorkspaceMember = !!workspaceUser;
-            }
-
-            canAssign = isProjectMember || isTeamMember || isProjectCreator || isWorkspaceMember;
+            const candidateAccess = await getProjectAccess(
+              ctx.db,
+              userId,
+              action.projectId,
+            );
+            canAssign = hasProjectAccess(candidateAccess);
           }
-          // Check if action has a team (but no project) - users must be team members
+          // Action has a team (but no project) — users must be team members
           else if (action.teamId && action.team) {
-            const isTeamMember = action.team.members.some((member: any) => member.userId === userId);
-            canAssign = isTeamMember;
+            canAssign = action.team.members.some(
+              (member: { userId: string }) => member.userId === userId,
+            );
           }
-          // If action has neither project nor team, allow assignment to any user
+          // No project or team — allow assignment to any user
           else {
             canAssign = true;
           }
 
           if (!canAssign) {
-            // Get user info for better error message
             const user = await ctx.db.user.findUnique({
               where: { id: userId },
-              select: { name: true, email: true }
+              select: { name: true, email: true },
             });
-            const userName = user?.name || user?.email || userId;
+            const userName = user?.name ?? user?.email ?? userId;
 
-            throw new Error(`User ${userName} cannot be assigned to action "${action.name}". They must be a member of the ${action.projectId ? 'project' : 'team'}.`);
+            throw new Error(
+              `User ${userName} cannot be assigned to action "${action.name}". They must be a member of the ${action.projectId ? "project" : "team"}.`,
+            );
           }
         }
       }
@@ -1628,7 +1601,11 @@ export const actionRouter = createTRPCRouter({
       // Collect assignable users from multiple sources
       const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
 
-      // 1. Get users from teams the current user belongs to
+      const isRestrictedProject = action.project?.isRestricted ?? false;
+
+      // 1. Get users from teams the current user belongs to.
+      //    Skip when the action's project is restricted — only ProjectMembers
+      //    (plus creator + workspace owner/admin escape hatch) are valid.
       const userTeams = await ctx.db.team.findMany({
         where: {
           members: {
@@ -1648,16 +1625,25 @@ export const actionRouter = createTRPCRouter({
         },
       });
 
-      userTeams.forEach(team => {
-        team.members.forEach(member => {
-          userMap.set(member.user.id, member.user);
+      if (!isRestrictedProject) {
+        userTeams.forEach(team => {
+          team.members.forEach(member => {
+            userMap.set(member.user.id, member.user);
+          });
         });
-      });
+      }
 
-      // 2. Get workspace members (if action belongs to a project in a workspace)
+      // 2. Get workspace members (if action belongs to a project in a workspace).
+      //    On restricted projects, only owner/admin workspace roles are eligible
+      //    (they are escape-hatch project editors).
       if (action.project?.workspaceId) {
         const workspaceUsers = await ctx.db.workspaceUser.findMany({
-          where: { workspaceId: action.project.workspaceId },
+          where: {
+            workspaceId: action.project.workspaceId,
+            ...(isRestrictedProject
+              ? { role: { in: ["owner", "admin"] } }
+              : {}),
+          },
           include: {
             user: {
               select: { id: true, name: true, email: true, image: true },
@@ -1682,6 +1668,15 @@ export const actionRouter = createTRPCRouter({
         projectMembers.forEach(pm => {
           userMap.set(pm.user.id, pm.user);
         });
+
+        // Always include the project creator (synthetic "Owner" axis).
+        if (action.project?.createdById && !userMap.has(action.project.createdById)) {
+          const creator = await ctx.db.user.findUnique({
+            where: { id: action.project.createdById },
+            select: { id: true, name: true, email: true, image: true },
+          });
+          if (creator) userMap.set(creator.id, creator);
+        }
       }
 
       // 4. Always include the current user

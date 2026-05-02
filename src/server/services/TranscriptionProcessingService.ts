@@ -5,6 +5,10 @@ import { InternalActionProcessor } from './processors/InternalActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
 import { SlackNotificationService } from './notifications/SlackNotificationService';
+import {
+  getProjectAccess,
+  hasProjectAccess as userHasProjectAccess,
+} from './access';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -551,25 +555,16 @@ export class TranscriptionProcessingService {
   }
 
   /**
-   * Verify user has access to a project
+   * Verify user has access to a project. Defers to the centralized access
+   * service so isRestricted, isPublic, workspace membership, and the
+   * workspace owner/admin escape hatch are all honored consistently.
    */
   private static async verifyUserAccess(
     userId: string,
     projectId: string | null
   ): Promise<boolean> {
     if (!projectId) return true;
-
-    const project = await db.project.findFirst({
-      where: {
-        id: projectId,
-        OR: [
-          { createdById: userId },
-          { projectMembers: { some: { userId } } },
-          { team: { members: { some: { userId } } } }
-        ]
-      }
-    });
-
-    return !!project;
+    const access = await getProjectAccess(db, userId, projectId);
+    return userHasProjectAccess(access);
   }
 }

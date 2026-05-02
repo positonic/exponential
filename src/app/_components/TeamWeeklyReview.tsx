@@ -396,7 +396,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
               size="sm"
               leftSection={<IconSettings size={16} />}
               component={Link}
-              href="/weekly-review/settings"
+              href="/weekly-plan/settings"
             >
               Manage Sharing
             </Button>
@@ -467,7 +467,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
                               size="xs"
                               leftSection={<IconCalendarWeek size={14} />}
                               component={Link}
-                              href={`/weekly-review?user=${sharing.user.id}&week=${currentWeekStart.toISOString()}`}
+                              href={`/weekly-plan?user=${sharing.user.id}&week=${currentWeekStart.toISOString()}`}
                             >
                               View Full Review
                             </Button>
@@ -494,7 +494,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
                   size="sm"
                   leftSection={<IconSettings size={16} />}
                   component={Link}
-                  href="/weekly-review/settings"
+                  href="/weekly-plan/settings"
                 >
                   Manage Your Sharing
                 </Button>

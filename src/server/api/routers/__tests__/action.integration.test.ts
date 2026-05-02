@@ -9,6 +9,7 @@ import {
   createAction,
   assignAction,
   addWorkspaceMember,
+  addProjectMember,
 } from "~/test/factories";
 
 describe("action router", () => {

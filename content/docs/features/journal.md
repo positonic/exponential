@@ -166,7 +166,7 @@ See [Routines](/docs/features/routines) for complete routine workflows.
 
 ### Weekly Review
 
-Review your week's journal entries during [Weekly Review](/docs/features/weekly-review):
+Review your week's journal entries during [Weekly Review](/docs/features/weekly-plan):
 - Identify patterns in energy
 - Celebrate gratitude themes
 - Track learning progress

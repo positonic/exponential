@@ -28,6 +28,7 @@ import {
   getProjectAccess,
   hasProjectAccess as checkProjectAccess,
   canEditProject,
+  canManageProjectMembers,
 } from "./resolvers/projectResolver";
 import {
   getActionAccess,
@@ -147,6 +148,18 @@ export class AccessControlService {
       return { allowed: false, reason: "Cannot edit project" };
     }
 
+    if (permission === "manage_members") {
+      if (canManageProjectMembers(access)) {
+        const path = access.isCreator
+          ? "owner"
+          : access.memberRole === "admin"
+            ? "project:admin"
+            : `workspace:${access.workspaceRole ?? "unknown"}`;
+        return { allowed: true, reason: "Can manage project members", accessPath: path };
+      }
+      return { allowed: false, reason: "Cannot manage project members" };
+    }
+
     if (permission === "delete" || permission === "admin") {
       if (access.isCreator) {
         return { allowed: true, reason: "Project creator", accessPath: "owner" };
@@ -157,7 +170,7 @@ export class AccessControlService {
       return { allowed: false, reason: "Only creator or workspace owner can delete" };
     }
 
-    return { allowed: false, reason: `Unsupported permission: ${permission}` };
+    return { allowed: false, reason: `Unsupported permission: ${String(permission)}` };
   }
 
   // ── Action ──────────────────────────────────────────────────────

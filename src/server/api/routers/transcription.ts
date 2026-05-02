@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -9,9 +10,62 @@ import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import {
+  buildProjectAccessWhere,
+  canEditProject,
+  getProjectAccess,
+  hasProjectAccess,
+  requireProjectAccess,
+} from "~/server/services/access";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
+
+/**
+ * Centralized access check for a transcription session.
+ *
+ * Rules (in order):
+ * 1. The session owner always has access.
+ * 2. If the session is tied to a project, project access is authoritative —
+ *    a workspace member without project access (e.g. on a restricted project)
+ *    is denied even if they could otherwise see the workspace.
+ * 3. Otherwise, fall back to direct workspace membership (the legacy
+ *    "owner OR workspace member" behavior for project-less transcriptions).
+ */
+async function ensureTranscriptionAccess(
+  db: PrismaClient,
+  userId: string,
+  session: {
+    userId: string | null;
+    projectId: string | null;
+    workspaceId: string | null;
+  },
+  permission: "view" | "edit",
+): Promise<void> {
+  if (session.userId && session.userId === userId) return;
+
+  if (session.projectId) {
+    const access = await getProjectAccess(db, userId, session.projectId);
+    const allowed =
+      permission === "view" ? hasProjectAccess(access) : canEditProject(access);
+    if (allowed) return;
+  } else if (session.workspaceId) {
+    const membership = await db.workspaceUser.findUnique({
+      where: {
+        userId_workspaceId: { userId, workspaceId: session.workspaceId },
+      },
+    });
+    if (membership) return;
+  }
+
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message:
+      permission === "view"
+        ? "Not authorized to view this transcription"
+        : "Not authorized to update this transcription",
+  });
+}
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
@@ -24,6 +78,16 @@ export const transcriptionRouter = createTRPCRouter({
       // Type-safe userId access
       const userId = ctx.userId;
       const { projectId, workspaceId, title } = input;
+
+      if (projectId) {
+        const access = await getProjectAccess(ctx.db, userId, projectId);
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
 
       // Create record in database using ctx.db
       const session = await ctx.db.transcriptionSession.create({
@@ -152,26 +216,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      // Allow access if user is the owner OR a member of the recording's workspace
-      let hasAccess = session.userId === ctx.session.user.id;
-      if (!hasAccess && session.workspaceId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId: session.workspaceId,
-            },
-          },
-        });
-        hasAccess = !!membership;
-      }
-
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to view this session",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "view",
+      );
 
       return session;
     }),
@@ -194,25 +244,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      // Allow access if user is the owner OR a member of the recording's workspace
-      let hasAccess = existing.userId === ctx.session.user.id;
-      if (!hasAccess && existing.workspaceId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId: existing.workspaceId,
-            },
-          },
-        });
-        hasAccess = !!membership;
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        existing,
+        "edit",
+      );
 
       const session = await ctx.db.transcriptionSession.update({
         where: { id: input.id },
@@ -236,7 +273,6 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
       const existing = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -248,25 +284,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      // Allow access if user is the owner OR a member of the recording's workspace
-      let hasAccess = existing.userId === ctx.session.user.id;
-      if (!hasAccess && existing.workspaceId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId: existing.workspaceId,
-            },
-          },
-        });
-        hasAccess = !!membership;
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        existing,
+        "edit",
+      );
 
       const updateData: {
         description?: string;
@@ -355,7 +378,6 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Ensure the session belongs to the user
       const session = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -365,26 +387,14 @@ export const transcriptionRouter = createTRPCRouter({
           message: "Session not found",
         });
       }
-      // Allow access if user is the owner OR a member of the recording's workspace
-      let hasAccess = session.userId === ctx.session.user.id;
-      if (!hasAccess && session.workspaceId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId: session.workspaceId,
-            },
-          },
-        });
-        hasAccess = !!membership;
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this session",
-        });
-      }
-      // Update the title
+
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
       const updated = await ctx.db.transcriptionSession.update({
         where: { id: input.id },
         data: { title: input.title, updatedAt: new Date() },
@@ -441,14 +451,16 @@ export const transcriptionRouter = createTRPCRouter({
       return session;
     }),
 
-  // Get transcriptions for a specific project (used by ManyChat agent context)
+  // Get transcriptions for a specific project (used by ManyChat agent context).
+  // Project access is authoritative: any user with project access sees every
+  // transcription tied to it, regardless of who uploaded each one.
   getProjectTranscriptions: protectedProcedure
     .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.transcriptionSession.findMany({
         where: {
           projectId: input.projectId,
-          userId: ctx.session.user.id,
           archivedAt: null,
         },
         orderBy: { processedAt: "desc" },
@@ -481,26 +493,38 @@ export const transcriptionRouter = createTRPCRouter({
         .optional(),
     )
     .query(async ({ ctx, input }) => {
-      const whereClause: any = {
-        userId: ctx.session.user.id,
+      const userId = ctx.session.user.id;
+
+      // Visibility: own transcriptions, OR transcriptions tied to a project
+      // the user can access (creator/member/public/workspace per restriction
+      // rules).
+      const accessFilter = {
+        OR: [
+          { userId },
+          { project: buildProjectAccessWhere(userId) },
+        ],
       };
 
-      // Exclude archived by default unless explicitly requested
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const filters: any[] = [accessFilter];
+
       if (!input?.includeArchived) {
-        whereClause.archivedAt = null;
+        filters.push({ archivedAt: null });
       }
 
-      // Filter by workspace if provided - include meetings with direct workspaceId
-      // OR meetings whose project belongs to the workspace
+      // Optional workspace filter — match either direct workspaceId or via the
+      // project's workspace.
       if (input?.workspaceId) {
-        whereClause.OR = [
-          { workspaceId: input.workspaceId },
-          { project: { workspaceId: input.workspaceId } },
-        ];
+        filters.push({
+          OR: [
+            { workspaceId: input.workspaceId },
+            { project: { workspaceId: input.workspaceId } },
+          ],
+        });
       }
 
       return ctx.db.transcriptionSession.findMany({
-        where: whereClause,
+        where: { AND: filters },
         orderBy: { createdAt: "desc" },
         include: {
           project: {
@@ -540,9 +564,38 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Get the project's workspace if a project is being assigned
+      // Verify the user can edit the source transcription.
+      const existing = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+        select: { userId: true, projectId: true, workspaceId: true },
+      });
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        existing,
+        "edit",
+      );
+
+      // Verify the user can edit the target project, and resolve its workspace.
       let workspaceId: string | null = null;
       if (input.projectId) {
+        const targetAccess = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(targetAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have edit access to the target project",
+          });
+        }
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { workspaceId: true },
@@ -550,11 +603,8 @@ export const transcriptionRouter = createTRPCRouter({
         workspaceId = project?.workspaceId ?? null;
       }
 
-      // Update the transcription session
       const session = await ctx.db.transcriptionSession.update({
-        where: {
-          id: input.transcriptionId,
-        },
+        where: { id: input.transcriptionId },
         data: {
           projectId: input.projectId,
           workspaceId,
@@ -564,12 +614,8 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Also update all associated actions to the same project
       await ctx.db.action.updateMany({
-        where: {
-          transcriptionSessionId: input.transcriptionId,
-        },
-        data: {
-          projectId: input.projectId,
-        },
+        where: { transcriptionSessionId: input.transcriptionId },
+        data: { projectId: input.projectId },
       });
 
       return session;
@@ -583,9 +629,20 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Get the project's workspace if a project is being assigned
+      // Verify the user can edit the target project, and resolve its workspace.
       let workspaceId: string | null = null;
       if (input.projectId) {
+        const targetAccess = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(targetAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have edit access to the target project",
+          });
+        }
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { workspaceId: true },
@@ -593,13 +650,13 @@ export const transcriptionRouter = createTRPCRouter({
         workspaceId = project?.workspaceId ?? null;
       }
 
-      // Update all transcription sessions
+      // Sources are scoped to user-owned transcriptions to keep bulk
+      // semantics narrow — broader source access can be added once the UI
+      // exposes shared transcriptions.
       const result = await ctx.db.transcriptionSession.updateMany({
         where: {
-          id: {
-            in: input.transcriptionIds,
-          },
-          userId: ctx.session.user.id, // Ensure user only updates their own transcriptions
+          id: { in: input.transcriptionIds },
+          userId: ctx.session.user.id,
         },
         data: {
           projectId: input.projectId,
@@ -608,16 +665,14 @@ export const transcriptionRouter = createTRPCRouter({
         },
       });
 
-      // Also update all associated actions to the same project
+      // Also update actions of the transcriptions we just touched. Mirror
+      // the source userId scope so we don't touch other users' actions.
       await ctx.db.action.updateMany({
         where: {
-          transcriptionSessionId: {
-            in: input.transcriptionIds,
-          },
+          transcriptionSessionId: { in: input.transcriptionIds },
+          transcriptionSession: { userId: ctx.session.user.id },
         },
-        data: {
-          projectId: input.projectId,
-        },
+        data: { projectId: input.projectId },
       });
 
       return { count: result.count };
@@ -718,6 +773,17 @@ export const transcriptionRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
         // Get Fireflies integrations associated with this project through workflows
         const projectWorkflows = await ctx.db.workflow.findMany({
           where: {
@@ -844,6 +910,7 @@ export const transcriptionRouter = createTRPCRouter({
         syncSinceDays: z.number().optional(),
       }),
     )
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       // First, sync from Fireflies
       const syncResult = await FirefliesSyncService.bulkSyncFromFireflies(

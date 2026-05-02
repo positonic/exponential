@@ -58,7 +58,7 @@ export const features: FeatureData[] = [
     icon: "📈",
   },
   {
-    slug: "weekly-review",
+    slug: "weekly-plan",
     category: `${PRODUCT_NAME}'s Weekly Review`,
     title: "Weekly Review",
     headline: "Reflect, reset, realign—every week.",

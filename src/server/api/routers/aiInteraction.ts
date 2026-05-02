@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getAiInteractionLogger, type AiInteractionData } from "~/server/services/AiInteractionLogger";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 // Zod schema for AI interaction logging
 const AiInteractionSchema = z.object({
@@ -66,6 +67,21 @@ export const aiInteractionRouter = createTRPCRouter({
   logInteraction: protectedProcedure
     .input(AiInteractionSchema)
     .mutation(async ({ ctx, input }) => {
+      // Gate: only allow logging interactions tied to a project the user can access.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
+
       const logger = getAiInteractionLogger(ctx.db);
 
       // Override system user ID with authenticated user
@@ -103,6 +119,21 @@ export const aiInteractionRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      // Gate: filtering by a specific projectId requires access to that project.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
+
       const where: any = {
         systemUserId: ctx.session.user.id, // Only user's own interactions
       };
@@ -177,6 +208,21 @@ export const aiInteractionRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      // Gate: stats filtered by a specific project require access to that project.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
+
       const logger = getAiInteractionLogger(ctx.db);
 
       const filters = {
@@ -447,6 +493,21 @@ export const aiInteractionRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Gate: starting a conversation tied to a project requires access.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+      }
+
       const logger = getAiInteractionLogger(ctx.db);
 
       const conversationId = await logger.startConversation({

@@ -303,7 +303,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
         </Text>
         <Text size="sm" className="text-text-secondary mt-3">
           <Link 
-            href="/productivity-methods/weekly-review" 
+            href="/productivity-methods/weekly-plan" 
             className="text-brand-primary hover:text-brand-primary-hover underline"
           >
             Learn more about the Weekly Review methodology

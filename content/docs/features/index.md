@@ -44,7 +44,7 @@ Reflect on your day, capture gratitude, and plan ahead. The journal integrates w
 ### Weekly Review
 Review your week, celebrate wins, and plan the next one. Share reviews with your team for alignment.
 
-[Learn more about Weekly Review](/docs/features/weekly-review)
+[Learn more about Weekly Review](/docs/features/weekly-plan)
 
 ### Wheel of Life
 Assess and balance different areas of your life. Get a visual representation of where to focus for personal growth.

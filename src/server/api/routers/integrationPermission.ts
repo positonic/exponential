@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { IntegrationPermissionService } from "~/server/services/IntegrationPermissionService";
 import { TRPCError } from "@trpc/server";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 const PermissionTypeSchema = z.enum(['CONFIGURE_CHANNELS', 'VIEW_INTEGRATION', 'USE_IN_WORKFLOWS']);
 const PermissionScopeSchema = z.enum(['global', 'team', 'project']);
@@ -201,6 +202,19 @@ export const integrationPermissionRouter = createTRPCRouter({
 
       // If project context, suggest project owner needs access
       if (input.projectId) {
+        // Gate: caller must have access to the project at all to see suggestions.
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
+
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           include: {

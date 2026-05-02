@@ -108,7 +108,7 @@ export function PastReviewsSection({
           <IconCalendarStats size={13} /> Past reviews
         </span>
         {showViewAllLink && (
-          <Link href="/weekly-review/history" className="pr-history__more">
+          <Link href="/weekly-plan/history" className="pr-history__more">
             View full history <IconArrowRight size={11} />
           </Link>
         )}

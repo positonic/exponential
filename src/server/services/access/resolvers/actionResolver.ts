@@ -100,8 +100,15 @@ export function checkActionPermission(
 /**
  * Build Prisma WHERE clause for actions a user can access.
  *
- * This replaces the old buildUserActionPermissions() function
- * and is used for bulk queries (getAll, getProjectActions, etc.)
+ * Replaces the old buildUserActionPermissions() function.
+ * Used for bulk queries (getAll, getProjectActions, etc.).
+ *
+ * Restriction model: when an action belongs to a restricted project,
+ * only creator/assignee/ProjectMember/workspace-owner-or-admin paths grant
+ * access. Workspace `member`/`viewer` and team-as-workspace gateway access
+ * to actions in restricted projects are filtered out.
+ *
+ * Actions with no project (`projectId: null`) are unaffected by restriction.
  */
 export function buildActionAccessWhere(userId: string) {
   return {
@@ -114,14 +121,28 @@ export function buildActionAccessWhere(userId: string) {
       { project: { createdById: userId } },
       // User is a direct project member
       { project: { projectMembers: { some: { userId } } } },
-      // User is a member of the project's team
-      { project: { team: { members: { some: { userId } } } } },
       // Action belongs to a public project
       { project: { isPublic: true } },
-      // User is a direct workspace member
-      { project: { workspace: { members: { some: { userId } } } } },
-      // User is in a team linked to the workspace
-      { project: { workspace: { teams: { some: { members: { some: { userId } } } } } } },
+      // Unrestricted-project paths: team/workspace membership grants access
+      {
+        project: {
+          isRestricted: false,
+          OR: [
+            { team: { members: { some: { userId } } } },
+            { workspace: { members: { some: { userId } } } },
+            { workspace: { teams: { some: { members: { some: { userId } } } } } },
+          ],
+        },
+      },
+      // Restricted-project escape hatch: workspace owner/admin
+      {
+        project: {
+          isRestricted: true,
+          workspace: {
+            members: { some: { userId, role: { in: ["owner", "admin"] } } },
+          },
+        },
+      },
     ],
   };
 }

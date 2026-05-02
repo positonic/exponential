@@ -251,7 +251,7 @@ Connect routine to task management:
 
 ### Weekly Review
 
-Routines prepare you for [Weekly Review](/docs/features/weekly-review):
+Routines prepare you for [Weekly Review](/docs/features/weekly-plan):
 - Accumulated journal entries
 - Daily outcomes completion
 - Week's gratitudes
