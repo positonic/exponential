@@ -744,5 +744,52 @@ describe("action router", () => {
       const after = await memberCaller.action.getAll({ workspaceId: ws.id });
       expect(after.find((a) => a.name === "Initially visible")).toBeUndefined();
     });
+
+    it("bulkAssignProject denies moving actions into a restricted project the caller cannot edit", async () => {
+      const owner = await createUser(db);
+      const member = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "act-bulkassign-deny" });
+      await addWorkspaceMember(db, ws.id, member.id, "member");
+      const restrictedProject = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        isRestricted: true,
+      });
+      // member's own action (no project)
+      const myAction = await createAction(db, {
+        createdById: member.id,
+        name: "Mine",
+      });
+
+      await expect(
+        createTestCaller(member.id).action.bulkAssignProject({
+          actionIds: [myAction.id],
+          projectId: restrictedProject.id,
+        }),
+      ).rejects.toThrow(TRPCError);
+    });
+
+    it("bulkAssignProject succeeds for a ProjectMember editor on a restricted project", async () => {
+      const owner = await createUser(db);
+      const editor = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "act-bulkassign-ok" });
+      await addWorkspaceMember(db, ws.id, editor.id, "member");
+      const restrictedProject = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        isRestricted: true,
+      });
+      await addProjectMember(db, restrictedProject.id, editor.id, "editor");
+      const myAction = await createAction(db, {
+        createdById: editor.id,
+        name: "Mine to move",
+      });
+
+      const result = await createTestCaller(editor.id).action.bulkAssignProject({
+        actionIds: [myAction.id],
+        projectId: restrictedProject.id,
+      });
+      expect(result.count).toBe(1);
+    });
   });
 });
