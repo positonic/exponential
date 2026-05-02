@@ -296,6 +296,42 @@ export const onboardingRouter = createTRPCRouter({
     }),
 
   /**
+   * Skip onboarding entirely — mark as completed without creating any projects.
+   * Allows the user to dismiss the wizard from any step.
+   */
+  skipOnboarding: protectedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+
+    const currentUser = await ctx.db.user.findUnique({
+      where: { id: userId },
+      select: { onboardingCompletedAt: true },
+    });
+
+    if (!currentUser) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "User not found",
+      });
+    }
+
+    if (currentUser.onboardingCompletedAt) {
+      return { success: true, completedAt: currentUser.onboardingCompletedAt };
+    }
+
+    const now = new Date();
+    const updated = await ctx.db.user.update({
+      where: { id: userId },
+      data: {
+        onboardingCompletedAt: now,
+        welcomeCompletedAt: now,
+      },
+      select: { onboardingCompletedAt: true },
+    });
+
+    return { success: true, completedAt: updated.onboardingCompletedAt };
+  }),
+
+  /**
    * Complete onboarding by creating first project and marking as completed
    */
   completeOnboarding: protectedProcedure
