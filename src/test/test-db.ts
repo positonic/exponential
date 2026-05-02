@@ -93,6 +93,11 @@ export async function truncateAllTables(): Promise<void> {
     // Existing tables
     db.$executeRawUnsafe(`DELETE FROM "Outcome"`),
     db.$executeRawUnsafe(`DELETE FROM "Goal"`),
+    // TranscriptionSession references Project (no onDelete) and Workspace,
+    // so its rows (and Screenshot/Participant children) must go first.
+    db.$executeRawUnsafe(`DELETE FROM "Screenshot"`),
+    db.$executeRawUnsafe(`DELETE FROM "TranscriptionSessionParticipant"`),
+    db.$executeRawUnsafe(`DELETE FROM "TranscriptionSession"`),
     db.$executeRawUnsafe(`DELETE FROM "ProjectMember"`),
     db.$executeRawUnsafe(`DELETE FROM "Project"`),
     db.$executeRawUnsafe(`DELETE FROM "TeamUser"`),
