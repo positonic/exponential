@@ -87,6 +87,18 @@
     --pri-normal: var(--brand-400);
     --pri-low: var(--color-text-muted);
 
+    /* Actions list — extended priority palette (matches --td-prio-*) */
+    --pri-p1: var(--accent-due);
+    --pri-p2: var(--accent-okr);
+    --pri-p3: #E8D26B;
+    --pri-p4: #7AC97D;
+    --pri-p5: #7C9BD0;
+    --pri-quick: #B58CE3;
+    --pri-scheduled: #E08CC0;
+    --pri-errand: #6FCBD4;
+    --pri-remember: #8C9BE0;
+    --pri-watch: #C97DC9;
+
     /* Actions list — project chip palette (indices 0-4 mapped to accents) */
     --actions-proj-0: var(--accent-meetings);
     --actions-proj-1: var(--accent-due);
@@ -213,6 +225,18 @@
     --pri-normal: var(--brand-400);
     --pri-low: var(--color-text-muted);
 
+    /* Actions list — extended priority palette (matches --td-prio-*) */
+    --pri-p1: var(--accent-due);
+    --pri-p2: var(--accent-okr);
+    --pri-p3: #E8D26B;
+    --pri-p4: #7AC97D;
+    --pri-p5: #7C9BD0;
+    --pri-quick: #B58CE3;
+    --pri-scheduled: #E08CC0;
+    --pri-errand: #6FCBD4;
+    --pri-remember: #8C9BE0;
+    --pri-watch: #C97DC9;
+
     /* Actions list — project chip palette (indices 0-4 mapped to accents) */
     --actions-proj-0: var(--accent-meetings);
     --actions-proj-1: var(--accent-due);
@@ -338,6 +362,18 @@
     --pri-high: var(--accent-okr);
     --pri-normal: var(--brand-400);
     --pri-low: var(--color-text-muted);
+
+    /* Actions list — extended priority palette (matches --td-prio-*) */
+    --pri-p1: var(--accent-due);
+    --pri-p2: var(--accent-okr);
+    --pri-p3: #E8D26B;
+    --pri-p4: #7AC97D;
+    --pri-p5: #7C9BD0;
+    --pri-quick: #B58CE3;
+    --pri-scheduled: #E08CC0;
+    --pri-errand: #6FCBD4;
+    --pri-remember: #8C9BE0;
+    --pri-watch: #C97DC9;
 
     /* Actions list — project chip palette (indices 0-4 mapped to accents) */
     --actions-proj-0: var(--accent-meetings);
