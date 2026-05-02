@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { startOfDay, endOfDay, subDays } from "date-fns";
+import { buildProjectAccessWhere } from "~/server/services/access";
 
 /**
  * Morning Briefing Router
@@ -226,6 +227,13 @@ export const briefingRouter = createTRPCRouter({
           where: {
             userId,
             createdAt: { gte: lookbackDate },
+            // Filter out transcriptions tied to projects the caller no longer has
+            // access to (e.g. project flipped to restricted after the session was
+            // created). Sessions with no project are unaffected.
+            OR: [
+              { projectId: null },
+              { project: buildProjectAccessWhere(userId) },
+            ],
             ...(workspaceId ? { project: { workspaceId } } : {}),
           },
           include: {

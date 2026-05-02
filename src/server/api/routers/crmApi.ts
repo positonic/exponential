@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { encryptString, decryptBuffer } from "~/server/utils/encryption";
 import type { CrmContact, PrismaClient } from "@prisma/client";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -67,7 +68,11 @@ async function verifyWorkspaceAccess(
   }
 }
 
-async function getPipelineForWorkspace(db: PrismaClient, workspaceId: string) {
+async function getPipelineForWorkspace(
+  db: PrismaClient,
+  workspaceId: string,
+  userId?: string,
+) {
   const pipeline = await db.project.findFirst({
     where: { workspaceId, type: "pipeline" },
   });
@@ -76,6 +81,17 @@ async function getPipelineForWorkspace(db: PrismaClient, workspaceId: string) {
       code: "NOT_FOUND",
       message: "No pipeline found for this workspace. Create one first via the UI.",
     });
+  }
+  // If a user is supplied, verify they have access to the pipeline project
+  // (covers the rare case of a workspace-scoped pipeline being restricted).
+  if (userId) {
+    const access = await getProjectAccess(db, userId, pipeline.id);
+    if (!hasProjectAccess(access)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "You do not have access to this pipeline",
+      });
+    }
   }
   return pipeline;
 }
@@ -388,19 +404,23 @@ export const crmApiRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await verifyWorkspaceAccess(ctx.db, input.workspaceId, ctx.userId);
 
-      return ctx.db.project.findFirst({
+      const pipeline = await ctx.db.project.findFirst({
         where: { workspaceId: input.workspaceId, type: "pipeline" },
         include: {
           pipelineStages: { orderBy: { order: "asc" } },
         },
       });
+      if (!pipeline) return null;
+      const access = await getProjectAccess(ctx.db, ctx.userId, pipeline.id);
+      if (!hasProjectAccess(access)) return null;
+      return pipeline;
     }),
 
   pipelineGetStages: apiKeyMiddleware
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
       await verifyWorkspaceAccess(ctx.db, input.workspaceId, ctx.userId);
-      const pipeline = await getPipelineForWorkspace(ctx.db, input.workspaceId);
+      const pipeline = await getPipelineForWorkspace(ctx.db, input.workspaceId, ctx.userId);
 
       return ctx.db.pipelineStage.findMany({
         where: { projectId: pipeline.id },
@@ -415,7 +435,7 @@ export const crmApiRouter = createTRPCRouter({
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
       await verifyWorkspaceAccess(ctx.db, input.workspaceId, ctx.userId);
-      const pipeline = await getPipelineForWorkspace(ctx.db, input.workspaceId);
+      const pipeline = await getPipelineForWorkspace(ctx.db, input.workspaceId, ctx.userId);
 
       return ctx.db.deal.findMany({
         where: { projectId: pipeline.id },
@@ -475,7 +495,7 @@ export const crmApiRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       await verifyWorkspaceAccess(ctx.db, input.workspaceId, ctx.userId);
-      const pipeline = await getPipelineForWorkspace(ctx.db, input.workspaceId);
+      const pipeline = await getPipelineForWorkspace(ctx.db, input.workspaceId, ctx.userId);
 
       // Position at end of stage
       const lastDeal = await ctx.db.deal.findFirst({
