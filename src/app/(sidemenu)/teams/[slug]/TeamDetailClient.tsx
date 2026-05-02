@@ -250,7 +250,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
               Integrations
             </Tabs.Tab>
             {team.isOrganization && (
-              <Tabs.Tab value="weekly-reviews" leftSection={<IconCalendarWeek size={16} />}>
+              <Tabs.Tab value="weekly-plans" leftSection={<IconCalendarWeek size={16} />}>
                 Weekly Reviews
               </Tabs.Tab>
             )}
@@ -299,7 +299,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                               color="blue"
                               size="sm"
                               component={Link}
-                              href={`/teams/${team.slug}/members/${member.userId}/weekly-review`}
+                              href={`/teams/${team.slug}/members/${member.userId}/weekly-plan`}
                             >
                               <IconCalendarWeek size={16} />
                             </ActionIcon>
@@ -454,7 +454,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
           </Tabs.Panel>
 
           {team.isOrganization && (
-            <Tabs.Panel value="weekly-reviews" pt="md">
+            <Tabs.Panel value="weekly-plans" pt="md">
               <Card withBorder>
                 <Stack gap="md">
                   <Title order={3}>Shared Weekly Reviews</Title>
@@ -523,7 +523,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                             size="sm"
                             leftSection={<IconUsers size={16} />}
                             component={Link}
-                            href={`/teams/${team.slug}?tab=weekly-reviews`}
+                            href={`/teams/${team.slug}?tab=weekly-plans`}
                           >
                             View Shared Reviews
                           </Button>
@@ -691,7 +691,7 @@ function TeamSharedReviewsList({ teamId, teamSlug }: TeamSharedReviewsListProps)
                   size="sm"
                   leftSection={<IconCalendarWeek size={16} />}
                   component={Link}
-                  href={`/teams/${teamSlug}/members/${sharing.user.id}/weekly-review`}
+                  href={`/teams/${teamSlug}/members/${sharing.user.id}/weekly-plan`}
                 >
                   View Weekly Review
                 </Button>

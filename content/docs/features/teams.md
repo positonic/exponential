@@ -133,7 +133,7 @@ To access weekly reviews:
 3. Navigate to **Members**
 4. Click on a member to see their weekly review
 
-See [Weekly Review](/docs/features/weekly-review) for more on the review process.
+See [Weekly Review](/docs/features/weekly-plan) for more on the review process.
 
 ## Linking Teams to Workspaces
 
@@ -221,5 +221,5 @@ All team members can see who else is on the team and their roles.
 ## Next Steps
 
 - [Learn about Workspaces](/docs/features/workspaces)
-- [Set up Weekly Reviews](/docs/features/weekly-review)
+- [Set up Weekly Reviews](/docs/features/weekly-plan)
 - [Create your first Project](/docs/features/projects)

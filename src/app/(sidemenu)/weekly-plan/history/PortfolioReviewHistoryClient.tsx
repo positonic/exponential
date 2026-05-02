@@ -22,7 +22,7 @@ export function PortfolioReviewHistoryClient() {
         <div className="pr-crumb">
           <IconFolder size={14} /> Portfolio
           <span className="pr-crumb__sep">/</span>
-          <Link href="/weekly-review" className="pr-crumb__link">
+          <Link href="/weekly-plan" className="pr-crumb__link">
             Weekly Review
           </Link>
           <span className="pr-crumb__sep">/</span>
@@ -37,7 +37,7 @@ export function PortfolioReviewHistoryClient() {
 
       <div className="pr-shell">
         <div className="pr-history-page-head">
-          <Link href="/weekly-review" className="pr-history-back">
+          <Link href="/weekly-plan" className="pr-history-back">
             <IconArrowLeft size={13} /> Back to weekly review
           </Link>
           <div>

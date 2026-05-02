@@ -155,7 +155,7 @@ Switch workspaces to view relevant goals.
 
 ### Weekly Review
 
-Review goal progress during your [Weekly Review](/docs/features/weekly-review):
+Review goal progress during your [Weekly Review](/docs/features/weekly-plan):
 - Check outcome completion
 - Adjust upcoming outcomes
 - Realign projects to goals

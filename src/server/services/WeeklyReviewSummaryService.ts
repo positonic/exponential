@@ -320,7 +320,7 @@ export class WeeklyReviewSummaryService {
     message += `• Completed Items: ${highlights.length}\n`;
     message += `• Upcoming Priorities: ${upcomingPriorities.length}\n\n`;
 
-    message += `🔗 View full weekly review: ${process.env.NEXTAUTH_URL ?? 'http://localhost:3002'}/weekly-review`;
+    message += `🔗 View full weekly review: ${process.env.NEXTAUTH_URL ?? 'http://localhost:3002'}/weekly-plan`;
 
     return message;
   }

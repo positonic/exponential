@@ -94,7 +94,7 @@ export function ShareableLinks() {
       
       <Stack gap="md">
         {sharedTeams.map((sharing) => {
-          const shareUrl = `${window.location.origin}/teams/${sharing.team.slug}/members/${sharing.userId}/weekly-review`;
+          const shareUrl = `${window.location.origin}/teams/${sharing.team.slug}/members/${sharing.userId}/weekly-plan`;
           const isCopied = copiedUrl === shareUrl;
           
           return (

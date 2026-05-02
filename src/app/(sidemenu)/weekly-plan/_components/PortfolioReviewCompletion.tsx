@@ -138,7 +138,7 @@ export function PortfolioReviewCompletion({
           return (
             <a
               key={ws.id}
-              href={`/w/${ws.slug}/weekly-review`}
+              href={`/w/${ws.slug}/weekly-plan`}
               target="_blank"
               rel="noopener noreferrer"
               className="pr-drill"

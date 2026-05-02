@@ -971,8 +971,8 @@
 }
 
 /* ==========================================================================
-   Portfolio review surface (/weekly-review) — scoped design tokens.
-   Consumed by src/app/(sidemenu)/weekly-review/_styles/portfolio-review.css.
+   Portfolio review surface (/weekly-plan) — scoped design tokens.
+   Consumed by src/app/(sidemenu)/weekly-plan/_styles/portfolio-review.css.
    Mirrors the auth-surface pattern: all hex lives here, feature CSS uses var().
    ========================================================================== */
 .portfolio-review-surface,

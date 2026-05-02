@@ -130,7 +130,7 @@ export default function TeamMemberWeeklyReviewPage() {
                 size="sm"
                 leftSection={<IconEdit size={16} />}
                 component={Link}
-                href="/weekly-review"
+                href="/weekly-plan"
               >
                 Edit
               </Button>

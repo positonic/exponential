@@ -34,7 +34,7 @@ function getQuarterEnd(date: Date): Date {
 
 export const portfolioReviewRouter = createTRPCRouter({
   /**
-   * Bootstrap query for the /weekly-review page. Returns everything needed
+   * Bootstrap query for the /weekly-plan page. Returns everything needed
    * to render the intro and Phase 1 (workspace triage) in a single round trip.
    * OKR + project detail for Phase 2/3 are lazy-loaded per-tab.
    */

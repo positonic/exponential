@@ -20,7 +20,7 @@ function PortfolioReviewCard() {
   return (
     <Card
       component={Link}
-      href="/weekly-review"
+      href="/weekly-plan"
       withBorder
       radius="md"
       className="cursor-pointer border-border-primary bg-surface-secondary transition-colors hover:bg-surface-hover"
@@ -74,7 +74,7 @@ function WeeklyReviewCard() {
   return (
     <Card
       component={Link}
-      href={`/w/${workspaceSlug}/weekly-review`}
+      href={`/w/${workspaceSlug}/weekly-plan`}
       withBorder
       radius="md"
       className="cursor-pointer border-border-primary bg-surface-secondary transition-colors hover:bg-surface-hover"
