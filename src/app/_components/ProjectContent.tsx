@@ -24,6 +24,9 @@ import {
   ActionIcon,
   Card,
   SegmentedControl,
+  Switch,
+  Alert,
+  Tooltip,
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import {
@@ -46,6 +49,9 @@ import {
   IconLayoutList,
   IconCoin,
   IconPlug,
+  IconShieldLock,
+  IconLock,
+  IconWorld,
 } from "@tabler/icons-react";
 import { format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
@@ -61,6 +67,7 @@ import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
+import { ProjectMembersPanel } from "./ProjectMembersPanel";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
@@ -80,7 +87,8 @@ type TabValue =
   | "integrations"
   | "workflows"
   | "weekly-team-review"
-  | "weekly-outcomes";
+  | "weekly-outcomes"
+  | "access";
 
 const VALID_TABS: TabValue[] = [
   "overview",
@@ -94,6 +102,7 @@ const VALID_TABS: TabValue[] = [
   "workflows",
   "weekly-team-review",
   "weekly-outcomes",
+  "access",
 ];
 
 function isValidTab(tab: string | null | undefined): tab is TabValue {
@@ -357,6 +366,11 @@ export function ProjectContent({
           <h1 className={overviewStyles.title}>
             <span className={overviewStyles.titleGlyph}>{monogram}</span>
             {project.name}
+            {project.isRestricted && (
+              <Tooltip label="Restricted — only members can access">
+                <IconLock size={18} className="ml-2 text-text-muted" aria-label="Restricted project" />
+              </Tooltip>
+            )}
           </h1>
           {project.description && (
             <div className={overviewStyles.sub}>{project.description}</div>
@@ -531,6 +545,12 @@ export function ProjectContent({
                 leftSection={<IconPlug size={14} />}
               >
                 Integrations
+              </Tabs.Tab>
+              <Tabs.Tab
+                value="access"
+                leftSection={<IconShieldLock size={14} />}
+              >
+                Access
               </Tabs.Tab>
             </Tabs.List>
 
@@ -797,6 +817,10 @@ export function ProjectContent({
             <Tabs.Panel value="integrations">
               <ProjectIntegrations project={{ ...project, teamId: project.teamId }} />
             </Tabs.Panel>
+
+            <Tabs.Panel value="access">
+              <AccessTabPanel projectId={resolvedProjectId} />
+            </Tabs.Panel>
           </Stack>
         </Tabs>
       </div>
@@ -1001,5 +1025,174 @@ export function ProjectContent({
         </Stack>
       </Drawer>
     </>
+  );
+}
+
+function AccessTabPanel({ projectId }: { projectId: string }) {
+  const utils = api.useUtils();
+  const projectQuery = api.project.getById.useQuery({ id: projectId });
+  const accessQuery = api.project.getMyAccess.useQuery({ projectId });
+
+  const setRestrictedMutation = api.project.setRestricted.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+      void utils.project.getMyAccess.invalidate({ projectId });
+      notifications.show({
+        title: "Access updated",
+        message: "Restriction setting saved.",
+        color: "green",
+        autoClose: 2000,
+      });
+    },
+    onError: (err) => {
+      notifications.show({
+        title: "Could not update restriction",
+        message: err.message,
+        color: "red",
+      });
+    },
+  });
+
+  const updateMutation = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+      notifications.show({
+        title: "Visibility updated",
+        message: "Public setting saved.",
+        color: "green",
+        autoClose: 2000,
+      });
+    },
+    onError: (err) => {
+      notifications.show({
+        title: "Could not update visibility",
+        message: err.message,
+        color: "red",
+      });
+    },
+  });
+
+  if (projectQuery.isLoading || accessQuery.isLoading) {
+    return <Text size="sm" c="dimmed">Loading access settings…</Text>;
+  }
+
+  const project = projectQuery.data;
+  const access = accessQuery.data;
+  if (!project || !access) return null;
+
+  const canEdit = access.canEdit;
+  const canManageMembers = access.canManageMembers;
+
+  return (
+    <Stack gap="xl">
+      <Paper p="lg" withBorder radius="md" className="border-border-primary bg-surface-secondary">
+        <Stack gap="md">
+          <Group gap="xs" align="center">
+            <IconShieldLock size={16} className="text-brand-primary" />
+            <Text size="sm" fw={600} className="text-brand-primary">
+              VISIBILITY
+            </Text>
+          </Group>
+
+          <Group justify="space-between" wrap="nowrap" align="flex-start">
+            <Stack gap={4} style={{ flex: 1 }}>
+              <Group gap="xs">
+                <IconLock size={14} className="text-text-secondary" />
+                <Text fw={500} className="text-text-primary">
+                  Restricted project
+                </Text>
+              </Group>
+              <Text size="xs" className="text-text-muted">
+                Only the creator, project members, and workspace owners/admins
+                can see this project. Workspace members and team members lose
+                visibility.
+              </Text>
+            </Stack>
+            <Tooltip
+              label={
+                canManageMembers
+                  ? ""
+                  : "Only the creator, project admins, or workspace owners/admins can change this"
+              }
+              disabled={canManageMembers}
+            >
+              <span>
+                <Switch
+                  checked={project.isRestricted ?? false}
+                  disabled={!canManageMembers || setRestrictedMutation.isPending}
+                  onChange={(e) =>
+                    setRestrictedMutation.mutate({
+                      projectId,
+                      isRestricted: e.currentTarget.checked,
+                    })
+                  }
+                />
+              </span>
+            </Tooltip>
+          </Group>
+
+          <Group justify="space-between" wrap="nowrap" align="flex-start">
+            <Stack gap={4} style={{ flex: 1 }}>
+              <Group gap="xs">
+                <IconWorld size={14} className="text-text-secondary" />
+                <Text fw={500} className="text-text-primary">
+                  Public project
+                </Text>
+              </Group>
+              <Text size="xs" className="text-text-muted">
+                Anyone with the link can view this project. Public visibility
+                wins over restriction for read access.
+              </Text>
+            </Stack>
+            <Tooltip
+              label={canEdit ? "" : "You do not have edit access"}
+              disabled={canEdit}
+            >
+              <span>
+                <Switch
+                  checked={project.isPublic ?? false}
+                  disabled={!canEdit || updateMutation.isPending}
+                  onChange={(e) =>
+                    updateMutation.mutate({
+                      id: project.id,
+                      name: project.name,
+                      status: project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
+                      priority: project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
+                      isPublic: e.currentTarget.checked,
+                    })
+                  }
+                />
+              </span>
+            </Tooltip>
+          </Group>
+
+          {project.isPublic && project.isRestricted && (
+            <Alert color="yellow" variant="light" icon={<IconWorld size={14} />}>
+              <Text size="xs" className="text-text-secondary">
+                Both flags are on. The project is publicly viewable; the
+                restriction only narrows who can edit and manage members.
+              </Text>
+            </Alert>
+          )}
+        </Stack>
+      </Paper>
+
+      <Paper p="lg" withBorder radius="md" className="border-border-primary bg-surface-secondary">
+        <Stack gap="md">
+          <Group gap="xs" align="center">
+            <IconUsers size={16} className="text-brand-primary" />
+            <Text size="sm" fw={600} className="text-brand-primary">
+              MEMBERS
+            </Text>
+          </Group>
+          <Text size="xs" className="text-text-muted">
+            Project members can access the project and its data even when the
+            project is restricted. Use Admin for people who should manage
+            membership, Editor for collaborators, Viewer for read-only access.
+          </Text>
+          <ProjectMembersPanel projectId={projectId} />
+        </Stack>
+      </Paper>
+    </Stack>
   );
 }

@@ -890,6 +890,28 @@ export const projectRouter = createTRPCRouter({
     }),
 
   // ── Restriction & Membership Management ──────────────────────────
+  // Capability check for the current user against a project. Used by UI
+  // (e.g. ProjectMembersPanel) to gate controls without re-deriving rules.
+  getMyAccess: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      const access = await getProjectAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.projectId,
+      );
+      return {
+        isCreator: access.isCreator,
+        memberRole: access.memberRole ?? null,
+        workspaceRole: access.workspaceRole ?? null,
+        isPublic: access.isPublic,
+        isRestricted: access.isRestricted,
+        canEdit: canEditProject(access),
+        canManageMembers: canManageProjectMembers(access),
+      };
+    }),
+
   setRestricted: protectedProcedure
     .input(
       z.object({
