@@ -119,17 +119,39 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 **Writing new tests:**
 - Unit tests: add `*.test.ts` files anywhere, use `happy-dom` environment
 - Integration tests: add `*.integration.test.ts` files, use factories from `src/test/factories/`
-- Use `createTestCaller(userId)` from `src/test/trpc-helpers.ts` to call tRPC procedures
-- Use factory functions (`createUser`, `createWorkspace`, etc.) to set up test data
+- Use `createMockCaller({ userId, db })` from `src/test/trpc-helpers.ts` for unit tests with mocked Prisma
+- Use `createTestCaller(userId)` from `src/test/trpc-helpers.ts` for integration tests (real DB)
+- Use factory functions (`createUser`, `createWorkspace`, etc.) to set up test data in integration tests
 
 **Key test infrastructure files:**
 - `vitest.config.ts` — multi-project config (unit + integration)
-- `src/test/test-db.ts` — Testcontainers PostgreSQL setup + cleanup
+- `src/test/test-db.ts` — Testcontainers PostgreSQL setup + cleanup (with safety guards)
 - `src/test/integration-setup.ts` — mocks for Next.js/auth modules + DB lifecycle
 - `src/test/factories/index.ts` — test data factories (user, workspace, project, action, etc.)
-- `src/test/trpc-helpers.ts` — `createTestCaller()`, `createQueryCounter()`
+- `src/test/trpc-helpers.ts` — `createTestCaller()`, `createMockCaller()`, `createQueryCounter()`
 
 **CI:** GitHub Actions runs lint, unit tests, integration tests, and build on every PR (`.github/workflows/test.yml`)
+
+### Test database safety
+
+Integration tests should be RARE. Default to mocked Prisma (`mockDeep<PrismaClient>` from
+`vitest-mock-extended`) and `createMockCaller({ userId, db })`. Only mark a test as
+`*.integration.test.ts` when the test genuinely needs real DB behavior (raw SQL, cascade delete
+behavior, schema validation).
+
+`*.integration.test.ts` files run ONLY in CI (`npm run test:integration`), never locally via
+`npm run test`. They use testcontainers exclusively. The historical fallback to `DATABASE_URL`
+has been removed — tests will fail loudly rather than ever touch a real DB.
+
+If you need to test against a specific DB, set `DATABASE_URL_TEST` to a local Postgres or
+testcontainer URL only. The host must be `localhost` / `127.0.0.1` / `host.docker.internal`,
+or the DB name must contain `"test"`, or the run will refuse. Managed-service hostnames
+(Railway, Supabase, Neon, RDS, Aiven, Fly.io, DigitalOcean, Azure, GCP) are hard-blocked
+and CANNOT be overridden by `ALLOW_NON_LOCAL_TEST_DB`.
+
+DO NOT remove the safety guard, marker-table check, or row-count threshold in
+`src/test/test-db.ts`. They exist because a previous incident wiped production via the now-
+removed `?? process.env.DATABASE_URL` fallback path.
 
 ### Deployment
 - **Automated Build Checks**: Pre-push git hook automatically runs `Vercel build` before pushing

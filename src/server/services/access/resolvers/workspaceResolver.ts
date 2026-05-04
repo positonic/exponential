@@ -10,6 +10,7 @@
  */
 
 import type { PrismaClient } from "@prisma/client";
+import { db } from "~/server/db";
 import type { WorkspaceMembership, WorkspaceRole } from "../types";
 
 export async function getWorkspaceMembership(
@@ -81,4 +82,37 @@ export async function isWorkspaceOwner(
     select: { ownerId: true },
   });
   return workspace?.ownerId === userId;
+}
+
+/**
+ * Look up a User by email and return basic fields if they are a member of the
+ * given workspace. Returns null if the user does not exist or is not a member.
+ *
+ * Used by the one2b agent integration to resolve action assignees by email.
+ */
+export async function findUserByEmailInWorkspace(
+  email: string,
+  workspaceId: string,
+): Promise<{ id: string; email: string; name: string | null } | null> {
+  const user = await db.user.findUnique({
+    where: { email },
+    select: { id: true, email: true, name: true },
+  });
+
+  if (!user?.email) {
+    return null;
+  }
+
+  const membership = await db.workspaceUser.findUnique({
+    where: {
+      userId_workspaceId: { userId: user.id, workspaceId },
+    },
+    select: { userId: true },
+  });
+
+  if (!membership) {
+    return null;
+  }
+
+  return { id: user.id, email: user.email, name: user.name };
 }
