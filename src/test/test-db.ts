@@ -42,13 +42,16 @@ function assertTestDatabase(url: string): void {
 export async function startTestDatabase(): Promise<PrismaClient> {
   if (prisma) return prisma;
 
-  // Check if DATABASE_URL is already set (e.g., in CI with a service container)
-  const existingUrl = process.env.DATABASE_URL_TEST ?? process.env.DATABASE_URL;
+  // ONLY DATABASE_URL_TEST is honored. We deliberately do NOT fall back to
+  // DATABASE_URL: that fallback caused the 2026-05-02 prod-wipe incident
+  // (a developer had prod DATABASE_URL in .env, no DATABASE_URL_TEST, and
+  // the integration setup silently truncated production data). If the
+  // explicit test URL is unset, spin up a fresh testcontainer instead.
+  const explicitTestUrl = process.env.DATABASE_URL_TEST;
   let connectionUrl: string;
 
-  if (existingUrl) {
-    // Use provided database URL (CI service container or local DATABASE_URL_TEST)
-    connectionUrl = existingUrl;
+  if (explicitTestUrl) {
+    connectionUrl = explicitTestUrl;
   } else {
     // Locally, spin up a testcontainer
     container = await new PostgreSqlContainer("pgvector/pgvector:pg16")
