@@ -5,6 +5,53 @@ import { execSync } from "child_process";
 let container: StartedPostgreSqlContainer | null = null;
 let prisma: PrismaClient | null = null;
 
+// ── Safety constants ─────────────────────────────────────────────────
+//
+// Marker row inserted into __test_db_marker on a freshly-initialized test DB.
+// `truncateAllTables` refuses to run if the row is missing, which guarantees
+// we cannot accidentally wipe a database that wasn't created by this helper
+// (e.g. a real production DB someone pointed DATABASE_URL_TEST at).
+const TEST_DB_MARKER_TABLE = "__test_db_marker";
+const TEST_DB_MARKER_TOKEN = "test_db_safe_to_truncate_v1";
+
+// Refuse outright if the connection string targets any of these managed
+// services. These checks run BEFORE the localhost/test-name allowlist and
+// CANNOT be overridden by `ALLOW_NON_LOCAL_TEST_DB` — if a hostname matches,
+// we abort. A previous incident wiped production after a Railway URL was
+// silently picked up via the (now-removed) DATABASE_URL fallback.
+const MANAGED_DB_HOST_PATTERNS: RegExp[] = [
+  /\.rlwy\.net/i,
+  /\.railway\.app/i,
+  /\.supabase\./i,
+  /\.neon\.tech/i,
+  /\.amazonaws\.com/i,
+  /\.azure\.com/i,
+  /\.gcp\.cloud/i,
+  /\.fly\.dev/i,
+  /digitalocean/i,
+  /\.aiven\.io/i,
+];
+
+// Pre-truncate row count thresholds. A real prod DB will exceed these almost
+// immediately; freshly-set-up test DBs will not.
+const MAX_USERS_BEFORE_REFUSE = 100;
+const MAX_KNOWLEDGE_CHUNKS_BEFORE_REFUSE = 1000;
+
+function assertNotManagedHost(url: string): void {
+  for (const pattern of MANAGED_DB_HOST_PATTERNS) {
+    if (pattern.test(url)) {
+      const sanitized = url.replace(/:([^@/]+)@/, ":***@");
+      throw new Error(
+        `[test-db] Refusing to use managed-service DB host (matched ${pattern}): ${sanitized}\n` +
+          `\n` +
+          `This pattern is hard-blocked because integration tests TRUNCATE tables.\n` +
+          `Use a localhost Postgres or testcontainer instead — the ALLOW_NON_LOCAL_TEST_DB\n` +
+          `escape hatch does NOT bypass this check.`,
+      );
+    }
+  }
+}
+
 /**
  * Start a PostgreSQL testcontainer and run migrations.
  * Call this once in globalSetup or beforeAll at the suite level.
@@ -12,23 +59,29 @@ let prisma: PrismaClient | null = null;
 export async function startTestDatabase(): Promise<PrismaClient> {
   if (prisma) return prisma;
 
-  // Check if DATABASE_URL is already set (e.g., in CI with a service container)
-  const existingUrl = process.env.DATABASE_URL_TEST ?? process.env.DATABASE_URL;
+  // Use ONLY DATABASE_URL_TEST. The `?? process.env.DATABASE_URL` fallback was
+  // removed deliberately: it caused a production-data-loss incident when the
+  // app's real DATABASE_URL leaked into the test runner. Tests now either
+  // explicitly set DATABASE_URL_TEST (local/testcontainer) or fall through to
+  // spinning up a testcontainer locally. There is NO silent fallback.
+  const existingUrl = process.env.DATABASE_URL_TEST;
   let connectionUrl: string;
 
   if (existingUrl) {
-    // Safety guard: refuse to run integration tests against anything that
-    // looks like a production / shared database. Integration tests TRUNCATE
-    // tables in afterEach hooks; running against prod would wipe real data.
-    // The atomic transaction in truncateAllTables saves us if a FK fails,
-    // but that's defense in depth — this guard is the primary line.
+    // Layer 1: managed-service hostname blocklist (cannot be overridden).
+    assertNotManagedHost(existingUrl);
+
+    // Layer 2: refuse non-local DBs unless the DB name contains "test" or the
+    // user explicitly opts in. Integration tests TRUNCATE tables in afterEach
+    // hooks; running against prod would wipe real data.
     //
     // Allow:
     //  - localhost / 127.0.0.1 / ::1 hosts
     //  - testcontainers (host.docker.internal, dynamic ports)
     //  - URLs whose database name contains "test" (e.g. exponential_test)
     //  - explicit opt-in via ALLOW_NON_LOCAL_TEST_DB=1 (escape hatch for
-    //    deliberate scenarios; never set this in normal dev)
+    //    deliberate scenarios; never set this in normal dev). Note: this does
+    //    NOT bypass the managed-host blocklist above.
     const isLocalhost = /@(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal)[:\/]/.test(
       existingUrl,
     );
@@ -46,7 +99,7 @@ export async function startTestDatabase(): Promise<PrismaClient> {
           `\n` +
           `Fix one of:\n` +
           `  1. Set DATABASE_URL_TEST to a local Postgres (e.g. postgres://postgres:postgres@localhost:5432/exponential_test)\n` +
-          `  2. Unset DATABASE_URL_TEST and DATABASE_URL so a testcontainer spins up automatically (requires Docker)\n` +
+          `  2. Unset DATABASE_URL_TEST so a testcontainer spins up automatically (requires Docker)\n` +
           `  3. Rename your test DB to include 'test' in the database name\n` +
           `  4. Set ALLOW_NON_LOCAL_TEST_DB=1 to override (only if you know what you're doing)`,
       );
@@ -79,6 +132,17 @@ export async function startTestDatabase(): Promise<PrismaClient> {
   });
 
   await prisma.$connect();
+
+  // Layer 4: stamp a marker row so truncateAllTables can prove this DB was
+  // initialized as a test DB. If the marker is missing later, we refuse to
+  // truncate. Production DBs will not have this table.
+  await prisma.$executeRawUnsafe(
+    `CREATE TABLE IF NOT EXISTS "${TEST_DB_MARKER_TABLE}" (token text PRIMARY KEY)`,
+  );
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO "${TEST_DB_MARKER_TABLE}" (token) VALUES ('${TEST_DB_MARKER_TOKEN}') ON CONFLICT DO NOTHING`,
+  );
+
   return prisma;
 }
 
@@ -122,12 +186,78 @@ export function getTestDb(): PrismaClient {
 export async function truncateAllTables(): Promise<void> {
   const db = getTestDb();
 
+  // Layer 4 (final guard): the marker row inserted by startTestDatabase must
+  // exist. If it doesn't, this DB was not initialized as a test DB — refuse
+  // to truncate. This catches any path that bypassed the URL safety guards
+  // (e.g. someone hand-constructed a PrismaClient pointed at production).
+  let marker: { token: string }[];
+  try {
+    marker = await db.$queryRawUnsafe<{ token: string }[]>(
+      `SELECT token FROM "${TEST_DB_MARKER_TABLE}" WHERE token = '${TEST_DB_MARKER_TOKEN}'`,
+    );
+  } catch (err) {
+    throw new Error(
+      `[test-db] Refusing to truncate: marker table "${TEST_DB_MARKER_TABLE}" is missing.\n` +
+        `This database was NOT initialized via startTestDatabase() — refusing to wipe it.\n` +
+        `Original error: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (marker.length === 0) {
+    throw new Error(
+      `[test-db] Refusing to truncate: marker row not found in "${TEST_DB_MARKER_TABLE}".\n` +
+        `This database was NOT initialized via startTestDatabase() — refusing to wipe it.`,
+    );
+  }
+
+  // Layer 3: pre-truncate row count check. Real production DBs will trip
+  // this trivially; freshly-set-up test DBs will not. Tables that don't exist
+  // (e.g. before migrations have run) are treated as empty.
+  try {
+    const userCountRows = await db.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count FROM "User"`,
+    );
+    const userCount = Number(userCountRows[0]?.count ?? 0n);
+    if (userCount > MAX_USERS_BEFORE_REFUSE) {
+      throw new Error(
+        `[test-db] Refusing to truncate: User table has ${userCount} rows ` +
+          `(threshold: ${MAX_USERS_BEFORE_REFUSE}). This looks like a real database, not a test DB.`,
+      );
+    }
+  } catch (err) {
+    // Re-throw our own refusal; swallow "relation does not exist" only.
+    if (err instanceof Error && /relation .* does not exist/i.test(err.message)) {
+      // table not migrated yet — fine
+    } else {
+      throw err;
+    }
+  }
+
+  try {
+    const chunkCountRows = await db.$queryRawUnsafe<{ count: bigint }[]>(
+      `SELECT COUNT(*)::bigint AS count FROM "KnowledgeChunk"`,
+    );
+    const chunkCount = Number(chunkCountRows[0]?.count ?? 0n);
+    if (chunkCount > MAX_KNOWLEDGE_CHUNKS_BEFORE_REFUSE) {
+      throw new Error(
+        `[test-db] Refusing to truncate: KnowledgeChunk has ${chunkCount} rows ` +
+          `(threshold: ${MAX_KNOWLEDGE_CHUNKS_BEFORE_REFUSE}). This looks like a real database, not a test DB.`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && /relation .* does not exist/i.test(err.message)) {
+      // table not migrated yet — fine
+    } else {
+      throw err;
+    }
+  }
+
   // Fetch every user table in the public schema, except the Prisma migrations
-  // bookkeeping table. Cast to a typed shape so TS is happy.
+  // bookkeeping table and our own marker. Cast to a typed shape so TS is happy.
   const rows = await db.$queryRawUnsafe<{ tablename: string }[]>(
     `SELECT tablename FROM pg_tables
      WHERE schemaname = 'public'
-       AND tablename != '_prisma_migrations'`,
+       AND tablename != '_prisma_migrations'
+       AND tablename != '${TEST_DB_MARKER_TABLE}'`,
   );
 
   if (rows.length === 0) return;
