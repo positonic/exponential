@@ -453,11 +453,12 @@ export class KnowledgeService {
     options: {
       userId: string;
       projectId?: string;
+      workspaceId?: string;
       sourceTypes?: ("transcription" | "resource")[];
       limit?: number;
     }
   ): Promise<SearchResult[]> {
-    const { userId, projectId, sourceTypes, limit = 10 } = options;
+    const { userId, projectId, workspaceId, sourceTypes, limit = 10 } = options;
 
     // Generate query embedding
     const queryEmbedding = await this.generateEmbedding(query);
@@ -472,6 +473,11 @@ export class KnowledgeService {
 
     const projectCondition = projectId
       ? Prisma.sql`AND (kc."projectId" = ${projectId} OR kc."projectId" IS NULL)`
+      : Prisma.empty;
+
+    // Nullable-tolerant: include legacy chunks where workspaceId hasn't been backfilled yet.
+    const workspaceCondition = workspaceId
+      ? Prisma.sql`AND (kc."workspaceId" = ${workspaceId} OR kc."workspaceId" IS NULL)`
       : Prisma.empty;
 
     // Execute vector search with parameterized query
@@ -510,6 +516,7 @@ export class KnowledgeService {
         ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
       WHERE kc."userId" = ${userId}
         ${projectCondition}
+        ${workspaceCondition}
         ${sourceTypeCondition}
       ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}

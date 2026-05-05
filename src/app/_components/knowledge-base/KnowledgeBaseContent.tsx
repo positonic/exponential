@@ -35,6 +35,7 @@ import {
   IconCheck,
   IconPin,
   IconPinnedFilled,
+  IconInfoCircle,
 } from '@tabler/icons-react';
 import { useState, useRef } from 'react';
 import Link from 'next/link';
@@ -87,7 +88,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
 
   // Queries
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = api.mastra.getEmbeddingStats.useQuery(
-    {},
+    { workspaceId },
     { enabled: true }
   );
 
@@ -102,7 +103,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const [debouncedQuery] = useDebouncedValue(searchQuery, 300);
   const searchEnabled = debouncedQuery.length > 2;
   const searchQueryResult = api.mastra.queryMeetingContext.useQuery(
-    { query: debouncedQuery, topK: 10 },
+    { query: debouncedQuery, topK: 10, workspaceId },
     {
       enabled: searchEnabled,
       placeholderData: keepPreviousData,
@@ -247,13 +248,24 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     ? 'Manage documents, web pages, and meeting transcriptions for this workspace'
     : 'Manage documents, web pages, and meeting transcriptions across all workspaces';
 
+  const permissionsTooltipLabel = workspaceId
+    ? "You only see your own content scoped to this workspace. Legacy items that pre-date workspace assignment are also included. Other workspace members' content is not visible to you."
+    : "You only see your own content. Results span every workspace you belong to — switch into a workspace to filter.";
+
   return (
     <Container size="lg" className="py-8">
-      <Group justify="space-between" mb="xl">
+      <Group justify="space-between" mb="md">
         <div>
-          <Title order={1} className="text-3xl font-bold text-text-primary">
-            Knowledge Base
-          </Title>
+          <Group gap="xs" align="center">
+            <Title order={1} className="text-3xl font-bold text-text-primary">
+              Knowledge Base
+            </Title>
+            <Tooltip label={permissionsTooltipLabel} multiline w={320} withArrow>
+              <ActionIcon variant="subtle" color="gray" size="lg" aria-label="How permissions work">
+                <IconInfoCircle size={18} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
           <Text className="text-text-secondary mt-1">
             {subtitle}
           </Text>
@@ -262,6 +274,25 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           Add Resource
         </Button>
       </Group>
+
+      <Alert
+        icon={<IconInfoCircle size={16} />}
+        color="blue"
+        variant="light"
+        mb="xl"
+        className="border-border-primary"
+      >
+        <Text size="sm" className="text-text-primary">
+          The Knowledge Base indexes your meeting transcriptions and saved resources (web pages,
+          notes, documents) so you can search them by meaning, not just keywords. Search runs
+          semantic similarity over stored embeddings; if that fails, it falls back to a basic
+          keyword match across transcripts.
+        </Text>
+        <Text size="xs" className="text-text-muted mt-2">
+          What it does: full-text + semantic search, pin resources for AI agent context, backfill embeddings for old meetings.
+          What it doesn&apos;t do: edit transcripts in-place, preview internal notes (links open the source URL only), or share results with other users.
+        </Text>
+      </Alert>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">

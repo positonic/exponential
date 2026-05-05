@@ -1298,6 +1298,7 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       query: z.string(),
       projectId: z.string().optional(),
+      workspaceId: z.string().optional(),
       dateRange: z.object({
         start: z.string(),
         end: z.string(),
@@ -1319,6 +1320,17 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
+      // Verify workspace membership if a workspace scope was requested.
+      if (input.workspaceId) {
+        const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+        if (!wsMembership) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Workspace not found or access denied',
+          });
+        }
+      }
+
       try {
         // Use KnowledgeService for vector search
         const knowledgeService = getKnowledgeService(ctx.db);
@@ -1326,6 +1338,7 @@ export const mastraRouter = createTRPCRouter({
         const searchResults = await knowledgeService.search(input.query, {
           userId,
           projectId: input.projectId,
+          workspaceId: input.workspaceId,
           sourceTypes: input.sourceTypes,
           limit: input.topK,
         });
@@ -1362,6 +1375,15 @@ export const mastraRouter = createTRPCRouter({
 
         if (input.projectId) {
           whereClause.projectId = input.projectId;
+        }
+
+        // Mirror the vector-search nullable-tolerant filter: include sessions in this
+        // workspace as well as legacy sessions where workspaceId hasn't been backfilled.
+        if (input.workspaceId) {
+          whereClause.OR = [
+            { workspaceId: input.workspaceId },
+            { workspaceId: null },
+          ];
         }
 
         if (input.dateRange) {
@@ -1582,9 +1604,25 @@ export const mastraRouter = createTRPCRouter({
   getEmbeddingStats: protectedProcedure
     .input(z.object({
       projectId: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      if (input.workspaceId) {
+        const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+        if (!wsMembership) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Workspace not found or access denied',
+          });
+        }
+      }
+
+      // Nullable-tolerant workspace filter shared across every count below.
+      const workspaceFilter = input.workspaceId
+        ? { OR: [{ workspaceId: input.workspaceId }, { workspaceId: null }] }
+        : {};
 
       // Count transcriptions with/without embeddings
       const totalTranscriptions = await ctx.db.transcriptionSession.count({
@@ -1592,6 +1630,7 @@ export const mastraRouter = createTRPCRouter({
           userId,
           transcription: { not: null },
           ...(input.projectId && { projectId: input.projectId }),
+          ...workspaceFilter,
         },
       });
 
@@ -1601,6 +1640,7 @@ export const mastraRouter = createTRPCRouter({
           userId,
           sourceType: 'transcription',
           ...(input.projectId && { projectId: input.projectId }),
+          ...workspaceFilter,
         },
       });
 
@@ -1610,6 +1650,7 @@ export const mastraRouter = createTRPCRouter({
           userId,
           content: { not: null },
           ...(input.projectId && { projectId: input.projectId }),
+          ...workspaceFilter,
         },
       });
 
@@ -1619,6 +1660,7 @@ export const mastraRouter = createTRPCRouter({
           userId,
           sourceType: 'resource',
           ...(input.projectId && { projectId: input.projectId }),
+          ...workspaceFilter,
         },
       });
 
@@ -1627,6 +1669,7 @@ export const mastraRouter = createTRPCRouter({
         where: {
           userId,
           ...(input.projectId && { projectId: input.projectId }),
+          ...workspaceFilter,
         },
       });
 
