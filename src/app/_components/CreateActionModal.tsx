@@ -283,9 +283,12 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     },
 
     onSuccess: async (data) => {
-      // Store the created action ID for assignment
-      setCreatedActionId(data.id);
-
+      // Don't store data.id into createdActionId here. The modal is already
+      // closed for this submission, and a stored value would race a new
+      // compose cycle: if the user starts a second task before this success
+      // fires, AssignActionModal would re-scope to the prior action's id and
+      // route the next assignee pick to the wrong task. Assignees for this
+      // action are applied below via pendingAssigneesRef.
       let hasAssignError = false;
       let hasTagError = false;
       let hasSprintError = false;
@@ -304,17 +307,21 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         }
       }
 
-      // If there are assignees, assign them
-      if (selectedAssigneeIds.length > 0) {
+      // If there are assignees, assign them. Read from the ref captured at
+      // submit time — selectedAssigneeIds state has been reset by the time
+      // this callback fires (latest closure wins in TanStack useMutation).
+      const pendingAssignees = pendingAssigneesRef.current;
+      if (pendingAssignees.length > 0) {
         try {
           await assignMutation.mutateAsync({
             actionId: data.id,
-            userIds: selectedAssigneeIds,
+            userIds: pendingAssignees,
           });
         } catch (error) {
           hasAssignError = true;
           console.error('Failed to assign users:', error);
         }
+        pendingAssigneesRef.current = [];
       }
 
       // If there are tags, set them
@@ -368,6 +375,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
   // Ref to hold screenshots for upload after action creation
   const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
+  // Ref to hold assignees so the post-create assign call can read them after
+  // selectedAssigneeIds state has been reset.
+  const pendingAssigneesRef = useRef<string[]>([]);
 
   const handleSubmit = () => {
     if (!name) return;
@@ -375,8 +385,11 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     // Close modal immediately for better UX
     close();
 
-    // Capture screenshots before resetting
+    // Capture screenshots and assignees before resetting state. The
+    // post-create callbacks read these refs because the corresponding state
+    // is reset below before the mutation resolves.
     pendingScreenshotsRef.current = [...pastedScreenshots];
+    pendingAssigneesRef.current = [...selectedAssigneeIds];
 
     // Prepare action data before resetting form
     const actionData = {
@@ -424,6 +437,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setDuration(null);
     setSelectedAssigneeIds([]);
     setSelectedTagIds([]);
+    // Clear the previously-created action's id; otherwise the next assignee
+    // pick would target the prior task instead of the one being composed now.
+    setCreatedActionId(null);
     setSprintListId(null);
     setEpicId(null);
     setEffortEstimate(null);
@@ -447,13 +463,20 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setAssignModalOpened(true);
   };
 
+  // Clear the previously-created action's id when starting a new compose
+  // cycle so the assignee picker scopes to the new task, not the prior one.
+  const handleOpen = () => {
+    setCreatedActionId(null);
+    open();
+  };
+
   return (
     <>
       {children ? (
-        <div onClick={open}>{children}</div>
+        <div onClick={handleOpen}>{children}</div>
       ) : (
         <button
-          onClick={open}
+          onClick={handleOpen}
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
         >
           <IconPlus size={16} />
