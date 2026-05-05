@@ -548,8 +548,21 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                 {searchQueryResult.data.results.map((result, idx) => {
                   if (!result) return null;
                   const contentType = 'contentType' in result ? result.contentType : undefined;
-                  return (
-                    <Card key={idx} className="bg-surface-primary border-border-primary" withBorder p="sm">
+                  // Transcriptions → internal recording detail page.
+                  // Resources → external source URL when present (web pages, bookmarks).
+                  // Notes/documents without a URL stay non-clickable for now (no detail page yet).
+                  const href =
+                    result.sourceType === 'transcription'
+                      ? `/recording/${result.sourceId}`
+                      : (result.url ?? null);
+                  const isExternal = result.sourceType === 'resource' && !!result.url;
+
+                  const card = (
+                    <Card
+                      className={`bg-surface-primary border-border-primary ${href ? 'hover:bg-surface-hover hover:border-border-focus transition-colors cursor-pointer' : ''}`}
+                      withBorder
+                      p="sm"
+                    >
                       <Group justify="space-between" mb="xs">
                         <Group gap="xs">
                           <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : 'green'}>
@@ -560,6 +573,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                               {result.sourceTitle}
                             </Text>
                           )}
+                          {isExternal && <IconLink size={12} className="text-text-muted" />}
                         </Group>
                         <Text size="xs" className="text-text-muted">
                           {((result.relevanceScore ?? 0) * 100).toFixed(1)}% match
@@ -574,6 +588,28 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                         </Text>
                       )}
                     </Card>
+                  );
+
+                  if (!href) {
+                    return <div key={idx}>{card}</div>;
+                  }
+                  if (isExternal) {
+                    return (
+                      <a
+                        key={idx}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block no-underline text-inherit"
+                      >
+                        {card}
+                      </a>
+                    );
+                  }
+                  return (
+                    <Link key={idx} href={href} className="block no-underline text-inherit">
+                      {card}
+                    </Link>
                   );
                 })}
               </Stack>
