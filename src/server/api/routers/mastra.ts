@@ -1305,7 +1305,7 @@ export const mastraRouter = createTRPCRouter({
       topK: z.number().optional().default(5),
       sourceTypes: z.array(z.enum(['transcription', 'resource'])).optional(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
       // Verify project access if specified via all access paths

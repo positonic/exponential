@@ -38,7 +38,8 @@ import {
 } from '@tabler/icons-react';
 import { useState, useRef } from 'react';
 import { api } from '~/trpc/react';
-import { useDisclosure } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { keepPreviousData } from '@tanstack/react-query';
 
 const contentTypeIcons = {
   web_page: IconLink,
@@ -94,16 +95,19 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     { enabled: true }
   );
 
-  // Use unified search that includes both transcriptions AND resources
-  const searchMutation = api.mastra.queryMeetingContext.useMutation();
-
-  // Trigger search when query changes
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    if (query.length > 2) {
-      searchMutation.mutate({ query, topK: 10 });
-    }
-  };
+  // Debounce the typed query so we only search after the user pauses,
+  // and use placeholderData so previous results stay visible during refetch
+  // (prevents the results region from collapsing on every keystroke).
+  const [debouncedQuery] = useDebouncedValue(searchQuery, 300);
+  const searchEnabled = debouncedQuery.length > 2;
+  const searchQueryResult = api.mastra.queryMeetingContext.useQuery(
+    { query: debouncedQuery, topK: 10 },
+    {
+      enabled: searchEnabled,
+      placeholderData: keepPreviousData,
+      staleTime: 30_000,
+    },
+  );
 
   // Mutations
   const backfillMutation = api.mastra.backfillTranscriptionEmbeddings.useMutation({
@@ -525,22 +529,22 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               placeholder="Search transcriptions and resources..."
               leftSection={<IconSearch size={16} />}
               value={searchQuery}
-              onChange={(e) => handleSearch(e.currentTarget.value)}
+              onChange={(e) => setSearchQuery(e.currentTarget.value)}
               className="mb-4"
               classNames={{
                 input: 'bg-surface-primary border-border-primary text-text-primary',
               }}
             />
 
-            {searchMutation.isPending ? (
+            {searchEnabled && searchQueryResult.isLoading ? (
               <Stack gap="md">
                 <Skeleton height={60} />
                 <Skeleton height={60} />
                 <Skeleton height={60} />
               </Stack>
-            ) : searchMutation.data?.results && searchMutation.data.results.length > 0 ? (
-              <Stack gap="md">
-                {searchMutation.data.results.map((result, idx) => {
+            ) : searchQueryResult.data?.results && searchQueryResult.data.results.length > 0 ? (
+              <Stack gap="md" style={{ opacity: searchQueryResult.isFetching ? 0.6 : 1, transition: 'opacity 150ms ease' }}>
+                {searchQueryResult.data.results.map((result, idx) => {
                   if (!result) return null;
                   const contentType = 'contentType' in result ? result.contentType : undefined;
                   return (
@@ -572,9 +576,9 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                   );
                 })}
               </Stack>
-            ) : searchQuery.length > 2 && !searchMutation.isPending ? (
+            ) : searchEnabled && !searchQueryResult.isFetching ? (
               <Text className="text-text-secondary text-center py-4">
-                No results found for &quot;{searchQuery}&quot;
+                No results found for &quot;{debouncedQuery}&quot;
               </Text>
             ) : (
               <Text className="text-text-muted text-center py-4">
