@@ -37,6 +37,7 @@ import {
   IconPinnedFilled,
 } from '@tabler/icons-react';
 import { useState, useRef } from 'react';
+import Link from 'next/link';
 import { api } from '~/trpc/react';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
@@ -142,7 +143,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         // Small delay to avoid hammering the API
         setTimeout(() => {
           console.log('[Backfill] Starting next batch...');
-          backfillMutation.mutate({ limit: 20, skipExisting: true });
+          backfillMutation.mutate({ limit: 1, skipExisting: true });
         }, 500);
       } else {
         console.log('[Backfill] Stopping:', {
@@ -198,7 +199,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     // Start batch processing
     isBackfillingRef.current = true;
     setBackfillProgress({ isRunning: true, totalProcessed: 0, totalFailed: 0 });
-    backfillMutation.mutate({ limit: 20, skipExisting: true });
+    backfillMutation.mutate({ limit: 1, skipExisting: true });
   };
 
   const handleStopBackfill = () => {
@@ -363,8 +364,8 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                 </Text>
                 <Text size="xs" className="text-blue-400 h-4">
                   {backfillMutation.isPending
-                    ? `Processing batch ${Math.floor(backfillProgress.totalProcessed / 20) + 1}... (up to 60 seconds per batch)`
-                    : 'Preparing next batch...'}
+                    ? `Embedding transcription ${backfillProgress.totalProcessed + backfillProgress.totalFailed + 1}...`
+                    : 'Preparing next transcription...'}
                 </Text>
               </Stack>
               <Button
