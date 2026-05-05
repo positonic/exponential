@@ -324,9 +324,7 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
   };
 
   const handleAssigneeClick = () => {
-    if (createdActionId) {
-      setAssignModalOpened(true);
-    }
+    setAssignModalOpened(true);
   };
 
   return (
@@ -419,16 +417,18 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
         />
       </Modal>
 
-      {createdActionId && (
-        <AssignActionModal
-          opened={assignModalOpened}
-          onClose={() => setAssignModalOpened(false)}
-          actionId={createdActionId}
-          actionName={name}
-          projectId={projectId}
-          currentAssignees={[]}
-        />
-      )}
+      <AssignActionModal
+        opened={assignModalOpened}
+        onClose={() => setAssignModalOpened(false)}
+        actionId={createdActionId ?? undefined}
+        actionName={name || "New action"}
+        projectId={projectId}
+        workspaceId={currentWorkspaceId ?? undefined}
+        currentAssignees={selectedAssigneeIds.map((id) => ({
+          user: { id, name: null, email: null, image: null },
+        }))}
+        onSelectionChange={setSelectedAssigneeIds}
+      />
     </>
   );
 }

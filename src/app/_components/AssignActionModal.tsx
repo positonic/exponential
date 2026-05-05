@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Modal,
   Text,
@@ -23,9 +23,11 @@ import { HTMLContent } from "./HTMLContent";
 interface AssignActionModalProps {
   opened: boolean;
   onClose: () => void;
-  actionId: string;
+  // Required for edit mode; omit for create-mode (action not yet persisted).
+  actionId?: string;
   actionName: string;
   projectId?: string | null;
+  workspaceId?: string | null;
   currentAssignees: Array<{
     user: {
       id: string;
@@ -34,6 +36,9 @@ interface AssignActionModalProps {
       image: string | null;
     };
   }>;
+  // Create-mode: instead of calling the assign mutation, return the chosen
+  // user IDs to the parent so they can be assigned after the action is created.
+  onSelectionChange?: (userIds: string[]) => void;
 }
 
 interface AssignableUser {
@@ -50,18 +55,44 @@ export function AssignActionModal({
   actionId,
   actionName,
   projectId,
+  workspaceId,
   currentAssignees,
+  onSelectionChange,
 }: AssignActionModalProps) {
+  const isCreateMode = !actionId;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     new Set(currentAssignees.map(a => a.user.id))
   );
 
-  // Get assignable users for this action
-  const { data: assignableData, isLoading: isLoadingUsers } = api.action.getAssignableUsers.useQuery(
-    { actionId: actionId },
-    { enabled: opened }
-  );
+  // Re-sync selection from incoming assignees each time the modal opens so
+  // reopening reflects the latest parent state (especially in create-mode).
+  useEffect(() => {
+    if (opened) {
+      setSelectedUserIds(new Set(currentAssignees.map(a => a.user.id)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened]);
+
+  // Edit mode: fetch via existing actionId-scoped query.
+  const { data: editAssignableData, isLoading: isLoadingEditUsers } =
+    api.action.getAssignableUsers.useQuery(
+      { actionId: actionId ?? "" },
+      { enabled: opened && !isCreateMode }
+    );
+
+  // Create mode: fetch via project/workspace context.
+  const { data: createAssignableData, isLoading: isLoadingCreateUsers } =
+    api.action.getAssignableUsersForContext.useQuery(
+      {
+        projectId: projectId ?? undefined,
+        workspaceId: workspaceId ?? undefined,
+      },
+      { enabled: opened && isCreateMode && (!!projectId || !!workspaceId) }
+    );
+
+  const assignableData = isCreateMode ? createAssignableData : editAssignableData;
+  const isLoadingUsers = isCreateMode ? isLoadingCreateUsers : isLoadingEditUsers;
 
   const utils = api.useUtils();
 
@@ -153,6 +184,15 @@ export function AssignActionModal({
   };
 
   const handleSave = async () => {
+    // Create mode: bubble selection to parent; assignment happens after the
+    // action is persisted by the parent's create mutation.
+    if (isCreateMode) {
+      const ids = Array.from(selectedUserIds).filter(id => !id.startsWith('ai-'));
+      onSelectionChange?.(ids);
+      onClose();
+      return;
+    }
+
     const currentIds = new Set(currentAssignees.map(a => a.user.id));
     const toAssign = Array.from(selectedUserIds).filter(id => !currentIds.has(id) && !id.startsWith('ai-'));
     const toUnassign = Array.from(currentIds).filter(id => !selectedUserIds.has(id));
@@ -161,7 +201,7 @@ export function AssignActionModal({
       // Unassign removed users
       if (toUnassign.length > 0) {
         await unassignMutation.mutateAsync({
-          actionId: actionId,
+          actionId,
           userIds: toUnassign,
         });
       }
@@ -169,7 +209,7 @@ export function AssignActionModal({
       // Assign new users
       if (toAssign.length > 0) {
         await assignMutation.mutateAsync({
-          actionId: actionId,
+          actionId,
           userIds: toAssign,
         });
       }

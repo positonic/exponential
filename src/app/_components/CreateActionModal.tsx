@@ -444,14 +444,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   };
 
   const handleAssigneeClick = () => {
-    if (createdActionId) {
-      // If action is already created, open assignment modal
-      setAssignModalOpened(true);
-    } else {
-      // For creation flow, we can't open assignment modal yet
-      // This could be expanded to show a preview modal or inline selection
-      console.log('Assignment during creation not yet implemented');
-    }
+    setAssignModalOpened(true);
   };
 
   return (
@@ -545,16 +538,18 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         />
       </Modal>
       
-      {createdActionId && (
-        <AssignActionModal
-          opened={assignModalOpened}
-          onClose={() => setAssignModalOpened(false)}
-          actionId={createdActionId}
-          actionName={name}
-          projectId={projectId}
-          currentAssignees={[]} // For simplicity, start with empty - could be enhanced
-        />
-      )}
+      <AssignActionModal
+        opened={assignModalOpened}
+        onClose={() => setAssignModalOpened(false)}
+        actionId={createdActionId ?? undefined}
+        actionName={name || "New action"}
+        projectId={projectId}
+        workspaceId={currentWorkspaceId ?? undefined}
+        currentAssignees={selectedAssigneeIds.map((id) => ({
+          user: { id, name: null, email: null, image: null },
+        }))}
+        onSelectionChange={setSelectedAssigneeIds}
+      />
     </>
   );
-} 
+}

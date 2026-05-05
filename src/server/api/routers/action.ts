@@ -1698,6 +1698,119 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
+  // Variant of getAssignableUsers for the action-creation flow, where there is
+  // no actionId yet. Caller passes the prospective project/workspace context so
+  // the same membership rules apply (teams, workspace members, project members,
+  // restricted-project escape hatch, current user fallback).
+  getAssignableUsersForContext: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      let project: { id: string; name: string; workspaceId: string | null; isRestricted: boolean } | null = null;
+      if (input.projectId) {
+        const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this project",
+          });
+        }
+        project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { id: true, name: true, workspaceId: true, isRestricted: true },
+        });
+      }
+
+      const effectiveWorkspaceId = project?.workspaceId ?? input.workspaceId ?? null;
+      const isRestrictedProject = project?.isRestricted ?? false;
+
+      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+
+      const userTeams = await ctx.db.team.findMany({
+        where: {
+          members: { some: { userId: ctx.session.user.id } },
+          ...(effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : {}),
+        },
+        include: {
+          members: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+        },
+      });
+
+      if (!isRestrictedProject) {
+        userTeams.forEach(team => {
+          team.members.forEach(member => {
+            userMap.set(member.user.id, member.user);
+          });
+        });
+      }
+
+      if (effectiveWorkspaceId) {
+        const workspaceUsers = await ctx.db.workspaceUser.findMany({
+          where: {
+            workspaceId: effectiveWorkspaceId,
+            ...(isRestrictedProject ? { role: { in: ["owner", "admin"] } } : {}),
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+          },
+        });
+        workspaceUsers.forEach(wu => {
+          userMap.set(wu.user.id, wu.user);
+        });
+      }
+
+      if (project?.id) {
+        const projectMembers = await ctx.db.projectMember.findMany({
+          where: { projectId: project.id },
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+          },
+        });
+        projectMembers.forEach(pm => {
+          userMap.set(pm.user.id, pm.user);
+        });
+
+        const projectRecord = await ctx.db.project.findUnique({
+          where: { id: project.id },
+          select: { createdById: true },
+        });
+        if (projectRecord?.createdById && !userMap.has(projectRecord.createdById)) {
+          const creator = await ctx.db.user.findUnique({
+            where: { id: projectRecord.createdById },
+            select: { id: true, name: true, email: true, image: true },
+          });
+          if (creator) userMap.set(creator.id, creator);
+        }
+      }
+
+      if (!userMap.has(ctx.session.user.id)) {
+        const currentUser = await ctx.db.user.findUnique({
+          where: { id: ctx.session.user.id },
+          select: { id: true, name: true, email: true, image: true },
+        });
+        if (currentUser) {
+          userMap.set(currentUser.id, currentUser);
+        }
+      }
+
+      return {
+        assignableUsers: Array.from(userMap.values()),
+        actionContext: {
+          hasProject: !!project,
+          hasTeam: false,
+          projectName: project?.name,
+          teamName: undefined as string | undefined,
+          userTeamCount: userTeams.length,
+        },
+      };
+    }),
+
   updateKanbanStatusWithOrder: protectedProcedure
     .input(z.object({
       actionId: z.string(),
