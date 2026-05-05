@@ -377,90 +377,70 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify user exists before creating action
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id }
-      });
-      
-      if (!user) {
-        throw new Error(`User not found: ${ctx.session.user.id}. Please ensure your account is properly set up.`);
-      }
-
-      // Verify user has access to the target project (creating actions == edit)
+      // Project-scoped reads run in parallel: access check, project workspace,
+      // and the two kanban-order lookups are all independent.
       let projectWorkspaceId: string | null = null;
+      let nextKanbanOrder: number | null = null;
+
       if (input.projectId) {
-        const access = await getProjectAccess(
-          ctx.db,
-          ctx.session.user.id,
-          input.projectId,
-        );
+        const [access, project, maxOrderAcrossBoard, maxOrderInTodo] =
+          await Promise.all([
+            getProjectAccess(ctx.db, ctx.session.user.id, input.projectId),
+            ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { workspaceId: true },
+            }),
+            ctx.db.action.findFirst({
+              where: {
+                projectId: input.projectId,
+                kanbanOrder: { not: null },
+              },
+              orderBy: { kanbanOrder: "desc" },
+              select: { kanbanOrder: true },
+            }),
+            ctx.db.action.findFirst({
+              where: {
+                projectId: input.projectId,
+                kanbanStatus: "TODO",
+                kanbanOrder: { not: null },
+              },
+              orderBy: { kanbanOrder: "desc" },
+              select: { kanbanOrder: true },
+            }),
+          ]);
+
         if (!canEditProject(access)) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You don't have permission to create actions on this project",
           });
         }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
+
         projectWorkspaceId = project?.workspaceId ?? null;
+
+        if (maxOrderInTodo?.kanbanOrder) {
+          nextKanbanOrder = maxOrderInTodo.kanbanOrder + 1;
+        } else if (maxOrderAcrossBoard?.kanbanOrder) {
+          nextKanbanOrder = maxOrderAcrossBoard.kanbanOrder + 1;
+        } else {
+          nextKanbanOrder = 1;
+        }
       }
 
-      // Set default kanban status for project tasks
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionData: any = {
         ...input,
         createdById: ctx.session.user.id,
-        // Auto-set bountyStatus when creating a bounty
         ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
       };
 
-      // Inherit workspaceId from project if not explicitly provided
       if (input.projectId && !input.workspaceId && projectWorkspaceId) {
         actionData.workspaceId = projectWorkspaceId;
       }
 
-      // If this action is being created for a project, set default kanban status to TODO
       if (input.projectId) {
-        // Get the current highest order across all statuses in this project
-        const maxOrderAcrossBoard = await ctx.db.action.findFirst({
-          where: {
-            projectId: input.projectId,
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
-        // Get the current highest order in the TODO column specifically
-        const maxOrderInTodo = await ctx.db.action.findFirst({
-          where: {
-            projectId: input.projectId,
-            kanbanStatus: "TODO",
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
-        // Calculate next order position
-        let nextOrder: number;
-        
-        if (maxOrderInTodo?.kanbanOrder) {
-          // If there are existing tasks in TODO column, add after the last one
-          nextOrder = maxOrderInTodo.kanbanOrder + 1;
-        } else if (maxOrderAcrossBoard?.kanbanOrder) {
-          // If TODO column is empty but board has other tasks, 
-          // place at the end of the board order
-          nextOrder = maxOrderAcrossBoard.kanbanOrder + 1;
-        } else {
-          // First task in the entire project
-          nextOrder = 1;
-        }
-
         actionData.kanbanStatus = "TODO";
-        actionData.kanbanOrder = nextOrder;
+        actionData.kanbanOrder = nextKanbanOrder;
       }
 
       const createdAction = await ctx.db.action.create({
@@ -469,7 +449,9 @@ export const actionRouter = createTRPCRouter({
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
-          project: { select: { id: true, name: true } },
+          project: true,
+          syncs: true,
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
           epic: { select: { id: true, name: true, status: true } },
         },
