@@ -889,6 +889,34 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Recent project activity feed — powers the "What shifted this week"
+  // section on the new Overview tab. Returns rows with the changing user
+  // and (when applicable) the action so the UI can render verb + target.
+  getRecentActivity: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        sinceDays: z.number().int().min(1).max(60).default(7),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      const since = new Date(Date.now() - input.sinceDays * 24 * 60 * 60 * 1000);
+      return ctx.db.projectActivity.findMany({
+        where: {
+          projectId: input.projectId,
+          changedAt: { gte: since },
+        },
+        orderBy: { changedAt: "desc" },
+        take: input.limit,
+        include: {
+          changedBy: { select: { id: true, name: true, image: true } },
+          action: { select: { id: true, name: true } },
+        },
+      });
+    }),
+
   // ── Restriction & Membership Management ──────────────────────────
   // Capability check for the current user against a project. Used by UI
   // (e.g. ProjectMembersPanel) to gate controls without re-deriving rules.

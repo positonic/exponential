@@ -16,6 +16,11 @@ import { sendAssignmentNotifications } from "~/server/services/notifications/Ema
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import {
+  logActionDiffActivities,
+  logProjectActivity,
+  PROJECT_ACTIVITY_TYPES,
+} from "~/server/services/projectActivity";
 
 
 export const actionRouter = createTRPCRouter({
@@ -462,6 +467,16 @@ export const actionRouter = createTRPCRouter({
         void completeOnboardingStep(ctx.db, ctx.session.user.id, "actions").catch(
           (err: unknown) => { console.error("[onboarding-sync] actions:", err); },
         );
+
+        void logProjectActivity(ctx.db, {
+          projectId: input.projectId,
+          actionId: createdAction.id,
+          type: PROJECT_ACTIVITY_TYPES.ACTION_CREATED,
+          toValue: createdAction.name,
+          changedById: ctx.session.user.id,
+        }).catch((err: unknown) => {
+          console.error("[projectActivity] ACTION_CREATED:", err);
+        });
       }
 
       return createdAction;
@@ -565,7 +580,7 @@ export const actionRouter = createTRPCRouter({
       // Get current action to check previous state
       const currentAction = await ctx.db.action.findUnique({
         where: { id },
-        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true, scheduledEnd: true }
+        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true, scheduledEnd: true, projectId: true, dueDate: true }
       });
 
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
@@ -612,6 +627,29 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Project activity audit log: status + dueDate diffs (fire-and-forget)
+      if (currentAction?.projectId) {
+        const statusDiff =
+          updateData.status !== undefined && updateData.status !== currentAction.status
+            ? { from: currentAction.status, to: updateData.status }
+            : undefined;
+        const dueDateDiff =
+          updateData.dueDate !== undefined
+            ? { from: currentAction.dueDate ?? null, to: updateData.dueDate ?? null }
+            : undefined;
+
+        if (statusDiff || dueDateDiff) {
+          void logActionDiffActivities(ctx.db, {
+            projectId: currentAction.projectId,
+            actionId: id,
+            changedById: ctx.session.user.id,
+            diff: { status: statusDiff, dueDate: dueDateDiff },
+          }).catch((err: unknown) => {
+            console.error("[projectActivity] action.update diff:", err);
+          });
+        }
+      }
 
       // Sync onboarding progress on first action completion (fire-and-forget)
       if (isCompleting && !wasCompleted) {
@@ -708,7 +746,8 @@ export const actionRouter = createTRPCRouter({
         select: {
           id: true,
           kanbanStatus: true,
-          completedAt: true
+          completedAt: true,
+          projectId: true,
         }
       });
 
@@ -768,6 +807,19 @@ export const actionRouter = createTRPCRouter({
         }).catch((err: unknown) => {
           console.error("Failed to record status change:", err);
         });
+
+        if (action.projectId) {
+          void logProjectActivity(ctx.db, {
+            projectId: action.projectId,
+            actionId: input.actionId,
+            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
+            fromValue: action.kanbanStatus,
+            toValue: input.kanbanStatus,
+            changedById: ctx.session.user.id,
+          }).catch((err: unknown) => {
+            console.error("[projectActivity] updateKanbanStatus:", err);
+          });
+        }
       }
 
       return updated;
@@ -1153,12 +1205,38 @@ export const actionRouter = createTRPCRouter({
       actionIds: z.array(z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Snapshot project links + names BEFORE deleting so we can write activity rows.
+      const toDelete = await ctx.db.action.findMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        select: { id: true, name: true, projectId: true },
+      });
+
       const result = await ctx.db.action.deleteMany({
         where: {
           id: { in: input.actionIds },
           ...buildActionAccessWhere(ctx.session.user.id),
         },
       });
+
+      const projectScoped = toDelete.filter((a) => a.projectId !== null);
+      if (projectScoped.length > 0) {
+        void Promise.all(
+          projectScoped.map((a) =>
+            logProjectActivity(ctx.db, {
+              projectId: a.projectId!,
+              actionId: null,
+              type: PROJECT_ACTIVITY_TYPES.ACTION_DELETED,
+              fromValue: a.name,
+              changedById: ctx.session.user.id,
+            }),
+          ),
+        ).catch((err: unknown) => {
+          console.error("[projectActivity] bulkDelete:", err);
+        });
+      }
 
       return {
         count: result.count,
@@ -1375,6 +1453,14 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // Snapshot existing assignees so we can compute the diff for activity logging.
+      const priorAssignees = await ctx.db.actionAssignee.findMany({
+        where: { actionId: input.actionId },
+        select: { userId: true },
+      });
+      const priorIds = priorAssignees.map((a) => a.userId);
+      const nextIds = Array.from(new Set([...priorIds, ...input.userIds]));
+
       // Create assignments for each user (using createMany with skipDuplicates)
       await ctx.db.actionAssignee.createMany({
         data: input.userIds.map(userId => ({
@@ -1383,6 +1469,17 @@ export const actionRouter = createTRPCRouter({
         })),
         skipDuplicates: true,
       });
+
+      if (action.projectId && nextIds.length !== priorIds.length) {
+        void logActionDiffActivities(ctx.db, {
+          projectId: action.projectId,
+          actionId: input.actionId,
+          changedById: ctx.session.user.id,
+          diff: { assigneeIds: { from: priorIds, to: nextIds } },
+        }).catch((err: unknown) => {
+          console.error("[projectActivity] assign:", err);
+        });
+      }
 
       // Fire-and-forget email notifications for newly assigned users
       void sendAssignmentNotifications(ctx.db, {
@@ -1436,6 +1533,15 @@ export const actionRouter = createTRPCRouter({
         throw new Error("You don't have permission to modify this action");
       }
 
+      // Snapshot existing assignees so we can log the diff
+      const priorAssignees = await ctx.db.actionAssignee.findMany({
+        where: { actionId: input.actionId },
+        select: { userId: true },
+      });
+      const priorIds = priorAssignees.map((a) => a.userId);
+      const removeSet = new Set(input.userIds);
+      const nextIds = priorIds.filter((id) => !removeSet.has(id));
+
       // Remove assignments
       await ctx.db.actionAssignee.deleteMany({
         where: {
@@ -1443,6 +1549,17 @@ export const actionRouter = createTRPCRouter({
           userId: { in: input.userIds },
         },
       });
+
+      if (action.projectId && nextIds.length !== priorIds.length) {
+        void logActionDiffActivities(ctx.db, {
+          projectId: action.projectId,
+          actionId: input.actionId,
+          changedById: ctx.session.user.id,
+          diff: { assigneeIds: { from: priorIds, to: nextIds } },
+        }).catch((err: unknown) => {
+          console.error("[projectActivity] unassign:", err);
+        });
+      }
 
       // Return updated action with assignees
       return ctx.db.action.findUnique({
@@ -1933,6 +2050,19 @@ export const actionRouter = createTRPCRouter({
         }).catch((err: unknown) => {
           console.error("Failed to record status change:", err);
         });
+
+        if (action.projectId) {
+          void logProjectActivity(ctx.db, {
+            projectId: action.projectId,
+            actionId,
+            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
+            fromValue: action.kanbanStatus,
+            toValue: kanbanStatus,
+            changedById: ctx.session.user.id,
+          }).catch((err: unknown) => {
+            console.error("[projectActivity] moveKanbanCard:", err);
+          });
+        }
       }
 
       return updated;

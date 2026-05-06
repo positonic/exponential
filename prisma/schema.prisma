@@ -155,6 +155,8 @@ model User {
   // Auto-scheduling relations
   taskSchedulesCreated        TaskSchedule[]              @relation("TaskScheduleCreator")
   recurringTasksCreated       RecurringTask[]             @relation("RecurringTaskCreator")
+  // Project activity audit log
+  projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
 
   // Onboarding: Attribution
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
@@ -525,6 +527,7 @@ model Action {
   // PM Agent tracking
   githubActivities     GitHubActivity[]
   statusChanges        ActionStatusChange[]
+  projectActivities    ProjectActivity[]
   actionScreenshots    ActionScreenshot[]
   comments             ActionComment[]
 
@@ -670,6 +673,7 @@ model Project {
   lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
   resources             Resource[]
   recurringTasks        RecurringTask[]
+  activities            ProjectActivity[]
   keyResults            KeyResultProject[] // Key results this project contributes to
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
@@ -3207,6 +3211,27 @@ model ActionStatusChange {
   @@index([actionId])
   @@index([changedAt])
   @@index([toStatus])
+}
+
+// Generic per-project audit log: powers "What shifted this week".
+// type values: "STATUS_CHANGED" | "DUE_DATE_CHANGED" | "ASSIGNEE_CHANGED" | "ACTION_CREATED" | "ACTION_DELETED"
+model ProjectActivity {
+  id          String   @id @default(cuid())
+  projectId   String
+  actionId    String?
+  type        String
+  fromValue   String?
+  toValue     String?
+  metadata    Json?
+  changedById String?
+  changedAt   DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  action    Action? @relation(fields: [actionId], references: [id], onDelete: SetNull)
+  changedBy User?   @relation("ProjectActivityAuthor", fields: [changedById], references: [id])
+
+  @@index([projectId, changedAt])
+  @@index([actionId])
 }
 
 model PMAgentConfig {

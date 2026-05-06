@@ -2,38 +2,24 @@
 
 import { useMemo, useState } from "react";
 import {
-  ActionIcon,
-  Badge,
-  Group,
-  Indicator,
-  Stack,
-  Text,
-  Tooltip,
-} from "@mantine/core";
-import { Calendar } from "@mantine/dates";
-import {
+  IconActivity,
+  IconCalendarEvent,
   IconChecklist,
-  IconDotsVertical,
-  IconExternalLink,
   IconLayersIntersect,
-  IconPlus,
-  IconTarget,
+  IconMessage,
   IconTargetArrow,
-  IconTrash,
 } from "@tabler/icons-react";
+import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
-import { format, isSameDay, isToday, isTomorrow, startOfDay } from "date-fns";
-import { CreateActionModal } from "./CreateActionModal";
-import { CreateGoalModal } from "./CreateGoalModal";
-import { CreateOutcomeModal } from "./CreateOutcomeModal";
-import { ProjectCalendarCard } from "./ProjectCalendarCard";
-import { ProjectOverviewTimeline } from "./ProjectOverviewTimeline";
+import { OutcomeTimeline } from "./OutcomeTimeline";
+import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
 type Outcome = RouterOutputs["outcome"]["getProjectOutcomes"][number];
-type Action = RouterOutputs["action"]["getProjectActions"][number];
+type ActivityRow = RouterOutputs["project"]["getRecentActivity"][number];
+type Transcription = NonNullable<Project["transcriptionSessions"]>[number];
 
 interface ProjectOverviewProps {
   project: Project;
@@ -41,463 +27,385 @@ interface ProjectOverviewProps {
   outcomes: Outcome[];
 }
 
-type ShowFilter = "active" | "all" | "done";
+const STANDUP_NOTES_PREVIEW_CHARS = 200;
 
-function outcomeTypeColor(type: string | null | undefined): string {
-  switch (type?.toUpperCase()) {
-    case "DAILY":
-      return "blue";
-    case "WEEKLY":
-      return "teal";
-    case "MONTHLY":
-      return "violet";
-    case "QUARTERLY":
-      return "orange";
+function startOfThisWeek(): Date {
+  const today = startOfDay(new Date());
+  const day = today.getDay(); // 0=Sun … 6=Sat
+  const diffToMonday = (day + 6) % 7;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - diffToMonday);
+  return monday;
+}
+
+function endOfThisWeek(): Date {
+  const monday = startOfThisWeek();
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 7);
+  return sunday;
+}
+
+function formatRelativeDay(date: Date): string {
+  const today = startOfDay(new Date());
+  const target = startOfDay(date);
+  if (isSameDay(target, today)) return "Today";
+  const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 1) return "Tomorrow";
+  if (diffDays === -1) return "Yesterday";
+  return format(date, "EEE MMM d");
+}
+
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return (first + last).toUpperCase() || "?";
+}
+
+function healthClass(health: string | null | undefined): string {
+  switch (health) {
+    case "on-track":
+      return styles.healthOnTrack!;
+    case "at-risk":
+      return styles.healthAtRisk!;
+    case "off-track":
+      return styles.healthOffTrack!;
     default:
-      return "gray";
+      return styles.healthNoUpdate!;
   }
 }
 
-function formatDueDate(date: Date | null | undefined): string | null {
-  if (!date) return null;
-  const d = new Date(date);
-  if (isToday(d)) return "Today";
-  if (isTomorrow(d)) return "Tomorrow";
-  return format(d, "MMM d");
+function healthLabel(health: string | null | undefined): string {
+  switch (health) {
+    case "on-track":
+      return "On track";
+    case "at-risk":
+      return "At risk";
+    case "off-track":
+      return "Off track";
+    default:
+      return "No update";
+  }
 }
 
-function isOverdue(date: Date | null | undefined): boolean {
-  if (!date) return false;
-  return new Date(date) < startOfDay(new Date());
+function activityDotClass(type: string): string {
+  switch (type) {
+    case "STATUS_CHANGED":
+      return styles.activityDotStatus!;
+    case "DUE_DATE_CHANGED":
+      return styles.activityDotDue!;
+    case "ASSIGNEE_CHANGED":
+      return styles.activityDotAssignee!;
+    case "ACTION_CREATED":
+      return styles.activityDotCreated!;
+    case "ACTION_DELETED":
+      return styles.activityDotDeleted!;
+    default:
+      return "";
+  }
+}
+
+function describeActivity(row: ActivityRow): { verb: string; target: string | null; detail: string | null } {
+  const targetName = row.action?.name ?? row.fromValue ?? null;
+  switch (row.type) {
+    case "STATUS_CHANGED":
+      return {
+        verb: "moved",
+        target: targetName,
+        detail: row.fromValue && row.toValue ? `${row.fromValue} → ${row.toValue}` : row.toValue,
+      };
+    case "DUE_DATE_CHANGED": {
+      const fromLabel = row.fromValue ? format(new Date(row.fromValue), "MMM d") : "no date";
+      const toLabel = row.toValue ? format(new Date(row.toValue), "MMM d") : "no date";
+      return {
+        verb: "rescheduled",
+        target: targetName,
+        detail: `${fromLabel} → ${toLabel}`,
+      };
+    }
+    case "ASSIGNEE_CHANGED":
+      return { verb: "changed assignees on", target: targetName, detail: null };
+    case "ACTION_CREATED":
+      return { verb: "created", target: row.toValue ?? targetName, detail: null };
+    case "ACTION_DELETED":
+      return { verb: "deleted", target: row.fromValue ?? targetName, detail: null };
+    default:
+      return { verb: row.type, target: targetName, detail: null };
+  }
 }
 
 export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
-  const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date>(new Date());
-  const [showFilter, setShowFilter] = useState<ShowFilter>("active");
+  const [openTranscription, setOpenTranscription] = useState<Transcription | null>(null);
 
-  const utils = api.useUtils();
-  const { data: actions = [] } = api.action.getProjectActions.useQuery({
+  const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
+  const { data: activity = [] } = api.project.getRecentActivity.useQuery({
     projectId: project.id,
+    sinceDays: 7,
+    limit: 12,
   });
+  const transcriptions = project.transcriptionSessions ?? [];
 
-  const deleteGoalMutation = api.goal.deleteGoal.useMutation({
-    onSuccess: () => {
-      void utils.goal.getProjectGoals.invalidate({ projectId: project.id });
-    },
-  });
+  const weekStart = useMemo(() => startOfThisWeek(), []);
+  const weekEnd = useMemo(() => endOfThisWeek(), []);
+  const today = useMemo(() => startOfDay(new Date()), []);
 
-  const updateActionMutation = api.action.update.useMutation({
-    onSuccess: async () => {
-      await utils.action.getProjectActions.invalidate({ projectId: project.id });
-      await utils.action.getToday.invalidate();
-    },
-  });
+  const outcomesThisWeek = useMemo(
+    () =>
+      outcomes
+        .filter((o) => o.dueDate && isAfter(new Date(o.dueDate), new Date(weekStart.getTime() - 1)) && isBefore(new Date(o.dueDate), weekEnd))
+        .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()),
+    [outcomes, weekStart, weekEnd],
+  );
 
-  const toggleAction = (action: Action) => {
-    const nextStatus = action.status === "COMPLETED" ? "ACTIVE" : "COMPLETED";
-    updateActionMutation.mutate({ id: action.id, status: nextStatus });
-  };
+  const actionsThisWeek = useMemo(() => {
+    return actions
+      .filter((a) => {
+        if (a.status === "COMPLETED") return false;
+        if (!a.dueDate) return false;
+        const due = new Date(a.dueDate);
+        const isOverdue = isBefore(due, today);
+        const inWeek = isAfter(due, new Date(weekStart.getTime() - 1)) && isBefore(due, weekEnd);
+        return isOverdue || inWeek;
+      })
+      .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
+  }, [actions, weekStart, weekEnd, today]);
 
-  const handleDeleteGoal = (goalId: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirm("Are you sure you want to delete this goal?")) {
-      deleteGoalMutation.mutate({ id: goalId });
-    }
-  };
-
-  // Calendar helpers — event dots for goals/outcomes/project dates
-  const getItemsForDate = (date: Date) => {
-    const dateStr = date.toDateString();
-    const items: { type: "goal" | "outcome" | "project"; title: string; color: string }[] = [];
-    if (project.reviewDate && new Date(project.reviewDate).toDateString() === dateStr) {
-      items.push({ type: "project", title: "Project End", color: "red" });
-    }
-    if (project.nextActionDate && new Date(project.nextActionDate).toDateString() === dateStr) {
-      items.push({ type: "project", title: "Project Start", color: "orange" });
-    }
-    for (const g of goals) {
-      if (g.dueDate && new Date(g.dueDate).toDateString() === dateStr) {
-        items.push({ type: "goal", title: g.title, color: "yellow" });
-      }
-    }
-    for (const o of outcomes) {
-      if (o.dueDate && new Date(o.dueDate).toDateString() === dateStr) {
-        items.push({ type: "outcome", title: o.description, color: "teal" });
-      }
-    }
-    return items;
-  };
-
-  const visibleActions = useMemo(() => {
-    return actions.filter((a) => {
-      const done = a.status === "COMPLETED";
-      if (showFilter === "active") return !done;
-      if (showFilter === "done") return done;
-      return true;
-    });
-  }, [actions, showFilter]);
+  const standupTranscriptions = transcriptions.slice(0, 3);
 
   return (
-    <div className={styles.grid}>
-      {/* ── LEFT column ─────────────────────────────── */}
-      <div>
-        {/* Mini calendar */}
-        <div className={styles.card}>
-          <div className={styles.calendarWrap}>
-            <Calendar
-              date={calendarSelectedDate}
-              getDayProps={(date) => ({
-                selected: isSameDay(date, calendarSelectedDate),
-                onClick: () => setCalendarSelectedDate(date),
-              })}
-              renderDay={(date) => {
-                const day = date.getDate();
-                const items = getItemsForDate(date);
-                if (items.length === 0) {
-                  return <div>{day}</div>;
-                }
-                return (
-                  <Tooltip
-                    label={
-                      <Stack gap={4}>
-                        {items.map((item, idx) => (
-                          <Group key={idx} gap="xs">
-                            <Badge size="xs" color={item.color} variant="filled">
-                              {item.type}
-                            </Badge>
-                            <Text size="xs" lineClamp={1}>
-                              {item.title}
-                            </Text>
-                          </Group>
-                        ))}
-                      </Stack>
-                    }
-                    withArrow
-                    multiline
-                    w={220}
-                  >
-                    <Indicator size={6} color={items[0]?.color ?? "blue"} offset={-2}>
-                      <div>{day}</div>
-                    </Indicator>
-                  </Tooltip>
-                );
-              }}
-            />
+    <div className={styles.dashboard}>
+      {/* ── 1. OKR alignment strip ──────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>
+            <IconTargetArrow size={14} className={styles.sectionTitleIcon} />
+            OKR alignment
+            <span className={styles.sectionMeta}>{goals.length}</span>
           </div>
         </div>
-
-        {/* Today's Schedule — reuse existing component */}
-        <ProjectCalendarCard
-          projectId={project.id}
-          projectName={project.name}
-          selectedDate={calendarSelectedDate}
-        />
-      </div>
-
-      {/* ── MIDDLE column ───────────────────────────── */}
-      <div>
-        {/* Goals card */}
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div className={styles.cardTitle}>
-              <IconTarget size={14} className={styles.cardTitleIcon} />
-              Goals
-              <span className={styles.cardCount}>{goals.length}</span>
-            </div>
-            <div className={styles.cardHeadActions}>
-              <CreateGoalModal projectId={project.id}>
-                <ActionIcon variant="subtle" size="sm" aria-label="Add goal">
-                  <IconPlus size={14} />
-                </ActionIcon>
-              </CreateGoalModal>
-            </div>
-          </div>
-
+        <div className={styles.sectionBody}>
           {goals.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>
-                <IconTarget size={16} />
-              </div>
-              <div>No goals linked to this project yet</div>
-              <CreateGoalModal projectId={project.id}>
-                <button type="button" className={styles.emptyCta}>
-                  <IconPlus size={12} />
-                  Link a goal
-                </button>
-              </CreateGoalModal>
-            </div>
-          ) : (
-            <div className={styles.rowList}>
-              {goals.slice(0, 5).map((goal) => (
-                <div key={goal.id} className={styles.rowItem}>
-                  <CreateGoalModal
-                    goal={{
-                      id: goal.id,
-                      title: goal.title,
-                      description: goal.description,
-                      whyThisGoal: goal.whyThisGoal,
-                      notes: goal.notes,
-                      dueDate: goal.dueDate,
-                      period: goal.period ?? null,
-                      lifeDomainId: goal.lifeDomainId,
-                      outcomes: goal.outcomes,
-                    }}
-                    trigger={
-                      <div className={styles.rowBody}>
-                        <div className={styles.rowTitle}>{goal.title}</div>
-                        <div className={styles.rowSub}>
-                          {goal.lifeDomain && <span>{goal.lifeDomain.title}</span>}
-                          {goal.dueDate && (
-                            <span>Due {format(new Date(goal.dueDate), "MMM d")}</span>
-                          )}
-                        </div>
-                      </div>
-                    }
-                  />
-                  <ActionIcon
-                    variant="subtle"
-                    color="red"
-                    size="sm"
-                    onClick={(e) => handleDeleteGoal(goal.id, e)}
-                    loading={deleteGoalMutation.isPending}
-                    aria-label="Delete goal"
-                  >
-                    <IconTrash size={12} />
-                  </ActionIcon>
-                </div>
-              ))}
-              {goals.length > 5 && (
-                <div className={styles.rowSub} style={{ padding: "8px 16px" }}>
-                  +{goals.length - 5} more goals
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Outcomes card */}
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div className={styles.cardTitle}>
-              <IconTargetArrow size={14} className={styles.cardTitleIcon} />
-              Outcomes
-              <span className={styles.cardCount}>{outcomes.length}</span>
-            </div>
-            <div className={styles.cardHeadActions}>
-              <CreateOutcomeModal projectId={project.id}>
-                <ActionIcon variant="subtle" size="sm" aria-label="Add outcome">
-                  <IconPlus size={14} />
-                </ActionIcon>
-              </CreateOutcomeModal>
-            </div>
-          </div>
-
-          {outcomes.length === 0 ? (
             <div className={styles.empty}>
               <div className={styles.emptyIcon}>
                 <IconTargetArrow size={16} />
               </div>
-              <div>No outcomes linked to this project yet</div>
-              <CreateOutcomeModal projectId={project.id}>
-                <button type="button" className={styles.emptyCta}>
-                  <IconPlus size={12} />
-                  Add outcome
-                </button>
-              </CreateOutcomeModal>
+              <div>No goal linked yet — link one to see alignment here.</div>
             </div>
           ) : (
-            <div className={styles.rowList}>
-              {outcomes.slice(0, 5).map((outcome) => (
-                <CreateOutcomeModal
-                  key={outcome.id}
-                  outcome={{
-                    id: outcome.id,
-                    description: outcome.description,
-                    dueDate: outcome.dueDate,
-                    type: (outcome.type ?? "daily") as
-                      | "daily"
-                      | "weekly"
-                      | "monthly"
-                      | "quarterly"
-                      | "annual"
-                      | "life"
-                      | "problem",
-                    whyThisOutcome: outcome.whyThisOutcome,
-                    projectId: project.id,
-                    goalId: outcome.goals?.[0]?.id,
-                  }}
-                  trigger={
-                    <div className={styles.rowItem}>
-                      <div className={styles.rowBody}>
-                        <div className={styles.rowTitle}>{outcome.description}</div>
-                        <div className={styles.rowSub}>
-                          {outcome.type && (
-                            <Badge
-                              variant="light"
-                              color={outcomeTypeColor(outcome.type)}
-                              size="xs"
-                            >
-                              {outcome.type}
-                            </Badge>
-                          )}
-                          {outcome.dueDate && (
-                            <span>Due {format(new Date(outcome.dueDate), "MMM d")}</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  }
-                />
-              ))}
-              {outcomes.length > 5 && (
-                <div className={styles.rowSub} style={{ padding: "8px 16px" }}>
-                  +{outcomes.length - 5} more outcomes
+            <div className={styles.okrStrip}>
+              {goals.map((goal) => (
+                <div key={goal.id} className={styles.okrChip}>
+                  <div className={styles.okrChipTop}>
+                    <span className={styles.okrChipTitle}>{goal.title}</span>
+                    <span className={`${styles.healthBadge} ${healthClass(goal.health)}`}>
+                      {healthLabel(goal.health)}
+                    </span>
+                  </div>
+                  <div className={styles.okrChipSub}>
+                    {goal.period && <span>{goal.period}</span>}
+                    {goal.dueDate && <span>Due {format(new Date(goal.dueDate), "MMM d")}</span>}
+                    {goal.lifeDomain?.title && <span>{goal.lifeDomain.title}</span>}
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
           )}
         </div>
+      </section>
 
-        {/* Timeline card */}
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div className={styles.cardTitle}>
-              <IconLayersIntersect size={14} className={styles.cardTitleIcon} />
-              Timeline
-            </div>
-            <div className={styles.cardHeadActions}>
-              <ActionIcon variant="subtle" size="sm" aria-label="View full timeline">
-                <IconExternalLink size={12} />
-              </ActionIcon>
-            </div>
+      {/* ── 2. Timeline ─────────────────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>
+            <IconLayersIntersect size={14} className={styles.sectionTitleIcon} />
+            Timeline
           </div>
-          <ProjectOverviewTimeline
-            project={project}
-            goals={goals}
-            outcomes={outcomes}
-            actions={actions}
-          />
         </div>
-      </div>
+        <OutcomeTimeline projectId={project.id} />
+      </section>
 
-      {/* ── RIGHT column ────────────────────────────── */}
-      <div>
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div className={styles.cardTitle}>
-              <IconChecklist size={14} className={styles.cardTitleIcon} />
-              Project Actions
-              <span className={styles.cardCount}>{visibleActions.length}</span>
-            </div>
-            <div className={styles.cardHeadActions}>
-              <div className={styles.showSeg}>
-                {(["active", "all", "done"] as const).map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={showFilter === id ? "on" : ""}
-                    onClick={() => setShowFilter(id)}
-                  >
-                    {id[0]!.toUpperCase() + id.slice(1)}
-                  </button>
-                ))}
-              </div>
-              <CreateActionModal
-                projectId={project.id}
-                viewName={`project-${project.id}`}
-              >
-                <ActionIcon variant="subtle" size="sm" aria-label="Add action">
-                  <IconPlus size={14} />
-                </ActionIcon>
-              </CreateActionModal>
+      {/* ── 3. This week ────────────────────────────────── */}
+      <div className={styles.twoCol}>
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconCalendarEvent size={14} className={styles.sectionTitleIcon} />
+              Outcomes this week
+              <span className={styles.sectionMeta}>{outcomesThisWeek.length}</span>
             </div>
           </div>
+          <div className={styles.sectionBodyFlush}>
+            {outcomesThisWeek.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <IconCalendarEvent size={16} />
+                </div>
+                <div>Nothing due this week.</div>
+              </div>
+            ) : (
+              outcomesThisWeek.map((o) => (
+                <div key={o.id} className={styles.row}>
+                  <div className={styles.rowBody}>
+                    <div className={styles.rowTitle}>{o.description}</div>
+                    <div className={styles.rowSub}>
+                      {o.type && <span>{o.type}</span>}
+                      {o.dueDate && <span className={styles.rowDue}>{formatRelativeDay(new Date(o.dueDate))}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
 
-          <div className={styles.actions}>
-            {visibleActions.length === 0 ? (
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconChecklist size={14} className={styles.sectionTitleIcon} />
+              Actions this week
+              <span className={styles.sectionMeta}>{actionsThisWeek.length}</span>
+            </div>
+          </div>
+          <div className={styles.sectionBodyFlush}>
+            {actionsThisWeek.length === 0 ? (
               <div className={styles.empty}>
                 <div className={styles.emptyIcon}>
                   <IconChecklist size={16} />
                 </div>
-                <div>
-                  {showFilter === "done"
-                    ? "No completed actions yet"
-                    : showFilter === "all"
-                      ? "No actions for this project yet"
-                      : "Nothing active — all caught up"}
-                </div>
+                <div>No actions due this week.</div>
               </div>
             ) : (
-              visibleActions.map((action) => {
-                const done = action.status === "COMPLETED";
-                const due = formatDueDate(action.dueDate);
-                const overdue = !done && isOverdue(action.dueDate);
+              actionsThisWeek.map((a) => {
+                const due = a.dueDate ? new Date(a.dueDate) : null;
+                const overdue = due ? isBefore(due, today) : false;
+                const firstAssignee = a.assignees?.[0]?.user;
                 return (
-                  <button
-                    key={action.id}
-                    type="button"
-                    className={`${styles.action} ${done ? styles.actionDone : ""}`}
-                    onClick={() => toggleAction(action)}
-                  >
-                    <div className={styles.actionCheck}>
-                      {done && (
-                        <svg
-                          width="10"
-                          height="10"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="5 12 10 17 19 7" />
-                        </svg>
-                      )}
-                    </div>
-                    <div className={styles.actionBody}>
-                      <div className={styles.actionTitle}>{action.name}</div>
-                      <div className={styles.actionMeta}>
-                        <span className={styles.actionMetaTag}>
-                          {action.priority ?? "Action"}
-                        </span>
+                  <div key={a.id} className={styles.row}>
+                    {firstAssignee && (
+                      <span className={styles.rowAvatar} aria-label={firstAssignee.name ?? "Assignee"}>
+                        {getInitials(firstAssignee.name)}
+                      </span>
+                    )}
+                    <div className={styles.rowBody}>
+                      <div className={styles.rowTitle}>{a.name}</div>
+                      <div className={styles.rowSub}>
+                        <span>{a.priority ?? "Action"}</span>
                         {due && (
-                          <span
-                            className={`${styles.actionMetaDue} ${
-                              overdue ? styles.actionMetaDueUrgent : ""
-                            }`}
-                          >
-                            {due}
+                          <span className={`${styles.rowDue} ${overdue ? styles.rowDueOverdue : ""}`}>
+                            {overdue ? "Overdue · " : ""}
+                            {formatRelativeDay(due)}
                           </span>
                         )}
                       </div>
                     </div>
-                    <span
-                      className={styles.actionMenu}
-                      role="button"
-                      tabIndex={-1}
-                      aria-label="Action menu"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <IconDotsVertical size={14} />
-                    </span>
-                  </button>
+                  </div>
                 );
               })
             )}
           </div>
-
-          <CreateActionModal
-            projectId={project.id}
-            viewName={`project-${project.id}`}
-          >
-            <button type="button" className={styles.addRow}>
-              <IconPlus size={12} />
-              Add action…
-            </button>
-          </CreateActionModal>
-        </div>
+        </section>
       </div>
+
+      {/* ── 4. What shifted this week ───────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>
+            <IconActivity size={14} className={styles.sectionTitleIcon} />
+            What shifted this week
+            <span className={styles.sectionMeta}>{activity.length}</span>
+          </div>
+        </div>
+        <div className={styles.sectionBodyFlush}>
+          {activity.length === 0 ? (
+            <div className={styles.empty}>
+              <div className={styles.emptyIcon}>
+                <IconActivity size={16} />
+              </div>
+              <div>No changes recorded in the last 7 days.</div>
+            </div>
+          ) : (
+            activity.map((row) => {
+              const { verb, target, detail } = describeActivity(row);
+              const actor = row.changedBy?.name ?? "Someone";
+              return (
+                <div key={row.id} className={styles.activityRow}>
+                  <span className={`${styles.activityDot} ${activityDotClass(row.type)}`} />
+                  <div className={styles.activityBody}>
+                    <span className={styles.activityActor}>{actor}</span>
+                    <span className={styles.activityVerb}> {verb} </span>
+                    {target && <span className={styles.activityTarget}>{target}</span>}
+                    {detail && <span className={styles.activityVerb}> · {detail}</span>}
+                    <div className={styles.activityMeta}>
+                      {formatDistanceToNow(new Date(row.changedAt), { addSuffix: true })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      {/* ── 5. Recent standups ──────────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>
+            <IconMessage size={14} className={styles.sectionTitleIcon} />
+            Recent standups
+            <span className={styles.sectionMeta}>{standupTranscriptions.length}</span>
+          </div>
+        </div>
+        <div className={styles.sectionBodyFlush}>
+          {standupTranscriptions.length === 0 ? (
+            <div className={styles.empty}>
+              <div className={styles.emptyIcon}>
+                <IconMessage size={16} />
+              </div>
+              <div>No standups recorded yet.</div>
+            </div>
+          ) : (
+            standupTranscriptions.map((t) => {
+              const notesPreview = t.notes
+                ? t.notes.slice(0, STANDUP_NOTES_PREVIEW_CHARS) +
+                  (t.notes.length > STANDUP_NOTES_PREVIEW_CHARS ? "…" : "")
+                : null;
+              const dateLabel = t.meetingDate
+                ? format(new Date(t.meetingDate), "MMM d, yyyy")
+                : t.processedAt
+                  ? format(new Date(t.processedAt), "MMM d, yyyy")
+                  : "";
+              const liveActions = t.actions.filter((a) => a.status !== "DELETED").length;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={styles.standup}
+                  onClick={() => setOpenTranscription(t)}
+                >
+                  <div className={styles.standupTop}>
+                    <span className={styles.standupTitle}>{t.title ?? "Standup"}</span>
+                    <span className={styles.standupDate}>{dateLabel}</span>
+                  </div>
+                  {notesPreview && <div className={styles.standupNotes}>{notesPreview}</div>}
+                  {liveActions > 0 && (
+                    <span className={styles.standupActionPill}>
+                      {liveActions} action{liveActions === 1 ? "" : "s"} extracted
+                    </span>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+      <TranscriptionDetailsModal
+        opened={!!openTranscription}
+        onClose={() => setOpenTranscription(null)}
+        transcription={openTranscription}
+        onTranscriptionUpdate={(updated) => setOpenTranscription(updated as Transcription)}
+      />
     </div>
   );
 }
