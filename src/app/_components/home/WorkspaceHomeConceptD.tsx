@@ -43,12 +43,12 @@ const MODES: { id: Mode; label: string; icon: React.ElementType }[] = [
   { id: 'ai', label: 'Ask Zoe', icon: IconMessageCircle },
 ];
 
-const SUGGESTED = [
-  { icon: IconFlag, label: 'Run weekly review', sub: 'Keystone ritual · 45 min', href: null },
-  { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe', href: null },
-  { icon: IconPlus, label: 'Create project', sub: 'Start from template', href: null },
-  { icon: IconCalendar, label: 'Plan my day', sub: 'Ask Zoe', href: null },
-] as const;
+type SuggestedItem = {
+  icon: React.ElementType;
+  label: string;
+  sub: string;
+  href: string | null;
+};
 
 function formatDate(date: Date): string {
   return date.toLocaleDateString('en-US', {
@@ -83,7 +83,19 @@ export function WorkspaceHomeConceptD() {
     )
     .slice(0, 4);
 
-  const totalRows = filteredProjects.length + SUGGESTED.length;
+  const suggested: SuggestedItem[] = [
+    {
+      icon: IconFlag,
+      label: 'Plan your week',
+      sub: 'Keystone ritual · 45 min',
+      href: workspaceSlug ? `/w/${workspaceSlug}/weekly-plan` : null,
+    },
+    { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe', href: null },
+    { icon: IconPlus, label: 'Create project', sub: 'Start from template', href: null },
+    { icon: IconCalendar, label: 'Plan my day', sub: 'Ask Zoe', href: null },
+  ];
+
+  const totalRows = filteredProjects.length + suggested.length;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -112,7 +124,7 @@ export function WorkspaceHomeConceptD() {
     setHighlightedIndex(null);
   }, [query]);
 
-  const hasResults = filteredProjects.length > 0 || SUGGESTED.length > 0;
+  const hasResults = filteredProjects.length > 0 || suggested.length > 0;
   const showNoResults = query.length > 0 && filteredProjects.length === 0;
 
   return (
@@ -268,15 +280,12 @@ export function WorkspaceHomeConceptD() {
 
               <div>
                 <div className={styles.colHeading}>Suggested</div>
-                {SUGGESTED.map((item, i) => {
+                {suggested.map((item, i) => {
                   const Icon = item.icon;
                   const highlightIdx = filteredProjects.length + i;
-                  return (
-                    <UnstyledButton
-                      key={item.label}
-                      className={styles.resultRow}
-                      data-highlighted={highlightedIndex === highlightIdx ? 'true' : 'false'}
-                    >
+                  const isHighlighted = highlightedIndex === highlightIdx ? 'true' : 'false';
+                  const content = (
+                    <>
                       <Icon
                         size={14}
                         stroke={1.75}
@@ -300,6 +309,25 @@ export function WorkspaceHomeConceptD() {
                       >
                         {item.sub}
                       </Text>
+                    </>
+                  );
+                  return item.href ? (
+                    <UnstyledButton
+                      key={item.label}
+                      component={Link}
+                      href={item.href}
+                      className={styles.resultRow}
+                      data-highlighted={isHighlighted}
+                    >
+                      {content}
+                    </UnstyledButton>
+                  ) : (
+                    <UnstyledButton
+                      key={item.label}
+                      className={styles.resultRow}
+                      data-highlighted={isHighlighted}
+                    >
+                      {content}
                     </UnstyledButton>
                   );
                 })}
