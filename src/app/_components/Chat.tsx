@@ -170,13 +170,20 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
+      // Server emits a final __exp_meta__:{...}\n frame after the
+      // text-delta stream — strip it so it doesn't appear in the UI.
+      // U+001E (Record Separator) is virtually never present in AI output.
+      const META_RE = /\n?__exp_meta__:[^\n]*\n?/;
+      let buffer = '';
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
+          buffer += decoder.decode(value, { stream: true });
+          const metaIdx = buffer.search(META_RE);
+          const display = metaIdx === -1 ? buffer : buffer.slice(0, metaIdx);
 
           setMessages(prev => {
             const updated = [...prev];
@@ -184,7 +191,7 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
             if (lastMessage && lastMessage.type === 'ai') {
               updated[updated.length - 1] = {
                 ...lastMessage,
-                content: lastMessage.content + chunk,
+                content: display,
               };
             }
             return updated;

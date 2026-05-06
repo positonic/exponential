@@ -567,7 +567,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [isStreaming, setIsStreaming] = useState(false);
   const transcribeAudio = api.tools.transcribe.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
-  const logInteraction = api.aiInteraction.logInteraction.useMutation();
+  // Server-side /api/chat/stream now logs interactions (with full token/cache
+  // data) and surfaces the row id back via the meta frame. The previous
+  // client-side logInteraction.mutateAsync was removed to fix double-logging.
   const startConversation = api.aiInteraction.startConversation.useMutation();
   
   // Fetch project context when projectId is provided
@@ -994,6 +996,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         workspaceId,
         projectId,
         conversationId,
+        platform: "manychat" as const,
       };
 
       // Debug: always log what we're sending to Mastra
@@ -1044,6 +1047,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
+      // Server emits a final  __exp_meta__:{...}\n frame carrying
+      // { interactionId, modelId } — strip it from rendered text.
+      // U+001E is virtually never present in normal AI output.
+      const META_RE = /\n?__exp_meta__:([^\n]*)\n?/;
+      let interactionId: string | undefined;
 
       if (reader) {
         while (true) {
@@ -1054,17 +1062,47 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           const chunk = decoder.decode(value, { stream: true });
           fullResponse += chunk;
 
+          // If the meta frame has arrived (possibly mid-chunk), peel it off
+          // before rendering so the user never briefly sees the sentinel.
+          let displayResponse = fullResponse;
+          const metaMatch = META_RE.exec(fullResponse);
+          if (metaMatch) {
+            displayResponse = fullResponse.slice(0, metaMatch.index);
+            try {
+              const meta = JSON.parse(metaMatch[1] ?? "") as {
+                interactionId?: string;
+              };
+              if (meta.interactionId) interactionId = meta.interactionId;
+            } catch {
+              // Frame split across chunks: try again next iteration.
+            }
+          }
+
           setMessages(prev => {
             const updated = [...prev];
             const lastMessage = updated[updated.length - 1];
             if (lastMessage && lastMessage.type === 'ai') {
               updated[updated.length - 1] = {
                 ...lastMessage,
-                content: fullResponse,
+                content: displayResponse,
               };
             }
             return updated;
           });
+        }
+      }
+
+      // Final strip: ensure fullResponse used downstream (length checks,
+      // emptyResponse logic) excludes the meta sentinel.
+      const finalMatch = META_RE.exec(fullResponse);
+      if (finalMatch) {
+        fullResponse = fullResponse.slice(0, finalMatch.index);
+        try {
+          const meta = JSON.parse(finalMatch[1] ?? "") as { interactionId?: string };
+          interactionId ??= meta.interactionId;
+        } catch {
+          // Unparseable meta frame — interactionId stays undefined; feedback
+          // UI handles missing IDs by not rendering the rating affordance.
         }
       }
 
@@ -1105,43 +1143,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         });
       }
 
-      // Log the successful interaction after streaming completes
-      let interactionId: string | undefined;
-      try {
-        const logResult = await logInteraction.mutateAsync({
-          platform: "manychat",
-          conversationId: conversationId || undefined,
-          userMessage: input,
-          cleanMessage: messageToSend !== input ? messageToSend : undefined,
-          aiResponse: fullResponse || "(empty response from agent)",
-          agentId: targetAgentId,
-          agentName: agentName,
-          model: "mastra-agents",
-          messageType: mentionedAgentId ? "command" : "question",
-          responseTime,
-          projectId: projectId || undefined,
-          toolsUsed: [],
-          actionsTaken: [],
-          hadError: isEmptyResponse,
-          errorMessage: isEmptyResponse ? 'empty-response' : undefined,
+      // The server logs the interaction in /api/chat/stream's onFinish path
+      // (with full token + cache + cost data) and surfaces the row's id back
+      // via the meta frame parsed above. Attach it to the rendered message
+      // so the feedback (thumbs-up/down) flow can target the right row.
+      if (interactionId) {
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMessage = updated[updated.length - 1];
+          if (lastMessage && lastMessage.type === 'ai') {
+            updated[updated.length - 1] = {
+              ...lastMessage,
+              interactionId,
+            };
+          }
+          return updated;
         });
-        interactionId = logResult.interactionId;
-      } catch (logError) {
-        console.warn("Failed to log AI interaction:", logError);
       }
-
-      // Update the message with interaction ID for feedback
-      setMessages(prev => {
-        const updated = [...prev];
-        const lastMessage = updated[updated.length - 1];
-        if (lastMessage && lastMessage.type === 'ai') {
-          updated[updated.length - 1] = {
-            ...lastMessage,
-            interactionId,
-          };
-        }
-        return updated;
-      });
 
     } catch (error) {
       setIsStreaming(false);
@@ -1185,24 +1203,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           userAgent: navigator.userAgent
         });
 
-        // Log the failed interaction
-        try {
-          await logInteraction.mutateAsync({
-            platform: "manychat",
-            conversationId: conversationId || undefined,
-            userMessage: input,
-            cleanMessage: messageToSend !== input ? messageToSend : undefined,
-            aiResponse: errorMessage,
-            agentId: targetAgentId,
-            model: "mastra-agents",
-            messageType: mentionedAgentId ? "command" : "question",
-            projectId: projectId || undefined,
-            hadError: true,
-            errorMessage: error.message,
-          });
-        } catch (logError) {
-          console.warn("Failed to log error interaction:", logError);
-        }
+        // Note: stream errors are not persisted to aiInteractionHistory.
+        // The server's catch block at /api/chat/stream logs them to console;
+        // operationally we rely on Sentry/server logs for stream failures.
+        // (Client-side log was removed to fix the double-logging bug — it
+        // was writing rows without tokenUsage that polluted aggregate stats.)
       }
       
       setMessages(prev => [...prev, { 

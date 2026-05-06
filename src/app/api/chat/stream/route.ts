@@ -76,14 +76,22 @@ export async function POST(req: Request) {
       });
     }
 
-    const { messages, agentId: rawAgentId, assistantId, workspaceId, projectId, conversationId } = (await req.json()) as {
+    const { messages, agentId: rawAgentId, assistantId, workspaceId, projectId, conversationId, platform: rawPlatform } = (await req.json()) as {
       messages: CoreMessage[];
       agentId?: string;
       assistantId?: string;
       workspaceId?: string;
       projectId?: string;
       conversationId?: string;
+      platform?: string;
     };
+
+    const ALLOWED_PLATFORMS = ["web", "manychat"] as const;
+    type ChatPlatform = typeof ALLOWED_PLATFORMS[number];
+    const isAllowedPlatform = (p: string): p is ChatPlatform =>
+      (ALLOWED_PLATFORMS as readonly string[]).includes(p);
+    const platform: ChatPlatform =
+      rawPlatform && isAllowedPlatform(rawPlatform) ? rawPlatform : "web";
 
     let agentId = rawAgentId;
     // SECURITY: Strip system messages from client input to prevent direct prompt injection.
@@ -363,7 +371,10 @@ export async function POST(req: Request) {
       requestContext: requestContext as RequestContext<unknown>,
       memory: {
         resource: session.user.id,
-        thread: threadId,
+        // Pass as object form. @mastra/core 1.6.x runtime checks `thread?.id`
+        // even though the AgentMemoryOption type still permits a raw string —
+        // string form silently produces "threadId undefined" 500s.
+        thread: { id: threadId },
       },
     });
 
@@ -542,16 +553,19 @@ export async function POST(req: Request) {
             });
           }
 
-          // Fire-and-forget: save interaction metadata (must not block the stream)
+          // Save interaction metadata. Awaited (with timeout) so we can return
+          // the interactionId to the client via the metadata frame for the
+          // feedback flow (thumbs-up/down). Capped at 2s so a slow DB never
+          // blocks the close — the stream content is already delivered.
           const anthropicRequestId =
             response.headers.get("x-request-id") ??
             response.headers.get("x-anthropic-request-id") ??
             undefined;
           const lastUserMsg =
             [...messages].reverse().find(m => m.role === "user")?.content ?? "";
-          getAiInteractionLogger(db)
+          const logPromise: Promise<string | undefined> = getAiInteractionLogger(db)
             .logInteraction({
-              platform: "web",
+              platform,
               systemUserId: session.user.id,
               agentId: resolvedAgentId,
               conversationId: threadId,
@@ -584,7 +598,30 @@ export async function POST(req: Request) {
               model: responseModelId ?? "mastra-agents",
               messageType: "question",
             })
-            .catch(err => console.error("Failed to save AI history:", err));
+            // If the DB write fails AFTER the race below times out, the
+            // rejection would otherwise be unhandled. Swallow + log here.
+            .catch((err: unknown) => {
+              console.error("Failed to save AI history:", err);
+              return undefined;
+            });
+
+          const interactionId = await Promise.race([
+            logPromise,
+            new Promise<undefined>((resolve) =>
+              setTimeout(() => resolve(undefined), 2000),
+            ),
+          ]);
+
+          // Emit a final metadata frame so the client can attach the
+          // interactionId to the rendered AI message (for feedback). The
+          // sentinel  (Record Separator) is virtually never present
+          // in normal AI text output. Clients that don't strip it will see
+          // a stray line at the end — Chat.tsx is updated to strip it too.
+          const metaFrame = `\n__exp_meta__:${JSON.stringify({
+            interactionId,
+            modelId: responseModelId,
+          })}\n`;
+          controller.enqueue(new TextEncoder().encode(metaFrame));
 
           controller.close();
         } catch (err) {
