@@ -67,6 +67,7 @@ import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
+import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { useAgentModal } from "~/providers/AgentModalProvider";
@@ -113,10 +114,12 @@ export function ProjectContent({
   viewName,
   projectId,
   initialTab,
+  legacyOverview = false,
 }: {
   viewName: string;
   projectId: string;
   initialTab?: string;
+  legacyOverview?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -556,7 +559,11 @@ export function ProjectContent({
 
             {/* Content Area */}
             <Tabs.Panel value="overview">
-              <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+              {legacyOverview ? (
+                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+              ) : (
+                <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="tasks">
