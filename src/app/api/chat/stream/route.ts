@@ -503,6 +503,15 @@ export async function POST(req: Request) {
                 if (modelId) responseModelId = modelId;
               } else {
                 nonTextChunkTypes.add(chunk.type);
+                // Emit a zero-width-space keepalive byte. The client's idle
+                // timer (60s) only resets on byte arrivals, so during long
+                // server-side work (tool_search, deferred tool resolution,
+                // memory recall) where Mastra emits non-text chunks like
+                // step-start/text-start/text-end without our handler
+                // producing visible text, the wire would otherwise stay
+                // silent until the client aborts. The client strips
+                // U+200B before rendering.
+                controller.enqueue(new TextEncoder().encode("​"));
                 // Log non-text chunks for debugging (first 5 only to avoid noise)
                 if (chunkCount <= 5) {
                   console.log(`📦 [chat/stream] Non-text chunk: type=${chunk.type}`, JSON.stringify(chunk).slice(0, 300));

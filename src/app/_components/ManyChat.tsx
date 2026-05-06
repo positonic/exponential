@@ -1077,6 +1077,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               // Frame split across chunks: try again next iteration.
             }
           }
+          // Strip zero-width-space keepalives the server emits on
+          // non-text chunks (see route.ts). They reset the idle timer
+          // above (every reader.read() resets) but must not appear in
+          // the rendered text.
+          displayResponse = displayResponse.replace(/​/g, '');
 
           setMessages(prev => {
             const updated = [...prev];
@@ -1105,6 +1110,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           // UI handles missing IDs by not rendering the rating affordance.
         }
       }
+      // Also strip server-side zero-width-space keepalives so they don't
+      // count toward emptyResponse / length checks.
+      fullResponse = fullResponse.replace(/​/g, '');
 
       clearIdleTimer();
       setIsStreaming(false);

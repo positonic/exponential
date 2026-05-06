@@ -183,7 +183,10 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
 
           buffer += decoder.decode(value, { stream: true });
           const metaIdx = buffer.search(META_RE);
-          const display = metaIdx === -1 ? buffer : buffer.slice(0, metaIdx);
+          // Strip server-side zero-width-space keepalives (emitted on
+          // non-text Mastra chunks to keep the client idle timer alive
+          // during long tool_search / memory recall windows).
+          const display = (metaIdx === -1 ? buffer : buffer.slice(0, metaIdx)).replace(/​/g, '');
 
           setMessages(prev => {
             const updated = [...prev];
