@@ -66,6 +66,26 @@ interface TokenUsage {
   completion?: number;
   total?: number;
   cost?: number;
+  cacheReadInput?: number;
+  cacheCreationInput?: number;
+  modelId?: string;
+}
+
+// Cache hit ratio = cache_read / (cache_read + cache_creation + uncached_input).
+// Anthropic bills uncached input at 1x, cache_creation at 1.25x, and
+// cache_read at 0.1x — so this ratio is the headline cost-leverage number.
+function cacheHitRate(usage: TokenUsage): number | null {
+  const prompt = usage.prompt ?? 0;
+  const cacheRead = usage.cacheReadInput ?? 0;
+  const cacheCreation = usage.cacheCreationInput ?? 0;
+  const uncached = Math.max(prompt - cacheRead - cacheCreation, 0);
+  const denom = cacheRead + cacheCreation + uncached;
+  if (denom <= 0) return null;
+  return cacheRead / denom;
+}
+
+function formatPercent(x: number | null): string {
+  return x == null ? "—" : `${(x * 100).toFixed(0)}%`;
 }
 
 interface Interaction {
@@ -104,6 +124,9 @@ type SummaryRow = {
   completion: number;
   total: number;
   cost: number;
+  cacheRead: number;
+  cacheCreation: number;
+  cacheHitRate: number;
 };
 
 type SummarySortKey =
@@ -112,7 +135,8 @@ type SummarySortKey =
   | "prompt"
   | "completion"
   | "total"
-  | "cost";
+  | "cost"
+  | "cacheHitRate";
 
 export function AiInteractionsTable() {
   const [cursor, setCursor] = useState<string | null>(null);
@@ -278,6 +302,12 @@ export function AiInteractionsTable() {
                   onClick={toggleSummarySort}
                 />
                 <SummarySortableTh
+                  label="Cache hit"
+                  sortKey="cacheHitRate"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
                   label="Est. cost (USD)"
                   sortKey="cost"
                   current={summarySort}
@@ -289,14 +319,14 @@ export function AiInteractionsTable() {
               {tokenSummaryLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <Table.Tr key={i}>
-                    {Array.from({ length: 6 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <Table.Td key={j}><Skeleton height={16} width={80} /></Table.Td>
                     ))}
                   </Table.Tr>
                 ))
               ) : !sortedSummary.length ? (
                 <Table.Tr>
-                  <Table.Td colSpan={6} className="text-center text-text-muted">
+                  <Table.Td colSpan={7} className="text-center text-text-muted">
                     No token data yet — data appears after users make agent calls
                   </Table.Td>
                 </Table.Tr>
@@ -322,6 +352,21 @@ export function AiInteractionsTable() {
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" fw={500} className="text-text-primary">{formatTokens(row.total)}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text
+                        size="sm"
+                        fw={500}
+                        className={
+                          row.cacheHitRate >= 0.7
+                            ? "text-green-500"
+                            : row.cacheHitRate >= 0.3
+                              ? "text-yellow-500"
+                              : "text-text-secondary"
+                        }
+                      >
+                        {row.prompt > 0 ? formatPercent(row.cacheHitRate) : "—"}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" className="text-text-secondary">
@@ -471,10 +516,12 @@ export function AiInteractionsTable() {
             </div>
             {(() => {
               const usage = parseTokenUsage(selectedInteraction.tokenUsage);
-              return usage ? (
+              if (!usage) return null;
+              const hitRate = cacheHitRate(usage);
+              return (
                 <div>
                   <Text size="sm" className="font-medium text-text-muted">Token usage</Text>
-                  <Group gap="lg" mt={4}>
+                  <Group gap="lg" mt={4} wrap="wrap">
                     <div>
                       <Text size="xs" className="text-text-muted">Prompt</Text>
                       <Text size="sm" className="text-text-primary">{usage.prompt?.toLocaleString() ?? "—"}</Text>
@@ -487,15 +534,51 @@ export function AiInteractionsTable() {
                       <Text size="xs" className="text-text-muted">Total</Text>
                       <Text size="sm" fw={500} className="text-text-primary">{usage.total?.toLocaleString() ?? "—"}</Text>
                     </div>
+                    <div>
+                      <Text size="xs" className="text-text-muted">Cache read</Text>
+                      <Text size="sm" className="text-text-primary">
+                        {usage.cacheReadInput?.toLocaleString() ?? "—"}
+                      </Text>
+                    </div>
+                    <div>
+                      <Text size="xs" className="text-text-muted">Cache creation</Text>
+                      <Text size="sm" className="text-text-primary">
+                        {usage.cacheCreationInput?.toLocaleString() ?? "—"}
+                      </Text>
+                    </div>
+                    <div>
+                      <Text size="xs" className="text-text-muted">Cache hit</Text>
+                      <Text
+                        size="sm"
+                        fw={500}
+                        className={
+                          hitRate == null
+                            ? "text-text-muted"
+                            : hitRate >= 0.7
+                              ? "text-green-500"
+                              : hitRate >= 0.3
+                                ? "text-yellow-500"
+                                : "text-text-primary"
+                        }
+                      >
+                        {formatPercent(hitRate)}
+                      </Text>
+                    </div>
                     {usage.cost !== undefined && usage.cost > 0 && (
                       <div>
                         <Text size="xs" className="text-text-muted">Est. cost</Text>
                         <Text size="sm" className="text-text-primary">${usage.cost.toFixed(5)}</Text>
                       </div>
                     )}
+                    {usage.modelId && (
+                      <div>
+                        <Text size="xs" className="text-text-muted">Model</Text>
+                        <Text size="sm" className="font-mono text-xs text-text-primary">{usage.modelId}</Text>
+                      </div>
+                    )}
                   </Group>
                 </div>
-              ) : null;
+              );
             })()}
             <div>
               <Text size="sm" className="font-medium text-text-muted">Date</Text>
