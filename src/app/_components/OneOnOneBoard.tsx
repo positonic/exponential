@@ -129,7 +129,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
   return (
     <Container size="xl" py="xl">
       <Title order={2} mb="xl" className="text-text-primary">
-        {isSharedView && userName ? `${userName}'s Weekly Review` : 'Weekly Review'}
+        {isSharedView && userName ? `${userName}'s Weekly Plan` : 'Weekly Plan'}
       </Title>
       
       <ScrollArea>
@@ -295,10 +295,10 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
       
       <div className="mt-12 p-6 bg-surface-secondary rounded-lg border border-border-primary max-w-4xl mx-auto">
         <Text size="sm" className="text-text-secondary leading-relaxed">
-          The Weekly Review originates from David Allen&apos;s &quot;Getting Things Done&quot; methodology, first published in 2001. 
-          In his framework, this sacred one-hour ritual serves as a weekly touchstone—a dedicated time to survey the 
-          landscape of your commitments, recalibrate priorities, and identify the essential next actions for each project. 
-          This augmented interpretation adapts those timeless principles to our modern collaborative context, enabling 
+          The Weekly Plan is inspired by David Allen&apos;s &quot;Getting Things Done&quot; weekly review practice, first published in 2001.
+          In his framework, this sacred one-hour ritual serves as a weekly touchstone—a dedicated time to survey the
+          landscape of your commitments, recalibrate priorities, and identify the essential next actions for each project.
+          This augmented interpretation adapts those timeless principles to our modern collaborative context, enabling
           teams to maintain clarity and momentum across their shared endeavors.
         </Text>
         <Text size="sm" className="text-text-secondary mt-3">
@@ -306,7 +306,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
             href="/productivity-methods/weekly-plan" 
             className="text-brand-primary hover:text-brand-primary-hover underline"
           >
-            Learn more about the Weekly Review methodology
+            Learn more about the Weekly Plan methodology
           </Link>
         </Text>
       </div>

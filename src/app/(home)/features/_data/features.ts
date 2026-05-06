@@ -59,8 +59,8 @@ export const features: FeatureData[] = [
   },
   {
     slug: "weekly-plan",
-    category: `${PRODUCT_NAME}'s Weekly Review`,
-    title: "Weekly Review",
+    category: `${PRODUCT_NAME}'s Weekly Plan`,
+    title: "Weekly Plan",
     headline: "Reflect, reset, realign—every week.",
     description:
       "A structured weekly ritual that keeps you connected to your goals. Smart project ordering surfaces what needs attention first. Streak tracking keeps you motivated week after week.",

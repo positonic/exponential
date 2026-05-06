@@ -179,8 +179,8 @@ export default function WorkspaceSettingsPage() {
   const updateWeeklyReviewBannerMutation = api.workspace.update.useMutation({
     onSuccess: featureSuccess(
       weeklyReviewBannerEnabled
-        ? 'Weekly review banner has been disabled'
-        : 'Weekly review banner has been enabled'
+        ? 'Weekly plan banner has been disabled'
+        : 'Weekly plan banner has been enabled'
     ),
   });
   const updateEmailNotificationsMutation = api.workspace.update.useMutation({
@@ -846,8 +846,8 @@ export default function WorkspaceSettingsPage() {
             <FeatureRow
               icon={IconCalendarCheck}
               tag="Home"
-              title="Weekly Review Banner"
-              description="Show a weekly review reminder on the home page when the weekly review has not been completed."
+              title="Weekly Plan Banner"
+              description="Show a weekly plan reminder on the home page when the weekly plan has not been completed."
               enabled={weeklyReviewBannerEnabled}
               disabled={!canEdit || updateWeeklyReviewBannerMutation.isPending}
               onToggle={(checked) => {

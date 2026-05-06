@@ -48,7 +48,7 @@ const PAGES = [
 ];
 
 const SUGGESTED = [
-  { icon: IconFlag, label: 'Run weekly review', sub: 'Keystone ritual · 45 min' },
+  { icon: IconFlag, label: 'Run weekly plan', sub: 'Keystone ritual · 45 min' },
   { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe' },
   { icon: IconPlus, label: 'Create project', sub: 'Start from template' },
   { icon: IconCalendar, label: 'Plan my day', sub: 'Ask Zoe' },

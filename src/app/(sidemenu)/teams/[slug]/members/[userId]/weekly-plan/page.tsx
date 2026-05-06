@@ -72,7 +72,7 @@ export default function TeamMemberWeeklyReviewPage() {
       <Container size="xl" py="xl">
         <Alert variant="light" color="blue" icon={<IconAlertCircle size={16} />}>
           <Text size="sm">
-            Weekly review sharing is only available for organization teams.
+            Weekly plan sharing is only available for organization teams.
           </Text>
         </Alert>
       </Container>
@@ -112,7 +112,7 @@ export default function TeamMemberWeeklyReviewPage() {
             <div>
               <Group gap="xs" align="center">
                 <Title order={2} className="text-text-primary">
-                  {targetUser.name ?? targetUser.email}&apos;s Weekly Review
+                  {targetUser.name ?? targetUser.email}&apos;s Weekly Plan
                 </Title>
                 <Badge variant="dot" color="green" size="sm">
                   Shared

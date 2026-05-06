@@ -40,7 +40,7 @@ const features = [
   {
     icon: IconCalendarWeek,
     title: "Built-in cadence",
-    description: "Weekly reviews and planning rhythms that keep humans and AI in sync.",
+    description: "Weekly plans and planning rhythms that keep humans and AI in sync.",
     color: "var(--color-brand-primary)",
   },
   {

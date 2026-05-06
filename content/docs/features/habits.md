@@ -261,9 +261,9 @@ Remove completely:
 - Morning: Plan which habits today
 - Evening: Review habit completion
 
-### Weekly Review
+### Weekly Plan
 
-During [Weekly Review](/docs/features/weekly-plan):
+During [Weekly Plan](/docs/features/weekly-plan):
 - Review week's habit consistency
 - Celebrate streak achievements
 - Adjust habits as needed

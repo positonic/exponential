@@ -229,7 +229,7 @@ export default function WeeklyReviewPage() {
       {step !== "reviewing" && (
         <Group justify="space-between" align="center" className="mb-6">
           <Title order={2} className="text-text-primary">
-            Weekly Review
+            Weekly Plan
           </Title>
         </Group>
       )}
@@ -240,7 +240,7 @@ export default function WeeklyReviewPage() {
             <div className="mb-2 flex items-center gap-2">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
               <span className="text-xs font-semibold uppercase tracking-wider text-blue-500">
-                Weekly Review · Project Pass
+                Weekly Plan · Project Pass
               </span>
             </div>
             <Title order={2} className="text-text-primary">

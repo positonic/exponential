@@ -102,16 +102,16 @@ export default function TeamWeeklyPlanningPage() {
             </Title>
             
             <Text size="lg" className="text-text-secondary mb-8 leading-relaxed">
-              While individual weekly reviews focus on personal productivity, team weekly planning addresses the unique 
-              challenges of collaborative work. Our hybrid methodology combines the best elements of Scrum, Kanban, and 
+              While individual weekly plans focus on personal productivity, team weekly planning addresses the unique
+              challenges of collaborative work. Our hybrid methodology combines the best elements of Scrum, Kanban, and
               traditional weekly review practices to create a flexible framework that adapts to your team&apos;s needs.
             </Text>
 
             <Alert variant="light" color="blue" icon={<IconInfoCircle size={16} />} mb="xl">
               <Text size="sm">
-                <strong>Evolution from Individual Practice:</strong> This methodology extends David Allen&apos;s weekly review 
-                concept from personal productivity to team collaboration, maintaining the core principle of regular 
-                reflection while adding collaborative planning and outcome alignment.
+                <strong>Evolution from Individual Practice:</strong> This methodology extends David Allen&apos;s weekly review
+                concept from personal productivity to team collaboration, maintaining the core principle of regular
+                reflection while adding collaborative planning and outcome alignment. We call our adaptation the Weekly Plan.
               </Text>
             </Alert>
           </Box>
@@ -160,7 +160,7 @@ export default function TeamWeeklyPlanningPage() {
                     <ThemeIcon size="sm" radius="xl" className="bg-purple-500">
                       <IconUsers size={12} />
                     </ThemeIcon>
-                    <Text fw={500} size="sm" className="text-text-primary">More Collaborative than Individual Reviews</Text>
+                    <Text fw={500} size="sm" className="text-text-primary">More Collaborative than Individual Plans</Text>
                   </Group>
                   <Text size="sm" className="text-text-secondary pl-6">
                     Built for team alignment and shared accountability while maintaining individual clarity 
@@ -210,7 +210,7 @@ export default function TeamWeeklyPlanningPage() {
                 </Link>
                 <Text size="sm" className="text-text-muted">•</Text>
                 <Link href="/productivity-methods/weekly-plan" className="text-text-secondary hover:text-text-primary underline">
-                  Learn Individual Weekly Review
+                  Learn Individual Weekly Plan
                 </Link>
               </Group>
             </Paper>

@@ -29,7 +29,7 @@ export function WeeklyReviewExplainer() {
           icon={<IconInfoCircle size={20} className="text-brand-primary" />}
         >
           <Text fw={500} className="text-text-primary">
-            About the Weekly Review
+            About the Weekly Plan
           </Text>
         </Accordion.Control>
         <Accordion.Panel>
@@ -50,11 +50,11 @@ export function WeeklyReviewExplainer() {
                 </Text>
               </div>
               <Text size="sm" className="text-text-secondary">
-                The Weekly Review is a cornerstone practice from David
-                Allen&apos;s Getting Things Done (GTD) methodology. It&apos;s a
-                dedicated time to step back from daily execution and ensure your
-                productivity system reflects reality. Think of it as a weekly
-                reset that keeps you in control.
+                The Weekly Plan is our adaptation of David Allen&apos;s
+                Getting Things Done (GTD) weekly review — a cornerstone practice
+                that gives you a dedicated time to step back from daily execution and
+                ensure your productivity system reflects reality. Think of it as a
+                weekly reset that keeps you in control.
               </Text>
             </div>
 

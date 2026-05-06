@@ -618,14 +618,14 @@ export const projectRouter = createTRPCRouter({
       if (!requestingUserMembership) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You must be a member of this team to view shared weekly reviews',
+          message: 'You must be a member of this team to view shared weekly plans',
         });
       }
 
       if (!requestingUserMembership.team.isOrganization) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'Weekly reviews can only be viewed in organization teams',
+          message: 'Weekly plans can only be viewed in organization teams',
         });
       }
 
@@ -659,7 +659,7 @@ export const projectRouter = createTRPCRouter({
       if (!sharingSettings?.isEnabled) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'This user has not enabled weekly review sharing with this team',
+          message: 'This user has not enabled weekly plan sharing with this team',
         });
       }
 

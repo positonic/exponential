@@ -113,7 +113,7 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
           ? [{ label: `Estimates (${metadata.estimationAccuracy?.toFixed(0)}%)`, points: breakdown.estimationBonus, maxPoints: 5 }]
           : []),
         ...(breakdown.weeklyReviewBonus > 0
-          ? [{ label: "Weekly Review", points: breakdown.weeklyReviewBonus, maxPoints: 10 }]
+          ? [{ label: "Weekly Plan", points: breakdown.weeklyReviewBonus, maxPoints: 10 }]
           : []),
       ],
       total: Math.max(

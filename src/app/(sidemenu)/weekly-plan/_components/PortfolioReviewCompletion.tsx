@@ -117,7 +117,7 @@ export function PortfolioReviewCompletion({
         <div>
           <h2>Drill into a workspace</h2>
           <div className="pr-drill-head__sub">
-            Optional. Each one opens the existing per-workspace weekly review
+            Optional. Each one opens the existing per-workspace weekly plan
             with project health, status, and next actions.
           </div>
         </div>

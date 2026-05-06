@@ -153,9 +153,9 @@ Switch workspaces to view relevant goals.
 - Multiple projects can support one goal
 - Projects show linked goals in the Goals tab
 
-### Weekly Review
+### Weekly Plan
 
-Review goal progress during your [Weekly Review](/docs/features/weekly-plan):
+Review goal progress during your [Weekly Plan](/docs/features/weekly-plan):
 - Check outcome completion
 - Adjust upcoming outcomes
 - Realign projects to goals
@@ -199,7 +199,7 @@ Link [Habits](/docs/features/habits) to goals:
 
 ### Outcome Planning
 
-- Set weekly outcomes during weekly review
+- Set weekly outcomes during weekly plan
 - Keep daily outcomes to 3-5 items
 - Make outcomes measurable and specific
 - Celebrate completed outcomes

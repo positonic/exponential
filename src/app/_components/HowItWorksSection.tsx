@@ -58,7 +58,7 @@ export const HowItWorksSection: React.FC<HowItWorksSectionProps> = ({ id }) => {
     {
       icon: <IconRefresh size={28} stroke={1.5} />,
       title: "Reflect & Learn",
-      description: "Weekly reviews show what you accomplished and what actually moved the needle. Iterate and improve."
+      description: "Weekly plans show what you accomplished and what actually moved the needle. Iterate and improve."
     }
   ];
 

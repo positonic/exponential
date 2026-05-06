@@ -68,7 +68,7 @@ export function WeeklyReviewHabitCard() {
           <Stack gap={2}>
             <Group gap="xs">
               <IconCalendarWeek size={16} className="text-brand-primary" />
-              <Text fw={500} size="sm">Weekly Review</Text>
+              <Text fw={500} size="sm">Weekly Plan</Text>
               <Badge size="xs" color="blue" variant="light">
                 Weekly
               </Badge>

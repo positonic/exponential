@@ -1,11 +1,11 @@
 ---
-title: Weekly Review
+title: Weekly Plan
 description: Reflect on your week and plan ahead with structured review rituals
 ---
 
 ## Overview
 
-The Weekly Review is your opportunity to step back, reflect on the past week, and set up the next week for success. This ritual ensures you stay aligned with your goals and maintain momentum.
+The Weekly Plan is your opportunity to step back, reflect on the past week, and set up the next week for success. This ritual ensures you stay aligned with your goals and maintain momentum.
 
 ### Key Capabilities
 
@@ -15,7 +15,7 @@ The Weekly Review is your opportunity to step back, reflect on the past week, an
 - **Outcome planning**: Set weekly outcomes
 - **Progress tracking**: Monitor goal advancement
 
-## Weekly Review Structure
+## Weekly Plan Structure
 
 ### Review Past Week
 
@@ -35,7 +35,7 @@ Set up for success:
 3. **Projects**: Review project progress
 4. **Calendar**: Check upcoming commitments
 
-## Conducting Your Weekly Review
+## Conducting Your Weekly Plan
 
 ### Recommended Timing
 
@@ -83,11 +83,11 @@ Set up for success:
 
 ## Team Sharing
 
-Share your weekly review with team members for alignment and accountability.
+Share your weekly plan with team members for alignment and accountability.
 
 ### Enable Sharing
 
-1. Go to **Weekly Review** settings
+1. Go to **Weekly Plan** settings
 2. Click **Sharing Settings**
 3. Select teams to share with
 4. Enable sharing
@@ -95,7 +95,7 @@ Share your weekly review with team members for alignment and accountability.
 ### View Team Reviews
 
 When sharing is enabled:
-1. Navigate to **Weekly Review**
+1. Navigate to **Weekly Plan**
 2. Click **Team Reviews**
 3. View summaries from team members
 4. Add comments or reactions
@@ -109,12 +109,12 @@ When sharing is enabled:
 
 ## Slack Integration
 
-Send your weekly review summary to Slack channels.
+Send your weekly plan summary to Slack channels.
 
 ### Setup
 
 1. Ensure [Slack integration](/docs/features/slack) is configured
-2. Go to **Weekly Review**
+2. Go to **Weekly Plan**
 3. Click **Send to Slack**
 4. Select target channel
 5. Confirm send
@@ -139,7 +139,7 @@ Set measurable outcomes for the week during your review.
 
 ### Creating Weekly Outcomes
 
-1. In Weekly Review, go to outcomes section
+1. In Weekly Plan, go to outcomes section
 2. Click **Add Outcome**
 3. Write specific, measurable result
 4. Link to supporting goal
@@ -191,7 +191,7 @@ Your week's journal entries inform the review:
 
 ### Wheel of Life
 
-Periodically during weekly review:
+Periodically during weekly plan:
 - Check life balance
 - Identify neglected domains
 - Set balancing outcomes
@@ -199,7 +199,7 @@ Periodically during weekly review:
 
 ## One-on-One Board
 
-For team settings, the Weekly Review includes a One-on-One Board:
+For team settings, the Weekly Plan includes a One-on-One Board:
 
 ### Features
 

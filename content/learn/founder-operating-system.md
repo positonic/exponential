@@ -45,7 +45,7 @@ Before you can execute well, you need clarity on *what* to execute. This means:
 
 - **Goals** that represent your strategic bets (not a wish list)
 - **Outcomes** that make goals measurable at every time horizon
-- **Weekly reviews** that keep you honest about what's actually progressing
+- **Weekly plans** that keep you honest about what's actually progressing
 
 Most founders skip this layer. They jump straight to tasks and wonder why they're busy but not moving forward.
 
@@ -87,8 +87,8 @@ Two things changed:
 
 The founder operating system isn't set-and-forget. It runs on a weekly rhythm:
 
-1. **Weekly review**: Reflect on what moved, what didn't, and why
-2. **Weekly planning**: Set outcomes for the week ahead based on your goals
+1. **Weekly plan**: Reflect on what moved, what didn't, and why, and set outcomes for the week ahead based on your goals
+2. **Weekly planning**: Refine your priorities throughout the week as new information surfaces
 3. **Daily execution**: Let AI surface your priorities and handle coordination
 4. **Continuous capture**: Throw ideas into your inbox; process them during planning
 

@@ -187,7 +187,7 @@ When paired with [Fireflies](/docs/features/fireflies), meeting summaries and ac
 ### Goal Alignment
 
 - Link every project to at least one goal
-- Review alignment during weekly reviews
+- Review alignment during weekly plans
 - Adjust priorities based on goal importance
 
 ### Team Collaboration

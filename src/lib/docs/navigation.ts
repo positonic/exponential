@@ -93,7 +93,7 @@ export const docsNavigation: DocNavSection[] = [
         icon: IconNotebook,
       },
       {
-        title: "Weekly Review",
+        title: "Weekly Plan",
         href: "/docs/features/weekly-plan",
         icon: IconCalendarWeek,
       },

@@ -141,7 +141,7 @@ Based on your role:
 ### For Team Members
 
 1. [Join or create a Team](/docs/features/teams)
-2. [Set up Weekly Reviews](/docs/features/weekly-plan)
+2. [Set up Weekly Plans](/docs/features/weekly-plan)
 3. [Configure Slack notifications](/docs/features/slack)
 
 ### For Managers

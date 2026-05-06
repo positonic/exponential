@@ -10,7 +10,7 @@ export default function WeeklyReviewPage() {
 
   const sections = useMemo(() => [
     { id: 'introduction', label: 'Introduction' },
-    { id: 'what-is', label: 'What is the Weekly Review?' },
+    { id: 'what-is', label: 'What is the Weekly Plan?' },
     { id: 'three-pillars', label: 'The Three Pillars' },
     { id: 'implementation', label: 'Implementation Guide' },
     { id: 'reflection-questions', label: 'Reflection Questions' },
@@ -86,10 +86,10 @@ export default function WeeklyReviewPage() {
         
         <Grid.Col span={{ base: 12, md: 9 }}>
           <Box id="introduction" className="scroll-mt-20">
-            <Title order={1} mb="xl" className="text-text-primary">The Weekly Review: Your Strategic Productivity Ritual</Title>
-            
+            <Title order={1} mb="xl" className="text-text-primary">The Weekly Plan: Your Strategic Productivity Ritual</Title>
+
             <Text size="lg" className="text-text-secondary mb-8 leading-relaxed">
-              In our hyperconnected world, it&apos;s easy to lose sight of the forest for the trees. The Weekly Review 
+              In our hyperconnected world, it&apos;s easy to lose sight of the forest for the trees. The Weekly Plan
               is your compass—a structured practice that transforms reactive task management into proactive strategic planning.
             </Text>
           </Box>
@@ -97,18 +97,18 @@ export default function WeeklyReviewPage() {
           <Box id="what-is" className="scroll-mt-20">
             <Paper p="lg" radius="md" className="bg-surface-secondary border border-border-primary mb-8">
               <Text fw={500} size="lg" mb="md" className="text-text-primary">
-                What is the Weekly Review?
+                What is the Weekly Plan?
               </Text>
               <Text className="text-text-secondary">
-                Born from David Allen&apos;s Getting Things Done methodology, the Weekly Review is a dedicated hour each week 
-                where you step back from the daily grind to gain perspective. It&apos;s your opportunity to ensure that your 
+                Inspired by David Allen&apos;s Getting Things Done weekly review practice, the Weekly Plan is a dedicated hour each week
+                where you step back from the daily grind to gain perspective. It&apos;s your opportunity to ensure that your
                 daily actions align with your broader objectives and that nothing important falls through the cracks.
               </Text>
             </Paper>
           </Box>
 
           <Box id="three-pillars" className="scroll-mt-20">
-            <Title order={2} mt="xl" mb="lg" className="text-text-primary">The Three Pillars of Weekly Review</Title>
+            <Title order={2} mt="xl" mb="lg" className="text-text-primary">The Three Pillars of the Weekly Plan</Title>
             
             <Stack gap="lg" mb="xl">
               <Box>
@@ -155,7 +155,7 @@ export default function WeeklyReviewPage() {
           <Divider my="xl" />
 
           <Box id="implementation" className="scroll-mt-20">
-            <Title order={2} mb="lg" className="text-text-primary">Implementing Your Weekly Review</Title>
+            <Title order={2} mb="lg" className="text-text-primary">Implementing Your Weekly Plan</Title>
             
             <Title order={3} size="h4" mb="md" className="text-text-primary">Essential Steps</Title>
             
@@ -229,7 +229,7 @@ export default function WeeklyReviewPage() {
             <Title order={2} mb="lg" className="text-text-primary">Why It Transforms Your Productivity</Title>
             
             <Text className="text-text-secondary mb-md">
-              The Weekly Review creates a rhythm of reflection and planning that compounds over time. 
+              The Weekly Plan creates a rhythm of reflection and planning that compounds over time.
               Each review builds on the last, creating momentum and clarity that daily task management alone cannot achieve.
             </Text>
             
@@ -254,11 +254,11 @@ export default function WeeklyReviewPage() {
               <IconCalendar size={48} className="mx-auto mb-4 text-brand-primary" />
               <Title order={3} mb="md" className="text-text-primary">Ready to Transform Your Productivity?</Title>
               <Text className="text-text-secondary mb-lg">
-                Start your Weekly Review practice today. Set aside one hour this week to step back, 
+                Start your Weekly Plan practice today. Set aside one hour this week to step back,
                 reflect, and plan. Your future self will thank you.
               </Text>
               <Link href="/weekly-plan" className="text-brand-primary hover:text-brand-primary-hover underline font-medium">
-                Try our Weekly Review Dashboard →
+                Try our Weekly Plan Dashboard →
               </Link>
             </Paper>
           </Box>

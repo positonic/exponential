@@ -49,7 +49,7 @@ export function StreakBadge({ streakCount, streakType, size = "md" }: StreakBadg
       case "habits":
         return "Habits";
       case "weekly_review":
-        return "Weekly Review";
+        return "Weekly Plan";
       default:
         return "Streak";
     }
