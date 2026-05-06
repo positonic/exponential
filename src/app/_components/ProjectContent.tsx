@@ -541,7 +541,7 @@ export function ProjectContent({
                 value="transcriptions"
                 leftSection={<IconMicrophone size={14} />}
               >
-                Transcriptions
+                Meetings
               </Tabs.Tab>
               <Tabs.Tab
                 value="integrations"
@@ -651,7 +651,7 @@ export function ProjectContent({
               <Stack gap="md">
                 <Group justify="space-between" align="center">
                   <Group gap="md">
-                    <Title order={4}>Project Transcriptions</Title>
+                    <Title order={4}>Project Meetings</Title>
                     <CreateTranscriptionModal projectId={resolvedProjectId} />
                   </Group>
                   <Group gap="md">
@@ -665,7 +665,7 @@ export function ProjectContent({
                       />
                     )}
                     <Text size="sm" c="dimmed">
-                      {project.transcriptionSessions?.length || 0} transcriptions
+                      {project.transcriptionSessions?.length || 0} meetings
                       {(project.transcriptionSessions?.length || 0) > 3 && (
                         <Text component="span" size="xs" c="dimmed" ml="xs">
                           • Scroll to view all
@@ -811,9 +811,9 @@ export function ProjectContent({
                 ) : (
                   <Paper p="xl" radius="md" className="text-center">
                     <Stack gap="md" align="center">
-                      <Text size="lg" c="dimmed">No transcriptions found</Text>
+                      <Text size="lg" c="dimmed">No meetings found</Text>
                       <Text size="sm" c="dimmed">
-                        Transcription sessions assigned to this project will appear here
+                        Meetings assigned to this project will appear here
                       </Text>
                     </Stack>
                   </Paper>

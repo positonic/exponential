@@ -233,7 +233,7 @@ export function TranscriptionDetailsModal({
         if (result.alreadyPublished) {
           notifications.show({
             title: "Actions Already Created",
-            message: "This transcription already has actions.",
+            message: "This meeting already has actions.",
             color: "orange",
           });
           return;
@@ -242,7 +242,7 @@ export function TranscriptionDetailsModal({
         if (result.actionsCreated === 0 && result.draftCount === 0) {
           notifications.show({
             title: "No Actions Found",
-            message: "No action items were detected in this transcription.",
+            message: "No action items were detected in this meeting.",
             color: "gray",
           });
           return;
@@ -434,7 +434,7 @@ export function TranscriptionDetailsModal({
       onClose={handleClose}
       title={
         <Group gap="md">
-          <Title order={4}>{transcription.title ?? 'Transcription Details'}</Title>
+          <Title order={4}>{transcription.title ?? 'Meeting Details'}</Title>
           <Badge variant="light" color="blue">
             {transcription.sessionId}
           </Badge>
@@ -485,7 +485,7 @@ export function TranscriptionDetailsModal({
                 ) : (
                   <Group gap="xs">
                     <Title order={5}>
-                      {transcription.title ?? "Untitled Transcription"}
+                      {transcription.title ?? "Untitled Meeting"}
                     </Title>
                     <ActionIcon
                       variant="subtle"
