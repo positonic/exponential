@@ -143,17 +143,20 @@ export function ProjectContent({
     id: projectId,
   });
 
-  // Register project context for agent chat — merges with workspace context
+  // Register project context for agent chat — merges with workspace context.
+  // Wait for the project to load so we register the resolved project id (not
+  // the URL slug). Downstream queries treat this as a project id and the
+  // access middleware does not resolve slugs.
   const { workspace, workspaceId } = useWorkspace();
   const projectPageContext = useMemo(() => {
-    if (!projectId) return null;
+    if (!project) return null;
     return {
       pageType: 'project' as const,
-      pageTitle: project?.name ?? 'Project',
+      pageTitle: project.name,
       pagePath: pathname,
       data: {
-        projectId,
-        projectName: project?.name,
+        projectId: project.id,
+        projectName: project.name,
         ...(workspaceId && {
           workspaceId,
           workspaceName: workspace?.name,
@@ -161,7 +164,7 @@ export function ProjectContent({
         }),
       },
     };
-  }, [projectId, project?.name, pathname, workspaceId, workspace?.name, workspace?.slug]);
+  }, [project, pathname, workspaceId, workspace?.name, workspace?.slug]);
   useRegisterPageContext(projectPageContext);
   // Workspace data for detailed actions setting
   const { data: workspaceData } = api.workspace.getBySlug.useQuery(
