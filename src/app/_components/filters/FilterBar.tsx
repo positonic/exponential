@@ -14,6 +14,12 @@ interface FilterBarProps {
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
   members?: FilterMember[];
+  renderTrigger?: (props: {
+    opened: boolean;
+    onToggle: () => void;
+    filtersActive: boolean;
+  }) => React.ReactNode;
+  onCopyMemberLink?: (memberId: string) => void;
 }
 
 export function FilterBar({
@@ -21,6 +27,8 @@ export function FilterBar({
   filters,
   onFiltersChange,
   members,
+  renderTrigger,
+  onCopyMemberLink,
 }: FilterBarProps) {
   const [opened, setOpened] = useState(false);
   const [activeField, setActiveField] = useState<FilterField | null>(null);
@@ -63,16 +71,24 @@ export function FilterBar({
         onClose={handleClose}
       >
         <Popover.Target>
-          <Button
-            variant="default"
-            size="xs"
-            radius="xl"
-            leftSection={<IconPlus size={14} />}
-            onClick={() => setOpened((o) => !o)}
-            className="border-border-secondary"
-          >
-            Filter
-          </Button>
+          {renderTrigger
+            ? renderTrigger({
+                opened,
+                onToggle: () => setOpened((o) => !o),
+                filtersActive,
+              })
+            : (
+              <Button
+                variant="default"
+                size="xs"
+                radius="xl"
+                leftSection={<IconPlus size={14} />}
+                onClick={() => setOpened((o) => !o)}
+                className="border-border-secondary"
+              >
+                Filter
+              </Button>
+            )}
         </Popover.Target>
 
         <Popover.Dropdown p={0}>
@@ -100,6 +116,7 @@ export function FilterBar({
                 filters={filters}
                 onFiltersChange={onFiltersChange}
                 members={members}
+                onCopyMemberLink={onCopyMemberLink}
               />
             </>
           ) : (
