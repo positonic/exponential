@@ -18,7 +18,8 @@ import {
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
-import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
+import { ToolActivity } from './agent/ToolActivity';
+import { useAgentModal, type ChatMessage, type PageContext, type ToolCall } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 
@@ -293,6 +294,9 @@ const MessageList = memo(function MessageList({ messages, conversationId }: Mess
             >
               {message.type === 'ai' ? (
                 <div className="max-w-[85%]">
+                  {message.toolCalls && message.toolCalls.length > 0 && (
+                    <ToolActivity calls={message.toolCalls} />
+                  )}
                   <div className="text-text-primary text-sm leading-relaxed">
                     {renderMessageContent(message.content, message.type)}
                   </div>
@@ -1050,7 +1054,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       // { interactionId, modelId } — strip it from rendered text.
       // U+001E is virtually never present in normal AI output.
       const META_RE = /\n?__exp_meta__:([^\n]*)\n?/;
+      // Mid-stream __exp_tool__:{...}\n frames carry structured tool-call
+      // events (call/result/error). Multiple per stream; only fully
+      // terminated frames match. Incomplete tail is stripped separately.
+      const TOOL_RE = /\n?__exp_tool__:([^\n]*)\n/g;
+      const TOOL_PREFIX = '__exp_tool__:';
       let interactionId: string | undefined;
+      // Keyed by tool-call id; rebuilt from scratch each iteration since we
+      // re-parse `fullResponse` cumulatively. setMessages overwrites the
+      // toolCalls array on every chunk so the UI reflects the latest state.
+      const toolCallsById = new Map<string, ToolCall>();
 
       if (reader) {
         while (true) {
@@ -1076,11 +1089,60 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               // Frame split across chunks: try again next iteration.
             }
           }
+          // Extract every complete tool frame and update the call map.
+          // Idempotent: re-parsing the same frame just re-sets the same value.
+          displayResponse = displayResponse.replace(TOOL_RE, (_match, json: string) => {
+            try {
+              const payload = JSON.parse(json) as
+                | { phase: 'call'; id: string; name: string; args?: Record<string, unknown> }
+                | { phase: 'result'; id: string; name: string }
+                | { phase: 'error'; id: string; name: string; msg?: string };
+              if (payload.phase === 'call') {
+                toolCallsById.set(payload.id, {
+                  id: payload.id,
+                  name: payload.name,
+                  args: payload.args,
+                  status: 'running',
+                });
+              } else if (payload.phase === 'result') {
+                const existing = toolCallsById.get(payload.id);
+                toolCallsById.set(payload.id, {
+                  id: payload.id,
+                  name: payload.name,
+                  args: existing?.args,
+                  status: 'success',
+                });
+              } else {
+                const existing = toolCallsById.get(payload.id);
+                toolCallsById.set(payload.id, {
+                  id: payload.id,
+                  name: payload.name,
+                  args: existing?.args,
+                  status: 'error',
+                  errorMsg: payload.msg,
+                });
+              }
+            } catch {
+              // Malformed frame — drop it from the display anyway.
+            }
+            return '';
+          });
+          TOOL_RE.lastIndex = 0;
+
+          // Hide a partial frame at the tail (e.g. "...__exp_tool__:{partia")
+          // so the sentinel doesn't briefly leak into the bubble.
+          const incompleteAt = displayResponse.lastIndexOf(TOOL_PREFIX);
+          if (incompleteAt !== -1 && !displayResponse.slice(incompleteAt).includes('\n')) {
+            displayResponse = displayResponse.slice(0, incompleteAt).replace(/\n$/, '');
+          }
+
           // Strip zero-width-space keepalives the server emits on
           // non-text chunks (see route.ts). They reset the idle timer
           // above (every reader.read() resets) but must not appear in
           // the rendered text.
           displayResponse = displayResponse.replace(/​/g, '');
+
+          const toolCallsSnapshot = Array.from(toolCallsById.values());
 
           setMessages(prev => {
             const updated = [...prev];
@@ -1089,6 +1151,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               updated[updated.length - 1] = {
                 ...lastMessage,
                 content: displayResponse,
+                ...(toolCallsSnapshot.length > 0 ? { toolCalls: toolCallsSnapshot } : {}),
               };
             }
             return updated;
@@ -1109,6 +1172,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           // UI handles missing IDs by not rendering the rating affordance.
         }
       }
+      // Strip any remaining __exp_tool__ frames so they don't pollute the
+      // log preview or trigger length checks based on metadata bytes.
+      TOOL_RE.lastIndex = 0;
+      fullResponse = fullResponse.replace(TOOL_RE, '');
       // Also strip server-side zero-width-space keepalives so they don't
       // count toward emptyResponse / length checks.
       fullResponse = fullResponse.replace(/​/g, '');
@@ -1116,7 +1183,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       clearIdleTimer();
       setIsStreaming(false);
       const responseTime = Date.now() - startTime;
-      const isEmptyResponse = fullResponse.trim() === '';
+      // A turn that did tool work but produced no prose is NOT empty —
+      // the user sees those calls in the ToolActivity row.
+      const isEmptyResponse = fullResponse.trim() === '' && toolCallsById.size === 0;
 
       // Debug: log what we received back
       console.log('📥 [Mastra → ManyChat] Response:', {

@@ -9,6 +9,15 @@ const DRAWER_SIZE_STORAGE_KEY = 'zoe-drawer-size';
 
 export type DrawerSize = 's' | 'm' | 'l';
 
+// One agent tool invocation, accumulated client-side from __exp_tool__ frames.
+export interface ToolCall {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  status: 'running' | 'success' | 'error';
+  errorMsg?: string;
+}
+
 // Message type shared between provider and ManyChat
 export interface ChatMessage {
   type: 'system' | 'human' | 'ai' | 'tool';
@@ -17,6 +26,7 @@ export interface ChatMessage {
   name?: string;
   agentName?: string;
   interactionId?: string;
+  toolCalls?: ToolCall[];
 }
 
 export type ChatDisplayMode = 'panel' | 'modal';

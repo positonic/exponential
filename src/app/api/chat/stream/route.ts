@@ -452,6 +452,38 @@ export async function POST(req: Request) {
           controller.enqueue(new TextEncoder().encode(safeText));
         };
 
+        // Out-of-band structured tool-call frame. Bypasses sanitizeAIOutput
+        // (it's metadata, not prose) and does NOT count toward fullText.
+        // Uses the same U+001E sentinel as __exp_meta__ so it never
+        // collides with normal AI text output.
+        const toolFrame = (payload: Record<string, unknown>) => {
+          const frame = `\n__exp_tool__:${JSON.stringify(payload)}\n`;
+          controller.enqueue(new TextEncoder().encode(frame));
+        };
+
+        // Shrink tool args for transport — full inputs can be huge
+        // (whole project specs, search bodies). The client only needs a
+        // headline arg to label the row.
+        const truncateArgs = (args: unknown): Record<string, unknown> | undefined => {
+          if (!args || typeof args !== 'object') return undefined;
+          const out: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(args as Record<string, unknown>)) {
+            if (typeof v === 'string') {
+              out[k] = v.length > 200 ? `${v.slice(0, 200)}…` : v;
+            } else if (typeof v === 'number' || typeof v === 'boolean' || v === null) {
+              out[k] = v;
+            } else {
+              try {
+                const s = JSON.stringify(v);
+                out[k] = s.length > 200 ? `${s.slice(0, 200)}…` : v;
+              } catch {
+                out[k] = '[unserializable]';
+              }
+            }
+          }
+          return out;
+        };
+
         const formatErr = (e: unknown): string => {
           if (e == null) return 'unknown error';
           if (typeof e === 'string') return e;
@@ -516,17 +548,21 @@ export async function POST(req: Request) {
                 if (fr) lastStepFinishReason = fr;
               } else if (chunk.type === "tool-call") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
+                const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${toolCallNames.length}`;
+                const args = truncateArgs(readUnknown(chunk.payload, 'args'));
                 toolCallNames.push(name);
-                emit(`\n\n_🔧 Calling \`${name}\`…_\n`);
+                toolFrame({ phase: 'call', id, name, args });
               } else if (chunk.type === "tool-result") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
-                emit(`\n_✓ \`${name}\`_\n`);
+                const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
+                toolFrame({ phase: 'result', id, name });
               } else if (chunk.type === "tool-error") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
+                const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
                 const msg = formatErr(readUnknown(chunk.payload, 'error'));
                 if (firstToolErrorMessages.length < 3) firstToolErrorMessages.push(`${name}: ${msg}`);
                 hadToolError = true;
-                emit(`\n_❌ \`${name}\` failed: ${msg}_\n`);
+                toolFrame({ phase: 'error', id, name, msg });
               } else if (chunk.type === "error") {
                 const msg = readString(chunk.payload, 'message')
                   ?? formatErr(readUnknown(chunk.payload, 'error'));
@@ -563,7 +599,11 @@ export async function POST(req: Request) {
             },
           });
           const durationMs = Date.now() - startTime;
-          const emptyResponse = fullText.trim() === '';
+          // A turn that produced no prose but did invoke tools is NOT empty —
+          // the user sees those as the ToolActivity row. Without this guard,
+          // tool-only turns trigger the "No response from the assistant"
+          // warning even though the agent successfully did the work.
+          const emptyResponse = fullText.trim() === '' && toolCallNames.length === 0;
           const cost = finishUsage
             ? computeRequestCost(responseModelId, {
                 inputTokens: finishUsage.inputTokens,
