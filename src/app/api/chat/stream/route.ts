@@ -15,6 +15,11 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
+import {
+  pickModelTier,
+  isHaikuTier,
+  sonnetVariantOf,
+} from "~/server/services/ai/pickModelTier";
 import { PRODUCT_NAME } from "~/lib/brand";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
@@ -55,11 +60,17 @@ async function resolveSlackChannelId(
 // Allowlist of valid agent IDs that clients can route to.
 // This prevents clients from targeting arbitrary internal agents.
 // Update this list when adding new agents to the Mastra system.
+// Haiku variants are server-internal and selected by pickModelTier, but
+// we allow them in the allowlist so internal tooling can target a tier
+// explicitly (e.g. test pages, debug routes). Public clients normally
+// request the unsuffixed agent ID and tier selection happens server-side.
 const ALLOWED_AGENT_IDS = new Set([
   'projectManagerAgent',
   'zoeAgent',
+  'zoeAgentHaiku',
   'expoAgent',
   'assistantAgent',
+  'assistantAgentHaiku',
   'weatherAgent',
   'pierreAgent',
   'ashAgent',
@@ -398,19 +409,37 @@ export async function POST(req: Request) {
     });
     const requestContext = new RequestContext(entries);
 
-    // Validate agentId against allowlist to prevent routing to arbitrary agents
-    const resolvedAgentId = agentId ?? "projectManagerAgent";
-    if (!ALLOWED_AGENT_IDS.has(resolvedAgentId)) {
-      console.warn(`🔒 [chat/stream] Rejected invalid agentId: ${resolvedAgentId}`);
+    // Validate the *requested* agent against the allowlist (defends against
+    // clients targeting arbitrary internal agents). Tier selection then
+    // chooses the actual variant — possibly the Haiku-tier sibling for
+    // trivial turns. Stickiness keeps a conversation on one tier so
+    // Anthropic's model-scoped prompt caches don't ping-pong.
+    const requestedAgentId = agentId ?? "projectManagerAgent";
+    if (!ALLOWED_AGENT_IDS.has(requestedAgentId)) {
+      console.warn(`🔒 [chat/stream] Rejected invalid agentId: ${requestedAgentId}`);
       return new Response(
         JSON.stringify({ error: "Invalid agent" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
+    const tierPick = await pickModelTier({
+      agentId: requestedAgentId,
+      conversationId,
+      userId: session.user.id,
+      finalMessages,
+      db,
+    });
+    const resolvedAgentId = tierPick.agentId;
+    if (resolvedAgentId !== requestedAgentId) {
+      console.log(
+        `🎯 [chat/stream] Tiered routing: ${requestedAgentId} → ${resolvedAgentId} (${tierPick.reason})`,
+      );
+    }
     const startTime = Date.now();
     const threadId = conversationId ?? `session-${session.user.id}-${Date.now()}`;
-    const agent = client.getAgent(resolvedAgentId);
-    const response = await agent.stream(finalMessages as MessageListInput, {
+    let activeAgentId = resolvedAgentId;
+    let agent = client.getAgent(activeAgentId);
+    let response = await agent.stream(finalMessages as MessageListInput, {
       requestContext: requestContext as RequestContext<unknown>,
       memory: {
         resource: session.user.id,
@@ -433,6 +462,10 @@ export async function POST(req: Request) {
     const textStream = new ReadableStream({
       async start(controller) {
         let fullText = "";
+        // Tracks ONLY text-delta byte length, not progress markers (tool
+        // call indicators, keepalive zwsp) we inject. Used by the Haiku→
+        // Sonnet retry safety net to detect "model produced nothing".
+        let modelTextChars = 0;
         let finishUsage:
           | {
               inputTokens: number;
@@ -453,11 +486,11 @@ export async function POST(req: Request) {
         };
 
         // Out-of-band structured tool-call frame. Bypasses sanitizeAIOutput
-        // (it's metadata, not prose) and does NOT count toward fullText.
-        // Uses the same U+001E sentinel as __exp_meta__ so it never
-        // collides with normal AI text output.
+        // (it's metadata, not prose) and does NOT count toward fullText /
+        // modelTextChars. Uses the same U+001E sentinel as __exp_meta__ so
+        // it never collides with normal AI text output.
         const toolFrame = (payload: Record<string, unknown>) => {
-          const frame = `\n__exp_tool__:${JSON.stringify(payload)}\n`;
+          const frame = `\n__exp_tool__:${JSON.stringify(payload)}\n`;
           controller.enqueue(new TextEncoder().encode(frame));
         };
 
@@ -506,7 +539,16 @@ export async function POST(req: Request) {
         };
 
         try {
-          await response.processDataStream({
+          // Wrap the stream loop in a single-retry loop so that an empty
+          // Haiku turn (modelTextChars === 0) can be silently re-run on
+          // the Sonnet variant — the "quality safety net" half of tiered
+          // routing. Tool errors with output do NOT retry inline (would
+          // double-respond); pickModelTier's stickiness handles those by
+          // escalating the *next* turn instead.
+          let attempt = 0;
+          while (true) {
+            attempt++;
+            await response.processDataStream({
             onChunk: async (chunk) => {
               chunkCount++;
               if (chunk.type === "text-delta") {
@@ -517,6 +559,7 @@ export async function POST(req: Request) {
                   console.warn('🔒 [chat/stream] Redacted potential secret leak from AI response');
                 }
                 fullText += safeText;
+                modelTextChars += safeText.length;
                 controller.enqueue(
                   new TextEncoder().encode(safeText),
                 );
@@ -598,6 +641,59 @@ export async function POST(req: Request) {
               }
             },
           });
+
+            // Retry once on Sonnet if Haiku produced no model text. We
+            // only retry on zero text-delta output to avoid duplicating
+            // a partial response. Per-attempt counters/flags reset; we
+            // keep `fullText` because any tool-call UI markers Haiku
+            // emitted have already streamed to the client and removing
+            // them would orphan bytes already on the wire.
+            if (
+              attempt === 1 &&
+              isHaikuTier(activeAgentId) &&
+              modelTextChars === 0
+            ) {
+              const sonnetId = sonnetVariantOf(activeAgentId);
+              if (sonnetId) {
+                console.log(
+                  `🔁 [chat/stream] Empty Haiku response — retrying on ${sonnetId}`,
+                  {
+                    fromAgent: activeAgentId,
+                    threadId,
+                    hadToolError,
+                    hadAgentError,
+                    toolCallNames: [...toolCallNames],
+                    firstToolErrorMessages: [...firstToolErrorMessages],
+                  },
+                );
+                chunkCount = 0;
+                textChunkCount = 0;
+                nonTextChunkTypes.clear();
+                toolCallNames.length = 0;
+                firstToolErrorMessages.length = 0;
+                lastStepFinishReason = undefined;
+                hadToolError = false;
+                hadAgentError = false;
+                finishUsage = undefined;
+                responseModelId = undefined;
+                activeAgentId = sonnetId;
+                agent = client.getAgent(activeAgentId);
+                response = await agent.stream(
+                  finalMessages as MessageListInput,
+                  {
+                    requestContext: requestContext as RequestContext<unknown>,
+                    memory: {
+                      resource: session.user.id,
+                      thread: { id: threadId },
+                    },
+                  },
+                );
+                continue;
+              }
+            }
+            break;
+          }
+          const tierRetried = attempt > 1;
           const durationMs = Date.now() - startTime;
           // A turn that produced no prose but did invoke tools is NOT empty —
           // the user sees those as the ToolActivity row. Without this guard,
@@ -622,7 +718,10 @@ export async function POST(req: Request) {
               ? finishUsage.inputTokens - approxTokensRouteSide
               : undefined;
           console.log(`📊 [chat/stream] Stream complete`, {
-            agentId: resolvedAgentId,
+            agentId: activeAgentId,
+            requestedAgentId,
+            tierPickReason: tierPick.reason,
+            tierRetried,
             threadId,
             durationMs,
             chunkCount,
@@ -646,7 +745,7 @@ export async function POST(req: Request) {
           });
           if (cost !== undefined && cost >= PER_REQUEST_COST_ALERT_USD) {
             console.warn(`💸 [chat/stream] Expensive request: $${cost.toFixed(4)} (threshold $${PER_REQUEST_COST_ALERT_USD})`, {
-              agentId: resolvedAgentId,
+              agentId: activeAgentId,
               userId: session.user.id,
               workspaceId: workspaceId ?? null,
               threadId,
@@ -672,7 +771,7 @@ export async function POST(req: Request) {
             .logInteraction({
               platform,
               systemUserId: session.user.id,
-              agentId: resolvedAgentId,
+              agentId: activeAgentId,
               conversationId: threadId,
               userMessage: lastUserMsg.slice(0, 2000),
               aiResponse: fullText.slice(0, 5000),
@@ -696,6 +795,7 @@ export async function POST(req: Request) {
                     toolErrors: firstToolErrorMessages,
                     emptyResponse,
                     nonTextChunkTypes: [...nonTextChunkTypes],
+                    tierRetried,
                   }).slice(0, 2000)
                 : undefined,
               projectId: projectId ?? undefined,
@@ -731,7 +831,8 @@ export async function POST(req: Request) {
           controller.close();
         } catch (err) {
           console.error(`❌ [chat/stream] Stream failed`, {
-            agentId: resolvedAgentId,
+            agentId: activeAgentId,
+            requestedAgentId,
             threadId,
             durationMs: Date.now() - startTime,
             chunkCount,
