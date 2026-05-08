@@ -618,14 +618,14 @@ export const projectRouter = createTRPCRouter({
       if (!requestingUserMembership) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You must be a member of this team to view shared weekly reviews',
+          message: 'You must be a member of this team to view shared weekly plans',
         });
       }
 
       if (!requestingUserMembership.team.isOrganization) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'Weekly reviews can only be viewed in organization teams',
+          message: 'Weekly plans can only be viewed in organization teams',
         });
       }
 
@@ -659,7 +659,7 @@ export const projectRouter = createTRPCRouter({
       if (!sharingSettings?.isEnabled) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'This user has not enabled weekly review sharing with this team',
+          message: 'This user has not enabled weekly plan sharing with this team',
         });
       }
 
@@ -885,6 +885,34 @@ export const projectRouter = createTRPCRouter({
       return ctx.db.projectMember.findMany({
         where: {
           projectId: input.projectId,
+        },
+      });
+    }),
+
+  // Recent project activity feed — powers the "What shifted this week"
+  // section on the new Overview tab. Returns rows with the changing user
+  // and (when applicable) the action so the UI can render verb + target.
+  getRecentActivity: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        sinceDays: z.number().int().min(1).max(60).default(7),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+    )
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      const since = new Date(Date.now() - input.sinceDays * 24 * 60 * 60 * 1000);
+      return ctx.db.projectActivity.findMany({
+        where: {
+          projectId: input.projectId,
+          changedAt: { gte: since },
+        },
+        orderBy: { changedAt: "desc" },
+        take: input.limit,
+        include: {
+          changedBy: { select: { id: true, name: true, image: true } },
+          action: { select: { id: true, name: true } },
         },
       });
     }),

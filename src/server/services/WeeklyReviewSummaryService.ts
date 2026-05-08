@@ -66,7 +66,7 @@ export class WeeklyReviewSummaryService {
     });
 
     return {
-      title: `📊 Weekly Review - ${user.name ?? 'User'} - Week of ${format(actualWeekStart, 'MMM d')}`,
+      title: `📊 Weekly Plan - ${user.name ?? 'User'} - Week of ${format(actualWeekStart, 'MMM d')}`,
       message,
       weekStart: actualWeekStart,
       weekEnd,
@@ -273,7 +273,7 @@ export class WeeklyReviewSummaryService {
   }): string {
     const weekRange = `${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')}`;
     
-    let message = `📊 *Weekly Review - ${userName}*\n`;
+    let message = `📊 *Weekly Plan - ${userName}*\n`;
     message += `📅 Week of ${weekRange}\n\n`;
 
     // Project Progress Section
@@ -320,7 +320,7 @@ export class WeeklyReviewSummaryService {
     message += `• Completed Items: ${highlights.length}\n`;
     message += `• Upcoming Priorities: ${upcomingPriorities.length}\n\n`;
 
-    message += `🔗 View full weekly review: ${process.env.NEXTAUTH_URL ?? 'http://localhost:3002'}/weekly-plan`;
+    message += `🔗 View full weekly plan: ${process.env.NEXTAUTH_URL ?? 'http://localhost:3002'}/weekly-plan`;
 
     return message;
   }

@@ -15,25 +15,35 @@ import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/
 interface AssigneeSelectorProps {
   selectedAssigneeIds: string[];
   actionId?: string;
+  projectId?: string | null;
+  workspaceId?: string | null;
   onAssigneeClick: () => void;
 }
 
 export function AssigneeSelector({
   selectedAssigneeIds,
   actionId,
+  projectId,
+  workspaceId,
   onAssigneeClick,
 }: AssigneeSelectorProps) {
-  // Get assignable users (all users from teams the current user belongs to)
-  const { data: assignableData } = api.action.getAssignableUsers.useQuery(
-    { actionId: actionId || "temp" },
-    {
-      enabled: !!actionId,
-    }
+  // Edit flow: query by actionId. Create flow: query by projectId/workspaceId.
+  const { data: editAssignableData } = api.action.getAssignableUsers.useQuery(
+    { actionId: actionId ?? "temp" },
+    { enabled: !!actionId }
   );
 
-  // For creation flow, we need project members - let's use a simplified approach
-  // In a real implementation, you might want a separate API for getting project members
-  const assignableUsers = assignableData?.assignableUsers || [];
+  const { data: createAssignableData } = api.action.getAssignableUsersForContext.useQuery(
+    {
+      projectId: projectId ?? undefined,
+      workspaceId: workspaceId ?? undefined,
+    },
+    { enabled: !actionId && (!!projectId || !!workspaceId) }
+  );
+
+  const assignableData = actionId ? editAssignableData : createAssignableData;
+
+  const assignableUsers = assignableData?.assignableUsers ?? [];
   
   // Filter to get only selected users
   const selectedUsers = assignableUsers.filter(user => 

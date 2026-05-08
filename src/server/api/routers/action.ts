@@ -18,6 +18,11 @@ import { sendAssignmentNotifications } from "~/server/services/notifications/Ema
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import {
+  logActionDiffActivities,
+  logProjectActivity,
+  PROJECT_ACTIVITY_TYPES,
+} from "~/server/services/projectActivity";
 
 
 export const actionRouter = createTRPCRouter({
@@ -379,90 +384,70 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify user exists before creating action
-      const user = await ctx.db.user.findUnique({
-        where: { id: ctx.session.user.id }
-      });
-      
-      if (!user) {
-        throw new Error(`User not found: ${ctx.session.user.id}. Please ensure your account is properly set up.`);
-      }
-
-      // Verify user has access to the target project (creating actions == edit)
+      // Project-scoped reads run in parallel: access check, project workspace,
+      // and the two kanban-order lookups are all independent.
       let projectWorkspaceId: string | null = null;
+      let nextKanbanOrder: number | null = null;
+
       if (input.projectId) {
-        const access = await getProjectAccess(
-          ctx.db,
-          ctx.session.user.id,
-          input.projectId,
-        );
+        const [access, project, maxOrderAcrossBoard, maxOrderInTodo] =
+          await Promise.all([
+            getProjectAccess(ctx.db, ctx.session.user.id, input.projectId),
+            ctx.db.project.findUnique({
+              where: { id: input.projectId },
+              select: { workspaceId: true },
+            }),
+            ctx.db.action.findFirst({
+              where: {
+                projectId: input.projectId,
+                kanbanOrder: { not: null },
+              },
+              orderBy: { kanbanOrder: "desc" },
+              select: { kanbanOrder: true },
+            }),
+            ctx.db.action.findFirst({
+              where: {
+                projectId: input.projectId,
+                kanbanStatus: "TODO",
+                kanbanOrder: { not: null },
+              },
+              orderBy: { kanbanOrder: "desc" },
+              select: { kanbanOrder: true },
+            }),
+          ]);
+
         if (!canEditProject(access)) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You don't have permission to create actions on this project",
           });
         }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
+
         projectWorkspaceId = project?.workspaceId ?? null;
+
+        if (maxOrderInTodo?.kanbanOrder) {
+          nextKanbanOrder = maxOrderInTodo.kanbanOrder + 1;
+        } else if (maxOrderAcrossBoard?.kanbanOrder) {
+          nextKanbanOrder = maxOrderAcrossBoard.kanbanOrder + 1;
+        } else {
+          nextKanbanOrder = 1;
+        }
       }
 
-      // Set default kanban status for project tasks
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionData: any = {
         ...input,
         createdById: ctx.session.user.id,
-        // Auto-set bountyStatus when creating a bounty
         ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
       };
 
-      // Inherit workspaceId from project if not explicitly provided
       if (input.projectId && !input.workspaceId && projectWorkspaceId) {
         actionData.workspaceId = projectWorkspaceId;
       }
 
-      // If this action is being created for a project, set default kanban status to TODO
       if (input.projectId) {
-        // Get the current highest order across all statuses in this project
-        const maxOrderAcrossBoard = await ctx.db.action.findFirst({
-          where: {
-            projectId: input.projectId,
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
-        // Get the current highest order in the TODO column specifically
-        const maxOrderInTodo = await ctx.db.action.findFirst({
-          where: {
-            projectId: input.projectId,
-            kanbanStatus: "TODO",
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
-        // Calculate next order position
-        let nextOrder: number;
-        
-        if (maxOrderInTodo?.kanbanOrder) {
-          // If there are existing tasks in TODO column, add after the last one
-          nextOrder = maxOrderInTodo.kanbanOrder + 1;
-        } else if (maxOrderAcrossBoard?.kanbanOrder) {
-          // If TODO column is empty but board has other tasks, 
-          // place at the end of the board order
-          nextOrder = maxOrderAcrossBoard.kanbanOrder + 1;
-        } else {
-          // First task in the entire project
-          nextOrder = 1;
-        }
-
         actionData.kanbanStatus = "TODO";
-        actionData.kanbanOrder = nextOrder;
+        actionData.kanbanOrder = nextKanbanOrder;
       }
 
       const createdAction = await ctx.db.action.create({
@@ -471,7 +456,9 @@ export const actionRouter = createTRPCRouter({
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
-          project: { select: { id: true, name: true } },
+          project: true,
+          syncs: true,
+          createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
           epic: { select: { id: true, name: true, status: true } },
         },
@@ -482,6 +469,16 @@ export const actionRouter = createTRPCRouter({
         void completeOnboardingStep(ctx.db, ctx.session.user.id, "actions").catch(
           (err: unknown) => { console.error("[onboarding-sync] actions:", err); },
         );
+
+        void logProjectActivity(ctx.db, {
+          projectId: input.projectId,
+          actionId: createdAction.id,
+          type: PROJECT_ACTIVITY_TYPES.ACTION_CREATED,
+          toValue: createdAction.name,
+          changedById: ctx.session.user.id,
+        }).catch((err: unknown) => {
+          console.error("[projectActivity] ACTION_CREATED:", err);
+        });
       }
 
       return createdAction;
@@ -589,7 +586,7 @@ export const actionRouter = createTRPCRouter({
       // Get current action to check previous state
       const currentAction = await ctx.db.action.findUnique({
         where: { id },
-        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true, scheduledEnd: true }
+        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true, scheduledEnd: true, projectId: true, dueDate: true }
       });
 
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
@@ -636,6 +633,29 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Project activity audit log: status + dueDate diffs (fire-and-forget)
+      if (currentAction?.projectId) {
+        const statusDiff =
+          updateData.status !== undefined && updateData.status !== currentAction.status
+            ? { from: currentAction.status, to: updateData.status }
+            : undefined;
+        const dueDateDiff =
+          updateData.dueDate !== undefined
+            ? { from: currentAction.dueDate ?? null, to: updateData.dueDate ?? null }
+            : undefined;
+
+        if (statusDiff || dueDateDiff) {
+          void logActionDiffActivities(ctx.db, {
+            projectId: currentAction.projectId,
+            actionId: id,
+            changedById: ctx.session.user.id,
+            diff: { status: statusDiff, dueDate: dueDateDiff },
+          }).catch((err: unknown) => {
+            console.error("[projectActivity] action.update diff:", err);
+          });
+        }
+      }
 
       // Sync onboarding progress on first action completion (fire-and-forget)
       if (isCompleting && !wasCompleted) {
@@ -732,7 +752,8 @@ export const actionRouter = createTRPCRouter({
         select: {
           id: true,
           kanbanStatus: true,
-          completedAt: true
+          completedAt: true,
+          projectId: true,
         }
       });
 
@@ -792,6 +813,19 @@ export const actionRouter = createTRPCRouter({
         }).catch((err: unknown) => {
           console.error("Failed to record status change:", err);
         });
+
+        if (action.projectId) {
+          void logProjectActivity(ctx.db, {
+            projectId: action.projectId,
+            actionId: input.actionId,
+            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
+            fromValue: action.kanbanStatus,
+            toValue: input.kanbanStatus,
+            changedById: ctx.session.user.id,
+          }).catch((err: unknown) => {
+            console.error("[projectActivity] updateKanbanStatus:", err);
+          });
+        }
       }
 
       return updated;
@@ -1177,12 +1211,38 @@ export const actionRouter = createTRPCRouter({
       actionIds: z.array(z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Snapshot project links + names BEFORE deleting so we can write activity rows.
+      const toDelete = await ctx.db.action.findMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        select: { id: true, name: true, projectId: true },
+      });
+
       const result = await ctx.db.action.deleteMany({
         where: {
           id: { in: input.actionIds },
           ...buildActionAccessWhere(ctx.session.user.id),
         },
       });
+
+      const projectScoped = toDelete.filter((a) => a.projectId !== null);
+      if (projectScoped.length > 0) {
+        void Promise.all(
+          projectScoped.map((a) =>
+            logProjectActivity(ctx.db, {
+              projectId: a.projectId!,
+              actionId: null,
+              type: PROJECT_ACTIVITY_TYPES.ACTION_DELETED,
+              fromValue: a.name,
+              changedById: ctx.session.user.id,
+            }),
+          ),
+        ).catch((err: unknown) => {
+          console.error("[projectActivity] bulkDelete:", err);
+        });
+      }
 
       return {
         count: result.count,
@@ -1399,6 +1459,14 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // Snapshot existing assignees so we can compute the diff for activity logging.
+      const priorAssignees = await ctx.db.actionAssignee.findMany({
+        where: { actionId: input.actionId },
+        select: { userId: true },
+      });
+      const priorIds = priorAssignees.map((a) => a.userId);
+      const nextIds = Array.from(new Set([...priorIds, ...input.userIds]));
+
       // Create assignments for each user (using createMany with skipDuplicates)
       await ctx.db.actionAssignee.createMany({
         data: input.userIds.map(userId => ({
@@ -1407,6 +1475,17 @@ export const actionRouter = createTRPCRouter({
         })),
         skipDuplicates: true,
       });
+
+      if (action.projectId && nextIds.length !== priorIds.length) {
+        void logActionDiffActivities(ctx.db, {
+          projectId: action.projectId,
+          actionId: input.actionId,
+          changedById: ctx.session.user.id,
+          diff: { assigneeIds: { from: priorIds, to: nextIds } },
+        }).catch((err: unknown) => {
+          console.error("[projectActivity] assign:", err);
+        });
+      }
 
       // Fire-and-forget email notifications for newly assigned users
       void sendAssignmentNotifications(ctx.db, {
@@ -1460,6 +1539,15 @@ export const actionRouter = createTRPCRouter({
         throw new Error("You don't have permission to modify this action");
       }
 
+      // Snapshot existing assignees so we can log the diff
+      const priorAssignees = await ctx.db.actionAssignee.findMany({
+        where: { actionId: input.actionId },
+        select: { userId: true },
+      });
+      const priorIds = priorAssignees.map((a) => a.userId);
+      const removeSet = new Set(input.userIds);
+      const nextIds = priorIds.filter((id) => !removeSet.has(id));
+
       // Remove assignments
       await ctx.db.actionAssignee.deleteMany({
         where: {
@@ -1467,6 +1555,17 @@ export const actionRouter = createTRPCRouter({
           userId: { in: input.userIds },
         },
       });
+
+      if (action.projectId && nextIds.length !== priorIds.length) {
+        void logActionDiffActivities(ctx.db, {
+          projectId: action.projectId,
+          actionId: input.actionId,
+          changedById: ctx.session.user.id,
+          diff: { assigneeIds: { from: priorIds, to: nextIds } },
+        }).catch((err: unknown) => {
+          console.error("[projectActivity] unassign:", err);
+        });
+      }
 
       // Return updated action with assignees
       return ctx.db.action.findUnique({
@@ -1704,6 +1803,119 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
+  // Variant of getAssignableUsers for the action-creation flow, where there is
+  // no actionId yet. Caller passes the prospective project/workspace context so
+  // the same membership rules apply (teams, workspace members, project members,
+  // restricted-project escape hatch, current user fallback).
+  getAssignableUsersForContext: protectedProcedure
+    .input(z.object({
+      projectId: z.string().optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      let project: { id: string; name: string; workspaceId: string | null; isRestricted: boolean } | null = null;
+      if (input.projectId) {
+        const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+        if (!hasProjectAccess(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this project",
+          });
+        }
+        project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { id: true, name: true, workspaceId: true, isRestricted: true },
+        });
+      }
+
+      const effectiveWorkspaceId = project?.workspaceId ?? input.workspaceId ?? null;
+      const isRestrictedProject = project?.isRestricted ?? false;
+
+      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+
+      const userTeams = await ctx.db.team.findMany({
+        where: {
+          members: { some: { userId: ctx.session.user.id } },
+          ...(effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : {}),
+        },
+        include: {
+          members: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+        },
+      });
+
+      if (!isRestrictedProject) {
+        userTeams.forEach(team => {
+          team.members.forEach(member => {
+            userMap.set(member.user.id, member.user);
+          });
+        });
+      }
+
+      if (effectiveWorkspaceId) {
+        const workspaceUsers = await ctx.db.workspaceUser.findMany({
+          where: {
+            workspaceId: effectiveWorkspaceId,
+            ...(isRestrictedProject ? { role: { in: ["owner", "admin"] } } : {}),
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+          },
+        });
+        workspaceUsers.forEach(wu => {
+          userMap.set(wu.user.id, wu.user);
+        });
+      }
+
+      if (project?.id) {
+        const projectMembers = await ctx.db.projectMember.findMany({
+          where: { projectId: project.id },
+          include: {
+            user: { select: { id: true, name: true, email: true, image: true } },
+          },
+        });
+        projectMembers.forEach(pm => {
+          userMap.set(pm.user.id, pm.user);
+        });
+
+        const projectRecord = await ctx.db.project.findUnique({
+          where: { id: project.id },
+          select: { createdById: true },
+        });
+        if (projectRecord?.createdById && !userMap.has(projectRecord.createdById)) {
+          const creator = await ctx.db.user.findUnique({
+            where: { id: projectRecord.createdById },
+            select: { id: true, name: true, email: true, image: true },
+          });
+          if (creator) userMap.set(creator.id, creator);
+        }
+      }
+
+      if (!userMap.has(ctx.session.user.id)) {
+        const currentUser = await ctx.db.user.findUnique({
+          where: { id: ctx.session.user.id },
+          select: { id: true, name: true, email: true, image: true },
+        });
+        if (currentUser) {
+          userMap.set(currentUser.id, currentUser);
+        }
+      }
+
+      return {
+        assignableUsers: Array.from(userMap.values()),
+        actionContext: {
+          hasProject: !!project,
+          hasTeam: false,
+          projectName: project?.name,
+          teamName: undefined as string | undefined,
+          userTeamCount: userTeams.length,
+        },
+      };
+    }),
+
   updateKanbanStatusWithOrder: protectedProcedure
     .input(z.object({
       actionId: z.string(),
@@ -1844,6 +2056,19 @@ export const actionRouter = createTRPCRouter({
         }).catch((err: unknown) => {
           console.error("Failed to record status change:", err);
         });
+
+        if (action.projectId) {
+          void logProjectActivity(ctx.db, {
+            projectId: action.projectId,
+            actionId,
+            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
+            fromValue: action.kanbanStatus,
+            toValue: kanbanStatus,
+            changedById: ctx.session.user.id,
+          }).catch((err: unknown) => {
+            console.error("[projectActivity] moveKanbanCard:", err);
+          });
+        }
       }
 
       return updated;

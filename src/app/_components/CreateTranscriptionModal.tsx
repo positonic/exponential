@@ -39,34 +39,31 @@ export function CreateTranscriptionModal({
     api.transcription.createManualTranscription.useMutation({
       onSuccess: () => {
         if (projectId) {
-          // Invalidate project query to refresh transcription list
-          void utils.project.getById.invalidate({ id: projectId });
+          // Invalidate without input — query may be keyed by slug or id, so match all variants
+          void utils.project.getById.invalidate();
         }
         void utils.transcription.getAllTranscriptions.invalidate({
           workspaceId,
         });
 
-        // Reset form
         setTitle("");
         setDescription("");
         setTranscription("");
         setNotes("");
         setMeetingDate(null);
 
-        // Close modal
         close();
 
-        // Show success notification
         notifications.show({
-          title: "Transcription Created",
-          message: "Your transcription has been added successfully.",
+          title: "Meeting Created",
+          message: "Your meeting has been added successfully.",
           color: "green",
         });
       },
       onError: (error) => {
         notifications.show({
           title: "Error",
-          message: error.message || "Failed to create transcription",
+          message: error.message || "Failed to create meeting",
           color: "red",
         });
       },
@@ -100,7 +97,7 @@ export function CreateTranscriptionModal({
           size="xs"
           onClick={open}
         >
-          Add Transcription
+          Add Meeting
         </Button>
       )}
 
@@ -110,13 +107,13 @@ export function CreateTranscriptionModal({
         size="lg"
         radius="md"
         padding="lg"
-        title="Add Transcription"
+        title="Add Meeting"
       >
         <form onSubmit={handleSubmit}>
           <Stack gap="md">
             <TextInput
               label="Title"
-              placeholder="Meeting title or description"
+              placeholder="Meeting title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
@@ -147,8 +144,8 @@ export function CreateTranscriptionModal({
             />
 
             <Textarea
-              label="Transcription"
-              placeholder="Paste or type the transcription text..."
+              label="Transcript"
+              placeholder="Paste or type the meeting transcript..."
               value={transcription}
               onChange={(e) => setTranscription(e.target.value)}
               required
@@ -176,7 +173,7 @@ export function CreateTranscriptionModal({
                 loading={createTranscription.isPending}
                 disabled={!isValid}
               >
-                Add Transcription
+                Add Meeting
               </Button>
             </Group>
           </Stack>

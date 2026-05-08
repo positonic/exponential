@@ -120,20 +120,20 @@ Teams can share integrations like:
 
 Team integrations appear in the team integration count on the dashboard.
 
-## Weekly Team Reviews
+## Weekly Team Plans
 
-Teams support weekly review workflows where members can:
+Teams support weekly plan workflows where members can:
 - Share their weekly progress
 - Review what others accomplished
 - Plan upcoming work together
 
-To access weekly reviews:
+To access weekly plans:
 1. Go to **Teams**
 2. Select your team
 3. Navigate to **Members**
-4. Click on a member to see their weekly review
+4. Click on a member to see their weekly plan
 
-See [Weekly Review](/docs/features/weekly-plan) for more on the review process.
+See [Weekly Plan](/docs/features/weekly-plan) for more on the planning process.
 
 ## Linking Teams to Workspaces
 
@@ -176,7 +176,7 @@ Teams can be linked to workspaces to organize collaboration:
 ### Project Management
 
 - **Assign relevant projects** - Only share what the team needs
-- **Use team reviews** - Keep everyone aligned with weekly reviews
+- **Use team plans** - Keep everyone aligned with weekly plans
 - **Share integrations** - Configure team-wide Slack channels
 
 ## Managing Your Team
@@ -221,5 +221,5 @@ All team members can see who else is on the team and their roles.
 ## Next Steps
 
 - [Learn about Workspaces](/docs/features/workspaces)
-- [Set up Weekly Reviews](/docs/features/weekly-plan)
+- [Set up Weekly Plans](/docs/features/weekly-plan)
 - [Create your first Project](/docs/features/projects)

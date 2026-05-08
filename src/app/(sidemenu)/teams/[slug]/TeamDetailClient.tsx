@@ -251,7 +251,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
             </Tabs.Tab>
             {team.isOrganization && (
               <Tabs.Tab value="weekly-plans" leftSection={<IconCalendarWeek size={16} />}>
-                Weekly Reviews
+                Weekly Plans
               </Tabs.Tab>
             )}
             {isOwnerOrAdmin && (
@@ -293,7 +293,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                       <Group gap="xs">
                         {/* Weekly Review Link for Organization Teams */}
                         {team.isOrganization && (
-                          <Tooltip label="View Weekly Review">
+                          <Tooltip label="View Weekly Plan">
                             <ActionIcon
                               variant="light"
                               color="blue"
@@ -457,7 +457,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
             <Tabs.Panel value="weekly-plans" pt="md">
               <Card withBorder>
                 <Stack gap="md">
-                  <Title order={3}>Shared Weekly Reviews</Title>
+                  <Title order={3}>Shared Weekly Plans</Title>
                   <TeamSharedReviewsList teamId={team.id} teamSlug={team.slug} />
                 </Stack>
               </Card>
@@ -479,7 +479,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                             Organization Team
                           </Text>
                           <Text size="xs" c="dimmed" style={{ maxWidth: 400 }}>
-                            Organization teams can receive shared weekly reviews from members. 
+                            Organization teams can receive shared weekly plans from members.
                             Regular teams are for project collaboration only.
                           </Text>
                         </div>
@@ -494,8 +494,8 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                       {team.isOrganization && (
                         <Alert variant="light" color="blue">
                           <Text size="sm">
-                            This team can now receive shared weekly reviews from members. 
-                            Team members can choose to share their weekly reviews in their personal settings.
+                            This team can now receive shared weekly plans from members.
+                            Team members can choose to share their weekly plans in their personal settings.
                           </Text>
                         </Alert>
                       )}
@@ -508,10 +508,10 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                       <Stack gap="md">
                         <div>
                           <Text fw={500} size="sm" className="text-text-primary">
-                            Weekly Review Sharing
+                            Weekly Plan Sharing
                           </Text>
                           <Text size="xs" c="dimmed">
-                            View and manage weekly review sharing for this organization team.
+                            View and manage weekly plan sharing for this organization team.
                           </Text>
                         </div>
                         
@@ -525,7 +525,7 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                             component={Link}
                             href={`/teams/${team.slug}?tab=weekly-plans`}
                           >
-                            View Shared Reviews
+                            View Shared Plans
                           </Button>
                         </Group>
                       </Stack>
@@ -639,10 +639,10 @@ function TeamSharedReviewsList({ teamId, teamSlug }: TeamSharedReviewsListProps)
           <IconCalendarWeek size={48} className="text-text-muted" />
           <div style={{ textAlign: 'center' }}>
             <Text fw={500} size="sm" className="text-text-primary">
-              No shared weekly reviews yet
+              No shared weekly plans yet
             </Text>
             <Text size="xs" c="dimmed" mt="xs">
-              Team members can enable weekly review sharing in their personal settings.
+              Team members can enable weekly plan sharing in their personal settings.
             </Text>
           </div>
         </Stack>
@@ -653,7 +653,7 @@ function TeamSharedReviewsList({ teamId, teamSlug }: TeamSharedReviewsListProps)
   return (
     <Stack gap="md">
       <Text size="sm" c="dimmed">
-        {sharedReviews.length} member{sharedReviews.length !== 1 ? 's' : ''} sharing weekly reviews
+        {sharedReviews.length} member{sharedReviews.length !== 1 ? 's' : ''} sharing weekly plans
       </Text>
       
       <Stack gap="sm">
@@ -693,7 +693,7 @@ function TeamSharedReviewsList({ teamId, teamSlug }: TeamSharedReviewsListProps)
                   component={Link}
                   href={`/teams/${teamSlug}/members/${sharing.user.id}/weekly-plan`}
                 >
-                  View Weekly Review
+                  View Weekly Plan
                 </Button>
               </Group>
             </Group>

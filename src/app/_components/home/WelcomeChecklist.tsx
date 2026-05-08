@@ -51,6 +51,8 @@ export function WelcomeChecklist() {
   const utils = api.useUtils();
   const hasAutoOpenedRef = useRef(false);
 
+  const hasFiredCelebrationRef = useRef(false);
+
   const { data, isLoading } = api.user.getWelcomeProgress.useQuery();
   const { data: onboardingProject } = api.user.getOnboardingProject.useQuery();
   const completeWelcome = api.user.completeWelcome.useMutation({
@@ -161,7 +163,12 @@ export function WelcomeChecklist() {
   }, []);
 
   useEffect(() => {
-    if (allComplete && !data?.welcomeCompletedAt) {
+    if (
+      allComplete &&
+      !data?.welcomeCompletedAt &&
+      !hasFiredCelebrationRef.current
+    ) {
+      hasFiredCelebrationRef.current = true;
       fireCelebration();
       completeWelcome.mutate();
     }

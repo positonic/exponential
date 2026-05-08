@@ -279,7 +279,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onSuccess: (data) => {
       notifications.show({
         title: 'Bulk Assignment Complete',
-        message: `Assigned ${data.count} transcriptions and their actions to project`,
+        message: `Assigned ${data.count} meetings and their actions to project`,
         color: 'green',
       });
       // Clear selections and refresh data
@@ -290,7 +290,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onError: (error) => {
       notifications.show({
         title: 'Bulk Assignment Failed',
-        message: error.message || 'Failed to assign transcriptions to project',
+        message: error.message || 'Failed to assign meetings to project',
         color: 'red',
       });
     },
@@ -300,7 +300,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onSuccess: (data) => {
       notifications.show({
         title: 'Bulk Delete Complete',
-        message: `Deleted ${data.count} transcriptions`,
+        message: `Deleted ${data.count} meetings`,
         color: 'green',
       });
       // Clear selections and refresh data
@@ -310,7 +310,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onError: (error) => {
       notifications.show({
         title: 'Bulk Delete Failed',
-        message: error.message || 'Failed to delete transcriptions',
+        message: error.message || 'Failed to delete meetings',
         color: 'red',
       });
     },
@@ -376,7 +376,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onSuccess: (result) => {
       notifications.show({
         title: "Sync complete",
-        message: `Synced ${result.newTranscripts} new, ${result.updatedTranscripts} updated transcripts`,
+        message: `Synced ${result.newTranscripts} new, ${result.updatedTranscripts} updated meetings`,
         color: "green",
       });
       void utils.transcription.getAllTranscriptions.invalidate();
@@ -617,7 +617,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   );
 
   if (isLoading && !transcriptions) {
-    return <div>Loading transcriptions...</div>;
+    return <div>Loading meetings...</div>;
   }
 
   const formatRelativeTime = (date: Date | null | undefined) => {
@@ -736,7 +736,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
             {/* Tabs Navigation */}
             <Tabs.List>
               {[
-                { value: "transcriptions", label: "Transcriptions", count: activeCount },
+                { value: "transcriptions", label: "Meetings", count: activeCount },
                 { value: "upcoming", label: "Upcoming", count: 0 },
                 { value: "archive", label: "Archive", count: archivedCount },
                 { value: "activity", label: "Activity", count: activityCount },
@@ -883,9 +883,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   </Collapse>
                 </div>
 
-                {/* Recent transcripts heading */}
+                {/* Recent meetings heading */}
                 <Group justify="space-between" align="center">
-                  <Title order={4} fw={600}>Recent transcripts</Title>
+                  <Title order={4} fw={600}>Recent meetings</Title>
                   <Group gap="sm">
                     <Text size="sm" c="dimmed">
                       {filteredTranscriptions.length} meeting{filteredTranscriptions.length === 1 ? "" : "s"}
@@ -899,7 +899,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   <Group gap="sm" wrap="nowrap">
                     <TextInput
                       leftSection={<IconSearch size={16} />}
-                      placeholder="Search transcripts, participants, topics..."
+                      placeholder="Search meetings, participants, topics..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.currentTarget.value)}
                       variant="unstyled"
@@ -1626,12 +1626,12 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       <Modal
         opened={deleteModalOpened}
         onClose={() => setDeleteModalOpened(false)}
-        title="Delete Transcriptions"
+        title="Delete Meetings"
         centered
       >
         <Stack gap="md">
           <Text>
-            Are you sure you want to delete {selectedTranscriptionIds.size} transcription{selectedTranscriptionIds.size === 1 ? '' : 's'}?
+            Are you sure you want to delete {selectedTranscriptionIds.size} meeting{selectedTranscriptionIds.size === 1 ? '' : 's'}?
           </Text>
           <Text size="sm" c="dimmed">
             This action cannot be undone. All associated actions will also be removed.

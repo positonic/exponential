@@ -40,7 +40,7 @@ interface ValuePropositionSectionProps {
 export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = ({ id }) => {
   const benefits = [
     "Connect daily work to quarterly goals",
-    "Weekly reviews that surface patterns",
+    "Weekly plans that surface patterns",
     "AI assistance with your actual context",
     "Migrate easily from Notion"
   ];

@@ -142,7 +142,7 @@ Hide distractions, keep essentials:
 ### For Goal-Oriented Users
 
 Focus on alignment:
-- Show: Goals, Outcomes, Wheel of Life, Weekly Review
+- Show: Goals, Outcomes, Wheel of Life, Weekly Plan
 - Hide: Detailed project tools
 
 ### For Team Leads

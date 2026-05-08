@@ -52,7 +52,7 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
       icon: <IconCalendarWeek size={32} stroke={1.5} />,
       iconColor: "var(--color-brand-info)",
       title: "Weekly Reset",
-      description: "Built-in weekly review. See what you accomplished and what actually moved the needle. Course-correct before it's too late."
+      description: "Built-in weekly plan. See what you accomplished and what actually moved the needle. Course-correct before it's too late."
     },
     {
       icon: <IconBrain size={32} stroke={1.5} />,

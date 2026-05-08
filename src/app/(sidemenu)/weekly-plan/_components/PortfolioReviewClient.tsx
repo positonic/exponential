@@ -199,7 +199,7 @@ function PortfolioReviewInner({ data, isCompletedThisWeek }: InnerProps) {
         <div className="pr-crumb">
           <IconFolder size={14} /> Portfolio
           <span className="pr-crumb__sep">/</span>
-          <span className="pr-crumb__current">Weekly Review</span>
+          <span className="pr-crumb__current">Weekly Plan</span>
         </div>
         <div className="pr-topbar__right">
           {phase !== "intro" && phase !== "complete" && (

@@ -150,7 +150,7 @@ Journal entries are categorized by type:
 ### Week Grouping
 
 Days are grouped into weeks (Monday-Sunday) for:
-- Weekly review organization
+- Weekly plan organization
 - Pattern recognition
 - Progress tracking
 
@@ -164,9 +164,9 @@ Journal sections are embedded in:
 
 See [Routines](/docs/features/routines) for complete routine workflows.
 
-### Weekly Review
+### Weekly Plan
 
-Review your week's journal entries during [Weekly Review](/docs/features/weekly-plan):
+Review your week's journal entries during [Weekly Plan](/docs/features/weekly-plan):
 - Identify patterns in energy
 - Celebrate gratitude themes
 - Track learning progress

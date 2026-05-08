@@ -221,7 +221,7 @@ Routines are tied to specific days:
 ### Week Grouping
 
 Days grouped into weeks for:
-- Weekly review preparation
+- Weekly plan preparation
 - Pattern recognition
 - Progress tracking
 
@@ -249,9 +249,9 @@ Connect routine to task management:
 - Process inbox in startup
 - Set priorities for the day
 
-### Weekly Review
+### Weekly Plan
 
-Routines prepare you for [Weekly Review](/docs/features/weekly-plan):
+Routines prepare you for [Weekly Plan](/docs/features/weekly-plan):
 - Accumulated journal entries
 - Daily outcomes completion
 - Week's gratitudes

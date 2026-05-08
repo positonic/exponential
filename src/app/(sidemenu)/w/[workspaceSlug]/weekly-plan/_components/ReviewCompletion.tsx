@@ -41,7 +41,7 @@ function getMilestoneMessage(streak: number): string | null {
   if (streak === 4) return "1 month of consistency!";
   if (streak === 12) return "3 months strong!";
   if (streak === 26) return "Half a year!";
-  if (streak === 52) return "A full year of weekly reviews!";
+  if (streak === 52) return "A full year of weekly plans!";
   return null;
 }
 

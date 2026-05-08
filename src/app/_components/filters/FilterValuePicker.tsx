@@ -9,7 +9,10 @@ import {
   Text,
   Avatar,
   ScrollArea,
+  ActionIcon,
+  Tooltip,
 } from "@mantine/core";
+import { IconLink } from "@tabler/icons-react";
 import type {
   FilterField,
   FilterState,
@@ -22,6 +25,7 @@ interface FilterValuePickerProps {
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
   members?: FilterMember[];
+  onCopyMemberLink?: (memberId: string) => void;
 }
 
 export function FilterValuePicker({
@@ -29,6 +33,7 @@ export function FilterValuePicker({
   filters,
   onFiltersChange,
   members = [],
+  onCopyMemberLink,
 }: FilterValuePickerProps) {
   switch (field.type) {
     case "multi-select":
@@ -56,6 +61,7 @@ export function FilterValuePicker({
             })
           }
           members={members}
+          onCopyMemberLink={onCopyMemberLink}
         />
       );
     case "boolean":
@@ -120,11 +126,13 @@ function UserPicker({
   selected,
   onChange,
   members,
+  onCopyMemberLink,
 }: {
   field: Extract<FilterField, { type: "user" }>;
   selected: string[];
   onChange: (values: string[]) => void;
   members: FilterMember[];
+  onCopyMemberLink?: (memberId: string) => void;
 }) {
   const toggle = (id: string) => {
     if (selected.includes(id)) {
@@ -146,32 +154,55 @@ function UserPicker({
     <ScrollArea.Autosize mah={280}>
       <Stack gap={2} px={6} py={6}>
         {members.map((member) => (
-          <UnstyledButton
+          <Group
             key={member.id}
-            onClick={() => toggle(member.id)}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover"
+            gap={4}
+            wrap="nowrap"
+            className="rounded-md hover:bg-surface-hover"
           >
-            <Checkbox
-              checked={selected.includes(member.id)}
-              onChange={() => toggle(member.id)}
-              size="xs"
-              tabIndex={-1}
-              styles={{ input: { cursor: "pointer" } }}
-            />
-            <Group gap="xs" wrap="nowrap">
-              <Avatar
-                src={member.image}
+            <UnstyledButton
+              onClick={() => toggle(member.id)}
+              className="flex flex-1 items-center gap-2 px-2 py-1.5"
+            >
+              <Checkbox
+                checked={selected.includes(member.id)}
+                onChange={() => toggle(member.id)}
                 size="xs"
-                radius="xl"
-                color={getAvatarColor(member.id)}
-              >
-                {getInitial(member.name ?? member.email)}
-              </Avatar>
-              <Text size="sm" truncate>
-                {member.name ?? member.email ?? "Unknown"}
-              </Text>
-            </Group>
-          </UnstyledButton>
+                tabIndex={-1}
+                styles={{ input: { cursor: "pointer" } }}
+              />
+              <Group gap="xs" wrap="nowrap">
+                <Avatar
+                  src={member.image}
+                  size="xs"
+                  radius="xl"
+                  color={getAvatarColor(member.id)}
+                >
+                  {getInitial(member.name ?? member.email)}
+                </Avatar>
+                <Text size="sm" truncate>
+                  {member.name ?? member.email ?? "Unknown"}
+                </Text>
+              </Group>
+            </UnstyledButton>
+            {onCopyMemberLink && (
+              <Tooltip label="Copy link assigned to this person" position="left" withinPortal>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopyMemberLink(member.id);
+                  }}
+                  aria-label={`Copy link assigned to ${member.name ?? member.email ?? "this person"}`}
+                  className="mr-1"
+                >
+                  <IconLink size={14} />
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Group>
         ))}
       </Stack>
     </ScrollArea.Autosize>

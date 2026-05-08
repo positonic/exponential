@@ -541,10 +541,12 @@ export function ActionModalForm({
           onChange={onTagChange}
           workspaceId={workspaceId}
         />
-        {actionId && (
+        {(actionId ?? projectId ?? workspaceId) && (
           <AssigneeSelector
             selectedAssigneeIds={selectedAssigneeIds}
             actionId={actionId}
+            projectId={projectId}
+            workspaceId={workspaceId}
             onAssigneeClick={onAssigneeClick}
           />
         )}

@@ -510,7 +510,7 @@ export const teamRouter = createTRPCRouter({
       if (!member) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You must be a team member to view shared weekly reviews',
+          message: 'You must be a team member to view shared weekly plans',
         });
       }
 

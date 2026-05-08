@@ -35,10 +35,13 @@ import {
   IconCheck,
   IconPin,
   IconPinnedFilled,
+  IconInfoCircle,
 } from '@tabler/icons-react';
 import { useState, useRef } from 'react';
+import Link from 'next/link';
 import { api } from '~/trpc/react';
-import { useDisclosure } from '@mantine/hooks';
+import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
+import { keepPreviousData } from '@tanstack/react-query';
 
 const contentTypeIcons = {
   web_page: IconLink,
@@ -85,7 +88,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
 
   // Queries
   const { data: stats, isLoading: statsLoading, refetch: refetchStats } = api.mastra.getEmbeddingStats.useQuery(
-    {},
+    { workspaceId },
     { enabled: true }
   );
 
@@ -94,16 +97,19 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     { enabled: true }
   );
 
-  // Use unified search that includes both transcriptions AND resources
-  const searchMutation = api.mastra.queryMeetingContext.useMutation();
-
-  // Trigger search when query changes
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    if (query.length > 2) {
-      searchMutation.mutate({ query, topK: 10 });
-    }
-  };
+  // Debounce the typed query so we only search after the user pauses,
+  // and use placeholderData so previous results stay visible during refetch
+  // (prevents the results region from collapsing on every keystroke).
+  const [debouncedQuery] = useDebouncedValue(searchQuery, 300);
+  const searchEnabled = debouncedQuery.length > 2;
+  const searchQueryResult = api.mastra.queryMeetingContext.useQuery(
+    { query: debouncedQuery, topK: 10, workspaceId },
+    {
+      enabled: searchEnabled,
+      placeholderData: keepPreviousData,
+      staleTime: 30_000,
+    },
+  );
 
   // Mutations
   const backfillMutation = api.mastra.backfillTranscriptionEmbeddings.useMutation({
@@ -138,7 +144,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         // Small delay to avoid hammering the API
         setTimeout(() => {
           console.log('[Backfill] Starting next batch...');
-          backfillMutation.mutate({ limit: 20, skipExisting: true });
+          backfillMutation.mutate({ limit: 1, skipExisting: true });
         }, 500);
       } else {
         console.log('[Backfill] Stopping:', {
@@ -194,7 +200,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     // Start batch processing
     isBackfillingRef.current = true;
     setBackfillProgress({ isRunning: true, totalProcessed: 0, totalFailed: 0 });
-    backfillMutation.mutate({ limit: 20, skipExisting: true });
+    backfillMutation.mutate({ limit: 1, skipExisting: true });
   };
 
   const handleStopBackfill = () => {
@@ -242,13 +248,24 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     ? 'Manage documents, web pages, and meeting transcriptions for this workspace'
     : 'Manage documents, web pages, and meeting transcriptions across all workspaces';
 
+  const permissionsTooltipLabel = workspaceId
+    ? "You only see your own content scoped to this workspace. Legacy items that pre-date workspace assignment are also included. Other workspace members' content is not visible to you."
+    : "You only see your own content. Results span every workspace you belong to — switch into a workspace to filter.";
+
   return (
     <Container size="lg" className="py-8">
-      <Group justify="space-between" mb="xl">
+      <Group justify="space-between" mb="md">
         <div>
-          <Title order={1} className="text-3xl font-bold text-text-primary">
-            Knowledge Base
-          </Title>
+          <Group gap="xs" align="center">
+            <Title order={1} className="text-3xl font-bold text-text-primary">
+              Knowledge Base
+            </Title>
+            <Tooltip label={permissionsTooltipLabel} multiline w={320} withArrow>
+              <ActionIcon variant="subtle" color="gray" size="lg" aria-label="How permissions work">
+                <IconInfoCircle size={18} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
           <Text className="text-text-secondary mt-1">
             {subtitle}
           </Text>
@@ -257,6 +274,25 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           Add Resource
         </Button>
       </Group>
+
+      <Alert
+        icon={<IconInfoCircle size={16} />}
+        color="blue"
+        variant="light"
+        mb="xl"
+        className="border-border-primary"
+      >
+        <Text size="sm" className="text-text-primary">
+          The Knowledge Base indexes your meeting transcriptions and saved resources (web pages,
+          notes, documents) so you can search them by meaning, not just keywords. Search runs
+          semantic similarity over stored embeddings; if that fails, it falls back to a basic
+          keyword match across transcripts.
+        </Text>
+        <Text size="xs" className="text-text-muted mt-2">
+          What it does: full-text + semantic search, pin resources for AI agent context, backfill embeddings for old meetings.
+          What it doesn&apos;t do: edit transcripts in-place, preview internal notes (links open the source URL only), or share results with other users.
+        </Text>
+      </Alert>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -359,8 +395,8 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                 </Text>
                 <Text size="xs" className="text-blue-400 h-4">
                   {backfillMutation.isPending
-                    ? `Processing batch ${Math.floor(backfillProgress.totalProcessed / 20) + 1}... (up to 60 seconds per batch)`
-                    : 'Preparing next batch...'}
+                    ? `Embedding transcription ${backfillProgress.totalProcessed + backfillProgress.totalFailed + 1}...`
+                    : 'Preparing next transcription...'}
                 </Text>
               </Stack>
               <Button
@@ -525,26 +561,39 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               placeholder="Search transcriptions and resources..."
               leftSection={<IconSearch size={16} />}
               value={searchQuery}
-              onChange={(e) => handleSearch(e.currentTarget.value)}
+              onChange={(e) => setSearchQuery(e.currentTarget.value)}
               className="mb-4"
               classNames={{
                 input: 'bg-surface-primary border-border-primary text-text-primary',
               }}
             />
 
-            {searchMutation.isPending ? (
+            {searchEnabled && searchQueryResult.isLoading ? (
               <Stack gap="md">
                 <Skeleton height={60} />
                 <Skeleton height={60} />
                 <Skeleton height={60} />
               </Stack>
-            ) : searchMutation.data?.results && searchMutation.data.results.length > 0 ? (
-              <Stack gap="md">
-                {searchMutation.data.results.map((result, idx) => {
+            ) : searchQueryResult.data?.results && searchQueryResult.data.results.length > 0 ? (
+              <Stack gap="md" style={{ opacity: searchQueryResult.isFetching ? 0.6 : 1, transition: 'opacity 150ms ease' }}>
+                {searchQueryResult.data.results.map((result, idx) => {
                   if (!result) return null;
                   const contentType = 'contentType' in result ? result.contentType : undefined;
-                  return (
-                    <Card key={idx} className="bg-surface-primary border-border-primary" withBorder p="sm">
+                  // Transcriptions → internal recording detail page.
+                  // Resources → external source URL when present (web pages, bookmarks).
+                  // Notes/documents without a URL stay non-clickable for now (no detail page yet).
+                  const href =
+                    result.sourceType === 'transcription'
+                      ? `/recording/${result.sourceId}`
+                      : (result.url ?? null);
+                  const isExternal = result.sourceType === 'resource' && !!result.url;
+
+                  const card = (
+                    <Card
+                      className={`bg-surface-primary border-border-primary ${href ? 'hover:bg-surface-hover hover:border-border-focus transition-colors cursor-pointer' : ''}`}
+                      withBorder
+                      p="sm"
+                    >
                       <Group justify="space-between" mb="xs">
                         <Group gap="xs">
                           <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : 'green'}>
@@ -555,6 +604,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                               {result.sourceTitle}
                             </Text>
                           )}
+                          {isExternal && <IconLink size={12} className="text-text-muted" />}
                         </Group>
                         <Text size="xs" className="text-text-muted">
                           {((result.relevanceScore ?? 0) * 100).toFixed(1)}% match
@@ -570,11 +620,33 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                       )}
                     </Card>
                   );
+
+                  if (!href) {
+                    return <div key={idx}>{card}</div>;
+                  }
+                  if (isExternal) {
+                    return (
+                      <a
+                        key={idx}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block no-underline text-inherit"
+                      >
+                        {card}
+                      </a>
+                    );
+                  }
+                  return (
+                    <Link key={idx} href={href} className="block no-underline text-inherit">
+                      {card}
+                    </Link>
+                  );
                 })}
               </Stack>
-            ) : searchQuery.length > 2 && !searchMutation.isPending ? (
+            ) : searchEnabled && !searchQueryResult.isFetching ? (
               <Text className="text-text-secondary text-center py-4">
-                No results found for &quot;{searchQuery}&quot;
+                No results found for &quot;{debouncedQuery}&quot;
               </Text>
             ) : (
               <Text className="text-text-muted text-center py-4">

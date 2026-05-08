@@ -49,7 +49,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
     onSuccess: (data) => {
       notifications.show({
         title: data.isEnabled ? 'Sharing Enabled' : 'Sharing Disabled',
-        message: `Weekly review sharing ${data.isEnabled ? 'enabled' : 'disabled'} with ${data.team.name}`,
+        message: `Weekly plan sharing ${data.isEnabled ? 'enabled' : 'disabled'} with ${data.team.name}`,
         color: 'green',
         icon: <IconCheck size={16} />
       });
@@ -77,7 +77,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
     onSuccess: () => {
       notifications.show({
         title: 'Bulk Sharing Enabled',
-        message: 'Weekly review sharing enabled for all organization teams',
+        message: 'Weekly plan sharing enabled for all organization teams',
         color: 'green',
         icon: <IconCheck size={16} />
       });
@@ -154,7 +154,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
             Weekly Team Check-in Sharing Settings
           </Title>
           <Text c="dimmed" mt="xs">
-            Choose which organization teams can see your weekly reviews
+            Choose which organization teams can see your weekly plans
           </Text>
         </div>
 
@@ -204,7 +204,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
                   Organization Teams
                 </Title>
                 <Text size="sm" c="dimmed">
-                  Enable sharing to allow team members to see your weekly reviews
+                  Enable sharing to allow team members to see your weekly plans
                 </Text>
               </div>
 
@@ -236,7 +236,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
                               </Badge>
                             </Group>
                             <Text size="xs" c="dimmed">
-                              Team members can view your weekly reviews
+                              Team members can view your weekly plans
                             </Text>
                           </div>
                         </Group>
@@ -260,7 +260,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
               <Text fw={500}>No Organization Teams Available</Text>
               <Text size="sm">
                 You&apos;re not a member of any organization teams yet. Organization teams can receive
-                shared weekly reviews from their members.
+                shared weekly plans from their members.
               </Text>
               <Group mt="sm">
                 <Button
@@ -283,12 +283,12 @@ export default function WeeklyTeamCheckinSettingsPage() {
             <Group gap="xs">
               <IconAlertCircle size={20} className="text-blue-500" />
               <Text fw={500} className="text-text-primary">
-                About Weekly Review Sharing
+                About Weekly Plan Sharing
               </Text>
             </Group>
             <Stack gap="xs">
               <Text size="sm" className="text-text-secondary">
-                • Only <strong>organization teams</strong> can receive shared weekly reviews
+                • Only <strong>organization teams</strong> can receive shared weekly plans
               </Text>
               <Text size="sm" className="text-text-secondary">
                 • Team members can view your weekly progress and outcomes
@@ -297,7 +297,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
                 • You can enable/disable sharing for each organization team individually
               </Text>
               <Text size="sm" className="text-text-secondary">
-                • Your personal weekly review content remains private unless explicitly shared
+                • Your personal weekly plan content remains private unless explicitly shared
               </Text>
             </Stack>
             <Group mt="sm">
@@ -307,7 +307,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
                 component={Link}
                 href="/productivity-methods/weekly-plan"
               >
-                Learn about Weekly Reviews →
+                Learn about Weekly Plans →
               </Button>
             </Group>
           </Stack>

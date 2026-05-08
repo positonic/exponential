@@ -40,7 +40,7 @@ const featureColumns: FeatureColumn[] = [
       },
       {
         icon: "🔄",
-        title: "Weekly Review",
+        title: "Weekly Plan",
         description: "Reflect, reset, realign",
         href: "/features/weekly-plan",
       },

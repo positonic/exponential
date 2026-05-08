@@ -6,11 +6,12 @@ import type { BulkActionDef } from './actions/components/BulkEditToolbar';
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
-import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect, Collapse } from "@mantine/core";
+import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag, IconUser, IconLink } from "@tabler/icons-react";
+import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
 import { FilterBar } from "./filters";
 import { hasActiveFilters } from "~/types/filter";
-import type { FilterBarConfig } from "~/types/filter";
+import type { FilterBarConfig, FilterMember } from "~/types/filter";
+import { filtersToSearchParams, filtersFromSearchParams } from "~/lib/filters/url";
 import tasksStyles from "./ProjectTasks.module.css";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
@@ -58,8 +59,17 @@ const ACTION_FILTER_CONFIG: FilterBarConfig = {
         { value: "Watch", label: "Watch" },
       ],
     },
+    {
+      key: "assignees",
+      label: "Assignee",
+      type: "user",
+      icon: IconUser,
+      badgeColor: "violet",
+    },
   ],
 };
+
+const RESERVED_FILTER_PARAMS: ReadonlySet<string> = new Set(["tab", "view"]);
 
 interface ActionsProps {
   viewName: string;
@@ -93,18 +103,68 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [internalSelectedTagIds, setInternalSelectedTagIds] = useState<string[]>([]);
   const [internalSearch, setInternalSearch] = useState("");
   const [internalFilters, setInternalFilters] = useState<FilterState>({});
-  const [filterRowOpen, setFilterRowOpen] = useState(false);
-  const appliedSearchQuery = searchQuery ?? internalSearch;
-  const appliedFilters = filters ?? internalFilters;
-  const filtersActive = hasActiveFilters(ACTION_FILTER_CONFIG, appliedFilters);
-  const isTagFilterControlled = tagIds !== undefined;
-  const selectedTagIds = isTagFilterControlled ? tagIds : internalSelectedTagIds;
-  const setSelectedTagIds = setInternalSelectedTagIds;
   const utils = api.useUtils();
   const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
   const detailedEnabled = useDetailedActionsEnabled(projectId);
   const { workspace } = useWorkspace();
   const actionsRouter = useRouter();
+
+  const urlFilters = useMemo(
+    () => filtersFromSearchParams(searchParams, ACTION_FILTER_CONFIG, RESERVED_FILTER_PARAMS),
+    [searchParams],
+  );
+  const setUrlFilters = useCallback((next: FilterState) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const f of ACTION_FILTER_CONFIG.fields) params.delete(f.key);
+    filtersToSearchParams(next, params);
+    const qs = params.toString();
+    actionsRouter.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [searchParams, pathname, actionsRouter]);
+
+  const activeFilters = projectId ? urlFilters : internalFilters;
+  const setActiveFilters = projectId ? setUrlFilters : setInternalFilters;
+  const appliedSearchQuery = searchQuery ?? internalSearch;
+  const appliedFilters = filters ?? activeFilters;
+  const filtersActive = hasActiveFilters(ACTION_FILTER_CONFIG, appliedFilters);
+  const isTagFilterControlled = tagIds !== undefined;
+  const selectedTagIds = isTagFilterControlled ? tagIds : internalSelectedTagIds;
+  const setSelectedTagIds = setInternalSelectedTagIds;
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
+  const handleCopyMemberLink = useCallback((memberId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const f of ACTION_FILTER_CONFIG.fields) params.delete(f.key);
+    filtersToSearchParams({ ...activeFilters, assignees: [memberId] }, params);
+    const url = `${window.location.origin}${pathname}?${params.toString()}`;
+    void navigator.clipboard.writeText(url).then(() => {
+      notifications.show({
+        title: "Link copied",
+        message: "Paste it into email or Slack to share this view.",
+        color: "green",
+        autoClose: 2500,
+      });
+    });
+  }, [searchParams, pathname, activeFilters]);
+
+  const handleCopyCurrentLink = useCallback(() => {
+    void navigator.clipboard.writeText(window.location.href).then(() => {
+      notifications.show({
+        title: "Link copied",
+        message: "Paste it into email or Slack to share this view.",
+        color: "green",
+        autoClose: 2500,
+      });
+    });
+  }, []);
 
   const setViewMode = useCallback((kanban: boolean) => {
     setIsKanbanMode(kanban);
@@ -243,6 +303,13 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     const priorityFilter = appliedFilters?.priority as string[] | undefined;
     if (priorityFilter?.length) {
       result = result.filter((a) => priorityFilter.includes(a.priority));
+    }
+
+    const assigneeFilter = appliedFilters?.assignees as string[] | undefined;
+    if (assigneeFilter?.length) {
+      result = result.filter((a) =>
+        a.assignees?.some((assignee) => assigneeFilter.includes(assignee.userId)),
+      );
     }
 
     if (appliedSearchQuery?.trim()) {
@@ -904,16 +971,36 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
               />
             </div>
 
-            <button
-              type="button"
-              className={tasksStyles.actionBtn}
-              onClick={() => setFilterRowOpen((o) => !o)}
-              data-active={filtersActive ? "true" : "false"}
-              aria-label="Toggle filters"
-            >
-              <IconFilter size={13} stroke={1.75} />
-              Filter
-            </button>
+            <FilterBar
+              config={ACTION_FILTER_CONFIG}
+              filters={activeFilters}
+              onFiltersChange={setActiveFilters}
+              members={workspaceMembers}
+              onCopyMemberLink={handleCopyMemberLink}
+              renderTrigger={({ onToggle }) => (
+                <button
+                  type="button"
+                  className={tasksStyles.actionBtn}
+                  onClick={onToggle}
+                  data-active={filtersActive ? "true" : "false"}
+                  aria-label="Toggle filters"
+                >
+                  <IconFilter size={13} stroke={1.75} />
+                  Filter
+                </button>
+              )}
+            />
+
+            <Tooltip label="Copy link to this view" position="bottom">
+              <button
+                type="button"
+                className={tasksStyles.iconGhost}
+                onClick={handleCopyCurrentLink}
+                aria-label="Copy link to this view"
+              >
+                <IconLink size={14} />
+              </button>
+            </Tooltip>
 
             <Tooltip label="Archive" position="bottom">
               <button type="button" className={tasksStyles.iconGhost} aria-label="Archive">
@@ -949,18 +1036,6 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
             )}
           </div>
         </div>
-      )}
-
-      {projectId && (
-        <Collapse in={filterRowOpen || filtersActive}>
-          <div className={tasksStyles.filterRow}>
-            <FilterBar
-              config={ACTION_FILTER_CONFIG}
-              filters={internalFilters}
-              onFiltersChange={setInternalFilters}
-            />
-          </div>
-        </Collapse>
       )}
 
       {/* Filter for Notion imports without project - only show on non-project pages */}

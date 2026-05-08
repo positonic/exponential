@@ -469,6 +469,7 @@ export const transcriptionRouter = createTRPCRouter({
           id: true,
           title: true,
           summary: true,
+          notes: true,
           processedAt: true,
           meetingDate: true,
           actions: {

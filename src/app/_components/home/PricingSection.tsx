@@ -11,7 +11,7 @@ const features = [
   "AI features included",
   "Unlimited goals & outcomes",
   "Team collaboration",
-  "Weekly reviews & planning",
+  "Weekly planning rituals",
   "No credit card required",
 ];
 

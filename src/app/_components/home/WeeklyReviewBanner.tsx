@@ -69,7 +69,7 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
             className="flex-shrink-0 text-blue-400"
           />
         }
-        title="Weekly Review"
+        title="Weekly Plan"
         description="Review your projects and plan next week."
         hidden={isBusinessHidden}
         gradientClassName="border-blue-500/20 bg-gradient-to-r from-blue-500/10 to-cyan-500/10"
@@ -105,10 +105,10 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
           <IconCalendarCheck size={24} className="text-blue-400" />
           <div>
             <Text fw={600} size="sm" className="text-text-primary">
-              Time for your weekly review
+              Time for your weekly plan
             </Text>
             <Text size="xs" className="text-text-secondary">
-              The weekly review is the keystone habit of GTD and other trusted
+              The weekly plan is the keystone habit of GTD and other trusted
               productivity systems. Review your projects to ensure they are
               prioritised correctly and you know what to focus on next week.
             </Text>
@@ -118,7 +118,7 @@ export function WeeklyReviewBanner({ compact }: { compact?: boolean } = {}) {
           <CloseButton
             size="sm"
             onClick={handleDismiss}
-            aria-label="Dismiss weekly review reminder"
+            aria-label="Dismiss weekly plan reminder"
           />
         </Group>
       </Group>

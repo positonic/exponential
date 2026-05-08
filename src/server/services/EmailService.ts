@@ -256,7 +256,7 @@ function generateWelcomeEmailContent(options: {
                 <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #4b5563;">
                   <li><strong>Let AI handle your task layer.</strong> Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.</li>
                   <li><strong>Set outcomes, not tasks.</strong> What result do you want this week? ${appName} works backward from there.</li>
-                  <li><strong>Run a weekly review.</strong> Five minutes to see which projects are healthy and which need attention.</li>
+                  <li><strong>Run a weekly plan.</strong> Five minutes to see which projects are healthy and which need attention.</li>
                   <li><strong>Connect your tools.</strong> Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.</li>
                 </ul>
               </div>
@@ -320,7 +320,7 @@ AFTER THAT, IF YOU WANT TO GO DEEPER:
 
 • Set outcomes, not tasks. What result do you want this week? ${appName} works backward from there.
 
-• Run a weekly review. Five minutes to see which projects are healthy and which need attention.
+• Run a weekly plan. Five minutes to see which projects are healthy and which need attention.
 
 • Connect your tools. Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.
 

@@ -271,7 +271,7 @@ export class FeedbackDigestService {
           {
             type: "mrkdwn",
             text:
-              "📅 *Weekly Review Ritual*\n" +
+              "📅 *Weekly Plan Ritual*\n" +
               "1. Review top 3 open feature requests\n" +
               "2. Pick 1 to address this week\n" +
               "3. Mark any resolved items as done",

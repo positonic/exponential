@@ -53,6 +53,36 @@ function assertNotManagedHost(url: string): void {
 }
 
 /**
+ * Refuse to operate on any DB URL that doesn't look like a test database.
+ *
+ * Background: on 2026-05-02 a developer machine ran `npm run test:integration`
+ * with prod DATABASE_URL in .env and no DATABASE_URL_TEST override. The
+ * fallback at startTestDatabase() silently used prod, then truncateAllTables()
+ * wiped production data. This guard refuses any URL that isn't clearly a test
+ * target so the same misconfiguration fails fast instead.
+ *
+ * Allowed:
+ *   - CI === "true" (GitHub Actions sets this on every runner)
+ *   - localhost / 127.0.0.1 / ::1 hosts (dev + testcontainer)
+ *   - URLs whose path or host segment contains _test or -test
+ */
+function assertTestDatabase(url: string): void {
+  const looksLikeTest =
+    process.env.CI === "true" ||
+    /\b(localhost|127\.0\.0\.1|::1)\b/.test(url) ||
+    /[_-]test(\b|[_-])/i.test(url);
+
+  if (!looksLikeTest) {
+    const redacted = url.replace(/:\/\/[^@]*@/, "://***@");
+    throw new Error(
+      `[test-db] Refusing to use ${redacted} — does not look like a test ` +
+        `database. Set DATABASE_URL_TEST to an explicit test DB or run ` +
+        `integration tests in CI (which sets CI=true).`,
+    );
+  }
+}
+
+/**
  * Start a PostgreSQL testcontainer and run migrations.
  * Call this once in globalSetup or beforeAll at the suite level.
  */
@@ -116,6 +146,9 @@ export async function startTestDatabase(): Promise<PrismaClient> {
 
     connectionUrl = container.getConnectionUri();
   }
+
+  // Refuse before we touch the DB (migrations, truncates, anything).
+  assertTestDatabase(connectionUrl);
 
   // Set DATABASE_URL for Prisma CLI and client
   process.env.DATABASE_URL = connectionUrl;

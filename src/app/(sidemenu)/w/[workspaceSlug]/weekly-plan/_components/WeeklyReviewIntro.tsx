@@ -53,7 +53,7 @@ export function WeeklyReviewIntro({
 
         <Stack gap="md" align="center">
           <Text size="xl" fw={600} className="text-text-primary">
-            Weekly Review
+            Weekly Plan
           </Text>
 
           {streakData && streakData.totalReviews > 0 && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Table,
   Text,
@@ -11,7 +11,9 @@ import {
   Skeleton,
   Modal,
   ScrollArea,
+  UnstyledButton,
 } from "@mantine/core";
+import { DatePickerInput } from "@mantine/dates";
 import { useDisclosure } from "@mantine/hooks";
 import {
   IconChevronLeft,
@@ -20,6 +22,9 @@ import {
   IconStarFilled,
   IconEye,
   IconCoins,
+  IconSelector,
+  IconArrowUp,
+  IconArrowDown,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 
@@ -61,6 +66,26 @@ interface TokenUsage {
   completion?: number;
   total?: number;
   cost?: number;
+  cacheReadInput?: number;
+  cacheCreationInput?: number;
+  modelId?: string;
+}
+
+// Cache hit ratio = cache_read / (cache_read + cache_creation + uncached_input).
+// Anthropic bills uncached input at 1x, cache_creation at 1.25x, and
+// cache_read at 0.1x — so this ratio is the headline cost-leverage number.
+function cacheHitRate(usage: TokenUsage): number | null {
+  const prompt = usage.prompt ?? 0;
+  const cacheRead = usage.cacheReadInput ?? 0;
+  const cacheCreation = usage.cacheCreationInput ?? 0;
+  const uncached = Math.max(prompt - cacheRead - cacheCreation, 0);
+  const denom = cacheRead + cacheCreation + uncached;
+  if (denom <= 0) return null;
+  return cacheRead / denom;
+}
+
+function formatPercent(x: number | null): string {
+  return x == null ? "—" : `${(x * 100).toFixed(0)}%`;
 }
 
 interface Interaction {
@@ -90,20 +115,97 @@ function parseTokenUsage(raw: unknown): TokenUsage | null {
   return raw as TokenUsage;
 }
 
+type SummaryRow = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  interactions: number;
+  prompt: number;
+  completion: number;
+  total: number;
+  cost: number;
+  cacheRead: number;
+  cacheCreation: number;
+  cacheHitRate: number;
+};
+
+type SummarySortKey =
+  | "name"
+  | "interactions"
+  | "prompt"
+  | "completion"
+  | "total"
+  | "cost"
+  | "cacheHitRate";
+
 export function AiInteractionsTable() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [selectedInteraction, setSelectedInteraction] =
     useState<Interaction | null>(null);
   const [opened, { open, close }] = useDisclosure(false);
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([
+    null,
+    null,
+  ]);
+  const [summarySort, setSummarySort] = useState<{
+    key: SummarySortKey;
+    dir: "asc" | "desc";
+  }>({ key: "total", dir: "desc" });
+
+  const [startDate, endDate] = dateRange;
+  // Inclusive end-of-day so the picker's selected end date is treated as
+  // covering the entire day, not just 00:00. Without this, "today" would
+  // exclude every interaction logged after midnight UTC.
+  const endOfDay = useMemo(() => {
+    if (!endDate) return undefined;
+    const d = new Date(endDate);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, [endDate]);
 
   const { data, isLoading } = api.admin.getAllAiInteractions.useQuery({
     limit: 20,
     cursor: cursor ?? undefined,
+    startDate: startDate ?? undefined,
+    endDate: endOfDay,
   });
 
   const { data: tokenSummary, isLoading: tokenSummaryLoading } =
-    api.admin.getTokenUsageSummaryByUser.useQuery(undefined);
+    api.admin.getTokenUsageSummaryByUser.useQuery({
+      startDate: startDate ?? undefined,
+      endDate: endOfDay,
+    });
+
+  const sortedSummary = useMemo<SummaryRow[]>(() => {
+    if (!tokenSummary) return [];
+    const sign = summarySort.dir === "asc" ? 1 : -1;
+    const rows = [...tokenSummary];
+    rows.sort((a, b) => {
+      if (summarySort.key === "name") {
+        const av = (a.name ?? a.email ?? a.userId).toLowerCase();
+        const bv = (b.name ?? b.email ?? b.userId).toLowerCase();
+        return av < bv ? -1 * sign : av > bv ? 1 * sign : 0;
+      }
+      return (a[summarySort.key] - b[summarySort.key]) * sign;
+    });
+    return rows;
+  }, [tokenSummary, summarySort]);
+
+  const toggleSummarySort = (key: SummarySortKey) => {
+    setSummarySort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "name" ? "asc" : "desc" },
+    );
+  };
+
+  const handleDateRangeChange = (value: [Date | null, Date | null]) => {
+    setDateRange(value);
+    // Reset cursor pagination when filters change so we don't hold a stale id
+    setCursor(null);
+    setCursorHistory([]);
+  };
 
   const handleNext = () => {
     if (data?.nextCursor) {
@@ -135,6 +237,28 @@ export function AiInteractionsTable() {
         </Text>
       </div>
 
+      <Group justify="space-between" align="flex-end">
+        <DatePickerInput
+          type="range"
+          label="Date range"
+          placeholder="All time"
+          value={dateRange}
+          onChange={handleDateRangeChange}
+          clearable
+          allowSingleDateInRange
+          maw={320}
+        />
+        {(startDate ?? endDate) && (
+          <Button
+            variant="subtle"
+            size="xs"
+            onClick={() => handleDateRangeChange([null, null])}
+          >
+            Clear filter
+          </Button>
+        )}
+      </Group>
+
       {/* Per-user token summary */}
       <div>
         <Group gap="xs" mb="sm">
@@ -147,31 +271,67 @@ export function AiInteractionsTable() {
           <Table>
             <Table.Thead className="bg-surface-secondary">
               <Table.Tr>
-                <Table.Th className="text-text-muted">User</Table.Th>
-                <Table.Th className="text-text-muted">Calls</Table.Th>
-                <Table.Th className="text-text-muted">Prompt tokens</Table.Th>
-                <Table.Th className="text-text-muted">Completion tokens</Table.Th>
-                <Table.Th className="text-text-muted">Total tokens</Table.Th>
-                <Table.Th className="text-text-muted">Est. cost (USD)</Table.Th>
+                <SummarySortableTh
+                  label="User"
+                  sortKey="name"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
+                  label="Calls"
+                  sortKey="interactions"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
+                  label="Prompt tokens"
+                  sortKey="prompt"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
+                  label="Completion tokens"
+                  sortKey="completion"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
+                  label="Total tokens"
+                  sortKey="total"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
+                  label="Cache hit"
+                  sortKey="cacheHitRate"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
+                <SummarySortableTh
+                  label="Est. cost (USD)"
+                  sortKey="cost"
+                  current={summarySort}
+                  onClick={toggleSummarySort}
+                />
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {tokenSummaryLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
                   <Table.Tr key={i}>
-                    {Array.from({ length: 6 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <Table.Td key={j}><Skeleton height={16} width={80} /></Table.Td>
                     ))}
                   </Table.Tr>
                 ))
-              ) : !tokenSummary?.length ? (
+              ) : !sortedSummary.length ? (
                 <Table.Tr>
-                  <Table.Td colSpan={6} className="text-center text-text-muted">
+                  <Table.Td colSpan={7} className="text-center text-text-muted">
                     No token data yet — data appears after users make agent calls
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                tokenSummary.map((row) => (
+                sortedSummary.map((row) => (
                   <Table.Tr key={row.userId}>
                     <Table.Td>
                       <Text size="sm" className="text-text-primary">
@@ -192,6 +352,21 @@ export function AiInteractionsTable() {
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" fw={500} className="text-text-primary">{formatTokens(row.total)}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text
+                        size="sm"
+                        fw={500}
+                        className={
+                          row.cacheHitRate >= 0.7
+                            ? "text-green-500"
+                            : row.cacheHitRate >= 0.3
+                              ? "text-yellow-500"
+                              : "text-text-secondary"
+                        }
+                      >
+                        {row.prompt > 0 ? formatPercent(row.cacheHitRate) : "—"}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm" className="text-text-secondary">
@@ -341,10 +516,12 @@ export function AiInteractionsTable() {
             </div>
             {(() => {
               const usage = parseTokenUsage(selectedInteraction.tokenUsage);
-              return usage ? (
+              if (!usage) return null;
+              const hitRate = cacheHitRate(usage);
+              return (
                 <div>
                   <Text size="sm" className="font-medium text-text-muted">Token usage</Text>
-                  <Group gap="lg" mt={4}>
+                  <Group gap="lg" mt={4} wrap="wrap">
                     <div>
                       <Text size="xs" className="text-text-muted">Prompt</Text>
                       <Text size="sm" className="text-text-primary">{usage.prompt?.toLocaleString() ?? "—"}</Text>
@@ -357,15 +534,51 @@ export function AiInteractionsTable() {
                       <Text size="xs" className="text-text-muted">Total</Text>
                       <Text size="sm" fw={500} className="text-text-primary">{usage.total?.toLocaleString() ?? "—"}</Text>
                     </div>
+                    <div>
+                      <Text size="xs" className="text-text-muted">Cache read</Text>
+                      <Text size="sm" className="text-text-primary">
+                        {usage.cacheReadInput?.toLocaleString() ?? "—"}
+                      </Text>
+                    </div>
+                    <div>
+                      <Text size="xs" className="text-text-muted">Cache creation</Text>
+                      <Text size="sm" className="text-text-primary">
+                        {usage.cacheCreationInput?.toLocaleString() ?? "—"}
+                      </Text>
+                    </div>
+                    <div>
+                      <Text size="xs" className="text-text-muted">Cache hit</Text>
+                      <Text
+                        size="sm"
+                        fw={500}
+                        className={
+                          hitRate == null
+                            ? "text-text-muted"
+                            : hitRate >= 0.7
+                              ? "text-green-500"
+                              : hitRate >= 0.3
+                                ? "text-yellow-500"
+                                : "text-text-primary"
+                        }
+                      >
+                        {formatPercent(hitRate)}
+                      </Text>
+                    </div>
                     {usage.cost !== undefined && usage.cost > 0 && (
                       <div>
                         <Text size="xs" className="text-text-muted">Est. cost</Text>
                         <Text size="sm" className="text-text-primary">${usage.cost.toFixed(5)}</Text>
                       </div>
                     )}
+                    {usage.modelId && (
+                      <div>
+                        <Text size="xs" className="text-text-muted">Model</Text>
+                        <Text size="sm" className="font-mono text-xs text-text-primary">{usage.modelId}</Text>
+                      </div>
+                    )}
                   </Group>
                 </div>
-              ) : null;
+              );
             })()}
             <div>
               <Text size="sm" className="font-medium text-text-muted">Date</Text>
@@ -412,5 +625,40 @@ export function AiInteractionsTable() {
         )}
       </Modal>
     </div>
+  );
+}
+
+function SummarySortableTh({
+  label,
+  sortKey,
+  current,
+  onClick,
+}: {
+  label: string;
+  sortKey: SummarySortKey;
+  current: { key: SummarySortKey; dir: "asc" | "desc" };
+  onClick: (key: SummarySortKey) => void;
+}) {
+  const isActive = current.key === sortKey;
+  const Icon = !isActive
+    ? IconSelector
+    : current.dir === "asc"
+      ? IconArrowUp
+      : IconArrowDown;
+  return (
+    <Table.Th className="text-text-muted">
+      <UnstyledButton
+        onClick={() => onClick(sortKey)}
+        className="flex w-full items-center gap-1"
+      >
+        <Text size="sm" fw={500} className="text-text-muted">
+          {label}
+        </Text>
+        <Icon
+          size={14}
+          className={isActive ? "text-text-primary" : "text-text-muted"}
+        />
+      </UnstyledButton>
+    </Table.Th>
   );
 }

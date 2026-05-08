@@ -129,7 +129,7 @@ The AI remembers:
 
 ### Planning & Strategy
 - Help with goal setting
-- Weekly review preparation
+- Weekly plan preparation
 - Daily planning
 - Priority management
 

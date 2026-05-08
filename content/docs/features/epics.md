@@ -84,7 +84,7 @@ Set epic priorities to help your team understand what matters most. When you're 
 Even rough target dates help keep work on track. They give everyone a shared sense of when an initiative should wrap up.
 
 ### Review Regularly
-Check in on your epics during weekly reviews. Are they progressing? Do any need to be reprioritized or cancelled?
+Check in on your epics during weekly plans. Are they progressing? Do any need to be reprioritized or cancelled?
 
 ## Next Steps
 

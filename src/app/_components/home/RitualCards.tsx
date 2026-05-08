@@ -85,7 +85,7 @@ function WeeklyReviewCard() {
           <IconCalendarWeek size={20} className="text-blue-400" />
           <div>
             <Text fw={600} size="sm" className="text-text-primary">
-              Weekly Review
+              Weekly Plan
             </Text>
             <Text size="xs" className="text-text-muted">
               Review and prioritise your projects

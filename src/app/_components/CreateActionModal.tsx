@@ -99,19 +99,30 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
-      // Cancel all related queries
-      const queriesToCancel = [
-        utils.project.getAll,
-        utils.action.getAll,
-        utils.action.getToday,
+      // Cancel all related queries, including the project-tasks page query
+      // (the project page subscribes to action.getProjectActions, so without
+      // this cancel + setData below the optimistic insert is invisible there).
+      const cancelPromises: Promise<void>[] = [
+        utils.project.getAll.cancel(),
+        utils.action.getAll.cancel(),
+        utils.action.getToday.cancel(),
       ];
-      await Promise.all(queriesToCancel.map(query => query.cancel()));
+      if (newAction.projectId) {
+        cancelPromises.push(
+          utils.action.getProjectActions.cancel({ projectId: newAction.projectId }),
+        );
+      }
+      await Promise.all(cancelPromises);
 
       // Snapshot all previous states
       const previousState = {
         projects: utils.project.getAll.getData(),
         actions: utils.action.getAll.getData(),
         todayActions: utils.action.getToday.getData(),
+        projectActions: newAction.projectId
+          ? utils.action.getProjectActions.getData({ projectId: newAction.projectId })
+          : undefined,
+        projectId: newAction.projectId,
       };
 
       // Create optimistic action
@@ -226,6 +237,14 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
               : [typedOptimisticAction],
           };
         });
+
+        // The project tasks page subscribes to action.getProjectActions, so
+        // patch it directly to make the new row appear without waiting for
+        // the server roundtrip + heavy refetch.
+        utils.action.getProjectActions.setData(
+          { projectId: newAction.projectId },
+          (old) => (old ? [...old, typedOptimisticAction] : [typedOptimisticAction]),
+        );
       }
 
       return previousState;
@@ -235,10 +254,13 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       if (!context) return;
 
       // Restore all previous states
-      const { projects, actions, todayActions } = context;
+      const { projects, actions, todayActions, projectActions, projectId: ctxProjectId } = context;
       utils.project.getAll.setData(undefined, projects);
       utils.action.getAll.setData(undefined, actions);
       utils.action.getToday.setData(undefined, todayActions);
+      if (ctxProjectId) {
+        utils.action.getProjectActions.setData({ projectId: ctxProjectId }, projectActions);
+      }
 
       // Show error notification
       notifications.show({
@@ -250,24 +272,38 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     },
 
     onSettled: async (data, error, variables) => {
-      // Invalidate queries smartly based on the new action and view context
       const projectId = variables.projectId;
-      const isTodayAction = variables.dueDate && 
-                            new Date(variables.dueDate).toDateString() === new Date().toDateString();
 
-      console.log(`[CreateActionModal onSettled] Invalidating for view: ${viewName}, newActionId: ${data?.id ?? 'optimistic'}, projectId: ${projectId}, isToday: ${isTodayAction}`);
+      // If the create succeeded for a project, swap the optimistic temp row for
+      // the real one returned by the server. The create response now includes
+      // the same relations getProjectActions selects (project, syncs, assignees,
+      // createdBy, tags), so we can hydrate the cache without a refetch.
+      if (data && projectId) {
+        utils.action.getProjectActions.setData({ projectId }, (old) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- create response shape mirrors getProjectActions includes
+          const real = data as any;
+          if (!old) return [real];
+          const withoutTemp = old.filter((a) => !a.id.startsWith("temp-"));
+          return [...withoutTemp, real];
+        });
+      }
 
       const invalidatePromises: Promise<unknown>[] = [];
 
-      // If action belongs to a project, invalidate the actions for that project
+      // Mark project actions stale (for next mount) but don't refetch — we
+      // already have authoritative data from the create response above.
       if (projectId) {
-        invalidatePromises.push(utils.action.getProjectActions.invalidate({ projectId }));
+        invalidatePromises.push(
+          utils.action.getProjectActions.invalidate(
+            { projectId },
+            { refetchType: "none" },
+          ),
+        );
       }
 
       // Invalidate Inbox/All view if it has no project (or if it's the default view)
       if (!projectId || viewName.toLowerCase() === 'inbox') {
-          // Assuming 'inbox' relies on action.getAll or a specific inbox query
-         invalidatePromises.push(utils.action.getAll.invalidate());
+        invalidatePromises.push(utils.action.getAll.invalidate());
       }
 
       // Always invalidate today and scheduled action queries
@@ -275,99 +311,65 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       invalidatePromises.push(utils.action.getScheduledByDate.invalidate());
       invalidatePromises.push(utils.action.getScheduledByDateRange.invalidate());
 
-      // Avoid invalidating project.getAll unless absolutely necessary
-      // invalidatePromises.push(utils.project.getAll.invalidate());
-
       await Promise.all(invalidatePromises);
-      console.log(`[CreateActionModal onSettled] Invalidations complete for newActionId: ${data?.id ?? 'optimistic'}`);
     },
 
-    onSuccess: async (data) => {
-      // Store the created action ID for assignment
-      setCreatedActionId(data.id);
+    onSuccess: (data) => {
+      // Don't store data.id into createdActionId here. The modal is already
+      // closed for this submission, and a stored value would race a new
+      // compose cycle: if the user starts a second task before this success
+      // fires, AssignActionModal would re-scope to the prior action's id and
+      // route the next assignee pick to the wrong task. Assignees for this
+      // action are applied below via pendingAssigneesRef.
 
-      let hasAssignError = false;
-      let hasTagError = false;
-      let hasSprintError = false;
-      let hasScreenshotError = false;
+      // Run all post-create attachments concurrently. Each mutation has its own
+      // onError handler that surfaces failures independently, so we don't need
+      // to gate the modal flow or a success toast on these completing — the
+      // optimistic row is already visible.
+      const pendingAssignees = pendingAssigneesRef.current;
+      const pendingScreenshots = pendingScreenshotsRef.current;
+      pendingAssigneesRef.current = [];
+      pendingScreenshotsRef.current = [];
 
-      // If a sprint was selected, assign the action to the sprint list
+      const postCreatePromises: Promise<unknown>[] = [];
+
       if (sprintListId) {
-        try {
-          await addToListMutation.mutateAsync({
-            listId: sprintListId,
-            actionId: data.id,
-          });
-        } catch (error) {
-          hasSprintError = true;
-          console.error('Failed to assign sprint:', error);
-        }
+        postCreatePromises.push(
+          addToListMutation.mutateAsync({ listId: sprintListId, actionId: data.id }),
+        );
       }
 
-      // If there are assignees, assign them
-      if (selectedAssigneeIds.length > 0) {
-        try {
-          await assignMutation.mutateAsync({
-            actionId: data.id,
-            userIds: selectedAssigneeIds,
-          });
-        } catch (error) {
-          hasAssignError = true;
-          console.error('Failed to assign users:', error);
-        }
+      if (pendingAssignees.length > 0) {
+        postCreatePromises.push(
+          assignMutation.mutateAsync({ actionId: data.id, userIds: pendingAssignees }),
+        );
       }
 
-      // If there are tags, set them
       if (selectedTagIds.length > 0) {
-        try {
-          await setTagsMutation.mutateAsync({
+        postCreatePromises.push(
+          setTagsMutation.mutateAsync({ actionId: data.id, tagIds: selectedTagIds }),
+        );
+      }
+
+      for (const screenshot of pendingScreenshots) {
+        postCreatePromises.push(
+          uploadImageMutation.mutateAsync({
             actionId: data.id,
-            tagIds: selectedTagIds,
-          });
-        } catch (error) {
-          hasTagError = true;
-          console.error('Failed to set tags:', error);
-        }
+            base64Data: screenshot.base64,
+          }),
+        );
       }
 
-      // Upload any pasted screenshots
-      if (pendingScreenshotsRef.current.length > 0) {
-        for (const screenshot of pendingScreenshotsRef.current) {
-          try {
-            await uploadImageMutation.mutateAsync({
-              actionId: data.id,
-              base64Data: screenshot.base64,
-            });
-          } catch (error) {
-            hasScreenshotError = true;
-            console.error('Failed to upload screenshot:', error);
-          }
-        }
-        pendingScreenshotsRef.current = [];
-      }
-
-      // Show success notification with any warnings
-      const hasAnyError = hasAssignError || hasTagError || hasSprintError || hasScreenshotError;
-      let message = "Action created successfully";
-      if (hasAssignError) message += " (assignment failed)";
-      if (hasTagError) message += " (tags failed)";
-      if (hasSprintError) message += " (sprint assignment failed)";
-      if (hasScreenshotError) message += " (screenshot upload failed)";
-
-      notifications.show({
-        title: hasAnyError ? "Partial Success" : "Success",
-        message,
-        color: hasAnyError ? "yellow" : "green",
-        autoClose: 3000,
-      });
-
-      // Form reset already happened in handleSubmit
-      // close() already called in handleSubmit
+      // Fire-and-forget; per-mutation onError handlers already log failures.
+      void Promise.allSettled(postCreatePromises);
     },
   });
 
   // Ref to hold screenshots for upload after action creation
   const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
+  // Ref to hold assignees so the post-create assign call can read them after
+  // selectedAssigneeIds state has been reset.
+  const pendingAssigneesRef = useRef<string[]>([]);
 
   const handleSubmit = () => {
     if (!name) return;
@@ -375,8 +377,11 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     // Close modal immediately for better UX
     close();
 
-    // Capture screenshots before resetting
+    // Capture screenshots and assignees before resetting state. The
+    // post-create callbacks read these refs because the corresponding state
+    // is reset below before the mutation resolves.
     pendingScreenshotsRef.current = [...pastedScreenshots];
+    pendingAssigneesRef.current = [...selectedAssigneeIds];
 
     // Prepare action data before resetting form
     const actionData = {
@@ -424,6 +429,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setDuration(null);
     setSelectedAssigneeIds([]);
     setSelectedTagIds([]);
+    // Clear the previously-created action's id; otherwise the next assignee
+    // pick would target the prior task instead of the one being composed now.
+    setCreatedActionId(null);
     setSprintListId(null);
     setEpicId(null);
     setEffortEstimate(null);
@@ -444,23 +452,23 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   };
 
   const handleAssigneeClick = () => {
-    if (createdActionId) {
-      // If action is already created, open assignment modal
-      setAssignModalOpened(true);
-    } else {
-      // For creation flow, we can't open assignment modal yet
-      // This could be expanded to show a preview modal or inline selection
-      console.log('Assignment during creation not yet implemented');
-    }
+    setAssignModalOpened(true);
+  };
+
+  // Clear the previously-created action's id when starting a new compose
+  // cycle so the assignee picker scopes to the new task, not the prior one.
+  const handleOpen = () => {
+    setCreatedActionId(null);
+    open();
   };
 
   return (
     <>
       {children ? (
-        <div onClick={open}>{children}</div>
+        <div onClick={handleOpen}>{children}</div>
       ) : (
         <button
-          onClick={open}
+          onClick={handleOpen}
           className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
         >
           <IconPlus size={16} />
@@ -545,16 +553,18 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         />
       </Modal>
       
-      {createdActionId && (
-        <AssignActionModal
-          opened={assignModalOpened}
-          onClose={() => setAssignModalOpened(false)}
-          actionId={createdActionId}
-          actionName={name}
-          projectId={projectId}
-          currentAssignees={[]} // For simplicity, start with empty - could be enhanced
-        />
-      )}
+      <AssignActionModal
+        opened={assignModalOpened}
+        onClose={() => setAssignModalOpened(false)}
+        actionId={createdActionId ?? undefined}
+        actionName={name || "New action"}
+        projectId={projectId}
+        workspaceId={currentWorkspaceId ?? undefined}
+        currentAssignees={selectedAssigneeIds.map((id) => ({
+          user: { id, name: null, email: null, image: null },
+        }))}
+        onSelectionChange={setSelectedAssigneeIds}
+      />
     </>
   );
-} 
+}

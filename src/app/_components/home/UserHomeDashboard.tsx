@@ -24,7 +24,9 @@ import {
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useAgentModal } from "~/providers/AgentModalProvider";
+import { stripHtml } from "~/lib/utils";
 import { calculateProjectHealth } from "./ProjectHealth";
+import { RitualCards } from "./RitualCards";
 import classes from "./UserHomeDashboard.module.css";
 
 type ProjectPill = "ok" | "active" | "due" | "amber";
@@ -207,6 +209,8 @@ export function UserHomeDashboard() {
           </button>
         </div>
       </section>
+
+      <RitualCards />
 
       {/* Dashboard grid */}
       <div className={classes.dashGrid}>
@@ -486,7 +490,7 @@ function ProjectRow({
         <div className={classes.projNext}>
           {nextAction ? (
             <>
-              <strong>Next:</strong> {nextAction.name}
+              <strong>Next:</strong> {stripHtml(nextAction.name)}
             </>
           ) : (
             <span>No active actions</span>

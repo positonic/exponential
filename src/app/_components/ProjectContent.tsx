@@ -67,6 +67,7 @@ import { WeeklyOutcomes } from "./WeeklyOutcomes";
 import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
+import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { useAgentModal } from "~/providers/AgentModalProvider";
@@ -113,10 +114,12 @@ export function ProjectContent({
   viewName,
   projectId,
   initialTab,
+  legacyOverview = false,
 }: {
   viewName: string;
   projectId: string;
   initialTab?: string;
+  legacyOverview?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -140,17 +143,20 @@ export function ProjectContent({
     id: projectId,
   });
 
-  // Register project context for agent chat — merges with workspace context
+  // Register project context for agent chat — merges with workspace context.
+  // Wait for the project to load so we register the resolved project id (not
+  // the URL slug). Downstream queries treat this as a project id and the
+  // access middleware does not resolve slugs.
   const { workspace, workspaceId } = useWorkspace();
   const projectPageContext = useMemo(() => {
-    if (!projectId) return null;
+    if (!project) return null;
     return {
       pageType: 'project' as const,
-      pageTitle: project?.name ?? 'Project',
+      pageTitle: project.name,
       pagePath: pathname,
       data: {
-        projectId,
-        projectName: project?.name,
+        projectId: project.id,
+        projectName: project.name,
         ...(workspaceId && {
           workspaceId,
           workspaceName: workspace?.name,
@@ -158,7 +164,7 @@ export function ProjectContent({
         }),
       },
     };
-  }, [projectId, project?.name, pathname, workspaceId, workspace?.name, workspace?.slug]);
+  }, [project, pathname, workspaceId, workspace?.name, workspace?.slug]);
   useRegisterPageContext(projectPageContext);
   // Workspace data for detailed actions setting
   const { data: workspaceData } = api.workspace.getBySlug.useQuery(
@@ -538,7 +544,7 @@ export function ProjectContent({
                 value="transcriptions"
                 leftSection={<IconMicrophone size={14} />}
               >
-                Transcriptions
+                Meetings
               </Tabs.Tab>
               <Tabs.Tab
                 value="integrations"
@@ -556,7 +562,11 @@ export function ProjectContent({
 
             {/* Content Area */}
             <Tabs.Panel value="overview">
-              <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+              {legacyOverview ? (
+                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+              ) : (
+                <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="tasks">
@@ -644,7 +654,7 @@ export function ProjectContent({
               <Stack gap="md">
                 <Group justify="space-between" align="center">
                   <Group gap="md">
-                    <Title order={4}>Project Transcriptions</Title>
+                    <Title order={4}>Project Meetings</Title>
                     <CreateTranscriptionModal projectId={resolvedProjectId} />
                   </Group>
                   <Group gap="md">
@@ -658,7 +668,7 @@ export function ProjectContent({
                       />
                     )}
                     <Text size="sm" c="dimmed">
-                      {project.transcriptionSessions?.length || 0} transcriptions
+                      {project.transcriptionSessions?.length || 0} meetings
                       {(project.transcriptionSessions?.length || 0) > 3 && (
                         <Text component="span" size="xs" c="dimmed" ml="xs">
                           • Scroll to view all
@@ -804,9 +814,9 @@ export function ProjectContent({
                 ) : (
                   <Paper p="xl" radius="md" className="text-center">
                     <Stack gap="md" align="center">
-                      <Text size="lg" c="dimmed">No transcriptions found</Text>
+                      <Text size="lg" c="dimmed">No meetings found</Text>
                       <Text size="sm" c="dimmed">
-                        Transcription sessions assigned to this project will appear here
+                        Meetings assigned to this project will appear here
                       </Text>
                     </Stack>
                   </Paper>

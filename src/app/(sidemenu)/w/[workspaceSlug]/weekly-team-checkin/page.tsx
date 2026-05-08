@@ -150,7 +150,7 @@ export default function WeeklyTeamCheckinPage() {
       <Modal
         opened={opened}
         onClose={close}
-        title="Send Weekly Review to Slack"
+        title="Send Weekly Plan to Slack"
         size="md"
       >
         <Stack gap="md">

@@ -28,7 +28,7 @@ The week is the natural unit of founder work because:
 
 This system has three parts. Total time: 30-45 minutes per week.
 
-### Part 1: The Weekly Review (15-20 minutes)
+### Part 1: The Weekly Plan — Review (15-20 minutes)
 
 Do this on Friday afternoon or Sunday evening. The goal is to close out the current week honestly.
 
@@ -95,7 +95,7 @@ If you have an AI-native execution system, this step is even simpler: the system
 
 One of the most powerful parts of this system is the streak.
 
-Complete your weekly review every week and track the streak. 4 weeks becomes 8 becomes 16. The streak creates healthy pressure to maintain the habit.
+Complete your weekly plan every week and track the streak. 4 weeks becomes 8 becomes 16. The streak creates healthy pressure to maintain the habit.
 
 Miss a week? Reset the counter and start again. No guilt. The system is forgiving by design.
 
@@ -142,4 +142,4 @@ This reduces the weekly planning session from 30-45 minutes to 15-20 minutes whi
 
 ---
 
-*Exponential includes a built-in weekly review and planning system. [Try it free](/signin) — no credit card required.*
+*Exponential includes a built-in Weekly Plan ritual that wraps review and planning into one session. [Try it free](/signin) — no credit card required.*

@@ -57,10 +57,10 @@ export function ShareableLinks() {
         <Group justify="space-between" align="flex-start">
           <div>
             <Title order={4} className="text-text-primary" mb="xs">
-              Weekly Review Sharing
+              Weekly Plan Sharing
             </Title>
             <Text size="sm" className="text-text-secondary">
-              Your weekly review is not currently shared with any organization teams.
+              Your weekly plan is not currently shared with any organization teams.
             </Text>
           </div>
           <Badge variant="light" color="gray" leftSection={<IconEyeOff size={14} />}>
@@ -69,7 +69,7 @@ export function ShareableLinks() {
         </Group>
         <Alert color="blue" mt="md" variant="light">
           <Text size="sm">
-            To share your weekly review with team members, go to Sharing Settings and enable sharing for your organization teams.
+            To share your weekly plan with team members, go to Sharing Settings and enable sharing for your organization teams.
           </Text>
         </Alert>
       </Paper>
@@ -81,10 +81,10 @@ export function ShareableLinks() {
       <Group justify="space-between" align="flex-start" mb="md">
         <div>
           <Title order={4} className="text-text-primary" mb="xs">
-            Weekly Review Sharing
+            Weekly Plan Sharing
           </Title>
           <Text size="sm" className="text-text-secondary">
-            Your weekly review is shared with the following teams:
+            Your weekly plan is shared with the following teams:
           </Text>
         </div>
         <Badge variant="light" color="green" leftSection={<IconEye size={14} />}>
@@ -149,7 +149,7 @@ export function ShareableLinks() {
       
       <Alert color="blue" mt="md" variant="light">
         <Text size="sm">
-          Team members in these organization teams can view your weekly review. 
+          Team members in these organization teams can view your weekly plan.
           You can manage sharing settings to control which teams have access.
         </Text>
       </Alert>

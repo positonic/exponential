@@ -3,6 +3,34 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { feedbackDigestService } from "~/server/services/notifications/FeedbackDigestService";
 
+// `tokenUsage` is written via `JSON.stringify(...)` in AiInteractionLogger,
+// so Prisma returns it as a string. Older rows (or rows written via Prisma
+// JSON column behaviour) may surface as objects. Handle both.
+interface TokenUsageShape {
+  prompt?: number;
+  completion?: number;
+  total?: number;
+  cost?: number;
+  cacheReadInput?: number;
+  cacheCreationInput?: number;
+  modelId?: string;
+}
+
+function parseTokenUsage(raw: unknown): TokenUsageShape | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as TokenUsageShape;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return raw as TokenUsageShape;
+  }
+  return null;
+}
+
 /**
  * Admin procedure - extends protectedProcedure with isAdmin check
  */
@@ -222,7 +250,18 @@ export const adminRouter = createTRPCRouter({
 
       const buckets = new Map<
         string,
-        { userId: string; name: string | null; email: string | null; interactions: number; prompt: number; completion: number; total: number; cost: number }
+        {
+          userId: string;
+          name: string | null;
+          email: string | null;
+          interactions: number;
+          prompt: number;
+          completion: number;
+          total: number;
+          cost: number;
+          cacheRead: number;
+          cacheCreation: number;
+        }
       >();
 
       for (const row of rows) {
@@ -237,20 +276,35 @@ export const adminRouter = createTRPCRouter({
             completion: 0,
             total: 0,
             cost: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
           });
         }
         const bucket = buckets.get(key)!;
         bucket.interactions += 1;
-        const usage = row.tokenUsage as { prompt?: number; completion?: number; total?: number; cost?: number } | null;
+        const usage = parseTokenUsage(row.tokenUsage);
         if (usage) {
           bucket.prompt += usage.prompt ?? 0;
           bucket.completion += usage.completion ?? 0;
           bucket.total += usage.total ?? 0;
           bucket.cost += usage.cost ?? 0;
+          bucket.cacheRead += usage.cacheReadInput ?? 0;
+          bucket.cacheCreation += usage.cacheCreationInput ?? 0;
         }
       }
 
-      return Array.from(buckets.values()).sort((a, b) => b.total - a.total);
+      // Cache hit ratio = cache_read / (cache_read + cache_creation + uncached_input).
+      // uncached_input = prompt - cache_read - cache_creation (Anthropic
+      // reports prompt as the full billable input, with cache_read and
+      // cache_creation being subsets of it).
+      return Array.from(buckets.values())
+        .map((b) => {
+          const uncachedInput = Math.max(b.prompt - b.cacheRead - b.cacheCreation, 0);
+          const inputDenom = b.cacheRead + b.cacheCreation + uncachedInput;
+          const cacheHitRate = inputDenom > 0 ? b.cacheRead / inputDenom : 0;
+          return { ...b, cacheHitRate };
+        })
+        .sort((a, b) => b.total - a.total);
     }),
 
   /**
@@ -335,25 +389,7 @@ export const adminRouter = createTRPCRouter({
         if (row.createdAt < bucket.firstSeen) bucket.firstSeen = row.createdAt;
         if (row.createdAt > bucket.lastSeen) bucket.lastSeen = row.createdAt;
 
-        // tokenUsage is written via JSON.stringify, so Prisma returns it as a string.
-        interface UsageShape {
-          prompt?: number;
-          completion?: number;
-          cost?: number;
-          cacheReadInput?: number;
-          cacheCreationInput?: number;
-        }
-        const raw: unknown = row.tokenUsage;
-        let usage: UsageShape | null = null;
-        if (typeof raw === 'string') {
-          try {
-            usage = JSON.parse(raw) as UsageShape;
-          } catch {
-            usage = null;
-          }
-        } else if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
-          usage = raw as UsageShape;
-        }
+        const usage = parseTokenUsage(row.tokenUsage);
         if (usage) {
           bucket.prompt += usage.prompt ?? 0;
           bucket.completion += usage.completion ?? 0;

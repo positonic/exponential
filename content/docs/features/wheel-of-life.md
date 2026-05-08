@@ -211,9 +211,9 @@ Build habits supporting weak domains:
 - Track consistency over time
 - Connect habits to life domains
 
-### Weekly Review
+### Weekly Plan
 
-Include Wheel of Life in weekly review:
+Include Wheel of Life in weekly plan:
 - Quick domain check-in
 - Note domain-related wins
 - Plan domain-specific actions
@@ -224,7 +224,7 @@ Include Wheel of Life in weekly review:
 
 - **Quarterly**: Full assessment (recommended)
 - **Monthly**: Quick check-in (optional)
-- **Weekly**: Mental review in weekly review
+- **Weekly**: Mental review in weekly plan
 
 ### Honest Assessment
 

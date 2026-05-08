@@ -282,7 +282,7 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
         </table>
       </ScrollArea>
       
-      {/* Shared Weekly Reviews Section */}
+      {/* Shared Weekly Plans Section */}
       <SharedWeeklyReviewsSection 
         projectId={projectId}
         currentWeekStart={currentWeekStart}
@@ -357,7 +357,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
       <Paper p="lg" mt="xl" withBorder radius="md" className="bg-surface-secondary">
         <Group justify="center" py="md">
           <Loader size="sm" />
-          <Text size="sm" c="dimmed">Loading shared weekly reviews...</Text>
+          <Text size="sm" c="dimmed">Loading shared weekly plans...</Text>
         </Group>
       </Paper>
     );
@@ -368,7 +368,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
       <Paper p="lg" mt="xl" withBorder radius="md" className="bg-surface-secondary">
         <Alert variant="light" color="red" icon={<IconAlertCircle size={16} />}>
           <Text size="sm">
-            {error.message || "Failed to load shared weekly reviews."}
+            {error.message || "Failed to load shared weekly plans."}
           </Text>
         </Alert>
       </Paper>
@@ -383,11 +383,11 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
             <Group gap="sm" align="center">
               <IconShare size={20} className="text-brand-primary" />
               <Title order={3} className="text-text-primary">
-                Shared Weekly Reviews
+                Shared Weekly Plans
               </Title>
             </Group>
             <Text size="sm" c="dimmed">
-              Weekly reviews shared by team members for {formatWeekRange(currentWeekStart)}
+              Weekly plans shared by team members for {formatWeekRange(currentWeekStart)}
             </Text>
           </div>
           <Group gap="xs">
@@ -426,7 +426,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
                             {sharing.user.name || sharing.user.email}
                           </Text>
                           <Text size="sm" c="dimmed">
-                            Sharing weekly reviews with this team
+                            Sharing weekly plans with this team
                           </Text>
                         </div>
                       </Group>
@@ -453,11 +453,11 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
                       <Paper p="md" radius="sm" className="bg-background-secondary border border-border-primary">
                         <Stack gap="sm">
                           <Text size="sm" fw={500} className="text-text-primary">
-                            Weekly Review Content
+                            Weekly Plan Content
                           </Text>
                           <Alert variant="light" color="blue">
                             <Text size="sm">
-                              <strong>Coming Soon:</strong> Actual weekly review content integration is in development. 
+                              <strong>Coming Soon:</strong> Actual weekly plan content integration is in development.
                               This will show the member&apos;s weekly outcomes, reflections, and progress summaries.
                             </Text>
                           </Alert>
@@ -483,10 +483,10 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
         ) : (
           <Alert variant="light" color="blue" icon={<IconShare size={16} />}>
             <Stack gap="xs">
-              <Text fw={500} size="sm">No Shared Weekly Reviews</Text>
+              <Text fw={500} size="sm">No Shared Weekly Plans</Text>
               <Text size="sm">
-                No team members are currently sharing their weekly reviews with this team. 
-                Team members can enable sharing in their weekly review settings.
+                No team members are currently sharing their weekly plans with this team.
+                Team members can enable sharing in their weekly plan settings.
               </Text>
               <Group mt="sm">
                 <Button
