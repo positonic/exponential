@@ -149,6 +149,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.5.3",
     "vitest": "^4.0.16",
+    "vitest-mock-extended": "^4.0.0",
     "wait-on": "^7.2.0"
   },
   "ct3aMetadata": {
