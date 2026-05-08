@@ -461,6 +461,23 @@ export async function POST(req: Request) {
     const firstToolErrorMessages: string[] = [];
     const textStream = new ReadableStream({
       async start(controller) {
+        // Timer-based heartbeat: emit U+200B every HEARTBEAT_MS regardless
+        // of chunk activity. The chunk-arrival keepalive at the bottom of
+        // onChunk only fires when Mastra emits something — but during
+        // multi-tool turns the LLM can go silent for >60s while "thinking"
+        // between tool calls or while a tool executes, and the client's
+        // 60s idle watchdog (ManyChat.tsx:1022) aborts the stream. This
+        // timer guarantees a byte hits the wire at least every HEARTBEAT_MS.
+        const HEARTBEAT_MS = 20_000;
+        const heartbeat = setInterval(() => {
+          try {
+            controller.enqueue(new TextEncoder().encode("​"));
+          } catch {
+            // Controller closed between the last tick and now — finally
+            // block clears the interval, so this is the last spurious fire.
+          }
+        }, HEARTBEAT_MS);
+
         let fullText = "";
         // Tracks ONLY text-delta byte length, not progress markers (tool
         // call indicators, keepalive zwsp) we inject. Used by the Haiku→
@@ -842,6 +859,8 @@ export async function POST(req: Request) {
             error: err instanceof Error ? err.message : (typeof err === 'string' ? err : 'unknown error'),
           });
           controller.error(err);
+        } finally {
+          clearInterval(heartbeat);
         }
       },
     });
