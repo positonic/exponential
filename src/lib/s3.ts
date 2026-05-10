@@ -127,7 +127,7 @@ export async function uploadFile(
  */
 export async function getPresignedDownloadUrl(
   key: string,
-  expiresInSeconds: number = 3600,
+  expiresInSeconds = 3600,
 ): Promise<string> {
   const cfg = getS3Config();
   return getSignedUrl(

@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 
+import { db as dbInstance } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
   uploadFile,
@@ -51,7 +52,7 @@ const PRESIGNED_URL_TTL_SECONDS = 3600;
  * Verify the caller is a member of the workspace. Throws FORBIDDEN if not.
  */
 async function assertWorkspaceMember(
-  db: Prisma.TransactionClient | typeof import("~/server/db").db,
+  db: Prisma.TransactionClient | typeof dbInstance,
   userId: string,
   workspaceId: string,
 ): Promise<void> {
@@ -75,7 +76,7 @@ async function assertWorkspaceMember(
  * "doesn't exist" and "wrong workspace" to avoid leaking existence).
  */
 async function getDocumentInWorkspace(
-  db: typeof import("~/server/db").db,
+  db: typeof dbInstance,
   documentId: string,
   workspaceId: string,
 ) {
