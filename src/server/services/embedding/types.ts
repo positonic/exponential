@@ -5,9 +5,9 @@
 
 /**
  * Source types that can be embedded into the knowledge base.
- * Extensible for future sources like notes, Slack messages, documents, etc.
+ * Extensible for future sources like notes, Slack messages, etc.
  */
-export type EmbeddingSourceType = "transcription" | "resource";
+export type EmbeddingSourceType = "transcription" | "resource" | "document";
 
 /**
  * Status of the embedding process for a source.
@@ -38,6 +38,15 @@ export interface EmbeddingSource {
 
   /** Get the associated project ID (optional) */
   getProjectId(): string | null;
+
+  /**
+   * Get the workspace ID this source belongs to (the security/scoping boundary).
+   * Returning null is allowed for legacy entities that predate workspace scoping;
+   * KnowledgeService logs a warning and falls back to writing chunks without
+   * workspaceId so behaviour matches the pre-fix code path. New sources should
+   * always return a real workspace id.
+   */
+  getWorkspaceId(): string | null;
 
   /** Get additional metadata for the source */
   getMetadata(): Record<string, unknown>;

@@ -1298,13 +1298,15 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       query: z.string(),
       projectId: z.string().optional(),
-      workspaceId: z.string().optional(),
+      // workspaceId is REQUIRED — KnowledgeService.search now refuses calls
+      // without a workspace scope to prevent cross-workspace data leakage.
+      workspaceId: z.string(),
       dateRange: z.object({
         start: z.string(),
         end: z.string(),
       }).optional(),
       topK: z.number().optional().default(5),
-      sourceTypes: z.array(z.enum(['transcription', 'resource'])).optional(),
+      sourceTypes: z.array(z.enum(['transcription', 'resource', 'document'])).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -1320,25 +1322,27 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
-      // Verify workspace membership if a workspace scope was requested.
-      if (input.workspaceId) {
-        const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
-        if (!wsMembership) {
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'Workspace not found or access denied',
-          });
-        }
+      // Verify workspace membership.
+      const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+      if (!wsMembership) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Workspace not found or access denied',
+        });
       }
 
       try {
-        // Use KnowledgeService for vector search
+        // Use KnowledgeService for vector search.
+        // We pass userId for further-narrowing — this matches the previous
+        // behaviour for this user-facing knowledge-base search where users only
+        // expect to see their own indexed content. The cross-user agent path
+        // (knowledgeChunkRouter.semanticSearch) deliberately omits userId.
         const knowledgeService = getKnowledgeService(ctx.db);
 
         const searchResults = await knowledgeService.search(input.query, {
+          workspaceId: input.workspaceId,
           userId,
           projectId: input.projectId,
-          workspaceId: input.workspaceId,
           sourceTypes: input.sourceTypes,
           limit: input.topK,
         });

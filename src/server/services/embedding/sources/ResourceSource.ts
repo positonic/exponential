@@ -27,6 +27,10 @@ export class ResourceSource implements EmbeddingSource {
     return this.resource.projectId;
   }
 
+  getWorkspaceId(): string | null {
+    return this.resource.workspaceId;
+  }
+
   getMetadata(): Record<string, unknown> {
     return {
       title: this.resource.title,

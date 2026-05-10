@@ -25,7 +25,7 @@ interface Chunk {
 interface SearchResult {
   id: string;
   content: string;
-  sourceType: "transcription" | "resource";
+  sourceType: "transcription" | "resource" | "document";
   sourceId: string;
   chunkIndex: number;
   similarity: number;
@@ -35,6 +35,25 @@ interface SearchResult {
     url?: string;
     contentType?: string;
   };
+}
+
+/**
+ * Options for KnowledgeService.search().
+ *
+ * `workspaceId` is REQUIRED and is the primary scoping field — every search must
+ * be tenant-scoped. `userId`/`projectId` are optional further-narrowing filters.
+ *
+ * `participantEmail` filters chunks to those belonging to transcripts a given
+ * participant attended (join-based, see implementation note in `search()`).
+ */
+export interface KnowledgeSearchOptions {
+  workspaceId: string;
+  userId?: string;
+  projectId?: string;
+  sourceTypes?: ("transcription" | "resource" | "document")[];
+  participantEmail?: string;
+  limit?: number;
+  similarityThreshold?: number;
 }
 
 /**
@@ -101,6 +120,7 @@ export class KnowledgeService {
     const sourceId = source.getSourceId();
     const userId = source.getUserId();
     const projectId = source.getProjectId();
+    const workspaceId = source.getWorkspaceId();
     const content = source.getContent();
 
     if (!content) {
@@ -115,6 +135,16 @@ export class KnowledgeService {
         `[KnowledgeService] Source ${sourceType}:${sourceId} has no userId`
       );
       return { success: false, chunkCount: 0, error: "No userId" };
+    }
+
+    // workspaceId is the primary security/scoping field on KnowledgeChunk.
+    // Sources that predate workspace scoping may legitimately return null —
+    // we proceed (so we don't break re-ingestion of legacy data) but log loudly
+    // because the resulting chunks won't be visible to workspace-scoped search.
+    if (!workspaceId) {
+      console.warn(
+        `[KnowledgeService] Source ${sourceType}:${sourceId} has no workspaceId — chunks will be inserted without workspace scoping`
+      );
     }
 
     try {
@@ -139,6 +169,7 @@ export class KnowledgeService {
             sourceId,
             userId,
             projectId,
+            workspaceId,
             tx
           );
         } else {
@@ -149,6 +180,7 @@ export class KnowledgeService {
             sourceId,
             userId,
             projectId,
+            workspaceId,
             tx
           );
         }
@@ -189,6 +221,7 @@ export class KnowledgeService {
     sourceId: string,
     userId: string,
     projectId: string | null,
+    workspaceId: string | null,
     tx?: Prisma.TransactionClient
   ): Promise<void> {
     const client = tx ?? this.db;
@@ -220,12 +253,12 @@ export class KnowledgeService {
           INSERT INTO "KnowledgeChunk" (
             id, content, embedding, "sourceType", "sourceId",
             "chunkIndex", "tokenCount", "startPos", "endPos",
-            "userId", "projectId", "createdAt"
+            "userId", "projectId", "workspaceId", "createdAt"
           ) VALUES (
             ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
             ${sourceType}, ${sourceId},
             ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
-            ${userId}, ${projectId}, NOW()
+            ${userId}, ${projectId}, ${workspaceId}, NOW()
           )
         `;
       }
@@ -241,6 +274,7 @@ export class KnowledgeService {
     sourceId: string,
     userId: string,
     projectId: string | null,
+    workspaceId: string | null,
     tx?: Prisma.TransactionClient
   ): Promise<void> {
     const client = tx ?? this.db;
@@ -253,12 +287,12 @@ export class KnowledgeService {
         INSERT INTO "KnowledgeChunk" (
           id, content, embedding, "sourceType", "sourceId",
           "chunkIndex", "tokenCount", "startPos", "endPos",
-          "userId", "projectId", "createdAt"
+          "userId", "projectId", "workspaceId", "createdAt"
         ) VALUES (
           ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
           ${sourceType}, ${sourceId},
           ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
-          ${userId}, ${projectId}, NOW()
+          ${userId}, ${projectId}, ${workspaceId}, NOW()
         )
       `;
     }
@@ -446,19 +480,42 @@ export class KnowledgeService {
   }
 
   /**
-   * Search the knowledge base using semantic similarity
+   * Search the knowledge base using semantic similarity.
+   *
+   * `workspaceId` is REQUIRED — it is the primary security boundary. Cross-workspace
+   * leakage was the original bug; do not relax this without a clearly-named
+   * `searchAcrossWorkspaces()` admin entry point.
+   *
+   * Optional filters narrow further:
+   *   - `userId` — limit to a single user (e.g., "my searches")
+   *   - `projectId` — limit to a project (also includes project-less chunks)
+   *   - `sourceTypes` — limit to chunk source kinds
+   *   - `participantEmail` — limit to chunks from transcripts whose
+   *      TranscriptionSessionParticipant set includes this email. NOTE: this is
+   *      a transcript-level filter (the participant attended the meeting), not a
+   *      per-utterance speaker filter — proper per-speaker filtering requires
+   *      Fireflies-aware chunking that populates `KnowledgeChunk.speakerEmail`,
+   *      which is out of scope for this PR.
    */
   async search(
     query: string,
-    options: {
-      userId: string;
-      projectId?: string;
-      workspaceId?: string;
-      sourceTypes?: ("transcription" | "resource")[];
-      limit?: number;
-    }
+    options: KnowledgeSearchOptions
   ): Promise<SearchResult[]> {
-    const { userId, projectId, workspaceId, sourceTypes, limit = 10 } = options;
+    const {
+      workspaceId,
+      userId,
+      projectId,
+      sourceTypes,
+      participantEmail,
+      limit = 10,
+    } = options;
+
+    if (!workspaceId) {
+      throw new Error(
+        "[KnowledgeService.search] workspaceId is required. " +
+          "If you genuinely need a cross-workspace search, use searchAcrossWorkspaces()."
+      );
+    }
 
     // Generate query embedding
     const queryEmbedding = await this.generateEmbedding(query);
@@ -475,9 +532,24 @@ export class KnowledgeService {
       ? Prisma.sql`AND (kc."projectId" = ${projectId} OR kc."projectId" IS NULL)`
       : Prisma.empty;
 
-    // Nullable-tolerant: include legacy chunks where workspaceId hasn't been backfilled yet.
-    const workspaceCondition = workspaceId
-      ? Prisma.sql`AND (kc."workspaceId" = ${workspaceId} OR kc."workspaceId" IS NULL)`
+    // Optional further-narrowing by user (e.g., "search just my chunks").
+    const userCondition = userId
+      ? Prisma.sql`AND kc."userId" = ${userId}`
+      : Prisma.empty;
+
+    // Participant filter: include only transcript chunks whose parent
+    // TranscriptionSession had a participant with this email. Workspace-scoped
+    // on the join too, so we don't accidentally leak across workspaces via the
+    // participants table.
+    const participantCondition = participantEmail
+      ? Prisma.sql`AND (
+          kc."sourceType" <> 'transcription' OR EXISTS (
+            SELECT 1 FROM "TranscriptionSessionParticipant" p
+            WHERE p."transcriptionSessionId" = kc."sourceId"
+              AND p.email = ${participantEmail}
+              AND p."workspaceId" = ${workspaceId}
+          )
+        )`
       : Prisma.empty;
 
     // Execute vector search with parameterized query
@@ -505,6 +577,7 @@ export class KnowledgeService {
         CASE
           WHEN kc."sourceType" = 'transcription' THEN ts.title
           WHEN kc."sourceType" = 'resource' THEN r.title
+          WHEN kc."sourceType" = 'document' THEN d.title
         END as "sourceTitle",
         ts."meetingDate",
         r.url,
@@ -514,9 +587,98 @@ export class KnowledgeService {
         ON kc."sourceType" = 'transcription' AND kc."sourceId" = ts.id
       LEFT JOIN "Resource" r
         ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
-      WHERE kc."userId" = ${userId}
+      LEFT JOIN "Document" d
+        ON kc."sourceType" = 'document' AND kc."sourceId" = d.id
+      WHERE kc."workspaceId" = ${workspaceId}
+        ${userCondition}
         ${projectCondition}
-        ${workspaceCondition}
+        ${sourceTypeCondition}
+        ${participantCondition}
+      ORDER BY kc.embedding <=> ${embeddingStr}::vector
+      LIMIT ${limit}
+    `;
+
+    return results.map((r) => ({
+      id: r.id,
+      content: r.content,
+      sourceType: r.sourceType as "transcription" | "resource" | "document",
+      sourceId: r.sourceId,
+      chunkIndex: r.chunkIndex,
+      similarity: r.similarity,
+      sourceTitle: r.sourceTitle ?? undefined,
+      sourceMeta: {
+        meetingDate: r.meetingDate ?? undefined,
+        url: r.url ?? undefined,
+        contentType: r.contentType ?? undefined,
+      },
+    }));
+  }
+
+  /**
+   * ADMIN ONLY — searches across ALL workspaces. Do NOT call from any user-facing
+   * code path. Reserved for migrations, debugging, and platform-level tooling.
+   *
+   * Use `search()` for everything else; that one enforces workspace scoping.
+   */
+  async searchAcrossWorkspaces(
+    query: string,
+    options: Omit<KnowledgeSearchOptions, "workspaceId"> = {}
+  ): Promise<SearchResult[]> {
+    const { userId, projectId, sourceTypes, limit = 10 } = options;
+
+    const queryEmbedding = await this.generateEmbedding(query);
+    const embeddingStr = `[${queryEmbedding.join(",")}]`;
+
+    const sourceTypeCondition =
+      sourceTypes && sourceTypes.length > 0
+        ? Prisma.sql`AND kc."sourceType" = ANY(${sourceTypes}::text[])`
+        : Prisma.empty;
+    const projectCondition = projectId
+      ? Prisma.sql`AND (kc."projectId" = ${projectId} OR kc."projectId" IS NULL)`
+      : Prisma.empty;
+    const userCondition = userId
+      ? Prisma.sql`AND kc."userId" = ${userId}`
+      : Prisma.empty;
+
+    const results = await this.db.$queryRaw<
+      Array<{
+        id: string;
+        content: string;
+        sourceType: string;
+        sourceId: string;
+        chunkIndex: number;
+        similarity: number;
+        sourceTitle: string | null;
+        meetingDate: Date | null;
+        url: string | null;
+        contentType: string | null;
+      }>
+    >`
+      SELECT
+        kc.id,
+        kc.content,
+        kc."sourceType",
+        kc."sourceId",
+        kc."chunkIndex",
+        1 - (kc.embedding <=> ${embeddingStr}::vector) as similarity,
+        CASE
+          WHEN kc."sourceType" = 'transcription' THEN ts.title
+          WHEN kc."sourceType" = 'resource' THEN r.title
+          WHEN kc."sourceType" = 'document' THEN d.title
+        END as "sourceTitle",
+        ts."meetingDate",
+        r.url,
+        r."contentType"
+      FROM "KnowledgeChunk" kc
+      LEFT JOIN "TranscriptionSession" ts
+        ON kc."sourceType" = 'transcription' AND kc."sourceId" = ts.id
+      LEFT JOIN "Resource" r
+        ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
+      LEFT JOIN "Document" d
+        ON kc."sourceType" = 'document' AND kc."sourceId" = d.id
+      WHERE TRUE
+        ${userCondition}
+        ${projectCondition}
         ${sourceTypeCondition}
       ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}
@@ -525,7 +687,7 @@ export class KnowledgeService {
     return results.map((r) => ({
       id: r.id,
       content: r.content,
-      sourceType: r.sourceType as "transcription" | "resource",
+      sourceType: r.sourceType as "transcription" | "resource" | "document",
       sourceId: r.sourceId,
       chunkIndex: r.chunkIndex,
       similarity: r.similarity,
@@ -576,7 +738,7 @@ export class KnowledgeService {
    * Delete all chunks for a source
    */
   async deleteChunks(
-    sourceType: "transcription" | "resource",
+    sourceType: EmbeddingSourceType,
     sourceId: string,
     tx?: Prisma.TransactionClient
   ): Promise<void> {
@@ -591,7 +753,7 @@ export class KnowledgeService {
    * Get chunk count for a source
    */
   async getChunkCount(
-    sourceType: "transcription" | "resource",
+    sourceType: EmbeddingSourceType,
     sourceId: string
   ): Promise<number> {
     const result = await this.db.knowledgeChunk.count({

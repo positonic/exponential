@@ -5,11 +5,10 @@ import { getKnowledgeService } from "~/server/services/KnowledgeService";
 
 // ────────────────────────────────────────────────────────────────────
 // One2b agent integration: lightweight wrappers around KnowledgeService
-// for the meetingContextAgent. KnowledgeService scopes by userId + an
-// OPTIONAL workspaceId, so these procedures (a) verify caller workspace
-// membership, (b) backfill workspaceId on freshly-created chunks since
-// KnowledgeService.embedTranscription does not currently set it, and
-// (c) wrap KnowledgeService.search with workspace + similarity filters.
+// for the meetingContextAgent. KnowledgeService now scopes primarily by
+// workspaceId (with optional userId/projectId/participantEmail narrowing).
+// These procedures (a) verify caller workspace membership and
+// (b) wrap KnowledgeService.search with similarity-threshold filtering.
 // ────────────────────────────────────────────────────────────────────
 
 // KnowledgeService currently hard-codes the OpenAI text-embedding-3-small
@@ -77,26 +76,13 @@ export const knowledgeChunkRouter = createTRPCRouter({
         });
       }
 
-      // 3. Embed via KnowledgeService (chunks + embeds + writes).
+      // 3. Embed via KnowledgeService. As of this PR, KnowledgeService reads
+      //    workspaceId off the parent TranscriptionSession (via TranscriptionSource)
+      //    and stamps it on every chunk insert — no post-hoc updateMany needed.
       const knowledgeService = getKnowledgeService(ctx.db);
       const chunksCreated = await knowledgeService.embedTranscription(
         input.transcriptionSessionId,
       );
-
-      // 4. Workaround: KnowledgeService.embedTranscription does NOT yet set
-      //    workspaceId on the inserted chunks (it only writes userId/projectId).
-      //    Until KnowledgeService is workspace-aware, backfill here so the
-      //    chunks are scoped correctly for subsequent search queries.
-      //    Safe to run unconditionally — narrow filter on (sourceType, sourceId).
-      if (chunksCreated > 0) {
-        await ctx.db.knowledgeChunk.updateMany({
-          where: {
-            sourceType: "transcription",
-            sourceId: input.transcriptionSessionId,
-          },
-          data: { workspaceId: input.workspaceId },
-        });
-      }
 
       return {
         chunksCreated,
@@ -119,6 +105,7 @@ export const knowledgeChunkRouter = createTRPCRouter({
         workspaceId: z.string(),
         sourceType: z.enum(["transcription", "document", "resource"]).optional(),
         sourceId: z.string().optional(),
+        participantEmail: z.string().email().optional(),
         limit: z.number().min(1).max(50).default(10),
         similarityThreshold: z.number().min(0).max(1).default(0.3),
       }),
@@ -157,19 +144,17 @@ export const knowledgeChunkRouter = createTRPCRouter({
         });
       }
 
-      // 2. KnowledgeService.search only supports 'transcription' | 'resource'.
-      //    'document' is reserved in the input schema for future use; for now
-      //    we silently drop it (no documents are indexed yet).
-      const sourceTypes =
-        input.sourceType && input.sourceType !== "document"
-          ? [input.sourceType]
-          : undefined;
+      // 2. Workspace is the primary scope; we deliberately do NOT pass userId
+      //    so the agent can find context across all members of the workspace
+      //    (pre-meeting briefs need to surface chunks regardless of who
+      //    originally ingested the transcript).
+      const sourceTypes = input.sourceType ? [input.sourceType] : undefined;
 
       const knowledgeService = getKnowledgeService(ctx.db);
       const rawResults = await knowledgeService.search(input.query, {
-        userId,
         workspaceId: input.workspaceId,
         sourceTypes,
+        participantEmail: input.participantEmail,
         limit: input.limit,
       });
 

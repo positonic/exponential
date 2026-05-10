@@ -148,8 +148,6 @@ describe("knowledgeChunk router (mocked)", () => {
         { id: sessionId, workspaceId } as any,
       );
       mockEmbedTranscription.mockResolvedValue(7);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.knowledgeChunk.updateMany.mockResolvedValue({ count: 7 } as any);
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
       const result = await caller.knowledgeChunk.ingestTranscription({
@@ -165,15 +163,16 @@ describe("knowledgeChunk router (mocked)", () => {
       expect(result.embeddingDim).toBe(1536);
     });
 
-    it("stamps workspaceId on created chunks via updateMany", async () => {
+    // The router no longer post-hoc backfills workspaceId via updateMany —
+    // KnowledgeService.embedTranscription now stamps workspaceId on chunk
+    // insert by reading it off the parent TranscriptionSession.
+    it("does NOT call updateMany — workspaceId is stamped at insert time by KnowledgeService", async () => {
       stubMembership(true);
       dbMock.transcriptionSession.findUnique.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         { id: sessionId, workspaceId } as any,
       );
       mockEmbedTranscription.mockResolvedValue(3);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.knowledgeChunk.updateMany.mockResolvedValue({ count: 3 } as any);
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
       await caller.knowledgeChunk.ingestTranscription({
@@ -181,16 +180,10 @@ describe("knowledgeChunk router (mocked)", () => {
         workspaceId,
       });
 
-      expect(dbMock.knowledgeChunk.updateMany).toHaveBeenCalledWith({
-        where: {
-          sourceType: "transcription",
-          sourceId: sessionId,
-        },
-        data: { workspaceId },
-      });
+      expect(dbMock.knowledgeChunk.updateMany).not.toHaveBeenCalled();
     });
 
-    it("skips updateMany when no chunks were created", async () => {
+    it("returns chunksCreated=0 when KnowledgeService produces no chunks", async () => {
       stubMembership(true);
       dbMock.transcriptionSession.findUnique.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -350,7 +343,7 @@ describe("knowledgeChunk router (mocked)", () => {
       );
     });
 
-    it("scopes the search to the calling workspace and userId", async () => {
+    it("scopes the search to the calling workspace and does NOT narrow by userId (cross-user lookups required for briefs)", async () => {
       stubMembership(true);
       mockSearch.mockResolvedValue([]);
 
@@ -362,9 +355,28 @@ describe("knowledgeChunk router (mocked)", () => {
 
       expect(mockSearch).toHaveBeenCalledWith(
         "x",
+        expect.objectContaining({ workspaceId }),
+      );
+      const callArgs = mockSearch.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(callArgs.userId).toBeUndefined();
+    });
+
+    it("forwards participantEmail to KnowledgeService.search", async () => {
+      stubMembership(true);
+      mockSearch.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.knowledgeChunk.semanticSearch({
+        query: "x",
+        workspaceId,
+        participantEmail: "alice@example.com",
+      });
+
+      expect(mockSearch).toHaveBeenCalledWith(
+        "x",
         expect.objectContaining({
           workspaceId,
-          userId: callerId,
+          participantEmail: "alice@example.com",
         }),
       );
     });
