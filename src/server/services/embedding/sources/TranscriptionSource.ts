@@ -27,6 +27,10 @@ export class TranscriptionSource implements EmbeddingSource {
     return this.transcription.projectId;
   }
 
+  getWorkspaceId(): string | null {
+    return this.transcription.workspaceId;
+  }
+
   getMetadata(): Record<string, unknown> {
     return {
       title: this.transcription.title,

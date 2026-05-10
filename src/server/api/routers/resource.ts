@@ -408,11 +408,13 @@ export const resourceRouter = createTRPCRouter({
       });
     }),
 
-  // Search resources using semantic search
+  // Search resources using semantic search.
+  // workspaceId is REQUIRED — KnowledgeService.search refuses unscoped calls.
   search: protectedProcedure
     .input(
       z.object({
         query: z.string().min(1),
+        workspaceId: z.string(),
         projectId: z.string().optional(),
         limit: z.number().min(1).max(50).default(10),
       })
@@ -420,7 +422,19 @@ export const resourceRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Gate: searching within a specific project requires access to that project.
+      // Gate: must be a member of the workspace being searched.
+      const wsMembership = await ctx.db.workspaceUser.findUnique({
+        where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
+        select: { userId: true },
+      });
+      if (!wsMembership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this workspace",
+        });
+      }
+
+      // Gate: filtering by a specific project requires access to that project.
       if (input.projectId) {
         const access = await getProjectAccess(ctx.db, userId, input.projectId);
         if (!hasProjectAccess(access)) {
@@ -434,6 +448,7 @@ export const resourceRouter = createTRPCRouter({
       const { KnowledgeService } = await import("~/server/services/KnowledgeService");
       const knowledgeService = getKnowledgeService(ctx.db);
       const results = await knowledgeService.search(input.query, {
+        workspaceId: input.workspaceId,
         userId,
         projectId: input.projectId,
         sourceTypes: ["resource"],

@@ -101,9 +101,11 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   // and use placeholderData so previous results stay visible during refetch
   // (prevents the results region from collapsing on every keystroke).
   const [debouncedQuery] = useDebouncedValue(searchQuery, 300);
-  const searchEnabled = debouncedQuery.length > 2;
+  // workspaceId is required by queryMeetingContext (server-side guard).
+  // Only enable the query once we know which workspace to scope to.
+  const searchEnabled = debouncedQuery.length > 2 && Boolean(workspaceId);
   const searchQueryResult = api.mastra.queryMeetingContext.useQuery(
-    { query: debouncedQuery, topK: 10, workspaceId },
+    { query: debouncedQuery, topK: 10, workspaceId: workspaceId ?? "" },
     {
       enabled: searchEnabled,
       placeholderData: keepPreviousData,
