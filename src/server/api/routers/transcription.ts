@@ -21,6 +21,78 @@ import {
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
 
+// ────────────────────────────────────────────────────────────────────
+// Title-token stopwords for `findRelated` matching.
+//
+// Tokens that appear in nearly every meeting title carry no signal, so we
+// strip them before computing overlap. The list is intentionally narrow
+// (meeting-pattern words + common articles/prepositions); domain-specific
+// vocabulary like project names or topics MUST pass through.
+// ────────────────────────────────────────────────────────────────────
+const TITLE_STOPWORDS: ReadonlySet<string> = new Set([
+  // meeting-pattern words
+  "meeting",
+  "call",
+  "sync",
+  "weekly",
+  "daily",
+  "monthly",
+  "quarterly",
+  "standup",
+  "checkin",
+  "check-in",
+  "review",
+  "1:1",
+  "1-1",
+  "1on1",
+  "one-on-one",
+  "discussion",
+  "session",
+  "huddle",
+  "catchup",
+  "catch-up",
+  // common articles / prepositions
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "with",
+  "at",
+  "of",
+  "to",
+  "for",
+  "in",
+  "on",
+  "by",
+  "vs",
+  "via",
+  "re",
+]);
+
+/**
+ * Tokenize a meeting title for related-meeting matching: lowercase, split
+ * on non-alphanumeric, drop empty + stopwords. Returns a unique-token list
+ * (caller wraps in Set if needed).
+ */
+function tokenizeTitle(title: string): string[] {
+  const raw = title
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 0 && !TITLE_STOPWORDS.has(t));
+  // Dedupe while preserving order — score denominator should count each
+  // distinct token once even if the user repeats a word in the title.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of raw) {
+    if (!seen.has(t)) {
+      seen.add(t);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
 /**
  * Centralized access check for a transcription session.
  *
@@ -1398,6 +1470,236 @@ export const transcriptionRouter = createTRPCRouter({
         action: "generated" as const,
         actionsCreated: result.actionsCreated,
       };
+    }),
+
+  // ────────────────────────────────────────────────────────────────────
+  // One2b agent integration: deterministic related-meeting matching
+  //
+  // `findRelated` powers the meetingContextAgent's pre-meeting briefs by
+  // returning past TranscriptionSessions that look related to an upcoming
+  // meeting via two independent signals:
+  //   1. Title-token overlap (after stopword filtering).
+  //   2. Participant email overlap.
+  //
+  // The two buckets are returned independently — a session can appear in
+  // both, and that's intentional: the agent uses both signals.
+  //
+  // Scope is workspace-only; project membership doesn't grant access here.
+  // Uses simple Prisma + JS filtering (no pg_trgm) since per-workspace
+  // session counts are bounded.
+  // ────────────────────────────────────────────────────────────────────
+  findRelated: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        meetingTitle: z.string().min(1),
+        participantEmails: z.array(z.string().email()).default([]),
+        matchThreshold: z.number().min(0).max(1).default(0.5),
+        lookbackDays: z.number().min(1).max(365).default(90),
+        limit: z.number().min(1).max(50).default(10),
+      }),
+    )
+    .output(
+      z.object({
+        byTitle: z.array(
+          z.object({
+            transcriptionSessionId: z.string(),
+            title: z.string().nullable(),
+            meetingDate: z.date().nullable(),
+            summary: z.string().nullable(),
+            matchedTokens: z.array(z.string()),
+            titleScore: z.number(),
+          }),
+        ),
+        byParticipantOverlap: z.array(
+          z.object({
+            transcriptionSessionId: z.string(),
+            title: z.string().nullable(),
+            meetingDate: z.date().nullable(),
+            summary: z.string().nullable(),
+            matchedEmails: z.array(z.string()),
+            overlapRatio: z.number(),
+          }),
+        ),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const callerId = ctx.session.user.id;
+
+      // 1. Workspace membership check.
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: callerId,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { userId: true },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
+      }
+
+      const cutoff = new Date(
+        Date.now() - input.lookbackDays * 24 * 60 * 60 * 1000,
+      );
+
+      // 2. Tokenize the input title (stopword-filtered).
+      const inputTokens = tokenizeTitle(input.meetingTitle);
+      const inputTokenSet = new Set(inputTokens);
+
+      // 3. Title matching — fetch candidates in workspace + window, filter
+      //    in JS. At expected workspace volumes (low thousands of sessions
+      //    over the lookback window) this is well under DB cost of pg_trgm.
+      let byTitle: Array<{
+        transcriptionSessionId: string;
+        title: string | null;
+        meetingDate: Date | null;
+        summary: string | null;
+        matchedTokens: string[];
+        titleScore: number;
+      }> = [];
+
+      if (inputTokens.length > 0) {
+        const titleCandidates = await ctx.db.transcriptionSession.findMany({
+          where: {
+            workspaceId: input.workspaceId,
+            meetingDate: { gte: cutoff },
+            title: { not: null },
+          },
+          select: {
+            id: true,
+            title: true,
+            meetingDate: true,
+            summary: true,
+          },
+        });
+
+        for (const candidate of titleCandidates) {
+          if (!candidate.title) continue;
+          const candidateTokens = new Set(tokenizeTitle(candidate.title));
+          const matched: string[] = [];
+          for (const token of inputTokenSet) {
+            if (candidateTokens.has(token)) {
+              matched.push(token);
+            }
+          }
+          if (matched.length === 0) continue;
+          byTitle.push({
+            transcriptionSessionId: candidate.id,
+            title: candidate.title,
+            meetingDate: candidate.meetingDate,
+            summary: candidate.summary,
+            matchedTokens: matched,
+            titleScore: matched.length / inputTokens.length,
+          });
+        }
+
+        byTitle.sort((a, b) => {
+          if (b.titleScore !== a.titleScore) {
+            return b.titleScore - a.titleScore;
+          }
+          const aTime = a.meetingDate?.getTime() ?? 0;
+          const bTime = b.meetingDate?.getTime() ?? 0;
+          return bTime - aTime;
+        });
+        byTitle = byTitle.slice(0, input.limit);
+      }
+
+      // 4. Participant matching.
+      let byParticipantOverlap: Array<{
+        transcriptionSessionId: string;
+        title: string | null;
+        meetingDate: Date | null;
+        summary: string | null;
+        matchedEmails: string[];
+        overlapRatio: number;
+      }> = [];
+
+      if (input.participantEmails.length > 0) {
+        const lowercaseInputEmails = input.participantEmails.map((e) =>
+          e.toLowerCase(),
+        );
+        const inputEmailSet = new Set(lowercaseInputEmails);
+
+        const participantRows =
+          await ctx.db.transcriptionSessionParticipant.findMany({
+            where: {
+              workspaceId: input.workspaceId,
+              email: { in: lowercaseInputEmails, mode: "insensitive" },
+              transcriptionSession: {
+                meetingDate: { gte: cutoff },
+              },
+            },
+            include: {
+              transcriptionSession: {
+                select: {
+                  id: true,
+                  title: true,
+                  meetingDate: true,
+                  summary: true,
+                },
+              },
+            },
+          });
+
+        // Group by transcriptionSessionId, collect matched emails.
+        const grouped = new Map<
+          string,
+          {
+            session: {
+              id: string;
+              title: string | null;
+              meetingDate: Date | null;
+              summary: string | null;
+            };
+            emails: Set<string>;
+          }
+        >();
+        for (const row of participantRows) {
+          const lowered = row.email.toLowerCase();
+          if (!inputEmailSet.has(lowered)) continue;
+          const existing = grouped.get(row.transcriptionSessionId);
+          if (existing) {
+            existing.emails.add(lowered);
+          } else {
+            grouped.set(row.transcriptionSessionId, {
+              session: row.transcriptionSession,
+              emails: new Set([lowered]),
+            });
+          }
+        }
+
+        for (const { session, emails } of grouped.values()) {
+          const overlapRatio = emails.size / input.participantEmails.length;
+          if (overlapRatio < input.matchThreshold) continue;
+          byParticipantOverlap.push({
+            transcriptionSessionId: session.id,
+            title: session.title,
+            meetingDate: session.meetingDate,
+            summary: session.summary,
+            matchedEmails: Array.from(emails),
+            overlapRatio,
+          });
+        }
+
+        byParticipantOverlap.sort((a, b) => {
+          if (b.overlapRatio !== a.overlapRatio) {
+            return b.overlapRatio - a.overlapRatio;
+          }
+          const aTime = a.meetingDate?.getTime() ?? 0;
+          const bTime = b.meetingDate?.getTime() ?? 0;
+          return bTime - aTime;
+        });
+        byParticipantOverlap = byParticipantOverlap.slice(0, input.limit);
+      }
+
+      // 5. NOTE: do not dedupe across buckets — a session appearing in both
+      //    is itself a signal (corroborating evidence) for the agent.
+      return { byTitle, byParticipantOverlap };
     }),
 
   // Get webhook activity logs for the Activity tab
