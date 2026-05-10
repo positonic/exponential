@@ -1,5 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as fc from "fast-check";
+
+// `actionResolver` (imported below) eventually pulls in `~/server/db`,
+// which runs T3 env validation at module load. In the unit-test runner
+// the env isn't seeded, so the import throws "Attempted to access a
+// server-side environment variable on the client". `vi.hoisted` runs
+// BEFORE module imports — seed the minimum set of vars needed to make
+// `~/server/db` loadable. Same pattern as action.test.ts.
+vi.hoisted(() => {
+  process.env.OPENAI_API_KEY ??= "sk-test-dummy";
+  process.env.AUTH_SECRET ??= "test-secret-for-unit-tests";
+  process.env.SKIP_ENV_VALIDATION ??= "true";
+  process.env.NODE_ENV ??= "test";
+  process.env.GOOGLE_CLIENT_ID ??= "test";
+  process.env.GOOGLE_CLIENT_SECRET ??= "test";
+});
 
 import {
   hasMinimumWorkspaceRole,
