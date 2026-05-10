@@ -39,6 +39,8 @@ import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
 import { resourceRouter } from "./routers/resource";
+import { knowledgeChunkRouter } from "./routers/knowledgeChunk";
+import { transcriptionSessionParticipantRouter } from "./routers/transcriptionSessionParticipant";
 import { crmContactRouter } from "./routers/crmContact";
 import { crmOrganizationRouter } from "./routers/crmOrganization";
 import { tagRouter } from "./routers/tag";
@@ -117,6 +119,8 @@ export const appRouter = createTRPCRouter({
   habit: habitRouter,
   workspace: workspaceRouter,
   resource: resourceRouter,
+  knowledgeChunk: knowledgeChunkRouter,
+  transcriptionSessionParticipant: transcriptionSessionParticipantRouter,
   crmContact: crmContactRouter,
   crmOrganization: crmOrganizationRouter,
   tag: tagRouter,
