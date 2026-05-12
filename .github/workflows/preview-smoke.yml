@@ -32,12 +32,32 @@ jobs:
           DEPLOYMENT_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
           ENVIRONMENT: ${{ github.event.deployment.environment }}
           SHA: ${{ github.event.deployment.sha }}
+          # Vercel Deployment Protection bypass. Required because *.vercel.app
+          # preview and deployment URLs sit behind Vercel SSO in this project
+          # (production traffic on www.exponential.im is public, but the URL
+          # Vercel reports in deployment_status events is the protected
+          # *.vercel.app one). Without this secret every probe gets a 401
+          # "Authentication Required" wall and the smoke check is useless.
+          #
+          # Generate the value: Vercel project → Settings → Deployment
+          # Protection → "Protection Bypass for Automation" → Add Secret.
+          # Then add it to GitHub: repo Settings → Secrets and variables →
+          # Actions → New repository secret named VERCEL_AUTOMATION_BYPASS_SECRET.
+          #
+          # If unset, this job emits a warning and exits 0 so the check
+          # doesn't permanently red-block PRs while we wait for the secret.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           set -euo pipefail
 
           if [[ -z "${DEPLOYMENT_URL}" ]]; then
             echo "::error::deployment_status event had no environment_url or target_url; cannot probe"
             exit 1
+          fi
+
+          if [[ -z "${VERCEL_AUTOMATION_BYPASS_SECRET}" ]]; then
+            echo "::warning::VERCEL_AUTOMATION_BYPASS_SECRET secret not configured — skipping probes for ${ENVIRONMENT} deployment ${DEPLOYMENT_URL}. See the workflow file for setup instructions."
+            exit 0
           fi
 
           echo "Probing ${ENVIRONMENT} deployment at ${DEPLOYMENT_URL} (sha=${SHA})"
@@ -54,10 +74,12 @@ jobs:
           for probe in "${probes[@]}"; do
             IFS='|' read -r label path <<<"${probe}"
             body_file="$(mktemp)"
-            # -L follows the Vercel SSO redirect for password-protected previews;
-            # if you protect previews behind Vercel SSO this job will need a
-            # bypass token (VERCEL_AUTOMATION_BYPASS_SECRET) — left as a follow-up.
-            status=$(curl -sS -L --connect-timeout 10 --max-time 30 -o "${body_file}" -w "%{http_code}" "${DEPLOYMENT_URL}${path}" || echo "000")
+            # The bypass header is what Vercel docs recommend for programmatic
+            # access; -L follows any redirect Vercel issues after accepting it.
+            status=$(curl -sS -L --connect-timeout 10 --max-time 30 \
+              -H "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+              -o "${body_file}" -w "%{http_code}" \
+              "${DEPLOYMENT_URL}${path}" || echo "000")
             if [[ "${status}" =~ ^2 ]]; then
               echo "✓ ${label} (${status})"
             else
