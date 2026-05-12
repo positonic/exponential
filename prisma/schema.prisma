@@ -157,6 +157,8 @@ model User {
   recurringTasksCreated       RecurringTask[]             @relation("RecurringTaskCreator")
   // Project activity audit log
   projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
+  // Workspace home activity feed
+  workspaceActivityEvents     WorkspaceActivityEvent[]
 
   // Onboarding: Attribution
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
@@ -335,9 +337,33 @@ model Workspace {
   reminderLogs                     ReminderLog[]
   pendingDriveUploads              PendingDriveUpload[]
 
+  // Workspace home activity feed
+  activityEvents WorkspaceActivityEvent[]
+
   @@index([slug])
   @@index([ownerId])
   @@index([type])
+}
+
+// Append-only log of significant workspace events.
+// Powers heatmap, activity feed, and weekly review sparkline. Writes are
+// fire-and-forget from call sites via `recordActivity()` — see
+// src/server/services/activity/.
+model WorkspaceActivityEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  entityType  String // "action" | "action_comment" | "ticket" | "ticket_comment"
+  entityId    String // intentionally not a foreign key — events outlive the entity
+  action      String // "created" | "updated" | "status_changed" | "completed" | "commented"
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, userId, createdAt])
 }
 
 model WorkspaceUser {
