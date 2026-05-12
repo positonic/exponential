@@ -9,11 +9,20 @@ import {
   Text,
   Title,
 } from '@mantine/core';
+import { startOfISOWeek } from 'date-fns';
 import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useMemo } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { CoachingGoalCard } from './CoachingGoalCard';
 import { CoachingHeaderWheel } from './CoachingHeaderWheel';
+import {
+  CoachingWeekSelector,
+  dateFromIsoWeekString,
+  isoWeekStringFromDate,
+} from './CoachingWeekSelector';
+import { CoachingWeeklyReflection } from './CoachingWeeklyReflection';
 
 function PlaceholderZone({
   title,
@@ -109,8 +118,35 @@ function FocusGoalsZone({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+function useSelectedWeekStart(): {
+  weekStart: Date;
+  setWeekStart: (next: Date) => void;
+} {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  const weekStart = useMemo(() => {
+    const raw = params.get('week');
+    const parsed = raw ? dateFromIsoWeekString(raw) : null;
+    return parsed ?? startOfISOWeek(new Date());
+  }, [params]);
+
+  const setWeekStart = useCallback(
+    (next: Date) => {
+      const nextParams = new URLSearchParams(params.toString());
+      nextParams.set('week', isoWeekStringFromDate(next));
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+    },
+    [params, pathname, router],
+  );
+
+  return { weekStart, setWeekStart };
+}
+
 export function WorkspaceHomeCoaching() {
   const { workspace } = useWorkspace();
+  const { weekStart, setWeekStart } = useSelectedWeekStart();
 
   return (
     <Container size="lg" className="py-8">
@@ -121,7 +157,6 @@ export function WorkspaceHomeCoaching() {
           </Title>
           <Text size="sm" className="text-text-secondary">
             {workspace?.name ?? 'This workspace'} is set to the Coaching layout.
-            Sections fill in across follow-up slices.
           </Text>
         </Stack>
 
@@ -131,12 +166,13 @@ export function WorkspaceHomeCoaching() {
           wrap="wrap"
           className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-4"
         >
-          <Stack gap={4} className="min-w-0 flex-1">
-            <Text size="sm" fw={600} className="text-text-secondary">
-              Header
-            </Text>
+          <Stack gap="xs" className="min-w-0 flex-1">
+            <CoachingWeekSelector
+              weekStart={weekStart}
+              onChange={setWeekStart}
+            />
             <Text size="xs" className="text-text-muted">
-              Week selector — coming in next slice
+              Scopes the weekly reflection only — focus goals stay current.
             </Text>
           </Stack>
           <CoachingHeaderWheel />
@@ -151,10 +187,7 @@ export function WorkspaceHomeCoaching() {
           />
         )}
 
-        <PlaceholderZone
-          title="Reflection"
-          description="Weekly reflection — coming in next slice"
-        />
+        <CoachingWeeklyReflection weekStart={weekStart} />
       </Stack>
     </Container>
   );
