@@ -20,6 +20,7 @@
     "lint": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint",
     "lint:fix": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint --fix",
     "preview": "next build && next start",
+    "smoketest": "bash scripts/smoketest.sh",
     "start": "next start",
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
