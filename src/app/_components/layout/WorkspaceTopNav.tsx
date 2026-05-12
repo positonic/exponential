@@ -42,15 +42,24 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Settings', icon: IconSettings, segment: 'settings' },
 ] as const;
 
+// Guests (project-only members) see only Projects. Every other workspace-wide
+// surface is hidden; the corresponding routes silently redirect (see oos3).
+const GUEST_VISIBLE_SEGMENTS: ReadonlySet<string> = new Set(['projects']);
+
 export function WorkspaceTopNav() {
-  const { workspaceSlug } = useWorkspace();
+  const { workspaceSlug, userRole } = useWorkspace();
   const pathname = usePathname();
 
   if (!workspaceSlug) return null;
 
+  const isGuest = userRole === 'guest';
+  const visibleNavItems = isGuest
+    ? NAV_ITEMS.filter((item) => GUEST_VISIBLE_SEGMENTS.has(item.segment))
+    : NAV_ITEMS;
+
   return (
     <nav className={styles.strip}>
-      {NAV_ITEMS.map(({ label, icon: Icon, segment, href, matchSegments }) => {
+      {visibleNavItems.map(({ label, icon: Icon, segment, href, matchSegments }) => {
         const linkHref = `/w/${workspaceSlug}/${href ?? segment}`;
         const segmentsToMatch = matchSegments ?? [segment];
         const isActive = segmentsToMatch.some((s) =>

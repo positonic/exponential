@@ -87,6 +87,7 @@ export function WorkspaceSwitcher({
   const hasNotification = activeInboxCount > 0;
 
   const isLoading = contextLoading || listLoading;
+  const isGuest = userRole === 'guest';
 
   if (isLoading) {
     return (
@@ -261,22 +262,26 @@ export function WorkspaceSwitcher({
           {workspace && (
             <>
               <Menu.Divider className="border-border-primary" />
-              <Menu.Item
-                leftSection={<IconBriefcase size={14} />}
-                component={Link}
-                href={`/w/${workspace.slug}/home`}
-                className="text-text-primary hover:bg-surface-hover"
-              >
-                Workspace Home
-              </Menu.Item>
-              <Menu.Item
-                leftSection={<IconLayoutKanban size={14} />}
-                component={Link}
-                href={`/w/${workspace.slug}/actions`}
-                className="text-text-primary hover:bg-surface-hover"
-              >
-                Actions
-              </Menu.Item>
+              {!isGuest && (
+                <Menu.Item
+                  leftSection={<IconBriefcase size={14} />}
+                  component={Link}
+                  href={`/w/${workspace.slug}/home`}
+                  className="text-text-primary hover:bg-surface-hover"
+                >
+                  Workspace Home
+                </Menu.Item>
+              )}
+              {!isGuest && (
+                <Menu.Item
+                  leftSection={<IconLayoutKanban size={14} />}
+                  component={Link}
+                  href={`/w/${workspace.slug}/actions`}
+                  className="text-text-primary hover:bg-surface-hover"
+                >
+                  Actions
+                </Menu.Item>
+              )}
               <Menu.Item
                 leftSection={<IconDeviceProjector size={14} />}
                 component={Link}
@@ -285,22 +290,26 @@ export function WorkspaceSwitcher({
               >
                 Projects
               </Menu.Item>
-              <Menu.Item
-                leftSection={<IconWriting size={14} />}
-                component={Link}
-                href={`/w/${workspace.slug}/content`}
-                className="text-text-primary hover:bg-surface-hover"
-              >
-                Content
-              </Menu.Item>
-              <Menu.Item
-                leftSection={<IconSettings size={14} />}
-                component={Link}
-                href={`/w/${workspace.slug}/settings`}
-                className="text-text-primary hover:bg-surface-hover"
-              >
-                Workspace Settings
-              </Menu.Item>
+              {!isGuest && (
+                <Menu.Item
+                  leftSection={<IconWriting size={14} />}
+                  component={Link}
+                  href={`/w/${workspace.slug}/content`}
+                  className="text-text-primary hover:bg-surface-hover"
+                >
+                  Content
+                </Menu.Item>
+              )}
+              {!isGuest && (
+                <Menu.Item
+                  leftSection={<IconSettings size={14} />}
+                  component={Link}
+                  href={`/w/${workspace.slug}/settings`}
+                  className="text-text-primary hover:bg-surface-hover"
+                >
+                  Workspace Settings
+                </Menu.Item>
+              )}
             </>
           )}
         </Menu.Dropdown>

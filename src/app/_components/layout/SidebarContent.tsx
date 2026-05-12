@@ -9,11 +9,12 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 
 export function SidebarContent(): React.JSX.Element {
-  const { workspaceId, workspaceSlug } = useWorkspace();
+  const { workspaceId, workspaceSlug, userRole } = useWorkspace();
+  const isGuest = userRole === "guest";
 
   const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
     { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId, staleTime: 5 * 60 * 1000 },
+    { enabled: !!workspaceId && !isGuest, staleTime: 5 * 60 * 1000 },
   );
 
   const isProductEnabled = enabledPlugins?.includes("product") ?? false;
@@ -24,13 +25,13 @@ export function SidebarContent(): React.JSX.Element {
         Projects
       </NavLink>
 
-      {isProductEnabled && workspaceSlug && (
+      {!isGuest && isProductEnabled && workspaceSlug && (
         <NavLink href={`/w/${workspaceSlug}/products`} icon={IconLayoutGrid}>
           Products
         </NavLink>
       )}
 
-      {workspaceSlug && (
+      {!isGuest && workspaceSlug && (
         <NavLink href={`/w/${workspaceSlug}/alignment`} icon={IconTarget}>
           Alignment
         </NavLink>
