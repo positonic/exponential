@@ -57,10 +57,8 @@ import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWi
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
 import {
-  DEFAULT_HOME_LAYOUT,
-  HOME_LAYOUT_VALUES,
   HomeLayoutPicker,
-  type HomeLayout,
+  validateHomeLayout,
 } from '~/app/_components/home/HomeLayoutPicker';
 import { notifications } from '@mantine/notifications';
 import {
@@ -145,12 +143,7 @@ export default function WorkspaceSettingsPage() {
   const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
-  const rawHomeLayout = workspaceData?.homeLayout ?? DEFAULT_HOME_LAYOUT;
-  const currentHomeLayout: HomeLayout = (HOME_LAYOUT_VALUES as readonly string[]).includes(
-    rawHomeLayout,
-  )
-    ? (rawHomeLayout as HomeLayout)
-    : DEFAULT_HOME_LAYOUT;
+  const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
 
   const featureSuccess = (message: string) => () => {
     void utils.workspace.getBySlug.invalidate();

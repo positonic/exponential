@@ -5,11 +5,7 @@ import { Container, Skeleton, Stack, Text } from '@mantine/core';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components/home/WorkspaceHomeConceptD';
 import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
-import {
-  DEFAULT_HOME_LAYOUT,
-  HOME_LAYOUT_VALUES,
-  type HomeLayout,
-} from '~/app/_components/home/HomeLayoutPicker';
+import { validateHomeLayout } from '~/app/_components/home/HomeLayoutPicker';
 
 function WorkspaceHomeContent() {
   const { workspace, isLoading: workspaceLoading } = useWorkspace();
@@ -34,10 +30,7 @@ function WorkspaceHomeContent() {
     );
   }
 
-  const rawLayout = workspace.homeLayout ?? DEFAULT_HOME_LAYOUT;
-  const layout: HomeLayout = (HOME_LAYOUT_VALUES as readonly string[]).includes(rawLayout)
-    ? (rawLayout as HomeLayout)
-    : DEFAULT_HOME_LAYOUT;
+  const layout = validateHomeLayout(workspace.homeLayout);
 
   return layout === 'activity' ? <WorkspaceHomeActivity /> : <WorkspaceHomeCommand />;
 }

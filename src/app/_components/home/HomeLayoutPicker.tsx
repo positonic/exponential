@@ -13,6 +13,29 @@ export type HomeLayout = (typeof HOME_LAYOUT_VALUES)[number];
 
 export const DEFAULT_HOME_LAYOUT: HomeLayout = 'command';
 
+/**
+ * Type guard for runtime values read out of the database or URL. Returns true
+ * when `value` is one of `HOME_LAYOUT_VALUES`.
+ */
+export function isValidHomeLayout(value: unknown): value is HomeLayout {
+  return (
+    typeof value === 'string' &&
+    (HOME_LAYOUT_VALUES as readonly string[]).includes(value)
+  );
+}
+
+/**
+ * Coerce an arbitrary string (or null/undefined) into a known `HomeLayout`,
+ * falling back to `DEFAULT_HOME_LAYOUT` when the value isn't recognised.
+ * Use this anywhere the layout is read out of the DB or a query param so the
+ * downstream code can rely on a narrowed union type.
+ */
+export function validateHomeLayout(
+  value: string | null | undefined,
+): HomeLayout {
+  return isValidHomeLayout(value) ? value : DEFAULT_HOME_LAYOUT;
+}
+
 interface HomeLayoutPickerProps {
   value: HomeLayout;
   onChange: (value: HomeLayout) => void;
@@ -42,6 +65,22 @@ const OPTIONS: Option[] = [
   },
 ];
 
+/**
+ * Two-option radio-card picker for the workspace home page layout. Used in
+ * `/workspaces/new` (workspace creation) and in Settings → General to switch
+ * between the Command Center and Activity Dashboard home pages.
+ *
+ * @param props.value     Currently selected layout. Must be one of `HOME_LAYOUT_VALUES`.
+ * @param props.onChange  Fired with the new layout when the user clicks an option.
+ * @param props.disabled  When true, all options are unselectable and visually dimmed.
+ * @returns A radio-group of layout option cards.
+ *
+ * @example
+ * ```tsx
+ * const [layout, setLayout] = useState<HomeLayout>(DEFAULT_HOME_LAYOUT);
+ * <HomeLayoutPicker value={layout} onChange={setLayout} />
+ * ```
+ */
 export function HomeLayoutPicker({
   value,
   onChange,
