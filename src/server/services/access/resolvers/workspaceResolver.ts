@@ -101,6 +101,38 @@ export function buildWorkspaceVisibilityWhere(userId: string) {
   };
 }
 
+/**
+ * True when the user has derived ("guest") workspace access only:
+ * a `ProjectMember` row in some project of the workspace, but no direct
+ * `WorkspaceUser` row and no team-based access.
+ *
+ * Used to scope queries (e.g. project listings) down to the guest's
+ * explicitly-shared projects, and to drive the stripped-down UI.
+ */
+export async function isWorkspaceGuest(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  const directMembership = await db.workspaceUser.findUnique({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    select: { userId: true },
+  });
+  if (directMembership) return false;
+
+  const teamMembership = await db.teamUser.findFirst({
+    where: { userId, team: { workspaceId } },
+    select: { id: true },
+  });
+  if (teamMembership) return false;
+
+  const projectMember = await db.projectMember.findFirst({
+    where: { userId, project: { workspaceId } },
+    select: { id: true },
+  });
+  return projectMember !== null;
+}
+
 /** Check if user is the workspace owner (via ownerId field on Workspace) */
 export async function isWorkspaceOwner(
   db: PrismaClient,

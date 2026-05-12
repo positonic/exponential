@@ -68,6 +68,7 @@ export {
 export {
   getWorkspaceMembership,
   isWorkspaceOwner,
+  isWorkspaceGuest,
   buildWorkspaceAccessWhere,
   buildWorkspaceVisibilityWhere,
 } from "./resolvers/workspaceResolver";

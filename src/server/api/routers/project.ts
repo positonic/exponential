@@ -10,6 +10,7 @@ import {
   hasProjectAccess,
   buildProjectAccessWhere,
   requireProjectAccess,
+  isWorkspaceGuest,
   AccessControlService,
 } from "~/server/services/access";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
@@ -68,13 +69,26 @@ export const projectRouter = createTRPCRouter({
         workspaceId: input?.workspaceId ?? 'none'
       });
 
+      // Guest scope: when the caller is a workspace "guest" (project-only
+      // access — no WorkspaceUser, no team membership) the list is restricted
+      // to projects they have explicit ProjectMember rows for. Public/team
+      // projects in the workspace are NOT visible.
+      const userId = ctx.session.user.id;
+      const isGuest = input?.workspaceId
+        ? await isWorkspaceGuest(ctx.db, userId, input.workspaceId)
+        : false;
+
+      const accessWhere = isGuest
+        ? { projectMembers: { some: { userId } } }
+        : buildProjectAccessWhere(userId);
+
       const projects = await ctx.db.project.findMany({
         where: {
           // Filter by workspace if provided
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
           // Filter by goal if provided
           ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
-          ...buildProjectAccessWhere(ctx.session.user.id),
+          ...accessWhere,
         },
         orderBy: {
           createdAt: "desc",

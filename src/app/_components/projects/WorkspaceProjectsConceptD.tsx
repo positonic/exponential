@@ -442,7 +442,8 @@ interface WorkspaceProjectsConceptDProps {
 }
 
 export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: WorkspaceProjectsConceptDProps = {}) {
-  const { workspace, workspaceId } = useWorkspace();
+  const { workspace, workspaceId, userRole } = useWorkspace();
+  const isGuest = userRole === 'guest';
   const pathname = usePathname();
   const searchRef = useRef<HTMLInputElement>(null);
   const {
@@ -515,6 +516,13 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
 
   return (
     <div className={styles.page}>
+      {isGuest && workspace && (
+        <div className="border-b border-border-primary px-4 py-3 text-[12.5px] text-text-secondary">
+          Projects you have access to in{' '}
+          <span className="font-medium text-text-primary">{workspace.name}</span>
+        </div>
+      )}
+
       {/* Top bar: pill tabs + action bar */}
       <div className={styles.topBar}>
         <nav className={styles.viewTabs}>
@@ -587,12 +595,14 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
             </button>
           )}
 
-          <CreateProjectModal>
-            <button className={styles.newBtn} type="button">
-              <IconPlus size={13} stroke={2.5} />
-              New project
-            </button>
-          </CreateProjectModal>
+          {!isGuest && (
+            <CreateProjectModal>
+              <button className={styles.newBtn} type="button">
+                <IconPlus size={13} stroke={2.5} />
+                New project
+              </button>
+            </CreateProjectModal>
+          )}
         </div>
       </div>
 
