@@ -210,6 +210,62 @@ describe("workspace router", () => {
     });
   });
 
+  describe("listProjectGuests", () => {
+    it("returns project-only members and excludes direct workspace members", async () => {
+      const owner = await createUser(db);
+      const directMember = await createUser(db);
+      const guest1 = await createUser(db);
+      const guest2 = await createUser(db);
+
+      const ws = await createWorkspace(db, {
+        ownerId: owner.id,
+        slug: "guests-list-ws",
+      });
+      await addWorkspaceMember(db, ws.id, directMember.id, "member");
+
+      const projectA = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Project A",
+      });
+      const projectB = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Project B",
+      });
+
+      // Two genuine guests
+      await addProjectMember(db, projectA.id, guest1.id, "editor");
+      await addProjectMember(db, projectB.id, guest2.id, "viewer");
+      // The direct member also happens to be on a project — should NOT
+      // appear in the project-guests list.
+      await addProjectMember(db, projectA.id, directMember.id, "editor");
+
+      const ownerCaller = createTestCaller(owner.id);
+      const guests = await ownerCaller.workspace.listProjectGuests({
+        workspaceId: ws.id,
+      });
+
+      const ids = guests.map((g) => g.user.id).sort();
+      expect(ids).toEqual([guest1.id, guest2.id].sort());
+    });
+
+    it("forbids non-admin callers", async () => {
+      const owner = await createUser(db);
+      const regularMember = await createUser(db);
+      const ws = await createWorkspace(db, {
+        ownerId: owner.id,
+        slug: "guests-list-forbidden",
+      });
+      await addWorkspaceMember(db, ws.id, regularMember.id, "member");
+
+      const memberCaller = createTestCaller(regularMember.id);
+      await expect(
+        memberCaller.workspace.listProjectGuests({ workspaceId: ws.id }),
+      ).rejects.toThrow(TRPCError);
+    });
+  });
+
   describe("update", () => {
     it("owner can update", async () => {
       const owner = await createUser(db);

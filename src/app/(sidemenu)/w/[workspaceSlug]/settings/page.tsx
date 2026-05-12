@@ -376,6 +376,14 @@ export default function WorkspaceSettingsPage() {
     { enabled: !!workspaceId }
   );
 
+  const { data: projectGuests } = api.workspace.listProjectGuests.useQuery(
+    { workspaceId: workspaceId! },
+    {
+      enabled:
+        !!workspaceId && (userRole === 'owner' || userRole === 'admin'),
+    }
+  );
+
   const handleSaveEmail = () => {
     if (!workspaceId || !emailAddress || !emailAppPassword) return;
     createEmailMutation.mutate({
@@ -711,6 +719,58 @@ export default function WorkspaceSettingsPage() {
                 ))}
               </div>
             </SettingsSection>
+
+            {projectGuests && projectGuests.length > 0 && (
+              <SettingsSection
+                icon={IconUsers}
+                title="Project guests"
+                count={projectGuests.length}
+                description="People with access to specific projects in this workspace but no workspace-level role. Manage their access on each project's Access tab."
+                flush
+              >
+                <div className="grid grid-cols-[1fr_1fr] px-2 pt-3 text-[13px]">
+                  <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                    Guest
+                  </div>
+                  <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                    Projects
+                  </div>
+
+                  {projectGuests.map((guest) => (
+                    <div key={guest.user.id} className="contents group">
+                      <div className="flex items-center gap-2.5 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                        <Avatar src={guest.user.image} size="sm" radius="xl">
+                          {guest.user.name?.charAt(0).toUpperCase() ?? 'U'}
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-medium text-text-primary truncate">
+                            {guest.user.name ?? 'Unknown'}
+                          </div>
+                          <div className="text-[11.5px] text-text-muted truncate">
+                            {guest.user.email}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                        {guest.projects.map((project, idx) => (
+                          <span key={project.id} className="text-[12.5px]">
+                            <a
+                              href={`/w/${workspace.slug}/projects/${project.slug}?tab=access`}
+                              className="text-brand-primary hover:underline"
+                            >
+                              {project.name}
+                            </a>
+                            {idx < guest.projects.length - 1 && (
+                              <span className="text-text-muted">,</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </SettingsSection>
+            )}
 
             {pendingInvites && pendingInvites.length > 0 && (
               <SettingsSection
