@@ -5,10 +5,11 @@ import {
   IconActivity,
   IconCheck,
   IconCommand,
+  IconCompass,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 
-export const HOME_LAYOUT_VALUES = ['command', 'activity'] as const;
+export const HOME_LAYOUT_VALUES = ['command', 'activity', 'coaching'] as const;
 export type HomeLayout = (typeof HOME_LAYOUT_VALUES)[number];
 
 export const DEFAULT_HOME_LAYOUT: HomeLayout = 'command';
@@ -63,12 +64,19 @@ const OPTIONS: Option[] = [
       'Heatmap of contributions, activity feed, and weekly review at a glance.',
     icon: IconActivity,
   },
+  {
+    value: 'coaching',
+    label: 'Coaching',
+    description:
+      'Weekly coaching artifact: focus goals, retro + prospective commits, and reflection.',
+    icon: IconCompass,
+  },
 ];
 
 /**
- * Two-option radio-card picker for the workspace home page layout. Used in
+ * Three-option radio-card picker for the workspace home page layout. Used in
  * `/workspaces/new` (workspace creation) and in Settings → General to switch
- * between the Command Center and Activity Dashboard home pages.
+ * between the Command Center, Activity Dashboard, and Coaching home pages.
  *
  * @param props.value     Currently selected layout. Must be one of `HOME_LAYOUT_VALUES`.
  * @param props.onChange  Fired with the new layout when the user clicks an option.
