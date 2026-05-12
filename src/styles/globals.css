@@ -1047,3 +1047,82 @@
   /* Type */
   --sb-font: "Inter Tight", -apple-system, system-ui, sans-serif;
 }
+
+/* ==========================================================================
+   Coaching home surface (workspace home, homeLayout === 'coaching') —
+   scoped design tokens. Consumed by
+   src/app/_components/home/coaching-home.css. Mirrors auth-surface pattern:
+   all hex lives here, feature CSS uses var() exclusively. Pre-commit hook
+   only allows hex in this file, colors.ts, mantineTheme.ts, EmailService.ts.
+   ========================================================================== */
+.coaching-home {
+  /* Backgrounds */
+  --ch-bg-primary: #0B0F17;
+  --ch-bg-secondary: #10151F;
+  --ch-bg-elevated: #141B27;
+  --ch-bg-hover: #1A2230;
+  --ch-surface-muted: #161D2A;
+
+  /* Borders */
+  --ch-border-primary: #1F2A3C;
+  --ch-border-subtle: #172030;
+  --ch-border-strong: #2A3850;
+
+  /* Text */
+  --ch-text-primary: #E6ECF5;
+  --ch-text-secondary: #96A2B5;
+  --ch-text-muted: #5E6A7E;
+  --ch-text-faint: #3F4A5C;
+
+  /* Brand + accents (same palette as auth-surface and the design handoff) */
+  --ch-brand-400: #4E89FF;
+  --ch-brand-500: #1F5DE0;
+  --ch-brand-700: #153FA8;
+  --ch-accent: #A78BFA;          /* primary page accent (violet) */
+  --ch-accent-knowledge: #5AC8E0;
+  --ch-accent-meetings: #A78BFA;
+  --ch-accent-crm: #4ADE8C;      /* on-track / success */
+  --ch-accent-okr: #F5B94A;      /* at-risk / amber */
+  --ch-accent-due: #F87171;      /* off-track / error */
+  --ch-accent-ritual: #6B8CFF;
+  --ch-accent-neutral: #9CA3B5;
+  --ch-accent-spirit: #C7B6FF;
+
+  /* Translucent washes used by the hero gradient + status pills */
+  --ch-accent-violet-04: rgba(167, 139, 250, 0.04);
+  --ch-accent-violet-08: rgba(167, 139, 250, 0.08);
+  --ch-accent-violet-10: rgba(167, 139, 250, 0.10);
+  --ch-accent-violet-12: rgba(167, 139, 250, 0.12);
+  --ch-accent-violet-14: rgba(167, 139, 250, 0.14);
+  --ch-accent-violet-18: rgba(167, 139, 250, 0.18);
+  --ch-accent-violet-22: rgba(167, 139, 250, 0.22);
+  --ch-accent-violet-45: rgba(167, 139, 250, 0.45);
+  --ch-accent-violet-70: rgba(167, 139, 250, 0.70);
+  --ch-accent-amber-07: rgba(245, 185, 74, 0.07);
+  --ch-accent-amber-08: rgba(245, 185, 74, 0.08);
+  --ch-accent-amber-10: rgba(245, 185, 74, 0.10);
+  --ch-accent-amber-22: rgba(245, 185, 74, 0.22);
+  --ch-accent-amber-45: rgba(245, 185, 74, 0.45);
+  --ch-accent-green-10: rgba(74, 222, 140, 0.10);
+  --ch-accent-green-14: rgba(74, 222, 140, 0.14);
+  --ch-accent-green-16: rgba(74, 222, 140, 0.16);
+  --ch-accent-green-22: rgba(74, 222, 140, 0.22);
+  --ch-accent-red-10: rgba(248, 113, 113, 0.10);
+  --ch-accent-red-22: rgba(248, 113, 113, 0.22);
+  --ch-accent-blue-18: rgba(78, 137, 255, 0.18);
+  --ch-brand-shadow: rgba(167, 139, 250, 0.65);
+
+  /* Shadows */
+  --ch-shadow-cta: 0 10px 22px -10px var(--ch-brand-shadow);
+
+  /* Type */
+  --ch-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ch-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ch-font-display: "Fraunces", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
+
+  /* Rhythm */
+  --ch-radius-sm: 4px;
+  --ch-radius-md: 6px;
+  --ch-radius-lg: 10px;
+  --ch-radius-xl: 14px;
+}

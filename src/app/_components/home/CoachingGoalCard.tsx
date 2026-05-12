@@ -1,26 +1,15 @@
 'use client';
 
-import { Badge, Divider, Group, Stack, Text } from '@mantine/core';
-import { IconMessage } from '@tabler/icons-react';
-import { CoachingGoalCommitLines } from './CoachingGoalCommitLines';
+import { IconMessage, IconMessage2 } from '@tabler/icons-react';
 import { CoachingGoalSparkline } from './CoachingGoalSparkline';
 
 type Health = 'on-track' | 'at-risk' | 'off-track' | 'no-update' | null;
-
-interface CommitAction {
-  id: string;
-  name: string;
-  status: string;
-  dueDate: Date | string | null;
-  completedAt: Date | string | null;
-}
 
 interface CoachingGoalCardProps {
   goal: {
     id: number;
     title: string;
     health: string | null;
-    projectCount: number;
     lifeDomain: {
       id: number;
       title: string;
@@ -30,9 +19,6 @@ interface CoachingGoalCardProps {
     snapshots: { progress: number; snapshotDate: Date | string }[];
     latestUpdate: { id: string; content: string; createdAt: Date | string } | null;
     commentCount: number;
-    lastWeekKept: CommitAction[];
-    lastWeekMissed: CommitAction[];
-    thisWeekActions: CommitAction[];
   };
 }
 
@@ -43,98 +29,106 @@ const HEALTH_LABELS: Record<Exclude<Health, null>, string> = {
   'no-update': 'No update',
 };
 
-// Map a Goal.health value to a Mantine Badge color name. We keep the palette
-// inside Mantine's built-in named colors so the badge respects theme tokens
-// (no hex literals).
-const HEALTH_BADGE_COLOR: Record<Exclude<Health, null>, string> = {
-  'on-track': 'teal',
-  'at-risk': 'yellow',
-  'off-track': 'red',
-  'no-update': 'gray',
+const HEALTH_CLASSES: Record<Exclude<Health, null>, string> = {
+  'on-track': 'ch-goal-card__health--ontrack',
+  'at-risk': 'ch-goal-card__health--atrisk',
+  'off-track': 'ch-goal-card__health--off-track',
+  'no-update': 'ch-goal-card__health--no-update',
 };
+
+// Maps a LifeDomain.color semantic key to a coaching-home scoped CSS var.
+// Falls back to the page accent if the key isn't recognised.
+function lifeDomainAccent(color: string | null | undefined): string {
+  if (!color) return 'var(--ch-accent)';
+  const map: Record<string, string> = {
+    'brand-primary': 'var(--ch-brand-400)',
+    blue: 'var(--ch-brand-400)',
+    indigo: 'var(--ch-accent-ritual)',
+    green: 'var(--ch-accent-crm)',
+    teal: 'var(--ch-accent-knowledge)',
+    cyan: 'var(--ch-accent-knowledge)',
+    yellow: 'var(--ch-accent-okr)',
+    amber: 'var(--ch-accent-okr)',
+    orange: 'var(--ch-accent-okr)',
+    red: 'var(--ch-accent-due)',
+    pink: 'var(--ch-accent-due)',
+    violet: 'var(--ch-accent-meetings)',
+    purple: 'var(--ch-accent-meetings)',
+    grape: 'var(--ch-accent-meetings)',
+    gray: 'var(--ch-accent-neutral)',
+    neutral: 'var(--ch-accent-neutral)',
+  };
+  return map[color.toLowerCase()] ?? 'var(--ch-accent)';
+}
 
 function HealthPill({ health }: { health: Health }) {
   const key: Exclude<Health, null> =
     health && health in HEALTH_LABELS ? health : 'no-update';
   return (
-    <Badge size="sm" variant="light" color={HEALTH_BADGE_COLOR[key]}>
+    <span className={`ch-goal-card__health ${HEALTH_CLASSES[key]}`}>
+      <span className="ch-goal-card__health-dot" />
       {HEALTH_LABELS[key]}
-    </Badge>
-  );
-}
-
-function LifeDomainBadge({
-  lifeDomain,
-}: {
-  lifeDomain: CoachingGoalCardProps['goal']['lifeDomain'];
-}) {
-  if (!lifeDomain) return null;
-
-  // `color` is a semantic token key (e.g., "brand-primary"). Render the dot
-  // via CSS variable so we don't bake a hex literal and don't depend on
-  // Tailwind's static class generation.
-  const dotStyle = lifeDomain.color
-    ? { backgroundColor: `var(--${lifeDomain.color})` }
-    : undefined;
-
-  return (
-    <Group gap={6} align="center" wrap="nowrap">
-      <span
-        className="inline-block h-2 w-2 rounded-full bg-text-muted"
-        style={dotStyle}
-        aria-hidden
-      />
-      <Text size="xs" className="text-text-secondary">
-        {lifeDomain.title}
-      </Text>
-    </Group>
+    </span>
   );
 }
 
 export function CoachingGoalCard({ goal }: CoachingGoalCardProps) {
-  const updateText = goal.latestUpdate?.content?.trim() ?? '';
+  const accent = lifeDomainAccent(goal.lifeDomain?.color);
   const health = goal.health as Health;
+  const updateText = goal.latestUpdate?.content?.trim() ?? '';
+  const latestProgress = goal.snapshots.at(-1)?.progress;
 
   return (
-    <Stack
-      gap="sm"
-      className="min-h-[200px] rounded-lg border border-border-primary bg-surface-primary p-4"
+    <article
+      className="ch-goal-card"
+      style={{ ['--ch-card-accent' as string]: accent }}
     >
-      <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <Stack gap={4} className="min-w-0">
-          <Text size="sm" fw={600} className="truncate text-text-primary">
-            {goal.title}
-          </Text>
-          <LifeDomainBadge lifeDomain={goal.lifeDomain} />
-        </Stack>
+      <span className="ch-goal-card__rail" aria-hidden />
+
+      <header className="ch-goal-card__head">
+        <span className="ch-goal-card__domain">
+          <span className="ch-goal-card__domain-dot" aria-hidden />
+          {goal.lifeDomain?.title ?? 'No domain'}
+        </span>
         <HealthPill health={health} />
-      </Group>
+      </header>
 
-      <CoachingGoalSparkline
-        points={goal.snapshots}
-        ariaLabel={`Progress sparkline for ${goal.title}`}
-      />
+      <h3 className="ch-goal-card__title">{goal.title}</h3>
 
-      <Text size="xs" className="line-clamp-2 text-text-secondary">
-        {updateText.length > 0 ? updateText : 'No status updates yet.'}
-      </Text>
+      <div className="ch-goal-card__spark">
+        <CoachingGoalSparkline
+          points={goal.snapshots}
+          color={accent}
+          ariaLabel={`Progress sparkline for ${goal.title}`}
+        />
+        <div className="ch-goal-card__spark-axis">
+          <span>
+            {goal.snapshots.length > 0
+              ? `${goal.snapshots.length} wks tracked`
+              : 'no snapshots yet'}
+          </span>
+          <span>
+            {latestProgress != null
+              ? `now · ${Math.round(latestProgress)}%`
+              : '—'}
+          </span>
+        </div>
+      </div>
 
-      <Group gap={4} align="center" className="text-text-muted">
-        <IconMessage size={14} aria-hidden />
-        <Text size="xs" className="text-text-muted">
+      <div className="ch-goal-card__update">
+        <IconMessage2 size={12} className="ch-goal-card__update-icon" />
+        <span className="ch-goal-card__update-text">
+          {updateText.length > 0 ? updateText : 'No status updates yet.'}
+        </span>
+      </div>
+
+      <footer className="ch-goal-card__foot">
+        <span>{goal.lifeDomain?.title ?? 'Focus goal'}</span>
+        <span className="ch-goal-card__foot-comments">
+          <IconMessage size={11} />
           {goal.commentCount}
-        </Text>
-      </Group>
-
-      <Divider className="border-border-primary" />
-
-      <CoachingGoalCommitLines
-        goalId={goal.id}
-        projectCount={goal.projectCount}
-        lastWeekKept={goal.lastWeekKept}
-        lastWeekMissed={goal.lastWeekMissed}
-        thisWeekActions={goal.thisWeekActions}
-      />
-    </Stack>
+        </span>
+      </footer>
+    </article>
   );
 }

@@ -1,15 +1,12 @@
 'use client';
 
+import { Button } from '@mantine/core';
 import {
-  Button,
-  Collapse,
-  Group,
-  Stack,
-  Text,
-  Textarea,
-  UnstyledButton,
-} from '@mantine/core';
-import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
+  IconArrowRight,
+  IconBook2,
+  IconChevronDown,
+  IconChevronRight,
+} from '@tabler/icons-react';
 import { endOfISOWeek, isWithinInterval, startOfISOWeek } from 'date-fns';
 import { useEffect, useState } from 'react';
 import { api } from '~/trpc/react';
@@ -43,33 +40,27 @@ function PastReflectionRow({
   };
 }) {
   const [open, setOpen] = useState(false);
-  const dayDate = reflection.day?.date
-    ? new Date(reflection.day.date)
-    : null;
+  const dayDate = reflection.day?.date ? new Date(reflection.day.date) : null;
   const rangeLabel = dayDate ? formatWeekRange(dayDate) : 'Unknown week';
+  const content = reflection.content.trim();
 
   return (
-    <Stack gap={4}>
-      <UnstyledButton
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex items-center gap-1 rounded text-left hover:bg-surface-hover"
-      >
-        {open ? (
-          <IconChevronDown size={14} className="text-text-muted" aria-hidden />
-        ) : (
-          <IconChevronRight size={14} className="text-text-muted" aria-hidden />
-        )}
-        <Text size="xs" className="text-text-secondary">
-          {rangeLabel}
-        </Text>
-      </UnstyledButton>
-      <Collapse in={open}>
-        <Text size="xs" className="whitespace-pre-wrap pl-5 text-text-secondary">
-          {reflection.content.trim() || 'No reflection text.'}
-        </Text>
-      </Collapse>
-    </Stack>
+    <button
+      type="button"
+      className="ch-reflect__hrow"
+      onClick={() => setOpen((v) => !v)}
+      aria-expanded={open}
+    >
+      <span className="ch-reflect__hweek">{rangeLabel}</span>
+      <span className={`ch-reflect__hline${open ? ' is-open' : ''}`}>
+        {content || 'No reflection text.'}
+      </span>
+      {open ? (
+        <IconChevronDown size={14} className="ch-reflect__harrow" />
+      ) : (
+        <IconChevronRight size={14} className="ch-reflect__harrow" />
+      )}
+    </button>
   );
 }
 
@@ -97,6 +88,14 @@ export function CoachingWeeklyReflection({
   }, [current?.id, current?.content]);
 
   const dirty = draft !== (current?.content ?? '');
+  const isEmpty = !current && !isLoading;
+  const status = upsert.isPending
+    ? 'saving…'
+    : dirty
+    ? 'unsaved'
+    : isEmpty
+    ? 'new draft'
+    : 'saved';
 
   const past = (recent ?? []).filter((r) => {
     if (!r.day?.date) return true;
@@ -108,61 +107,66 @@ export function CoachingWeeklyReflection({
   });
 
   return (
-    <Stack
-      gap="sm"
-      className="rounded-lg border border-border-primary bg-surface-primary p-4"
-    >
-      <Group justify="space-between" align="center">
-        <Text size="sm" fw={600} className="text-text-primary">
-          Weekly reflection · {formatWeekRange(weekStart)}
-        </Text>
-        {upsert.isPending ? (
-          <Text size="xs" className="text-text-muted">
-            Saving…
-          </Text>
-        ) : null}
-      </Group>
+    <section className="ch-block">
+      <div className="ch-reflect__card">
+        <div className="ch-reflect__head">
+          <span className="ch-reflect__title">
+            <IconBook2 size={14} /> Weekly reflection
+          </span>
+          <span className="ch-reflect__week">
+            {formatWeekRange(weekStart)}
+            <span className="ch-reflect__week-dot" aria-hidden />
+            <span className="ch-reflect__week-status">{status}</span>
+          </span>
+        </div>
 
-      <Textarea
-        value={draft}
-        onChange={(e) => setDraft(e.currentTarget.value)}
-        placeholder={
-          isLoading
-            ? 'Loading…'
-            : 'What went well? What did you learn? Where are you stuck?'
-        }
-        minRows={4}
-        autosize
-        disabled={isLoading || upsert.isPending}
-        classNames={{
-          input:
-            'bg-surface-secondary text-text-primary border-border-primary placeholder:text-text-muted',
-        }}
-      />
-
-      <Group justify="flex-end">
-        <Button
-          size="xs"
-          variant="filled"
-          disabled={!dirty || upsert.isPending}
-          onClick={() =>
-            upsert.mutate({ weekStart, content: draft })
-          }
-        >
-          Save reflection
-        </Button>
-      </Group>
+        <div className="ch-reflect__body">
+          <div className="ch-reflect__prompt">
+            What went well? What did you learn? Where are you stuck?
+          </div>
+          <textarea
+            className="ch-reflect__textarea"
+            value={draft}
+            onChange={(e) => setDraft(e.currentTarget.value)}
+            placeholder={isLoading ? 'Loading…' : 'Start this week’s reflection…'}
+            disabled={isLoading || upsert.isPending}
+          />
+          <div className="ch-reflect__actions">
+            <Button
+              size="xs"
+              variant="filled"
+              color="violet"
+              disabled={!dirty || upsert.isPending}
+              onClick={() => upsert.mutate({ weekStart, content: draft })}
+            >
+              Save reflection
+            </Button>
+            {!isEmpty ? (
+              <div className="ch-reflect__autosave">
+                <span className="ch-reflect__autosave-dot" aria-hidden /> {status}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       {past.length > 0 ? (
-        <Stack gap={4} className="pt-2">
-          <Text size="xs" fw={500} className="text-text-secondary">
-            Past weeks
-          </Text>
-          {past.slice(0, 4).map((r) => (
-            <PastReflectionRow key={r.id} reflection={r} />
-          ))}
-        </Stack>
+        <div className="ch-reflect__history">
+          <div className="ch-reflect__history-head">
+            <span>Last {Math.min(4, past.length)} weeks</span>
+            <a className="ch-reflect__history-link" href="/journal">
+              Open journal <IconArrowRight size={11} />
+            </a>
+          </div>
+          <ul className="ch-reflect__history-list">
+            {past.slice(0, 4).map((r) => (
+              <li key={r.id}>
+                <PastReflectionRow reflection={r} />
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
-    </Stack>
+    </section>
   );
 }
