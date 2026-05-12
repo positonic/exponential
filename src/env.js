@@ -28,7 +28,13 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    // NEXT_PUBLIC_CLIENTVAR: z.string(),
+    // Required only on Vercel production deploys (matches the VERCEL_ENV gate
+    // used by Sentry.init). Optional locally, for previews, and during
+    // `next lint` (which forces NODE_ENV=production).
+    NEXT_PUBLIC_SENTRY_DSN:
+      process.env.VERCEL_ENV === "production"
+        ? z.string().url()
+        : z.string().url().optional(),
   },
 
   /**
@@ -44,6 +50,7 @@ export const env = createEnv({
     MICROSOFT_ENTRA_ID_TENANT_ID: process.env.MICROSOFT_ENTRA_ID_TENANT_ID,
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
