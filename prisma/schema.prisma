@@ -352,7 +352,11 @@ model Workspace {
 model WorkspaceActivityEvent {
   id          String   @id @default(cuid())
   workspaceId String
-  userId      String
+  // Nullable so deleting a user preserves the audit trail — the userId is set
+  // to NULL rather than blocking the delete (RESTRICT) or destroying the event
+  // (CASCADE). recordActivity() always inserts a non-null userId; only
+  // post-user-deletion rows are NULL. Matches ProjectActivity.changedById.
+  userId      String?
   entityType  String // "action" | "action_comment" | "ticket" | "ticket_comment"
   entityId    String // intentionally not a foreign key — events outlive the entity
   action      String // "created" | "updated" | "status_changed" | "completed" | "commented"
@@ -360,7 +364,7 @@ model WorkspaceActivityEvent {
   createdAt   DateTime @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id])
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, userId, createdAt])
