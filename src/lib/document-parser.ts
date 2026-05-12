@@ -12,17 +12,16 @@
  * Image OCR (PNG/JPG) is intentionally NOT handled here — it's a follow-up PR.
  */
 
-import { createRequire } from "module";
 import mammoth from "mammoth";
 import * as cheerio from "cheerio";
 
-// pdf-parse is CJS. Use createRequire so we get a real default callable
-// without depending on synthetic ESM default-export interop.
-const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-const pdfParse = require("pdf-parse") as (
-  buffer: Buffer,
-) => Promise<{ text: string; numpages: number }>;
+// pdf-parse is loaded lazily inside extractText(). It cannot be imported at
+// module scope: pdf-parse@2.x is PDF.js-based and references browser globals
+// (DOMMatrix, @napi-rs/canvas) during module evaluation. On Vercel's Node
+// runtime DOMMatrix is undefined, so a top-level import crashes the entire
+// tRPC route handler at function init — which previously took the whole
+// /api/trpc/* surface down. Importing inside the PDF branch defers that work
+// to the only request path that actually parses a PDF.
 
 const SUPPORTED_MIMES = [
   "application/pdf",
@@ -59,11 +58,17 @@ export async function extractText(
   const normalisedMime = mimeType.split(";")[0]!.trim().toLowerCase();
 
   if (normalisedMime === "application/pdf") {
-    const data = await pdfParse(buffer);
-    return {
-      text: data.text,
-      meta: { pageCount: data.numpages, wordCount: countWords(data.text) },
-    };
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return {
+        text: result.text,
+        meta: { pageCount: result.total, wordCount: countWords(result.text) },
+      };
+    } finally {
+      await parser.destroy();
+    }
   }
 
   if (
