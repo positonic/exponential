@@ -1,7 +1,10 @@
 'use client';
 
-import { Container, Stack, Text, Title } from '@mantine/core';
+import { Container, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core';
+import Link from 'next/link';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { api } from '~/trpc/react';
+import { CoachingGoalCard } from './CoachingGoalCard';
 
 function PlaceholderZone({
   title,
@@ -22,6 +25,78 @@ function PlaceholderZone({
         {description}
       </Text>
     </Stack>
+  );
+}
+
+function FocusGoalsZone({ workspaceId }: { workspaceId: string }) {
+  const { data, isLoading, error } = api.goal.listCoachingFocus.useQuery(
+    { workspaceId },
+    { enabled: !!workspaceId },
+  );
+
+  if (isLoading) {
+    return (
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} height={200} radius="md" />
+        ))}
+      </SimpleGrid>
+    );
+  }
+
+  if (error) {
+    return (
+      <Stack
+        gap="xs"
+        className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-10"
+      >
+        <Text size="sm" fw={600} className="text-text-secondary">
+          Focus goals
+        </Text>
+        <Text size="sm" className="text-text-muted">
+          Couldn&apos;t load focus goals: {error.message}
+        </Text>
+      </Stack>
+    );
+  }
+
+  const goals = data?.goals ?? [];
+
+  if (goals.length === 0) {
+    return (
+      <Stack
+        gap="xs"
+        className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-10"
+      >
+        <Text size="sm" fw={600} className="text-text-secondary">
+          Focus goals
+        </Text>
+        <Text size="sm" className="text-text-muted">
+          No active goals for the current quarter
+          {data?.currentPeriod ? ` (${data.currentPeriod})` : ''} — set a{' '}
+          <Text component="span" fw={500} className="text-text-secondary">
+            period
+          </Text>{' '}
+          on a goal or{' '}
+          <Text
+            component={Link}
+            href="/goals"
+            className="text-brand-primary hover:underline"
+          >
+            create a new one
+          </Text>
+          .
+        </Text>
+      </Stack>
+    );
+  }
+
+  return (
+    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+      {goals.map((goal) => (
+        <CoachingGoalCard key={goal.id} goal={goal} />
+      ))}
+    </SimpleGrid>
   );
 }
 
@@ -46,10 +121,14 @@ export function WorkspaceHomeCoaching() {
           description="Header — week selector + Wheel of Life glance"
         />
 
-        <PlaceholderZone
-          title="Focus goals"
-          description="Focus goals — coming in next slice"
-        />
+        {workspace?.id ? (
+          <FocusGoalsZone workspaceId={workspace.id} />
+        ) : (
+          <PlaceholderZone
+            title="Focus goals"
+            description="Focus goals — coming in next slice"
+          />
+        )}
 
         <PlaceholderZone
           title="Reflection"

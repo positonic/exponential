@@ -248,4 +248,82 @@ export const goalRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       return deleteGoal({ ctx, input });
     }),
+
+  // Up to 5 active focus goals for the current quarter, with the data the
+  // Coaching home layout needs to render goal cards (sparkline, latest update,
+  // comment count, life-domain badge).
+  listCoachingFocus: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
+      }
+
+      const now = new Date();
+      const quarter = Math.floor(now.getMonth() / 3) + 1;
+      const currentPeriod = `Q${quarter}-${now.getFullYear()}`;
+
+      const goals = await ctx.db.goal.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          status: "active",
+          period: currentPeriod,
+        },
+        include: {
+          lifeDomain: true,
+          progressSnapshots: {
+            orderBy: { snapshotDate: "desc" },
+            take: 8,
+          },
+          updates: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
+          _count: { select: { comments: true } },
+        },
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+        take: 5,
+      });
+
+      return {
+        currentPeriod,
+        goals: goals.map((goal) => ({
+          id: goal.id,
+          title: goal.title,
+          health: goal.health,
+          lifeDomain: goal.lifeDomain
+            ? {
+                id: goal.lifeDomain.id,
+                title: goal.lifeDomain.title,
+                color: goal.lifeDomain.color,
+                icon: goal.lifeDomain.icon,
+              }
+            : null,
+          // Reverse to ascending date order so the sparkline reads left→right.
+          snapshots: goal.progressSnapshots
+            .slice()
+            .reverse()
+            .map((s) => ({
+              progress: s.progress,
+              snapshotDate: s.snapshotDate,
+            })),
+          latestUpdate: goal.updates[0]
+            ? {
+                id: goal.updates[0].id,
+                content: goal.updates[0].content,
+                createdAt: goal.updates[0].createdAt,
+              }
+            : null,
+          commentCount: goal._count.comments,
+        })),
+      };
+    }),
 });
