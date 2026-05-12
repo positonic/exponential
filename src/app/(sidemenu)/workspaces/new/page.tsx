@@ -17,6 +17,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '~/trpc/react';
+import {
+  DEFAULT_HOME_LAYOUT,
+  HomeLayoutPicker,
+  type HomeLayout,
+} from '~/app/_components/home/HomeLayoutPicker';
 
 export default function NewWorkspacePage() {
   const router = useRouter();
@@ -24,6 +29,7 @@ export default function NewWorkspacePage() {
   const [slug, setSlug] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'team' | 'organization'>('team');
+  const [homeLayout, setHomeLayout] = useState<HomeLayout>(DEFAULT_HOME_LAYOUT);
   const [slugTouched, setSlugTouched] = useState(false);
 
   const utils = api.useUtils();
@@ -67,6 +73,7 @@ export default function NewWorkspacePage() {
       slug: slug.trim(),
       description: description.trim() || undefined,
       type,
+      homeLayout,
     });
   };
 
@@ -144,6 +151,16 @@ export default function NewWorkspacePage() {
             />
             <Text size="xs" className="text-text-muted mt-2">
               Teams are for small groups. Organizations are for larger companies with multiple teams.
+            </Text>
+          </div>
+
+          <div>
+            <Text size="sm" className="text-text-secondary mb-2">
+              Home page layout
+            </Text>
+            <HomeLayoutPicker value={homeLayout} onChange={setHomeLayout} />
+            <Text size="xs" className="text-text-muted mt-2">
+              You can change this any time from workspace settings.
             </Text>
           </div>
 

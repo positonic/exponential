@@ -50,6 +50,7 @@ export const workspaceRouter = createTRPCRouter({
           ),
         description: z.string().optional(),
         type: z.enum(["personal", "team", "organization"]).default("team"),
+        homeLayout: z.enum(["command", "activity"]).default("command"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -72,6 +73,7 @@ export const workspaceRouter = createTRPCRouter({
           slug: input.slug,
           description: input.description,
           type: input.type,
+          homeLayout: input.homeLayout,
           ownerId: ctx.session.user.id,
           members: {
             create: {
@@ -255,6 +257,7 @@ export const workspaceRouter = createTRPCRouter({
         enableDailyPlanBanner: z.boolean().optional(),
         enableWeeklyReviewBanner: z.boolean().optional(),
         enableEmailNotifications: z.boolean().optional(),
+        homeLayout: z.enum(["command", "activity"]).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -287,6 +290,7 @@ export const workspaceRouter = createTRPCRouter({
           enableDailyPlanBanner: input.enableDailyPlanBanner,
           enableWeeklyReviewBanner: input.enableWeeklyReviewBanner,
           enableEmailNotifications: input.enableEmailNotifications,
+          homeLayout: input.homeLayout,
         },
       });
 
