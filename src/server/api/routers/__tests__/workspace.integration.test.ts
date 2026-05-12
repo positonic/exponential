@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller } from "~/test/trpc-helpers";
-import { createUser, createWorkspace, addWorkspaceMember } from "~/test/factories";
+import {
+  createUser,
+  createWorkspace,
+  addWorkspaceMember,
+  createProject,
+  addProjectMember,
+} from "~/test/factories";
 
 describe("workspace router", () => {
   let db: ReturnType<typeof getTestDb>;
@@ -87,6 +93,64 @@ describe("workspace router", () => {
       expect(result).toHaveLength(1);
       expect(result[0]!.id).toBe(ws.id);
     });
+
+    it("surfaces workspace with role 'guest' for project-only members", async () => {
+      const owner = await createUser(db);
+      const guest = await createUser(db);
+
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "guest-ws" });
+      const project = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+      });
+      await addProjectMember(db, project.id, guest.id, "editor");
+
+      const guestCaller = createTestCaller(guest.id);
+      const result = await guestCaller.workspace.list();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe(ws.id);
+      expect(result[0]!.currentUserRole).toBe("guest");
+    });
+
+    it("direct WorkspaceUser role wins over project-only access", async () => {
+      const owner = await createUser(db);
+      const user = await createUser(db);
+
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "precedence-ws" });
+      // Direct workspace membership
+      await addWorkspaceMember(db, ws.id, user.id, "admin");
+      // PLUS a project membership in the same workspace
+      const project = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+      });
+      await addProjectMember(db, project.id, user.id, "editor");
+
+      const caller = createTestCaller(user.id);
+      const result = await caller.workspace.list();
+
+      const target = result.find((w) => w.id === ws.id);
+      expect(target).toBeDefined();
+      expect(target!.currentUserRole).toBe("admin");
+    });
+
+    it("does NOT surface workspaces with no membership or project access", async () => {
+      const owner = await createUser(db);
+      const stranger = await createUser(db);
+
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "stranger-ws" });
+      // stranger has neither WorkspaceUser nor ProjectMember
+      await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+      });
+
+      const strangerCaller = createTestCaller(stranger.id);
+      const result = await strangerCaller.workspace.list();
+
+      expect(result.find((w) => w.id === ws.id)).toBeUndefined();
+    });
   });
 
   describe("getBySlug", () => {
@@ -111,6 +175,29 @@ describe("workspace router", () => {
       await expect(
         strangerCaller.workspace.getBySlug({ slug: "private-ws" }),
       ).rejects.toThrow(TRPCError);
+    });
+
+    it("resolves with role 'guest' for a project-only member", async () => {
+      const owner = await createUser(db);
+      const guest = await createUser(db);
+
+      const ws = await createWorkspace(db, {
+        ownerId: owner.id,
+        slug: "guest-getbyslug",
+      });
+      const project = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+      });
+      await addProjectMember(db, project.id, guest.id, "editor");
+
+      const guestCaller = createTestCaller(guest.id);
+      const result = await guestCaller.workspace.getBySlug({
+        slug: "guest-getbyslug",
+      });
+
+      expect(result.id).toBe(ws.id);
+      expect(result.currentUserRole).toBe("guest");
     });
 
     it("throws NOT_FOUND for nonexistent slug", async () => {

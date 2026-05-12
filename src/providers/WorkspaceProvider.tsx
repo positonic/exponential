@@ -37,7 +37,7 @@ interface WorkspaceContextValue {
   workspaceSlug: string | null;
   workspaceId: string | null;
   isLoading: boolean;
-  userRole: 'owner' | 'admin' | 'member' | 'viewer' | null;
+  userRole: 'owner' | 'admin' | 'member' | 'viewer' | 'guest' | null;
   switchWorkspace: (slug: string) => void;
   refetchWorkspace: () => void;
 }

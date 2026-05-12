@@ -44,13 +44,14 @@ const pillClasses = {
 type PillVariant = keyof typeof pillClasses;
 
 const roleToPill: Record<
-  'owner' | 'admin' | 'member' | 'viewer',
+  'owner' | 'admin' | 'member' | 'viewer' | 'guest',
   { label: string; variant: PillVariant }
 > = {
   owner: { label: 'Owner', variant: 'amber' },
   admin: { label: 'Admin', variant: 'blue' },
   member: { label: 'Member', variant: 'green' },
   viewer: { label: 'Viewer', variant: 'neutral' },
+  guest: { label: 'Guest', variant: 'neutral' },
 };
 
 export function WorkspaceSwitcher({

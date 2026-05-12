@@ -59,6 +59,9 @@ export async function getWorkspaceMembership(
 /**
  * Build a Prisma WHERE clause that matches workspaces the user can access,
  * either via direct WorkspaceUser membership or via team membership.
+ *
+ * Strict: project-only members (guests) are NOT matched by this helper.
+ * Use `buildWorkspaceVisibilityWhere` when you need to include guests.
  */
 export function buildWorkspaceAccessWhere(userId: string) {
   return {
@@ -67,6 +70,33 @@ export function buildWorkspaceAccessWhere(userId: string) {
       { members: { some: { userId } } },
       // Team-based workspace access: user is in a team linked to this workspace
       { teams: { some: { members: { some: { userId } } } } },
+    ],
+  };
+}
+
+/**
+ * Build a Prisma WHERE clause that matches workspaces the user can SEE,
+ * including project-only members ("guests").
+ *
+ * A user is a guest of workspace W when they have a `ProjectMember` row in
+ * a project belonging to W but no direct `WorkspaceUser` row for W and no
+ * team-based access. This helper surfaces W to them so workspace context
+ * (switcher, top bar, project list) renders for guests.
+ *
+ * For "full workspace privileges" checks (settings, member management,
+ * unrestricted resource access), keep using the strict
+ * `buildWorkspaceAccessWhere`.
+ */
+export function buildWorkspaceVisibilityWhere(userId: string) {
+  return {
+    OR: [
+      // Direct workspace membership
+      { members: { some: { userId } } },
+      // Team-based workspace access
+      { teams: { some: { members: { some: { userId } } } } },
+      // Project-only access ("guest"): user is a ProjectMember of some
+      // project belonging to this workspace.
+      { projects: { some: { projectMembers: { some: { userId } } } } },
     ],
   };
 }
