@@ -251,7 +251,7 @@ export const goalRouter = createTRPCRouter({
 
   // Up to 5 active focus goals for the current quarter, with the data the
   // Coaching home layout needs to render goal cards (sparkline, latest update,
-  // comment count, life-domain badge).
+  // comment count, life-domain badge, weekly commit lines).
   listCoachingFocus: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -271,6 +271,24 @@ export const goalRouter = createTRPCRouter({
       const quarter = Math.floor(now.getMonth() / 3) + 1;
       const currentPeriod = `Q${quarter}-${now.getFullYear()}`;
 
+      // ISO week range (Mon 00:00 UTC → Sun 23:59:59.999 UTC) for a given date.
+      const isoWeekRange = (date: Date) => {
+        const day = date.getUTCDay() || 7; // 1..7, Monday=1, Sunday=7
+        const monday = new Date(
+          Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+        );
+        monday.setUTCDate(monday.getUTCDate() - day + 1);
+        const sunday = new Date(monday);
+        sunday.setUTCDate(sunday.getUTCDate() + 6);
+        sunday.setUTCHours(23, 59, 59, 999);
+        return { start: monday, end: sunday };
+      };
+
+      const thisWeek = isoWeekRange(now);
+      const lastWeekRef = new Date(now);
+      lastWeekRef.setUTCDate(lastWeekRef.getUTCDate() - 7);
+      const lastWeek = isoWeekRange(lastWeekRef);
+
       const goals = await ctx.db.goal.findMany({
         where: {
           workspaceId: input.workspaceId,
@@ -288,42 +306,102 @@ export const goalRouter = createTRPCRouter({
             take: 1,
           },
           _count: { select: { comments: true } },
+          // Pull the goal's linked projects + only the Actions that fall in
+          // the windows we care about (last week / this week).
+          projects: {
+            select: {
+              id: true,
+              actions: {
+                where: {
+                  OR: [
+                    { completedAt: { gte: lastWeek.start, lte: lastWeek.end } },
+                    { dueDate: { gte: lastWeek.start, lte: lastWeek.end } },
+                    { dueDate: { gte: thisWeek.start, lte: thisWeek.end } },
+                  ],
+                },
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                  dueDate: true,
+                  completedAt: true,
+                },
+              },
+            },
+          },
         },
         orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
         take: 5,
       });
 
+      const inRange = (
+        d: Date | null | undefined,
+        range: { start: Date; end: Date },
+      ) => !!d && d >= range.start && d <= range.end;
+
       return {
         currentPeriod,
-        goals: goals.map((goal) => ({
-          id: goal.id,
-          title: goal.title,
-          health: goal.health,
-          lifeDomain: goal.lifeDomain
-            ? {
-                id: goal.lifeDomain.id,
-                title: goal.lifeDomain.title,
-                color: goal.lifeDomain.color,
-                icon: goal.lifeDomain.icon,
-              }
-            : null,
-          // Reverse to ascending date order so the sparkline reads left→right.
-          snapshots: goal.progressSnapshots
-            .slice()
-            .reverse()
-            .map((s) => ({
-              progress: s.progress,
-              snapshotDate: s.snapshotDate,
-            })),
-          latestUpdate: goal.updates[0]
-            ? {
-                id: goal.updates[0].id,
-                content: goal.updates[0].content,
-                createdAt: goal.updates[0].createdAt,
-              }
-            : null,
-          commentCount: goal._count.comments,
-        })),
+        thisWeek: { start: thisWeek.start, end: thisWeek.end },
+        lastWeek: { start: lastWeek.start, end: lastWeek.end },
+        goals: goals.map((goal) => {
+          // Dedupe in case an Action somehow appears via multiple project
+          // joins (defensive — Action.projectId is a single FK today).
+          const seen = new Set<string>();
+          const allActions = goal.projects.flatMap((p) =>
+            p.actions.filter((a) => {
+              if (seen.has(a.id)) return false;
+              seen.add(a.id);
+              return true;
+            }),
+          );
+
+          const lastWeekKept = allActions.filter((a) =>
+            inRange(a.completedAt, lastWeek),
+          );
+          const lastWeekMissed = allActions.filter(
+            (a) =>
+              inRange(a.dueDate, lastWeek) &&
+              a.status !== "COMPLETED" &&
+              !inRange(a.completedAt, lastWeek),
+          );
+          const thisWeekActions = allActions.filter((a) =>
+            inRange(a.dueDate, thisWeek),
+          );
+
+          return {
+            id: goal.id,
+            title: goal.title,
+            health: goal.health,
+            projectCount: goal.projects.length,
+            lifeDomain: goal.lifeDomain
+              ? {
+                  id: goal.lifeDomain.id,
+                  title: goal.lifeDomain.title,
+                  color: goal.lifeDomain.color,
+                  icon: goal.lifeDomain.icon,
+                }
+              : null,
+            // Reverse to ascending date order so the sparkline reads left→right.
+            snapshots: goal.progressSnapshots
+              .slice()
+              .reverse()
+              .map((s) => ({
+                progress: s.progress,
+                snapshotDate: s.snapshotDate,
+              })),
+            latestUpdate: goal.updates[0]
+              ? {
+                  id: goal.updates[0].id,
+                  content: goal.updates[0].content,
+                  createdAt: goal.updates[0].createdAt,
+                }
+              : null,
+            commentCount: goal._count.comments,
+            lastWeekKept,
+            lastWeekMissed,
+            thisWeekActions,
+          };
+        }),
       };
     }),
 });

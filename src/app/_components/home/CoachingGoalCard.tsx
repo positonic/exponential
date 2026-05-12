@@ -1,16 +1,26 @@
 'use client';
 
-import { Badge, Group, Stack, Text } from '@mantine/core';
+import { Badge, Divider, Group, Stack, Text } from '@mantine/core';
 import { IconMessage } from '@tabler/icons-react';
+import { CoachingGoalCommitLines } from './CoachingGoalCommitLines';
 import { CoachingGoalSparkline } from './CoachingGoalSparkline';
 
 type Health = 'on-track' | 'at-risk' | 'off-track' | 'no-update' | null;
+
+interface CommitAction {
+  id: string;
+  name: string;
+  status: string;
+  dueDate: Date | string | null;
+  completedAt: Date | string | null;
+}
 
 interface CoachingGoalCardProps {
   goal: {
     id: number;
     title: string;
     health: string | null;
+    projectCount: number;
     lifeDomain: {
       id: number;
       title: string;
@@ -20,6 +30,9 @@ interface CoachingGoalCardProps {
     snapshots: { progress: number; snapshotDate: Date | string }[];
     latestUpdate: { id: string; content: string; createdAt: Date | string } | null;
     commentCount: number;
+    lastWeekKept: CommitAction[];
+    lastWeekMissed: CommitAction[];
+    thisWeekActions: CommitAction[];
   };
 }
 
@@ -112,6 +125,16 @@ export function CoachingGoalCard({ goal }: CoachingGoalCardProps) {
           {goal.commentCount}
         </Text>
       </Group>
+
+      <Divider className="border-border-primary" />
+
+      <CoachingGoalCommitLines
+        goalId={goal.id}
+        projectCount={goal.projectCount}
+        lastWeekKept={goal.lastWeekKept}
+        lastWeekMissed={goal.lastWeekMissed}
+        thisWeekActions={goal.thisWeekActions}
+      />
     </Stack>
   );
 }
