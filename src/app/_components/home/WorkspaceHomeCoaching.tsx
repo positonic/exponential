@@ -1,10 +1,19 @@
 'use client';
 
-import { Container, SimpleGrid, Skeleton, Stack, Text, Title } from '@mantine/core';
+import {
+  Container,
+  Group,
+  SimpleGrid,
+  Skeleton,
+  Stack,
+  Text,
+  Title,
+} from '@mantine/core';
 import Link from 'next/link';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { CoachingGoalCard } from './CoachingGoalCard';
+import { CoachingHeaderWheel } from './CoachingHeaderWheel';
 
 function PlaceholderZone({
   title,
@@ -116,10 +125,22 @@ export function WorkspaceHomeCoaching() {
           </Text>
         </Stack>
 
-        <PlaceholderZone
-          title="Header"
-          description="Header — week selector + Wheel of Life glance"
-        />
+        <Group
+          align="flex-start"
+          justify="space-between"
+          wrap="wrap"
+          className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-4"
+        >
+          <Stack gap={4} className="min-w-0 flex-1">
+            <Text size="sm" fw={600} className="text-text-secondary">
+              Header
+            </Text>
+            <Text size="xs" className="text-text-muted">
+              Week selector — coming in next slice
+            </Text>
+          </Stack>
+          <CoachingHeaderWheel />
+        </Group>
 
         {workspace?.id ? (
           <FocusGoalsZone workspaceId={workspace.id} />
