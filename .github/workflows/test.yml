@@ -91,3 +91,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+      # Smoke-test the built artifact: boot `next start` and probe a handful
+      # of routes. Catches the broad class of route-handler module-load
+      # crashes that get past `next build` because building isn't running.
+      # See scripts/smoketest.sh for the probe list. Note this won't catch
+      # Vercel-runtime-specific crashes (e.g. PR #100's DOMMatrix bug) —
+      # that's the job of preview-smoke.yml.
+      - name: Smoke-test built server
+        run: npm run smoketest
+        env:
+          SKIP_ENV_VALIDATION: true
+          AUTH_SECRET: smoke-secret
+          DATABASE_URL: postgresql://smoke:smoke@localhost:5432/smoke
+          AUTH_DISCORD_ID: smoke-discord-id
+          AUTH_DISCORD_SECRET: smoke-discord-secret
+          OPENAI_API_KEY: sk-smoke-dummy
+          AUTH_POSTMARK_KEY: smoke-dummy
+          MASTRA_API_URL: http://localhost:4111

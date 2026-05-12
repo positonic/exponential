@@ -1,0 +1,78 @@
+name: Preview Smoke Test
+
+# Fires whenever Vercel updates a deployment status on a PR or main branch.
+# We curl the actual deployed function so that Vercel-runtime-specific
+# crashes (e.g. the pdf-parse@2 DOMMatrix issue from PR #100) fail the
+# check instead of silently 500'ing in production for ~27 hours.
+#
+# Note on security: deployment_status events run with the workflow file
+# from the default branch, NOT the PR head. PR authors cannot modify this
+# workflow via their PR.
+
+on:
+  deployment_status:
+
+jobs:
+  smoke:
+    name: Probe Vercel deployment
+    # Only run when Vercel reports the deployment as successfully built.
+    # 'success' here means "Vercel finished bundling and deploying" — it
+    # says nothing about whether the function actually serves a request,
+    # which is precisely what this job exists to verify.
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      contains(github.event.deployment_status.creator.login, 'vercel')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Curl critical endpoints
+        env:
+          # environment_url is the *.vercel.app URL Vercel just deployed.
+          # Fall back to target_url in case Vercel populates only one.
+          DEPLOYMENT_URL: ${{ github.event.deployment_status.environment_url || github.event.deployment_status.target_url }}
+          ENVIRONMENT: ${{ github.event.deployment.environment }}
+          SHA: ${{ github.event.deployment.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DEPLOYMENT_URL}" ]]; then
+            echo "::error::deployment_status event had no environment_url or target_url; cannot probe"
+            exit 1
+          fi
+
+          echo "Probing ${ENVIRONMENT} deployment at ${DEPLOYMENT_URL} (sha=${SHA})"
+
+          # Same probe list as scripts/smoketest.sh, but against the real
+          # Vercel-runtime function. auth.getConfiguredProviders is the
+          # canonical target: public, env-only, gates /signin OAuth buttons.
+          probes=(
+            "tRPC auth.getConfiguredProviders|/api/trpc/auth.getConfiguredProviders?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D"
+            "Landing page|/"
+          )
+
+          fail=0
+          for probe in "${probes[@]}"; do
+            IFS='|' read -r label path <<<"${probe}"
+            body_file="$(mktemp)"
+            # -L follows the Vercel SSO redirect for password-protected previews;
+            # if you protect previews behind Vercel SSO this job will need a
+            # bypass token (VERCEL_AUTOMATION_BYPASS_SECRET) — left as a follow-up.
+            status=$(curl -sS -L -o "${body_file}" -w "%{http_code}" "${DEPLOYMENT_URL}${path}" || echo "000")
+            if [[ "${status}" =~ ^2 ]]; then
+              echo "✓ ${label} (${status})"
+            else
+              echo "::error::${label} returned HTTP ${status} from ${DEPLOYMENT_URL}${path}"
+              echo "  body (first 400 chars):"
+              head -c 400 "${body_file}"
+              echo
+              fail=1
+            fi
+            rm -f "${body_file}"
+          done
+
+          if [[ ${fail} -ne 0 ]]; then
+            echo "::error::Preview smoke test failed for ${ENVIRONMENT} deployment ${DEPLOYMENT_URL}"
+            exit 1
+          fi
+
+          echo "All probes passed."
