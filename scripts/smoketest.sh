@@ -68,7 +68,7 @@ fail=0
 for probe in "${PROBES[@]}"; do
   IFS='|' read -r label method path expected <<<"${probe}"
   body_file="$(mktemp -t smoke-body.XXXXXX)"
-  status=$(curl -sS -o "${body_file}" -w "%{http_code}" -X "${method}" "${HOST}${path}" || echo "000")
+  status=$(curl -sS --connect-timeout 5 --max-time 30 -o "${body_file}" -w "%{http_code}" -X "${method}" "${HOST}${path}" || echo "000")
   if [[ "${status}" =~ ${expected} ]]; then
     echo "✓ ${label} (${status})"
   else

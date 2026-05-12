@@ -57,7 +57,7 @@ jobs:
             # -L follows the Vercel SSO redirect for password-protected previews;
             # if you protect previews behind Vercel SSO this job will need a
             # bypass token (VERCEL_AUTOMATION_BYPASS_SECRET) — left as a follow-up.
-            status=$(curl -sS -L -o "${body_file}" -w "%{http_code}" "${DEPLOYMENT_URL}${path}" || echo "000")
+            status=$(curl -sS -L --connect-timeout 10 --max-time 30 -o "${body_file}" -w "%{http_code}" "${DEPLOYMENT_URL}${path}" || echo "000")
             if [[ "${status}" =~ ^2 ]]; then
               echo "✓ ${label} (${status})"
             else
