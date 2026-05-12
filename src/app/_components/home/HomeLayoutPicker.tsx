@@ -5,10 +5,11 @@ import {
   IconActivity,
   IconCheck,
   IconCommand,
+  IconCompass,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 
-export const HOME_LAYOUT_VALUES = ['command', 'activity'] as const;
+export const HOME_LAYOUT_VALUES = ['command', 'activity', 'coaching'] as const;
 export type HomeLayout = (typeof HOME_LAYOUT_VALUES)[number];
 
 export const DEFAULT_HOME_LAYOUT: HomeLayout = 'command';
@@ -39,6 +40,13 @@ const OPTIONS: Option[] = [
     description:
       'Heatmap of contributions, activity feed, and weekly review at a glance.',
     icon: IconActivity,
+  },
+  {
+    value: 'coaching',
+    label: 'Coaching',
+    description:
+      'Weekly coaching artifact: focus goals, retro + prospective commits, and reflection.',
+    icon: IconCompass,
   },
 ];
 

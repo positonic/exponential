@@ -5,6 +5,7 @@ import { Container, Skeleton, Stack, Text } from '@mantine/core';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components/home/WorkspaceHomeConceptD';
 import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
+import { WorkspaceHomeCoaching } from '~/app/_components/home/WorkspaceHomeCoaching';
 import {
   DEFAULT_HOME_LAYOUT,
   HOME_LAYOUT_VALUES,
@@ -39,7 +40,9 @@ function WorkspaceHomeContent() {
     ? (rawLayout as HomeLayout)
     : DEFAULT_HOME_LAYOUT;
 
-  return layout === 'activity' ? <WorkspaceHomeActivity /> : <WorkspaceHomeCommand />;
+  if (layout === 'activity') return <WorkspaceHomeActivity />;
+  if (layout === 'coaching') return <WorkspaceHomeCoaching />;
+  return <WorkspaceHomeCommand />;
 }
 
 export default function WorkspaceHomePage() {
