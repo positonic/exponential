@@ -250,6 +250,7 @@ model Workspace {
   description String?
   logoUrl     String?
   type        String   @default("personal") // "personal" | "team" | "organization"
+  homeLayout  String   @default("command") // "command" | "activity"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   ownerId     String
