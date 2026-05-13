@@ -60,7 +60,7 @@ export function TimeEntryModal({
     setActionId(entry.action.id);
     setActionName(entry.action.name);
     setQuery("");
-  }, [entry?.id]);
+  }, [entry]);
 
   const { data: suggestions = [] } = api.action.searchByTitle.useQuery(
     {

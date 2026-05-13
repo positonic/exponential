@@ -532,7 +532,7 @@ describe("TimeEntryService.listRecent", () => {
     expect(dbMock.timeEntry.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: "user-1", endedAt: { not: null } },
-        orderBy: { startedAt: "desc" },
+        orderBy: { endedAt: "desc" },
         take: 20,
       }),
     );

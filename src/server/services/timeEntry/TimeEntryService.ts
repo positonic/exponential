@@ -434,7 +434,9 @@ export class TimeEntryService {
     const take = Math.min(Math.max(input.limit ?? 20, 1), 100);
     return this.db.timeEntry.findMany({
       where: { userId: input.userId, endedAt: { not: null } },
-      orderBy: { startedAt: "desc" },
+      // "Most recent completed" = sorted by when it ended, not when it started:
+      // a long-running timer started earlier may still have ended last.
+      orderBy: { endedAt: "desc" },
       take,
       include: {
         action: {
