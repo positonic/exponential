@@ -19,6 +19,7 @@ import { modals } from "@mantine/modals";
 import { IconPlus, IconTrash, IconLink, IconLinkOff } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 const INSIGHT_TYPES = [
   { value: "PAIN_POINT", label: "Pain point" },
@@ -162,9 +163,7 @@ export default function ResearchDetailPage() {
 
       {research.notes && (
         <Card className="border border-border-primary bg-surface-secondary">
-          <Text className="text-text-primary whitespace-pre-wrap">
-            {research.notes}
-          </Text>
+          <MarkdownRenderer content={research.notes} />
         </Card>
       )}
 

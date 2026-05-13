@@ -657,3 +657,19 @@ Use numeric priorities: 0-4 or P0-P4 (0=critical, 2=medium, 4=backlog). Do NOT u
 
 ### Warning
 Do NOT use `bd edit` — it opens `$EDITOR` (vim/nano) which blocks agents. Use `bd update` instead.
+
+## Agent skills
+
+Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-issues`, `/to-prd`, `/to-expo`, `/qa`, `/improve-codebase-architecture`, `/diagnose`, `/tdd`, `/grill-with-docs`, …).
+
+### Issue tracker
+
+Product-facing work items (features, PRDs, cross-commit bugs) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Implementation-scope tracking inside a session stays in **beads** (`bd`). See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+Exponential uses **ticket statuses** as triage routing — no labels. Canonical role → status mapping (e.g. `ready-for-agent` → `READY_TO_PLAN`, `wontfix` → `ARCHIVED`) lives in [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root cover the whole app. Files are created lazily by `/grill-with-docs` — proceed silently if absent. See [`docs/agents/domain.md`](docs/agents/domain.md).

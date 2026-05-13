@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import DOMPurify from "dompurify";
 import {
   ActionIcon,
   Anchor,
@@ -61,6 +60,7 @@ import {
 } from "~/lib/ticket-statuses";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { getTagMantineColor } from "~/utils/tagColors";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -523,11 +523,7 @@ export default function TicketDetailPage() {
 
           {/* Body */}
           {ticket.body ? (
-            <div
-              className="prose prose-sm prose-invert max-w-none text-text-primary [&_h1]:text-text-primary [&_h2]:text-text-primary [&_h3]:text-text-primary [&_a]:text-blue-400"
-            >
-              <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(ticket.body ?? '') }} />
-            </div>
+            <MarkdownRenderer content={ticket.body} />
           ) : (
             <Text size="sm" className="text-text-muted">
               No description provided.
@@ -579,9 +575,9 @@ export default function TicketDetailPage() {
                             {new Date(c.createdAt).toLocaleDateString()}
                           </Text>
                         </Group>
-                        <Text size="sm" className="text-text-primary whitespace-pre-wrap ml-6">
-                          {c.content}
-                        </Text>
+                        <div className="ml-6">
+                          <MarkdownRenderer content={c.content} />
+                        </div>
                       </div>
                       <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteComment.mutate({ id: c.id })}>
                         <IconTrash size={12} />
