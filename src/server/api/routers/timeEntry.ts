@@ -7,6 +7,9 @@ import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
 import {
   canViewAction,
   getActionAccess,
+  getProjectAccess,
+  hasProjectAccess,
+  getWorkspaceMembership,
 } from "~/server/services/access";
 
 export const timeEntryRouter = createTRPCRouter({
@@ -20,8 +23,12 @@ export const timeEntryRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // When attaching to an existing action, enforce access at the router
-      // layer (the service is access-agnostic for testability).
+      // Access enforcement at the router layer (the service is access-agnostic
+      // for testability). Two cases:
+      //   1. Attaching to an existing action  → check viewAction on that id.
+      //   2. Creating a new action            → check workspace + project
+      //      access on caller-provided IDs so a guessed id can't be used to
+      //      mint actions in a workspace/project the user can't reach.
       if (input.actionId) {
         const access = await getActionAccess(
           ctx.db,
@@ -39,6 +46,33 @@ export const timeEntryRouter = createTRPCRouter({
             code: "FORBIDDEN",
             message: "Cannot track time on an action you can't access",
           });
+        }
+      } else {
+        if (input.workspaceId) {
+          const membership = await getWorkspaceMembership(
+            ctx.db,
+            ctx.userId,
+            input.workspaceId,
+          );
+          if (!membership) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Cannot track time in this workspace",
+            });
+          }
+        }
+        if (input.projectId) {
+          const projectAccess = await getProjectAccess(
+            ctx.db,
+            ctx.userId,
+            input.projectId,
+          );
+          if (!projectAccess || !hasProjectAccess(projectAccess)) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Cannot track time on this project",
+            });
+          }
         }
       }
 
