@@ -26,10 +26,12 @@ import {
   IconAdjustments,
   IconChevronDown,
   IconChevronRight,
+  IconDots,
   IconFilter,
   IconLayoutColumns,
   IconLayoutList,
   IconList,
+  IconPencil,
   IconPlus,
   IconSelector,
   IconSortAscending,
@@ -40,6 +42,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
+import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
@@ -258,6 +261,7 @@ export default function TicketsBacklogPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [modalOpened, setModalOpened] = useState(false);
+  const [editTicketId, setEditTicketId] = useState<string | null>(null);
   const [epicModalOpened, setEpicModalOpened] = useState(false);
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("status");
@@ -507,6 +511,30 @@ export default function TicketsBacklogPage() {
           )}
         </div>
       )}
+      <Menu position="bottom-end" withinPortal>
+        <Menu.Target>
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            className="shrink-0 text-text-muted hover:text-text-primary"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            aria-label="Ticket actions"
+          >
+            <IconDots size={14} />
+          </ActionIcon>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            leftSection={<IconPencil size={14} />}
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              setEditTicketId(ticket.id);
+            }}
+          >
+            Edit
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
     </div>
   );
 
@@ -951,6 +979,17 @@ export default function TicketsBacklogPage() {
           cycles={cycles}
           epics={epics}
           members={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
+        />
+      )}
+
+      {product && editTicketId && (
+        <EditTicketModal
+          opened={editTicketId !== null}
+          onClose={() => setEditTicketId(null)}
+          ticketId={editTicketId}
+          productName={product.name}
+          workspaceId={workspaceId ?? undefined}
+          assignableMembers={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
         />
       )}
 
