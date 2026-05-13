@@ -9,6 +9,7 @@ import {
 } from "~/server/utils/tokens";
 import { sendTeamInvitationEmail } from "~/server/services/EmailService";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
+import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -1322,6 +1323,44 @@ export const workspaceRouter = createTRPCRouter({
           userRole: userMembership?.role ?? null,
           canLink: userMembership?.role === "owner",
         };
+      });
+    }),
+
+  // Hero strip stats for the Activity-layout workspace home. Composed from
+  // DailyScore (this week/last week totals), ProductivityStreak (day streak),
+  // and Project (active count). Sparkline payload is null until slice 6.
+  getHomeStats: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Caller must be a member of the workspace.
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        // Fall back to team-based access so guest project members also work.
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getWorkspaceHomeStats(ctx.db, {
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
       });
     }),
 });
