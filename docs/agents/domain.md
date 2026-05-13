@@ -13,7 +13,7 @@ If any of these files don't exist yet, **proceed silently**. Don't flag their ab
 
 ## File structure
 
-```
+```text
 /
 ├── CONTEXT.md            ← glossary + domain model (created lazily)
 ├── docs/adr/             ← architectural decisions (created lazily)
