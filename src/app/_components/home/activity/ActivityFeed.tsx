@@ -12,7 +12,6 @@ import {
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import Link from 'next/link';
-import { useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import type { IconKind } from '~/server/services/activity/feedRenderHints';
@@ -126,38 +125,20 @@ function Sentence({ template, actor, entityRef }: SentenceProps) {
  */
 export function ActivityFeed() {
   const { workspace, workspaceId, workspaceSlug } = useWorkspace();
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [accumulated, setAccumulated] = useState<
-    Array<{
-      id: string;
-      createdAt: Date;
-      hint: { template: string; iconKind: IconKind };
-      entityRef: string;
-      actor: { id: string; name: string | null; image: string | null } | null;
-    }>
-  >([]);
 
+  // The home card always shows the first page only — the "All activity" CTA
+  // and "View older activity" footer both route to /w/{slug}/activity for
+  // the paginated view. Keeping this card scoped to one page avoids two
+  // overlapping pagination UIs and keeps the home page snappy.
   const { data, isLoading } = api.workspace.getActivityFeed.useQuery(
-    { workspaceId: workspaceId ?? '', cursor: cursor ?? undefined },
-    {
-      enabled: !!workspaceId,
-    },
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId },
   );
 
-  // Accumulate pages locally as the user clicks "View older".
-  const events = (data?.events ?? []).map((e) => ({
+  const display = (data?.events ?? []).map((e) => ({
     ...e,
     createdAt: new Date(e.createdAt),
   }));
-  const merged = cursor === null ? events : [...accumulated, ...events];
-  // De-dupe across React re-renders when the query refires for the current cursor.
-  const seen = new Set<string>();
-  const display = merged.filter((event) => {
-    if (seen.has(event.id)) return false;
-    seen.add(event.id);
-    return true;
-  });
-
   const hasMore = data?.nextCursor != null;
 
   return (
@@ -243,21 +224,14 @@ export function ActivityFeed() {
               </div>
             );
           })}
-          {hasMore ? (
+          {hasMore && workspaceSlug ? (
             <div className="wsa-feed__footer">
-              <button
-                type="button"
+              <Link
+                href={`/w/${workspaceSlug}/activity`}
                 className="wsa-feed__footer-btn"
-                onClick={() => {
-                  if (data?.nextCursor) {
-                    setAccumulated(display);
-                    setCursor(data.nextCursor);
-                  }
-                }}
-                disabled={isLoading}
               >
-                View older activity
-              </button>
+                View older activity →
+              </Link>
             </div>
           ) : null}
         </>
