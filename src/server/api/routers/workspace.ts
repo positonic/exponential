@@ -10,6 +10,7 @@ import {
 import { sendTeamInvitationEmail } from "~/server/services/EmailService";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
+import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -1361,6 +1362,42 @@ export const workspaceRouter = createTRPCRouter({
       return getWorkspaceHomeStats(ctx.db, {
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
+      });
+    }),
+
+  // One-time backfill of WorkspaceActivityEvent from existing entity
+  // timestamps so the heatmap and activity feed look alive on day one.
+  // Owner-only; idempotent unless `force` is set. See
+  // `src/server/services/activity/backfillActivity.ts` for the source table
+  // mapping and metadata strategy.
+  backfillActivity: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        force: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member || member.role !== "owner") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners can run the activity backfill",
+        });
+      }
+
+      return backfillWorkspaceActivity(ctx.db, {
+        workspaceId: input.workspaceId,
+        force: input.force,
       });
     }),
 });
