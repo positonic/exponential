@@ -2586,11 +2586,15 @@ export const actionRouter = createTRPCRouter({
       // Compose the workspace + access scope. Restricting to the apiKey user's
       // accessible actions reuses `buildActionAccessWhere` for parity with the
       // rest of the action router. CANCELLED is excluded implicitly by the
-      // statusFilter (its allowed-list never includes CANCELLED).
+      // kanban statusFilter (its allowed-list never includes CANCELLED). An
+      // explicit `status` guard keeps DRAFT and legacy COMPLETED actions out
+      // of autocomplete results — both are valid Action.status values in this
+      // codebase but neither is a valid pick for "track time against".
       const baseWhere: Prisma.ActionWhereInput = {
         AND: [
           ...(input.workspaceId ? [{ workspaceId: input.workspaceId }] : []),
           buildActionAccessWhere(ctx.userId),
+          { status: { notIn: ["DRAFT", "COMPLETED"] } },
           statusFilter,
         ],
       };

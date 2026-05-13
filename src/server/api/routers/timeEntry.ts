@@ -130,11 +130,16 @@ export const timeEntryRouter = createTRPCRouter({
 
   listByDateRange: apiKeyMiddleware
     .input(
-      z.object({
-        startDate: z.date(),
-        endDate: z.date(),
-        workspaceId: z.string().nullish(),
-      }),
+      z
+        .object({
+          startDate: z.date(),
+          endDate: z.date(),
+          workspaceId: z.string().nullish(),
+        })
+        .refine((v) => v.startDate < v.endDate, {
+          message: "startDate must be before endDate",
+          path: ["endDate"],
+        }),
     )
     .query(async ({ ctx, input }) => {
       const service = new TimeEntryService(ctx.db);
