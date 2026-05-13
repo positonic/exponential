@@ -330,7 +330,7 @@ export function CalendarPageContent() {
 
   // Transform scheduled actions to the expected format
   const scheduledActions: ScheduledAction[] = scheduledActionsData ?? [];
-  const timeEntries = (timeEntriesData ?? []) as unknown as import("./types").CalendarTimeEntry[];
+  const timeEntries: CalendarTimeEntry[] = timeEntriesData ?? [];
 
   const renderCalendarContent = () => {
     // Show loading state while checking connection

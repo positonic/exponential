@@ -17,6 +17,10 @@ import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
 import { TimeReports } from "./TimeReports";
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
 
+// Stable reference so the `entries` memo doesn't re-run on every render when
+// the query is undefined (a fresh `[]` literal would change identity).
+const EMPTY_ENTRIES: CalendarTimeEntry[] = [];
+
 function formatMins(totalMins: number): string {
   if (totalMins <= 0) return "0m";
   const h = Math.floor(totalMins / 60);
@@ -71,7 +75,7 @@ export function TimePageContent() {
     endDate,
     workspaceId: workspaceId ?? undefined,
   });
-  const entries = (entriesData ?? []) as unknown as CalendarTimeEntry[];
+  const entries: CalendarTimeEntry[] = entriesData ?? EMPTY_ENTRIES;
 
   const { todayMins, weekMins, groups } = useMemo(() => {
     let today = 0;
