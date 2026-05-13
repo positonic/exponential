@@ -10,6 +10,7 @@ import { EditActionModal } from "./EditActionModal";
 import { TagBadgeList } from "./TagBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import { ActiveTimerIndicator } from "./ActiveTimerIndicator";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import styles from "./ProjectTasks.module.css";
@@ -207,6 +208,7 @@ export function TaskCard({ task, isDragging = false, onActionOpen }: TaskCardPro
           <div className={styles.kcardTitle}>
             <HTMLContent html={task.name} />
           </div>
+          <ActiveTimerIndicator actionId={task.id} compact />
 
           <Menu shadow="md" width={200} position="bottom-end">
             <Menu.Target>

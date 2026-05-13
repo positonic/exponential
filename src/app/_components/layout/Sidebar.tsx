@@ -9,6 +9,7 @@ import { themes, type ValidDomain } from "~/config/themes";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { UserMenu } from "./UserMenu";
 import { GlobalAddTaskButton } from "./GlobalAddTaskButton";
+import { ActiveTimerWidget } from "./ActiveTimerWidget";
 import "./sidebar.css";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
@@ -70,6 +71,8 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
 
         {/* Scrollable content area */}
         <nav className="flex-1 overflow-y-auto pt-3 pb-2">
+          <ActiveTimerWidget />
+
           <div className="px-2.5 pb-1">
             <GlobalAddTaskButton variant="sidebar" />
           </div>
