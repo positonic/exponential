@@ -1126,3 +1126,32 @@
   --ch-radius-lg: 10px;
   --ch-radius-xl: 14px;
 }
+
+/*
+   Activity-dashboard scoped tokens.
+   All --activity-* CSS variables live here so the no-hardcoded-color rule can
+   be satisfied in components by referencing var(--activity-*). Mirrors the
+   coaching-home pattern above.
+*/
+.activity-layout {
+  /* Heatmap alpha stops — brand blue, used by the contribution-graph cells. */
+  --activity-heatmap-l1: rgba(78, 137, 255, 0.18);
+  --activity-heatmap-l2: rgba(78, 137, 255, 0.34);
+  --activity-heatmap-l3: rgba(78, 137, 255, 0.58);
+  --activity-heatmap-l4: rgba(78, 137, 255, 0.85);
+
+  /* Section accents — reuse the coaching palette to keep both home layouts
+     visually coherent (same accent meanings, e.g. crm-green = success). */
+  --activity-accent-ritual: #6B8CFF;
+  --activity-accent-knowledge: #5AC8E0;
+  --activity-accent-meetings: #A78BFA;
+  --activity-accent-crm: #4ADE8C;
+  --activity-accent-okr: #F5B94A;
+  --activity-accent-due: #F87171;
+
+  /* Translucent washes for delta pills and tinted icon backgrounds. */
+  --activity-accent-crm-soft: rgba(74, 222, 140, 0.10);
+  --activity-accent-crm-border: rgba(74, 222, 140, 0.22);
+  --activity-accent-due-soft: rgba(248, 113, 113, 0.10);
+  --activity-accent-due-border: rgba(248, 113, 113, 0.22);
+}
