@@ -1,6 +1,6 @@
 import { parseISO, isSameDay } from "date-fns";
 import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
-import type { ScheduledAction } from "../types";
+import type { ScheduledAction, CalendarTimeEntry } from "../types";
 import { HOUR_HEIGHT, VISIBLE_START_HOUR } from "../types";
 
 /**
@@ -8,7 +8,7 @@ import { HOUR_HEIGHT, VISIBLE_START_HOUR } from "../types";
  */
 export interface CalendarItem {
   id: string;
-  type: "event" | "action";
+  type: "event" | "action" | "timeentry";
   top: number;
   height: number;
   startMinutes: number;
@@ -16,6 +16,7 @@ export interface CalendarItem {
   // Preserve original items for rendering
   originalEvent?: CalendarEvent;
   originalAction?: ScheduledAction;
+  originalTimeEntry?: CalendarTimeEntry;
 }
 
 /**
@@ -282,5 +283,39 @@ export function convertActionToCalendarItem(
     startMinutes,
     endMinutes,
     originalAction: action,
+  };
+}
+
+/**
+ * Convert a TimeEntry into a CalendarItem for the selected date. A still-
+ * running entry (endedAt === null) is rendered up to "now" so the user sees
+ * the live block grow in real time on refetch.
+ */
+export function convertTimeEntryToCalendarItem(
+  entry: CalendarTimeEntry,
+  selectedDate: Date
+): CalendarItem | null {
+  const startedAt = new Date(entry.startedAt);
+  if (!isSameDay(startedAt, selectedDate)) return null;
+
+  const endedAt = entry.endedAt ? new Date(entry.endedAt) : new Date();
+  const startMinutes = startedAt.getHours() * 60 + startedAt.getMinutes();
+  // If endedAt is on a later day, cap at end-of-day so the block doesn't
+  // overflow the column.
+  const endMinutes = isSameDay(endedAt, selectedDate)
+    ? endedAt.getHours() * 60 + endedAt.getMinutes()
+    : 24 * 60;
+
+  const top = ((startMinutes - VISIBLE_START_HOUR * 60) / 60) * HOUR_HEIGHT;
+  const height = Math.max(((endMinutes - startMinutes) / 60) * HOUR_HEIGHT, 25);
+
+  return {
+    id: `te-${entry.id}`,
+    type: "timeentry",
+    top,
+    height,
+    startMinutes,
+    endMinutes,
+    originalTimeEntry: entry,
   };
 }

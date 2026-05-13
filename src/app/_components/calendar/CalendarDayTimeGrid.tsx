@@ -25,31 +25,46 @@ import { CalendarEventBlock } from "./CalendarEventBlock";
 import {
   DropSlot,
   DraggableActionBlock,
+  DraggableTimeEntryBlock,
   ActionDragOverlay,
+  TimeEntryDragOverlay,
   useDropSlots,
 } from "./CalendarDndComponents";
 import {
   calculateOverlappingPositions,
   convertEventToCalendarItem,
   convertActionToCalendarItem,
+  convertTimeEntryToCalendarItem,
 } from "./utils/overlapDetection";
+import type { CalendarTimeEntry } from "./types";
 
 interface CalendarDayTimeGridProps {
   events: CalendarEvent[];
   scheduledActions: ScheduledAction[];
+  timeEntries?: CalendarTimeEntry[];
   selectedDate: Date;
   onActionClick?: (action: ScheduledAction) => void;
   onRescheduleAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
+  onResizeAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
+  onTimeEntryClick?: (entry: CalendarTimeEntry) => void;
+  onMoveTimeEntry?: (entry: CalendarTimeEntry, newStart: Date, newEnd: Date) => void;
+  onResizeTimeEntry?: (entry: CalendarTimeEntry, newStart: Date, newEnd: Date) => void;
 }
 
 export function CalendarDayTimeGrid({
   events,
   scheduledActions,
+  timeEntries = [],
   selectedDate,
   onActionClick,
   onRescheduleAction,
+  onResizeAction,
+  onTimeEntryClick,
+  onMoveTimeEntry,
+  onResizeTimeEntry,
 }: CalendarDayTimeGridProps) {
   const [activeAction, setActiveAction] = useState<ScheduledAction | null>(null);
+  const [activeTimeEntry, setActiveTimeEntry] = useState<CalendarTimeEntry | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -72,9 +87,13 @@ export function CalendarDayTimeGrid({
       .map((action) => convertActionToCalendarItem(action, selectedDate))
       .filter((item): item is NonNullable<typeof item> => item !== null);
 
-    const allItems = [...eventItems, ...actionItems];
+    const timeEntryItems = timeEntries
+      .map((te) => convertTimeEntryToCalendarItem(te, selectedDate))
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    const allItems = [...eventItems, ...actionItems, ...timeEntryItems];
     return calculateOverlappingPositions(allItems, 100, 0);
-  }, [events, scheduledActions, selectedDate]);
+  }, [events, scheduledActions, timeEntries, selectedDate]);
 
   const dropSlots = useDropSlots();
 
@@ -82,26 +101,52 @@ export function CalendarDayTimeGrid({
 
   const handleDragStart = (event: DragStartEvent) => {
     const action = event.active.data.current?.action as ScheduledAction | undefined;
+    const timeEntry = event.active.data.current?.timeEntry as CalendarTimeEntry | undefined;
     setActiveAction(action ?? null);
+    setActiveTimeEntry(timeEntry ?? null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over) {
       setActiveAction(null);
+      setActiveTimeEntry(null);
+      return;
+    }
+
+    const slotId = over.id as string;
+    const timeMatch = /calendar-slot-(\d+):(\d+)/.exec(slotId);
+    if (!timeMatch) {
+      setActiveAction(null);
+      setActiveTimeEntry(null);
+      return;
+    }
+    const hour = parseInt(timeMatch[1]!);
+    const minute = parseInt(timeMatch[2]!);
+
+    const timeEntry = active.data.current?.timeEntry as CalendarTimeEntry | undefined;
+    if (timeEntry) {
+      // Preserve duration: cap running entries to a 30-minute default for the move.
+      const startedAt = new Date(timeEntry.startedAt);
+      const endedAt = timeEntry.endedAt ? new Date(timeEntry.endedAt) : null;
+      const durationMs = endedAt
+        ? endedAt.getTime() - startedAt.getTime()
+        : 30 * 60_000;
+      const newStart = new Date(selectedDate);
+      newStart.setHours(hour, minute, 0, 0);
+      const newEnd = new Date(newStart.getTime() + durationMs);
+      onMoveTimeEntry?.(timeEntry, newStart, newEnd);
+      setActiveAction(null);
+      setActiveTimeEntry(null);
       return;
     }
 
     const action = active.data.current?.action as ScheduledAction | undefined;
-    const slotId = over.id as string;
-    const timeMatch = /calendar-slot-(\d+):(\d+)/.exec(slotId);
-    if (!timeMatch || !action) {
+    if (!action) {
       setActiveAction(null);
+      setActiveTimeEntry(null);
       return;
     }
-
-    const hour = parseInt(timeMatch[1]!);
-    const minute = parseInt(timeMatch[2]!);
     const duration = action.duration ?? 30;
 
     const newStart = new Date(selectedDate);
@@ -109,9 +154,9 @@ export function CalendarDayTimeGrid({
     const newEnd = new Date(newStart);
     newEnd.setMinutes(newEnd.getMinutes() + duration);
 
-    // Fire reschedule first (synchronous optimistic update) then clear overlay
     onRescheduleAction?.(action, newStart, newEnd);
     setActiveAction(null);
+    setActiveTimeEntry(null);
   };
 
   return (
@@ -202,6 +247,23 @@ export function CalendarDayTimeGrid({
                       zIndex: 10 + item.column,
                     }}
                     onClick={onActionClick}
+                    onResize={onResizeAction}
+                  />
+                );
+              } else if (item.type === "timeentry" && item.originalTimeEntry) {
+                return (
+                  <DraggableTimeEntryBlock
+                    key={item.id}
+                    entry={item.originalTimeEntry}
+                    style={{
+                      top: item.top,
+                      left: `${item.left}%`,
+                      width: `${item.width}%`,
+                      height: item.height,
+                      zIndex: 10 + item.column,
+                    }}
+                    onClick={onTimeEntryClick}
+                    onResize={onResizeTimeEntry}
                   />
                 );
               }
@@ -213,6 +275,7 @@ export function CalendarDayTimeGrid({
 
       <DragOverlay>
         {activeAction ? <ActionDragOverlay action={activeAction} /> : null}
+        {activeTimeEntry ? <TimeEntryDragOverlay entry={activeTimeEntry} /> : null}
       </DragOverlay>
     </DndContext>
   );
