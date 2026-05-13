@@ -70,6 +70,7 @@ model User {
   accounts                    Account[]
   actions                     Action[]
   actionAssignees             ActionAssignee[]            @relation("ActionAssignees")
+  timeEntries                 TimeEntry[]
   aiInteractionHistory        AiInteractionHistory[]
   feedback                    Feedback[]
   goals                       Goal[]
@@ -275,6 +276,7 @@ model Workspace {
   goals                   Goal[]
   outcomes                Outcome[]
   actions                 Action[]
+  timeEntries             TimeEntry[]
   teams                   Team[]
   resources               Resource[]
   invitations             WorkspaceInvitation[]
@@ -561,6 +563,7 @@ model Action {
   projectActivities    ProjectActivity[]
   actionScreenshots    ActionScreenshot[]
   comments             ActionComment[]
+  timeEntries          TimeEntry[]
 
   // Bounty fields
   isBounty           Boolean       @default(false)
@@ -590,6 +593,27 @@ model Action {
   @@index([isBounty])
   @@index([bountyStatus])
   @@index([sourceType, sourceId])
+}
+
+model TimeEntry {
+  id          String    @id @default(cuid())
+  userId      String
+  actionId    String
+  workspaceId String?
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  source      String    @default("plugin")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    Action     @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, endedAt])
+  @@index([userId, startedAt])
+  @@index([actionId])
+  @@index([workspaceId, startedAt])
 }
 
 model BountyClaim {
