@@ -18,7 +18,7 @@ export const tagRouter = createTRPCRouter({
       z
         .object({
           workspaceId: z.string().optional(),
-          category: z.string().optional(),
+          category: z.string().nullable().optional(),
         })
         .optional()
     )
@@ -114,7 +114,7 @@ export const tagRouter = createTRPCRouter({
         name: z.string().min(1).max(50),
         color: tagColorSchema,
         description: z.string().max(200).optional(),
-        category: z.string().max(50).optional(),
+        category: z.string().max(50).nullable().optional(),
         workspaceId: z.string(), // Required - users create workspace-specific tags
       })
     )
