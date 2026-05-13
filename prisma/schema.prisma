@@ -1812,6 +1812,7 @@ model Tag {
   actions   ActionTag[]
   tickets   TicketTag[]
   features  FeatureTag[]
+  epics     EpicTag[]
   insights  InsightTag[]
 
   // Global tags: unique by slug (when workspaceId is null)
@@ -1868,6 +1869,7 @@ model Epic {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   actions   Action[]
   tickets   Ticket[]  @relation("TicketEpic")
+  tags      EpicTag[]
 
   @@index([workspaceId])
   @@index([ownerId])
@@ -3784,6 +3786,19 @@ model FeatureTag {
   tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([featureId, tagId])
+  @@index([tagId])
+}
+
+model EpicTag {
+  id        String   @id @default(cuid())
+  epicId    String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  epic Epic @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([epicId, tagId])
   @@index([tagId])
 }
 
