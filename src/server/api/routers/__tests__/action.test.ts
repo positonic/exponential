@@ -116,8 +116,17 @@ vi.mock("~/lib/blob", () => ({
   uploadToBlob: vi.fn().mockResolvedValue({ url: "blob://test" }),
 }));
 
+// T7: mock the activity recorder so the safety test can simulate an
+// instrumentation failure. Per the helper contract it never throws in
+// production, but the call site MUST still tolerate a rejection — that's
+// what `instrumentation_failure_does_not_break_mutation` below asserts.
+vi.mock("~/server/services/activity/recordActivity", () => ({
+  recordActivity: vi.fn().mockResolvedValue(true),
+}));
+
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 describe("action router (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -589,6 +598,54 @@ describe("action router (mocked)", () => {
       ).rejects.toThrow(TRPCError);
 
       expect(dbMock.action.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // T7: activity-feed instrumentation safety guarantee
+  // ────────────────────────────────────────────────────────────────────
+  describe("recordActivity instrumentation", () => {
+    it("does not break action.create when recordActivity rejects", async () => {
+      // Force the instrumentation helper to fail this call. The call site
+      // wraps recordActivity in `.catch(() => {})` so the mutation must
+      // still resolve normally.
+      vi.mocked(recordActivity).mockRejectedValueOnce(
+        new Error("simulated instrumentation failure"),
+      );
+
+      const callerId = "creator-1";
+      const wsId = "ws-instr";
+      const created = {
+        id: "action-123",
+        name: "Test action",
+        workspaceId: wsId,
+        createdById: callerId,
+        project: null,
+        assignees: [],
+        syncs: [],
+        createdBy: { id: callerId, name: null, email: null, image: null },
+        tags: [],
+        epic: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
+      dbMock.action.create.mockResolvedValue(created);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.action.create({ name: "Test action", workspaceId: wsId }),
+      ).resolves.toMatchObject({ id: "action-123" });
+
+      // Sanity: recordActivity was invoked at least once with the correct shape.
+      expect(recordActivity).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          workspaceId: wsId,
+          userId: callerId,
+          entityType: "action",
+          action: "created",
+        }),
+      );
     });
   });
 });

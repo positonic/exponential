@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
 import { sendMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
 import { deleteFromBlob } from "~/lib/blob";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 function hasViewAccess(access: {
   isCreator: boolean;
@@ -68,6 +69,33 @@ export const actionCommentRouter = createTRPCRouter({
           author: { select: { id: true, name: true, image: true } },
         },
       });
+
+      // T7: workspace activity feed instrumentation. Resolve workspaceId via
+      // the parent action (workspaceId lives on Action, optionally via Project).
+      const parentAction = await ctx.db.action.findUnique({
+        where: { id: input.actionId },
+        select: {
+          workspaceId: true,
+          project: { select: { workspaceId: true } },
+        },
+      });
+      const activityWorkspaceId =
+        parentAction?.workspaceId ?? parentAction?.project?.workspaceId ?? null;
+      if (activityWorkspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: activityWorkspaceId,
+          userId: ctx.session.user.id,
+          entityType: "action_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: {
+            actionId: input.actionId,
+            snippet: input.content.slice(0, 120),
+          },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       // Fire-and-forget mention notifications
       void sendMentionNotifications(ctx.db, {

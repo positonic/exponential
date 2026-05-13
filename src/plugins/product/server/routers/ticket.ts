@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { generateFunId } from "~/lib/fun-ids";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -37,6 +38,24 @@ async function loadTicketWithAccess(
     select: {
       id: true,
       productId: true,
+      // T7: pull the previous mutable fields so the update procedure can
+      // compute fieldsChanged / status transition without a second query.
+      title: true,
+      body: true,
+      type: true,
+      status: true,
+      priority: true,
+      points: true,
+      branchName: true,
+      prUrl: true,
+      designUrl: true,
+      specUrl: true,
+      links: true,
+      epicId: true,
+      featureId: true,
+      cycleId: true,
+      scopeId: true,
+      assigneeId: true,
       product: { select: { workspaceId: true } },
     },
   });
@@ -299,7 +318,7 @@ export const ticketRouter = createTRPCRouter({
         shortId = generateFunId(existingIds);
       }
 
-      return ctx.db.ticket.create({
+      const createdTicket = await ctx.db.ticket.create({
         data: {
           productId: input.productId,
           number: ticketNumber,
@@ -323,6 +342,22 @@ export const ticketRouter = createTRPCRouter({
           createdById: ctx.session.user.id,
         },
       });
+
+      // T7: workspace activity feed instrumentation. workspaceId comes from
+      // the product loaded above; loadProductWithAccess already verified
+      // membership so we know it's authoritative.
+      await recordActivity(ctx.db, {
+        workspaceId: product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "ticket",
+        entityId: createdTicket.id,
+        action: "created",
+        metadata: { title: input.title },
+      }).catch(() => {
+        /* instrumentation failure is non-fatal */
+      });
+
+      return createdTicket;
     }),
 
   update: protectedProcedure
@@ -348,7 +383,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const previousTicket = await loadTicketWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
 
       const { id, ...rest } = input;
       const data: Record<string, unknown> = { ...rest };
@@ -360,10 +399,65 @@ export const ticketRouter = createTRPCRouter({
         data.completedAt = null;
       }
 
-      return ctx.db.ticket.update({
+      const updatedTicket = await ctx.db.ticket.update({
         where: { id },
         data,
       });
+
+      // T7: workspace activity feed instrumentation.
+      //  - status moved → fire `status_changed`
+      //  - otherwise diff `rest` against the pre-update ticket and fire
+      //    `updated` with fieldsChanged (skip if nothing actually moved).
+      const activityWorkspaceId = previousTicket.product.workspaceId;
+      const statusChanged =
+        input.status !== undefined && input.status !== previousTicket.status;
+      if (statusChanged) {
+        await recordActivity(ctx.db, {
+          workspaceId: activityWorkspaceId,
+          userId: ctx.session.user.id,
+          entityType: "ticket",
+          entityId: id,
+          action: "status_changed",
+          metadata: { from: previousTicket.status, to: input.status! },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      } else {
+        const previousRecord = previousTicket as unknown as Record<
+          string,
+          unknown
+        >;
+        const fieldsChanged = Object.keys(rest).filter((key) => {
+          const incoming = (rest as Record<string, unknown>)[key];
+          if (incoming === undefined) return false;
+          if (!(key in previousRecord)) return true;
+          const existing = previousRecord[key];
+          // links is a Json object — JSON-stringify for a coarse equality check.
+          if (
+            existing !== null &&
+            typeof existing === "object" &&
+            incoming !== null &&
+            typeof incoming === "object"
+          ) {
+            return JSON.stringify(existing) !== JSON.stringify(incoming);
+          }
+          return existing !== incoming;
+        });
+        if (fieldsChanged.length > 0) {
+          await recordActivity(ctx.db, {
+            workspaceId: activityWorkspaceId,
+            userId: ctx.session.user.id,
+            entityType: "ticket",
+            entityId: id,
+            action: "updated",
+            metadata: { fieldsChanged },
+          }).catch(() => {
+            /* instrumentation failure is non-fatal */
+          });
+        }
+      }
+
+      return updatedTicket;
     }),
 
   delete: protectedProcedure
@@ -504,8 +598,12 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
-      return ctx.db.ticketComment.create({
+      const parentTicket = await loadTicketWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.ticketId,
+      );
+      const comment = await ctx.db.ticketComment.create({
         data: {
           ticketId: input.ticketId,
           authorId: ctx.session.user.id,
@@ -513,6 +611,23 @@ export const ticketRouter = createTRPCRouter({
         },
         include: { author: { select: { id: true, name: true, image: true } } },
       });
+
+      // T7: workspace activity feed instrumentation.
+      await recordActivity(ctx.db, {
+        workspaceId: parentTicket.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "ticket_comment",
+        entityId: comment.id,
+        action: "created",
+        metadata: {
+          ticketId: input.ticketId,
+          snippet: input.content.slice(0, 120),
+        },
+      }).catch(() => {
+        /* instrumentation failure is non-fatal */
+      });
+
+      return comment;
     }),
 
   deleteComment: protectedProcedure

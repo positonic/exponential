@@ -23,6 +23,7 @@ import {
   logProjectActivity,
   PROJECT_ACTIVITY_TYPES,
 } from "~/server/services/projectActivity";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 
 export const actionRouter = createTRPCRouter({
@@ -464,6 +465,25 @@ export const actionRouter = createTRPCRouter({
         },
       });
 
+      // T7: workspace activity feed instrumentation. Helper never throws in
+      // production (it catches its own write failures), but we add `.catch`
+      // here as a belt-and-braces guard so instrumentation can NEVER break
+      // the user's mutation, even if the helper is later refactored.
+      const activityWorkspaceId =
+        createdAction.workspaceId ?? createdAction.project?.workspaceId ?? null;
+      if (activityWorkspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: activityWorkspaceId,
+          userId: ctx.session.user.id,
+          entityType: "action",
+          entityId: createdAction.id,
+          action: "created",
+          metadata: { name: createdAction.name },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       // Sync onboarding progress if action is linked to a project (fire-and-forget)
       if (input.projectId) {
         void completeOnboardingStep(ctx.db, ctx.session.user.id, "actions").catch(
@@ -586,7 +606,24 @@ export const actionRouter = createTRPCRouter({
       // Get current action to check previous state
       const currentAction = await ctx.db.action.findUnique({
         where: { id },
-        select: { status: true, kanbanStatus: true, completedAt: true, scheduledStart: true, scheduledEnd: true, projectId: true, dueDate: true }
+        select: {
+          status: true,
+          kanbanStatus: true,
+          completedAt: true,
+          scheduledStart: true,
+          scheduledEnd: true,
+          projectId: true,
+          dueDate: true,
+          workspaceId: true,
+          name: true,
+          description: true,
+          priority: true,
+          epicId: true,
+          effortEstimate: true,
+          // T7: include workspaceId and any fields we diff against `updateData`
+          // so we can compute fieldsChanged without an extra query.
+          project: { select: { workspaceId: true } },
+        },
       });
 
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
@@ -633,6 +670,69 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+
+      // T7: workspace activity feed instrumentation. Branches:
+      //  - status moved → fire `status_changed` with {from, to}
+      //  - otherwise compute the set of input keys whose value diverges from
+      //    the pre-update row and fire `updated` with fieldsChanged.
+      const activityWorkspaceId =
+        updatedAction.workspaceId ?? currentAction?.project?.workspaceId ?? null;
+      if (activityWorkspaceId && currentAction) {
+        const statusChanged =
+          updateData.status !== undefined &&
+          updateData.status !== currentAction.status;
+        if (statusChanged) {
+          await recordActivity(ctx.db, {
+            workspaceId: activityWorkspaceId,
+            userId: ctx.session.user.id,
+            entityType: "action",
+            entityId: id,
+            action: "status_changed",
+            metadata: { from: currentAction.status, to: updateData.status! },
+          }).catch(() => {
+            /* instrumentation failure is non-fatal */
+          });
+        } else {
+          // Compute fieldsChanged: keys in `updateData` whose value differs
+          // from the persisted row, excluding identifiers and source
+          // attribution fields that aren't user-meaningful.
+          const skipKeys = new Set([
+            "lastUpdatedBy",
+            "lastUpdatedSource",
+            "blockedByIds",
+          ]);
+          const currentRecord = currentAction as unknown as Record<
+            string,
+            unknown
+          >;
+          const fieldsChanged = Object.keys(updateData).filter((key) => {
+            if (skipKeys.has(key)) return false;
+            const incoming = (updateData as Record<string, unknown>)[key];
+            if (incoming === undefined) return false;
+            // Only diff against fields we actually selected on currentAction —
+            // anything outside that select is treated as changed.
+            if (!(key in currentRecord)) return true;
+            const existing = currentRecord[key];
+            // Dates need .getTime() comparison; other primitives use ===.
+            if (existing instanceof Date && incoming instanceof Date) {
+              return existing.getTime() !== incoming.getTime();
+            }
+            return existing !== incoming;
+          });
+          if (fieldsChanged.length > 0) {
+            await recordActivity(ctx.db, {
+              workspaceId: activityWorkspaceId,
+              userId: ctx.session.user.id,
+              entityType: "action",
+              entityId: id,
+              action: "updated",
+              metadata: { fieldsChanged },
+            }).catch(() => {
+              /* instrumentation failure is non-fatal */
+            });
+          }
+        }
+      }
 
       // Project activity audit log: status + dueDate diffs (fire-and-forget)
       if (currentAction?.projectId) {

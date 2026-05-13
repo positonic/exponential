@@ -9,6 +9,10 @@ import {
 } from "~/server/utils/tokens";
 import { sendTeamInvitationEmail } from "~/server/services/EmailService";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
+import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
+import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
+import { getActivityHeatmap } from "~/server/services/activity/heatmap";
+import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -1322,6 +1326,155 @@ export const workspaceRouter = createTRPCRouter({
           userRole: userMembership?.role ?? null,
           canLink: userMembership?.role === "owner",
         };
+      });
+    }),
+
+  // Hero strip stats for the Activity-layout workspace home. Composed from
+  // DailyScore (this week/last week totals), ProductivityStreak (day streak),
+  // and Project (active count). Sparkline payload is null until slice 6.
+  getHomeStats: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Caller must be a member of the workspace.
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        // Fall back to team-based access so guest project members also work.
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getWorkspaceHomeStats(ctx.db, {
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+      });
+    }),
+
+  // One-time backfill of WorkspaceActivityEvent from existing entity
+  // timestamps so the heatmap and activity feed look alive on day one.
+  // Owner-only; idempotent unless `force` is set. See
+  // `src/server/services/activity/backfillActivity.ts` for the source table
+  // mapping and metadata strategy.
+  backfillActivity: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        force: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member || member.role !== "owner") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners can run the activity backfill",
+        });
+      }
+
+      return backfillWorkspaceActivity(ctx.db, {
+        workspaceId: input.workspaceId,
+        force: input.force,
+      });
+    }),
+
+  // 12-month activity heatmap for the Activity-layout workspace home.
+  // Returns 371 cells (53 weeks × 7 days) ending at "today", with each
+  // cell's level computed from quartiles of non-zero days in the window.
+  getActivityHeatmap: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getActivityHeatmap(ctx.db, { workspaceId: input.workspaceId });
+    }),
+
+  // Workspace home activity feed: most-recent N events with actor join +
+  // pre-resolved render hint. Cursor pagination, page size 10 by default.
+  getActivityFeed: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getActivityFeed(ctx.db, {
+        workspaceId: input.workspaceId,
+        cursor: input.cursor,
+        limit: input.limit ?? FEED_PAGE_SIZE,
       });
     }),
 });
