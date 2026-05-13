@@ -1211,12 +1211,14 @@ export const mastraRouter = createTRPCRouter({
   // Meeting Transcription Endpoints
   getMeetingTranscriptions: protectedProcedure
     .input(z.object({
+      workspaceId: z.string().optional(),
       projectId: z.string().optional(),
       startDate: z.string().optional(),
       endDate: z.string().optional(),
       participants: z.array(z.string()).optional(),
       meetingType: z.string().optional(),
-      limit: z.number().optional().default(10),
+      limit: z.number().optional().default(5),
+      includeTranscript: z.boolean().optional().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -1224,6 +1226,17 @@ export const mastraRouter = createTRPCRouter({
       const whereClause: any = {
         userId: userId, // Ensure user can only access their own transcriptions
       };
+
+      if (input.workspaceId) {
+        const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+        if (!wsMembership) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Workspace not found or access denied',
+          });
+        }
+        whereClause.workspaceId = input.workspaceId;
+      }
 
       if (input.projectId) {
         whereClause.projectId = input.projectId;
@@ -1243,6 +1256,12 @@ export const mastraRouter = createTRPCRouter({
         if (input.endDate) whereClause.createdAt.lte = new Date(input.endDate);
       }
 
+      // Participant filtering needs to scan transcript text; force-include it
+      // even when the caller asked for the lightweight path.
+      const needsTranscriptForFiltering =
+        !!(input.participants && input.participants.length > 0);
+      const selectTranscript = input.includeTranscript || needsTranscriptForFiltering;
+
       // Get transcriptions first, then filter by participants if needed
       let transcriptions = await ctx.db.transcriptionSession.findMany({
         where: whereClause,
@@ -1251,29 +1270,29 @@ export const mastraRouter = createTRPCRouter({
         select: {
           id: true,
           title: true,
-          transcription: true, // Use transcription instead of transcript
+          ...(selectTranscript ? { transcription: true } : {}),
           createdAt: true,
           projectId: true,
           summary: true,
-        }
+        },
       });
 
       // Filter by participants if specified
       if (input.participants && input.participants.length > 0) {
         transcriptions = transcriptions.filter(t => {
-          const title = (t.title || "").toLowerCase();
-          const transcription = (t.transcription || "").toLowerCase();
-          const summary = (t.summary || "").toLowerCase();
-          
+          const title = (t.title ?? "").toLowerCase();
+          const transcription = ((t as { transcription?: string | null }).transcription ?? "").toLowerCase();
+          const summary = (t.summary ?? "").toLowerCase();
+
           // Check if any of the specified participants appear in title, transcription, or summary
           return input.participants!.some(participant => {
             const participantLower = participant.toLowerCase();
-            return title.includes(participantLower) || 
+            return title.includes(participantLower) ||
                    transcription.includes(participantLower) ||
                    summary.includes(participantLower);
           });
         });
-        
+
         // Limit after filtering
         transcriptions = transcriptions.slice(0, input.limit);
       }
@@ -1281,8 +1300,10 @@ export const mastraRouter = createTRPCRouter({
       return {
         transcriptions: transcriptions.map(t => ({
           id: t.id,
-          title: t.title || "",
-          transcript: t.transcription || "", // Map transcription to transcript for consistency
+          title: t.title ?? "",
+          transcript: input.includeTranscript
+            ? ((t as { transcription?: string | null }).transcription ?? "")
+            : "",
           participants: [], // Empty array - field doesn't exist in schema
           meetingDate: t.createdAt.toISOString(), // Map createdAt to meetingDate
           meetingType: "", // Empty string - field doesn't exist in schema
