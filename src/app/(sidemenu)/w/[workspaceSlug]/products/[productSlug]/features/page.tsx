@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   ActionIcon,
   Badge,
@@ -129,7 +129,6 @@ export default function FeaturesListPage() {
   const params = useParams();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
-  const router = useRouter();
   const [editFeatureId, setEditFeatureId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortField] = useState<SortField>("status");
@@ -191,10 +190,10 @@ export default function FeaturesListPage() {
 
   // List item renderer
   const renderListItem = (feature: (typeof sorted)[number]) => (
-    <div
+    <Link
       key={feature.id}
-      className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover transition-colors border-b border-border-primary cursor-pointer"
-      onClick={() => router.push(`${basePath}/${feature.id}`)}
+      href={`${basePath}/${feature.id}`}
+      className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover transition-colors border-b border-border-primary cursor-pointer text-text-primary no-underline"
     >
       <Badge size="xs" variant="light" color={STATUS_COLORS[feature.status] ?? "gray"} className="shrink-0">
         {STATUS_LABELS[feature.status] ?? feature.status}
@@ -237,7 +236,7 @@ export default function FeaturesListPage() {
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
-    </div>
+    </Link>
   );
 
   // Card renderer
