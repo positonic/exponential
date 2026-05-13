@@ -12,6 +12,7 @@ import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
+import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -1433,5 +1434,47 @@ export const workspaceRouter = createTRPCRouter({
       }
 
       return getActivityHeatmap(ctx.db, { workspaceId: input.workspaceId });
+    }),
+
+  // Workspace home activity feed: most-recent N events with actor join +
+  // pre-resolved render hint. Cursor pagination, page size 10 by default.
+  getActivityFeed: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getActivityFeed(ctx.db, {
+        workspaceId: input.workspaceId,
+        cursor: input.cursor,
+        limit: input.limit ?? FEED_PAGE_SIZE,
+      });
     }),
 });
