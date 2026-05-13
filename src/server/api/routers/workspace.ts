@@ -11,6 +11,7 @@ import { sendTeamInvitationEmail } from "~/server/services/EmailService";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
+import { getActivityHeatmap } from "~/server/services/activity/heatmap";
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -1399,5 +1400,38 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         force: input.force,
       });
+    }),
+
+  // 12-month activity heatmap for the Activity-layout workspace home.
+  // Returns 371 cells (53 weeks × 7 days) ending at "today", with each
+  // cell's level computed from quartiles of non-zero days in the window.
+  getActivityHeatmap: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getActivityHeatmap(ctx.db, { workspaceId: input.workspaceId });
     }),
 });
