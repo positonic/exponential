@@ -221,4 +221,40 @@ describe("workspace router", () => {
       expect(updated.homeLayout).toBe("activity");
     });
   });
+
+  describe("backfillActivity", () => {
+    it("owner can trigger backfill on an empty workspace", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "bf-rpc-owner" });
+
+      const caller = createTestCaller(owner.id);
+      const result = await caller.workspace.backfillActivity({ workspaceId: ws.id });
+
+      expect(result.skipped).toBe(false);
+      expect(result.total).toBe(0);
+    });
+
+    it("admin cannot trigger backfill (owner-only)", async () => {
+      const owner = await createUser(db);
+      const admin = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "bf-rpc-admin" });
+      await addWorkspaceMember(db, ws.id, admin.id, "admin");
+
+      const adminCaller = createTestCaller(admin.id);
+      await expect(
+        adminCaller.workspace.backfillActivity({ workspaceId: ws.id }),
+      ).rejects.toThrow(TRPCError);
+    });
+
+    it("non-member cannot trigger backfill", async () => {
+      const owner = await createUser(db);
+      const stranger = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "bf-rpc-stranger" });
+
+      const strangerCaller = createTestCaller(stranger.id);
+      await expect(
+        strangerCaller.workspace.backfillActivity({ workspaceId: ws.id }),
+      ).rejects.toThrow(TRPCError);
+    });
+  });
 });
