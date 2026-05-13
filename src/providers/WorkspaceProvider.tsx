@@ -10,6 +10,10 @@ import {
 } from 'react';
 import { api } from '~/trpc/react';
 import { useParams, useRouter } from 'next/navigation';
+import {
+  validateHomeLayout,
+  type HomeLayout,
+} from '~/app/_components/home/HomeLayoutPicker';
 
 interface WorkspaceMember {
   userId: string;
@@ -29,6 +33,7 @@ interface Workspace {
   description: string | null;
   logoUrl: string | null;
   type: string;
+  homeLayout: HomeLayout;
   members?: WorkspaceMember[];
 }
 
@@ -175,8 +180,14 @@ export function WorkspaceProvider({
     ? workspaceLoading
     : (!hasInitialized && (defaultLoading || isCreatingWorkspace));
 
+  // Narrow Prisma's `homeLayout: string` to the `HomeLayout` union so consumers
+  // (e.g. the home-page router) don't have to repeat the validation.
+  const narrowedWorkspace = workspace
+    ? { ...workspace, homeLayout: validateHomeLayout(workspace.homeLayout) }
+    : null;
+
   const value: WorkspaceContextValue = {
-    workspace: workspace ?? null,
+    workspace: narrowedWorkspace,
     workspaceSlug: effectiveSlug,
     workspaceId: workspace?.id ?? null,
     isLoading,

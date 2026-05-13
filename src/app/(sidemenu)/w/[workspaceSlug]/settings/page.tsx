@@ -56,6 +56,10 @@ import { ZulipSettings } from '~/app/_components/ZulipSettings';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
+import {
+  HomeLayoutPicker,
+  validateHomeLayout,
+} from '~/app/_components/home/HomeLayoutPicker';
 import { notifications } from '@mantine/notifications';
 import {
   SettingsShell,
@@ -139,6 +143,7 @@ export default function WorkspaceSettingsPage() {
   const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
+  const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
 
   const featureSuccess = (message: string) => () => {
     void utils.workspace.getBySlug.invalidate();
@@ -156,6 +161,20 @@ export default function WorkspaceSettingsPage() {
         ? 'Advanced action features have been disabled'
         : 'Advanced action features have been enabled'
     ),
+  });
+
+  const updateHomeLayoutMutation = api.workspace.update.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getBySlug.invalidate();
+      void utils.workspace.list.invalidate();
+      refetchWorkspace();
+      notifications.show({
+        title: 'Home layout updated',
+        message: 'Workspace home page will use the new layout.',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
   });
   const updateDetailedActionsMutation = api.workspace.update.useMutation({
     onSuccess: featureSuccess(
@@ -602,6 +621,23 @@ export default function WorkspaceSettingsPage() {
               <SettingsPill variant={workspace.type === 'personal' ? 'neutral' : 'team'}>
                 {workspaceTypeLabel}
               </SettingsPill>
+            </SettingsField>
+
+            <SettingsField
+              label="Home layout"
+              sublabel="Which dashboard greets you on workspace home"
+            >
+              <HomeLayoutPicker
+                value={currentHomeLayout}
+                disabled={!canEdit || updateHomeLayoutMutation.isPending}
+                onChange={(next) => {
+                  if (!workspaceId || next === currentHomeLayout) return;
+                  updateHomeLayoutMutation.mutate({
+                    workspaceId,
+                    homeLayout: next,
+                  });
+                }}
+              />
             </SettingsField>
 
             <SettingsField

@@ -1,9 +1,12 @@
 'use client';
 
 import { Suspense } from 'react';
+import { Container, Skeleton, Stack, Text } from '@mantine/core';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
-import { Skeleton, Container, Stack, Text } from '@mantine/core';
-import { WorkspaceHomeConceptD } from '~/app/_components/home/WorkspaceHomeConceptD';
+import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components/home/WorkspaceHomeConceptD';
+import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
+import { WorkspaceHomeCoaching } from '~/app/_components/home/WorkspaceHomeCoaching';
+import { validateHomeLayout } from '~/app/_components/home/HomeLayoutPicker';
 
 function WorkspaceHomeContent() {
   const { workspace, isLoading: workspaceLoading } = useWorkspace();
@@ -28,7 +31,11 @@ function WorkspaceHomeContent() {
     );
   }
 
-  return <WorkspaceHomeConceptD />;
+  const layout = validateHomeLayout(workspace.homeLayout);
+
+  if (layout === 'activity') return <WorkspaceHomeActivity />;
+  if (layout === 'coaching') return <WorkspaceHomeCoaching />;
+  return <WorkspaceHomeCommand />;
 }
 
 export default function WorkspaceHomePage() {

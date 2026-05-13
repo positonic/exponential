@@ -63,6 +63,45 @@ describe("workspace router", () => {
         }),
       ).rejects.toThrow();
     });
+
+    it("defaults homeLayout to 'command' when not provided", async () => {
+      const user = await createUser(db);
+      const caller = createTestCaller(user.id);
+
+      const workspace = await caller.workspace.create({
+        name: "Default Layout",
+        slug: "default-layout",
+      });
+
+      expect(workspace.homeLayout).toBe("command");
+    });
+
+    it("persists homeLayout when set to 'activity' on create", async () => {
+      const user = await createUser(db);
+      const caller = createTestCaller(user.id);
+
+      const workspace = await caller.workspace.create({
+        name: "Activity Layout",
+        slug: "activity-layout",
+        homeLayout: "activity",
+      });
+
+      expect(workspace.homeLayout).toBe("activity");
+    });
+
+    it("rejects invalid homeLayout values", async () => {
+      const user = await createUser(db);
+      const caller = createTestCaller(user.id);
+
+      await expect(
+        caller.workspace.create({
+          name: "Bad Layout",
+          slug: "bad-layout",
+          // @ts-expect-error — testing runtime validation rejects unknown layouts
+          homeLayout: "not-a-real-layout",
+        }),
+      ).rejects.toThrow();
+    });
   });
 
   describe("list", () => {
@@ -309,6 +348,55 @@ describe("workspace router", () => {
           workspaceId: ws.id,
           name: "Should Fail",
         }),
+      ).rejects.toThrow(TRPCError);
+    });
+
+    it("owner can switch homeLayout to 'activity'", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "switch-layout" });
+
+      const caller = createTestCaller(owner.id);
+      const updated = await caller.workspace.update({
+        workspaceId: ws.id,
+        homeLayout: "activity",
+      });
+
+      expect(updated.homeLayout).toBe("activity");
+    });
+  });
+
+  describe("backfillActivity", () => {
+    it("owner can trigger backfill on an empty workspace", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "bf-rpc-owner" });
+
+      const caller = createTestCaller(owner.id);
+      const result = await caller.workspace.backfillActivity({ workspaceId: ws.id });
+
+      expect(result.skipped).toBe(false);
+      expect(result.total).toBe(0);
+    });
+
+    it("admin cannot trigger backfill (owner-only)", async () => {
+      const owner = await createUser(db);
+      const admin = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "bf-rpc-admin" });
+      await addWorkspaceMember(db, ws.id, admin.id, "admin");
+
+      const adminCaller = createTestCaller(admin.id);
+      await expect(
+        adminCaller.workspace.backfillActivity({ workspaceId: ws.id }),
+      ).rejects.toThrow(TRPCError);
+    });
+
+    it("non-member cannot trigger backfill", async () => {
+      const owner = await createUser(db);
+      const stranger = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "bf-rpc-stranger" });
+
+      const strangerCaller = createTestCaller(stranger.id);
+      await expect(
+        strangerCaller.workspace.backfillActivity({ workspaceId: ws.id }),
       ).rejects.toThrow(TRPCError);
     });
   });
