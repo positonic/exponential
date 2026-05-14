@@ -37,16 +37,25 @@ interface InviteMemberModalProps {
   onSuccess?: () => void;
 }
 
-type InviteResult =
-  | { type: "member_added"; memberName: string }
-  | { type: "invitation_created"; inviteUrl: string; email: string };
+interface MemberAddedInviteResult {
+  type: "member_added";
+  memberName: string;
+}
 
-type MatchedUser = {
+interface InvitationCreatedInviteResult {
+  type: "invitation_created";
+  inviteUrl: string;
+  email: string;
+}
+
+type InviteResult = MemberAddedInviteResult | InvitationCreatedInviteResult;
+
+interface MatchedUser {
   id: string;
   name: string | null;
   email: string | null;
   image: string | null;
-};
+}
 
 const EMAIL_RE = /^\S+@\S+$/;
 const INVITE_OPTION_VALUE = "__invite__";
@@ -318,13 +327,15 @@ export function InviteMemberModal({
                     combobox.openDropdown();
                     combobox.updateSelectedOptionIndex();
                   }}
-                  onClick={() => combobox.openDropdown()}
-                  onFocus={() => combobox.openDropdown()}
+                  onClick={() => {
+                    if (!selectedUser) combobox.openDropdown();
+                  }}
+                  onFocus={() => {
+                    if (!selectedUser) combobox.openDropdown();
+                  }}
                   onBlur={() => combobox.closeDropdown()}
                   required
                   classNames={{
-                    input:
-                      "bg-surface-primary border-border-primary text-text-primary",
                     label: "text-text-secondary",
                   }}
                 />
