@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getWorkspaceMembership, buildWorkspaceAccessWhere } from "~/server/services/access";
+import {
+  getWorkspaceMembership,
+  buildWorkspaceAccessWhere,
+  buildWorkspaceVisibilityWhere,
+} from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   generateSecureToken,
@@ -105,10 +109,14 @@ export const workspaceRouter = createTRPCRouter({
       return workspace;
     }),
 
-  // Get all workspaces for the current user (direct membership or team-based access)
+  // Get all workspaces for the current user.
+  // Includes direct WorkspaceUser membership, team-based access, AND
+  // project-only access (synthesized "guest" role). Role precedence:
+  //   direct WorkspaceUser role > team-based ("member") > project-only ("guest")
   list: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
     const workspaces = await ctx.db.workspace.findMany({
-      where: buildWorkspaceAccessWhere(ctx.session.user.id),
+      where: buildWorkspaceVisibilityWhere(userId),
       include: {
         members: {
           include: {
@@ -122,18 +130,27 @@ export const workspaceRouter = createTRPCRouter({
             },
           },
         },
-        // Include teams the current user belongs to (for computing role on team-based access)
+        // Teams the current user belongs to (signals team-based access)
         teams: {
           where: {
-            members: { some: { userId: ctx.session.user.id } },
+            members: { some: { userId } },
           },
           select: {
             id: true,
             members: {
-              where: { userId: ctx.session.user.id },
+              where: { userId },
               select: { role: true },
             },
           },
+        },
+        // Projects within this workspace where the current user is a
+        // ProjectMember (signals project-only "guest" access)
+        projects: {
+          where: {
+            projectMembers: { some: { userId } },
+          },
+          select: { id: true },
+          take: 1,
         },
         _count: {
           select: {
@@ -147,18 +164,19 @@ export const workspaceRouter = createTRPCRouter({
       orderBy: [{ type: "asc" }, { createdAt: "desc" }],
     });
 
-    // Add current user's role to each workspace
     return workspaces.map((workspace) => {
-      const currentMember = workspace.members.find(
-        (m) => m.userId === ctx.session.user.id
-      );
+      const currentMember = workspace.members.find((m) => m.userId === userId);
 
-      // Direct member role, or synthesized "member" role for team-based access
+      // Precedence: direct → team-based → project-only ("guest")
       const currentUserRole: string | null =
-        currentMember?.role ?? (workspace.teams.length > 0 ? "member" : null);
+        currentMember?.role ??
+        (workspace.teams.length > 0
+          ? "member"
+          : workspace.projects.length > 0
+            ? "guest"
+            : null);
 
-      // Remove internal teams field from response
-      const { teams: _teams, ...workspaceData } = workspace;
+      const { teams: _teams, projects: _projects, ...workspaceData } = workspace;
       return {
         ...workspaceData,
         currentUserRole,
@@ -215,9 +233,11 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
-      // Check if user is a direct member
+      const userId = ctx.session.user.id;
+
+      // Direct WorkspaceUser membership wins
       const currentMember = workspace.members.find(
-        (member) => member.userId === ctx.session.user.id
+        (member) => member.userId === userId
       );
 
       if (currentMember) {
@@ -227,24 +247,40 @@ export const workspaceRouter = createTRPCRouter({
         };
       }
 
-      // Fallback: check team-based workspace access
+      // Team-based access synthesizes "member"
       const teamBasedMembership = await getWorkspaceMembership(
         ctx.db,
-        ctx.session.user.id,
+        userId,
         workspace.id,
       );
 
-      if (!teamBasedMembership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You are not a member of this workspace",
-        });
+      if (teamBasedMembership) {
+        return {
+          ...workspace,
+          currentUserRole: teamBasedMembership.role,
+        };
       }
 
-      return {
-        ...workspace,
-        currentUserRole: teamBasedMembership.role,
-      };
+      // Project-only access synthesizes "guest"
+      const guestProjectMember = await ctx.db.projectMember.findFirst({
+        where: {
+          userId,
+          project: { workspaceId: workspace.id },
+        },
+        select: { id: true },
+      });
+
+      if (guestProjectMember) {
+        return {
+          ...workspace,
+          currentUserRole: "guest" as const,
+        };
+      }
+
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "You are not a member of this workspace",
+      });
     }),
 
   // Update workspace details
@@ -1326,6 +1362,118 @@ export const workspaceRouter = createTRPCRouter({
           userRole: userMembership?.role ?? null,
           canLink: userMembership?.role === "owner",
         };
+      });
+    }),
+
+  // List project-only "guests" of a workspace: users with ProjectMember rows
+  // in some project of the workspace but no WorkspaceUser row and no
+  // team-based membership. Read-only for the Members tab; management happens
+  // on the individual project's Access tab.
+  listProjectGuests: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Permission: owner or admin only, mirroring the rest of the Members tab.
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+      });
+
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can view project guests",
+        });
+      }
+
+      // All ProjectMember rows attached to projects in this workspace.
+      const projectMembers = await ctx.db.projectMember.findMany({
+        where: {
+          project: { workspaceId: input.workspaceId },
+        },
+        select: {
+          userId: true,
+          role: true,
+          user: {
+            select: { id: true, name: true, email: true, image: true },
+          },
+          project: {
+            select: { id: true, name: true, slug: true },
+          },
+        },
+      });
+
+      if (projectMembers.length === 0) {
+        return [];
+      }
+
+      const candidateUserIds = Array.from(
+        new Set(projectMembers.map((pm) => pm.userId)),
+      );
+
+      // Exclude users who already have direct workspace membership.
+      const directMemberRows = await ctx.db.workspaceUser.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: { in: candidateUserIds },
+        },
+        select: { userId: true },
+      });
+      const directMemberIds = new Set(directMemberRows.map((r) => r.userId));
+
+      // Exclude users who already have team-based access to this workspace.
+      const teamMemberRows = await ctx.db.teamUser.findMany({
+        where: {
+          userId: { in: candidateUserIds },
+          team: { workspaceId: input.workspaceId },
+        },
+        select: { userId: true },
+      });
+      const teamMemberIds = new Set(teamMemberRows.map((r) => r.userId));
+
+      // Group remaining (guest) project memberships by user.
+      const byUser = new Map<
+        string,
+        {
+          user: { id: string; name: string | null; email: string | null; image: string | null };
+          projects: { id: string; name: string; slug: string; role: string }[];
+        }
+      >();
+
+      for (const pm of projectMembers) {
+        if (directMemberIds.has(pm.userId) || teamMemberIds.has(pm.userId)) {
+          continue;
+        }
+        const existing = byUser.get(pm.userId);
+        if (existing) {
+          existing.projects.push({
+            id: pm.project.id,
+            name: pm.project.name,
+            slug: pm.project.slug,
+            role: pm.role,
+          });
+        } else {
+          byUser.set(pm.userId, {
+            user: pm.user,
+            projects: [
+              {
+                id: pm.project.id,
+                name: pm.project.name,
+                slug: pm.project.slug,
+                role: pm.role,
+              },
+            ],
+          });
+        }
+      }
+
+      return Array.from(byUser.values()).sort((a, b) => {
+        const aName = a.user.name ?? a.user.email ?? "";
+        const bName = b.user.name ?? b.user.email ?? "";
+        return aName.localeCompare(bName);
       });
     }),
 

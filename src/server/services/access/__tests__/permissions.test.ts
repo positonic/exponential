@@ -103,9 +103,16 @@ describe("hasMinimumWorkspaceRole", () => {
     }
   });
 
+  it("guest does NOT meet viewer (or higher) requirement", () => {
+    expect(hasMinimumWorkspaceRole("guest", "viewer")).toBe(false);
+    expect(hasMinimumWorkspaceRole("guest", "member")).toBe(false);
+    expect(hasMinimumWorkspaceRole("guest", "admin")).toBe(false);
+    expect(hasMinimumWorkspaceRole("guest", "owner")).toBe(false);
+  });
+
   // Property-based: actual >= minimum iff hierarchy[actual] >= hierarchy[minimum]
   it("matches hierarchy ordering for all role pairs (fast-check)", () => {
-    const roleArb = fc.constantFrom<WorkspaceRole>("viewer", "member", "admin", "owner");
+    const roleArb = fc.constantFrom<WorkspaceRole>("guest", "viewer", "member", "admin", "owner");
     fc.assert(
       fc.property(roleArb, roleArb, (actual, minimum) => {
         const expected = WORKSPACE_ROLE_HIERARCHY[actual] >= WORKSPACE_ROLE_HIERARCHY[minimum];

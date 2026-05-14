@@ -92,6 +92,72 @@ describe("project router", () => {
       expect(projects[0]).toHaveProperty("slug");
       expect(projects[0]).toHaveProperty("createdById");
     });
+
+    it("guest sees ONLY projects they have an explicit ProjectMember row for", async () => {
+      const owner = await createUser(db);
+      const guest = await createUser(db);
+
+      const ws = await createWorkspace(db, {
+        ownerId: owner.id,
+        slug: "guest-scope-ws",
+      });
+      // Project the guest is explicitly a member of
+      const sharedProject = await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Shared With Guest",
+      });
+      await addProjectMember(db, sharedProject.id, guest.id, "editor");
+
+      // Other workspace projects the guest should NOT see
+      await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Owner Private",
+      });
+      await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Owner Public",
+        isPublic: true,
+      });
+
+      const guestCaller = createTestCaller(guest.id);
+      const projects = await guestCaller.project.getAll({ workspaceId: ws.id });
+
+      expect(projects.map((p) => p.name).sort()).toEqual(["Shared With Guest"]);
+    });
+
+    it("full workspace member sees the normal list (no regression)", async () => {
+      const owner = await createUser(db);
+      const member = await createUser(db);
+
+      const ws = await createWorkspace(db, {
+        ownerId: owner.id,
+        slug: "non-guest-scope-ws",
+      });
+      await addWorkspaceMember(db, ws.id, member.id, "member");
+
+      await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Owner Project",
+      });
+      await createProject(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        name: "Owner Public",
+        isPublic: true,
+      });
+
+      const memberCaller = createTestCaller(member.id);
+      const projects = await memberCaller.project.getAll({ workspaceId: ws.id });
+
+      // Both should be visible to a real workspace member
+      const names = projects.map((p) => p.name);
+      expect(names).toContain("Owner Project");
+      expect(names).toContain("Owner Public");
+    });
   });
 
   describe("create", () => {

@@ -65,7 +65,13 @@ export {
 } from "./middleware";
 
 // Resolvers (for direct use when needed)
-export { getWorkspaceMembership, isWorkspaceOwner, buildWorkspaceAccessWhere } from "./resolvers/workspaceResolver";
+export {
+  getWorkspaceMembership,
+  isWorkspaceOwner,
+  isWorkspaceGuest,
+  buildWorkspaceAccessWhere,
+  buildWorkspaceVisibilityWhere,
+} from "./resolvers/workspaceResolver";
 export { getTeamMembership, getUserTeams } from "./resolvers/teamResolver";
 export {
   getProjectAccess,

@@ -6,6 +6,7 @@ import { WorkspaceProvider, useWorkspace } from '~/providers/WorkspaceProvider';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
 import { WorkspaceTopNav } from '~/app/_components/layout/WorkspaceTopNav';
 import { WorkspaceTopbar } from '~/app/_components/layout/WorkspaceTopbar';
+import { GuestRouteGuard } from '~/app/_components/layout/GuestRouteGuard';
 import styles from './WorkspaceLayout.module.css';
 
 /**
@@ -36,7 +37,7 @@ function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) 
     <div className={styles.wrapper}>
       <WorkspaceTopbar />
       <WorkspaceTopNav />
-      {children}
+      <GuestRouteGuard>{children}</GuestRouteGuard>
     </div>
   );
 }

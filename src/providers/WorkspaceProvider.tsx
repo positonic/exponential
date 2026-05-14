@@ -42,7 +42,7 @@ interface WorkspaceContextValue {
   workspaceSlug: string | null;
   workspaceId: string | null;
   isLoading: boolean;
-  userRole: 'owner' | 'admin' | 'member' | 'viewer' | null;
+  userRole: 'owner' | 'admin' | 'member' | 'viewer' | 'guest' | null;
   switchWorkspace: (slug: string) => void;
   refetchWorkspace: () => void;
 }
@@ -117,14 +117,35 @@ export function WorkspaceProvider({
   const {
     data: workspace,
     isLoading: workspaceLoading,
+    error: workspaceError,
     refetch,
   } = api.workspace.getBySlug.useQuery(
     { slug: effectiveSlug! },
     {
       enabled: !!effectiveSlug,
       staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+      // Don't retry on permission/not-found errors — re-validate on
+      // navigation instead and let the redirect effect below handle them.
+      retry: (failureCount, err) => {
+        const code = (err as { data?: { code?: string } } | null)?.data?.code;
+        if (code === 'FORBIDDEN' || code === 'NOT_FOUND' || code === 'UNAUTHORIZED') {
+          return false;
+        }
+        return failureCount < 2;
+      },
     }
   );
+
+  // Graceful 403 handling: when the user has lost access to the workspace
+  // (e.g. a guest's last project membership was revoked) redirect them out
+  // of the shell so no stale data or error overlay is shown.
+  useEffect(() => {
+    if (!workspaceError) return;
+    const code = (workspaceError as { data?: { code?: string } } | null)?.data?.code;
+    if (code === 'FORBIDDEN' || code === 'NOT_FOUND' || code === 'UNAUTHORIZED') {
+      router.replace('/');
+    }
+  }, [workspaceError, router]);
 
   // Set default workspace when loaded (without URL navigation)
   useEffect(() => {

@@ -25,13 +25,17 @@ export type ResourceType =
   | "crmContact";
 
 // ── Role Definitions ────────────────────────────────────────────────
-export type WorkspaceRole = "owner" | "admin" | "member" | "viewer";
+// "guest" is a synthesized role only — never written to WorkspaceUser.role.
+// It is derived for users who have a ProjectMember row in a workspace but
+// no direct WorkspaceUser row and no team-based membership.
+export type WorkspaceRole = "owner" | "admin" | "member" | "viewer" | "guest";
 export type TeamRole = "owner" | "admin" | "member";
 export type ProjectRole = "creator" | "member";
 export type ProjectMemberRole = "admin" | "editor" | "viewer";
 
 // ── Role Hierarchy (higher index = more permissions) ────────────────
 export const WORKSPACE_ROLE_HIERARCHY: Record<WorkspaceRole, number> = {
+  guest: -1,
   viewer: 0,
   member: 1,
   admin: 2,
