@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   buildProjectAccessWhere,
@@ -586,11 +587,24 @@ export const transcriptionRouter = createTRPCRouter({
         .object({
           includeArchived: z.boolean().optional().default(false),
           workspaceId: z.string().optional(),
+          // Meeting type filter for the Meetings v2 tab strip.
+          // - 'all' / undefined: no narrowing
+          // - 'one_on_one': only Meetings with exactly two Participants
+          //   (derived from `participantCount = 2` since no stored `meetingType`
+          //   column exists in v1)
+          // - 'ritual': always empty — short-circuited below until a recurrence
+          //   classifier exists
+          meetingType: z.enum(["all", "one_on_one", "ritual"]).optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Rituals ship with an honest empty state in v1 — no classifier yet.
+      if (input?.meetingType === "ritual") {
+        return [];
+      }
 
       // Visibility: own transcriptions, OR transcriptions tied to a project
       // the user can access (creator/member/public/workspace per restriction
@@ -618,6 +632,10 @@ export const transcriptionRouter = createTRPCRouter({
             { project: { workspaceId: input.workspaceId } },
           ],
         });
+      }
+
+      if (input?.meetingType === "one_on_one") {
+        filters.push({ participantCount: 2 });
       }
 
       return ctx.db.transcriptionSession.findMany({
@@ -649,7 +667,39 @@ export const transcriptionRouter = createTRPCRouter({
               priority: true,
             },
           },
+          // Authoritative Participant rows for the Meeting card — avatars
+          // and attendee count come from the calendar invite, not the
+          // transcript speakers.
+          participants: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              user: { select: { id: true, name: true, image: true } },
+              contact: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
         },
+      });
+    }),
+
+  weeklyStats: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+          // ISO date string from the client (e.g. start of week in user's
+          // local timezone). The service treats this as the inclusive lower
+          // bound of the 7-day window.
+          weekStart: z.coerce.date().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      return weeklyMeetingStats(ctx.db, {
+        userId: ctx.session.user.id,
+        workspaceId: input?.workspaceId,
+        weekStart: input?.weekStart,
       });
     }),
 

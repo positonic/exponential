@@ -17,6 +17,7 @@ async function createTranscription(
     projectId?: string | null;
     workspaceId?: string | null;
     title?: string;
+    participantCount?: number | null;
   },
 ) {
   const id = `s-${Math.random().toString(36).slice(2, 10)}`;
@@ -28,6 +29,26 @@ async function createTranscription(
       userId: args.userId,
       projectId: args.projectId ?? null,
       workspaceId: args.workspaceId ?? null,
+      participantCount: args.participantCount ?? null,
+    },
+  });
+}
+
+async function createParticipantRow(
+  db: ReturnType<typeof getTestDb>,
+  args: {
+    transcriptionSessionId: string;
+    workspaceId: string;
+    email: string;
+    name?: string;
+  },
+) {
+  return db.transcriptionSessionParticipant.create({
+    data: {
+      transcriptionSessionId: args.transcriptionSessionId,
+      workspaceId: args.workspaceId,
+      email: args.email,
+      name: args.name ?? null,
     },
   });
 }
@@ -242,6 +263,172 @@ describe("transcription router", () => {
       const ownerCaller = createTestCaller(owner.id);
       const all = await ownerCaller.transcription.getAllTranscriptions();
       expect(all.find((t) => t.title === "Locked but visible to owner")).toBeDefined();
+    });
+  });
+
+  describe("getAllTranscriptions meetingType filter", () => {
+    it("'all' returns the same rows as omitting the filter", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-all" });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "Solo meeting",
+        participantCount: 1,
+      });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "One-on-one meeting",
+        participantCount: 2,
+      });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "Team meeting",
+        participantCount: 5,
+      });
+
+      const caller = createTestCaller(owner.id);
+      const omitted = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+      });
+      const allFilter = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+        meetingType: "all",
+      });
+      const omittedTitles = omitted.map((t) => t.title).sort();
+      const allTitles = allFilter.map((t) => t.title).sort();
+      expect(allTitles).toEqual(omittedTitles);
+      expect(allTitles).toEqual(["One-on-one meeting", "Solo meeting", "Team meeting"]);
+    });
+
+    it("'one_on_one' returns only meetings with participantCount = 2", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-1on1" });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "One-on-one",
+        participantCount: 2,
+      });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "Team standup",
+        participantCount: 5,
+      });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "Unknown count",
+        participantCount: null,
+      });
+
+      const caller = createTestCaller(owner.id);
+      const result = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+        meetingType: "one_on_one",
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]!.title).toBe("One-on-one");
+    });
+
+    it("'ritual' returns an empty array even when there are meetings in the workspace", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-ritual" });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "Daily standup",
+        participantCount: 5,
+      });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "One-on-one",
+        participantCount: 2,
+      });
+
+      const caller = createTestCaller(owner.id);
+      const result = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+        meetingType: "ritual",
+      });
+      expect(result).toEqual([]);
+    });
+
+    it("workspace scoping is preserved across all meetingType values", async () => {
+      const owner = await createUser(db);
+      const wsA = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-ws-a" });
+      const wsB = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-ws-b" });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: wsA.id,
+        title: "A: one-on-one",
+        participantCount: 2,
+      });
+      await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: wsB.id,
+        title: "B: one-on-one",
+        participantCount: 2,
+      });
+
+      const caller = createTestCaller(owner.id);
+      const wsAAll = await caller.transcription.getAllTranscriptions({
+        workspaceId: wsA.id,
+        meetingType: "all",
+      });
+      expect(wsAAll.map((t) => t.title)).toEqual(["A: one-on-one"]);
+
+      const wsAOneOnOne = await caller.transcription.getAllTranscriptions({
+        workspaceId: wsA.id,
+        meetingType: "one_on_one",
+      });
+      expect(wsAOneOnOne.map((t) => t.title)).toEqual(["A: one-on-one"]);
+
+      const wsARitual = await caller.transcription.getAllTranscriptions({
+        workspaceId: wsA.id,
+        meetingType: "ritual",
+      });
+      expect(wsARitual).toEqual([]);
+    });
+
+    it("returned shape includes participants without n+1", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-participants" });
+      const trx = await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "With participants",
+        participantCount: 2,
+      });
+      await createParticipantRow(db, {
+        transcriptionSessionId: trx.id,
+        workspaceId: ws.id,
+        email: "alice@example.com",
+        name: "Alice",
+      });
+      await createParticipantRow(db, {
+        transcriptionSessionId: trx.id,
+        workspaceId: ws.id,
+        email: "ben@example.com",
+        name: "Ben",
+      });
+
+      const caller = createTestCaller(owner.id);
+      const result = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+        meetingType: "one_on_one",
+      });
+      expect(result).toHaveLength(1);
+      const row = result[0]!;
+      expect(row.participants).toBeDefined();
+      expect(row.participants.map((p) => p.email).sort()).toEqual([
+        "alice@example.com",
+        "ben@example.com",
+      ]);
     });
   });
 
