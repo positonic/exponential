@@ -1,159 +1,37 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Modal,
-  ScrollArea,
-  Stack,
-  Paper,
-  Group,
-  Title,
-  Badge,
-  Text,
-  Accordion,
-  Button,
-  Checkbox,
-  Textarea,
-  TextInput,
-  ActionIcon,
-  Image,
-} from "@mantine/core";
-import { IconPencil, IconCheck, IconX, IconPlayerPlay, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { TranscriptionRenderer } from "./TranscriptionRenderer";
-import { SmartContentRenderer } from "./SmartContentRenderer";
-import { FirefliesSummaryAccordionItems } from "./FirefliesSummaryRenderer";
-import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
+import { LoadingOverlay, Menu, Modal, Textarea } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { HTMLContent } from "./HTMLContent";
+import {
+  IconBolt,
+  IconCheck,
+  IconExternalLink,
+  IconLink,
+  IconSparkles,
+  IconX,
+} from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
+import {
+  isEmptyFirefliesSummary,
+  parseFirefliesSummary,
+} from "~/lib/fireflies-summary";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { ActionsPane } from "./transcription-detail/ActionsPane";
+import { MeetingHeader } from "./transcription-detail/MeetingHeader";
+import { Rail } from "./transcription-detail/Rail";
+import { ScreenshotsPane } from "./transcription-detail/ScreenshotsPane";
+import { SummaryPane } from "./transcription-detail/SummaryPane";
+import { TranscriptPane } from "./transcription-detail/TranscriptPane";
+import {
+  extractChapters,
+  parseTurns,
+  pickTldr,
+} from "./transcription-detail/helpers";
 import { TranscriptionDraftActionsModal } from "./TranscriptionDraftActionsModal";
 
-interface FirefliesTranscriptionData {
-  title?: string;
-  sentences: Array<{
-    text: string;
-    speaker_name: string;
-    start_time: number;
-    end_time: number;
-  }>;
-}
-
-interface ScreenshotWithTranscript {
-  screenshot: {
-    id: string;
-    url: string;
-    timestamp: string;
-    createdAt: string | Date;
-  };
-  sentences: Array<{
-    text: string;
-    speaker_name: string;
-    start_time: number;
-    end_time: number;
-  }>;
-  plainText?: string;
-  prelude?: string;
-}
-
-function buildScreenshotTranscriptPairs(
-  screenshots: Array<{ id: string; url: string; timestamp: string; createdAt: string | Date }>,
-  transcription: string | null,
-): ScreenshotWithTranscript[] {
-  if (!screenshots || screenshots.length === 0) return [];
-
-  const sorted = [...screenshots].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
-
-  // Try to parse as Fireflies JSON format
-  let firefliesData: FirefliesTranscriptionData | null = null;
-  if (transcription) {
-    try {
-      const parsed = JSON.parse(transcription) as Record<string, unknown>;
-      if (parsed.sentences && Array.isArray(parsed.sentences)) {
-        firefliesData = parsed as unknown as FirefliesTranscriptionData;
-      }
-    } catch {
-      // Not JSON, treat as plain text
-    }
-  }
-
-  if (firefliesData?.sentences && firefliesData.sentences.length > 0) {
-    const sentencesSorted = [...firefliesData.sentences].sort(
-      (a, b) => a.start_time - b.start_time,
-    );
-    const chunkSize = Math.ceil(sentencesSorted.length / sorted.length);
-
-    return sorted.map((screenshot, index) => {
-      const startIdx = index * chunkSize;
-      const endIdx = Math.min(startIdx + chunkSize, sentencesSorted.length);
-      return {
-        screenshot,
-        sentences: sentencesSorted.slice(startIdx, endIdx),
-      };
-    });
-  }
-  let prelude = "";
-  // Plain text mode: check for [SCREENSHOT] markers first
-  if (transcription) {
-    if (transcription.includes("[SCREENSHOT]")) {
-      // Split by [SCREENSHOT] markers (with surrounding whitespace and trailing dots)
-      const segments = transcription.split(/\s*\[SCREENSHOT\]\.?\s*/);
-      const markerCount = (transcription.match(/\[SCREENSHOT\]/g) ?? []).length;
-      // When fewer markers than screenshots, first screenshots get no text
-      const gap = Math.max(0, sorted.length - markerCount);
-      // segments[0] = intro text before first screenshot
-      prelude = segments[0] ? segments[0].trim() : "";
-      // segments[1..N] = text segments after each marker
-      return sorted.map((screenshot, index) => {
-        const segmentIndex = index - gap + 1;
-        let text = "";
-        if (segmentIndex >= 1 && segmentIndex < segments.length) {
-          text = segments[segmentIndex]!.trim();
-        }
-        // If last screenshot, append any remaining segments
-        if (index === sorted.length - 1) {
-          const remaining = segments.slice(Math.max(segmentIndex + 1, 1)).map(s => s.trim()).filter(Boolean);
-          if (remaining.length > 0) {
-            text = text ? `${text} ${remaining.join(" ")}` : remaining.join(" ");
-          }
-        }
-        
-        return {
-          screenshot,
-          sentences: [],
-          plainText: text || undefined,
-        };
-      });
-    }
-
-    // Fallback: split paragraphs evenly between screenshots
-    const paragraphs = transcription.split(/\n\n+/).filter((p) => p.trim());
-    if (paragraphs.length === 0) {
-      return sorted.map((screenshot) => ({
-        screenshot,
-        sentences: [],
-        plainText: transcription,
-      }));
-    }
-    const chunkSize = Math.ceil(paragraphs.length / sorted.length);
-    return sorted.map((screenshot, index) => {
-      const startIdx = index * chunkSize;
-      const endIdx = Math.min(startIdx + chunkSize, paragraphs.length);
-      return {
-        prelude: index === 0 ? prelude : undefined,
-        screenshot,
-        sentences: [],
-        plainText: paragraphs.slice(startIdx, endIdx).join("\n\n"),
-      };
-    });
-  }
-
-  return sorted.map((screenshot) => ({
-    screenshot,
-    sentences: [],
-  }));
-}
+type Tab = "summary" | "transcript" | "actions" | "screenshots";
 
 interface TranscriptionDetailsModalProps {
   opened: boolean;
@@ -169,33 +47,56 @@ export function TranscriptionDetailsModal({
   opened,
   onClose,
   transcription,
-  workflows,
-  onSyncToIntegration,
-  syncingToIntegration,
   onTranscriptionUpdate,
 }: TranscriptionDetailsModalProps) {
-  const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const { workspace } = useWorkspace();
+  const { data: authSession } = useSession();
 
-  // Edit state
+  // Refetch full data (with participants + actions) once the modal opens.
+  const { data: fresh, refetch } = api.transcription.getById.useQuery(
+    { id: transcription?.id ?? "" },
+    {
+      enabled: opened && !!transcription?.id,
+      staleTime: 30_000,
+    },
+  );
+
+  // Prefer fresh data, fall back to the prop while loading.
+  const data = useMemo(() => {
+    return fresh ?? transcription;
+  }, [fresh, transcription]);
+
+  // ---------- tab + jump state ----------
+  const [tab, setTab] = useState<Tab>("summary");
+  const [jumpToSeconds, setJumpToSeconds] = useState<number | null>(null);
+  const [draftActionsOpened, setDraftActionsOpened] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
-  const [editingDescription, setEditingDescription] = useState(false);
-  const [editingTranscription, setEditingTranscription] = useState(false);
-  const [editedDescription, setEditedDescription] = useState("");
-  const [editedTranscriptionText, setEditedTranscriptionText] = useState("");
-  const [draftActionsOpened, setDraftActionsOpened] = useState(false);
+  const [editingTranscript, setEditingTranscript] = useState(false);
+  const [editedTranscript, setEditedTranscript] = useState("");
 
-  // Update mutations
+  useEffect(() => {
+    if (!opened) {
+      setTab("summary");
+      setJumpToSeconds(null);
+      setEditingTitle(false);
+      setEditingTranscript(false);
+    }
+  }, [opened]);
+
+  // ---------- mutations ----------
+  const utils = api.useUtils();
+
   const updateTitleMutation = api.transcription.updateTitle.useMutation({
     onSuccess: (updated) => {
       notifications.show({
         title: "Saved",
-        message: "Title updated successfully",
+        message: "Title updated",
         color: "green",
       });
       setEditingTitle(false);
       onTranscriptionUpdate?.(updated);
+      void refetch();
     },
     onError: (error) => {
       notifications.show({
@@ -210,12 +111,12 @@ export function TranscriptionDetailsModal({
     onSuccess: (updated) => {
       notifications.show({
         title: "Saved",
-        message: "Changes saved successfully",
+        message: "Transcript updated",
         color: "green",
       });
-      setEditingDescription(false);
-      setEditingTranscription(false);
+      setEditingTranscript(false);
       onTranscriptionUpdate?.(updated);
+      void refetch();
     },
     onError: (error) => {
       notifications.show({
@@ -226,35 +127,32 @@ export function TranscriptionDetailsModal({
     },
   });
 
-  const utils = api.useUtils();
   const generateDraftsMutation =
     api.transcription.generateDraftActions.useMutation({
       onSuccess: (result) => {
         if (result.alreadyPublished) {
           notifications.show({
-            title: "Actions Already Created",
+            title: "Actions already created",
             message: "This meeting already has actions.",
             color: "orange",
           });
           return;
         }
-
         if (result.actionsCreated === 0 && result.draftCount === 0) {
           notifications.show({
-            title: "No Actions Found",
+            title: "No actions found",
             message: "No action items were detected in this meeting.",
             color: "gray",
           });
           return;
         }
-
         notifications.show({
-          title: "Draft Actions Ready",
-          message: "Review and edit the draft actions before creating them.",
+          title: "Draft actions ready",
+          message: "Review and edit the draft actions before saving.",
           color: "green",
         });
-
         void utils.transcription.getAllTranscriptions.invalidate();
+        void refetch();
         setDraftActionsOpened(true);
       },
       onError: (error) => {
@@ -266,806 +164,487 @@ export function TranscriptionDetailsModal({
       },
     });
 
-  const handleStartEditTitle = () => {
-    setEditedTitle(transcription?.title ?? "");
-    setEditingTitle(true);
-  };
-
-  const handleSaveTitle = () => {
-    if (!transcription) return;
-    updateTitleMutation.mutate({
-      id: transcription.id,
-      title: editedTitle,
-    });
-  };
-
-  const handleCancelEditTitle = () => {
-    setEditingTitle(false);
-    setEditedTitle("");
-  };
-
-  const handleStartEditDescription = () => {
-    setEditedDescription(transcription?.description ?? "");
-    setEditingDescription(true);
-  };
-
-  const handleSaveDescription = () => {
-    if (!transcription) return;
-    updateDetailsMutation.mutate({
-      id: transcription.id,
-      description: editedDescription,
-    });
-  };
-
-  const handleCancelEditDescription = () => {
-    setEditingDescription(false);
-    setEditedDescription("");
-  };
-
-  const handleStartEditTranscription = () => {
-    setEditedTranscriptionText(transcription?.transcription ?? "");
-    setEditingTranscription(true);
-  };
-
-  const handleSaveTranscription = () => {
-    if (!transcription) return;
-    updateDetailsMutation.mutate({
-      id: transcription.id,
-      transcription: editedTranscriptionText,
-    });
-  };
-
-  const handleCancelEditTranscription = () => {
-    setEditingTranscription(false);
-    setEditedTranscriptionText("");
-  };
-
-  const handleClose = () => {
-    setSelectedActionIds(new Set()); // Clear selection when modal closes
-    onClose();
-  };
-
-  const handleSendToNotion = () => {
-    if (!transcription || selectedActionIds.size === 0) return;
-
-    // Check if there's a project assigned
-    if (!transcription.project) {
+  const archiveMutation = api.transcription.archiveTranscription.useMutation({
+    onSuccess: () => {
       notifications.show({
-        title: 'No Project Assigned',
-        message: 'Please assign a project to this transcription first',
-        color: 'orange',
+        title: "Archived",
+        message: "Meeting moved to archive.",
+        color: "green",
+      });
+      void utils.transcription.getAllTranscriptions.invalidate();
+      onClose();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to archive",
+        color: "red",
+      });
+    },
+  });
+
+  const deleteMutation = api.transcription.deleteTranscription.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: "Deleted",
+        message: "Meeting record removed.",
+        color: "green",
+      });
+      void utils.transcription.getAllTranscriptions.invalidate();
+      onClose();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to delete",
+        color: "red",
+      });
+    },
+  });
+
+  // ---------- derived values ----------
+  const summaryData = useMemo(
+    () => (data?.summary ? parseFirefliesSummary(data.summary as string) : null),
+    [data?.summary],
+  );
+  const summaryUsable =
+    summaryData && !isEmptyFirefliesSummary(summaryData) ? summaryData : null;
+
+  const tldr = pickTldr(summaryUsable, data?.summary ?? null);
+  const chapters = extractChapters(summaryUsable);
+  const turns = useMemo(
+    () =>
+      parseTurns(
+        (data?.transcription as string | null) ?? null,
+        data?.sentencesJson,
+      ),
+    [data?.transcription, data?.sentencesJson],
+  );
+
+  const handleJumpToTimestamp = useCallback((startSeconds: number) => {
+    setTab("transcript");
+    setJumpToSeconds(startSeconds);
+  }, []);
+
+  // Build participants list. If we have structured participants, use them;
+  // otherwise derive a placeholder list from transcript speaker names so the
+  // rail isn't empty for legacy records.
+  const meEmail = authSession?.user?.email?.toLowerCase();
+  const meName = authSession?.user?.name ?? null;
+
+  const participants = useMemo(() => {
+    const raw = (data?.participants as Array<{
+      id: string;
+      name: string | null;
+      email: string;
+      isHost: boolean;
+      userId: string | null;
+    }> | undefined) ?? [];
+    if (raw.length > 0) {
+      return raw.map((p) => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        isHost: p.isHost,
+        isMe: p.email?.toLowerCase() === meEmail,
+      }));
+    }
+    // Derive from turns
+    const seen = new Map<string, { id: string; name: string; email: string }>();
+    for (const t of turns) {
+      if (!seen.has(t.speaker)) {
+        seen.set(t.speaker, {
+          id: `derived-${seen.size}`,
+          name: t.speaker,
+          email: "",
+        });
+      }
+    }
+    return [...seen.values()].map((p) => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+      isHost: false,
+      isMe:
+        !!meName && p.name.toLowerCase().includes(meName.toLowerCase().split(" ")[0]!),
+    }));
+  }, [data?.participants, turns, meEmail, meName]);
+
+  // Type pill: from Fireflies meeting_type, capitalized. Fallback "Meeting".
+  const meetingTypeLabel = useMemo(() => {
+    const t = summaryUsable?.meeting_type;
+    if (typeof t === "string" && t.trim().length > 0) return t.toUpperCase();
+    return "MEETING";
+  }, [summaryUsable]);
+
+  const sourceTitle = data?.sourceIntegration?.provider
+    ? `${capitalize(data.sourceIntegration.provider)} sync`
+    : "Manual transcript";
+  const sourceSub = data?.sourceIntegration?.name
+    ? data.sourceIntegration.name
+    : data?.createdAt
+      ? `Uploaded ${new Date(data.createdAt).toLocaleDateString()}`
+      : "—";
+
+  const links = useMemo(() => {
+    const out: Array<{
+      href: string;
+      glyph: string;
+      title: string;
+      sub: string;
+    }> = [];
+    const project = data?.project;
+    const workspaceSlug = workspace?.slug ?? data?.workspace?.slug;
+    if (project && workspaceSlug) {
+      out.push({
+        href: `/w/${workspaceSlug}/projects/${project.slug ?? project.id}`,
+        glyph: (project.name?.slice(0, 1) ?? "P").toUpperCase(),
+        title: project.name,
+        sub: "Project",
+      });
+    }
+    return out;
+  }, [data?.project, data?.workspace?.slug, workspace?.slug]);
+
+  const hasScreenshots =
+    Array.isArray(data?.screenshots) && data.screenshots.length > 0;
+
+  // Build a transcript download blob for the copy/export icon.
+  const handleCopyTranscript = useCallback(async () => {
+    const text =
+      typeof data?.transcription === "string" ? data.transcription : "";
+    if (!text) {
+      notifications.show({
+        title: "Nothing to copy",
+        message: "No transcript text available.",
+        color: "gray",
       });
       return;
     }
-
-    // Check if project is configured for Notion
-    if (transcription.project.taskManagementTool !== 'notion') {
-      const currentTool = transcription.project.taskManagementTool ?? 'internal';
+    try {
+      await navigator.clipboard.writeText(text);
       notifications.show({
-        title: 'Project Not Configured for Notion',
-        message: `This project is currently set to use "${currentTool}" task management.`,
-        color: 'orange',
+        title: "Copied",
+        message: "Transcript copied to clipboard.",
+        color: "green",
       });
-      return;
-    }
-
-    // Get the workflow ID from project configuration
-    const workflowId = transcription.project.taskManagementConfig?.workflowId as string | undefined;
-
-    if (!workflowId) {
+    } catch {
       notifications.show({
-        title: 'No Notion Workflow',
-        message: 'No Notion workflow configured for this project.',
-        color: 'orange',
+        title: "Copy failed",
+        message: "Could not access clipboard.",
+        color: "red",
       });
-      return;
     }
-
-    // Find the workflow
-    const workflow = workflows?.find((w: any) =>
-      w.id === workflowId &&
-      w.provider === 'notion' &&
-      w.status === 'ACTIVE'
-    );
-
-    if (!workflow) {
-      notifications.show({
-        title: 'Workflow Not Found',
-        message: 'The configured Notion workflow is no longer available or active.',
-        color: 'orange',
-      });
-      return;
-    }
-
-    // Show immediate feedback
-    notifications.show({
-      title: 'Sending to Notion',
-      message: `Sending ${selectedActionIds.size} actions to Notion...`,
-      color: 'blue',
-      loading: true,
-      id: 'notion-sync',
-    });
-
-    if (onSyncToIntegration) {
-      onSyncToIntegration(workflowId);
-    }
-  };
+  }, [data?.transcription]);
 
   if (!transcription) return null;
-
-  const handleOpenDraftActions = () => {
-    if (transcription.actionsSavedAt) {
-      setDraftActionsOpened(true);
-      return;
-    }
-
-    generateDraftsMutation.mutate({ transcriptionId: transcription.id });
-  };
-
-  // Build screenshot-transcript pairs at component level for lightbox access
-  const hasScreenshots = transcription.screenshots && transcription.screenshots.length > 0;
-  const screenshotPairs = hasScreenshots && transcription.transcription
-    ? buildScreenshotTranscriptPairs(
-        transcription.screenshots as Array<{ id: string; url: string; timestamp: string; createdAt: string | Date }>,
-        transcription.transcription as string,
-      )
-    : [];
-
-  const openLightbox = (index: number) => setLightboxIndex(index);
-  const closeLightbox = () => setLightboxIndex(null);
-  const goToPrev = () => setLightboxIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev));
-  const goToNext = () => setLightboxIndex((prev) => (prev !== null && prev < screenshotPairs.length - 1 ? prev + 1 : prev));
-
-  // Find pair index by screenshot id (for Screenshots section)
-  const findPairIndex = (screenshotId: string) =>
-    screenshotPairs.findIndex((p) => p.screenshot.id === screenshotId);
-
-  // Determine which accordion sections to open by default
-  const defaultOpenSections = ['description'];
-  if (hasScreenshots && transcription.transcription) {
-    defaultOpenSections.push('transcription-screenshots');
-  } else if (transcription.transcription) {
-    defaultOpenSections.push('transcription');
-  }
 
   return (
     <Modal
       opened={opened}
-      onClose={handleClose}
-      title={
-        <Group gap="md">
-          <Title order={4}>{transcription.title ?? 'Meeting Details'}</Title>
-          <Badge variant="light" color="blue">
-            {transcription.sessionId}
-          </Badge>
-        </Group>
-      }
+      onClose={onClose}
       fullScreen
-      transitionProps={{ transition: 'fade', duration: 200 }}
+      withCloseButton={false}
+      padding={0}
+      transitionProps={{ transition: "fade", duration: 200 }}
+      styles={{
+        body: { padding: 0, height: "100vh" },
+        content: { backgroundColor: "var(--color-bg-secondary)" },
+      }}
     >
-      <ScrollArea h="calc(100vh - 100px)">
-        <Stack gap="md" p="md">
-          {/* Session Information */}
-          <Paper p="md" radius="sm" className="bg-surface-secondary">
-            <Stack gap="sm">
-              <Group justify="space-between">
-                {editingTitle ? (
-                  <Group gap="xs" style={{ flex: 1 }}>
-                    <TextInput
-                      value={editedTitle}
-                      onChange={(e) => setEditedTitle(e.currentTarget.value)}
-                      placeholder="Enter title..."
-                      style={{ flex: 1 }}
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleSaveTitle();
-                        } else if (e.key === "Escape") {
-                          handleCancelEditTitle();
-                        }
-                      }}
-                    />
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      onClick={handleCancelEditTitle}
-                      disabled={updateTitleMutation.isPending}
-                    >
-                      <IconX size={18} />
-                    </ActionIcon>
-                    <ActionIcon
-                      variant="filled"
-                      color="blue"
-                      onClick={handleSaveTitle}
-                      loading={updateTitleMutation.isPending}
-                    >
-                      <IconCheck size={18} />
-                    </ActionIcon>
-                  </Group>
-                ) : (
-                  <Group gap="xs">
-                    <Title order={5}>
-                      {transcription.title ?? "Untitled Meeting"}
-                    </Title>
-                    <ActionIcon
-                      variant="subtle"
-                      size="sm"
-                      onClick={handleStartEditTitle}
-                    >
-                      <IconPencil size={16} />
-                    </ActionIcon>
-                  </Group>
-                )}
-                {transcription.sourceIntegration && (
-                  <Badge variant="outline" color="gray">
-                    {transcription.sourceIntegration.provider}
-                    {transcription.sourceIntegration.name && ` (${transcription.sourceIntegration.name})`}
-                  </Badge>
-                )}
-              </Group>
+      <div className="mdm">
+        <MeetingHeader
+          title={data?.title ?? null}
+          sessionId={data?.sessionId ?? "—"}
+          meetingTypeLabel={meetingTypeLabel}
+          meetingDate={data?.meetingDate ?? data?.createdAt ?? null}
+          durationSeconds={data?.durationSeconds ?? null}
+          participantCount={participants.length}
+          projectName={data?.project?.name ?? null}
+          workspaceName={data?.workspace?.name ?? workspace?.name ?? null}
+          editingTitle={editingTitle}
+          editedTitle={editedTitle}
+          onEditedTitleChange={setEditedTitle}
+          onStartEditTitle={() => {
+            setEditedTitle(data?.title ?? "");
+            setEditingTitle(true);
+          }}
+          onSaveTitle={() => {
+            if (!data?.id) return;
+            updateTitleMutation.mutate({
+              id: data.id,
+              title: editedTitle,
+            });
+          }}
+          onCancelEditTitle={() => {
+            setEditingTitle(false);
+            setEditedTitle("");
+          }}
+          isSavingTitle={updateTitleMutation.isPending}
+          onClose={onClose}
+        />
 
-              {transcription.meetingDate && (
-                <Text size="sm" c="dimmed">
-                  <strong>Meeting Date:</strong> {new Date(transcription.meetingDate).toLocaleString()}
-                </Text>
-              )}
-            </Stack>
-          </Paper>
+        <div
+          className={`mdm-body ${hasScreenshots ? "" : ""}`}
+        >
+          <div className="mdm-main">
+            <TabsBar
+              tab={tab}
+              setTab={setTab}
+              counts={{
+                transcript: turns.length,
+                actions: data?.actions?.length ?? 0,
+                screenshots: data?.screenshots?.length ?? 0,
+              }}
+              showScreenshots={hasScreenshots}
+              onCopyTranscript={() => void handleCopyTranscript()}
+              onEditTranscript={() => {
+                setEditedTranscript(data?.transcription ?? "");
+                setEditingTranscript(true);
+                setTab("transcript");
+              }}
+            />
 
-          {transcription.project && (
-            <Paper p="md" radius="sm" className="bg-surface-secondary">
-              <Stack gap="sm">
-                <Title order={5}>Assigned Project</Title>
-                <Group>
-                  <Badge variant="filled" color="blue">
-                    {transcription.project.name}
-                  </Badge>
-                </Group>
-              </Stack>
-            </Paper>
-          )}
-
-          {/* Accordion for main content sections */}
-          <Accordion multiple defaultValue={defaultOpenSections}>
-            {/* 1. Description Section */}
-            <Accordion.Item value="description">
-              <Accordion.Control>
-                <Group justify="space-between" style={{ width: '100%' }}>
-                  <Title order={5}>Description</Title>
-                  {!editingDescription && (
-                    <ActionIcon
-                      variant="subtle"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStartEditDescription();
-                      }}
-                    >
-                      <IconPencil size={16} />
-                    </ActionIcon>
-                  )}
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                <Paper p="md" radius="sm" className="bg-surface-tertiary">
-                  {editingDescription ? (
-                    <Stack gap="sm">
-                      <Textarea
-                        value={editedDescription}
-                        onChange={(e) => setEditedDescription(e.currentTarget.value)}
-                        minRows={6}
-                        autosize
-                        maxRows={20}
-                        placeholder="Enter description..."
-                      />
-                      <Group justify="flex-end" gap="xs">
-                        <ActionIcon
-                          variant="subtle"
-                          color="gray"
-                          onClick={handleCancelEditDescription}
-                          disabled={updateDetailsMutation.isPending}
-                        >
-                          <IconX size={18} />
-                        </ActionIcon>
-                        <ActionIcon
-                          variant="filled"
-                          color="blue"
-                          onClick={handleSaveDescription}
-                          loading={updateDetailsMutation.isPending}
-                        >
-                          <IconCheck size={18} />
-                        </ActionIcon>
-                      </Group>
-                    </Stack>
-                  ) : transcription.description ? (
-                    <SmartContentRenderer content={transcription.description} />
-                  ) : (
-                    <Text size="sm" c="dimmed" fs="italic">
-                      No description. Click the edit icon to add one.
-                    </Text>
-                  )}
-                </Paper>
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            {/* 2. Transcription with Screenshots Section */}
-            {screenshotPairs.length > 0 && (
-              <Accordion.Item value="transcription-screenshots">
-                <Accordion.Control>
-                  <Group justify="space-between" style={{ width: '100%' }}>
-                    <Title order={5}>Transcription with Screenshots</Title>
-                  </Group>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <Text mb="xl">{(transcription.transcription as string).substring(0, (transcription.transcription as string).indexOf("[SCREENSHOT]")).trim()}</Text>
-                  <Stack gap="lg">
-                    {screenshotPairs.map((pair, index) => (
-                      <div key={pair.screenshot.id} className="flex gap-4">
-                        <div className="shrink-0">
-                          <div
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openLightbox(index)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLightbox(index); }}
-                            className="cursor-pointer"
-                          >
-                            <Image
-                              src={pair.screenshot.url}
-                              alt={`Screenshot ${index + 1}`}
-                              w={200}
-                              h={150}
-                              fit="cover"
-                              radius="sm"
-                              className="transition-opacity hover:opacity-80"
-                            />
-                          </div>
-                          <Text size="xs" c="dimmed" mt={4} ta="center">
-                            {pair.screenshot.timestamp}
-                          </Text>
-                        </div>
-                        <Paper
-                          p="md"
-                          radius="sm"
-                          className="bg-surface-tertiary flex-1"
-                          style={{ minHeight: 150 }}
-                        >
-                          {pair.sentences.length > 0 ? (
-                            <Stack gap="xs">
-                              {pair.sentences.map((sentence, sIdx) => (
-                                <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
-                                  <Badge
-                                    size="xs"
-                                    variant="light"
-                                    color="blue"
-                                    style={{ minWidth: "fit-content" }}
-                                  >
-                                    {sentence.speaker_name}
-                                  </Badge>
-                                  <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                                    {sentence.text}
-                                  </Text>
-                                </Group>
-                              ))}
-                            </Stack>
-                          ) : pair.plainText ? (
-                            <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                              {pair.plainText}
-                            </Text>
-                          ) : (
-                            <Text size="sm" c="dimmed" fs="italic">
-                              No transcription text for this segment.
-                            </Text>
-                          )}
-                        </Paper>
-                      </div>
-                    ))}
-                  </Stack>
-                </Accordion.Panel>
-              </Accordion.Item>
+            {tab === "summary" && (
+              <SummaryPane
+                tldr={tldr}
+                chapters={chapters}
+                onJumpToTimestamp={handleJumpToTimestamp}
+              />
             )}
-
-            {/* 3. Transcription only Section */}
-            <Accordion.Item value="transcription">
-              <Accordion.Control>
-                <Group justify="space-between" style={{ width: '100%' }}>
-                  <Title order={5}>Transcription only</Title>
-                  {!editingTranscription && (
-                    <ActionIcon
-                      variant="subtle"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStartEditTranscription();
-                      }}
-                    >
-                      <IconPencil size={16} />
-                    </ActionIcon>
-                  )}
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                {editingTranscription ? (
-                  <Stack gap="sm">
+            {tab === "transcript" &&
+              (editingTranscript ? (
+                <div className="mdm-pane">
+                  <div className="mdm-transcript">
                     <Textarea
-                      value={editedTranscriptionText}
-                      onChange={(e) => setEditedTranscriptionText(e.currentTarget.value)}
-                      minRows={10}
                       autosize
+                      minRows={10}
                       maxRows={30}
-                      placeholder="Enter transcription..."
+                      value={editedTranscript}
+                      onChange={(e) =>
+                        setEditedTranscript(e.currentTarget.value)
+                      }
                       styles={{
-                        input: {
-                          fontFamily: 'monospace',
-                          fontSize: '13px',
-                        },
+                        input: { fontFamily: "monospace", fontSize: 13 },
                       }}
                     />
-                    <Group justify="flex-end" gap="xs">
-                      <ActionIcon
-                        variant="subtle"
-                        color="gray"
-                        onClick={handleCancelEditTranscription}
-                        disabled={updateDetailsMutation.isPending}
+                    <div className="flex gap-2 justify-end mt-3">
+                      <button
+                        className="mdm-rail__quick-btn"
+                        style={{ width: "auto", padding: "6px 12px" }}
+                        onClick={() => setEditingTranscript(false)}
                       >
-                        <IconX size={18} />
-                      </ActionIcon>
-                      <ActionIcon
-                        variant="filled"
-                        color="blue"
-                        onClick={handleSaveTranscription}
-                        loading={updateDetailsMutation.isPending}
+                        <IconX size={13} /> Cancel
+                      </button>
+                      <button
+                        className="mdm-rail__quick-btn"
+                        style={{
+                          width: "auto",
+                          padding: "6px 12px",
+                          color: "var(--color-text-primary)",
+                          borderColor: "var(--brand-500)",
+                          background: "var(--brand-500)",
+                        }}
+                        onClick={() => {
+                          if (!data?.id) return;
+                          updateDetailsMutation.mutate({
+                            id: data.id,
+                            transcription: editedTranscript,
+                          });
+                        }}
                       >
-                        <IconCheck size={18} />
-                      </ActionIcon>
-                    </Group>
-                  </Stack>
-                ) : transcription.transcription ? (
-                  <div
-                    style={{
-                      maxHeight: '500px',
-                      overflowY: 'auto',
-                      paddingRight: '8px',
-                      scrollbarWidth: 'thin',
-                      scrollbarColor: 'var(--border-primary) transparent',
-                    }}
-                    className="scrollable-transcription"
-                  >
-                    <TranscriptionRenderer
-                      transcription={transcription.transcription}
-                      provider={transcription.sourceIntegration?.provider}
-                      isPreview={false}
-                    />
+                        <IconCheck size={13} /> Save
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <Text size="sm" c="dimmed" fs="italic">
-                    No transcription. Click the edit icon to add one.
-                  </Text>
-                )}
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            {/* 4. Associated Actions Section */}
-            <Accordion.Item value="actions">
-              <Accordion.Control>
-                <Group justify="space-between" style={{ width: '100%' }}>
-                  <Title order={5}>Associated Actions</Title>
-                  <Badge variant="light" color="blue" size="sm">
-                    {transcription.actions?.length ?? 0}
-                  </Badge>
-                </Group>
-              </Accordion.Control>
-              <Accordion.Panel>
-                <Stack gap="sm">
-                  <Group justify="space-between">
-                    <Group gap="xs">
-                      <Button size="xs" variant="light">
-                        Create Action
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="filled"
-                        color="blue"
-                        leftSection={<IconPlayerPlay size={14} />}
-                        onClick={handleOpenDraftActions}
-                        loading={generateDraftsMutation.isPending}
-                      >
-                        {transcription.actionsSavedAt
-                          ? "Review Draft Actions"
-                          : "Generate Draft Actions"}
-                      </Button>
-                    </Group>
-                    {selectedActionIds.size > 0 && onSyncToIntegration && (
-                      <Button
-                        size="xs"
-                        variant="filled"
-                        color="gray"
-                        onClick={handleSendToNotion}
-                        loading={syncingToIntegration === transcription?.id}
-                      >
-                        Send {selectedActionIds.size} to Notion
-                      </Button>
-                    )}
-                  </Group>
-                  {transcription.actions && transcription.actions.length > 0 ? (
-                    <Stack gap="xs">
-                      {transcription.actions.map((action: any) => (
-                        <Paper
-                          key={action.id}
-                          p="sm"
-                          radius="sm"
-                          withBorder
-                          className="hover:shadow-sm transition-shadow"
-                        >
-                          <Group>
-                            <Checkbox
-                              checked={selectedActionIds.has(action.id)}
-                              onChange={(event) => {
-                                const newSelectedIds = new Set(selectedActionIds);
-                                if (event.currentTarget.checked) {
-                                  newSelectedIds.add(action.id);
-                                } else {
-                                  newSelectedIds.delete(action.id);
-                                }
-                                setSelectedActionIds(newSelectedIds);
-                              }}
-                            />
-                            <Stack gap={4} style={{ flex: 1 }}>
-                              <Text size="sm" fw={500}>
-                                <HTMLContent html={action.name} compactUrls />
-                              </Text>
-                              {action.description && (
-                                <Text size="xs" c="dimmed">
-                                  {action.description}
-                                </Text>
-                              )}
-                              <Group gap="xs">
-                                {action.priority && (
-                                  <Badge size="xs" variant="light" color="blue">
-                                    {action.priority}
-                                  </Badge>
-                                )}
-                                {action.dueDate && (
-                                  <Badge size="xs" variant="light" color="red">
-                                    Due: {new Date(action.dueDate).toLocaleDateString()}
-                                  </Badge>
-                                )}
-                                <Badge size="xs" variant="light" color={action.status === 'COMPLETED' ? 'green' : 'gray'}>
-                                  {action.status}
-                                </Badge>
-                              </Group>
-                            </Stack>
-                          </Group>
-                        </Paper>
-                      ))}
-                    </Stack>
-                  ) : (
-                    <Text size="sm" c="dimmed" ta="center" py="md">
-                      No actions associated with this transcription yet.
-                    </Text>
-                  )}
-                </Stack>
-              </Accordion.Panel>
-            </Accordion.Item>
-
-            {/* 5. Screenshots Section */}
-            {transcription.screenshots && transcription.screenshots.length > 0 && (
-              <Accordion.Item value="screenshots">
-                <Accordion.Control>
-                  <Group justify="space-between" style={{ width: '100%' }}>
-                    <Title order={5}>Screenshots</Title>
-                    <Badge variant="light" color="green" size="sm">
-                      {transcription.screenshots.length}
-                    </Badge>
-                  </Group>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <div className="flex flex-wrap gap-3">
-                    {transcription.screenshots.map((screenshot: any) => {
-                      const pairIdx = findPairIndex(screenshot.id as string);
-                      return pairIdx >= 0 ? (
-                        <div
-                          key={screenshot.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openLightbox(pairIdx)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLightbox(pairIdx); }}
-                          className="block shrink-0 cursor-pointer"
-                        >
-                          <Image
-                            src={screenshot.url as string}
-                            alt={`Screenshot from ${screenshot.timestamp}`}
-                            w={100}
-                            h={75}
-                            fit="cover"
-                            radius="sm"
-                            className="transition-opacity hover:opacity-80"
-                          />
-                        </div>
-                      ) : (
-                        <a
-                          key={screenshot.id}
-                          href={screenshot.url as string}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block shrink-0"
-                        >
-                          <Image
-                            src={screenshot.url as string}
-                            alt={`Screenshot from ${screenshot.timestamp}`}
-                            w={100}
-                            h={75}
-                            fit="cover"
-                            radius="sm"
-                            className="cursor-pointer transition-opacity hover:opacity-80"
-                          />
-                        </a>
-                      );
-                    })}
-                  </div>
-                </Accordion.Panel>
-              </Accordion.Item>
+                </div>
+              ) : (
+                <TranscriptPane
+                  turns={turns}
+                  chapters={chapters}
+                  meName={meName}
+                  jumpToSeconds={jumpToSeconds}
+                  onJumpHandled={() => setJumpToSeconds(null)}
+                />
+              ))}
+            {tab === "actions" && (
+              <ActionsPane
+                actions={(data?.actions as any[]) ?? []}
+                processedAt={data?.processedAt ?? null}
+                actionsSavedAt={data?.actionsSavedAt ?? null}
+                onGenerateOrReview={() => {
+                  if (data?.actionsSavedAt) {
+                    setDraftActionsOpened(true);
+                  } else if (data?.id) {
+                    generateDraftsMutation.mutate({
+                      transcriptionId: data.id,
+                    });
+                  }
+                }}
+                isGenerating={generateDraftsMutation.isPending}
+                onCreateAction={() => {
+                  notifications.show({
+                    title: "Coming soon",
+                    message: "Manual action creation will land in a follow-up.",
+                    color: "blue",
+                  });
+                }}
+              />
             )}
+            {tab === "screenshots" && hasScreenshots && (
+              <ScreenshotsPane
+                screenshots={data.screenshots}
+                transcription={(data?.transcription as string | null) ?? null}
+              />
+            )}
+          </div>
 
-            {/* Summary Sections */}
-            {transcription.summary && (() => {
-              const summaryData = parseFirefliesSummary(transcription.summary);
+          <Rail
+            participants={participants}
+            analyticsJson={data?.analyticsJson}
+            links={links}
+            sourceTitle={sourceTitle}
+            sourceSub={sourceSub}
+            onShare={() => {
+              const url =
+                typeof window !== "undefined" ? window.location.href : "";
+              if (!url) return;
+              void navigator.clipboard
+                .writeText(url)
+                .then(() =>
+                  notifications.show({
+                    title: "Link copied",
+                    message: "Share URL copied to clipboard.",
+                    color: "green",
+                  }),
+                )
+                .catch(() => undefined);
+            }}
+            onArchive={() => {
+              if (!data?.id) return;
+              archiveMutation.mutate({ id: data.id });
+            }}
+            onDelete={() => {
+              if (!data?.id) return;
+              if (
+                typeof window !== "undefined" &&
+                !window.confirm(
+                  "Delete this meeting record? Linked actions will be unlinked.",
+                )
+              )
+                return;
+              deleteMutation.mutate({ id: data.id });
+            }}
+          />
+        </div>
 
-              if (!summaryData) {
-                return (
-                  <Accordion.Item value="summary">
-                    <Accordion.Control>
-                      <Title order={5}>Summary</Title>
-                    </Accordion.Control>
-                    <Accordion.Panel>
-                      <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                        {transcription.summary}
-                      </Text>
-                    </Accordion.Panel>
-                  </Accordion.Item>
-                );
-              }
+        <LoadingOverlay
+          visible={
+            (opened && !data) ||
+            archiveMutation.isPending ||
+            deleteMutation.isPending
+          }
+          zIndex={5}
+          overlayProps={{ blur: 1, backgroundOpacity: 0.4 }}
+        />
+      </div>
 
-              if (isEmptyFirefliesSummary(summaryData)) return null;
-
-              return <FirefliesSummaryAccordionItems summary={summaryData} />;
-            })()}
-          </Accordion>
-
-          {/* Metadata Footer */}
-          <Paper p="md" radius="sm" className="bg-surface-secondary">
-            <Group gap="md" wrap="wrap">
-              <Text size="sm">
-                <strong>Created:</strong>{" "}
-                {new Date(transcription.createdAt).toLocaleString()}
-              </Text>
-              <Text size="sm">
-                <strong>Updated:</strong>{" "}
-                {new Date(transcription.updatedAt).toLocaleString()}
-              </Text>
-              {transcription.sourceIntegration && (
-                <Text size="sm">
-                  <strong>Source:</strong> {transcription.sourceIntegration.provider}
-                  {transcription.sourceIntegration.name && ` (${transcription.sourceIntegration.name})`}
-                </Text>
-              )}
-            </Group>
-          </Paper>
-        </Stack>
-      </ScrollArea>
       <TranscriptionDraftActionsModal
         opened={draftActionsOpened}
-        onClose={() => setDraftActionsOpened(false)}
-        transcriptionId={transcription.id}
-      />
-
-      {/* Screenshot Lightbox */}
-      <Modal
-        opened={lightboxIndex !== null}
-        onClose={closeLightbox}
-        size="xl"
-        centered
-        padding={0}
-        withCloseButton={false}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowLeft') goToPrev();
-          else if (e.key === 'ArrowRight') goToNext();
-          else if (e.key === 'Escape') closeLightbox();
+        onClose={() => {
+          setDraftActionsOpened(false);
+          void refetch();
         }}
-      >
-        {lightboxIndex !== null && screenshotPairs[lightboxIndex] && (() => {
-          const pair = screenshotPairs[lightboxIndex];
-          return (
-            <Stack gap={0}>
-              <div className="relative">
-                <Image
-                  src={pair.screenshot.url}
-                  alt={`Screenshot ${lightboxIndex + 1}`}
-                  fit="contain"
-                  style={{ maxHeight: '60vh' }}
-                />
-                {/* Navigation overlay */}
-                <Group
-                  justify="space-between"
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: 0,
-                    right: 0,
-                    transform: 'translateY(-50%)',
-                    pointerEvents: 'none',
-                    padding: '0 8px',
-                  }}
-                >
-                  <ActionIcon
-                    variant="filled"
-                    size="lg"
-                    radius="xl"
-                    onClick={goToPrev}
-                    disabled={lightboxIndex === 0}
-                    style={{ pointerEvents: 'auto', opacity: lightboxIndex === 0 ? 0.3 : 0.8 }}
-                    className="bg-surface-secondary"
-                  >
-                    <IconChevronLeft size={20} />
-                  </ActionIcon>
-                  <ActionIcon
-                    variant="filled"
-                    size="lg"
-                    radius="xl"
-                    onClick={goToNext}
-                    disabled={lightboxIndex === screenshotPairs.length - 1}
-                    style={{ pointerEvents: 'auto', opacity: lightboxIndex === screenshotPairs.length - 1 ? 0.3 : 0.8 }}
-                    className="bg-surface-secondary"
-                  >
-                    <IconChevronRight size={20} />
-                  </ActionIcon>
-                </Group>
-                {/* Counter badge */}
-                <Badge
-                  variant="filled"
-                  size="sm"
-                  style={{ position: 'absolute', top: 8, right: 8, opacity: 0.8 }}
-                  className="bg-surface-secondary text-text-primary"
-                >
-                  {lightboxIndex + 1} / {screenshotPairs.length}
-                </Badge>
-              </div>
-              {/* Associated text below the image */}
-              <Paper p="md" className="bg-surface-secondary">
-                <Text size="xs" c="dimmed" mb="xs">
-                  {pair.screenshot.timestamp}
-                </Text>
-                {pair.sentences.length > 0 ? (
-                  <Stack gap="xs">
-                    {pair.sentences.map((sentence, sIdx) => (
-                      <Group key={sIdx} align="flex-start" gap="sm" wrap="nowrap">
-                        <Badge
-                          size="xs"
-                          variant="light"
-                          color="blue"
-                          style={{ minWidth: "fit-content" }}
-                        >
-                          {sentence.speaker_name}
-                        </Badge>
-                        <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                          {sentence.text}
-                        </Text>
-                      </Group>
-                    ))}
-                  </Stack>
-                ) : pair.plainText ? (
-                  <Text size="sm" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                    {pair.plainText}
-                  </Text>
-                ) : (
-                  <Text size="sm" c="dimmed" fs="italic">
-                    No transcription text for this segment.
-                  </Text>
-                )}
-              </Paper>
-            </Stack>
-          );
-        })()}
-      </Modal>
+        transcriptionId={data?.id ?? ""}
+      />
     </Modal>
   );
+}
+
+interface TabsBarProps {
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  counts: { transcript: number; actions: number; screenshots: number };
+  showScreenshots: boolean;
+  onCopyTranscript: () => void;
+  onEditTranscript: () => void;
+}
+
+function TabsBar({
+  tab,
+  setTab,
+  counts,
+  showScreenshots,
+  onCopyTranscript,
+  onEditTranscript,
+}: TabsBarProps) {
+  return (
+    <div className="mdm-tabs">
+      <button
+        type="button"
+        className={`mdm-tab ${tab === "summary" ? "is-active" : ""}`}
+        onClick={() => setTab("summary")}
+      >
+        <IconSparkles size={14} />
+        Summary
+      </button>
+      <button
+        type="button"
+        className={`mdm-tab ${tab === "transcript" ? "is-active" : ""}`}
+        onClick={() => setTab("transcript")}
+      >
+        <IconLink size={14} />
+        Transcript
+        <span className="mdm-tab__count">{counts.transcript}</span>
+      </button>
+      <button
+        type="button"
+        className={`mdm-tab ${tab === "actions" ? "is-active" : ""}`}
+        onClick={() => setTab("actions")}
+      >
+        <IconCheck size={14} />
+        Actions
+        <span className="mdm-tab__count">{counts.actions}</span>
+      </button>
+      {showScreenshots && (
+        <button
+          type="button"
+          className={`mdm-tab ${tab === "screenshots" ? "is-active" : ""}`}
+          onClick={() => setTab("screenshots")}
+        >
+          <IconBolt size={14} />
+          Screenshots
+          <span className="mdm-tab__count">{counts.screenshots}</span>
+        </button>
+      )}
+      <div className="flex-1" />
+      <div
+        className="flex items-center gap-1 pb-2"
+      >
+        <Menu position="bottom-end" shadow="md">
+          <Menu.Target>
+            <button className="mdm-icon-btn" aria-label="More">
+              <IconLink size={14} />
+            </button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item leftSection={<IconLink size={13} />} onClick={onCopyTranscript}>
+              Copy transcript
+            </Menu.Item>
+            <Menu.Item
+              leftSection={<IconExternalLink size={13} />}
+              onClick={onEditTranscript}
+            >
+              Edit transcript text
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </div>
+    </div>
+  );
+}
+
+function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

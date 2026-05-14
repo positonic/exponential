@@ -22,14 +22,18 @@ import {
 import {
   IconAdjustments,
   IconBulb,
+  IconDots,
   IconFilter,
   IconLayoutGrid,
   IconList,
+  IconPencil,
   IconPlus,
 } from "@tabler/icons-react";
+import { Menu } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
+import { EditFeatureModal } from "~/app/_components/product/EditFeatureModal";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -125,6 +129,7 @@ export default function FeaturesListPage() {
   const params = useParams();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
+  const [editFeatureId, setEditFeatureId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortField] = useState<SortField>("status");
   const [sortDir] = useState<SortDir>("asc");
@@ -188,7 +193,7 @@ export default function FeaturesListPage() {
     <Link
       key={feature.id}
       href={`${basePath}/${feature.id}`}
-      className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover transition-colors border-b border-border-primary"
+      className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover transition-colors border-b border-border-primary cursor-pointer text-text-primary no-underline"
     >
       <Badge size="xs" variant="light" color={STATUS_COLORS[feature.status] ?? "gray"} className="shrink-0">
         {STATUS_LABELS[feature.status] ?? feature.status}
@@ -207,6 +212,30 @@ export default function FeaturesListPage() {
       <Text size="xs" className="text-text-muted shrink-0">
         {feature._count.tickets} tickets
       </Text>
+      <Menu position="bottom-end" withinPortal>
+        <Menu.Target>
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            className="shrink-0 text-text-muted hover:text-text-primary"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            aria-label="Feature actions"
+          >
+            <IconDots size={14} />
+          </ActionIcon>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item
+            leftSection={<IconPencil size={14} />}
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              setEditFeatureId(feature.id);
+            }}
+          >
+            Edit
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
     </Link>
   );
 
@@ -412,6 +441,15 @@ export default function FeaturesListPage() {
               </Button>
             )
           }
+        />
+      )}
+
+      {editFeatureId && (
+        <EditFeatureModal
+          opened={editFeatureId !== null}
+          onClose={() => setEditFeatureId(null)}
+          featureId={editFeatureId}
+          workspaceId={workspaceId ?? undefined}
         />
       )}
     </Stack>

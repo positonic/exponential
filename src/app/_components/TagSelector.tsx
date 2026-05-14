@@ -35,9 +35,22 @@ interface TagSelectorProps {
   selectedTagIds: string[];
   onChange: (tagIds: string[]) => void;
   workspaceId?: string;
+  /**
+   * Restrict listed tags to this category, and stamp the same category
+   * onto newly-created tags from the inline create flow.
+   * - `undefined` (default): no filter — list every tag.
+   * - `string`: only tags whose `category` equals this value.
+   * - `null`: only tags whose `category` is null (i.e. general labels).
+   */
+  categoryFilter?: string | null;
 }
 
-export function TagSelector({ selectedTagIds = [], onChange, workspaceId }: TagSelectorProps) {
+export function TagSelector({
+  selectedTagIds = [],
+  onChange,
+  workspaceId,
+  categoryFilter,
+}: TagSelectorProps) {
   const [opened, setOpened] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newTagName, setNewTagName] = useState('');
@@ -49,7 +62,10 @@ export function TagSelector({ selectedTagIds = [], onChange, workspaceId }: TagS
   const utils = api.useUtils();
 
   const { data: tags, isLoading } = api.tag.list.useQuery(
-    { workspaceId: effectiveWorkspaceId },
+    {
+      workspaceId: effectiveWorkspaceId,
+      ...(categoryFilter !== undefined ? { category: categoryFilter } : {}),
+    },
     { enabled: true }
   );
 
@@ -73,6 +89,7 @@ export function TagSelector({ selectedTagIds = [], onChange, workspaceId }: TagS
       name: newTagName.trim(),
       color: newTagColor,
       workspaceId: effectiveWorkspaceId,
+      ...(categoryFilter !== undefined ? { category: categoryFilter } : {}),
     });
   };
 

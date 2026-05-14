@@ -11,7 +11,11 @@ import {
   generateSecureToken,
   generateInviteUrl,
 } from "~/server/utils/tokens";
-import { sendTeamInvitationEmail } from "~/server/services/EmailService";
+import {
+  sendTeamInvitationEmail,
+  sendWorkspaceMemberAddedEmail,
+} from "~/server/services/EmailService";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
@@ -574,6 +578,39 @@ export const workspaceRouter = createTRPCRouter({
             },
           },
         });
+
+        // Fire-and-forget: notify the user that they've been added
+        if (newMember.user.email) {
+          const workspace = await ctx.db.workspace.findUnique({
+            where: { id: input.workspaceId },
+            select: { name: true, slug: true },
+          });
+          if (!workspace?.slug) {
+            console.warn(
+              "[workspace.addMember] Skipping member-added email: workspace or slug missing",
+              {
+                workspaceId: input.workspaceId,
+                recipientEmail: newMember.user.email,
+              },
+            );
+          } else {
+            const workspaceUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            sendWorkspaceMemberAddedEmail({
+              to: newMember.user.email,
+              workspaceName: workspace.name ?? "a workspace",
+              inviterName:
+                ctx.session.user.name ??
+                ctx.session.user.email ??
+                "A workspace member",
+              workspaceUrl,
+            }).catch((err: unknown) => {
+              console.error(
+                "[workspace.addMember] Failed to send member-added email:",
+                err,
+              );
+            });
+          }
+        }
 
         return { type: "member_added" as const, member: newMember };
       } else {

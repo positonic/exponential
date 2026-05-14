@@ -2521,6 +2521,124 @@ export const actionRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Search actions by title for the time-tracking plugin autocomplete.
+   *
+   * Workspace-scoped, user-access-scoped via the standard action access where.
+   * Status filter (default): open kanban statuses (TODO, IN_PROGRESS, IN_REVIEW,
+   * BACKLOG) + actions with no kanbanStatus (the v1 plugin-created actions) +
+   * DONE actions touched in the last 30 days. CANCELLED always excluded.
+   *
+   * Match: case-insensitive `startsWith` first; if the result set is smaller
+   * than the limit, top it up with `contains` matches (prefix-with-fallback).
+   */
+  searchByTitle: apiKeyMiddleware
+    .input(
+      z.object({
+        workspaceId: z.string().optional(),
+        query: z.string().min(1),
+        statuses: z.array(z.enum([
+          "BACKLOG",
+          "TODO",
+          "IN_PROGRESS",
+          "IN_REVIEW",
+          "DONE",
+        ])).optional(),
+        limit: z.number().int().min(1).max(50).default(10),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      const statusFilter: Prisma.ActionWhereInput = input.statuses
+        ? {
+            OR: [
+              ...(input.statuses.includes("DONE")
+                ? [
+                    {
+                      kanbanStatus: "DONE" as const,
+                      completedAt: { gte: thirtyDaysAgo },
+                    },
+                  ]
+                : []),
+              {
+                kanbanStatus: {
+                  in: input.statuses.filter((s) => s !== "DONE"),
+                },
+              },
+            ],
+          }
+        : {
+            OR: [
+              {
+                kanbanStatus: {
+                  in: ["TODO", "IN_PROGRESS", "IN_REVIEW", "BACKLOG"],
+                },
+              },
+              { kanbanStatus: null },
+              {
+                kanbanStatus: "DONE",
+                completedAt: { gte: thirtyDaysAgo },
+              },
+            ],
+          };
+
+      // Compose the workspace + access scope. Restricting to the apiKey user's
+      // accessible actions reuses `buildActionAccessWhere` for parity with the
+      // rest of the action router. CANCELLED is excluded implicitly by the
+      // kanban statusFilter (its allowed-list never includes CANCELLED). An
+      // explicit `status` guard keeps DRAFT and legacy COMPLETED actions out
+      // of autocomplete results — both are valid Action.status values in this
+      // codebase but neither is a valid pick for "track time against".
+      const baseWhere: Prisma.ActionWhereInput = {
+        AND: [
+          ...(input.workspaceId ? [{ workspaceId: input.workspaceId }] : []),
+          buildActionAccessWhere(ctx.userId),
+          { status: { notIn: ["DRAFT", "COMPLETED"] } },
+          statusFilter,
+        ],
+      };
+
+      const select = {
+        id: true,
+        name: true,
+        kanbanStatus: true,
+        projectId: true,
+        workspaceId: true,
+        project: { select: { id: true, name: true } },
+      } satisfies Prisma.ActionSelect;
+
+      const prefixMatches = await ctx.db.action.findMany({
+        where: {
+          ...baseWhere,
+          name: { startsWith: input.query, mode: "insensitive" },
+        },
+        take: input.limit,
+        orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+        select,
+      });
+
+      if (prefixMatches.length >= input.limit) {
+        return prefixMatches;
+      }
+
+      const remaining = input.limit - prefixMatches.length;
+      const prefixIds = prefixMatches.map((a) => a.id);
+      const containsMatches = await ctx.db.action.findMany({
+        where: {
+          ...baseWhere,
+          name: { contains: input.query, mode: "insensitive" },
+          NOT: { name: { startsWith: input.query, mode: "insensitive" } },
+          ...(prefixIds.length ? { id: { notIn: prefixIds } } : {}),
+        },
+        take: remaining,
+        orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+        select,
+      });
+
+      return [...prefixMatches, ...containsMatches];
+    }),
+
   // Save a screenshot and associate it with an action
   saveScreenshot: apiKeyMiddleware
     .input(

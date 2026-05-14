@@ -2,6 +2,12 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { TAG_COLORS } from "~/types/tag";
+import {
+  listForEntity as listForEntityService,
+  setEntityTags as setEntityTagsService,
+} from "~/server/services/tags/TagAssignmentService";
+
+const tagEntityTypeSchema = z.enum(["action", "ticket", "feature", "epic"]);
 
 const tagColorSchema = z.enum(TAG_COLORS);
 
@@ -12,7 +18,7 @@ export const tagRouter = createTRPCRouter({
       z
         .object({
           workspaceId: z.string().optional(),
-          category: z.string().optional(),
+          category: z.string().nullable().optional(),
         })
         .optional()
     )
@@ -108,7 +114,7 @@ export const tagRouter = createTRPCRouter({
         name: z.string().min(1).max(50),
         color: tagColorSchema,
         description: z.string().max(200).optional(),
-        category: z.string().max(50).optional(),
+        category: z.string().max(50).nullable().optional(),
         workspaceId: z.string(), // Required - users create workspace-specific tags
       })
     )
@@ -625,6 +631,42 @@ export const tagRouter = createTRPCRouter({
       return ctx.db.feature.findUnique({
         where: { id: input.featureId },
         include: { tags: { include: { tag: true } } },
+      });
+    }),
+
+  // Polymorphic: replace the full tag set on any tag-bearing entity.
+  setEntityTags: protectedProcedure
+    .input(
+      z.object({
+        entityType: tagEntityTypeSchema,
+        entityId: z.string(),
+        tagIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return setEntityTagsService({
+        db: ctx.db,
+        userId: ctx.session.user.id,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        tagIds: input.tagIds,
+      });
+    }),
+
+  // Polymorphic: list tags on any tag-bearing entity (with access check).
+  listForEntity: protectedProcedure
+    .input(
+      z.object({
+        entityType: tagEntityTypeSchema,
+        entityId: z.string(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return listForEntityService({
+        db: ctx.db,
+        userId: ctx.session.user.id,
+        entityType: input.entityType,
+        entityId: input.entityId,
       });
     }),
 });

@@ -326,6 +326,30 @@ export async function createTicket(
   });
 }
 
+interface EpicAttrs {
+  name: string;
+  ownerId: string;
+  workspaceId: string;
+  description?: string;
+}
+
+export const epicFactory = Factory.define<EpicAttrs>(({ sequence }) => ({
+  name: `Test Epic ${sequence}`,
+  ownerId: "",
+  workspaceId: "",
+}));
+
+export async function createEpic(
+  db: PrismaClient,
+  overrides: Partial<EpicAttrs> & {
+    ownerId: string;
+    workspaceId: string;
+  },
+) {
+  const attrs = epicFactory.build(overrides);
+  return db.epic.create({ data: attrs });
+}
+
 interface ResearchAttrs {
   title: string;
   productId: string;

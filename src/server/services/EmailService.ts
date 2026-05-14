@@ -413,7 +413,8 @@ export async function sendWelcomeEmail(
 }
 
 /**
- * Send team invitation email to invitee
+ * Send team invitation email to invitee (used by both team and workspace invite flows
+ * when the recipient does not yet have an account).
  */
 export async function sendTeamInvitationEmail(params: {
   to: string;
@@ -433,7 +434,7 @@ export async function sendTeamInvitationEmail(params: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
-  <title>Join ${teamName} on ${appName}</title>
+  <title>You've been added to ${teamName} on ${appName}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
@@ -444,7 +445,7 @@ export async function sendTeamInvitationEmail(params: {
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
               <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
-                You've been invited to join ${teamName}
+                You've been added to ${teamName}
               </h1>
             </td>
           </tr>
@@ -453,7 +454,7 @@ export async function sendTeamInvitationEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${inviterName}</strong> has invited you to join <strong>${teamName}</strong> on ${appName}.
+                <strong>${inviterName}</strong> has added you to <strong>${teamName}</strong> on ${appName}. Set up your account to start collaborating.
               </p>
 
               <!-- CTA Button -->
@@ -499,9 +500,9 @@ export async function sendTeamInvitationEmail(params: {
 `.trim();
 
   const textBody = `
-You've been invited to join ${teamName}
+You've been added to ${teamName}
 
-${inviterName} has invited you to join ${teamName} on ${appName}.
+${inviterName} has added you to ${teamName} on ${appName}. Set up your account to start collaborating.
 
 Accept the invitation: ${inviteUrl}
 
@@ -512,7 +513,108 @@ If you weren't expecting this invitation, you can safely ignore this email.
 
   await sendEmail({
     to,
-    subject: `You've been invited to join ${teamName} on ${appName}`,
+    subject: `You've been added to ${teamName} on ${appName}`,
+    htmlBody,
+    textBody,
+  });
+}
+
+/**
+ * Send a notification email to an existing user who has just been added to a workspace.
+ * Unlike the invitation email, the recipient already has an account, so the CTA links
+ * them straight into the workspace rather than to a sign-up flow.
+ */
+export async function sendWorkspaceMemberAddedEmail(params: {
+  to: string;
+  workspaceName: string;
+  inviterName: string;
+  workspaceUrl: string;
+}): Promise<void> {
+  const { to, workspaceName, inviterName, workspaceUrl } = params;
+  const brandColor = EMAIL_BRAND_COLOR;
+  const appName = PRODUCT_NAME;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>You've been added to ${workspaceName} on ${appName}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 32px 32px 24px; text-align: center;">
+              <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
+                You've been added to ${workspaceName}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 0 32px;">
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                <strong>${inviterName}</strong> has added you to the <strong>${workspaceName}</strong> workspace on ${appName}.
+              </p>
+
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <a href="${workspaceUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      Open Workspace
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Fallback Link -->
+              <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
+                Or copy and paste this link into your browser:
+              </p>
+              <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
+                ${workspaceUrl}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 24px 32px 32px;">
+              <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
+                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`.trim();
+
+  const textBody = `
+You've been added to ${workspaceName}
+
+${inviterName} has added you to the ${workspaceName} workspace on ${appName}.
+
+Open the workspace: ${workspaceUrl}
+
+If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
+`.trim();
+
+  await sendEmail({
+    to,
+    subject: `You've been added to ${workspaceName} on ${appName}`,
     htmlBody,
     textBody,
   });
@@ -772,6 +874,7 @@ export const EmailService = {
   sendWelcomeEmail,
   sendWelcomeWithMagicLinkEmail,
   sendTeamInvitationEmail,
+  sendWorkspaceMemberAddedEmail,
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
 };

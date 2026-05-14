@@ -133,10 +133,6 @@ export function CreateTranscriptionModal({
               onChange={setMeetingDate}
               clearable
               valueFormat="MMMM D, YYYY"
-              classNames={{
-                input: "bg-surface-secondary text-text-primary border-border-primary",
-                label: "text-text-primary",
-              }}
               popoverProps={{
                 withinPortal: true,
                 zIndex: 1000,

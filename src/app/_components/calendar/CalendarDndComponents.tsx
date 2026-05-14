@@ -4,9 +4,11 @@ import { useMemo } from "react";
 import { Text } from "@mantine/core";
 import { format } from "date-fns";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
-import type { ScheduledAction } from "./types";
+import type { ScheduledAction, CalendarTimeEntry } from "./types";
 import { HOUR_HEIGHT, VISIBLE_START_HOUR, VISIBLE_END_HOUR } from "./types";
 import { CalendarActionBlock } from "./CalendarEventBlock";
+import { CalendarTimeEntryBlock } from "./CalendarTimeEntryBlock";
+import { ResizableBlock } from "./ResizableBlock";
 import { HTMLContent } from "~/app/_components/HTMLContent";
 
 // Constants for drop slot sizing
@@ -48,15 +50,24 @@ export function DraggableActionBlock({
   action,
   style,
   onClick,
+  onResize,
 }: {
   action: ScheduledAction;
   style: React.CSSProperties;
   onClick?: (action: ScheduledAction) => void;
+  onResize?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `drag-${action.id}`,
     data: { action },
   });
+
+  const start = action.scheduledStart ? new Date(action.scheduledStart) : null;
+  const end = action.scheduledEnd
+    ? new Date(action.scheduledEnd)
+    : start && action.duration
+      ? new Date(start.getTime() + action.duration * 60_000)
+      : null;
 
   return (
     <div
@@ -71,11 +82,104 @@ export function DraggableActionBlock({
         touchAction: "none",
       }}
     >
-      <CalendarActionBlock
-        action={action}
-        style={{ position: "relative", width: "100%", height: "100%" }}
-        onClick={onClick}
-      />
+      {start && end && onResize ? (
+        <ResizableBlock
+          startedAt={start}
+          endedAt={end}
+          onCommit={(s, e) => onResize(action, s, e)}
+        >
+          <CalendarActionBlock
+            action={action}
+            style={{ position: "relative", width: "100%", height: "100%" }}
+            onClick={onClick}
+          />
+        </ResizableBlock>
+      ) : (
+        <CalendarActionBlock
+          action={action}
+          style={{ position: "relative", width: "100%", height: "100%" }}
+          onClick={onClick}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Draggable wrapper around CalendarTimeEntryBlock with resize handles. */
+export function DraggableTimeEntryBlock({
+  entry,
+  style,
+  onClick,
+  onResize,
+}: {
+  entry: CalendarTimeEntry;
+  style: React.CSSProperties;
+  onClick?: (entry: CalendarTimeEntry) => void;
+  onResize?: (entry: CalendarTimeEntry, newStart: Date, newEnd: Date) => void;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `drag-te-${entry.id}`,
+    data: { timeEntry: entry },
+  });
+
+  const start = new Date(entry.startedAt);
+  const end = entry.endedAt ? new Date(entry.endedAt) : null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className="absolute"
+      style={{
+        ...style,
+        opacity: isDragging ? 0.4 : 1,
+        cursor: "grab",
+        touchAction: "none",
+      }}
+    >
+      {onResize ? (
+        <ResizableBlock
+          startedAt={start}
+          endedAt={end}
+          onCommit={(s, e) => onResize(entry, s, e)}
+        >
+          <CalendarTimeEntryBlock
+            entry={entry}
+            style={{ position: "relative", width: "100%", height: "100%" }}
+            onClick={onClick}
+          />
+        </ResizableBlock>
+      ) : (
+        <CalendarTimeEntryBlock
+          entry={entry}
+          style={{ position: "relative", width: "100%", height: "100%" }}
+          onClick={onClick}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Floating preview shown during TimeEntry drag */
+export function TimeEntryDragOverlay({ entry }: { entry: CalendarTimeEntry }) {
+  return (
+    <div
+      className="overflow-hidden rounded-sm bg-brand-primary p-1.5 text-text-inverse shadow-lg"
+      style={{ width: 200, pointerEvents: "none" }}
+    >
+      <Text
+        size="xs"
+        fw={600}
+        lineClamp={1}
+        className="text-text-inverse"
+        style={{ fontSize: "11px" }}
+      >
+        {entry.action.name}
+      </Text>
+      <Text size="xs" className="text-text-inverse" style={{ fontSize: "10px", opacity: 0.85 }}>
+        {format(new Date(entry.startedAt), "h:mm a")}
+      </Text>
     </div>
   );
 }

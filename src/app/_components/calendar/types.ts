@@ -21,6 +21,26 @@ export interface ScheduledAction {
   source: "action" | "daily-plan";
 }
 
+/**
+ * Shape of a TimeEntry the calendar consumes. Matches what
+ * `timeEntry.listByDateRange` returns (subset of TimeEntry + action.name).
+ */
+export interface CalendarTimeEntry {
+  id: string;
+  userId: string;
+  actionId: string;
+  workspaceId: string | null;
+  startedAt: Date;
+  endedAt: Date | null;
+  source: string;
+  action: {
+    id: string;
+    name: string;
+    projectId: string | null;
+    workspaceId: string | null;
+  };
+}
+
 export interface PositionedEvent {
   event: CalendarEvent;
   top: number;

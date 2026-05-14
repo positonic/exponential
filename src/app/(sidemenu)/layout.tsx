@@ -28,6 +28,7 @@ import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvide
 import { ColorSchemeProvider } from '~/app/_components/layout/ColorSchemeProvider';
 import { SessionProvider } from "next-auth/react";
 import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
+import { ActiveTimerProvider } from '~/hooks/useActiveTimer';
 import { ServiceWorkerRegistration } from '~/app/_components/ServiceWorkerRegistration';
 import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
@@ -70,17 +71,19 @@ export default async function RootLayout({
                   <BugReportProvider>
                     <ColorSchemeProvider>
                       <WorkspaceProvider>
-                        <Layout domain={domain}>
-                          {children}
-                          <Analytics />
-                          {process.env.NEXT_PUBLIC_GA_ID && (
-                            <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
-                          )}
-                        </Layout>
-                        <ServiceWorkerRegistration />
-                        <ZoeDrawer />
-                        <ZoeFab />
-                        <CommandPalette />
+                        <ActiveTimerProvider>
+                          <Layout domain={domain}>
+                            {children}
+                            <Analytics />
+                            {process.env.NEXT_PUBLIC_GA_ID && (
+                              <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} />
+                            )}
+                          </Layout>
+                          <ServiceWorkerRegistration />
+                          <ZoeDrawer />
+                          <ZoeFab />
+                          <CommandPalette />
+                        </ActiveTimerProvider>
                       </WorkspaceProvider>
                     </ColorSchemeProvider>
                   </BugReportProvider>
