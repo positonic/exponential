@@ -43,6 +43,7 @@ export const userRouter = createTRPCRouter({
     .input(z.object({
       query: z.string().min(2),
       excludeTeamId: z.string().optional(),
+      excludeWorkspaceId: z.string().optional(),
       limit: z.number().min(1).max(20).default(5),
     }))
     .query(async ({ ctx, input }) => {
@@ -55,6 +56,9 @@ export const userRouter = createTRPCRouter({
           id: { not: ctx.session.user.id },
           ...(input.excludeTeamId ? {
             teams: { none: { teamId: input.excludeTeamId } },
+          } : {}),
+          ...(input.excludeWorkspaceId ? {
+            workspaceMemberships: { none: { workspaceId: input.excludeWorkspaceId } },
           } : {}),
         },
         select: {

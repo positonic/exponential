@@ -13,6 +13,7 @@ import {
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 export default function RetrospectiveDetailPage() {
   const router = useRouter();
@@ -68,7 +69,7 @@ export default function RetrospectiveDetailPage() {
         <Title order={5} className="text-text-primary mb-2">
           {title}
         </Title>
-        <Text className="text-text-primary whitespace-pre-wrap">{content}</Text>
+        <MarkdownRenderer content={content} />
       </Card>
     ) : null;
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Tooltip } from "@mantine/core";
 import { IconCalendar, IconClock, IconSparkles } from "@tabler/icons-react";
 import { HTMLContent } from "../../HTMLContent";
+import { ActiveTimerIndicator } from "../../ActiveTimerIndicator";
 import { TagBadgeList } from "../../TagBadge";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
 import type { Action } from "~/lib/actions/types";
@@ -107,6 +108,7 @@ export function ActionRow({
       <div className={styles.body}>
         <div className={styles.title}>
           <HTMLContent html={action.name} compactUrls />
+          <ActiveTimerIndicator actionId={action.id} className="ml-2 align-middle" />
         </div>
         <div className={styles.meta}>
           {isOverdue && timeSource ? (

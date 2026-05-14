@@ -42,6 +42,7 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { TagBadge } from "~/app/_components/TagBadge";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -215,7 +216,7 @@ export default function FeatureDetailPage() {
 
           {/* Description */}
           {feature.description ? (
-            <Text size="sm" className="text-text-muted">{feature.description}</Text>
+            <MarkdownRenderer content={feature.description} />
           ) : (
             <Text size="sm" className="text-text-muted">No description provided.</Text>
           )}
@@ -224,7 +225,7 @@ export default function FeatureDetailPage() {
           {feature.vision && (
             <div className="border border-border-primary rounded-lg p-3">
               <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
-              <Text size="sm" className="text-text-primary">{feature.vision}</Text>
+              <MarkdownRenderer content={feature.vision} />
             </div>
           )}
 
@@ -244,7 +245,9 @@ export default function FeatureDetailPage() {
                           {scope.status.replace("_", " ").toLowerCase()}
                         </Badge>
                       </Group>
-                      <Text size="xs" className="text-text-muted mt-1 whitespace-pre-wrap">{scope.description}</Text>
+                      <div className="mt-1">
+                        <MarkdownRenderer content={scope.description} />
+                      </div>
                     </div>
                     <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteScope.mutate({ id: scope.id })}>
                       <IconTrash size={12} />

@@ -13,7 +13,8 @@ import { CalendarWeekTimeGrid } from "./CalendarWeekTimeGrid";
 import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import { EditActionModal } from "~/app/_components/EditActionModal";
-import type { ScheduledAction } from "./types";
+import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
+import type { ScheduledAction, CalendarTimeEntry } from "./types";
 
 export function CalendarPageContent() {
   // Query connection status for all providers
@@ -66,11 +67,118 @@ export function CalendarPageContent() {
       }
     );
 
+  // Fetch tracked time entries (filled brand blocks alongside scheduled actions)
+  const { data: timeEntriesData } = api.timeEntry.listByDateRange.useQuery(
+    {
+      startDate: dateRange.start,
+      endDate: dateRange.end,
+    },
+    {
+      // Short stale time so post-Stop refetches show new entries quickly.
+      staleTime: 30 * 1000,
+      refetchOnWindowFocus: true,
+    },
+  );
+
   const utils = api.useUtils();
 
   // Edit Action Modal state
   const [selectedAction, setSelectedAction] = useState<ScheduledAction | null>(null);
   const [editModalOpened, setEditModalOpened] = useState(false);
+
+  // TimeEntry Modal state
+  const [selectedTimeEntry, setSelectedTimeEntry] =
+    useState<CalendarTimeEntry | null>(null);
+  const [timeEntryModalOpened, setTimeEntryModalOpened] = useState(false);
+
+  const handleTimeEntryClick = (entry: CalendarTimeEntry) => {
+    setSelectedTimeEntry(entry);
+    setTimeEntryModalOpened(true);
+  };
+
+  const timeEntryRangeInput = {
+    startDate: dateRange.start,
+    endDate: dateRange.end,
+  };
+
+  const updateTimeEntry = api.timeEntry.update.useMutation({
+    onMutate: async (variables) => {
+      await utils.timeEntry.listByDateRange.cancel();
+      const previousData = utils.timeEntry.listByDateRange.getData(timeEntryRangeInput);
+      utils.timeEntry.listByDateRange.setData(timeEntryRangeInput, (old) => {
+        if (!old) return old;
+        return old.map((te) =>
+          te.id === variables.entryId
+            ? {
+                ...te,
+                startedAt: variables.startedAt ?? te.startedAt,
+                endedAt:
+                  variables.endedAt === undefined ? te.endedAt : variables.endedAt,
+              }
+            : te,
+        );
+      });
+      return { previousData };
+    },
+    onError: (_err, _vars, ctxRollback) => {
+      if (ctxRollback?.previousData) {
+        utils.timeEntry.listByDateRange.setData(
+          timeEntryRangeInput,
+          ctxRollback.previousData,
+        );
+      }
+      notifications.show({
+        title: "Move failed",
+        message: "Could not move time entry — restoring",
+        color: "red",
+      });
+    },
+    onSettled: () => {
+      void utils.timeEntry.listByDateRange.invalidate();
+    },
+  });
+
+  const handleMoveTimeEntry = (
+    entry: CalendarTimeEntry,
+    newStart: Date,
+    newEnd: Date,
+  ) => {
+    updateTimeEntry.mutate({
+      entryId: entry.id,
+      startedAt: newStart,
+      // Only stamp endedAt for completed entries; preserve running entries' null.
+      endedAt: entry.endedAt ? newEnd : null,
+    });
+  };
+
+  const handleResizeTimeEntry = (
+    entry: CalendarTimeEntry,
+    newStart: Date,
+    newEnd: Date,
+  ) => {
+    updateTimeEntry.mutate({
+      entryId: entry.id,
+      startedAt: newStart,
+      endedAt: entry.endedAt ? newEnd : null,
+    });
+  };
+
+  const handleResizeAction = (
+    action: ScheduledAction,
+    newStart: Date,
+    newEnd: Date,
+  ) => {
+    if (!action.actionId) return;
+    const durationMinutes = Math.round(
+      (newEnd.getTime() - newStart.getTime()) / 60_000,
+    );
+    updateAction.mutate({
+      id: action.actionId,
+      scheduledStart: newStart,
+      scheduledEnd: newEnd,
+      duration: durationMinutes,
+    });
+  };
 
   // Mutations for rescheduling actions via drag-and-drop (with optimistic updates)
   const scheduledQueryInput = { startDate: dateRange.start, endDate: dateRange.end };
@@ -222,6 +330,7 @@ export function CalendarPageContent() {
 
   // Transform scheduled actions to the expected format
   const scheduledActions: ScheduledAction[] = scheduledActionsData ?? [];
+  const timeEntries: CalendarTimeEntry[] = timeEntriesData ?? [];
 
   const renderCalendarContent = () => {
     // Show loading state while checking connection
@@ -281,9 +390,14 @@ export function CalendarPageContent() {
         <CalendarDayTimeGrid
           events={events ?? []}
           scheduledActions={scheduledActions}
+          timeEntries={timeEntries}
           selectedDate={selectedDate}
           onActionClick={handleActionClick}
           onRescheduleAction={handleRescheduleAction}
+          onResizeAction={handleResizeAction}
+          onTimeEntryClick={handleTimeEntryClick}
+          onMoveTimeEntry={handleMoveTimeEntry}
+          onResizeTimeEntry={handleResizeTimeEntry}
         />
       );
     }
@@ -292,9 +406,14 @@ export function CalendarPageContent() {
       <CalendarWeekTimeGrid
         events={events ?? []}
         scheduledActions={scheduledActions}
+        timeEntries={timeEntries}
         dateRange={dateRange}
         onActionClick={handleActionClick}
         onRescheduleAction={handleRescheduleAction}
+        onResizeAction={handleResizeAction}
+        onTimeEntryClick={handleTimeEntryClick}
+        onMoveTimeEntry={handleMoveTimeEntry}
+        onResizeTimeEntry={handleResizeTimeEntry}
       />
     );
   };
@@ -350,6 +469,18 @@ export function CalendarPageContent() {
         }}
         onSuccess={() => {
           void utils.action.getScheduledByDateRange.invalidate();
+        }}
+      />
+
+      <TimeEntryModal
+        entry={selectedTimeEntry}
+        opened={timeEntryModalOpened}
+        onClose={() => {
+          setTimeEntryModalOpened(false);
+          setSelectedTimeEntry(null);
+        }}
+        onSuccess={() => {
+          void utils.timeEntry.listByDateRange.invalidate();
         }}
       />
     </div>

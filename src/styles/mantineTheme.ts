@@ -163,6 +163,25 @@ const componentStyles = {
     },
   },
 
+  // InputBase — used as a custom target for Combobox/Autocomplete and
+  // anywhere a TextInput-shaped wrapper is needed without TextInput itself.
+  // Mantine doesn't inherit TextInput's defaults onto InputBase, so we mirror
+  // them here so every InputBase picks up the theme tokens automatically.
+  InputBase: {
+    defaultProps: {
+      styles: {
+        input: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+          borderColor: 'var(--color-border-primary)',
+        },
+        label: {
+          color: 'var(--color-text-primary)',
+        },
+      },
+    },
+  },
+
   Textarea: {
     defaultProps: {
       styles: {

@@ -269,6 +269,7 @@ export const transcriptionRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
+              slug: true,
             },
           },
           sourceIntegration: {
@@ -276,6 +277,29 @@ export const transcriptionRouter = createTRPCRouter({
               id: true,
               provider: true,
               name: true,
+            },
+          },
+          participants: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              speakerLabel: true,
+              isHost: true,
+              userId: true,
+              contactId: true,
+            },
+          },
+          actions: {
+            orderBy: { createdAt: "asc" },
+          },
+          project: {
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              taskManagementTool: true,
+              taskManagementConfig: true,
             },
           },
         },
