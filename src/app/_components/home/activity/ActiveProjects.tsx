@@ -1,7 +1,7 @@
 'use client';
 
-import { ActionIcon, Skeleton, Tooltip } from '@mantine/core';
-import { IconClock, IconLayoutGrid, IconPlayerPlay } from '@tabler/icons-react';
+import { Skeleton } from '@mantine/core';
+import { IconLayoutGrid } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useMemo } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -31,8 +31,7 @@ function ProgressRing({ progress }: { progress: number }) {
 /**
  * Active-projects rail. Real data from `project.getAll`, filtered to
  * `status === 'ACTIVE'`. Renders up to 5 rows with a progress ring, name,
- * truncated description, and a count chip plus two "coming soon" action
- * icons (play / clock).
+ * truncated description, and a count chip.
  */
 export function ActiveProjects() {
   const { workspaceId, workspaceSlug } = useWorkspace();
@@ -94,30 +93,6 @@ export function ActiveProjects() {
                 <span className="wsa-active__chip">
                   {actionCount ?? '—'}
                 </span>
-                <Tooltip label="Coming soon" withArrow>
-                  <ActionIcon
-                    size={24}
-                    radius="sm"
-                    variant="light"
-                    color="brand"
-                    disabled
-                    aria-label="Start session"
-                  >
-                    <IconPlayerPlay size={12} stroke={1.8} />
-                  </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Coming soon" withArrow>
-                  <ActionIcon
-                    size={24}
-                    radius="sm"
-                    variant="light"
-                    disabled
-                    aria-label="Snooze"
-                    style={{ color: 'var(--activity-accent-okr)' }}
-                  >
-                    <IconClock size={12} stroke={1.8} />
-                  </ActionIcon>
-                </Tooltip>
               </div>
             </div>
           );

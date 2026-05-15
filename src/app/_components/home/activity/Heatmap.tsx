@@ -1,16 +1,18 @@
 'use client';
 
-import { Skeleton, Tooltip } from '@mantine/core';
+import { Skeleton } from '@mantine/core';
 import { IconActivity } from '@tabler/icons-react';
 import { useMemo, useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 
 const RANGES = [
-  { key: 'week', label: 'Week' },
-  { key: 'month', label: 'Month' },
-  { key: 'year', label: 'Year' },
+  { key: 'week', label: 'Week', cellCount: 7, footLabel: 'in the last 7 days' },
+  { key: 'month', label: 'Month', cellCount: 35, footLabel: 'in the last 5 weeks' },
+  { key: 'year', label: 'Year', cellCount: null, footLabel: 'in the last 12 months' },
 ] as const;
+
+type RangeKey = (typeof RANGES)[number]['key'];
 
 interface TooltipState {
   count: number;
@@ -40,7 +42,7 @@ function formatDateForTip(date: Date): string {
  */
 export function Heatmap() {
   const { workspaceId } = useWorkspace();
-  const activeRange: (typeof RANGES)[number]['key'] = 'year';
+  const [activeRange, setActiveRange] = useState<RangeKey>('year');
 
   const { data, isLoading } = api.workspace.getActivityHeatmap.useQuery(
     { workspaceId: workspaceId ?? '' },
@@ -50,13 +52,26 @@ export function Heatmap() {
   const [tip, setTip] = useState<TooltipState | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const cells = data?.cells;
-  const total = data?.total ?? 0;
+  const activeRangeDef =
+    RANGES.find((r) => r.key === activeRange) ?? RANGES[2];
+
+  // Slice the 12-month dataset client-side. The server always returns the full
+  // year, so range switching is free (no refetch).
+  const cells = useMemo(() => {
+    if (!data?.cells) return undefined;
+    if (activeRangeDef.cellCount === null) return data.cells;
+    return data.cells.slice(-activeRangeDef.cellCount);
+  }, [data?.cells, activeRangeDef.cellCount]);
+
+  const total = useMemo(() => {
+    if (!cells) return 0;
+    return cells.reduce((acc, c) => acc + c.count, 0);
+  }, [cells]);
 
   const headerCount = useMemo(() => {
-    if (!data) return null;
+    if (!cells) return null;
     return total.toLocaleString();
-  }, [data, total]);
+  }, [cells, total]);
 
   return (
     <section className="wsa-card">
@@ -64,31 +79,29 @@ export function Heatmap() {
         <h2 className="wsa-card__title">
           <IconActivity size={14} stroke={1.8} />
           Activity
-          <span className="wsa-card__count">last 12 months</span>
+          <span className="wsa-card__count">{activeRangeDef.footLabel.replace(/^in the /, '')}</span>
         </h2>
-        <Tooltip label="Coming soon" withArrow>
-          <div className="wsa-projects__seg" aria-disabled="true">
-            {RANGES.map((range) => (
-              <button
-                type="button"
-                key={range.key}
-                disabled
-                className="wsa-projects__seg-btn"
-                data-active={activeRange === range.key}
-                aria-disabled="true"
-              >
-                {range.label}
-              </button>
-            ))}
-          </div>
-        </Tooltip>
+        <div className="wsa-projects__seg" role="group" aria-label="Time range">
+          {RANGES.map((range) => (
+            <button
+              type="button"
+              key={range.key}
+              className="wsa-projects__seg-btn"
+              data-active={activeRange === range.key}
+              aria-pressed={activeRange === range.key}
+              onClick={() => setActiveRange(range.key)}
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {isLoading || !cells ? (
         <Skeleton height={140} />
       ) : (
         <div className="wsa-heatmap__scroll" ref={scrollRef}>
-          <div className="wsa-heatmap__grid">
+          <div className="wsa-heatmap__grid" data-range={activeRange}>
             {cells.map((c, i) => (
               <button
                 type="button"
@@ -137,10 +150,10 @@ export function Heatmap() {
 
       <div className="wsa-heatmap__foot">
         <div className="wsa-heatmap__total">
-          {data ? (
+          {cells ? (
             <>
               <b>{headerCount}</b>{' '}
-              {total === 1 ? 'event' : 'events'} in the last 12 months
+              {total === 1 ? 'event' : 'events'} {activeRangeDef.footLabel}
             </>
           ) : (
             <span className="text-text-muted">—</span>

@@ -1,12 +1,14 @@
 'use client';
 
-import { Button, Group, Skeleton, Tooltip } from '@mantine/core';
+import { Button, Group, Skeleton } from '@mantine/core';
 import {
   IconChartBar,
   IconSparkles,
   IconTrendingDown,
   IconTrendingUp,
 } from '@tabler/icons-react';
+import Link from 'next/link';
+import { useAgentModal } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 
@@ -76,7 +78,8 @@ function WeeklyHeadline({ total, delta }: WeeklyHeadlineProps) {
  * All values come from `WorkspaceActivityEvent` daily aggregation.
  */
 export function WeekInReview() {
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspaceSlug, workspace } = useWorkspace();
+  const { openWithPrompt } = useAgentModal();
   const { data, isLoading } = api.workspace.getHomeStats.useQuery(
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId },
@@ -128,28 +131,29 @@ export function WeekInReview() {
         </span>
 
         <Group className="wsa-week__cta-row">
-          <Tooltip label="Coming soon" withArrow>
-            <Button
-              size="sm"
-              variant="filled"
-              color="brand"
-              data-disabled
-              onClick={(event) => event.preventDefault()}
-            >
-              Start weekly review
-            </Button>
-          </Tooltip>
-          <Tooltip label="Coming soon" withArrow>
-            <Button
-              size="sm"
-              variant="default"
-              leftSection={<IconSparkles size={14} stroke={1.8} />}
-              data-disabled
-              onClick={(event) => event.preventDefault()}
-            >
-              Ask agent to summarize
-            </Button>
-          </Tooltip>
+          <Button
+            size="sm"
+            variant="filled"
+            color="brand"
+            component={Link}
+            href={workspaceSlug ? `/w/${workspaceSlug}/weekly-plan` : '#'}
+            disabled={!workspaceSlug}
+          >
+            Start weekly review
+          </Button>
+          <Button
+            size="sm"
+            variant="default"
+            leftSection={<IconSparkles size={14} stroke={1.8} />}
+            onClick={() => {
+              const name = workspace?.name ?? 'this workspace';
+              openWithPrompt(
+                `Summarize what happened in ${name} this week (${range}). Use the workspace activity events to highlight the top 3 most important moments and call out any anomalies vs. last week.`,
+              );
+            }}
+          >
+            Ask agent to summarize
+          </Button>
         </Group>
       </div>
 
