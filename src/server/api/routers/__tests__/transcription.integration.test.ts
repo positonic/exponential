@@ -334,9 +334,9 @@ describe("transcription router", () => {
       expect(result[0]!.title).toBe("One-on-one");
     });
 
-    it("'ritual' returns an empty array even when there are meetings in the workspace", async () => {
+    it("'customer' and 'internal' return empty arrays even when there are meetings in the workspace", async () => {
       const owner = await createUser(db);
-      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-ritual" });
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-untagged" });
       await createTranscription(db, {
         userId: owner.id,
         workspaceId: ws.id,
@@ -351,11 +351,68 @@ describe("transcription router", () => {
       });
 
       const caller = createTestCaller(owner.id);
+      const customer = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+        meetingType: "customer",
+      });
+      expect(customer).toEqual([]);
+      const internal = await caller.transcription.getAllTranscriptions({
+        workspaceId: ws.id,
+        meetingType: "internal",
+      });
+      expect(internal).toEqual([]);
+    });
+
+    it("'mine' returns meetings where the caller is owner OR a Participant", async () => {
+      const owner = await createUser(db);
+      const otherUser = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "trx-mt-mine" });
+      // Owner uploaded this — should be in 'mine'.
+      const ownedMeeting = await createTranscription(db, {
+        userId: owner.id,
+        workspaceId: ws.id,
+        title: "I own this",
+        participantCount: 3,
+      });
+      // Someone else uploaded but owner is a Participant — should be in 'mine'.
+      const attendedMeeting = await createTranscription(db, {
+        userId: otherUser.id,
+        workspaceId: ws.id,
+        title: "I attended this",
+        participantCount: 2,
+      });
+      await createParticipantRow(db, {
+        transcriptionSessionId: attendedMeeting.id,
+        workspaceId: ws.id,
+        email: "owner@example.com",
+      });
+      await db.transcriptionSessionParticipant.update({
+        where: {
+          transcriptionSessionId_email: {
+            transcriptionSessionId: attendedMeeting.id,
+            email: "owner@example.com",
+          },
+        },
+        data: { userId: owner.id },
+      });
+      // Someone else uploaded, no Participant link — must NOT be in 'mine'.
+      await createTranscription(db, {
+        userId: otherUser.id,
+        workspaceId: ws.id,
+        title: "Someone else's meeting",
+        participantCount: 4,
+      });
+
+      const caller = createTestCaller(owner.id);
       const result = await caller.transcription.getAllTranscriptions({
         workspaceId: ws.id,
-        meetingType: "ritual",
+        meetingType: "mine",
       });
-      expect(result).toEqual([]);
+      const titles = result.map((t) => t.title).sort();
+      expect(titles).toEqual(["I attended this", "I own this"]);
+      // Defensive: ensure the owned + attended ids are both present.
+      const ids = result.map((t) => t.id).sort();
+      expect(ids).toEqual([ownedMeeting.id, attendedMeeting.id].sort());
     });
 
     it("workspace scoping is preserved across all meetingType values", async () => {
@@ -388,11 +445,17 @@ describe("transcription router", () => {
       });
       expect(wsAOneOnOne.map((t) => t.title)).toEqual(["A: one-on-one"]);
 
-      const wsARitual = await caller.transcription.getAllTranscriptions({
+      const wsAMine = await caller.transcription.getAllTranscriptions({
         workspaceId: wsA.id,
-        meetingType: "ritual",
+        meetingType: "mine",
       });
-      expect(wsARitual).toEqual([]);
+      expect(wsAMine.map((t) => t.title)).toEqual(["A: one-on-one"]);
+
+      const wsACustomer = await caller.transcription.getAllTranscriptions({
+        workspaceId: wsA.id,
+        meetingType: "customer",
+      });
+      expect(wsACustomer).toEqual([]);
     });
 
     it("returned shape includes participants without n+1", async () => {

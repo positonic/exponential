@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { SlackSummaryModal } from './SlackSummaryModal';
 import Link from "next/link";
 import {
-  Accordion,
   Group,
   Tabs,
   Title,
@@ -13,7 +12,6 @@ import {
   Stack,
   Text,
   Badge,
-  Select,
   Button,
   Card,
   Checkbox,
@@ -46,8 +44,12 @@ import {
   IconSearch,
   IconStarFilled,
   IconSparkles,
-  IconLayersIntersect,
   IconCheck,
+  IconTrendingUp,
+  IconUsers,
+  IconChevronDown,
+  IconArrowRight,
+  IconCheckbox,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
@@ -60,11 +62,24 @@ import {
 import type { WeeklyMeetingStatsResult } from "~/server/services/meetings/weeklyMeetingStats";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 
-type MeetingType = "all" | "one_on_one" | "ritual";
+type MeetingType =
+  | "all"
+  | "mine"
+  | "one_on_one"
+  | "customer"
+  | "internal";
 type TabValue = MeetingType | "archive" | "activity";
 
+const MEETING_TYPE_TABS: ReadonlyArray<MeetingType> = [
+  "all",
+  "mine",
+  "one_on_one",
+  "customer",
+  "internal",
+];
+
 function isMeetingTypeTab(tab: TabValue): tab is MeetingType {
-  return tab === "all" || tab === "one_on_one" || tab === "ritual";
+  return (MEETING_TYPE_TABS as readonly string[]).includes(tab);
 }
 
 // ── Date grouping helpers ────────────────────────────────────────────
@@ -83,18 +98,36 @@ function localDayKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function formatDayLabel(d: Date, now: Date): string {
+interface DayLabelParts {
+  dayLabel: string;       // "Thu, Apr 23" (full short date)
+  relativeLabel: string;  // "TODAY" / "YESTERDAY" / "EARLIER THIS WEEK" / "Tue, May 13"
+  isToday: boolean;
+}
+
+function dayLabels(d: Date, now: Date): DayLabelParts {
   const day = startOfLocalDay(d);
   const today = startOfLocalDay(now);
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
-  if (day.getTime() === today.getTime()) return "TODAY";
-  if (day.getTime() === yesterday.getTime()) return "YESTERDAY";
-  return d.toLocaleDateString("en-US", {
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 6);
+  const dayLabel = d.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
+  if (day.getTime() === today.getTime()) {
+    return { dayLabel, relativeLabel: "TODAY", isToday: true };
+  }
+  if (day.getTime() === yesterday.getTime()) {
+    return { dayLabel, relativeLabel: "YESTERDAY", isToday: false };
+  }
+  if (day >= sevenDaysAgo && day < yesterday) {
+    return { dayLabel, relativeLabel: "EARLIER THIS WEEK", isToday: false };
+  }
+  // Fall back to the same short-date label for the relative slot so we still
+  // print something compact-but-honest beyond a week.
+  return { dayLabel, relativeLabel: dayLabel.toUpperCase(), isToday: false };
 }
 
 interface MeetingDateLike {
@@ -102,11 +135,19 @@ interface MeetingDateLike {
   createdAt: Date | string;
 }
 
+interface DayGroup<T> {
+  key: string;
+  dayLabel: string;
+  relativeLabel: string;
+  isToday: boolean;
+  meetings: T[];
+}
+
 function groupMeetingsByLocalDay<T extends MeetingDateLike>(
   meetings: T[],
   now: Date = new Date(),
-): Array<{ key: string; label: string; meetings: T[] }> {
-  const buckets = new Map<string, { key: string; label: string; sortDate: Date; meetings: T[] }>();
+): Array<DayGroup<T>> {
+  const buckets = new Map<string, DayGroup<T> & { sortDate: Date }>();
   for (const m of meetings) {
     const raw = m.meetingDate ?? m.createdAt;
     const d = raw instanceof Date ? raw : new Date(raw);
@@ -115,9 +156,12 @@ function groupMeetingsByLocalDay<T extends MeetingDateLike>(
     if (existing) {
       existing.meetings.push(m);
     } else {
+      const labels = dayLabels(d, now);
       buckets.set(key, {
         key,
-        label: formatDayLabel(d, now),
+        dayLabel: labels.dayLabel,
+        relativeLabel: labels.relativeLabel,
+        isToday: labels.isToday,
         sortDate: startOfLocalDay(d),
         meetings: [m],
       });
@@ -127,7 +171,7 @@ function groupMeetingsByLocalDay<T extends MeetingDateLike>(
   // descending (so newest in the day comes first).
   return Array.from(buckets.values())
     .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
-    .map(({ meetings: items, ...rest }) => ({
+    .map(({ meetings: items, sortDate: _sortDate, ...rest }) => ({
       ...rest,
       meetings: items.slice().sort((a, b) => {
         const ad = a.meetingDate ?? a.createdAt;
@@ -152,90 +196,264 @@ function computeInitials(name: string): string {
   return parts[0]!.slice(0, 2).toUpperCase();
 }
 
-function ThisWeekChart({ stats }: { stats: WeeklyMeetingStatsResult | undefined }) {
+// ── Card helpers ───────────────────────────────────────────────────
+// Format a Meeting timestamp like "9:05a" / "11:30p" — lowercase shorthand
+// am/pm matching the design's tight font-mono gutter.
+function formatMeetingTime(raw: Date | string): string {
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (isNaN(d.getTime())) return "";
+  const hours24 = d.getHours();
+  const minutes = d.getMinutes();
+  const period = hours24 >= 12 ? "p" : "a";
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  return `${hours12}:${String(minutes).padStart(2, "0")}${period}`;
+}
+
+// "18m", "42m", "1h 04m". Null when durationSeconds is missing — caller hides.
+function formatDuration(durationSeconds: number | null | undefined): string | null {
+  if (durationSeconds == null || durationSeconds <= 0) return null;
+  const totalMinutes = Math.max(1, Math.round(durationSeconds / 60));
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+// 5 project-tag colour variants, picked deterministically from a project id
+// so the same project always renders in the same colour. Mirrors the avatar
+// hash strategy in meetingCardViewModel.
+const PROJECT_TAG_VARIANTS: ReadonlyArray<{ bg: string; text: string; dot: string }> = [
+  { bg: "bg-brand-400/10",        text: "text-brand-400",       dot: "bg-brand-400" },
+  { bg: "bg-accent-meetings/10",  text: "text-accent-meetings", dot: "bg-accent-meetings" },
+  { bg: "bg-accent-crm/10",       text: "text-accent-crm",      dot: "bg-accent-crm" },
+  { bg: "bg-accent-okr/10",       text: "text-accent-okr",      dot: "bg-accent-okr" },
+  { bg: "bg-accent-knowledge/10", text: "text-accent-knowledge",dot: "bg-accent-knowledge" },
+];
+
+function projectTagClass(projectId: string): { bg: string; text: string; dot: string } {
+  let hash = 0;
+  for (let i = 0; i < projectId.length; i++) {
+    hash = (hash * 31 + projectId.charCodeAt(i)) >>> 0;
+  }
+  return PROJECT_TAG_VARIANTS[hash % PROJECT_TAG_VARIANTS.length]!;
+}
+
+function PeekTranscript({
+  transcription,
+  provider,
+  onContainerClick,
+}: {
+  transcription: string;
+  provider?: string;
+  onContainerClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div onClick={onContainerClick}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 pt-1 text-[11.5px] font-medium text-text-muted hover:text-text-secondary"
+        aria-expanded={open}
+      >
+        <IconChevronDown
+          size={11}
+          className={`transition-transform ${open ? "rotate-180" : "rotate-0"}`}
+        />
+        <span>{open ? "Hide transcript" : "Peek at transcript"}</span>
+      </button>
+      {open && (
+        <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
+          <TranscriptionRenderer
+            transcription={transcription}
+            provider={provider}
+            isPreview={true}
+            maxLines={2}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RailCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-[10px] border border-border-subtle bg-background-secondary p-4">
+      {children}
+    </div>
+  );
+}
+
+function RailCardTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Group
+      gap={6}
+      align="center"
+      className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted"
+    >
+      {icon}
+      <span>{children}</span>
+    </Group>
+  );
+}
+
+function avatarColorClass(key: string): string {
+  // Tailwind avatar palette — must remain in sync with the meetingCardViewModel
+  // palette so the same Participant gets the same colour across the page.
+  const palette = [
+    "bg-blue-500",
+    "bg-green-500",
+    "bg-purple-500",
+    "bg-orange-500",
+    "bg-pink-500",
+    "bg-teal-500",
+  ];
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return palette[hash % palette.length] ?? palette[0]!;
+}
+
+function ThisWeekChart({ stats, weekStart }: { stats: WeeklyMeetingStatsResult | undefined; weekStart: Date }) {
   if (!stats) {
     return (
-      <Stack gap="xs">
-        <Text size="xs" fw={700} className="uppercase tracking-wide text-text-secondary">
-          This Week
-        </Text>
-        <Skeleton height={64} />
-        <Skeleton height={14} width="60%" />
-      </Stack>
+      <RailCard>
+        <RailCardTitle icon={<IconTrendingUp size={12} />}>This Week</RailCardTitle>
+        <Skeleton height={44} mb={8} />
+        <Skeleton height={14} width="70%" />
+      </RailCard>
     );
   }
   const maxCount = Math.max(1, ...stats.perDayCounts.map((d) => d.count));
   const hours = Math.floor(stats.totalDurationMinutes / 60);
   const mins = stats.totalDurationMinutes % 60;
-  const dayLabels = ["M", "T", "W", "T", "F", "S", "S"];
+  const labels = ["M", "T", "W", "T", "F", "S", "S"];
+  // Highlight the bar for today (if today falls inside the displayed week).
+  const todayKey = (() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  })();
+  const weekStartTime = new Date(
+    weekStart.getFullYear(),
+    weekStart.getMonth(),
+    weekStart.getDate(),
+  ).getTime();
+  const todayIndex = Math.floor((todayKey - weekStartTime) / (24 * 60 * 60 * 1000));
   return (
-    <Stack gap="xs">
-      <Text size="xs" fw={700} className="uppercase tracking-wide text-text-secondary">
-        This Week
-      </Text>
-      <div className="flex h-16 items-end gap-1">
-        {stats.perDayCounts.map((d, i) => (
-          <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
-            <div
-              className="min-h-[2px] w-full rounded-t bg-blue-500/40"
-              style={{ height: `${(d.count / maxCount) * 100}%` }}
-              aria-label={`${d.count} on ${d.date}`}
-            />
-            <span className="text-[10px] text-text-secondary">{dayLabels[i]}</span>
-          </div>
-        ))}
+    <RailCard>
+      <RailCardTitle icon={<IconTrendingUp size={12} />}>This Week</RailCardTitle>
+      <div className="mb-2.5 flex h-9 items-end gap-[3px]">
+        {stats.perDayCounts.map((d, i) => {
+          const isToday = i === todayIndex;
+          const heightPct = (d.count / maxCount) * 100;
+          return (
+            <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+              <div
+                className={`min-h-[4px] w-full rounded-[2px] transition-colors ${
+                  isToday ? "bg-brand-400" : "bg-surface-muted"
+                }`}
+                style={{ height: `${heightPct}%` }}
+                aria-label={`${d.count} on ${d.date}`}
+              />
+              <span className="text-[10px] text-text-faint">{labels[i]}</span>
+            </div>
+          );
+        })}
       </div>
-      <Text size="xs" c="dimmed">
-        {stats.totalMeetings} meeting{stats.totalMeetings === 1 ? "" : "s"} · {hours}h {mins}m
+      <Text size="xs" className="text-text-secondary">
+        <span className="font-semibold text-text-primary tabular-nums">
+          {stats.totalMeetings}
+        </span>{" "}
+        meeting{stats.totalMeetings === 1 ? "" : "s"} ·{" "}
+        <span className="font-semibold text-text-primary tabular-nums">
+          {hours}h {mins}m
+        </span>
       </Text>
-    </Stack>
+    </RailCard>
   );
 }
 
 function TopPeoplePanel({ stats }: { stats: WeeklyMeetingStatsResult | undefined }) {
   if (!stats) {
     return (
-      <Stack gap="xs">
-        <Text size="xs" fw={700} className="uppercase tracking-wide text-text-secondary">
-          Top People
-        </Text>
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} height={28} />
-        ))}
-      </Stack>
+      <RailCard>
+        <RailCardTitle icon={<IconUsers size={12} />}>Top People</RailCardTitle>
+        <Stack gap="xs">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} height={24} />
+          ))}
+        </Stack>
+      </RailCard>
     );
   }
-  const people = stats.topParticipants.slice(0, 6);
+  const people = stats.topParticipants.slice(0, 4);
   return (
-    <Stack gap="xs">
-      <Text size="xs" fw={700} className="uppercase tracking-wide text-text-secondary">
-        Top People
-      </Text>
+    <RailCard>
+      <RailCardTitle icon={<IconUsers size={12} />}>Top People</RailCardTitle>
       {people.length === 0 ? (
-        <Text size="xs" c="dimmed">No meetings yet this week</Text>
+        <Text size="xs" className="text-text-muted">No meetings yet this week.</Text>
       ) : (
-        people.map((p) => (
-          <Group key={p.participantId} gap="xs" justify="space-between" wrap="nowrap">
-            <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-              {p.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={p.avatarUrl}
-                  alt={p.displayName}
-                  className="h-6 w-6 shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-500 text-[10px] font-semibold text-white">
-                  {computeInitials(p.displayName)}
-                </div>
-              )}
-              <Text size="sm" lineClamp={1}>{p.displayName}</Text>
+        <Stack gap={6}>
+          {people.map((p) => (
+            <Group key={p.participantId} gap={8} justify="space-between" wrap="nowrap">
+              <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+                {p.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.avatarUrl}
+                    alt={p.displayName}
+                    className="h-6 w-6 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${avatarColorClass(p.participantId)}`}
+                  >
+                    {computeInitials(p.displayName)}
+                  </div>
+                )}
+                <Text size="sm" lineClamp={1} className="text-text-primary">
+                  {p.displayName}
+                </Text>
+              </Group>
+              <Text size="xs" className="tabular-nums text-text-muted">
+                {p.count}
+              </Text>
             </Group>
-            <Text size="xs" c="dimmed">{p.count}</Text>
-          </Group>
-        ))
+          ))}
+        </Stack>
       )}
-    </Stack>
+    </RailCard>
+  );
+}
+
+function ZoesWeekPanel({ stats }: { stats: WeeklyMeetingStatsResult | undefined }) {
+  if (!stats) {
+    return (
+      <RailCard>
+        <RailCardTitle icon={<IconSparkles size={12} className="text-accent-meetings" />}>
+          Zoe&apos;s Week
+        </RailCardTitle>
+        <Skeleton height={36} />
+      </RailCard>
+    );
+  }
+  return (
+    <RailCard>
+      <RailCardTitle icon={<IconSparkles size={12} className="text-accent-meetings" />}>
+        Zoe&apos;s Week
+      </RailCardTitle>
+      <Text size="xs" className="leading-[1.55] text-text-secondary">
+        <span className="font-semibold text-text-primary tabular-nums">
+          {stats.totalActionsExtracted}
+        </span>{" "}
+        action{stats.totalActionsExtracted === 1 ? "" : "s"} extracted across{" "}
+        <span className="font-semibold text-text-primary tabular-nums">
+          {stats.totalMeetings}
+        </span>{" "}
+        meeting{stats.totalMeetings === 1 ? "" : "s"} this week.
+      </Text>
+    </RailCard>
   );
 }
 
@@ -268,21 +486,30 @@ function hasExtractableActions(session: { summary: string | null }): boolean {
 }
 
 export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
-  // Add CSS animation for fade effect
-  const fadeAnimationStyles = `
+  // Page-local keyframes — Mantine + Tailwind don't expose these utilities
+  // out of the box, so we inject once per session.
+  // - fadeInOut: legacy bulk-action notification banner
+  // - meetings-v2-pulse: pulsing dot on the Fireflies sync pill
+  const inlineKeyframes = `
     @keyframes fadeInOut {
       0% { opacity: 0; transform: translateY(-5px); }
       10% { opacity: 1; transform: translateY(0); }
       90% { opacity: 1; transform: translateY(0); }
       100% { opacity: 0; transform: translateY(-5px); }
     }
+    @keyframes meetings-v2-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.45; transform: scale(0.85); }
+    }
+    .meetings-v2-pulse {
+      animation: meetings-v2-pulse 2.4s ease-in-out infinite;
+    }
   `;
 
-  // Add styles to document if not already present
   if (typeof document !== 'undefined' && !document.getElementById('fade-animation-styles')) {
     const style = document.createElement('style');
     style.id = 'fade-animation-styles';
-    style.textContent = fadeAnimationStyles;
+    style.textContent = inlineKeyframes;
     document.head.appendChild(style);
   }
   const router = useRouter();
@@ -340,6 +567,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const { data: weeklyStats } = api.transcription.weeklyStats.useQuery(
     { workspaceId, weekStart },
   );
+  // Drives the "Mine" tab count: filter client-side to meetings where the
+  // caller owns the session OR appears as a Participant with this userId.
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
   const utils = api.useUtils();
   
   
@@ -679,19 +909,31 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     });
   };
 
+  const isMine = (session: {
+    userId: string | null;
+    participants?: Array<{ user: { id: string } | null }>;
+  }): boolean => {
+    if (!currentUser?.id) return false;
+    if (session.userId === currentUser.id) return true;
+    return Boolean(
+      session.participants?.some((p) => p.user?.id === currentUser.id),
+    );
+  };
+
   const getFilteredTranscriptions = (meetingType: MeetingType) => {
     if (!transcriptions) return [];
-    if (meetingType === "ritual") return [];
+    // Customer and Internal ship empty until a tagging mechanism exists.
+    if (meetingType === "customer" || meetingType === "internal") return [];
 
     let filtered = transcriptions;
 
-    // Meeting type narrowing — 1:1s derive from participant count until a
-    // stored meetingType column exists. See CONTEXT.md "Flagged ambiguities".
     if (meetingType === "one_on_one") {
       filtered = filtered.filter((session) => session.participantCount === 2);
     }
+    if (meetingType === "mine") {
+      filtered = filtered.filter(isMine);
+    }
 
-    // Filter by integration
     if (selectedIntegrationFilter.length > 0) {
       filtered = filtered.filter(session =>
         session.sourceIntegration &&
@@ -699,7 +941,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       );
     }
 
-    // Filter by search query (title, transcription, participants)
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       filtered = filtered.filter(session => {
@@ -715,8 +956,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
 
   // Derived counts for tab badges
   const allCount = transcriptions?.length ?? 0;
+  const mineCount = transcriptions?.filter(isMine).length ?? 0;
   const oneOnOneCount = transcriptions?.filter((t) => t.participantCount === 2).length ?? 0;
-  const ritualCount = 0;
+  const customerCount = 0;
+  const internalCount = 0;
   const archivedCount = archivedTranscriptions?.length ?? 0;
   const activityCount = webhookLogsData?.logs?.length ?? 0;
 
@@ -757,7 +1000,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   return (
     <>
       {/* Compact header: title + stat strip + Fireflies pill */}
-      <div className="w-full max-w-7xl">
+      <div className="w-full max-w-[1180px]">
         <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
           <div>
             <Title order={1} className="text-text-primary" fw={700}>
@@ -773,73 +1016,145 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
               </span>
             </Text>
           </div>
-          {firstFireflies ? (
-            <Group gap="xs" className="rounded-full border border-border-primary bg-surface-secondary px-3 py-1">
-              <IconStarFilled size={12} className="text-yellow-400" />
-              <Text size="xs" c="dimmed">
-                Fireflies syncing · {meetingsToday} today ·{" "}
-              </Text>
+          <Group gap="xs" wrap="nowrap" className="shrink-0">
+            {firstFireflies ? (
               <button
                 type="button"
                 onClick={() => {
                   setSelectedFirefliesIntegrationId(firstFireflies.id);
                   setFirefliesModalOpened(true);
                 }}
-                className="text-xs text-blue-400 hover:underline"
+                className="inline-flex items-center gap-2.5 whitespace-nowrap rounded-full border border-border-subtle bg-background-secondary py-1.5 pl-2 pr-3 text-xs text-text-secondary transition-colors hover:border-border-strong"
+                aria-label="Fireflies integration settings"
               >
-                Settings
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-accent-okr/15 text-accent-okr">
+                  <IconStarFilled size={11} />
+                </span>
+                <span className="h-1.5 w-1.5 rounded-full bg-accent-crm meetings-v2-pulse" aria-hidden />
+                <span>Fireflies syncing</span>
+                <span className="text-text-faint">·</span>
+                <span className="tabular-nums">{meetingsToday} today</span>
+                <span className="text-text-faint">·</span>
+                <span className="font-medium text-brand-400">Settings</span>
               </button>
-            </Group>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedFirefliesIntegrationId(null);
-                setFirefliesModalOpened(true);
-              }}
-              className="inline-flex items-center gap-1 rounded-full border border-border-primary bg-surface-secondary px-3 py-1 text-xs text-blue-400 hover:bg-surface-hover"
-            >
-              <IconStarFilled size={12} className="text-yellow-400" />
-              Connect Fireflies
-            </button>
-          )}
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFirefliesIntegrationId(null);
+                  setFirefliesModalOpened(true);
+                }}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-border-subtle bg-background-secondary py-1.5 pl-2 pr-3 text-xs text-brand-400 transition-colors hover:border-border-strong"
+              >
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-accent-okr/15 text-accent-okr">
+                  <IconStarFilled size={11} />
+                </span>
+                Connect Fireflies
+              </button>
+            )}
+            <CreateTranscriptionModal workspaceId={workspaceId} />
+          </Group>
         </Group>
         <div className="mt-6 h-px w-full bg-border-primary" />
       </div>
 
       {/* Main Content — left column (tabs + list) + right rail (widgets) */}
-      <div className="flex w-full max-w-7xl gap-6">
-      <div className="min-w-0 w-full max-w-4xl flex-1">
+      <div className="flex w-full max-w-[1180px] gap-8">
+      <div className="min-w-0 flex-1">
         <Tabs value={activeTab} onChange={handleTabChange}>
-          <Stack gap="xl" align="stretch" justify="flex-start">
-            {/* Tabs Navigation */}
-            <Tabs.List>
-              {[
-                { value: "all", label: "All", count: allCount },
-                { value: "one_on_one", label: "1:1s", count: oneOnOneCount },
-                { value: "ritual", label: "Rituals", count: ritualCount },
-                { value: "archive", label: "Archive", count: archivedCount },
-                { value: "activity", label: "Activity", count: activityCount },
-              ].map((t) => {
-                const isActive = activeTab === t.value;
-                return (
-                  <Tabs.Tab key={t.value} value={t.value}>
-                    <span className="inline-flex items-center gap-2">
-                      <span>{t.label}</span>
-                      <span
-                        className={
-                          isActive
-                            ? "rounded-md bg-blue-500/20 px-1.5 py-0.5 text-xs font-medium text-blue-300"
-                            : "rounded-md bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary"
-                        }
-                      >
-                        {t.count}
+          <Stack gap="lg" align="stretch" justify="flex-start">
+            {/* Toolbar: tabs (left) + search and filter (right) inline */}
+            <Group justify="space-between" align="center" wrap="nowrap" gap="sm">
+              <Tabs.List style={{ borderBottom: 0 }}>
+                {[
+                  { value: "all", label: "All", count: allCount },
+                  { value: "mine", label: "Mine", count: mineCount },
+                  { value: "one_on_one", label: "1:1s", count: oneOnOneCount },
+                  { value: "customer", label: "Customer", count: customerCount },
+                  { value: "internal", label: "Internal", count: internalCount },
+                  { value: "archive", label: "Archive", count: archivedCount },
+                  { value: "activity", label: "Activity", count: activityCount },
+                ].map((t) => {
+                  const isActive = activeTab === t.value;
+                  return (
+                    <Tabs.Tab key={t.value} value={t.value}>
+                      <span className="inline-flex items-center gap-2">
+                        <span>{t.label}</span>
+                        <span
+                          className={
+                            isActive
+                              ? "rounded-md bg-brand-400/20 px-1.5 py-0.5 text-xs font-medium text-brand-400 tabular-nums"
+                              : "rounded-md bg-surface-muted px-1.5 py-0.5 text-xs text-text-muted tabular-nums"
+                          }
+                        >
+                          {t.count}
+                        </span>
                       </span>
-                    </span>
-                  </Tabs.Tab>
-                );
-              })}
-            </Tabs.List>
+                    </Tabs.Tab>
+                  );
+                })}
+              </Tabs.List>
+              <Group gap={6} wrap="nowrap" className="shrink-0">
+                <TextInput
+                  leftSection={<IconSearch size={14} />}
+                  placeholder="Search transcripts, people, topics..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                  rightSection={<Kbd className="mr-2 text-[10px]">⌘K</Kbd>}
+                  rightSectionWidth={44}
+                  size="xs"
+                  className="w-[280px]"
+                  styles={{ input: { height: 30 } }}
+                />
+                <Menu shadow="md" position="bottom-end" width={240}>
+                  <Menu.Target>
+                    <ActionIcon variant="default" size={30} aria-label="Filter">
+                      <IconFilter size={14} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Label>Integration</Menu.Label>
+                    {integrationOptions.length === 0 && (
+                      <Menu.Item disabled>No integrations</Menu.Item>
+                    )}
+                    {integrationOptions.map((opt) => {
+                      const active = selectedIntegrationFilter.includes(opt.value);
+                      return (
+                        <Menu.Item
+                          key={opt.value}
+                          leftSection={active ? <IconCheck size={14} /> : <IconSquare size={14} />}
+                          onClick={() => {
+                            setSelectedIntegrationFilter(
+                              active
+                                ? selectedIntegrationFilter.filter(v => v !== opt.value)
+                                : [...selectedIntegrationFilter, opt.value]
+                            );
+                          }}
+                        >
+                          {opt.label}
+                        </Menu.Item>
+                      );
+                    })}
+                    {selectedIntegrationFilter.length > 0 && (
+                      <>
+                        <Menu.Divider />
+                        <Menu.Item color="red" onClick={() => setSelectedIntegrationFilter([])}>
+                          Clear filters
+                        </Menu.Item>
+                      </>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
+                <ActionIcon
+                  variant="default"
+                  size={30}
+                  aria-label="Ask Zoe across all"
+                  disabled
+                >
+                  <IconSparkles size={14} className="text-accent-meetings" />
+                </ActionIcon>
+              </Group>
+            </Group>
 
             {/* Content Area */}
             {/*
@@ -848,84 +1163,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
               getFilteredTranscriptions). Mantine renders only the active
               Panel's tree thanks to `keepMounted={false}` on Tabs.
             */}
-            {(["all", "one_on_one", "ritual"] as const).map((tabValue) => (
+            {(["all", "mine", "one_on_one", "customer", "internal"] as const).map((tabValue) => (
             <Tabs.Panel key={tabValue} value={tabValue} keepMounted={false}>
-              <Stack gap="lg">
-                {/* Recent meetings heading */}
-                <Group justify="space-between" align="center">
-                  <Title order={4} fw={600}>Recent meetings</Title>
-                  <Group gap="sm">
-                    <Text size="sm" c="dimmed">
-                      {filteredTranscriptions.length} meeting{filteredTranscriptions.length === 1 ? "" : "s"}
-                    </Text>
-                    <CreateTranscriptionModal workspaceId={workspaceId} />
-                  </Group>
-                </Group>
-
-                {/* Search + Filter/Group/Ask bar */}
-                <Paper withBorder radius="md" p="xs">
-                  <Group gap="sm" wrap="nowrap">
-                    <TextInput
-                      leftSection={<IconSearch size={16} />}
-                      placeholder="Search meetings, participants, topics..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                      variant="unstyled"
-                      className="flex-1"
-                      styles={{ input: { paddingLeft: 8 } }}
-                      rightSection={
-                        <Kbd className="mr-2">⌘K</Kbd>
-                      }
-                      rightSectionWidth={44}
-                    />
-                    <Menu shadow="md" position="bottom-end" width={240}>
-                      <Menu.Target>
-                        <Button variant="default" size="sm" leftSection={<IconFilter size={14} />}>
-                          Filter
-                        </Button>
-                      </Menu.Target>
-                      <Menu.Dropdown>
-                        <Menu.Label>Integration</Menu.Label>
-                        {integrationOptions.length === 0 && (
-                          <Menu.Item disabled>No integrations</Menu.Item>
-                        )}
-                        {integrationOptions.map((opt) => {
-                          const active = selectedIntegrationFilter.includes(opt.value);
-                          return (
-                            <Menu.Item
-                              key={opt.value}
-                              leftSection={active ? <IconCheck size={14} /> : <IconSquare size={14} />}
-                              onClick={() => {
-                                setSelectedIntegrationFilter(
-                                  active
-                                    ? selectedIntegrationFilter.filter(v => v !== opt.value)
-                                    : [...selectedIntegrationFilter, opt.value]
-                                );
-                              }}
-                            >
-                              {opt.label}
-                            </Menu.Item>
-                          );
-                        })}
-                        {selectedIntegrationFilter.length > 0 && (
-                          <>
-                            <Menu.Divider />
-                            <Menu.Item color="red" onClick={() => setSelectedIntegrationFilter([])}>
-                              Clear filters
-                            </Menu.Item>
-                          </>
-                        )}
-                      </Menu.Dropdown>
-                    </Menu>
-                    <Button variant="default" size="sm" leftSection={<IconLayersIntersect size={14} />} disabled>
-                      Group
-                    </Button>
-                    <Button variant="default" size="sm" leftSection={<IconSparkles size={14} />} disabled>
-                      Ask across all
-                    </Button>
-                  </Group>
-                </Paper>
-
+              <Stack gap="md">
                 {/* Bulk operations bar (only when selections exist) */}
                 {selectedTranscriptionIds.size > 0 && (
                   <Paper withBorder p="sm" radius="md" className="bg-surface-secondary">
@@ -981,27 +1221,42 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   </Paper>
                 )}
 
-                {activeTab === "ritual" ? (
+                {activeTab === "customer" || activeTab === "internal" ? (
                   <Paper p="xl" radius="md" className="text-center">
                     <Stack gap="md" align="center">
                       <IconMicrophone size={40} opacity={0.3} />
                       <Text size="md" c="dimmed">
-                        We&apos;re learning your team&apos;s recurring meetings
+                        {activeTab === "customer"
+                          ? "We don't tag customer meetings yet"
+                          : "We don't tag internal meetings yet"}
                       </Text>
                       <Text size="sm" c="dimmed">
-                        Rituals will surface here once we can detect them. For now, head to All or
-                        1:1s to see your synced meetings.
+                        {activeTab === "customer"
+                          ? "Customer-tagged meetings will surface here once tagging ships. For now, head to All or 1:1s to see your synced meetings."
+                          : "Internal-tagged meetings will surface here once tagging ships. For now, head to All or 1:1s to see your synced meetings."}
                       </Text>
                     </Stack>
                   </Paper>
                 ) : groupedTranscriptions.length > 0 ? (
-                  <Stack gap="xl">
+                  <Stack gap={36}>
                     {groupedTranscriptions.map((group) => (
-                    <div key={group.key}>
-                      <div className="sticky top-0 z-10 -mx-2 mb-2 bg-background-primary px-2 py-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                        {group.label}
+                    <div
+                      key={group.key}
+                      className="grid grid-cols-[84px_minmax(0,1fr)] gap-5"
+                    >
+                      <div className="sticky top-4 self-start pt-1.5">
+                        <div className="text-sm font-semibold tracking-tight text-text-primary">
+                          {group.dayLabel}
+                        </div>
+                        <div
+                          className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+                            group.isToday ? "text-brand-400" : "text-text-muted"
+                          }`}
+                        >
+                          {group.relativeLabel}
+                        </div>
                       </div>
-                      <Stack gap="md">
+                      <div className="flex min-w-0 flex-col gap-3">
                         {group.meetings.map((session) => {
                       const projectsForWorkspace = getProjectsForMeeting(session.workspaceId);
                       const vmSession: MeetingCardSession = {
@@ -1031,13 +1286,16 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                       const navigateToDetail = () => router.push(detailHref);
                       const stopBubble = (e: React.MouseEvent | React.KeyboardEvent) => e.stopPropagation();
 
+                      const time = formatMeetingTime(session.meetingDate ?? session.createdAt);
+                      const duration = formatDuration(session.durationSeconds);
+                      const provider = session.sourceIntegration?.provider;
+                      const tagClass = vm.projectPill
+                        ? projectTagClass(vm.projectPill.id)
+                        : null;
+
                       return (
-                      <Card
+                      <div
                         key={session.id}
-                        withBorder
-                        radius="md"
-                        padding="md"
-                        className="cursor-pointer hover:border-border-focus transition-colors"
                         role="link"
                         tabIndex={0}
                         onClick={navigateToDetail}
@@ -1047,36 +1305,139 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             navigateToDetail();
                           }
                         }}
+                        className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-[18px] py-4 transition-colors hover:border-border-strong hover:bg-background-elevated"
                       >
-                        <Stack gap="md">
-                          {/* Title row */}
-                          <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
-                            <Group gap="sm" align="flex-start" wrap="nowrap" style={{ flex: 1 }}>
-                              <Checkbox
-                                mt={4}
-                                checked={selectedTranscriptionIds.has(session.id)}
-                                onChange={(event) => {
-                                  const newSelected = new Set(selectedTranscriptionIds);
-                                  if (event.currentTarget.checked) {
-                                    newSelected.add(session.id);
-                                  } else {
-                                    newSelected.delete(session.id);
-                                  }
-                                  setSelectedTranscriptionIds(newSelected);
-                                }}
-                                onClick={stopBubble}
-                              />
-                              <Text size="lg" fw={600} lineClamp={1} style={{ flex: 1 }}>
-                                <Link
-                                  href={detailHref}
-                                  onClick={stopBubble}
-                                  className="text-text-primary hover:underline"
-                                >
-                                  {vm.title}
-                                </Link>
-                              </Text>
-                            </Group>
-                            <div onClick={stopBubble}>
+                        {/* Top row: checkbox + time + title block + project tag + avatars + kebab */}
+                        <div className="mb-3 flex items-start gap-3">
+                          <Checkbox
+                            mt={2}
+                            checked={selectedTranscriptionIds.has(session.id)}
+                            onChange={(event) => {
+                              const newSelected = new Set(selectedTranscriptionIds);
+                              if (event.currentTarget.checked) {
+                                newSelected.add(session.id);
+                              } else {
+                                newSelected.delete(session.id);
+                              }
+                              setSelectedTranscriptionIds(newSelected);
+                            }}
+                            onClick={stopBubble}
+                            size="xs"
+                          />
+                          <div className="w-12 pt-[3px] font-mono text-[11.5px] tabular-nums text-text-muted">
+                            {time}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <Link
+                              href={detailHref}
+                              onClick={stopBubble}
+                              className="block truncate text-[14.5px] font-semibold leading-snug tracking-tight text-text-primary hover:text-brand-400"
+                            >
+                              {vm.title}
+                            </Link>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-text-muted">
+                              {duration && (
+                                <>
+                                  <span>{duration}</span>
+                                  <span className="h-[3px] w-[3px] rounded-full bg-text-faint" aria-hidden />
+                                </>
+                              )}
+                              <span>
+                                {vm.attendeeCount} attendee{vm.attendeeCount === 1 ? "" : "s"}
+                              </span>
+                              {provider && (
+                                <>
+                                  <span className="h-[3px] w-[3px] rounded-full bg-text-faint" aria-hidden />
+                                  <span className="capitalize">via {provider}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-start gap-3">
+                            {/* Project tag — colored variants by project hash */}
+                            {vm.projectPill && tagClass ? (
+                              <div onClick={stopBubble}>
+                                <Menu shadow="md" width={240}>
+                                  <Menu.Target>
+                                    <button
+                                      type="button"
+                                      className={`inline-flex h-[22px] max-w-[180px] items-center gap-1.5 truncate rounded px-2 text-[11.5px] font-medium ${tagClass.bg} ${tagClass.text}`}
+                                    >
+                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tagClass.dot}`} />
+                                      <span className="truncate">{vm.projectPill.name}</span>
+                                    </button>
+                                  </Menu.Target>
+                                  <Menu.Dropdown>
+                                    <Menu.Label>Reassign project</Menu.Label>
+                                    {projectsForWorkspace.map((p) => (
+                                      <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
+                                        {p.name}
+                                      </Menu.Item>
+                                    ))}
+                                    <Menu.Divider />
+                                    <Menu.Item color="gray" onClick={() => handleProjectAssignment(session.id, null)}>
+                                      Remove project
+                                    </Menu.Item>
+                                  </Menu.Dropdown>
+                                </Menu>
+                              </div>
+                            ) : (
+                              <div onClick={stopBubble}>
+                                <Menu shadow="md" width={240}>
+                                  <Menu.Target>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-[22px] items-center gap-1 rounded border border-dashed border-border-strong px-2 text-[11.5px] text-text-muted hover:border-brand-400 hover:text-brand-400"
+                                    >
+                                      <IconFolder size={11} />
+                                      <span>Assign to project</span>
+                                    </button>
+                                  </Menu.Target>
+                                  <Menu.Dropdown>
+                                    <Menu.Label>Assign to project</Menu.Label>
+                                    {projectsForWorkspace.length === 0 ? (
+                                      <Menu.Item disabled>No projects in this workspace</Menu.Item>
+                                    ) : (
+                                      projectsForWorkspace.map((p) => (
+                                        <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
+                                          {p.name}
+                                        </Menu.Item>
+                                      ))
+                                    )}
+                                  </Menu.Dropdown>
+                                </Menu>
+                              </div>
+                            )}
+
+                            {/* Avatar stack — Participants (calendar invitees) */}
+                            {vm.avatars.length > 0 && (
+                              <div className="flex items-center">
+                                {vm.avatars.slice(0, 3).map((a, idx) => (
+                                  <Tooltip key={a.key} label={a.displayName} withArrow>
+                                    <div
+                                      className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-secondary text-[10px] font-semibold text-white group-hover:border-background-elevated ${a.colorClass}`}
+                                      style={{ marginLeft: idx === 0 ? 0 : -8 }}
+                                    >
+                                      {a.initials}
+                                    </div>
+                                  </Tooltip>
+                                ))}
+                                {vm.attendeeCount > 3 && (
+                                  <div
+                                    className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-secondary bg-surface-muted text-[10px] font-semibold text-text-secondary group-hover:border-background-elevated"
+                                    style={{ marginLeft: -8 }}
+                                  >
+                                    +{vm.attendeeCount - 3}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Kebab — on-hover surface; functionality preserved per ticket #34 */}
+                            <div
+                              onClick={stopBubble}
+                              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                            >
                               <Menu shadow="md" position="bottom-end">
                                 <Menu.Target>
                                   <ActionIcon variant="subtle" color="gray" size="sm">
@@ -1136,128 +1497,49 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                 </Menu.Dropdown>
                               </Menu>
                             </div>
-                          </Group>
+                          </div>
+                        </div>
 
-                          {/* Project pill + Participant avatars row */}
-                          <Group gap="sm" pl={32} wrap="wrap" align="center">
-                            {vm.projectPill ? (
-                              <div onClick={stopBubble}>
-                                <Menu shadow="md" width={240}>
-                                  <Menu.Target>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-2 rounded-md border border-border-primary bg-surface-secondary px-2 py-1 text-xs text-text-primary hover:bg-surface-hover"
-                                    >
-                                      <IconFolder size={12} className="text-blue-400" />
-                                      <span className="font-medium">{vm.projectPill.name}</span>
-                                    </button>
-                                  </Menu.Target>
-                                  <Menu.Dropdown>
-                                    <Menu.Label>Reassign project</Menu.Label>
-                                    {projectsForWorkspace.map((p) => (
-                                      <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
-                                        {p.name}
-                                      </Menu.Item>
-                                    ))}
-                                    <Menu.Divider />
-                                    <Menu.Item color="gray" onClick={() => handleProjectAssignment(session.id, null)}>
-                                      Remove project
-                                    </Menu.Item>
-                                  </Menu.Dropdown>
-                                </Menu>
-                              </div>
-                            ) : (
-                              <div onClick={stopBubble}>
-                                <Select
-                                  searchable
-                                  placeholder="Assign to project"
-                                  value={session.projectId ?? ""}
-                                  onChange={(value) => handleProjectAssignment(session.id, value)}
-                                  data={[
-                                    { value: "", label: "No project" },
-                                    ...projectsForWorkspace.map(p => ({ value: p.id, label: p.name })),
-                                  ]}
-                                  size="xs"
-                                  style={{ minWidth: 200 }}
-                                />
-                              </div>
-                            )}
-
-                            {vm.avatars.length > 0 && (
-                              <Group gap={6} wrap="nowrap" align="center">
-                                <div className="flex items-center -space-x-2 pl-1">
-                                  {vm.avatars.slice(0, 4).map((a) => (
-                                    <Tooltip key={a.key} label={a.displayName} withArrow>
-                                      <div
-                                        className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-primary text-[10px] font-semibold text-white ${a.colorClass}`}
-                                      >
-                                        {a.initials}
-                                      </div>
-                                    </Tooltip>
-                                  ))}
-                                  {vm.avatars.length > 4 && (
-                                    <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-primary bg-surface-secondary text-[10px] font-semibold text-text-secondary">
-                                      +{vm.avatars.length - 4}
-                                    </div>
-                                  )}
-                                </div>
-                                <Text size="xs" c="dimmed">
-                                  {vm.attendeeCount} attendee{vm.attendeeCount === 1 ? "" : "s"}
-                                </Text>
-                              </Group>
-                            )}
-                          </Group>
-
-                          {/* AI highlight (Fireflies overview → shorthand_bullet[0]) */}
-                          {vm.highlight && (
-                            <Text size="sm" c="dimmed" lineClamp={2} pl={32}>
-                              {vm.highlight}
-                            </Text>
-                          )}
-
-                          {/* Peek at transcript accordion */}
-                          {session.transcription && (
-                            <div onClick={stopBubble} className="pl-8">
-                              <Accordion variant="contained" chevronPosition="right">
-                                <Accordion.Item value="peek">
-                                  <Accordion.Control>
-                                    <Text size="xs" fw={600} c="dimmed" className="uppercase tracking-wide">
-                                      Peek at transcript
-                                    </Text>
-                                  </Accordion.Control>
-                                  <Accordion.Panel>
-                                    <TranscriptionRenderer
-                                      transcription={session.transcription}
-                                      provider={session.sourceIntegration?.provider}
-                                      isPreview={true}
-                                      maxLines={2}
-                                    />
-                                  </Accordion.Panel>
-                                </Accordion.Item>
-                              </Accordion>
+                        {/* Zoe gradient panel — leads the card with AI summary + Actions chip + Open transcript link */}
+                        <div className="mb-2.5 flex gap-2.5 rounded-lg border border-accent-meetings/20 bg-gradient-to-b from-accent-meetings/[0.06] to-accent-meetings/[0.02] px-3.5 py-3">
+                          <IconSparkles size={14} className="mt-0.5 shrink-0 text-accent-meetings" />
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 text-[13px] leading-[1.55] text-text-primary">
+                              {vm.highlight ?? "Summary not yet extracted."}
+                            </p>
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-background-primary px-2 py-[3px] text-[11px] font-medium text-brand-400">
+                                <IconCheckbox size={10} />
+                                <span className="font-semibold tabular-nums text-text-primary">
+                                  {vm.actionCount}
+                                </span>
+                                <span>action{vm.actionCount === 1 ? "" : "s"}</span>
+                              </span>
+                              <span className="flex-1" />
+                              <Link
+                                href={detailHref}
+                                onClick={stopBubble}
+                                className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-text-muted hover:text-brand-400"
+                              >
+                                Open transcript
+                                <IconArrowRight size={11} />
+                              </Link>
                             </div>
-                          )}
+                          </div>
+                        </div>
 
-                          {/* Footer: Actions chip + Open transcript link */}
-                          <Group justify="space-between" align="center" pl={32} wrap="wrap">
-                            <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs text-blue-300">
-                              <IconSparkles size={10} />
-                              {vm.actionCount} action{vm.actionCount === 1 ? "" : "s"}
-                            </span>
-                            <Link
-                              href={detailHref}
-                              onClick={stopBubble}
-                              className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline"
-                            >
-                              Open transcript
-                              <IconExternalLink size={12} />
-                            </Link>
-                          </Group>
-                        </Stack>
-                      </Card>
+                        {/* Peek at transcript — button toggles inline transcript block */}
+                        {session.transcription && (
+                          <PeekTranscript
+                            transcription={session.transcription}
+                            provider={provider}
+                            onContainerClick={stopBubble}
+                          />
+                        )}
+                      </div>
                       );
                     })}
-                      </Stack>
+                      </div>
                     </div>
                     ))}
                   </Stack>
@@ -1521,10 +1803,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
           </Stack>
         </Tabs>
       </div>
-      <aside className="hidden w-80 shrink-0 lg:block">
-        <Stack gap="xl" mt={64}>
-          <ThisWeekChart stats={weeklyStats} />
+      <aside className="hidden w-60 shrink-0 lg:block">
+        <Stack gap="md" mt={56}>
+          <ThisWeekChart stats={weeklyStats} weekStart={weekStart} />
           <TopPeoplePanel stats={weeklyStats} />
+          <ZoesWeekPanel stats={weeklyStats} />
         </Stack>
       </aside>
       </div>

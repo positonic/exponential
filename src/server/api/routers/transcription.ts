@@ -589,30 +589,40 @@ export const transcriptionRouter = createTRPCRouter({
           workspaceId: z.string().optional(),
           // Meeting type filter for the Meetings v2 tab strip.
           // - 'all' / undefined: no narrowing
+          // - 'mine': caller is the session owner OR a Participant on the
+          //   session (covers both creator and attendance)
           // - 'one_on_one': only Meetings with exactly two Participants
-          //   (derived from `participantCount = 2` since no stored `meetingType`
-          //   column exists in v1)
-          // - 'ritual': always empty — short-circuited below until a recurrence
-          //   classifier exists
-          meetingType: z.enum(["all", "one_on_one", "ritual"]).optional(),
+          //   (derived from `participantCount = 2` since no stored
+          //   `meetingType` column exists in v1)
+          // - 'customer' / 'internal': always empty — short-circuited below
+          //   until a meeting-tagging mechanism exists
+          meetingType: z
+            .enum(["all", "mine", "one_on_one", "customer", "internal"])
+            .optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Rituals ship with an honest empty state in v1 — no classifier yet.
-      if (input?.meetingType === "ritual") {
+      // Customer and Internal tabs ship with honest empty states — no
+      // tagging mechanism exists yet.
+      if (
+        input?.meetingType === "customer" ||
+        input?.meetingType === "internal"
+      ) {
         return [];
       }
 
       // Visibility: own transcriptions, OR transcriptions tied to a project
-      // the user can access (creator/member/public/workspace per restriction
-      // rules).
+      // the user can access, OR transcriptions the caller is a linked
+      // Participant on (calendar invitee — users get to see Meetings they
+      // attended even if someone else uploaded the transcript).
       const accessFilter = {
         OR: [
           { userId },
           { project: buildProjectAccessWhere(userId) },
+          { participants: { some: { userId } } },
         ],
       };
 
@@ -636,6 +646,18 @@ export const transcriptionRouter = createTRPCRouter({
 
       if (input?.meetingType === "one_on_one") {
         filters.push({ participantCount: 2 });
+      }
+
+      if (input?.meetingType === "mine") {
+        // "Mine" = the caller owns the Meeting or appears in its
+        // Participant list. Participant userId may be null for email-only
+        // invitees we haven't linked yet; those are correctly excluded.
+        filters.push({
+          OR: [
+            { userId },
+            { participants: { some: { userId } } },
+          ],
+        });
       }
 
       return ctx.db.transcriptionSession.findMany({
