@@ -69,6 +69,19 @@
     --accent-low: #9AA7BC;
     --accent-quick: #5AC8E0;
 
+    /* RGB triplets — required by Tailwind's <alpha-value> opacity-modifier
+       syntax (e.g. `bg-accent-meetings/20`). The hex tokens above cannot be
+       split into channels at compile-time, so the Tailwind aliases reference
+       these. Values mirror the hex tokens; defined per-mode block for safety
+       even though they don't currently vary by mode. */
+    --brand-400-rgb: 78 137 255;        /* #4E89FF */
+    --accent-meetings-rgb: 167 139 250; /* #A78BFA */
+    --accent-crm-rgb: 74 222 140;       /* #4ADE8C */
+    --accent-okr-rgb: 245 185 74;       /* #F5B94A */
+    --accent-due-rgb: 248 113 113;      /* #F87171 */
+    --accent-quick-rgb: 90 200 224;     /* #5AC8E0 */
+    --accent-ritual-rgb: 107 140 255;   /* #6B8CFF */
+
     /* Today page palette (project chips, timeline) */
     --actions-proj-5: #F472B6;
     --actions-proj-6: #34D399;
@@ -207,6 +220,19 @@
     --accent-low: #9AA7BC;
     --accent-quick: #5AC8E0;
 
+    /* RGB triplets — required by Tailwind's <alpha-value> opacity-modifier
+       syntax (e.g. `bg-accent-meetings/20`). The hex tokens above cannot be
+       split into channels at compile-time, so the Tailwind aliases reference
+       these. Values mirror the hex tokens; defined per-mode block for safety
+       even though they don't currently vary by mode. */
+    --brand-400-rgb: 78 137 255;        /* #4E89FF */
+    --accent-meetings-rgb: 167 139 250; /* #A78BFA */
+    --accent-crm-rgb: 74 222 140;       /* #4ADE8C */
+    --accent-okr-rgb: 245 185 74;       /* #F5B94A */
+    --accent-due-rgb: 248 113 113;      /* #F87171 */
+    --accent-quick-rgb: 90 200 224;     /* #5AC8E0 */
+    --accent-ritual-rgb: 107 140 255;   /* #6B8CFF */
+
     /* Today page palette (project chips, timeline) */
     --actions-proj-5: #F472B6;
     --actions-proj-6: #34D399;
@@ -344,6 +370,19 @@
     --accent-high: #FBA74C;
     --accent-low: #9AA7BC;
     --accent-quick: #5AC8E0;
+
+    /* RGB triplets — required by Tailwind's <alpha-value> opacity-modifier
+       syntax (e.g. `bg-accent-meetings/20`). The hex tokens above cannot be
+       split into channels at compile-time, so the Tailwind aliases reference
+       these. Values mirror the hex tokens; defined per-mode block for safety
+       even though they don't currently vary by mode. */
+    --brand-400-rgb: 78 137 255;        /* #4E89FF */
+    --accent-meetings-rgb: 167 139 250; /* #A78BFA */
+    --accent-crm-rgb: 74 222 140;       /* #4ADE8C */
+    --accent-okr-rgb: 245 185 74;       /* #F5B94A */
+    --accent-due-rgb: 248 113 113;      /* #F87171 */
+    --accent-quick-rgb: 90 200 224;     /* #5AC8E0 */
+    --accent-ritual-rgb: 107 140 255;   /* #6B8CFF */
 
     /* Today page palette (project chips, timeline) */
     --actions-proj-5: #F472B6;
