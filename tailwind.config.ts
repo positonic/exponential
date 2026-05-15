@@ -66,8 +66,10 @@ export default {
           info: 'var(--color-brand-info)',
           'primary-opacity': 'var(--color-brand-primary-opacity)',
           // Meetings v2: secondary brand tier used for "TODAY" date label,
-          // sparkline highlight bar, "Open transcript" link.
-          400: 'var(--brand-400)',
+          // sparkline highlight bar, "Open transcript" link. Uses the RGB
+          // triplet form so opacity modifiers like `bg-brand-400/10` resolve
+          // through Tailwind's <alpha-value> substitution.
+          400: 'rgb(var(--brand-400-rgb) / <alpha-value>)',
         },
         // Error/Warning utility colors
         error: {
@@ -83,14 +85,19 @@ export default {
           periwinkle: 'var(--color-accent-periwinkle)',
           indigo: 'var(--color-accent-indigo)',
           // Domain accents — used by Meetings v2 cards, panels, and chips.
-          meetings: 'var(--accent-meetings)',
-          crm: 'var(--accent-crm)',
-          okr: 'var(--accent-okr)',
-          due: 'var(--accent-due)',
-          ritual: 'var(--accent-ritual)',
+          // The RGB triplet form is required so Tailwind opacity modifiers
+          // (`bg-accent-meetings/20`, `border-accent-meetings/[0.06]`, etc.)
+          // produce valid CSS. Hex-valued CSS vars cannot be split into
+          // channels at compile-time and the modifier silently fails,
+          // producing a stark currentColor fallback (white in dark mode).
+          meetings: 'rgb(var(--accent-meetings-rgb) / <alpha-value>)',
+          crm: 'rgb(var(--accent-crm-rgb) / <alpha-value>)',
+          okr: 'rgb(var(--accent-okr-rgb) / <alpha-value>)',
+          due: 'rgb(var(--accent-due-rgb) / <alpha-value>)',
+          ritual: 'rgb(var(--accent-ritual-rgb) / <alpha-value>)',
           // The design calls this "knowledge"; the existing CSS var is named
-          // `--accent-quick`. Keep the CSS var; expose under the design's name.
-          knowledge: 'var(--accent-quick)',
+          // `--accent-quick`. Keep the CSS var name; expose under the design's.
+          knowledge: 'rgb(var(--accent-quick-rgb) / <alpha-value>)',
         },
         // Gradient color references
         gradient: {
