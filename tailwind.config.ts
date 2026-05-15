@@ -28,6 +28,8 @@ export default {
           tertiary: 'var(--color-surface-tertiary)',
           hover: 'var(--color-surface-hover)',
           active: 'var(--color-surface-active)',
+          // Meetings v2: tonal panel surface
+          muted: 'var(--color-surface-muted)',
         },
         // Text colors
         text: {
@@ -37,6 +39,8 @@ export default {
           muted: 'var(--color-text-muted)',
           disabled: 'var(--color-text-disabled)',
           inverse: 'var(--color-text-inverse)',
+          // Meetings v2: tertiary/faint text for separators and small captions
+          faint: 'var(--color-text-faint)',
         },
         // Border colors
         border: {
@@ -45,6 +49,9 @@ export default {
           secondary: 'var(--color-border-secondary)',
           tertiary: 'var(--color-border-tertiary)',
           focus: 'var(--color-border-focus)',
+          // Meetings v2: low-contrast hairline and emphasized hover borders
+          subtle: 'var(--color-border-subtle)',
+          strong: 'var(--color-border-strong)',
         },
         // Brand colors
         brand: {
@@ -58,6 +65,9 @@ export default {
           error: 'var(--color-brand-error)',
           info: 'var(--color-brand-info)',
           'primary-opacity': 'var(--color-brand-primary-opacity)',
+          // Meetings v2: secondary brand tier used for "TODAY" date label,
+          // sparkline highlight bar, "Open transcript" link.
+          400: 'var(--brand-400)',
         },
         // Error/Warning utility colors
         error: {
@@ -68,10 +78,19 @@ export default {
           bg: 'var(--color-warning-bg)',
           border: 'var(--color-warning-border)',
         },
-        // Accent colors for landing page
+        // Accent colors for landing page + Meetings v2 design tokens
         accent: {
           periwinkle: 'var(--color-accent-periwinkle)',
           indigo: 'var(--color-accent-indigo)',
+          // Domain accents — used by Meetings v2 cards, panels, and chips.
+          meetings: 'var(--accent-meetings)',
+          crm: 'var(--accent-crm)',
+          okr: 'var(--accent-okr)',
+          due: 'var(--accent-due)',
+          ritual: 'var(--accent-ritual)',
+          // The design calls this "knowledge"; the existing CSS var is named
+          // `--accent-quick`. Keep the CSS var; expose under the design's name.
+          knowledge: 'var(--accent-quick)',
         },
         // Gradient color references
         gradient: {
