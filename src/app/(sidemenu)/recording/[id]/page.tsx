@@ -17,6 +17,7 @@ import {
   Button,
   Select,
 } from "@mantine/core";
+import { DateTimePicker } from "@mantine/dates";
 import { IconPencil } from "@tabler/icons-react";
 import { use, useEffect, useMemo, useState } from "react";
 import RecordingChat from "~/app/_components/RecordingChat";
@@ -305,6 +306,31 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  async function handleMeetingDateChange(value: Date | null) {
+    if (!session) return;
+    try {
+      await updateDetailsMutation.mutateAsync({
+        id: session.id,
+        meetingDate: value,
+      });
+      notifications.show({
+        title: "Saved",
+        message: value
+          ? "Meeting date updated"
+          : "Meeting date cleared",
+        color: "green",
+      });
+      void utils.transcription.getById.invalidate({ id });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message:
+          error instanceof Error ? error.message : "Failed to update meeting date",
+        color: "red",
+      });
+    }
+  }
+
   if (isLoading) {
     return (
       <>
@@ -574,9 +600,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             <Text><strong>Session ID:</strong> {session.sessionId}</Text>
             <Text><strong>Created:</strong> {new Date(session.createdAt).toLocaleString()}</Text>
             <Text><strong>Updated:</strong> {new Date(session.updatedAt).toLocaleString()}</Text>
-            {session.meetingDate && (
-              <Text><strong>Meeting Date:</strong> {new Date(session.meetingDate).toLocaleString()}</Text>
-            )}
+            <DateTimePicker
+              label="Meeting Date"
+              description="When the meeting actually happened"
+              value={session.meetingDate ? new Date(session.meetingDate) : null}
+              onChange={(value) => {
+                void handleMeetingDateChange(value);
+              }}
+              clearable
+              valueFormat="MMMM D, YYYY h:mm A"
+              popoverProps={{ withinPortal: true }}
+            />
           </Stack>
           {workspaces && workspaces.length > 0 && (
             <Select
