@@ -116,7 +116,7 @@ export function TranscriptionDetailsModal({
     onSuccess: (updated) => {
       notifications.show({
         title: "Saved",
-        message: "Transcript updated",
+        message: "Changes saved",
         color: "green",
       });
       setEditingTranscript(false);

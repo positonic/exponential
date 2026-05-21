@@ -170,6 +170,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const [editedSummary, setEditedSummary] = useState("");
   const [activeTab, setActiveTab] = useState<string>("details");
   const [hasAutoSwitched, setHasAutoSwitched] = useState(false);
+  const [pendingMeetingDate, setPendingMeetingDate] = useState<
+    Date | null | undefined
+  >(undefined);
 
   // Register page context so the agent chat knows what recording the user is viewing
   const recordingPageContext = useMemo(() => {
@@ -330,6 +333,17 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       });
     }
   }
+
+  useEffect(() => {
+    if (pendingMeetingDate === undefined) return;
+    const valueToSave = pendingMeetingDate;
+    const handle = setTimeout(() => {
+      void handleMeetingDateChange(valueToSave);
+      setPendingMeetingDate(undefined);
+    }, 600);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMeetingDate]);
 
   if (isLoading) {
     return (
@@ -603,9 +617,15 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
             <DateTimePicker
               label="Meeting Date"
               description="When the meeting actually happened"
-              value={session.meetingDate ? new Date(session.meetingDate) : null}
+              value={
+                pendingMeetingDate !== undefined
+                  ? pendingMeetingDate
+                  : session.meetingDate
+                    ? new Date(session.meetingDate)
+                    : null
+              }
               onChange={(value) => {
-                void handleMeetingDateChange(value);
+                setPendingMeetingDate(value);
               }}
               clearable
               valueFormat="MMMM D, YYYY h:mm A"
