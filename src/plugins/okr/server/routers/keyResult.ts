@@ -199,6 +199,12 @@ export const keyResultRouter = createTRPCRouter({
         },
         include: {
           lifeDomain: true,
+          user: {
+            select: { id: true, name: true, email: true, image: true },
+          },
+          driUser: {
+            select: { id: true, name: true, email: true, image: true },
+          },
           keyResults: {
             where: {
               ...periodFilter,
