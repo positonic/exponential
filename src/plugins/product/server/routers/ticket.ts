@@ -5,6 +5,10 @@ import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import {
+  COMPLETED_TICKET_STATUSES,
+  IN_FLIGHT_TICKET_STATUSES,
+} from "~/lib/ticket-statuses";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -69,21 +73,6 @@ async function loadTicketWithAccess(
   );
   return ticket;
 }
-
-/** Ticket statuses that count as "completed" for blocker derivation. */
-const COMPLETED_TICKET_STATUSES: ReadonlyArray<z.infer<typeof ticketStatusEnum>> = [
-  "DONE",
-  "DEPLOYED",
-  "ARCHIVED",
-];
-
-/** Ticket statuses where an open blocker means the ticket is actively blocked. */
-const IN_FLIGHT_TICKET_STATUSES: ReadonlyArray<z.infer<typeof ticketStatusEnum>> = [
-  "READY_TO_PLAN",
-  "COMMITTED",
-  "IN_PROGRESS",
-  "QA",
-];
 
 /** Minimal ticket shape returned for dependency edges. */
 const DEP_TICKET_SELECT = {
