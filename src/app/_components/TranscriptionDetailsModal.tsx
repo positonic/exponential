@@ -7,6 +7,7 @@ import {
   IconCheck,
   IconExternalLink,
   IconLink,
+  IconNotes,
   IconSparkles,
   IconX,
 } from "@tabler/icons-react";
@@ -20,6 +21,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { ActionsPane } from "./transcription-detail/ActionsPane";
 import { MeetingHeader } from "./transcription-detail/MeetingHeader";
+import { NotesPane } from "./transcription-detail/NotesPane";
 import { Rail } from "./transcription-detail/Rail";
 import { ScreenshotsPane } from "./transcription-detail/ScreenshotsPane";
 import { SummaryPane } from "./transcription-detail/SummaryPane";
@@ -31,7 +33,7 @@ import {
 } from "./transcription-detail/helpers";
 import { TranscriptionDraftActionsModal } from "./TranscriptionDraftActionsModal";
 
-type Tab = "summary" | "transcript" | "actions" | "screenshots";
+type Tab = "summary" | "notes" | "transcript" | "actions" | "screenshots";
 
 interface TranscriptionDetailsModalProps {
   opened: boolean;
@@ -74,6 +76,8 @@ export function TranscriptionDetailsModal({
   const [editedTitle, setEditedTitle] = useState("");
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState("");
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [editedNotes, setEditedNotes] = useState("");
 
   useEffect(() => {
     if (!opened) {
@@ -81,6 +85,7 @@ export function TranscriptionDetailsModal({
       setJumpToSeconds(null);
       setEditingTitle(false);
       setEditingTranscript(false);
+      setEditingNotes(false);
     }
   }, [opened]);
 
@@ -111,10 +116,11 @@ export function TranscriptionDetailsModal({
     onSuccess: (updated) => {
       notifications.show({
         title: "Saved",
-        message: "Transcript updated",
+        message: "Changes saved",
         color: "green",
       });
       setEditingTranscript(false);
+      setEditingNotes(false);
       onTranscriptionUpdate?.(updated);
       void refetch();
     },
@@ -412,6 +418,34 @@ export function TranscriptionDetailsModal({
                 onJumpToTimestamp={handleJumpToTimestamp}
               />
             )}
+            {tab === "notes" && (
+              <NotesPane
+                notes={
+                  typeof data?.notes === "string" ? data.notes : null
+                }
+                editing={editingNotes}
+                editedValue={editedNotes}
+                onEditedValueChange={setEditedNotes}
+                onStartEdit={() => {
+                  setEditedNotes(
+                    typeof data?.notes === "string" ? data.notes : "",
+                  );
+                  setEditingNotes(true);
+                }}
+                onCancelEdit={() => {
+                  setEditingNotes(false);
+                  setEditedNotes("");
+                }}
+                onSave={() => {
+                  if (!data?.id) return;
+                  updateDetailsMutation.mutate({
+                    id: data.id,
+                    notes: editedNotes,
+                  });
+                }}
+                isSaving={updateDetailsMutation.isPending}
+              />
+            )}
             {tab === "transcript" &&
               (editingTranscript ? (
                 <div className="mdm-pane">
@@ -587,6 +621,14 @@ function TabsBar({
       >
         <IconSparkles size={14} />
         Summary
+      </button>
+      <button
+        type="button"
+        className={`mdm-tab ${tab === "notes" ? "is-active" : ""}`}
+        onClick={() => setTab("notes")}
+      >
+        <IconNotes size={14} />
+        Notes
       </button>
       <button
         type="button"

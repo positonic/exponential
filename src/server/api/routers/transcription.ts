@@ -367,6 +367,7 @@ export const transcriptionRouter = createTRPCRouter({
         summary: z.string().optional(),
         transcription: z.string().optional(),
         workspaceId: z.string().nullable().optional(),
+        meetingDate: z.date().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -394,6 +395,7 @@ export const transcriptionRouter = createTRPCRouter({
         summary?: string;
         transcription?: string;
         workspaceId?: string | null;
+        meetingDate?: Date | null;
         updatedAt: Date;
       } = {
         updatedAt: new Date(),
@@ -429,6 +431,9 @@ export const transcriptionRouter = createTRPCRouter({
           }
         }
         updateData.workspaceId = input.workspaceId;
+      }
+      if (input.meetingDate !== undefined) {
+        updateData.meetingDate = input.meetingDate;
       }
 
       const session = await ctx.db.transcriptionSession.update({
