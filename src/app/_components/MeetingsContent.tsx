@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { SlackSummaryModal } from './SlackSummaryModal';
 import Link from "next/link";
 import {
@@ -11,7 +12,6 @@ import {
   Stack,
   Text,
   Badge,
-  Select,
   Button,
   Card,
   Checkbox,
@@ -19,7 +19,7 @@ import {
   Modal,
   TextInput,
   ActionIcon,
-  Collapse,
+  Skeleton,
   Tooltip,
   Kbd,
 } from "@mantine/core";
@@ -43,25 +43,419 @@ import {
   IconExternalLink,
   IconSearch,
   IconStarFilled,
-  IconChevronDown,
-  IconChevronUp,
-  IconClock,
-  IconPlayerPlayFilled,
-  IconUsers,
   IconSparkles,
-  IconLayersIntersect,
-  IconFlag,
-  IconBell,
-  IconSettings,
   IconCheck,
+  IconTrendingUp,
+  IconUsers,
+  IconChevronDown,
+  IconArrowRight,
+  IconCheckbox,
 } from "@tabler/icons-react";
 import { TranscriptionRenderer } from "./TranscriptionRenderer";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
-import { TranscriptionDetailsDrawer } from "./TranscriptionDetailsDrawer";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
+import {
+  buildMeetingCardViewModel,
+  type MeetingCardParticipant,
+  type MeetingCardSession,
+} from "~/lib/meetingCardViewModel";
+import type { WeeklyMeetingStatsResult } from "~/server/services/meetings/weeklyMeetingStats";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 
-type TabValue = "transcriptions" | "upcoming" | "archive" | "activity";
+type MeetingType =
+  | "all"
+  | "mine"
+  | "one_on_one"
+  | "customer"
+  | "internal";
+type TabValue = MeetingType | "archive" | "activity";
+
+const MEETING_TYPE_TABS: ReadonlyArray<MeetingType> = [
+  "all",
+  "mine",
+  "one_on_one",
+  "customer",
+  "internal",
+];
+
+function isMeetingTypeTab(tab: TabValue): tab is MeetingType {
+  return (MEETING_TYPE_TABS as readonly string[]).includes(tab);
+}
+
+// ── Date grouping helpers ────────────────────────────────────────────
+// Group Meetings by their *local* calendar day. Day boundaries respect the
+// user's browser timezone (not UTC), and the header label resolves to TODAY /
+// YESTERDAY / `<Weekday>, <Mon Day>`.
+
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function localDayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+interface DayLabelParts {
+  dayLabel: string;       // "Thu, Apr 23" (full short date)
+  relativeLabel: string;  // "TODAY" / "YESTERDAY" / "EARLIER THIS WEEK" / "Tue, May 13"
+  isToday: boolean;
+}
+
+function dayLabels(d: Date, now: Date): DayLabelParts {
+  const day = startOfLocalDay(d);
+  const today = startOfLocalDay(now);
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 6);
+  const dayLabel = d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  if (day.getTime() === today.getTime()) {
+    return { dayLabel, relativeLabel: "TODAY", isToday: true };
+  }
+  if (day.getTime() === yesterday.getTime()) {
+    return { dayLabel, relativeLabel: "YESTERDAY", isToday: false };
+  }
+  if (day >= sevenDaysAgo && day < yesterday) {
+    return { dayLabel, relativeLabel: "EARLIER THIS WEEK", isToday: false };
+  }
+  // Fall back to the same short-date label for the relative slot so we still
+  // print something compact-but-honest beyond a week.
+  return { dayLabel, relativeLabel: dayLabel.toUpperCase(), isToday: false };
+}
+
+interface MeetingDateLike {
+  meetingDate: Date | string | null;
+  createdAt: Date | string;
+}
+
+interface DayGroup<T> {
+  key: string;
+  dayLabel: string;
+  relativeLabel: string;
+  isToday: boolean;
+  meetings: T[];
+}
+
+function groupMeetingsByLocalDay<T extends MeetingDateLike>(
+  meetings: T[],
+  now: Date = new Date(),
+): Array<DayGroup<T>> {
+  const buckets = new Map<string, DayGroup<T> & { sortDate: Date }>();
+  for (const m of meetings) {
+    const raw = m.meetingDate ?? m.createdAt;
+    const d = raw instanceof Date ? raw : new Date(raw);
+    const key = localDayKey(d);
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.meetings.push(m);
+    } else {
+      const labels = dayLabels(d, now);
+      buckets.set(key, {
+        key,
+        dayLabel: labels.dayLabel,
+        relativeLabel: labels.relativeLabel,
+        isToday: labels.isToday,
+        sortDate: startOfLocalDay(d),
+        meetings: [m],
+      });
+    }
+  }
+  // Sort buckets by date descending, and meetings within each by their date
+  // descending (so newest in the day comes first).
+  return Array.from(buckets.values())
+    .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+    .map(({ meetings: items, sortDate: _sortDate, ...rest }) => ({
+      ...rest,
+      meetings: items.slice().sort((a, b) => {
+        const ad = a.meetingDate ?? a.createdAt;
+        const bd = b.meetingDate ?? b.createdAt;
+        return new Date(bd).getTime() - new Date(ad).getTime();
+      }),
+    }));
+}
+
+// ── Right rail widgets ──────────────────────────────────────────────
+// Pure renderers over `weeklyStats`. Both expect a possibly-undefined value
+// so they can render a Skeleton while the query is in flight without each
+// widget firing a separate fetch.
+
+function computeInitials(name: string): string {
+  const cleaned = name.trim();
+  if (!cleaned) return "?";
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase() || "?";
+  }
+  return parts[0]!.slice(0, 2).toUpperCase();
+}
+
+// ── Card helpers ───────────────────────────────────────────────────
+// Format a Meeting timestamp like "9:05a" / "11:30p" — lowercase shorthand
+// am/pm matching the design's tight font-mono gutter.
+function formatMeetingTime(raw: Date | string): string {
+  const d = raw instanceof Date ? raw : new Date(raw);
+  if (isNaN(d.getTime())) return "";
+  const hours24 = d.getHours();
+  const minutes = d.getMinutes();
+  const period = hours24 >= 12 ? "p" : "a";
+  const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  return `${hours12}:${String(minutes).padStart(2, "0")}${period}`;
+}
+
+// "18m", "42m", "1h 04m". Null when durationSeconds is missing — caller hides.
+function formatDuration(durationSeconds: number | null | undefined): string | null {
+  if (durationSeconds == null || durationSeconds <= 0) return null;
+  const totalMinutes = Math.max(1, Math.round(durationSeconds / 60));
+  if (totalMinutes < 60) return `${totalMinutes}m`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+// 5 project-tag colour variants, picked deterministically from a project id
+// so the same project always renders in the same colour. Mirrors the avatar
+// hash strategy in meetingCardViewModel.
+const PROJECT_TAG_VARIANTS: ReadonlyArray<{ bg: string; text: string; dot: string }> = [
+  { bg: "bg-brand-400/10",        text: "text-brand-400",       dot: "bg-brand-400" },
+  { bg: "bg-accent-meetings/10",  text: "text-accent-meetings", dot: "bg-accent-meetings" },
+  { bg: "bg-accent-crm/10",       text: "text-accent-crm",      dot: "bg-accent-crm" },
+  { bg: "bg-accent-okr/10",       text: "text-accent-okr",      dot: "bg-accent-okr" },
+  { bg: "bg-accent-knowledge/10", text: "text-accent-knowledge",dot: "bg-accent-knowledge" },
+];
+
+function projectTagClass(projectId: string): { bg: string; text: string; dot: string } {
+  let hash = 0;
+  for (let i = 0; i < projectId.length; i++) {
+    hash = (hash * 31 + projectId.charCodeAt(i)) >>> 0;
+  }
+  return PROJECT_TAG_VARIANTS[hash % PROJECT_TAG_VARIANTS.length]!;
+}
+
+function PeekTranscript({
+  transcription,
+  provider,
+  onContainerClick,
+}: {
+  transcription: string;
+  provider?: string;
+  onContainerClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div onClick={onContainerClick}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 pt-1 text-[11.5px] font-medium text-text-muted hover:text-text-secondary"
+        aria-expanded={open}
+      >
+        <IconChevronDown
+          size={11}
+          className={`transition-transform ${open ? "rotate-180" : "rotate-0"}`}
+        />
+        <span>{open ? "Hide transcript" : "Peek at transcript"}</span>
+      </button>
+      {open && (
+        <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
+          <TranscriptionRenderer
+            transcription={transcription}
+            provider={provider}
+            isPreview={true}
+            maxLines={2}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RailCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-[10px] border border-border-subtle bg-background-secondary p-4">
+      {children}
+    </div>
+  );
+}
+
+function RailCardTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Group
+      gap={6}
+      align="center"
+      className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted"
+    >
+      {icon}
+      <span>{children}</span>
+    </Group>
+  );
+}
+
+function avatarColorClass(key: string): string {
+  // Tailwind avatar palette — must remain in sync with the meetingCardViewModel
+  // palette so the same Participant gets the same colour across the page.
+  const palette = [
+    "bg-blue-500",
+    "bg-green-500",
+    "bg-purple-500",
+    "bg-orange-500",
+    "bg-pink-500",
+    "bg-teal-500",
+  ];
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return palette[hash % palette.length] ?? palette[0]!;
+}
+
+function ThisWeekChart({ stats, weekStart }: { stats: WeeklyMeetingStatsResult | undefined; weekStart: Date }) {
+  if (!stats) {
+    return (
+      <RailCard>
+        <RailCardTitle icon={<IconTrendingUp size={12} />}>This Week</RailCardTitle>
+        <Skeleton height={44} mb={8} />
+        <Skeleton height={14} width="70%" />
+      </RailCard>
+    );
+  }
+  const maxCount = Math.max(1, ...stats.perDayCounts.map((d) => d.count));
+  const hours = Math.floor(stats.totalDurationMinutes / 60);
+  const mins = stats.totalDurationMinutes % 60;
+  const labels = ["M", "T", "W", "T", "F", "S", "S"];
+  // Highlight the bar for today (if today falls inside the displayed week).
+  const todayKey = (() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  })();
+  const weekStartTime = new Date(
+    weekStart.getFullYear(),
+    weekStart.getMonth(),
+    weekStart.getDate(),
+  ).getTime();
+  const todayIndex = Math.floor((todayKey - weekStartTime) / (24 * 60 * 60 * 1000));
+  return (
+    <RailCard>
+      <RailCardTitle icon={<IconTrendingUp size={12} />}>This Week</RailCardTitle>
+      <div className="mb-2.5 flex h-9 items-end gap-[3px]">
+        {stats.perDayCounts.map((d, i) => {
+          const isToday = i === todayIndex;
+          const heightPct = (d.count / maxCount) * 100;
+          return (
+            <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
+              <div
+                className={`min-h-[4px] w-full rounded-[2px] transition-colors ${
+                  isToday ? "bg-brand-400" : "bg-surface-muted"
+                }`}
+                style={{ height: `${heightPct}%` }}
+                aria-label={`${d.count} on ${d.date}`}
+              />
+              <span className="text-[10px] text-text-faint">{labels[i]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <Text size="xs" className="text-text-secondary">
+        <span className="font-semibold text-text-primary tabular-nums">
+          {stats.totalMeetings}
+        </span>{" "}
+        meeting{stats.totalMeetings === 1 ? "" : "s"} ·{" "}
+        <span className="font-semibold text-text-primary tabular-nums">
+          {hours}h {mins}m
+        </span>
+      </Text>
+    </RailCard>
+  );
+}
+
+function TopPeoplePanel({ stats }: { stats: WeeklyMeetingStatsResult | undefined }) {
+  if (!stats) {
+    return (
+      <RailCard>
+        <RailCardTitle icon={<IconUsers size={12} />}>Top People</RailCardTitle>
+        <Stack gap="xs">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} height={24} />
+          ))}
+        </Stack>
+      </RailCard>
+    );
+  }
+  const people = stats.topParticipants.slice(0, 4);
+  return (
+    <RailCard>
+      <RailCardTitle icon={<IconUsers size={12} />}>Top People</RailCardTitle>
+      {people.length === 0 ? (
+        <Text size="xs" className="text-text-muted">No meetings yet this week.</Text>
+      ) : (
+        <Stack gap={6}>
+          {people.map((p) => (
+            <Group key={p.participantId} gap={8} justify="space-between" wrap="nowrap">
+              <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+                {p.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.avatarUrl}
+                    alt={p.displayName}
+                    className="h-6 w-6 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${avatarColorClass(p.participantId)}`}
+                  >
+                    {computeInitials(p.displayName)}
+                  </div>
+                )}
+                <Text size="sm" lineClamp={1} className="text-text-primary">
+                  {p.displayName}
+                </Text>
+              </Group>
+              <Text size="xs" className="tabular-nums text-text-muted">
+                {p.count}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
+      )}
+    </RailCard>
+  );
+}
+
+function ZoesWeekPanel({ stats }: { stats: WeeklyMeetingStatsResult | undefined }) {
+  if (!stats) {
+    return (
+      <RailCard>
+        <RailCardTitle icon={<IconSparkles size={12} className="text-accent-meetings" />}>
+          Zoe&apos;s Week
+        </RailCardTitle>
+        <Skeleton height={36} />
+      </RailCard>
+    );
+  }
+  return (
+    <RailCard>
+      <RailCardTitle icon={<IconSparkles size={12} className="text-accent-meetings" />}>
+        Zoe&apos;s Week
+      </RailCardTitle>
+      <Text size="xs" className="leading-[1.55] text-text-secondary">
+        <span className="font-semibold text-text-primary tabular-nums">
+          {stats.totalActionsExtracted}
+        </span>{" "}
+        action{stats.totalActionsExtracted === 1 ? "" : "s"} extracted across{" "}
+        <span className="font-semibold text-text-primary tabular-nums">
+          {stats.totalMeetings}
+        </span>{" "}
+        meeting{stats.totalMeetings === 1 ? "" : "s"} this week.
+      </Text>
+    </RailCard>
+  );
+}
 
 // Type for webhook activity logs
 interface WebhookLog {
@@ -92,28 +486,36 @@ function hasExtractableActions(session: { summary: string | null }): boolean {
 }
 
 export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
-  // Add CSS animation for fade effect
-  const fadeAnimationStyles = `
+  // Page-local keyframes — Mantine + Tailwind don't expose these utilities
+  // out of the box, so we inject once per session.
+  // - fadeInOut: legacy bulk-action notification banner
+  // - meetings-v2-pulse: pulsing dot on the Fireflies sync pill
+  const inlineKeyframes = `
     @keyframes fadeInOut {
       0% { opacity: 0; transform: translateY(-5px); }
       10% { opacity: 1; transform: translateY(0); }
       90% { opacity: 1; transform: translateY(0); }
       100% { opacity: 0; transform: translateY(-5px); }
     }
+    @keyframes meetings-v2-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.45; transform: scale(0.85); }
+    }
+    .meetings-v2-pulse {
+      animation: meetings-v2-pulse 2.4s ease-in-out infinite;
+    }
   `;
 
-  // Add styles to document if not already present
   if (typeof document !== 'undefined' && !document.getElementById('fade-animation-styles')) {
     const style = document.createElement('style');
     style.id = 'fade-animation-styles';
-    style.textContent = fadeAnimationStyles;
+    style.textContent = inlineKeyframes;
     document.head.appendChild(style);
   }
-  const [activeTab, setActiveTab] = useState<TabValue>("transcriptions");
-  const [drawerOpened, setDrawerOpened] = useState(false);
-  const [selectedTranscription, setSelectedTranscription] = useState<any>(null);
+  const router = useRouter();
+  const [activeTab, setActiveTab] = useState<TabValue>("all");
   const [_successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message (kept for future sync-status UI)
-  const [syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
+  const [_syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
   
   // Slack Summary Modal state
   const [slackModalOpened, setSlackModalOpened] = useState(false);
@@ -126,13 +528,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [syncBannerOpen, setSyncBannerOpen] = useState(true);
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
-  // Per-meeting workspace selections (undefined = use session.workspaceId, null = cleared)
-  const [meetingWorkspaceSelections, setMeetingWorkspaceSelections] = useState<Record<string, string | null | undefined>>({});
-  
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
     { workspaceId },
@@ -152,12 +550,26 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     }
   );
   const { data: projects } = api.project.getAll.useQuery({});
-  const { data: workspaces } = api.workspace.list.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: webhookLogsData, isLoading: isLoadingLogs, refetch: refetchLogs } = api.transcription.getWebhookLogs.useQuery(
     { workspaceId, limit: 50 },
     { enabled: activeTab === "activity" }
   );
+  // Anchor the weekly stats to the start of the current ISO week (Monday) in
+  // the browser's local timezone so day boundaries match what the user sees.
+  const weekStart = useMemo(() => {
+    const now = new Date();
+    const local = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const day = (local.getDay() + 6) % 7;
+    local.setDate(local.getDate() - day);
+    return local;
+  }, []);
+  const { data: weeklyStats } = api.transcription.weeklyStats.useQuery(
+    { workspaceId, weekStart },
+  );
+  // Drives the "Mine" tab count: filter client-side to meetings where the
+  // caller owns the session OR appears as a Participant with this userId.
+  const { data: currentUser } = api.user.getCurrentUser.useQuery();
   const utils = api.useUtils();
   
   
@@ -208,40 +620,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         title: 'Project Assigned',
         message: 'Project assigned to this meeting',
         color: 'green',
-      });
-    },
-    onSettled: () => {
-      void utils.transcription.getAllTranscriptions.invalidate();
-    },
-  });
-
-  const assignWorkspaceMutation = api.transcription.assignWorkspace.useMutation({
-    onMutate: async ({ transcriptionId, workspaceId: newWorkspaceId }) => {
-      // Capture previous workspace selection before optimistic update
-      const previousWorkspaceSelection = meetingWorkspaceSelections[transcriptionId];
-
-      // Optimistically update state
-      setMeetingWorkspaceSelections(prev => ({ ...prev, [transcriptionId]: newWorkspaceId ?? null }));
-
-      return { previousWorkspaceSelection, transcriptionId };
-    },
-    onError: (err, _variables, context) => {
-      // Rollback optimistic update on error
-      if (context) {
-        setMeetingWorkspaceSelections(prev => {
-          const next = { ...prev };
-          if (context.previousWorkspaceSelection === undefined) {
-            delete next[context.transcriptionId];
-          } else {
-            next[context.transcriptionId] = context.previousWorkspaceSelection;
-          }
-          return next;
-        });
-      }
-      notifications.show({
-        title: 'Error',
-        message: err.message || 'Failed to assign workspace',
-        color: 'red',
       });
     },
     onSettled: () => {
@@ -372,25 +750,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     },
   });
 
-  const bulkSyncFromFirefliesMutation = api.transcription.bulkSyncFromFireflies.useMutation({
-    onSuccess: (result) => {
-      notifications.show({
-        title: "Sync complete",
-        message: `Synced ${result.newTranscripts} new, ${result.updatedTranscripts} updated meetings`,
-        color: "green",
-      });
-      void utils.transcription.getAllTranscriptions.invalidate();
-      void utils.transcription.getFirefliesSyncStatus.invalidate();
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Sync failed",
-        message: error.message || "Failed to sync from Fireflies",
-        color: "red",
-      });
-    },
-  });
-
   const syncToIntegrationMutation = api.workflow.run.useMutation({
     onSuccess: (data, variables) => {
       const workflowId = variables.id;
@@ -440,11 +799,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     }
   };
 
-  const handleTranscriptionClick = (transcription: any) => {
-    setSelectedTranscription(transcription);
-    setDrawerOpened(true);
-  };
-
   const handleProjectAssignment = (transcriptionId: string, projectId: string | null) => {
     if (projectId) {
       assignProjectMutation.mutate({
@@ -455,20 +809,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     }
   };
 
-  const handleWorkspaceAssignment = (transcriptionId: string, newWorkspaceId: string | null) => {
-    assignWorkspaceMutation.mutate({ transcriptionId, workspaceId: newWorkspaceId });
-  };
-
-  const getWorkspaceForMeeting = (sessionId: string, sessionWorkspaceId: string | null | undefined) => {
-    return sessionId in meetingWorkspaceSelections
-      ? meetingWorkspaceSelections[sessionId]
-      : sessionWorkspaceId;
-  };
-
-  const getProjectsForMeeting = (sessionId: string, sessionWorkspaceId: string | null | undefined) => {
-    const wId = getWorkspaceForMeeting(sessionId, sessionWorkspaceId);
-    if (!wId) return [];
-    return (projects ?? []).filter(p => p.workspaceId === wId);
+  const getProjectsForMeeting = (sessionWorkspaceId: string | null | undefined) => {
+    if (!sessionWorkspaceId) return [];
+    return (projects ?? []).filter(p => p.workspaceId === sessionWorkspaceId);
   };
 
   const handleSlackSummaryModal = (session: any) => {
@@ -523,7 +866,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
 
   // Helper functions for bulk operations
   const handleSelectAll = () => {
-    const filteredTranscriptions = getFilteredTranscriptions();
+    const meetingType: MeetingType = isMeetingTypeTab(activeTab) ? activeTab : "all";
+    const filteredTranscriptions = getFilteredTranscriptions(meetingType);
     setSelectedTranscriptionIds(new Set(filteredTranscriptions.map(t => t.id)));
   };
 
@@ -565,12 +909,31 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     });
   };
 
-  const getFilteredTranscriptions = () => {
+  const isMine = (session: {
+    userId: string | null;
+    participants?: Array<{ user: { id: string } | null }>;
+  }): boolean => {
+    if (!currentUser?.id) return false;
+    if (session.userId === currentUser.id) return true;
+    return Boolean(
+      session.participants?.some((p) => p.user?.id === currentUser.id),
+    );
+  };
+
+  const getFilteredTranscriptions = (meetingType: MeetingType) => {
     if (!transcriptions) return [];
+    // Customer and Internal ship empty until a tagging mechanism exists.
+    if (meetingType === "customer" || meetingType === "internal") return [];
 
     let filtered = transcriptions;
 
-    // Filter by integration
+    if (meetingType === "one_on_one") {
+      filtered = filtered.filter((session) => session.participantCount === 2);
+    }
+    if (meetingType === "mine") {
+      filtered = filtered.filter(isMine);
+    }
+
     if (selectedIntegrationFilter.length > 0) {
       filtered = filtered.filter(session =>
         session.sourceIntegration &&
@@ -578,7 +941,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       );
     }
 
-    // Filter by search query (title, transcription, participants)
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       filtered = filtered.filter(session => {
@@ -593,14 +955,17 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   };
 
   // Derived counts for tab badges
-  const activeCount = transcriptions?.length ?? 0;
+  const allCount = transcriptions?.length ?? 0;
+  const mineCount = transcriptions?.filter(isMine).length ?? 0;
+  const oneOnOneCount = transcriptions?.filter((t) => t.participantCount === 2).length ?? 0;
+  const customerCount = 0;
+  const internalCount = 0;
   const archivedCount = archivedTranscriptions?.length ?? 0;
   const activityCount = webhookLogsData?.logs?.length ?? 0;
 
   // Fireflies connection summary for the banner
   const { data: firefliesIntegrations = [] } = api.transcription.getFirefliesIntegrations.useQuery();
   const firstFireflies = firefliesIntegrations[0];
-  const firefliesEmail = firstFireflies?.credentials?.find(c => c.keyType === "EMAIL")?.key;
   const meetingsToday = useMemo(() => {
     if (!transcriptions) return 0;
     const start = new Date();
@@ -611,95 +976,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     }).length;
   }, [transcriptions]);
 
-  const { data: firstFirefliesStatus } = api.transcription.getFirefliesSyncStatus.useQuery(
-    { integrationId: firstFireflies?.id ?? "" },
-    { enabled: !!firstFireflies?.id }
-  );
-
   if (isLoading && !transcriptions) {
     return <div>Loading meetings...</div>;
   }
-
-  const formatRelativeTime = (date: Date | null | undefined) => {
-    if (!date) return "Never";
-    const diffMs = Date.now() - new Date(date).getTime();
-    const mins = Math.floor(diffMs / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} min ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours} hr ago`;
-    const days = Math.floor(hours / 24);
-    return `${days} day${days === 1 ? "" : "s"} ago`;
-  };
-
-  const formatMeetingTime = (date: Date | string) => {
-    const d = new Date(date);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
-    const sameDay = d >= today;
-    const isYesterday = d >= yesterday && d < today;
-    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-    if (sameDay) return `Today, ${time}`;
-    if (isYesterday) return `Yesterday, ${time}`;
-    return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
-  };
-
-  const getParticipantCount = (session: { transcription: string | null }): number | null => {
-    if (!session.transcription) return null;
-    try {
-      const parsed = JSON.parse(session.transcription) as { sentences?: Array<{ speaker_name?: string | null }> };
-      if (!parsed?.sentences?.length) return null;
-      const speakers = new Set(parsed.sentences.map(s => s.speaker_name).filter(Boolean));
-      return speakers.size || null;
-    } catch {
-      return null;
-    }
-  };
-
-  const getDurationMinutes = (session: { transcription: string | null }): number | null => {
-    if (!session.transcription) return null;
-    try {
-      const parsed = JSON.parse(session.transcription) as { sentences?: Array<{ end_time?: number }> };
-      const sentences = parsed?.sentences;
-      if (!sentences?.length) return null;
-      const last = sentences[sentences.length - 1];
-      if (!last?.end_time) return null;
-      return Math.max(1, Math.round(last.end_time / 60));
-    } catch {
-      return null;
-    }
-  };
-
-  const getInitials = (name: string | null | undefined): string => {
-    if (!name) return "?";
-    return name.split(/\s+/).slice(0, 2).map(s => s[0]?.toUpperCase() ?? "").join("") || "?";
-  };
-
-  const speakerColors = ["bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500", "bg-pink-500", "bg-teal-500"];
-
-  const getTranscriptPreview = (session: { transcription: string | null }): Array<{ time: string; speaker: string; text: string }> => {
-    if (!session.transcription) return [];
-    try {
-      const parsed = JSON.parse(session.transcription) as { sentences?: Array<{ start_time?: number; speaker_name?: string | null; text?: string }> };
-      const sentences = parsed?.sentences;
-      if (!sentences?.length) return [];
-      return sentences.slice(0, 2).map(s => {
-        const t = s.start_time ?? 0;
-        const hh = String(Math.floor(t / 3600)).padStart(2, "0");
-        const mm = String(Math.floor((t % 3600) / 60)).padStart(2, "0");
-        const ss = String(Math.floor(t % 60)).padStart(2, "0");
-        return {
-          time: `${hh}:${mm}:${ss}`,
-          speaker: s.speaker_name ?? "Unknown",
-          text: s.text ?? "",
-        };
-      });
-    } catch {
-      return [];
-    }
-  };
 
   // Get unique integrations for filter options
   const integrationOptions = transcriptions
@@ -714,250 +993,179 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       )).map(item => JSON.parse(item) as { value: string; label: string })
     : [];
 
-  const filteredTranscriptions = getFilteredTranscriptions();
+  const currentMeetingType: MeetingType = isMeetingTypeTab(activeTab) ? activeTab : "all";
+  const filteredTranscriptions = getFilteredTranscriptions(currentMeetingType);
+  const groupedTranscriptions = groupMeetingsByLocalDay(filteredTranscriptions);
 
   return (
     <>
-      {/* Page Title */}
-      <div className="w-full max-w-4xl">
-        <Title order={1} className="text-text-primary" fw={700}>
-          Meetings
-        </Title>
-        <Text size="sm" c="dimmed" mt={6} mb="md">
-          Transcripts from Fireflies sync automatically. Zoe drafts summaries, extracts tasks, and assigns them to the right project.
-        </Text>
-        <div className="mb-6 h-px w-full bg-border-primary" />
+      {/* Compact header: title + stat strip + Fireflies pill */}
+      <div className="w-full max-w-[1180px]">
+        <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
+          <div>
+            <Title order={1} className="text-text-primary" fw={700}>
+              Meetings
+            </Title>
+            <Text size="sm" c="dimmed" mt={4}>
+              <span className="font-medium text-text-primary">
+                {weeklyStats?.totalMeetings ?? 0} this week
+              </span>
+              {" · "}
+              <span>
+                {weeklyStats?.totalActionsExtracted ?? 0} actions extracted
+              </span>
+            </Text>
+          </div>
+          <Group gap="xs" wrap="nowrap" className="shrink-0">
+            {firstFireflies ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFirefliesIntegrationId(firstFireflies.id);
+                  setFirefliesModalOpened(true);
+                }}
+                className="inline-flex items-center gap-2.5 whitespace-nowrap rounded-full border border-border-subtle bg-background-secondary py-1.5 pl-2 pr-3 text-xs text-text-secondary transition-colors hover:border-border-strong"
+                aria-label="Fireflies integration settings"
+              >
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-accent-okr/15 text-accent-okr">
+                  <IconStarFilled size={11} />
+                </span>
+                <span className="h-1.5 w-1.5 rounded-full bg-accent-crm meetings-v2-pulse" aria-hidden />
+                <span>Fireflies syncing</span>
+                <span className="text-text-faint">·</span>
+                <span className="tabular-nums">{meetingsToday} today</span>
+                <span className="text-text-faint">·</span>
+                <span className="font-medium text-brand-400">Settings</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFirefliesIntegrationId(null);
+                  setFirefliesModalOpened(true);
+                }}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-border-subtle bg-background-secondary py-1.5 pl-2 pr-3 text-xs text-brand-400 transition-colors hover:border-border-strong"
+              >
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-accent-okr/15 text-accent-okr">
+                  <IconStarFilled size={11} />
+                </span>
+                Connect Fireflies
+              </button>
+            )}
+            <CreateTranscriptionModal workspaceId={workspaceId} />
+          </Group>
+        </Group>
+        <div className="mt-6 h-px w-full bg-border-primary" />
       </div>
 
-      {/* Main Content */}
-      <div className="w-full max-w-4xl">
+      {/* Main Content — left column (tabs + list) + right rail (widgets) */}
+      <div className="flex w-full max-w-[1180px] gap-8">
+      <div className="min-w-0 flex-1">
         <Tabs value={activeTab} onChange={handleTabChange}>
-          <Stack gap="xl" align="stretch" justify="flex-start">
-            {/* Tabs Navigation */}
-            <Tabs.List>
-              {[
-                { value: "transcriptions", label: "Meetings", count: activeCount },
-                { value: "upcoming", label: "Upcoming", count: 0 },
-                { value: "archive", label: "Archive", count: archivedCount },
-                { value: "activity", label: "Activity", count: activityCount },
-              ].map((t) => {
-                const isActive = activeTab === t.value;
-                return (
-                  <Tabs.Tab key={t.value} value={t.value}>
-                    <span className="inline-flex items-center gap-2">
-                      <span>{t.label}</span>
-                      <span
-                        className={
-                          isActive
-                            ? "rounded-md bg-blue-500/20 px-1.5 py-0.5 text-xs font-medium text-blue-300"
-                            : "rounded-md bg-surface-secondary px-1.5 py-0.5 text-xs text-text-secondary"
-                        }
-                      >
-                        {t.count}
+          <Stack gap="lg" align="stretch" justify="flex-start">
+            {/* Toolbar: tabs (left) + search and filter (right) inline */}
+            <Group justify="space-between" align="center" wrap="nowrap" gap="sm">
+              <Tabs.List style={{ borderBottom: 0 }}>
+                {[
+                  { value: "all", label: "All", count: allCount },
+                  { value: "mine", label: "Mine", count: mineCount },
+                  { value: "one_on_one", label: "1:1s", count: oneOnOneCount },
+                  { value: "customer", label: "Customer", count: customerCount },
+                  { value: "internal", label: "Internal", count: internalCount },
+                  { value: "archive", label: "Archive", count: archivedCount },
+                  { value: "activity", label: "Activity", count: activityCount },
+                ].map((t) => {
+                  const isActive = activeTab === t.value;
+                  return (
+                    <Tabs.Tab key={t.value} value={t.value}>
+                      <span className="inline-flex items-center gap-2">
+                        <span>{t.label}</span>
+                        <span
+                          className={
+                            isActive
+                              ? "rounded-md bg-brand-400/20 px-1.5 py-0.5 text-xs font-medium text-brand-400 tabular-nums"
+                              : "rounded-md bg-surface-muted px-1.5 py-0.5 text-xs text-text-muted tabular-nums"
+                          }
+                        >
+                          {t.count}
+                        </span>
                       </span>
-                    </span>
-                  </Tabs.Tab>
-                );
-              })}
-            </Tabs.List>
+                    </Tabs.Tab>
+                  );
+                })}
+              </Tabs.List>
+              <Group gap={6} wrap="nowrap" className="shrink-0">
+                <TextInput
+                  leftSection={<IconSearch size={14} />}
+                  placeholder="Search transcripts, people, topics..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                  rightSection={<Kbd className="mr-2 text-[10px]">⌘K</Kbd>}
+                  rightSectionWidth={44}
+                  size="xs"
+                  className="w-[280px]"
+                  styles={{ input: { height: 30 } }}
+                />
+                <Menu shadow="md" position="bottom-end" width={240}>
+                  <Menu.Target>
+                    <ActionIcon variant="default" size={30} aria-label="Filter">
+                      <IconFilter size={14} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Label>Integration</Menu.Label>
+                    {integrationOptions.length === 0 && (
+                      <Menu.Item disabled>No integrations</Menu.Item>
+                    )}
+                    {integrationOptions.map((opt) => {
+                      const active = selectedIntegrationFilter.includes(opt.value);
+                      return (
+                        <Menu.Item
+                          key={opt.value}
+                          leftSection={active ? <IconCheck size={14} /> : <IconSquare size={14} />}
+                          onClick={() => {
+                            setSelectedIntegrationFilter(
+                              active
+                                ? selectedIntegrationFilter.filter(v => v !== opt.value)
+                                : [...selectedIntegrationFilter, opt.value]
+                            );
+                          }}
+                        >
+                          {opt.label}
+                        </Menu.Item>
+                      );
+                    })}
+                    {selectedIntegrationFilter.length > 0 && (
+                      <>
+                        <Menu.Divider />
+                        <Menu.Item color="red" onClick={() => setSelectedIntegrationFilter([])}>
+                          Clear filters
+                        </Menu.Item>
+                      </>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
+                <ActionIcon
+                  variant="default"
+                  size={30}
+                  aria-label="Ask Zoe across all"
+                  disabled
+                >
+                  <IconSparkles size={14} className="text-accent-meetings" />
+                </ActionIcon>
+              </Group>
+            </Group>
 
             {/* Content Area */}
-            <Tabs.Panel value="transcriptions">
-              <Stack gap="lg">
-                {/* Fireflies connected banner (always visible) */}
-                <div className="overflow-hidden rounded-lg border border-border-primary bg-surface-secondary">
-                  <button
-                    type="button"
-                    onClick={() => setSyncBannerOpen(!syncBannerOpen)}
-                    className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-surface-hover"
-                  >
-                    <Group gap="md" wrap="nowrap">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-500/10 text-yellow-400">
-                        <IconStarFilled size={20} />
-                      </div>
-                      <div>
-                        <Text fw={600} size="md" className="text-text-primary">
-                          {firstFireflies ? "Fireflies is connected and syncing" : "Connect Fireflies to sync meetings"}
-                        </Text>
-                        <Text size="sm" c="dimmed">
-                          {firstFireflies
-                            ? `Last sync ${formatRelativeTime(firstFirefliesStatus?.lastSyncAt)} · ${meetingsToday} meeting${meetingsToday === 1 ? "" : "s"} pulled today`
-                            : "Meetings, summaries and action items will flow in automatically once connected."}
-                        </Text>
-                      </div>
-                    </Group>
-                    {syncBannerOpen ? <IconChevronUp size={16} className="text-text-secondary" /> : <IconChevronDown size={16} className="text-text-secondary" />}
-                  </button>
-                  <Collapse in={syncBannerOpen}>
-                    <div className="border-t border-border-primary px-4 pb-4 pt-4">
-                      {firstFireflies ? (
-                        <div className="rounded-md border border-border-primary bg-background-primary p-4">
-                          <Group justify="space-between" align="center" wrap="nowrap">
-                            <Group gap="md" wrap="nowrap">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-yellow-500/10 text-yellow-400">
-                                <IconStarFilled size={18} />
-                              </div>
-                              <div>
-                                <Group gap="xs" align="center">
-                                  <Text fw={600} size="sm" className="text-text-primary">{firstFireflies.name || "Fireflies.ai"}</Text>
-                                  <span className="inline-flex items-center gap-1 rounded-md bg-green-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-400">
-                                    <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                                    Connected
-                                  </span>
-                                </Group>
-                                <Group gap={6} align="center" mt={4} wrap="nowrap">
-                                  {firefliesEmail && (
-                                    <Text size="xs" c="dimmed">{firefliesEmail}</Text>
-                                  )}
-                                  {firefliesEmail && <Text size="xs" c="dimmed">·</Text>}
-                                  <Text size="xs" c="dimmed">
-                                    {transcriptions?.length ?? 0} meetings this month
-                                  </Text>
-                                  {!!firstFirefliesStatus?.estimatedNewCount && (
-                                    <>
-                                      <Text size="xs" c="dimmed">·</Text>
-                                      <Text size="xs" c="blue" fw={500}>
-                                        {firstFirefliesStatus.estimatedNewCount} new today
-                                      </Text>
-                                    </>
-                                  )}
-                                </Group>
-                              </div>
-                            </Group>
-                            <Group gap="xs">
-                              <Button
-                                variant="default"
-                                size="sm"
-                                leftSection={<IconSettings size={14} />}
-                                onClick={() => {
-                                  setSelectedFirefliesIntegrationId(firstFireflies.id);
-                                  setFirefliesModalOpened(true);
-                                }}
-                              >
-                                Settings
-                              </Button>
-                              <Button
-                                variant="default"
-                                size="sm"
-                                onClick={() => {
-                                  void bulkSyncFromFirefliesMutation.mutateAsync({ integrationId: firstFireflies.id });
-                                }}
-                                loading={bulkSyncFromFirefliesMutation.isPending}
-                              >
-                                Sync now
-                              </Button>
-                            </Group>
-                          </Group>
-                        </div>
-                      ) : (
-                        <div className="rounded-md border border-border-primary bg-background-primary p-4">
-                          <Group justify="space-between" align="center" wrap="nowrap">
-                            <Group gap="md" wrap="nowrap">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-yellow-500/10 text-yellow-400">
-                                <IconStarFilled size={18} />
-                              </div>
-                              <div>
-                                <Text fw={600} size="sm">Fireflies.ai</Text>
-                                <Text size="xs" c="dimmed" mt={2}>Not connected yet</Text>
-                              </div>
-                            </Group>
-                            <Button
-                              variant="filled"
-                              size="sm"
-                              color="blue"
-                              onClick={() => {
-                                setSelectedFirefliesIntegrationId(null);
-                                setFirefliesModalOpened(true);
-                              }}
-                            >
-                              Connect
-                            </Button>
-                          </Group>
-                        </div>
-                      )}
-                      <Text size="xs" c="dimmed" ta="center" mt="md">
-                        Connect Zoom, Google Meet, Otter, or Grain in{" "}
-                        <Text component="span" c="blue" fw={500}>Settings → Integrations.</Text>
-                      </Text>
-                    </div>
-                  </Collapse>
-                </div>
-
-                {/* Recent meetings heading */}
-                <Group justify="space-between" align="center">
-                  <Title order={4} fw={600}>Recent meetings</Title>
-                  <Group gap="sm">
-                    <Text size="sm" c="dimmed">
-                      {filteredTranscriptions.length} meeting{filteredTranscriptions.length === 1 ? "" : "s"}
-                    </Text>
-                    <CreateTranscriptionModal workspaceId={workspaceId} />
-                  </Group>
-                </Group>
-
-                {/* Search + Filter/Group/Ask bar */}
-                <Paper withBorder radius="md" p="xs">
-                  <Group gap="sm" wrap="nowrap">
-                    <TextInput
-                      leftSection={<IconSearch size={16} />}
-                      placeholder="Search meetings, participants, topics..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                      variant="unstyled"
-                      className="flex-1"
-                      styles={{ input: { paddingLeft: 8 } }}
-                      rightSection={
-                        <Kbd className="mr-2">⌘K</Kbd>
-                      }
-                      rightSectionWidth={44}
-                    />
-                    <Menu shadow="md" position="bottom-end" width={240}>
-                      <Menu.Target>
-                        <Button variant="default" size="sm" leftSection={<IconFilter size={14} />}>
-                          Filter
-                        </Button>
-                      </Menu.Target>
-                      <Menu.Dropdown>
-                        <Menu.Label>Integration</Menu.Label>
-                        {integrationOptions.length === 0 && (
-                          <Menu.Item disabled>No integrations</Menu.Item>
-                        )}
-                        {integrationOptions.map((opt) => {
-                          const active = selectedIntegrationFilter.includes(opt.value);
-                          return (
-                            <Menu.Item
-                              key={opt.value}
-                              leftSection={active ? <IconCheck size={14} /> : <IconSquare size={14} />}
-                              onClick={() => {
-                                setSelectedIntegrationFilter(
-                                  active
-                                    ? selectedIntegrationFilter.filter(v => v !== opt.value)
-                                    : [...selectedIntegrationFilter, opt.value]
-                                );
-                              }}
-                            >
-                              {opt.label}
-                            </Menu.Item>
-                          );
-                        })}
-                        {selectedIntegrationFilter.length > 0 && (
-                          <>
-                            <Menu.Divider />
-                            <Menu.Item color="red" onClick={() => setSelectedIntegrationFilter([])}>
-                              Clear filters
-                            </Menu.Item>
-                          </>
-                        )}
-                      </Menu.Dropdown>
-                    </Menu>
-                    <Button variant="default" size="sm" leftSection={<IconLayersIntersect size={14} />} disabled>
-                      Group
-                    </Button>
-                    <Button variant="default" size="sm" leftSection={<IconSparkles size={14} />} disabled>
-                      Ask across all
-                    </Button>
-                  </Group>
-                </Paper>
-
+            {/*
+              All / 1:1s / Rituals share the same panel content. The meeting
+              list itself is filtered by `currentMeetingType` (see
+              getFilteredTranscriptions). Mantine renders only the active
+              Panel's tree thanks to `keepMounted={false}` on Tabs.
+            */}
+            {(["all", "mine", "one_on_one", "customer", "internal"] as const).map((tabValue) => (
+            <Tabs.Panel key={tabValue} value={tabValue} keepMounted={false}>
+              <Stack gap="md">
                 {/* Bulk operations bar (only when selections exist) */}
                 {selectedTranscriptionIds.size > 0 && (
                   <Paper withBorder p="sm" radius="md" className="bg-surface-secondary">
@@ -1013,306 +1221,327 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   </Paper>
                 )}
 
-                {filteredTranscriptions.length > 0 ? (
-                  <Stack gap="md">
-                    {filteredTranscriptions.map((session) => {
-                      const participants = getParticipantCount(session);
-                      const duration = getDurationMinutes(session);
-                      const preview = getTranscriptPreview(session);
-                      const tasksCount = session.actions?.length ?? 0;
-                      const selectedWorkspace = getWorkspaceForMeeting(session.id, session.workspaceId);
-                      const projectsForWorkspace = getProjectsForMeeting(session.id, session.workspaceId);
-                      const projectName = session.project?.name;
-                      const workspaceName = workspaces?.find(w => w.id === (selectedWorkspace ?? ""))?.name;
-                      const speakers: string[] = [];
-                      try {
-                        const parsed = JSON.parse(session.transcription ?? "null") as { sentences?: Array<{ speaker_name?: string | null }> } | null;
-                        parsed?.sentences?.forEach(s => {
-                          if (s.speaker_name && !speakers.includes(s.speaker_name)) speakers.push(s.speaker_name);
-                        });
-                      } catch { /* no-op */ }
+                {activeTab === "customer" || activeTab === "internal" ? (
+                  <Paper p="xl" radius="md" className="text-center">
+                    <Stack gap="md" align="center">
+                      <IconMicrophone size={40} opacity={0.3} />
+                      <Text size="md" c="dimmed">
+                        {activeTab === "customer"
+                          ? "We don't tag customer meetings yet"
+                          : "We don't tag internal meetings yet"}
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        {activeTab === "customer"
+                          ? "Customer-tagged meetings will surface here once tagging ships. For now, head to All or 1:1s to see your synced meetings."
+                          : "Internal-tagged meetings will surface here once tagging ships. For now, head to All or 1:1s to see your synced meetings."}
+                      </Text>
+                    </Stack>
+                  </Paper>
+                ) : groupedTranscriptions.length > 0 ? (
+                  <Stack gap={36}>
+                    {groupedTranscriptions.map((group) => (
+                    <div
+                      key={group.key}
+                      className="grid grid-cols-[84px_minmax(0,1fr)] gap-5"
+                    >
+                      <div className="sticky top-4 self-start pt-1.5">
+                        <div className="text-sm font-semibold tracking-tight text-text-primary">
+                          {group.dayLabel}
+                        </div>
+                        <div
+                          className={`mt-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] ${
+                            group.isToday ? "text-brand-400" : "text-text-muted"
+                          }`}
+                        >
+                          {group.relativeLabel}
+                        </div>
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-3">
+                        {group.meetings.map((session) => {
+                      const projectsForWorkspace = getProjectsForMeeting(session.workspaceId);
+                      const vmSession: MeetingCardSession = {
+                        id: session.id,
+                        sessionId: session.sessionId,
+                        title: session.title,
+                        summary: session.summary,
+                        transcription: session.transcription,
+                        project: session.project ? { id: session.project.id, name: session.project.name } : null,
+                        actions: session.actions ?? [],
+                      };
+                      const vmParticipants: MeetingCardParticipant[] = (session.participants ?? []).map((p) => ({
+                        id: p.id,
+                        email: p.email,
+                        name: p.name,
+                        user: p.user ? { id: p.user.id, name: p.user.name, image: p.user.image } : null,
+                        contact: p.contact
+                          ? {
+                              id: p.contact.id,
+                              firstName: p.contact.firstName,
+                              lastName: p.contact.lastName,
+                            }
+                          : null,
+                      }));
+                      const vm = buildMeetingCardViewModel(vmSession, vmParticipants);
+                      const detailHref = `/recording/${session.id}`;
+                      const navigateToDetail = () => router.push(detailHref);
+                      const stopBubble = (e: React.MouseEvent | React.KeyboardEvent) => e.stopPropagation();
+
+                      const time = formatMeetingTime(session.meetingDate ?? session.createdAt);
+                      const duration = formatDuration(session.durationSeconds);
+                      const provider = session.sourceIntegration?.provider;
+                      const tagClass = vm.projectPill
+                        ? projectTagClass(vm.projectPill.id)
+                        : null;
 
                       return (
-                      <Card
+                      <div
                         key={session.id}
-                        withBorder
-                        radius="md"
-                        padding="md"
-                        className="hover:border-border-focus transition-colors"
+                        role="link"
+                        tabIndex={0}
+                        onClick={navigateToDetail}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            navigateToDetail();
+                          }
+                        }}
+                        className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-[18px] py-4 transition-colors hover:border-border-strong hover:bg-background-elevated"
                       >
-                        <Stack gap="md">
-                          {/* Title row */}
-                          <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm">
-                            <Group gap="sm" align="flex-start" wrap="nowrap" style={{ flex: 1 }}>
-                              <Checkbox
-                                mt={4}
-                                checked={selectedTranscriptionIds.has(session.id)}
-                                onChange={(event) => {
-                                  const newSelected = new Set(selectedTranscriptionIds);
-                                  if (event.currentTarget.checked) {
-                                    newSelected.add(session.id);
-                                  } else {
-                                    newSelected.delete(session.id);
-                                  }
-                                  setSelectedTranscriptionIds(newSelected);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <Text size="lg" fw={600} lineClamp={1} style={{ flex: 1 }}>
-                                {session.title ?? `Meeting ${session.sessionId}`}
-                              </Text>
-                            </Group>
-                            <Menu shadow="md" position="bottom-end">
-                              <Menu.Target>
-                                <ActionIcon variant="subtle" color="gray" size="sm">
-                                  <IconDotsVertical size={16} />
-                                </ActionIcon>
-                              </Menu.Target>
-                              <Menu.Dropdown>
-                                <Menu.Item
-                                  leftSection={<IconExternalLink size={14} />}
-                                  component={Link}
-                                  href={`/recording/${session.id}`}
-                                >
-                                  Open page
-                                </Menu.Item>
-                                <Menu.Item
-                                  leftSection={<IconPlayerPlay size={14} />}
-                                  onClick={() => handleTranscriptionClick(session)}
-                                >
-                                  View details
-                                </Menu.Item>
-                                {session.projectId && !session.processedAt && hasExtractableActions(session) && (
-                                  <Menu.Item
-                                    leftSection={<IconPlayerPlay size={14} />}
-                                    onClick={() => processTranscriptionMutation.mutate({ transcriptionId: session.id })}
-                                  >
-                                    Extract actions
-                                  </Menu.Item>
-                                )}
-                                {session.processedAt && (
-                                  <Menu.Item
-                                    leftSection={<IconBrandSlack size={14} />}
-                                    onClick={() => handleSlackSummaryModal(session)}
-                                  >
-                                    Send summary to Slack
-                                  </Menu.Item>
-                                )}
-                                {session.project?.taskManagementTool && session.project.taskManagementTool !== "internal" && tasksCount > 0 && (
-                                  <Menu.Item
-                                    leftSection={<IconCalendarEvent size={14} />}
-                                    onClick={() => handleSyncToIntegration(session)}
-                                  >
-                                    Sync to {session.project.taskManagementTool}
-                                  </Menu.Item>
-                                )}
-                                <Menu.Divider />
-                                <Menu.Item
-                                  leftSection={<IconArchive size={14} />}
-                                  onClick={() => handleArchiveTranscription(session.id)}
-                                >
-                                  Archive
-                                </Menu.Item>
-                                <Menu.Item
-                                  color="red"
-                                  leftSection={<IconTrash size={14} />}
-                                  onClick={() => {
-                                    if (confirm("Are you sure you want to delete this meeting?")) {
-                                      bulkDeleteMutation.mutate({ ids: [session.id] });
-                                    }
-                                  }}
-                                >
-                                  Delete
-                                </Menu.Item>
-                              </Menu.Dropdown>
-                            </Menu>
-                          </Group>
-
-                          {/* Metadata row */}
-                          <Group gap="lg" c="dimmed" wrap="wrap" pl={32}>
-                            <Group gap={6} wrap="nowrap">
-                              <IconClock size={14} />
-                              <Text size="sm">{formatMeetingTime(session.meetingDate ?? session.createdAt)}</Text>
-                            </Group>
-                            {duration !== null && (
-                              <Group gap={6} wrap="nowrap">
-                                <IconPlayerPlayFilled size={12} />
-                                <Text size="sm">{duration}m</Text>
-                              </Group>
-                            )}
-                            {participants !== null && (
-                              <Group gap={6} wrap="nowrap">
-                                <IconUsers size={14} />
-                                <Text size="sm">{participants} participant{participants === 1 ? "" : "s"}</Text>
-                              </Group>
-                            )}
-                            {session.sourceIntegration && (
-                              <Group gap={6} wrap="nowrap">
-                                <IconStarFilled size={12} className="text-yellow-400" />
-                                <Text size="sm" c="yellow" className="capitalize">
-                                  {session.sourceIntegration.provider}
-                                </Text>
-                              </Group>
-                            )}
-                          </Group>
-
-                          {/* Project / folder / avatars row */}
-                          <Group gap="sm" pl={32} wrap="wrap" align="center">
-                            {session.projectId && projectName ? (
-                              <Menu shadow="md" width={240}>
-                                <Menu.Target>
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center gap-2 rounded-md border border-border-primary bg-surface-secondary px-2 py-1 text-xs text-text-primary hover:bg-surface-hover"
-                                  >
-                                    <IconFolder size={12} className="text-blue-400" />
-                                    <span className="font-medium">{projectName}</span>
-                                    {workspaceName && (
-                                      <>
-                                        <span className="text-text-muted">·</span>
-                                        <span className="text-text-secondary">{workspaceName}</span>
-                                      </>
-                                    )}
-                                  </button>
-                                </Menu.Target>
-                                <Menu.Dropdown>
-                                  <Menu.Label>Reassign project</Menu.Label>
-                                  {projectsForWorkspace.map((p) => (
-                                    <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
-                                      {p.name}
-                                    </Menu.Item>
-                                  ))}
-                                  <Menu.Divider />
-                                  <Menu.Item color="gray" onClick={() => handleProjectAssignment(session.id, null)}>
-                                    Remove project
-                                  </Menu.Item>
-                                </Menu.Dropdown>
-                              </Menu>
-                            ) : selectedWorkspace ? (
-                              <Select
-                                searchable
-                                placeholder="Assign to project"
-                                value={session.projectId ?? ""}
-                                onChange={(value) => handleProjectAssignment(session.id, value)}
-                                data={[
-                                  { value: "", label: "No project" },
-                                  ...projectsForWorkspace.map(p => ({ value: p.id, label: p.name })),
-                                ]}
-                                size="xs"
-                                style={{ minWidth: 200 }}
-                              />
-                            ) : null}
-
-                            <Menu shadow="md" width={240}>
-                              <Menu.Target>
-                                <Button variant="default" size="xs" leftSection={<IconFolder size={12} />} rightSection={<IconChevronDown size={12} />}>
-                                  {selectedWorkspace && workspaceName ? workspaceName : "Move to folder"}
-                                </Button>
-                              </Menu.Target>
-                              <Menu.Dropdown>
-                                <Menu.Label>Workspace</Menu.Label>
-                                {workspaces?.map((w) => (
-                                  <Menu.Item key={w.id} onClick={() => handleWorkspaceAssignment(session.id, w.id)}>
-                                    {w.name}
-                                  </Menu.Item>
-                                ))}
-                                <Menu.Divider />
-                                <Menu.Item color="gray" onClick={() => handleWorkspaceAssignment(session.id, null)}>
-                                  No workspace
-                                </Menu.Item>
-                              </Menu.Dropdown>
-                            </Menu>
-
-                            {speakers.length > 0 && (
-                              <div className="flex items-center -space-x-2 pl-1">
-                                {speakers.slice(0, 3).map((name, idx) => (
-                                  <Tooltip key={name} label={name} withArrow>
-                                    <div
-                                      className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-primary text-[10px] font-semibold text-white ${speakerColors[idx % speakerColors.length] ?? "bg-blue-500"}`}
+                        {/* Top row: checkbox + time + title block + project tag + avatars + kebab */}
+                        <div className="mb-3 flex items-start gap-3">
+                          <Checkbox
+                            mt={2}
+                            checked={selectedTranscriptionIds.has(session.id)}
+                            onChange={(event) => {
+                              const newSelected = new Set(selectedTranscriptionIds);
+                              if (event.currentTarget.checked) {
+                                newSelected.add(session.id);
+                              } else {
+                                newSelected.delete(session.id);
+                              }
+                              setSelectedTranscriptionIds(newSelected);
+                            }}
+                            onClick={stopBubble}
+                            size="xs"
+                          />
+                          <div className="w-12 pt-[3px] font-mono text-[11.5px] tabular-nums text-text-muted">
+                            {time}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <Link
+                              href={detailHref}
+                              onClick={stopBubble}
+                              className="block truncate text-[14.5px] font-semibold leading-snug tracking-tight text-text-primary hover:text-brand-400"
+                            >
+                              {vm.title}
+                            </Link>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-text-muted">
+                              {duration && (
+                                <>
+                                  <span>{duration}</span>
+                                  <span className="h-[3px] w-[3px] rounded-full bg-text-faint" aria-hidden />
+                                </>
+                              )}
+                              <span>
+                                {vm.attendeeCount} attendee{vm.attendeeCount === 1 ? "" : "s"}
+                              </span>
+                              {provider && (
+                                <>
+                                  <span className="h-[3px] w-[3px] rounded-full bg-text-faint" aria-hidden />
+                                  <span className="capitalize">via {provider}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-start gap-3">
+                            {/* Project tag — colored variants by project hash */}
+                            {vm.projectPill && tagClass ? (
+                              <div onClick={stopBubble}>
+                                <Menu shadow="md" width={240}>
+                                  <Menu.Target>
+                                    <button
+                                      type="button"
+                                      className={`inline-flex h-[22px] max-w-[180px] items-center gap-1.5 truncate rounded px-2 text-[11.5px] font-medium ${tagClass.bg} ${tagClass.text}`}
                                     >
-                                      {getInitials(name)}
+                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tagClass.dot}`} />
+                                      <span className="truncate">{vm.projectPill.name}</span>
+                                    </button>
+                                  </Menu.Target>
+                                  <Menu.Dropdown>
+                                    <Menu.Label>Reassign project</Menu.Label>
+                                    {projectsForWorkspace.map((p) => (
+                                      <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
+                                        {p.name}
+                                      </Menu.Item>
+                                    ))}
+                                    <Menu.Divider />
+                                    <Menu.Item color="gray" onClick={() => handleProjectAssignment(session.id, null)}>
+                                      Remove project
+                                    </Menu.Item>
+                                  </Menu.Dropdown>
+                                </Menu>
+                              </div>
+                            ) : (
+                              <div onClick={stopBubble}>
+                                <Menu shadow="md" width={240}>
+                                  <Menu.Target>
+                                    <button
+                                      type="button"
+                                      className="inline-flex h-[22px] items-center gap-1 rounded border border-dashed border-border-strong px-2 text-[11.5px] text-text-muted hover:border-brand-400 hover:text-brand-400"
+                                    >
+                                      <IconFolder size={11} />
+                                      <span>Assign to project</span>
+                                    </button>
+                                  </Menu.Target>
+                                  <Menu.Dropdown>
+                                    <Menu.Label>Assign to project</Menu.Label>
+                                    {projectsForWorkspace.length === 0 ? (
+                                      <Menu.Item disabled>No projects in this workspace</Menu.Item>
+                                    ) : (
+                                      projectsForWorkspace.map((p) => (
+                                        <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
+                                          {p.name}
+                                        </Menu.Item>
+                                      ))
+                                    )}
+                                  </Menu.Dropdown>
+                                </Menu>
+                              </div>
+                            )}
+
+                            {/* Avatar stack — Participants (calendar invitees) */}
+                            {vm.avatars.length > 0 && (
+                              <div className="flex items-center">
+                                {vm.avatars.slice(0, 3).map((a, idx) => (
+                                  <Tooltip key={a.key} label={a.displayName} withArrow>
+                                    <div
+                                      className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-secondary text-[10px] font-semibold text-white group-hover:border-background-elevated ${a.colorClass}`}
+                                      style={{ marginLeft: idx === 0 ? 0 : -8 }}
+                                    >
+                                      {a.initials}
                                     </div>
                                   </Tooltip>
                                 ))}
-                                {speakers.length > 3 && (
-                                  <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-primary bg-surface-secondary text-[10px] font-semibold text-text-secondary">
-                                    +{speakers.length - 3}
+                                {vm.attendeeCount > 3 && (
+                                  <div
+                                    className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background-secondary bg-surface-muted text-[10px] font-semibold text-text-secondary group-hover:border-background-elevated"
+                                    style={{ marginLeft: -8 }}
+                                  >
+                                    +{vm.attendeeCount - 3}
                                   </div>
                                 )}
                               </div>
                             )}
-                          </Group>
 
-                          {/* Transcript preview */}
-                          {preview.length > 0 ? (
-                            <div className="ml-8 rounded-md border border-border-primary bg-surface-secondary p-3 font-mono text-sm leading-relaxed text-text-secondary">
-                              {preview.map((line, idx) => (
-                                <span key={idx}>
-                                  <span className="text-blue-400">{line.time}</span>{" "}
-                                  <span className="font-semibold text-text-primary">{line.speaker}:</span>{" "}
-                                  <span>{line.text}</span>
-                                  {idx < preview.length - 1 && " "}
-                                </span>
-                              ))}
-                            </div>
-                          ) : session.transcription ? (
-                            <div className="ml-8 rounded-md border border-border-primary bg-surface-secondary p-3">
-                              <TranscriptionRenderer
-                                transcription={session.transcription}
-                                provider={session.sourceIntegration?.provider}
-                                isPreview={true}
-                                maxLines={2}
-                              />
-                            </div>
-                          ) : null}
-
-                          {/* Footer: ZOE EXTRACTED + counts + Open transcript */}
-                          <Group justify="space-between" align="center" pl={32} wrap="wrap">
-                            <Group gap="sm" wrap="wrap">
-                              <Group gap={4} wrap="nowrap">
-                                <IconSparkles size={12} className="text-violet-400" />
-                                <Text size="xs" fw={700} c="violet" className="uppercase tracking-wide">
-                                  Zoe Extracted
-                                </Text>
-                              </Group>
-                              {tasksCount > 0 && (
-                                <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-xs text-blue-300">
-                                  <IconSquare size={10} />
-                                  {tasksCount} task{tasksCount === 1 ? "" : "s"}
-                                </span>
-                              )}
-                              {!!session.processedAt && (
-                                <span className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs text-green-300">
-                                  <IconFlag size={10} />
-                                  Processed
-                                </span>
-                              )}
-                              {!session.processedAt && hasExtractableActions(session) && (
-                                <span className="inline-flex items-center gap-1 rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-xs text-orange-300">
-                                  <IconBell size={10} />
-                                  Actions pending
-                                </span>
-                              )}
-                              {!!session.slackNotificationAt && (
-                                <span className="inline-flex items-center gap-1 rounded-md border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs text-green-300">
-                                  <IconBrandSlack size={10} />
-                                  Slack sent
-                                </span>
-                              )}
-                            </Group>
-                            <Button
-                              variant="subtle"
-                              size="xs"
-                              rightSection={<IconExternalLink size={12} />}
-                              onClick={() => handleTranscriptionClick(session)}
+                            {/* Kebab — on-hover surface; functionality preserved per ticket #34 */}
+                            <div
+                              onClick={stopBubble}
+                              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                             >
-                              Open transcript
-                            </Button>
-                          </Group>
-                        </Stack>
-                      </Card>
+                              <Menu shadow="md" position="bottom-end">
+                                <Menu.Target>
+                                  <ActionIcon variant="subtle" color="gray" size="sm">
+                                    <IconDotsVertical size={16} />
+                                  </ActionIcon>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                  <Menu.Item
+                                    leftSection={<IconExternalLink size={14} />}
+                                    component={Link}
+                                    href={detailHref}
+                                  >
+                                    Open page
+                                  </Menu.Item>
+                                  {session.projectId && !session.processedAt && hasExtractableActions(session) && (
+                                    <Menu.Item
+                                      leftSection={<IconPlayerPlay size={14} />}
+                                      onClick={() => processTranscriptionMutation.mutate({ transcriptionId: session.id })}
+                                    >
+                                      Extract actions
+                                    </Menu.Item>
+                                  )}
+                                  {session.processedAt && (
+                                    <Menu.Item
+                                      leftSection={<IconBrandSlack size={14} />}
+                                      onClick={() => handleSlackSummaryModal(session)}
+                                    >
+                                      Send summary to Slack
+                                    </Menu.Item>
+                                  )}
+                                  {session.project?.taskManagementTool && session.project.taskManagementTool !== "internal" && vm.actionCount > 0 && (
+                                    <Menu.Item
+                                      leftSection={<IconCalendarEvent size={14} />}
+                                      onClick={() => handleSyncToIntegration(session)}
+                                    >
+                                      Sync to {session.project.taskManagementTool}
+                                    </Menu.Item>
+                                  )}
+                                  <Menu.Divider />
+                                  <Menu.Item
+                                    leftSection={<IconArchive size={14} />}
+                                    onClick={() => handleArchiveTranscription(session.id)}
+                                  >
+                                    Archive
+                                  </Menu.Item>
+                                  <Menu.Item
+                                    color="red"
+                                    leftSection={<IconTrash size={14} />}
+                                    onClick={() => {
+                                      if (confirm("Are you sure you want to delete this meeting?")) {
+                                        bulkDeleteMutation.mutate({ ids: [session.id] });
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </Menu.Item>
+                                </Menu.Dropdown>
+                              </Menu>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Zoe gradient panel — leads the card with AI summary + Actions chip + Open transcript link */}
+                        <div className="mb-2.5 flex gap-2.5 rounded-lg border border-accent-meetings/20 bg-gradient-to-b from-accent-meetings/[0.06] to-accent-meetings/[0.02] px-3.5 py-3">
+                          <IconSparkles size={14} className="mt-0.5 shrink-0 text-accent-meetings" />
+                          <div className="min-w-0 flex-1">
+                            <p className="m-0 text-[13px] leading-[1.55] text-text-primary">
+                              {vm.highlight ?? "Summary not yet extracted."}
+                            </p>
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-background-primary px-2 py-[3px] text-[11px] font-medium text-brand-400">
+                                <IconCheckbox size={10} />
+                                <span className="font-semibold tabular-nums text-text-primary">
+                                  {vm.actionCount}
+                                </span>
+                                <span>action{vm.actionCount === 1 ? "" : "s"}</span>
+                              </span>
+                              <span className="flex-1" />
+                              <Link
+                                href={detailHref}
+                                onClick={stopBubble}
+                                className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-text-muted hover:text-brand-400"
+                              >
+                                Open transcript
+                                <IconArrowRight size={11} />
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Peek at transcript — button toggles inline transcript block */}
+                        {session.transcription && (
+                          <PeekTranscript
+                            transcription={session.transcription}
+                            provider={provider}
+                            onContainerClick={stopBubble}
+                          />
+                        )}
+                      </div>
                       );
                     })}
+                      </div>
+                    </div>
+                    ))}
                   </Stack>
                 ) : (
                   <Paper p="xl" radius="md" className="text-center">
@@ -1327,17 +1556,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 )}
               </Stack>
             </Tabs.Panel>
-            <Tabs.Panel value="upcoming">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full max-w-3xl bg-surface-secondary"
-              >
-                <Text size="sm" c="dimmed" ta="center" py="xl">
-                  No upcoming meetings scheduled.
-                </Text>
-              </Paper>
-            </Tabs.Panel>
+            ))}
 
             <Tabs.Panel value="archive">
               <Stack gap="md">
@@ -1403,16 +1622,17 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                                 </Stack>
                                 
                                 <Group gap="xs">
-                                  {/* View Details Button */}
+                                  {/* Open page Link */}
                                   <Button
                                     size="sm"
                                     variant="light"
                                     color="gray"
-                                    onClick={() => handleTranscriptionClick(session)}
+                                    component={Link}
+                                    href={`/recording/${session.id}`}
                                   >
-                                    View Details
+                                    Open page
                                   </Button>
-                                  
+
                                   {/* Unarchive Button */}
                                   <Button
                                     size="sm"
@@ -1583,44 +1803,14 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
           </Stack>
         </Tabs>
       </div>
-
-      {/* Transcription Details Drawer */}
-      <TranscriptionDetailsDrawer
-        opened={drawerOpened}
-        onClose={() => setDrawerOpened(false)}
-        transcription={selectedTranscription}
-        workflows={workflows}
-        onSyncToIntegration={(workflowId) => {
-          setSyncingToIntegration(selectedTranscription?.id || null);
-          syncToIntegrationMutation.mutate(
-            { id: workflowId },
-            {
-              onSuccess: (data) => {
-                notifications.update({
-                  id: 'notion-sync',
-                  title: 'Success!',
-                  message: `Successfully sent ${data.itemsCreated} actions to Notion`,
-                  color: 'green',
-                  loading: false,
-                });
-                // Clear the loading state
-                setSyncingToIntegration(null);
-              },
-              onError: (error) => {
-                notifications.update({
-                  id: 'notion-sync',
-                  title: 'Failed to send to Notion',
-                  message: error.message || 'An error occurred while sending actions to Notion',
-                  color: 'red',
-                  loading: false,
-                });
-                setSyncingToIntegration(null);
-              },
-            }
-          );
-        }}
-        syncingToIntegration={syncingToIntegration}
-      />
+      <aside className="hidden w-60 shrink-0 lg:block">
+        <Stack gap="md" mt={56}>
+          <ThisWeekChart stats={weeklyStats} weekStart={weekStart} />
+          <TopPeoplePanel stats={weeklyStats} />
+          <ZoesWeekPanel stats={weeklyStats} />
+        </Stack>
+      </aside>
+      </div>
 
       {/* Delete Confirmation Modal */}
       <Modal

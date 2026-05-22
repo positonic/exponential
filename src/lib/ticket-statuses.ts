@@ -46,6 +46,29 @@ export const STATUS_ORDER: Record<string, number> = Object.fromEntries(
 /** Statuses considered "done" - separated into completed section */
 export const COMPLETED_STATUSES = new Set<string>(["DONE", "DEPLOYED", "ARCHIVED"]);
 
+/**
+ * Ticket statuses that count as "completed" for blocker derivation and
+ * dependency-graph filtering. Typed against the canonical `TicketStatus`
+ * union so it can be reused by both server and client code.
+ */
+export const COMPLETED_TICKET_STATUSES: ReadonlyArray<TicketStatus> = [
+  "DONE",
+  "DEPLOYED",
+  "ARCHIVED",
+];
+
+/**
+ * Ticket statuses where an open blocker means the ticket is actively
+ * "blocked" rather than merely waiting in the backlog. Mirrors the
+ * server-side computation in `ticket.list`.
+ */
+export const IN_FLIGHT_TICKET_STATUSES: ReadonlyArray<TicketStatus> = [
+  "READY_TO_PLAN",
+  "COMMITTED",
+  "IN_PROGRESS",
+  "QA",
+];
+
 /** Select options for dropdowns */
 export const STATUS_OPTIONS = TICKET_STATUSES.map((s) => ({
   value: s.value,

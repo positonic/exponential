@@ -23,7 +23,6 @@
   grid-template-areas:
     'hero hero'
     'week week'
-    'pickup pickup'
     'main rail';
   gap: 32px;
   align-items: start;
@@ -31,7 +30,6 @@
 
 .wsa__hero   { grid-area: hero; }
 .wsa__week   { grid-area: week; }
-.wsa__pickup { grid-area: pickup; }
 .wsa__main   { grid-area: main; display: flex; flex-direction: column; gap: 24px; }
 .wsa__rail   { grid-area: rail; display: flex; flex-direction: column; gap: 24px; }
 
@@ -42,7 +40,6 @@
     grid-template-areas:
       'hero'
       'week'
-      'pickup'
       'main'
       'rail';
   }
@@ -248,43 +245,6 @@
 }
 
 /* --------------------------------------------------------------------------
-   PICK UP WHERE YOU LEFT OFF
-   -------------------------------------------------------------------------- */
-.wsa-pickup__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.wsa-pickup__card {
-  border: 1px solid var(--color-border-primary);
-  background: var(--color-surface-secondary);
-  border-radius: 12px;
-  padding: 16px 18px;
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.wsa-pickup__icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.wsa-pickup__icon--ritual    { background: var(--color-surface-muted); color: var(--activity-accent-ritual); }
-.wsa-pickup__icon--knowledge { background: var(--color-surface-muted); color: var(--activity-accent-knowledge); }
-.wsa-pickup__icon--okr       { background: var(--color-surface-muted); color: var(--activity-accent-okr); }
-
-@media (max-width: 920px) {
-  .wsa-pickup__grid { grid-template-columns: 1fr; }
-}
-
-/* --------------------------------------------------------------------------
    ACTIVE PROJECTS — right rail
    -------------------------------------------------------------------------- */
 .wsa-active__row {
@@ -420,6 +380,8 @@
   min-width: 825px;
   position: relative;
 }
+.wsa-heatmap__grid[data-range='month'] { min-width: 100px; }
+.wsa-heatmap__grid[data-range='week']  { min-width: auto; }
 
 .wsa-heatmap__cell {
   width: 12px;

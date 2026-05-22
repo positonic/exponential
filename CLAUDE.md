@@ -673,3 +673,12 @@ Exponential uses **ticket statuses** as triage routing — no labels. Canonical 
 ### Domain docs
 
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root cover the whole app. Files are created lazily by `/grill-with-docs` — proceed silently if absent. See [`docs/agents/domain.md`](docs/agents/domain.md).
+
+### Keeping ADRs and CONTEXT.md current
+
+When you make a change that touches an **architecturally significant** decision, you are responsible for keeping the docs honest:
+
+- **Read first.** Before non-trivial work, skim [`CONTEXT.md`](CONTEXT.md) for relevant terms and [`docs/adr/`](docs/adr/) for decisions that touch the area. Use the glossary's vocabulary in code, tests, and PR titles. If your work contradicts an existing ADR, flag it explicitly in the PR description — never silently override.
+- **Update inline, don't batch.** When a term is resolved or sharpened in conversation, update `CONTEXT.md` in the same change. When an architectural decision is made, write the ADR in the same PR. Stale docs lose trust fast.
+- **Write ADRs sparingly.** A new ADR is warranted only when **all three** are true: (1) the decision is hard to reverse, (2) it would surprise a future reader without context, (3) there was a real trade-off with rejected alternatives. If any one is missing, skip it. Format and numbering: see [`docs/adr/`](docs/adr/) existing files; keep them short (a paragraph is fine).
+- **Supersede, don't delete.** When a later decision overturns an ADR, mark the old one `Status: Superseded by ADR-NNNN` and write a new file. Preserve the trail.

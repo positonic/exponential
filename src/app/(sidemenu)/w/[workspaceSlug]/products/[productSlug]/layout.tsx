@@ -9,6 +9,7 @@ import {
   IconClipboardList,
   IconSettings,
   IconPlus,
+  IconAffiliate,
 } from "@tabler/icons-react";
 import {
   ActionIcon,
@@ -26,6 +27,7 @@ const tabs = [
   { value: "overview", href: "", label: "Overview", icon: IconHome },
   { value: "backlog", href: "/tickets", label: "Backlog", icon: IconLayoutList },
   { value: "features", href: "/features", label: "Features", icon: IconBulb },
+  { value: "graph", href: "/graph", label: "Graph", icon: IconAffiliate },
   { value: "cycles", href: "/cycles", label: "Cycles", icon: IconCalendarClock },
   { value: "research", href: "/research", label: "Insights", icon: IconBulb },
   { value: "retro", href: "/retrospectives", label: "Retro", icon: IconClipboardList },

@@ -260,6 +260,142 @@ const componentStyles = {
     },
   },
 
+  // DateTimePicker is a separate Mantine component that does NOT inherit from
+  // DateInput. Without an explicit theme entry it falls back to Mantine's
+  // built-in dark-mode default (#25262b), which clashes with our dark-blue
+  // surfaces. Mirror DateInput's config and add `timeInput` for the time
+  // sub-field at the bottom of the popover.
+  DateTimePicker: {
+    defaultProps: {
+      popoverProps: {
+        styles: {
+          dropdown: {
+            backgroundColor: 'var(--color-bg-elevated)',
+            borderColor: 'var(--color-border-primary)',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+          },
+        },
+      },
+      styles: {
+        input: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+          borderColor: 'var(--color-border-primary)',
+        },
+        label: {
+          color: 'var(--color-text-primary)',
+        },
+        timeInput: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+          borderColor: 'var(--color-border-primary)',
+        },
+        calendar: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        calendarHeader: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+        },
+        calendarHeaderControl: {
+          color: 'var(--color-text-primary)',
+        },
+        calendarHeaderLevel: {
+          color: 'var(--color-text-primary)',
+        },
+        month: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        monthsList: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        monthsListCell: {
+          color: 'var(--color-text-primary)',
+          border: '1px solid transparent',
+        },
+        yearsList: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        yearsListCell: {
+          color: 'var(--color-text-primary)',
+          border: '1px solid transparent',
+        },
+        weekday: {
+          color: 'var(--color-text-muted)',
+        },
+        day: {
+          color: 'var(--color-text-primary)',
+          backgroundColor: 'transparent',
+          border: '1px solid transparent',
+        },
+      },
+    },
+  },
+
+  // DatePickerInput is also a separate Mantine component that does NOT inherit
+  // from DateInput. Same fallback issue as DateTimePicker — mirror DateInput.
+  DatePickerInput: {
+    defaultProps: {
+      popoverProps: {
+        styles: {
+          dropdown: {
+            backgroundColor: 'var(--color-bg-elevated)',
+            borderColor: 'var(--color-border-primary)',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+          },
+        },
+      },
+      styles: {
+        input: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+          borderColor: 'var(--color-border-primary)',
+        },
+        label: {
+          color: 'var(--color-text-primary)',
+        },
+        calendar: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        calendarHeader: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+        },
+        calendarHeaderControl: {
+          color: 'var(--color-text-primary)',
+        },
+        calendarHeaderLevel: {
+          color: 'var(--color-text-primary)',
+        },
+        month: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        monthsList: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        monthsListCell: {
+          color: 'var(--color-text-primary)',
+          border: '1px solid transparent',
+        },
+        yearsList: {
+          backgroundColor: 'var(--color-bg-primary)',
+        },
+        yearsListCell: {
+          color: 'var(--color-text-primary)',
+          border: '1px solid transparent',
+        },
+        weekday: {
+          color: 'var(--color-text-muted)',
+        },
+        day: {
+          color: 'var(--color-text-primary)',
+          backgroundColor: 'transparent',
+          border: '1px solid transparent',
+        },
+      },
+    },
+  },
+
   DatePicker: {
     styles: {
       calendar: {

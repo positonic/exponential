@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   buildProjectAccessWhere,
@@ -366,6 +367,7 @@ export const transcriptionRouter = createTRPCRouter({
         summary: z.string().optional(),
         transcription: z.string().optional(),
         workspaceId: z.string().nullable().optional(),
+        meetingDate: z.date().nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -393,6 +395,7 @@ export const transcriptionRouter = createTRPCRouter({
         summary?: string;
         transcription?: string;
         workspaceId?: string | null;
+        meetingDate?: Date | null;
         updatedAt: Date;
       } = {
         updatedAt: new Date(),
@@ -428,6 +431,9 @@ export const transcriptionRouter = createTRPCRouter({
           }
         }
         updateData.workspaceId = input.workspaceId;
+      }
+      if (input.meetingDate !== undefined) {
+        updateData.meetingDate = input.meetingDate;
       }
 
       const session = await ctx.db.transcriptionSession.update({
@@ -586,19 +592,42 @@ export const transcriptionRouter = createTRPCRouter({
         .object({
           includeArchived: z.boolean().optional().default(false),
           workspaceId: z.string().optional(),
+          // Meeting type filter for the Meetings v2 tab strip.
+          // - 'all' / undefined: no narrowing
+          // - 'mine': caller is the session owner OR a Participant on the
+          //   session (covers both creator and attendance)
+          // - 'one_on_one': only Meetings with exactly two Participants
+          //   (derived from `participantCount = 2` since no stored
+          //   `meetingType` column exists in v1)
+          // - 'customer' / 'internal': always empty — short-circuited below
+          //   until a meeting-tagging mechanism exists
+          meetingType: z
+            .enum(["all", "mine", "one_on_one", "customer", "internal"])
+            .optional(),
         })
         .optional(),
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
+      // Customer and Internal tabs ship with honest empty states — no
+      // tagging mechanism exists yet.
+      if (
+        input?.meetingType === "customer" ||
+        input?.meetingType === "internal"
+      ) {
+        return [];
+      }
+
       // Visibility: own transcriptions, OR transcriptions tied to a project
-      // the user can access (creator/member/public/workspace per restriction
-      // rules).
+      // the user can access, OR transcriptions the caller is a linked
+      // Participant on (calendar invitee — users get to see Meetings they
+      // attended even if someone else uploaded the transcript).
       const accessFilter = {
         OR: [
           { userId },
           { project: buildProjectAccessWhere(userId) },
+          { participants: { some: { userId } } },
         ],
       };
 
@@ -616,6 +645,22 @@ export const transcriptionRouter = createTRPCRouter({
           OR: [
             { workspaceId: input.workspaceId },
             { project: { workspaceId: input.workspaceId } },
+          ],
+        });
+      }
+
+      if (input?.meetingType === "one_on_one") {
+        filters.push({ participantCount: 2 });
+      }
+
+      if (input?.meetingType === "mine") {
+        // "Mine" = the caller owns the Meeting or appears in its
+        // Participant list. Participant userId may be null for email-only
+        // invitees we haven't linked yet; those are correctly excluded.
+        filters.push({
+          OR: [
+            { userId },
+            { participants: { some: { userId } } },
           ],
         });
       }
@@ -649,7 +694,39 @@ export const transcriptionRouter = createTRPCRouter({
               priority: true,
             },
           },
+          // Authoritative Participant rows for the Meeting card — avatars
+          // and attendee count come from the calendar invite, not the
+          // transcript speakers.
+          participants: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              user: { select: { id: true, name: true, image: true } },
+              contact: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
         },
+      });
+    }),
+
+  weeklyStats: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+          // ISO date string from the client (e.g. start of week in user's
+          // local timezone). The service treats this as the inclusive lower
+          // bound of the 7-day window.
+          weekStart: z.coerce.date().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      return weeklyMeetingStats(ctx.db, {
+        userId: ctx.session.user.id,
+        workspaceId: input?.workspaceId,
+        weekStart: input?.weekStart,
       });
     }),
 

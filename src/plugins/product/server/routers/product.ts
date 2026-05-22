@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { buildGraph } from "../services/DependencyGraphService";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -196,6 +197,25 @@ export const productRouter = createTRPCRouter({
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.product.delete({ where: { id: input.id } });
       return { success: true };
+    }),
+
+  // ── Dependency graph ──
+
+  getDependencyGraph: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        includeCompleted: z.boolean().optional().default(false),
+        includeForeign: z.boolean().optional().default(false),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      return buildGraph(ctx.db, {
+        productId: input.productId,
+        includeCompleted: input.includeCompleted,
+        includeForeign: input.includeForeign,
+      });
     }),
 
   // ── View preferences (stored in PluginConfig.settings) ──

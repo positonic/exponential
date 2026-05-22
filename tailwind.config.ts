@@ -28,6 +28,8 @@ export default {
           tertiary: 'var(--color-surface-tertiary)',
           hover: 'var(--color-surface-hover)',
           active: 'var(--color-surface-active)',
+          // Meetings v2: tonal panel surface
+          muted: 'var(--color-surface-muted)',
         },
         // Text colors
         text: {
@@ -37,6 +39,8 @@ export default {
           muted: 'var(--color-text-muted)',
           disabled: 'var(--color-text-disabled)',
           inverse: 'var(--color-text-inverse)',
+          // Meetings v2: tertiary/faint text for separators and small captions
+          faint: 'var(--color-text-faint)',
         },
         // Border colors
         border: {
@@ -45,6 +49,9 @@ export default {
           secondary: 'var(--color-border-secondary)',
           tertiary: 'var(--color-border-tertiary)',
           focus: 'var(--color-border-focus)',
+          // Meetings v2: low-contrast hairline and emphasized hover borders
+          subtle: 'var(--color-border-subtle)',
+          strong: 'var(--color-border-strong)',
         },
         // Brand colors
         brand: {
@@ -58,6 +65,11 @@ export default {
           error: 'var(--color-brand-error)',
           info: 'var(--color-brand-info)',
           'primary-opacity': 'var(--color-brand-primary-opacity)',
+          // Meetings v2: secondary brand tier used for "TODAY" date label,
+          // sparkline highlight bar, "Open transcript" link. Uses the RGB
+          // triplet form so opacity modifiers like `bg-brand-400/10` resolve
+          // through Tailwind's <alpha-value> substitution.
+          400: 'rgb(var(--brand-400-rgb) / <alpha-value>)',
         },
         // Error/Warning utility colors
         error: {
@@ -68,10 +80,24 @@ export default {
           bg: 'var(--color-warning-bg)',
           border: 'var(--color-warning-border)',
         },
-        // Accent colors for landing page
+        // Accent colors for landing page + Meetings v2 design tokens
         accent: {
           periwinkle: 'var(--color-accent-periwinkle)',
           indigo: 'var(--color-accent-indigo)',
+          // Domain accents — used by Meetings v2 cards, panels, and chips.
+          // The RGB triplet form is required so Tailwind opacity modifiers
+          // (`bg-accent-meetings/20`, `border-accent-meetings/[0.06]`, etc.)
+          // produce valid CSS. Hex-valued CSS vars cannot be split into
+          // channels at compile-time and the modifier silently fails,
+          // producing a stark currentColor fallback (white in dark mode).
+          meetings: 'rgb(var(--accent-meetings-rgb) / <alpha-value>)',
+          crm: 'rgb(var(--accent-crm-rgb) / <alpha-value>)',
+          okr: 'rgb(var(--accent-okr-rgb) / <alpha-value>)',
+          due: 'rgb(var(--accent-due-rgb) / <alpha-value>)',
+          ritual: 'rgb(var(--accent-ritual-rgb) / <alpha-value>)',
+          // The design calls this "knowledge"; the existing CSS var is named
+          // `--accent-quick`. Keep the CSS var name; expose under the design's.
+          knowledge: 'rgb(var(--accent-quick-rgb) / <alpha-value>)',
         },
         // Gradient color references
         gradient: {
