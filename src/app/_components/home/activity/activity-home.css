@@ -206,6 +206,41 @@
   flex-wrap: wrap;
 }
 
+.wsa-week__narrative {
+  margin-top: 14px;
+}
+
+.wsa-week__narrative--loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-style: italic;
+}
+
+.wsa-week__narrative-text {
+  color: var(--color-text-primary);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.wsa-week__highlights {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.wsa-week__highlights li {
+  list-style: disc;
+  padding-left: 2px;
+}
+
 @media (max-width: 920px) {
   .wsa-week {
     grid-template-columns: 1fr;

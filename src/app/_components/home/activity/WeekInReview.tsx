@@ -1,8 +1,16 @@
 'use client';
 
-import { Button, Group, Skeleton, Tooltip } from '@mantine/core';
+import {
+  ActionIcon,
+  Button,
+  Group,
+  Loader,
+  Skeleton,
+  Tooltip,
+} from '@mantine/core';
 import {
   IconChartBar,
+  IconRefresh,
   IconSparkles,
   IconTrendingDown,
   IconTrendingUp,
@@ -65,22 +73,43 @@ function WeeklyHeadline({ total, delta }: WeeklyHeadlineProps) {
 }
 
 /**
- * Week-in-Review card: weekly headline + delta pill, 7-day sparkline, and
- * compare-row (last week / 4-week avg / best week).
+ * Week-in-Review card: weekly headline + delta pill, 7-day sparkline,
+ * compare-row (last week / 4-week avg / best week), and an AI-generated
+ * narrative paragraph + 3 highlights. The refresh icon in the card head
+ * force-regenerates the narrative.
  *
- * Narrative paragraph + 3 highlight rows are intentionally still skeletons
- * — AI narration is out of scope for slice T6 and ships as its own slice
- * later. Disabled CTAs telegraph that the surface is half-built.
- *
- * Data: `workspace.getHomeStats.weeklySparkline` + multi-week totals.
- * All values come from `WorkspaceActivityEvent` daily aggregation.
+ * Data: stats from `workspace.getHomeStats` (sparkline + multi-week totals
+ * sourced from `WorkspaceActivityEvent`); narrative from
+ * `workspace.getWeeklyNarrative` (cached per workspace + ISO week).
  */
 export function WeekInReview() {
   const { workspaceId } = useWorkspace();
+  const utils = api.useUtils();
   const { data, isLoading } = api.workspace.getHomeStats.useQuery(
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId },
   );
+
+  // Inline AI narrative + 3 highlights. Cached server-side per (workspace,
+  // ISO week); the 30-min client staleTime just dampens dev-mode refetches.
+  const narrativeQ = api.workspace.getWeeklyNarrative.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId, staleTime: 30 * 60 * 1000 },
+  );
+
+  const regenerate = api.workspace.regenerateWeeklyNarrative.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.getWeeklyNarrative.invalidate({
+        workspaceId: workspaceId ?? '',
+      });
+    },
+  });
+
+  // Treat "no workspaceId yet" as busy too — otherwise the disabled query
+  // (isLoading=false, data=undefined) would briefly flash the "Couldn't
+  // generate" error caption before WorkspaceProvider resolves.
+  const narrativeBusy =
+    !workspaceId || narrativeQ.isLoading || regenerate.isPending;
 
   const showSkeleton = isLoading || !data;
   const range = currentWeekRange(new Date());
@@ -104,10 +133,28 @@ export function WeekInReview() {
             <IconChartBar size={14} stroke={1.8} />
             Week in review
           </h2>
-          <span className="wsa-week__eyebrow">
-            <span className="wsa-week__pulse" aria-hidden="true" />
-            {range}
-          </span>
+          <Group gap={6}>
+            <span className="wsa-week__eyebrow">
+              <span className="wsa-week__pulse" aria-hidden="true" />
+              {range}
+            </span>
+            <Tooltip label="Regenerate narrative" withArrow position="top">
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="gray"
+                aria-label="Regenerate narrative"
+                disabled={!workspaceId || narrativeBusy}
+                loading={regenerate.isPending}
+                onClick={() => {
+                  if (!workspaceId) return;
+                  regenerate.mutate({ workspaceId });
+                }}
+              >
+                <IconRefresh size={14} stroke={1.8} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
         </div>
 
         {showSkeleton ? (
@@ -116,16 +163,32 @@ export function WeekInReview() {
           <WeeklyHeadline total={thisWeekTotal} delta={delta} />
         )}
 
-        {/* Narrative + highlights stay as skeletons this slice. */}
-        <Skeleton height={48} mt="md" width="92%" />
-        <Skeleton height={14} mt="md" width="82%" />
-        <Skeleton height={14} mt={6} width="74%" />
-        <span
-          className="wsa-card__caption"
-          style={{ display: 'block', marginTop: 10 }}
-        >
-          AI-written narrative + highlights wire in a later slice.
-        </span>
+        {narrativeBusy ? (
+          <div className="wsa-week__narrative wsa-week__narrative--loading">
+            <Loader size="xs" />
+            <span className="wsa-card__caption">
+              Checking the status of this workspace…
+            </span>
+          </div>
+        ) : narrativeQ.data ? (
+          <div className="wsa-week__narrative">
+            <p className="wsa-week__narrative-text">
+              {narrativeQ.data.narrative}
+            </p>
+            <ul className="wsa-week__highlights">
+              {narrativeQ.data.highlights.map((h, i) => (
+                <li key={i}>{h}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <span
+            className="wsa-card__caption"
+            style={{ display: 'block', marginTop: 10 }}
+          >
+            Couldn&apos;t generate this week&apos;s narrative.
+          </span>
+        )}
 
         <Group className="wsa-week__cta-row">
           <Tooltip label="Coming soon" withArrow>
