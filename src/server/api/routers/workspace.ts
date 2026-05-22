@@ -21,6 +21,36 @@ import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeS
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
 import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
+import { getOrGenerateWeeklyNarrative } from "~/server/services/activity/weeklyNarrativeService";
+import type { PrismaClient } from "@prisma/client";
+
+// Workspace membership gate shared by the home-activity endpoints. Falls
+// back to team-based access so guest project members still pass, matching
+// the behaviour `getHomeStats` already had inline.
+async function requireWorkspaceAccess(
+  ctx: { db: PrismaClient; session: { user: { id: string } } },
+  workspaceId: string,
+): Promise<void> {
+  const member = await ctx.db.workspaceUser.findUnique({
+    where: {
+      userId_workspaceId: { userId: ctx.session.user.id, workspaceId },
+    },
+    select: { role: true },
+  });
+  if (member) return;
+
+  const teamBased = await getWorkspaceMembership(
+    ctx.db,
+    ctx.session.user.id,
+    workspaceId,
+  );
+  if (!teamBased) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace",
+    });
+  }
+}
 
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
@@ -1549,6 +1579,33 @@ export const workspaceRouter = createTRPCRouter({
       return getWorkspaceHomeStats(ctx.db, {
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
+      });
+    }),
+
+  // AI-generated Week-in-Review narrative + 3 highlights. Cached per
+  // (workspace, ISO week). See
+  // src/server/services/activity/weeklyNarrativeService.ts for cache
+  // staleness rules and the empty-week shortcut.
+  getWeeklyNarrative: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await requireWorkspaceAccess(ctx, input.workspaceId);
+      return getOrGenerateWeeklyNarrative(ctx.db, {
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+      });
+    }),
+
+  // Forces a fresh narrative generation, bypassing the cache. Used by the
+  // refresh icon in the Week-in-Review card.
+  regenerateWeeklyNarrative: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireWorkspaceAccess(ctx, input.workspaceId);
+      return getOrGenerateWeeklyNarrative(ctx.db, {
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+        force: true,
       });
     }),
 
