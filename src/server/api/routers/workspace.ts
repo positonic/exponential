@@ -21,7 +21,10 @@ import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeS
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
 import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
-import { getOrGenerateWeeklyNarrative } from "~/server/services/activity/weeklyNarrativeService";
+import {
+  getOrGenerateWeeklyNarrative,
+  NarrativeRateLimitError,
+} from "~/server/services/activity/weeklyNarrativeService";
 import type { PrismaClient } from "@prisma/client";
 
 // Workspace membership gate shared by the home-activity endpoints. Falls
@@ -1597,16 +1600,27 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Forces a fresh narrative generation, bypassing the cache. Used by the
-  // refresh icon in the Week-in-Review card.
+  // refresh icon in the Week-in-Review card. Rate-limited per-workspace via
+  // the service-level cooldown (NarrativeRateLimitError → 429).
   regenerateWeeklyNarrative: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await requireWorkspaceAccess(ctx, input.workspaceId);
-      return getOrGenerateWeeklyNarrative(ctx.db, {
-        workspaceId: input.workspaceId,
-        userId: ctx.session.user.id,
-        force: true,
-      });
+      try {
+        return await getOrGenerateWeeklyNarrative(ctx.db, {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          force: true,
+        });
+      } catch (err) {
+        if (err instanceof NarrativeRateLimitError) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `Try again in ${Math.ceil(err.retryAfterMs / 1000)}s.`,
+          });
+        }
+        throw err;
+      }
     }),
 
   // One-time backfill of WorkspaceActivityEvent from existing entity

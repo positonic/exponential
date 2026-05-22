@@ -105,7 +105,11 @@ export function WeekInReview() {
     },
   });
 
-  const narrativeBusy = narrativeQ.isLoading || regenerate.isPending;
+  // Treat "no workspaceId yet" as busy too — otherwise the disabled query
+  // (isLoading=false, data=undefined) would briefly flash the "Couldn't
+  // generate" error caption before WorkspaceProvider resolves.
+  const narrativeBusy =
+    !workspaceId || narrativeQ.isLoading || regenerate.isPending;
 
   const showSkeleton = isLoading || !data;
   const range = currentWeekRange(new Date());
