@@ -340,7 +340,9 @@ model Workspace {
   pendingDriveUploads              PendingDriveUpload[]
 
   // Workspace home activity feed
-  activityEvents WorkspaceActivityEvent[]
+  activityEvents    WorkspaceActivityEvent[]
+  // Cached AI-generated Week-in-Review narratives (one row per ISO week).
+  weeklyNarratives  WorkspaceWeeklyNarrative[]
 
   @@index([slug])
   @@index([ownerId])
@@ -370,6 +372,28 @@ model WorkspaceActivityEvent {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, userId, createdAt])
+}
+
+// Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
+// Regenerated on demand if missing, stale (>6h old AND week still in progress),
+// or explicitly via `regenerateWeeklyNarrative`. See
+// src/server/services/activity/weeklyNarrativeService.ts.
+model WorkspaceWeeklyNarrative {
+  id          String   @id @default(cuid())
+  workspaceId String
+  isoYear     Int
+  isoWeek     Int // 1–53
+  narrative   String   @db.Text
+  highlights  Json // string[] — length 3 in practice, but stored as JSON for flexibility
+  model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, isoYear, isoWeek])
+  @@index([workspaceId, generatedAt])
 }
 
 model WorkspaceUser {
