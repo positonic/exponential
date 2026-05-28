@@ -596,7 +596,7 @@ export function OkrDashboard() {
 
           <TextInput
             label={
-              <Group gap={4} align="center" component="span">
+              <Group gap={4} align="center" component="span" display="inline-flex">
                 <span>Key Result Title</span>
                 <KeyResultGuidanceIcon />
               </Group>

@@ -197,6 +197,24 @@ const componentStyles = {
     },
   },
 
+  // NumberInput — Mantine does NOT inherit TextInput's defaults onto it, so
+  // without this entry it falls back to the built-in dark default (#25262b),
+  // clashing with our dark-blue surfaces. Mirror TextInput.
+  NumberInput: {
+    defaultProps: {
+      styles: {
+        input: {
+          backgroundColor: 'var(--color-bg-secondary)',
+          color: 'var(--color-text-primary)',
+          borderColor: 'var(--color-border-primary)',
+        },
+        label: {
+          color: 'var(--color-text-primary)',
+        },
+      },
+    },
+  },
+
   // DateInput and DatePicker components
   DateInput: {
     defaultProps: {

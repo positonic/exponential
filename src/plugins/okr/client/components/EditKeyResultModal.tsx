@@ -324,7 +324,7 @@ export function EditKeyResultModal({
     : "var(--color-bg-elevated)";
   const bgInput = isReview
     ? "var(--pr-surface-muted)"
-    : "var(--color-bg-input)";
+    : "var(--color-bg-secondary)";
   const textPrimary = isReview
     ? "var(--pr-text-primary)"
     : "var(--color-text-primary)";
@@ -386,7 +386,7 @@ export function EditKeyResultModal({
           {/* Title */}
           <TextInput
             label={
-              <Group gap={4} align="center" component="span">
+              <Group gap={4} align="center" component="span" display="inline-flex">
                 <span>Title</span>
                 <KeyResultGuidanceIcon />
               </Group>
