@@ -116,6 +116,7 @@ export class TimeEntryService {
           actionId,
           workspaceId,
           source: "plugin",
+          startedAt: new Date(),
         },
         include: {
           action: {
@@ -133,8 +134,8 @@ export class TimeEntryService {
 
   /**
    * Stop the currently running entry (or the entry identified by `entryId`).
-   * Stamps `endedAt = now()`, validates `endedAt > startedAt`, and increments
-   * the parent Action's denormalized `timeSpentMins`.
+   * Stamps `endedAt = now()` (clamped to never precede `startedAt`) and
+   * increments the parent Action's denormalized `timeSpentMins`.
    *
    * Throws NOT_FOUND if nothing is running and no entryId was provided.
    * Throws FORBIDDEN if entryId belongs to a different user.
@@ -170,13 +171,12 @@ export class TimeEntryService {
         });
       }
 
-      const endedAt = new Date();
-      if (endedAt.getTime() <= entry.startedAt.getTime()) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "endedAt must be after startedAt",
-        });
-      }
+      // Clamp to startedAt so a stop that lands at or before the start (a
+      // near-instant stop, or residual app/DB clock skew) records a zero-
+      // duration entry instead of a BAD_REQUEST, matching autoStopRunning.
+      const now = new Date();
+      const endedAt =
+        now.getTime() <= entry.startedAt.getTime() ? entry.startedAt : now;
 
       const mins = durationMinutes(entry.startedAt, endedAt);
 
