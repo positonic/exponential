@@ -20,7 +20,11 @@ vi.hoisted(() => {
   process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/test";
 });
 
-import { TimeEntryService, durationMinutes } from "../TimeEntryService";
+import {
+  TimeEntryService,
+  durationMinutes,
+  safeEndedAt,
+} from "../TimeEntryService";
 
 const dbMock: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 
@@ -561,5 +565,22 @@ describe("durationMinutes", () => {
     const s = new Date("2026-01-01T10:00:00Z");
     expect(durationMinutes(s, s)).toBe(0);
     expect(durationMinutes(s, new Date(s.getTime() - 1000))).toBe(0);
+  });
+});
+
+describe("safeEndedAt", () => {
+  it("returns now when now is after startedAt", () => {
+    const startedAt = new Date(Date.now() - 60_000);
+    const result = safeEndedAt(startedAt);
+    expect(result.getTime()).toBeGreaterThan(startedAt.getTime());
+  });
+
+  it("clamps to startedAt + 1ms when startedAt is in the future (clock skew)", () => {
+    // A startedAt ahead of the app clock simulates DB-vs-app skew. The result
+    // must still be strictly after startedAt to satisfy the DB CHECK constraint.
+    const startedAt = new Date(Date.now() + 60_000);
+    const result = safeEndedAt(startedAt);
+    expect(result.getTime()).toBe(startedAt.getTime() + 1);
+    expect(result.getTime()).toBeGreaterThan(startedAt.getTime());
   });
 });

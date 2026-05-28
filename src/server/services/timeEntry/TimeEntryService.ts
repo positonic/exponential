@@ -171,13 +171,7 @@ export class TimeEntryService {
         });
       }
 
-      // Clamp to startedAt so a stop that lands at or before the start (a
-      // near-instant stop, or residual app/DB clock skew) records a zero-
-      // duration entry instead of a BAD_REQUEST, matching autoStopRunning.
-      const now = new Date();
-      const endedAt =
-        now.getTime() <= entry.startedAt.getTime() ? entry.startedAt : now;
-
+      const endedAt = safeEndedAt(entry.startedAt);
       const mins = durationMinutes(entry.startedAt, endedAt);
 
       const updated = await tx.timeEntry.update({
@@ -463,10 +457,9 @@ export class TimeEntryService {
     });
     if (!running) return;
 
-    const endedAt = new Date();
-    if (endedAt.getTime() <= running.startedAt.getTime()) {
-      return;
-    }
+    // Must always stamp endedAt: leaving the entry running would let the
+    // subsequent create() violate the one-running-timer-per-user unique index.
+    const endedAt = safeEndedAt(running.startedAt);
     const mins = durationMinutes(running.startedAt, endedAt);
 
     await tx.timeEntry.update({
@@ -481,6 +474,19 @@ export class TimeEntryService {
       });
     }
   }
+}
+
+/**
+ * Safe `endedAt` for stopping a timer: always strictly after `startedAt`.
+ * The DB enforces `endedAt > startedAt` (CHECK constraint), so a near-instant
+ * stop or residual app/DB clock skew clamps up to startedAt + 1ms rather than
+ * landing at-or-before startedAt and failing.
+ */
+export function safeEndedAt(startedAt: Date): Date {
+  const now = new Date();
+  return now.getTime() > startedAt.getTime()
+    ? now
+    : new Date(startedAt.getTime() + 1);
 }
 
 export function durationMinutes(startedAt: Date, endedAt: Date): number {
