@@ -116,6 +116,7 @@ export class TimeEntryService {
           actionId,
           workspaceId,
           source: "plugin",
+          startedAt: new Date(),
         },
         include: {
           action: {
@@ -133,8 +134,8 @@ export class TimeEntryService {
 
   /**
    * Stop the currently running entry (or the entry identified by `entryId`).
-   * Stamps `endedAt = now()`, validates `endedAt > startedAt`, and increments
-   * the parent Action's denormalized `timeSpentMins`.
+   * Stamps `endedAt = now()` (clamped to never precede `startedAt`) and
+   * increments the parent Action's denormalized `timeSpentMins`.
    *
    * Throws NOT_FOUND if nothing is running and no entryId was provided.
    * Throws FORBIDDEN if entryId belongs to a different user.
@@ -170,14 +171,7 @@ export class TimeEntryService {
         });
       }
 
-      const endedAt = new Date();
-      if (endedAt.getTime() <= entry.startedAt.getTime()) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "endedAt must be after startedAt",
-        });
-      }
-
+      const endedAt = safeEndedAt(entry.startedAt);
       const mins = durationMinutes(entry.startedAt, endedAt);
 
       const updated = await tx.timeEntry.update({
@@ -463,10 +457,9 @@ export class TimeEntryService {
     });
     if (!running) return;
 
-    const endedAt = new Date();
-    if (endedAt.getTime() <= running.startedAt.getTime()) {
-      return;
-    }
+    // Must always stamp endedAt: leaving the entry running would let the
+    // subsequent create() violate the one-running-timer-per-user unique index.
+    const endedAt = safeEndedAt(running.startedAt);
     const mins = durationMinutes(running.startedAt, endedAt);
 
     await tx.timeEntry.update({
@@ -481,6 +474,19 @@ export class TimeEntryService {
       });
     }
   }
+}
+
+/**
+ * Safe `endedAt` for stopping a timer: always strictly after `startedAt`.
+ * The DB enforces `endedAt > startedAt` (CHECK constraint), so a near-instant
+ * stop or residual app/DB clock skew clamps up to startedAt + 1ms rather than
+ * landing at-or-before startedAt and failing.
+ */
+export function safeEndedAt(startedAt: Date): Date {
+  const now = new Date();
+  return now.getTime() > startedAt.getTime()
+    ? now
+    : new Date(startedAt.getTime() + 1);
 }
 
 export function durationMinutes(startedAt: Date, endedAt: Date): number {
