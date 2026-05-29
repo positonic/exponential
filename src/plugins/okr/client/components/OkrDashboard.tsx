@@ -52,6 +52,7 @@ import {
 } from "./ObjectiveCardV2";
 import {
   periodCountdownLabel,
+  periodStatus,
   statusToConfidence,
 } from "../utils/okrDashboardUtils";
 
@@ -63,10 +64,14 @@ const unitOptions = [
   { value: "custom", label: "Custom" },
 ];
 
-export function OkrDashboard() {
+export function OkrDashboard({
+  scope = "workspace",
+}: { scope?: "workspace" | "mine" } = {}) {
   const { workspaceId, workspaceSlug } = useWorkspace();
   const { year: selectedYear, period: selectedPeriod, setYear, setPeriod } =
     useOkrSearchParams();
+
+  const onlyMine = scope === "mine";
 
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
     useDisclosure(false);
@@ -135,7 +140,7 @@ export function OkrDashboard() {
 
   const { data: periodCounts, isLoading: countsLoading } =
     api.okr.getCountsByYear.useQuery(
-      { workspaceId: workspaceId ?? undefined, year: selectedYear },
+      { workspaceId: workspaceId ?? undefined, year: selectedYear, onlyMine },
       { enabled: !!workspaceId, placeholderData: keepPreviousData },
     );
 
@@ -152,6 +157,7 @@ export function OkrDashboard() {
       workspaceId: workspaceId ?? undefined,
       period: effectivePeriod,
       includePairedPeriod: false,
+      onlyMine,
     },
     { enabled: !!workspaceId, placeholderData: keepPreviousData },
   );
@@ -327,6 +333,39 @@ export function OkrDashboard() {
     return { atRisk, avg, total: allKrs.length };
   }, [visibleObjectives]);
 
+  // Tense-aware header copy: the card reads correctly whether the period is
+  // upcoming, active, or already ended. `summary.avg` is goal attainment, not
+  // time elapsed, so the wording says "reached/finished at X%" rather than
+  // "X% through".
+  const periodState = periodStatus(effectivePeriod);
+  const isEnded = periodState === "ended";
+  const isUpcoming = periodState === "upcoming";
+  const periodLabel = effectivePeriod.split("-")[0] ?? selectedPeriod;
+
+  const headerTitle = isEnded
+    ? onlyMine
+      ? `What I focused on in ${periodLabel}`
+      : `What we bet on in ${periodLabel}`
+    : onlyMine
+      ? "What I'm focused on this quarter"
+      : "What we're betting on this quarter";
+
+  const progressLead = isEnded
+    ? onlyMine
+      ? "You finished the quarter at "
+      : "The team finished the quarter at "
+    : onlyMine
+      ? "You've reached "
+      : "The team has reached ";
+  const progressTail = onlyMine ? " of your KR targets" : " of its KR targets";
+  const atRiskConnector = isEnded ? " — " : " with ";
+  const atRiskLabel = isEnded
+    ? `${summary.atRisk} missed target`
+    : `${summary.atRisk} at risk`;
+  const upcomingText = onlyMine
+    ? "Your KRs for the quarter are set"
+    : "The team's KRs for the quarter are set";
+
   // Nudge: only show if at-risk KRs exist.
   const showNudge = !nudgeDismissed && summary.atRisk > 0;
 
@@ -355,39 +394,53 @@ export function OkrDashboard() {
                   className="inline-block h-1.5 w-1.5 rounded-full"
                   style={{ background: "var(--accent-okr)" }}
                 />
-                Company OKRs · {selectedPeriod} {selectedYear}
+                {onlyMine ? "My OKRs" : "Company OKRs"} · {selectedPeriod}{" "}
+                {selectedYear}
               </div>
               <h1 className="m-0 flex items-center gap-3 text-2xl font-semibold tracking-tight text-text-primary">
                 <IconTargetArrow
                   size={22}
                   style={{ color: "var(--accent-okr)" }}
                 />
-                What we&apos;re betting on this quarter
+                {headerTitle}
               </h1>
               <div className="mt-2 text-sm text-text-secondary">
-                The team is{" "}
-                <strong className="font-semibold text-text-primary">
-                  {summary.avg}% through
-                </strong>{" "}
-                the quarter&apos;s KRs
-                {summary.atRisk > 0 ? (
-                  <>
-                    {" with "}
-                    <span
-                      className="font-medium"
-                      style={{ color: "var(--color-brand-error)" }}
-                    >
-                      {summary.atRisk} at risk
-                    </span>
-                    .
-                  </>
+                {isUpcoming ? (
+                  <>{upcomingText}.</>
                 ) : (
-                  "."
+                  <>
+                    {progressLead}
+                    <strong className="font-semibold text-text-primary">
+                      {summary.avg}%
+                    </strong>
+                    {progressTail}
+                    {summary.atRisk > 0 ? (
+                      <>
+                        {atRiskConnector}
+                        <span
+                          className="font-medium"
+                          style={{ color: "var(--color-brand-error)" }}
+                        >
+                          {atRiskLabel}
+                        </span>
+                        .
+                      </>
+                    ) : (
+                      "."
+                    )}
+                  </>
                 )}
                 {(() => {
                   const label = periodCountdownLabel(effectivePeriod);
                   return label ? (
-                    <span className="text-text-muted"> · {label}</span>
+                    <span
+                      className={
+                        isEnded ? "text-brand-warning" : "text-text-muted"
+                      }
+                    >
+                      {" "}
+                      · {label}
+                    </span>
                   ) : null;
                 })()}
               </div>

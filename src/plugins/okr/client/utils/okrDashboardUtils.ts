@@ -109,8 +109,28 @@ export function periodCountdownLabel(period: string, now: Date = new Date()): st
   const msPerDay = 1000 * 60 * 60 * 24;
   const days = Math.round((range.end.getTime() - now.getTime()) / msPerDay);
   if (days < 0) return `ended ${Math.abs(days)}d ago`;
+  const startDays = Math.round((range.start.getTime() - now.getTime()) / msPerDay);
+  if (startDays > 0) return `starts in ${startDays}d`;
   if (days === 0) return "ends today";
   return `${days}d left`;
+}
+
+export type PeriodStatus = "upcoming" | "active" | "ended";
+
+/**
+ * Whether a period is upcoming, active, or already ended relative to `now`.
+ * Derived from the same rounded-days math as `periodCountdownLabel` so the
+ * status and the countdown label never disagree at a day boundary.
+ */
+export function periodStatus(period: string, now: Date = new Date()): PeriodStatus | null {
+  const range = periodDateRange(period);
+  if (!range) return null;
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const endDays = Math.round((range.end.getTime() - now.getTime()) / msPerDay);
+  const startDays = Math.round((range.start.getTime() - now.getTime()) / msPerDay);
+  if (endDays < 0) return "ended";
+  if (startDays > 0) return "upcoming";
+  return "active"; // includes "ends today"
 }
 
 /**
