@@ -130,7 +130,7 @@ export function ProjectContent({
     ? tabFromUrl
     : isValidTab(initialTab)
       ? initialTab
-      : "overview";
+      : "tasks";
 
   const pathname = usePathname();
   const [drawerOpened, setDrawerOpened] = useState(false);
@@ -250,7 +250,7 @@ export function ProjectContent({
     if (value && isValidTab(value)) {
       // Update URL with new tab
       const params = new URLSearchParams(searchParams.toString());
-      if (value === "overview") {
+      if (value === "tasks") {
         params.delete("tab");
       } else {
         params.set("tab", value);
