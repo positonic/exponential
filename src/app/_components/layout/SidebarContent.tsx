@@ -2,7 +2,7 @@
 
 import React from "react";
 import {
-  IconDeviceProjector, IconTarget, IconLayoutGrid,
+  IconTarget, IconLayoutGrid,
 } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -21,10 +21,6 @@ export function SidebarContent(): React.JSX.Element {
 
   return (
     <>
-      <NavLink href="/projects" icon={IconDeviceProjector}>
-        Projects
-      </NavLink>
-
       {!isGuest && isProductEnabled && workspaceSlug && (
         <NavLink href={`/w/${workspaceSlug}/products`} icon={IconLayoutGrid}>
           Products

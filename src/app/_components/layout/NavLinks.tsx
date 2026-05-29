@@ -9,6 +9,7 @@ import {
   IconUsers,
   IconClock,
   IconChartBar,
+  IconDeviceProjector,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
@@ -100,6 +101,9 @@ export function NavLinks() {
       )}
       <NavLink href="/calendar" icon={IconCalendar}>
         Calendar
+      </NavLink>
+      <NavLink href="/projects" icon={IconDeviceProjector}>
+        Projects
       </NavLink>
     </>
   );
