@@ -199,6 +199,128 @@ export const productRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  /**
+   * Move a product (and its data) to another workspace.
+   *
+   * Tickets/features/research/insights follow automatically via productId.
+   * TicketTemplates and Retrospectives carry their own workspaceId, so they're
+   * re-parented here. Epics referenced by this product's tickets are brought
+   * along only when used EXCLUSIVELY by this product (no other-product tickets,
+   * no actions) — otherwise moving them would break the source workspace.
+   * Cycles and tags are intentionally left in place with references preserved.
+   */
+  moveToWorkspace: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        targetWorkspaceId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Membership of the SOURCE workspace (also loads the product).
+      const product = await loadProductWithAccess(ctx.db, userId, input.id);
+
+      if (product.workspaceId === input.targetWorkspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Product is already in this workspace",
+        });
+      }
+
+      // Membership of the TARGET workspace (re-enforced server-side).
+      await assertWorkspaceMember(ctx.db, userId, input.targetWorkspaceId);
+
+      const targetWorkspace = await ctx.db.workspace.findUnique({
+        where: { id: input.targetWorkspaceId },
+        select: { slug: true },
+      });
+      if (!targetWorkspace) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Target workspace not found",
+        });
+      }
+
+      // Resolve a slug that's unique within the target workspace
+      // (Product has @@unique([workspaceId, slug])).
+      const existing = await ctx.db.product.findMany({
+        where: {
+          workspaceId: input.targetWorkspaceId,
+          slug: { startsWith: product.slug },
+        },
+        select: { slug: true },
+      });
+      const taken = new Set(existing.map((p) => p.slug));
+      let slug = product.slug;
+      let suffix = 2;
+      while (taken.has(slug)) {
+        slug = `${product.slug}-${suffix}`;
+        suffix += 1;
+      }
+
+      await ctx.db.$transaction(async (tx) => {
+        await tx.product.update({
+          where: { id: product.id },
+          data: { workspaceId: input.targetWorkspaceId, slug },
+        });
+
+        // Re-parent entities that have their own workspaceId but belong to the product.
+        await tx.ticketTemplate.updateMany({
+          where: { productId: product.id },
+          data: { workspaceId: input.targetWorkspaceId },
+        });
+        await tx.retrospective.updateMany({
+          where: { productId: product.id },
+          data: { workspaceId: input.targetWorkspaceId },
+        });
+
+        // Bring along epics used exclusively by this product.
+        const epicLinks = await tx.ticket.findMany({
+          where: { productId: product.id, epicId: { not: null } },
+          select: { epicId: true },
+          distinct: ["epicId"],
+        });
+        const epicIds = epicLinks
+          .map((t) => t.epicId)
+          .filter((v): v is string => v !== null);
+
+        if (epicIds.length > 0) {
+          const [sharedByTickets, usedByActions] = await Promise.all([
+            tx.ticket.findMany({
+              where: { epicId: { in: epicIds }, productId: { not: product.id } },
+              select: { epicId: true },
+              distinct: ["epicId"],
+            }),
+            tx.action.findMany({
+              where: { epicId: { in: epicIds } },
+              select: { epicId: true },
+              distinct: ["epicId"],
+            }),
+          ]);
+          const shared = new Set<string>([
+            ...sharedByTickets
+              .map((t) => t.epicId)
+              .filter((v): v is string => v !== null),
+            ...usedByActions
+              .map((a) => a.epicId)
+              .filter((v): v is string => v !== null),
+          ]);
+          const exclusiveEpicIds = epicIds.filter((eid) => !shared.has(eid));
+
+          if (exclusiveEpicIds.length > 0) {
+            await tx.epic.updateMany({
+              where: { id: { in: exclusiveEpicIds } },
+              data: { workspaceId: input.targetWorkspaceId },
+            });
+          }
+        }
+      });
+
+      return { slug, workspaceSlug: targetWorkspace.slug };
+    }),
+
   // ── Dependency graph ──
 
   getDependencyGraph: protectedProcedure

@@ -12,72 +12,47 @@ import {
   Text,
   TextInput,
   Textarea,
-  Title,
 } from "@mantine/core";
-import { IconArrowLeft, IconPlus, IconX } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconArrowsExchange,
+  IconLayoutList,
+  IconPlus,
+  IconRefresh,
+  IconSettings,
+  IconShieldExclamation,
+  IconTags,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { getTagMantineColor } from "~/utils/tagColors";
 import type { TagColor } from "~/types/tag";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import {
+  SettingsShell,
+  SettingsHero,
+  SettingsLayout,
+  SettingsSidebar,
+  SettingsSection,
+  SettingsField,
+  SettingsDangerRow,
+  SettingsDangerZone,
+  type SidebarGroup,
+} from "~/app/_components/settings/SettingsShell";
+
+type SectionId = "general" | "flow" | "labels" | "workspace" | "danger";
 
 // ---------------------------------------------------------------------------
-// Reusable setting row: label+description left, control right
+// Small helpers used inside the design-system sections
 // ---------------------------------------------------------------------------
-
-function SettingRow({
-  label,
-  description,
-  children,
-  noBorder,
-}: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-  noBorder?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between gap-6 py-4 px-5 ${
-        noBorder ? "" : "border-b border-border-primary"
-      }`}
-    >
-      <div className="flex-1 min-w-0">
-        <Text size="sm" fw={600} className="text-text-primary">
-          {label}
-        </Text>
-        {description && (
-          <Text size="xs" className="text-text-muted mt-0.5">
-            {description}
-          </Text>
-        )}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  );
-}
 
 function SectionCard({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border-primary bg-surface-secondary overflow-hidden">
       {children}
     </div>
-  );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <Title order={4} className="text-text-primary">
-      {children}
-    </Title>
-  );
-}
-
-function SectionDescription({ children }: { children: React.ReactNode }) {
-  return (
-    <Text size="sm" className="text-text-muted mt-1">
-      {children}
-    </Text>
   );
 }
 
@@ -102,17 +77,13 @@ function StageRow({
   label,
   description,
   stages,
-  noBorder,
 }: {
   label: string;
   description: string;
   stages: string[];
-  noBorder?: boolean;
 }) {
   return (
-    <div
-      className={`py-4 px-5 ${noBorder ? "" : "border-b border-border-primary"}`}
-    >
+    <div className="border-t border-border-primary py-3.5 first:border-t-0 first:pt-0.5">
       <Text size="sm" fw={600} className="text-text-primary">
         {label}
       </Text>
@@ -427,6 +398,7 @@ export default function ProductSettingsPage() {
     { enabled: !!workspaceId && !!productSlug },
   );
 
+  const [section, setSection] = useState<SectionId>("general");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [funTicketIds, setFunTicketIds] = useState(true);
@@ -435,6 +407,12 @@ export default function ProductSettingsPage() {
   const [cycleDuration, setCycleDuration] = useState("2");
   const [cycleStartDay, setCycleStartDay] = useState("1");
   const [error, setError] = useState<string | null>(null);
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState<string | null>(
+    null,
+  );
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  const { data: workspaces } = api.workspace.list.useQuery();
 
   useEffect(() => {
     if (product) {
@@ -469,6 +447,21 @@ export default function ProductSettingsPage() {
     onError: (err) => setError(err.message),
   });
 
+  const moveProduct = api.product.product.moveToWorkspace.useMutation({
+    onSuccess: async (result) => {
+      if (workspaceId) {
+        await utils.product.product.list.invalidate({ workspaceId });
+      }
+      if (targetWorkspaceId) {
+        await utils.product.product.list.invalidate({
+          workspaceId: targetWorkspaceId,
+        });
+      }
+      router.push(`/w/${result.workspaceSlug}/products/${result.slug}`);
+    },
+    onError: (err) => setMoveError(err.message),
+  });
+
   if (!product || !workspace) return null;
 
   const onSave = () => {
@@ -498,229 +491,318 @@ export default function ProductSettingsPage() {
 
   const backPath = `/w/${workspace.slug}/products/${productSlug}`;
 
+  const moveTargets = (workspaces ?? []).filter(
+    (w) =>
+      w.id !== workspaceId &&
+      w.currentUserRole !== null &&
+      w.currentUserRole !== "guest",
+  );
+
+  const onMove = () => {
+    if (!targetWorkspaceId) return;
+    const target = moveTargets.find((w) => w.id === targetWorkspaceId);
+    setMoveError(null);
+    modals.openConfirmModal({
+      title: "Move product",
+      children: (
+        <Text size="sm">
+          Move <strong>{product.name}</strong> to{" "}
+          <strong>{target?.name ?? "another workspace"}</strong>? All of its
+          tickets, features, research, and insights move with it.
+        </Text>
+      ),
+      labels: { confirm: "Move", cancel: "Cancel" },
+      onConfirm: () =>
+        moveProduct.mutate({ id: product.id, targetWorkspaceId }),
+    });
+  };
+
+  const groups: SidebarGroup<SectionId>[] = [
+    {
+      title: "Product",
+      items: [
+        { id: "general", label: "General", icon: IconSettings },
+        { id: "flow", label: "Delivery Flow", icon: IconRefresh },
+        { id: "labels", label: "Labels & Areas", icon: IconTags },
+      ],
+    },
+    {
+      items: [
+        { id: "workspace", label: "Workspace", icon: IconArrowsExchange },
+        { id: "danger", label: "Danger zone", icon: IconTrash },
+      ],
+    },
+  ];
+
   return (
-    <div className="max-w-2xl space-y-12">
-      {/* Header */}
-      <div>
+    <SettingsShell>
+      <div className="px-6 md:px-10 pt-6">
         <Link
           href={backPath}
-          className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors mb-6"
+          className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors"
         >
           <IconArrowLeft size={16} />
           Back to {product.name}
         </Link>
-        <Title order={2} className="text-text-primary">
-          Settings
-        </Title>
       </div>
 
-      {/* -- General -- */}
-      <section className="space-y-4">
-        <div>
-          <SectionHeading>General</SectionHeading>
-          <SectionDescription>Basic product information.</SectionDescription>
-        </div>
-        <SectionCard>
-          <SettingRow label="Name" description="The display name for this product.">
-            <TextInput
-              value={name}
-              onChange={(e) => setName(e.currentTarget.value)}
-              size="xs"
-              maxLength={120}
-              styles={{ input: { width: 200, textAlign: "right" } }}
-            />
-          </SettingRow>
-          <SettingRow
-            label="Fun ticket IDs"
-            description="Use memorable word pairs (e.g. swift.falcon) instead of sequential IDs."
+      <SettingsHero
+        eyebrow={`Product · ${product.name}`}
+        icon={IconSettings}
+        title="Settings"
+        description="Configure this product's general information, delivery flow, labels, and workspace."
+      />
+
+      <SettingsLayout
+        sidebar={
+          <SettingsSidebar<SectionId>
+            groups={groups}
+            activeId={section}
+            onSelect={setSection}
+          />
+        }
+      >
+        {section === "general" && (
+          <SettingsSection
+            icon={IconSettings}
+            title="General"
+            description="Basic product information."
           >
-            <Switch
-              checked={funTicketIds}
-              onChange={(e) => setFunTicketIds(e.currentTarget.checked)}
-              size="sm"
-            />
-          </SettingRow>
-          <SettingRow
-            label="Description"
-            description="A short summary shown on the product overview."
-            noBorder
-          >
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.currentTarget.value)}
-              size="xs"
-              autosize
-              minRows={1}
-              maxRows={3}
-              maxLength={2000}
-              styles={{ input: { width: 200, textAlign: "right" } }}
-            />
-          </SettingRow>
-        </SectionCard>
+            <SettingsField
+              label="Name"
+              sublabel="The display name for this product."
+            >
+              <TextInput
+                value={name}
+                onChange={(e) => setName(e.currentTarget.value)}
+                size="xs"
+                maxLength={120}
+                className="max-w-xs"
+              />
+            </SettingsField>
 
-        {error && (
-          <Text size="sm" c="red">
-            {error}
-          </Text>
-        )}
-
-        <div className="flex justify-end">
-          <Button
-            size="xs"
-            color="brand"
-            onClick={onSave}
-            loading={updateProduct.isPending}
-            disabled={!name.trim()}
-          >
-            Save changes
-          </Button>
-        </div>
-      </section>
-
-      {/* -- Delivery Flow -- */}
-      <section className="space-y-6">
-        <div>
-          <SectionHeading>Delivery Flow</SectionHeading>
-          <SectionDescription>Configure how work moves through your product.</SectionDescription>
-        </div>
-
-        {/* Cycles */}
-        <div className="space-y-3">
-          <SubSectionLabel>Cycles</SubSectionLabel>
-          <SectionCard>
-            <SettingRow
-              label="Enable cycles"
-              description="Time-boxed iterations to group and track tickets."
+            <SettingsField
+              label="Fun ticket IDs"
+              sublabel="Use memorable word pairs (e.g. swift.falcon) instead of sequential IDs."
             >
               <Switch
-                checked={enableCycles}
-                onChange={(e) => setEnableCycles(e.currentTarget.checked)}
+                checked={funTicketIds}
+                onChange={(e) => setFunTicketIds(e.currentTarget.checked)}
                 size="sm"
               />
-            </SettingRow>
-            {enableCycles && (
-              <>
-                <SettingRow
-                  label="Auto-create cycles"
-                  description="How many upcoming cycles to pre-generate. Set to Off to create cycles manually."
-                >
-                  <Select
-                    value={autoCreateLookahead}
-                    onChange={(v) => v && setAutoCreateLookahead(v)}
-                    data={[
-                      { value: "0", label: "Off" },
-                      { value: "1", label: "1 ahead" },
-                      { value: "2", label: "2 ahead" },
-                      { value: "3", label: "3 ahead" },
-                    ]}
-                    size="xs"
-                    comboboxProps={{ withinPortal: true }}
-                    styles={{ input: { width: 120, textAlign: "right" } }}
-                  />
-                </SettingRow>
-                {autoCreateLookahead !== "0" && (
-                  <>
-                    <SettingRow
-                      label="Cadence"
-                      description="Default length for each cycle."
-                    >
-                      <Select
-                        value={cycleDuration}
-                        onChange={(v) => v && setCycleDuration(v)}
-                        data={CYCLE_DURATION_OPTIONS}
-                        size="xs"
-                        comboboxProps={{ withinPortal: true }}
-                        styles={{ input: { width: 120, textAlign: "right" } }}
-                      />
-                    </SettingRow>
-                    <SettingRow
-                      label="Start day"
-                      description="Which day of the week cycles begin."
-                      noBorder
-                    >
-                      <Select
-                        value={cycleStartDay}
-                        onChange={(v) => v && setCycleStartDay(v)}
-                        data={START_DAY_OPTIONS}
-                        size="xs"
-                        comboboxProps={{ withinPortal: true }}
-                        styles={{ input: { width: 120, textAlign: "right" } }}
-                      />
-                    </SettingRow>
-                  </>
-                )}
-              </>
-            )}
-          </SectionCard>
-        </div>
+            </SettingsField>
 
-        {/* Stages */}
-        <div className="space-y-3">
-          <SubSectionLabel>Stages</SubSectionLabel>
-          <SectionCard>
-            <StageRow
-              label="Tickets"
-              description="Workflow stages for tickets."
-              stages={TICKET_STATUSES}
-            />
-            <StageRow
-              label="Epics"
-              description="Lifecycle stages for epics."
-              stages={EPIC_STATUSES}
-            />
-            <StageRow
-              label="Cycles"
-              description="Lifecycle stages for cycles."
-              stages={CYCLE_STATUSES}
-            />
-            <StageRow
-              label="Features"
-              description="Lifecycle stages for features."
-              stages={FEATURE_STATUSES}
-              noBorder
-            />
-          </SectionCard>
-        </div>
-      </section>
-
-      {/* -- Labels & Areas -- */}
-      <section className="space-y-4">
-        <div>
-          <SectionHeading>Labels & Areas</SectionHeading>
-          <SectionDescription>
-            Labels are freeform tags for filtering (e.g. tech-debt, urgent). Areas group features by product area (e.g. Platform, Growth).
-          </SectionDescription>
-        </div>
-
-        <TagManagementSection workspaceId={workspaceId ?? ""} />
-      </section>
-
-      {/* -- Danger Zone -- */}
-      <section className="space-y-4">
-        <div>
-          <SectionHeading>Danger zone</SectionHeading>
-          <SectionDescription>Irreversible and destructive actions.</SectionDescription>
-        </div>
-        <div className="rounded-lg border border-red-500/40 bg-surface-secondary overflow-hidden">
-          <SettingRow
-            label="Delete this product"
-            description="Permanently removes all features, tickets, research, and retrospectives."
-            noBorder
-          >
-            <Button
-              color="red"
-              variant="outline"
-              size="xs"
-              onClick={onDelete}
-              loading={deleteProduct.isPending}
+            <SettingsField
+              label="Description"
+              sublabel="A short summary shown on the product overview."
             >
-              Delete
-            </Button>
-          </SettingRow>
-        </div>
-      </section>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.currentTarget.value)}
+                size="xs"
+                autosize
+                minRows={1}
+                maxRows={3}
+                maxLength={2000}
+                className="max-w-md"
+              />
+            </SettingsField>
 
-      <div className="h-8" />
-    </div>
+            {error && (
+              <Text size="sm" c="red" className="mt-3">
+                {error}
+              </Text>
+            )}
+
+            <div className="mt-4 flex justify-end">
+              <Button
+                size="xs"
+                color="brand"
+                onClick={onSave}
+                loading={updateProduct.isPending}
+                disabled={!name.trim()}
+              >
+                Save changes
+              </Button>
+            </div>
+          </SettingsSection>
+        )}
+
+        {section === "flow" && (
+          <>
+            <SettingsSection
+              icon={IconRefresh}
+              title="Cycles"
+              description="Time-boxed iterations to group and track tickets."
+            >
+              <SettingsField
+                label="Enable cycles"
+                sublabel="Group and track tickets in time-boxed iterations."
+              >
+                <Switch
+                  checked={enableCycles}
+                  onChange={(e) => setEnableCycles(e.currentTarget.checked)}
+                  size="sm"
+                />
+              </SettingsField>
+              {enableCycles && (
+                <>
+                  <SettingsField
+                    label="Auto-create cycles"
+                    sublabel="How many upcoming cycles to pre-generate. Set to Off to create cycles manually."
+                  >
+                    <Select
+                      value={autoCreateLookahead}
+                      onChange={(v) => v && setAutoCreateLookahead(v)}
+                      data={[
+                        { value: "0", label: "Off" },
+                        { value: "1", label: "1 ahead" },
+                        { value: "2", label: "2 ahead" },
+                        { value: "3", label: "3 ahead" },
+                      ]}
+                      size="xs"
+                      comboboxProps={{ withinPortal: true }}
+                      className="max-w-[160px]"
+                    />
+                  </SettingsField>
+                  {autoCreateLookahead !== "0" && (
+                    <>
+                      <SettingsField
+                        label="Cadence"
+                        sublabel="Default length for each cycle."
+                      >
+                        <Select
+                          value={cycleDuration}
+                          onChange={(v) => v && setCycleDuration(v)}
+                          data={CYCLE_DURATION_OPTIONS}
+                          size="xs"
+                          comboboxProps={{ withinPortal: true }}
+                          className="max-w-[160px]"
+                        />
+                      </SettingsField>
+                      <SettingsField
+                        label="Start day"
+                        sublabel="Which day of the week cycles begin."
+                      >
+                        <Select
+                          value={cycleStartDay}
+                          onChange={(v) => v && setCycleStartDay(v)}
+                          data={START_DAY_OPTIONS}
+                          size="xs"
+                          comboboxProps={{ withinPortal: true }}
+                          className="max-w-[160px]"
+                        />
+                      </SettingsField>
+                    </>
+                  )}
+                </>
+              )}
+            </SettingsSection>
+
+            <SettingsSection
+              icon={IconLayoutList}
+              title="Stages"
+              description="Workflow stages for each entity type."
+            >
+              <StageRow
+                label="Tickets"
+                description="Workflow stages for tickets."
+                stages={TICKET_STATUSES}
+              />
+              <StageRow
+                label="Epics"
+                description="Lifecycle stages for epics."
+                stages={EPIC_STATUSES}
+              />
+              <StageRow
+                label="Cycles"
+                description="Lifecycle stages for cycles."
+                stages={CYCLE_STATUSES}
+              />
+              <StageRow
+                label="Features"
+                description="Lifecycle stages for features."
+                stages={FEATURE_STATUSES}
+              />
+            </SettingsSection>
+          </>
+        )}
+
+        {section === "labels" && (
+          <SettingsSection
+            icon={IconTags}
+            title="Labels & Areas"
+            description="Labels are freeform tags for filtering (e.g. tech-debt, urgent). Areas group features by product area (e.g. Platform, Growth)."
+          >
+            <TagManagementSection workspaceId={workspaceId ?? ""} />
+          </SettingsSection>
+        )}
+
+        {section === "workspace" && (
+          <SettingsSection
+            icon={IconArrowsExchange}
+            title="Move to another workspace"
+            description="Move this product and all of its data (tickets, features, research, and insights) to a workspace you belong to."
+          >
+            <SettingsField
+              label="Destination workspace"
+              sublabel="Only workspaces you're a member of are listed."
+              action={
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconArrowsExchange size={14} />}
+                  onClick={onMove}
+                  loading={moveProduct.isPending}
+                  disabled={!targetWorkspaceId}
+                >
+                  Move
+                </Button>
+              }
+            >
+              <Select
+                value={targetWorkspaceId}
+                onChange={setTargetWorkspaceId}
+                placeholder={
+                  moveTargets.length > 0
+                    ? "Select a workspace…"
+                    : "No other workspaces available"
+                }
+                disabled={moveTargets.length === 0}
+                data={moveTargets.map((w) => ({ value: w.id, label: w.name }))}
+                size="xs"
+                comboboxProps={{ withinPortal: true }}
+                className="max-w-xs"
+              />
+            </SettingsField>
+            {moveError && (
+              <Text size="sm" c="red" className="mt-3">
+                {moveError}
+              </Text>
+            )}
+          </SettingsSection>
+        )}
+
+        {section === "danger" && (
+          <SettingsDangerZone icon={IconShieldExclamation}>
+            <SettingsDangerRow
+              title="Delete this product"
+              description="Permanently removes all features, tickets, research, and retrospectives. This cannot be undone."
+              action={
+                <Button
+                  color="red"
+                  variant="outline"
+                  size="xs"
+                  onClick={onDelete}
+                  loading={deleteProduct.isPending}
+                >
+                  Delete
+                </Button>
+              }
+            />
+          </SettingsDangerZone>
+        )}
+      </SettingsLayout>
+    </SettingsShell>
   );
 }
