@@ -132,6 +132,7 @@ export const keyResultRouter = createTRPCRouter({
         workspaceId: z.string().optional(),
         period: z.string().optional(),
         includePairedPeriod: z.boolean().optional(),
+        onlyMine: z.boolean().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -195,7 +196,21 @@ export const keyResultRouter = createTRPCRouter({
           ...(isWorkspaceScoped
             ? { workspaceId: input.workspaceId }
             : { userId: ctx.session.user.id }),
-          ...goalPeriodFilter,
+          // Both onlyMine and the period filter use `OR`, so combine them under
+          // `AND` to avoid the two `OR` keys overwriting each other.
+          AND: [
+            ...(isWorkspaceScoped && input.onlyMine
+              ? [
+                  {
+                    OR: [
+                      { userId: ctx.session.user.id },
+                      { driUserId: ctx.session.user.id },
+                    ],
+                  },
+                ]
+              : []),
+            ...(goalPeriodFilter ? [goalPeriodFilter] : []),
+          ],
         },
         include: {
           lifeDomain: true,
@@ -755,6 +770,7 @@ export const keyResultRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string().optional(),
         year: z.string(),
+        onlyMine: z.boolean().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -783,6 +799,18 @@ export const keyResultRouter = createTRPCRouter({
             ...(isWorkspaceScoped
               ? { workspaceId: input.workspaceId }
               : { userId: ctx.session.user.id }),
+            // Scope counts to KRs under my objectives so period-tab counts
+            // match the cards shown in the "My Goals" view.
+            ...(isWorkspaceScoped && input.onlyMine
+              ? {
+                  goal: {
+                    OR: [
+                      { userId: ctx.session.user.id },
+                      { driUserId: ctx.session.user.id },
+                    ],
+                  },
+                }
+              : {}),
             period,
           };
 
