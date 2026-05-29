@@ -2,7 +2,7 @@
 
 import { Suspense } from "react";
 import { Skeleton, Container, Stack, Text, Tabs } from "@mantine/core";
-import { IconTarget, IconChartBar } from "@tabler/icons-react";
+import { IconTarget, IconChartBar, IconUser } from "@tabler/icons-react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { OkrDashboard } from "~/plugins/okr/client/components/OkrDashboard";
@@ -47,11 +47,14 @@ function GoalsPageContent() {
       className="w-full"
     >
       <Tabs.List className="px-10 border-b border-border-primary">
-        <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>
+        <Tabs.Tab value="goals" fz="xs" leftSection={<IconTarget size={16} />}>
           Goals
         </Tabs.Tab>
-        <Tabs.Tab value="okrs" leftSection={<IconChartBar size={16} />}>
+        <Tabs.Tab value="okrs" fz="xs" leftSection={<IconChartBar size={16} />}>
           OKRs
+        </Tabs.Tab>
+        <Tabs.Tab value="my-goals" fz="xs" leftSection={<IconUser size={16} />}>
+          My Goals
         </Tabs.Tab>
       </Tabs.List>
 
@@ -61,6 +64,10 @@ function GoalsPageContent() {
 
       <Tabs.Panel value="okrs">
         <OkrDashboard />
+      </Tabs.Panel>
+
+      <Tabs.Panel value="my-goals">
+        <OkrDashboard scope="mine" />
       </Tabs.Panel>
     </Tabs>
   );

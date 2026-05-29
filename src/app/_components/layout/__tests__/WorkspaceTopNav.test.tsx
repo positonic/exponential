@@ -37,7 +37,7 @@ describe('WorkspaceTopNav', () => {
     expect(screen.getByText('Knowledge')).toBeInTheDocument();
     expect(screen.getByText('Meetings')).toBeInTheDocument();
     expect(screen.getByText('CRM')).toBeInTheDocument();
-    expect(screen.getByText('OKRs')).toBeInTheDocument();
+    expect(screen.getByText('Goals')).toBeInTheDocument();
     expect(screen.getByText('Calendar')).toBeInTheDocument();
     expect(screen.getByText('Settings')).toBeInTheDocument();
   });
@@ -53,7 +53,7 @@ describe('WorkspaceTopNav', () => {
     expect(screen.queryByText('Knowledge')).not.toBeInTheDocument();
     expect(screen.queryByText('Meetings')).not.toBeInTheDocument();
     expect(screen.queryByText('CRM')).not.toBeInTheDocument();
-    expect(screen.queryByText('OKRs')).not.toBeInTheDocument();
+    expect(screen.queryByText('Goals')).not.toBeInTheDocument();
     expect(screen.queryByText('Calendar')).not.toBeInTheDocument();
     expect(screen.queryByText('Settings')).not.toBeInTheDocument();
   });
