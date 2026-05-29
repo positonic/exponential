@@ -730,6 +730,7 @@ model Project {
   taskManagementTool    String?                    @default("internal")
   notionProjectId       String?
   driId                 String?
+  productId             String?
   isPublic              Boolean                    @default(false)
   isRestricted          Boolean                    @default(false)
   enableDetailedActions Boolean? // null = inherit from workspace
@@ -741,6 +742,7 @@ model Project {
   dri                   User?                      @relation("ProjectDRI", fields: [driId], references: [id])
   team                  Team?                      @relation(fields: [teamId], references: [id])
   workspace             Workspace?                 @relation(fields: [workspaceId], references: [id])
+  product               Product?                   @relation(fields: [productId], references: [id], onDelete: SetNull)
   projectMembers        ProjectMember[]
   slackConfig           SlackChannelConfig?
   transcriptionSessions TranscriptionSession[]
@@ -766,6 +768,7 @@ model Project {
   @@index([taskManagementTool])
   @@index([driId])
   @@index([isPublic])
+  @@index([productId])
 }
 
 model Video {
@@ -3471,6 +3474,7 @@ model Product {
   insights        Insight[]
   retrospectives  Retrospective[]
   ticketTemplates TicketTemplate[]
+  projects        Project[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])

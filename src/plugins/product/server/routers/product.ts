@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { buildProjectAccessWhere } from "~/server/services/access";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 
@@ -65,10 +66,52 @@ export const productRouter = createTRPCRouter({
               tickets: true,
               researches: true,
               retrospectives: true,
+              projects: true,
             },
           },
         },
       });
+    }),
+
+  listWithProjects: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+
+      const projectInclude = {
+        dri: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+        _count: { select: { actions: true } },
+      } satisfies Prisma.ProjectInclude;
+
+      const products = await ctx.db.product.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { createdAt: "desc" },
+        include: {
+          projects: {
+            include: projectInclude,
+            orderBy: [{ priority: "asc" }, { name: "asc" }],
+          },
+          _count: { select: { projects: true } },
+        },
+      });
+
+      const unassignedProjects = await ctx.db.project.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          productId: null,
+          ...buildProjectAccessWhere(ctx.session.user.id),
+        },
+        include: projectInclude,
+        orderBy: [{ priority: "asc" }, { name: "asc" }],
+      });
+
+      return { products, unassignedProjects };
     }),
 
   getById: protectedProcedure

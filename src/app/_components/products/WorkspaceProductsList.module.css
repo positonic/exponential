@@ -1,0 +1,111 @@
+.tableWrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tableHead th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-primary);
+  white-space: nowrap;
+  background: var(--color-bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableHead th:first-child {
+  padding-left: 32px;
+}
+
+.tableHead th:last-child {
+  padding-right: 32px;
+}
+
+.tableRow {
+  border-bottom: 1px solid var(--color-border-secondary);
+  transition: background 80ms;
+}
+
+.tableRow:hover {
+  background: var(--color-bg-secondary);
+}
+
+.tableRow td {
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.tableRow td:first-child {
+  padding-left: 32px;
+}
+
+.tableRow td:last-child {
+  padding-right: 32px;
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.iconBox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.nameText {
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.nameText:hover {
+  color: var(--brand-400);
+}
+
+.nameSub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.dateText {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.empty {
+  text-align: center;
+  padding: 80px 40px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}

@@ -25,6 +25,7 @@ type ProjectWithRelations = Project & {
   lifeDomains?: { id: number; title: string }[];
   workspaceId?: string | null;
   driId?: string | null;
+  productId?: string | null;
   dri?: { id: string; name: string | null; email: string | null; image: string | null } | null;
 };
 
@@ -35,11 +36,12 @@ interface CreateProjectModalProps {
   prefillNotionProjectId?: string;
   prefillGoalId?: string;
   prefillWorkspaceId?: string;
+  prefillProductId?: string;
   onClose?: () => void;
   onSuccess?: (project: Project) => void;
 }
 
-export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, prefillGoalId, prefillWorkspaceId, onClose, onSuccess }: CreateProjectModalProps) {
+export function CreateProjectModal({ children, project, prefillName, prefillNotionProjectId, prefillGoalId, prefillWorkspaceId, prefillProductId, onClose, onSuccess }: CreateProjectModalProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
   const [notionProjectId] = useState(prefillNotionProjectId);
@@ -56,6 +58,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [goalSearchValue, setGoalSearchValue] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(project?.workspaceId ?? prefillWorkspaceId ?? null);
   const [selectedDriId, setSelectedDriId] = useState<string | null>(project?.driId ?? null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(project?.productId ?? prefillProductId ?? null);
   const [startDate, setStartDate] = useState<Date | null>(project?.startDate ?? null);
   const [endDate, setEndDate] = useState<Date | null>(project?.endDate ?? null);
   const [isPublic, setIsPublic] = useState(project?.isPublic ?? false);
@@ -99,6 +102,13 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     effectiveWorkspaceId ? { workspaceId: effectiveWorkspaceId } : undefined
   );
   const { data: lifeDomains } = api.lifeDomain.getAllLifeDomains.useQuery();
+
+  // Fetch products in the project's workspace for the optional Product link
+  const { data: products } = api.product.product.list.useQuery(
+    { workspaceId: effectiveWorkspaceId ?? '' },
+    { enabled: !!effectiveWorkspaceId },
+  );
+  const productData = products?.map((p) => ({ value: p.id, label: p.name })) ?? [];
 
   // Fetch workflows for Notion imports (only when we have a prefillNotionProjectId)
   const { data: workflows = [] } = api.workflow.list.useQuery(undefined, {
@@ -254,6 +264,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
       setGoalSearchValue("");
       setSelectedWorkspaceId(prefillWorkspaceId ?? currentWorkspaceId ?? null);
       setSelectedDriId(null);
+      setSelectedProductId(prefillProductId ?? null);
       setStartDate(null);
       setEndDate(null);
       setIsPublic(false);
@@ -353,6 +364,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 lifeDomainIds: selectedLifeDomainIds.map(id => parseInt(id)),
                 workspaceId: selectedWorkspaceId,
                 driId: selectedDriId,
+                productId: selectedProductId,
                 startDate: startDate,
                 endDate: endDate,
                 isPublic,
@@ -370,6 +382,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 notionProjectId: notionProjectId ?? undefined,
                 workspaceId: selectedWorkspaceId ?? undefined,
                 driId: selectedDriId,
+                productId: selectedProductId,
                 startDate: startDate ?? undefined,
                 endDate: endDate ?? undefined,
                 isPublic,
@@ -508,6 +521,29 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               }}
             />
           </Tooltip>
+
+          <Select
+            data={productData}
+            value={selectedProductId}
+            onChange={setSelectedProductId}
+            label="Product"
+            placeholder="No product"
+            mt="md"
+            clearable
+            searchable
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              dropdown: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                borderColor: 'var(--color-border-primary)',
+                color: 'var(--color-text-primary)',
+              },
+            }}
+          />
 
           <MultiSelect
             data={goalData}

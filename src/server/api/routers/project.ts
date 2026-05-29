@@ -14,6 +14,31 @@ import {
   AccessControlService,
 } from "~/server/services/access";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import type { PrismaClient } from "@prisma/client";
+
+/**
+ * Assert a product exists and belongs to the given workspace. A project may
+ * only be linked to a product within the same workspace.
+ */
+async function assertProductInWorkspace(
+  db: PrismaClient,
+  productId: string,
+  workspaceId: string | null,
+) {
+  const product = await db.product.findUnique({
+    where: { id: productId },
+    select: { workspaceId: true },
+  });
+  if (!product) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
+  }
+  if (product.workspaceId !== workspaceId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Product must belong to the same workspace as the project",
+    });
+  }
+}
 
 export const projectRouter = createTRPCRouter({
   // API endpoint for browser plugin - uses API key authentication
@@ -179,11 +204,21 @@ export const projectRouter = createTRPCRouter({
         notionProjectId: z.string().optional(),
         workspaceId: z.string().optional(),
         driId: z.string().nullable().optional(),
+        productId: z.string().nullable().optional(),
         isPublic: z.boolean().optional().default(false),
         isRestricted: z.boolean().optional().default(false),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // A product can only be linked to a project in the same workspace.
+      if (input.productId) {
+        await assertProductInWorkspace(
+          ctx.db,
+          input.productId,
+          input.workspaceId ?? null,
+        );
+      }
+
       // Generate a unique slug
       const baseSlug = slugify(input.name);
       let slug = baseSlug;
@@ -212,6 +247,7 @@ export const projectRouter = createTRPCRouter({
           workspaceId: input.workspaceId ?? null,
           teamId: input.teamId ?? null,
           driId: input.driId ?? null,
+          productId: input.productId ?? null,
           isPublic: input.isPublic ?? false,
           isRestricted: input.isRestricted ?? false,
         },
@@ -322,6 +358,7 @@ export const projectRouter = createTRPCRouter({
         lifeDomainIds: z.array(z.number()).optional(),
         workspaceId: z.string().nullable().optional(),
         driId: z.string().nullable().optional(),
+        productId: z.string().nullable().optional(),
         reviewDate: z.date().nullable().optional(),
         nextActionDate: z.date().nullable().optional(),
         startDate: z.date().nullable().optional(),
@@ -333,7 +370,7 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
+      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
 
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -358,6 +395,21 @@ export const projectRouter = createTRPCRouter({
           code: "FORBIDDEN",
           message: "You do not have edit access to this project",
         });
+      }
+
+      // A product can only be linked to a project in the same workspace.
+      if (productId) {
+        let effectiveWorkspaceId: string | null;
+        if (workspaceId !== undefined) {
+          effectiveWorkspaceId = workspaceId;
+        } else {
+          const existing = await ctx.db.project.findUnique({
+            where: { id },
+            select: { workspaceId: true },
+          });
+          effectiveWorkspaceId = existing?.workspaceId ?? null;
+        }
+        await assertProductInWorkspace(ctx.db, productId, effectiveWorkspaceId);
       }
 
       // Flipping isRestricted requires manage_members (creator, project admin,
@@ -396,6 +448,12 @@ export const projectRouter = createTRPCRouter({
             ? { disconnect: true }
             : driId !== undefined
               ? { connect: { id: driId } }
+              : undefined,
+          // Handle Product: null means disconnect, string means connect
+          product: productId === null
+            ? { disconnect: true }
+            : productId !== undefined
+              ? { connect: { id: productId } }
               : undefined,
           // Handle public visibility toggle
           ...(isPublic !== undefined ? { isPublic } : {}),
