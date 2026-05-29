@@ -210,9 +210,44 @@ export function WeekInReview() {
             leftSection={<IconSparkles size={14} stroke={1.8} />}
             onClick={() => {
               const name = workspace?.name ?? 'this workspace';
-              openWithPrompt(
-                `Summarize what happened in ${name} this week (${range}). Use the workspace activity events to highlight the top 3 most important moments and call out any anomalies vs. last week.`,
-              );
+              const question = `Give me a summary of what happened in ${name} this week (${range}) and what stands out — I may have follow-up questions.`;
+
+              // Seed the chat with the already-computed weekly narrative +
+              // stats as context so the agent answers from real data instead
+              // of trying (and failing) to fetch activity via tools it lacks.
+              // Falls back to the plain question if the narrative hasn't loaded.
+              const narrative = narrativeQ.data;
+              if (!narrative) {
+                openWithPrompt(question);
+                return;
+              }
+
+              const sparkLine = sparkline
+                .map((b) => `${b.day}:${b.count}`)
+                .join(', ');
+              const deltaLabel =
+                delta === 0
+                  ? 'steady vs last week'
+                  : delta > 0
+                    ? `+${delta} vs last week`
+                    : `${delta} vs last week`;
+
+              const lines = [
+                `WEEKLY ACTIVITY SUMMARY for "${name}" (${range}) — authoritative; answer from this and do NOT call tools to re-derive it:`,
+                `Summary: ${narrative.narrative}`,
+                'Highlights:',
+                ...narrative.highlights.map((h) => `- ${h}`),
+                `Events this week: ${thisWeekTotal} (${deltaLabel})`,
+                `Last week: ${data?.lastWeekTotal ?? 0} | 4-week avg: ${data?.fourWeekAvg ?? 0} | best week (last 12): ${data?.bestWeekTotal ?? 0}`,
+                `Daily event counts (Mon→Sun): ${sparkLine}`,
+              ];
+              if (peakDay) {
+                lines.push(
+                  `Busiest day: ${peakDay.day} (${peakDay.count} ${peakDay.count === 1 ? 'event' : 'events'})`,
+                );
+              }
+
+              openWithPrompt(question, lines.join('\n'));
             }}
           >
             Ask agent to summarize

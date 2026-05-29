@@ -343,7 +343,7 @@ interface ManyChatProps {
 
 export default function ManyChat({ initialMessages, githubSettings, buttons, projectId: projectIdProp, workspaceId: workspaceIdProp, initialInput, defaultAgentId }: ManyChatProps) {
   // Get messages, conversationId, and page context from context to persist across navigation
-  const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, consumePendingPrompt } = useAgentModal();
+  const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, pendingContext, consumePendingPrompt } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const workspaceId = workspaceIdProp ?? urlWorkspaceId;
 
@@ -753,14 +753,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     if (!pendingPrompt || didSeedRef.current) return;
     didSeedRef.current = true;
     const seeded = pendingPrompt;
+    const seededContext = pendingContext ?? undefined;
     consumePendingPrompt();
     // Defer one tick so any mount-phase work settles before we fire the submit.
     setTimeout(() => {
-      void handleSubmit(null, seeded);
+      void handleSubmit(null, seeded, seededContext);
     }, 0);
     // handleSubmit intentionally omitted — it's a stable closure over current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, pendingPrompt, consumePendingPrompt]);
+  }, [isOpen, pendingPrompt, pendingContext, consumePendingPrompt]);
 
   // Handle input changes and autocomplete
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -888,7 +889,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string) => {
+  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string, extraContext?: string) => {
     e?.preventDefault();
     const text = overrideText ?? input;
     if (!text.trim()) return;
@@ -991,6 +992,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         });
       }
       coreMessages.splice(0, coreMessages.length, ...trimmed.messages);
+
+      // One-shot context seeded from the calling surface (e.g. the Week in
+      // Review "Ask agent to summarize" button). Sent as a system message so
+      // the server strips it and re-injects it demoted as [CLIENT CONTEXT] —
+      // the right trust level for supplementary activity data. Added after
+      // trimming so it can never be dropped by the token budget.
+      if (extraContext?.trim()) {
+        coreMessages.unshift({ role: 'system', content: extraContext.trim() });
+      }
 
       const streamPayload = {
         messages: coreMessages,

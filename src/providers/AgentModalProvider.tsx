@@ -88,7 +88,8 @@ interface AgentModalContextValue {
   setPendingNotification: (notification: PendingNotification | null) => void;
   openModalWithNotification: () => void;
   pendingPrompt: string | null;
-  openWithPrompt: (text: string) => void;
+  pendingContext: string | null;
+  openWithPrompt: (text: string, context?: string) => void;
   consumePendingPrompt: () => void;
 }
 
@@ -118,6 +119,7 @@ const AgentModalContext = createContext<AgentModalContextValue>({
   setPendingNotification: () => undefined,
   openModalWithNotification: () => undefined,
   pendingPrompt: null,
+  pendingContext: null,
   openWithPrompt: () => undefined,
   consumePendingPrompt: () => undefined,
 });
@@ -148,6 +150,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
   const [drawerSize, setDrawerSizeState] = useState<DrawerSize>('m');
   const [maximised, setMaximised] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [pendingContext, setPendingContext] = useState<string | null>(null);
 
   // Hydrate state from sessionStorage / localStorage after mount (per-tab, avoids SSR mismatch)
   useEffect(() => {
@@ -201,16 +204,18 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     setIsOpen(true);
   }, []);
 
-  const openWithPrompt = useCallback((text: string) => {
+  const openWithPrompt = useCallback((text: string, context?: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     setPendingPrompt(trimmed);
+    setPendingContext(context?.trim() ? context.trim() : null);
     setDisplayMode('panel');
     setIsOpen(true);
   }, []);
 
   const consumePendingPrompt = useCallback(() => {
     setPendingPrompt(null);
+    setPendingContext(null);
   }, []);
 
   const closeModal = useCallback(() => {
@@ -277,6 +282,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     setPendingNotification,
     openModalWithNotification,
     pendingPrompt,
+    pendingContext,
     openWithPrompt,
     consumePendingPrompt,
   }), [
@@ -301,6 +307,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     pendingNotification,
     openModalWithNotification,
     pendingPrompt,
+    pendingContext,
     openWithPrompt,
     consumePendingPrompt,
   ]);
