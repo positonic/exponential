@@ -110,6 +110,23 @@ const componentStyles = {
     },
   },
 
+  // Menu — Mantine does NOT apply the Popover theme override to Menu's internal
+  // popover, so without this entry Menu.Dropdown falls back to the built-in dark
+  // default (#25262b/gray). That default WINS over the `bg-surface-secondary`
+  // Tailwind class under Turbopack (dev) but LOSES under webpack (prod), causing
+  // a gray-in-dev / navy-in-prod mismatch. Setting it here (inline styles) makes
+  // the dropdown surface deterministic across both bundlers.
+  Menu: {
+    defaultProps: {
+      styles: {
+        dropdown: {
+          backgroundColor: 'var(--color-surface-secondary)',
+          borderColor: 'var(--color-border-primary)',
+        },
+      },
+    },
+  },
+
   // Tooltip styles
   Tooltip: {
     defaultProps: {
