@@ -1,0 +1,113 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import jwt from "jsonwebtoken";
+
+// Mock the OpenAI Realtime minter so tests never hit the network and so we can
+// assert the real OPENAI_API_KEY never leaks into the device-bound payload.
+vi.mock("~/server/services/voice/openai-realtime", () => ({
+  createRealtimeSession: vi.fn(async () => ({
+    ephemeralKey: "ek_test_ephemeral_123",
+    expiresAt: 1_900_000_000,
+    model: "gpt-4o-realtime-preview",
+    voice: "alloy",
+  })),
+}));
+
+import { getTestDb } from "~/test/test-db";
+import { createUser, createApiKey } from "~/test/factories";
+import { createApiKeyCaller } from "~/test/trpc-helpers";
+import { mintVoiceSessionToken } from "~/server/utils/voice-token";
+import { generateJWT } from "~/server/utils/jwt";
+
+type Db = ReturnType<typeof getTestDb>;
+
+describe("voice router (integration)", () => {
+  let db: Db;
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  describe("createSession (session minter)", () => {
+    it("mints an OpenAI ephemeral key + voice-session JWT for a valid durable API key", async () => {
+      const user = await createUser(db);
+      const { raw } = await createApiKey(db, user.id);
+
+      const res = await createApiKeyCaller(raw).voice.createSession();
+
+      expect(res.openaiEphemeralKey).toBe("ek_test_ephemeral_123");
+      expect(typeof res.voiceSessionToken).toBe("string");
+
+      // The real server-side OpenAI key must never appear in the device payload.
+      const payload = JSON.stringify(res);
+      expect(payload).not.toContain(process.env.OPENAI_API_KEY ?? "sk-NEVER");
+      expect(payload).not.toContain("sk-test-dummy-key-for-integration-tests");
+
+      // voice-session JWT: correct audience, token type, subject, ~30-min expiry.
+      const decoded = jwt.verify(res.voiceSessionToken, process.env.AUTH_SECRET!, {
+        audience: "voice-session",
+        issuer: "todo-app",
+      }) as { sub: string; tokenType: string; exp: number; iat: number };
+
+      expect(decoded.tokenType).toBe("voice-session");
+      expect(decoded.sub).toBe(user.id);
+      expect(decoded.exp - decoded.iat).toBe(30 * 60);
+      expect(res.expiresInSeconds).toBe(1800);
+    });
+
+    it("rejects an invalid API key", async () => {
+      await expect(
+        createApiKeyCaller("not-a-real-key").voice.createSession(),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+
+    it("rejects a missing API key", async () => {
+      await expect(
+        createApiKeyCaller(null).voice.createSession(),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+
+    it("rejects an expired API key", async () => {
+      const user = await createUser(db);
+      const { raw } = await createApiKey(db, user.id, {
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+      await expect(
+        createApiKeyCaller(raw).voice.createSession(),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+
+  describe("dispatch (voice brain endpoint)", () => {
+    it("accepts a valid voice-session token and echoes a stub", async () => {
+      const user = await createUser(db);
+      const token = mintVoiceSessionToken({ id: user.id });
+
+      const res = await createApiKeyCaller(null).voice.dispatch({
+        token,
+        toolName: "capture_action",
+        args: { phrase: "draft the investor update by Friday" },
+      });
+
+      expect(res.speakable).toContain("capture_action");
+      expect(res.needsConfirmation).toBe(false);
+      expect(res.structured).toMatchObject({
+        stub: true,
+        userId: user.id,
+        toolName: "capture_action",
+      });
+    });
+
+    it("rejects a call with a missing/garbage token", async () => {
+      await expect(
+        createApiKeyCaller(null).voice.dispatch({ token: "garbage", toolName: "query" }),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+
+    it("rejects a JWT minted for a different surface (wrong audience)", async () => {
+      const user = await createUser(db);
+      const wrongAudience = generateJWT({ id: user.id }, { tokenType: "agent-context" });
+      await expect(
+        createApiKeyCaller(null).voice.dispatch({ token: wrongAudience, toolName: "query" }),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
+  });
+});

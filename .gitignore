@@ -96,3 +96,5 @@ db-backups/
 # Electron
 /dist-electron/
 /release/
+
+.exponential/
