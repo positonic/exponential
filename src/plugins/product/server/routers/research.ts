@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const researchTypeEnum = z.enum([
   "INTERVIEW",
@@ -117,11 +118,11 @@ export const researchRouter = createTRPCRouter({
     .input(
       z.object({
         productId: z.string(),
-        title: z.string().min(1).max(300),
+        title: boundedText("Title", 300, { min: 1 }),
         type: researchTypeEnum.optional(),
         conductedAt: z.date().optional(),
-        participants: z.string().max(2000).optional(),
-        notes: z.string().max(50000).optional(),
+        participants: boundedText("Participants", TEXT_LIMITS.SHORT).optional(),
+        notes: boundedText("Notes", TEXT_LIMITS.LARGE).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -144,11 +145,11 @@ export const researchRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        title: z.string().min(1).max(300).optional(),
+        title: boundedText("Title", 300, { min: 1 }).optional(),
         type: researchTypeEnum.optional(),
         conductedAt: z.date().nullable().optional(),
-        participants: z.string().max(2000).nullable().optional(),
-        notes: z.string().max(50000).nullable().optional(),
+        participants: boundedText("Participants", TEXT_LIMITS.SHORT).nullable().optional(),
+        notes: boundedText("Notes", TEXT_LIMITS.LARGE).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -200,8 +201,8 @@ export const researchRouter = createTRPCRouter({
       z.object({
         researchId: z.string(),
         type: insightTypeEnum,
-        title: z.string().min(1).max(300),
-        description: z.string().max(5000).optional(),
+        title: boundedText("Title", 300, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
         status: insightStatusEnum.optional(),
       }),
     )
@@ -229,7 +230,7 @@ export const researchRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         type: insightTypeEnum.optional(),
-        description: z.string().min(1).max(5000).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE, { min: 1 }).optional(),
         status: insightStatusEnum.optional(),
       }),
     )

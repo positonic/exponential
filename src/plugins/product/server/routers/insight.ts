@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const insightTypeEnum = z.enum([
   "PAIN_POINT",
@@ -93,9 +94,9 @@ export const insightRouter = createTRPCRouter({
       z.object({
         productId: z.string(),
         type: insightTypeEnum,
-        title: z.string().min(1).max(300),
-        body: z.string().max(50000).optional(),
-        source: z.string().max(500).optional(),
+        title: boundedText("Title", 300, { min: 1 }),
+        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        source: boundedText("Source", 500).optional(),
         sentiment: z.enum(["positive", "neutral", "negative"]).optional(),
         status: insightStatusEnum.optional(),
         featureIds: z.array(z.string()).optional(),
@@ -149,9 +150,9 @@ export const insightRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         type: insightTypeEnum.optional(),
-        title: z.string().min(1).max(300).optional(),
-        body: z.string().max(50000).nullable().optional(),
-        source: z.string().max(500).nullable().optional(),
+        title: boundedText("Title", 300, { min: 1 }).optional(),
+        body: boundedText("Body", TEXT_LIMITS.LARGE).nullable().optional(),
+        source: boundedText("Source", 500).nullable().optional(),
         sentiment: z.enum(["positive", "neutral", "negative"]).nullable().optional(),
         status: insightStatusEnum.optional(),
       }),

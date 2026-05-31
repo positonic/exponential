@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { assertWorkspaceMember } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 /**
  * Cycles are thin wrappers around the existing `List` model with
@@ -354,12 +355,12 @@ export const cycleRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
-        name: z.string().min(1).max(120).optional(),
-        slug: z.string().max(60).optional(),
-        description: z.string().max(2000).optional(),
+        name: boundedText("Name", 120, { min: 1 }).optional(),
+        slug: boundedText("Slug", 60).optional(),
+        description: boundedText("Description", TEXT_LIMITS.MEDIUM).optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
-        cycleGoal: z.string().max(2000).optional(),
+        cycleGoal: boundedText("Cycle goal", TEXT_LIMITS.MEDIUM).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -440,15 +441,15 @@ export const cycleRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(120).optional(),
-        description: z.string().max(2000).nullable().optional(),
+        name: boundedText("Name", 120, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.MEDIUM).nullable().optional(),
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
         status: z
           .enum(["PLANNED", "ACTIVE", "COMPLETED", "ARCHIVED"])
           .optional(),
-        cycleGoal: z.string().max(2000).nullable().optional(),
-        achievements: z.string().max(5000).nullable().optional(),
+        cycleGoal: boundedText("Cycle goal", TEXT_LIMITS.MEDIUM).nullable().optional(),
+        achievements: boundedText("Achievements", TEXT_LIMITS.LARGE).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

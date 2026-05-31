@@ -9,6 +9,7 @@ import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
 } from "~/lib/ticket-statuses";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -250,13 +251,13 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         productId: z.string(),
-        title: z.string().min(1).max(300),
-        body: z.string().max(50000).optional(),
+        title: boundedText("Title", 300, { min: 1 }),
+        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
         type: ticketTypeEnum.optional(),
         status: ticketStatusEnum.optional(),
         priority: z.number().int().min(0).max(4).optional(),
         points: z.number().optional(),
-        branchName: z.string().max(200).optional(),
+        branchName: boundedText("Branch name", TEXT_LIMITS.LABEL).optional(),
         prUrl: z.string().url().max(500).optional(),
         designUrl: z.string().url().max(500).optional(),
         specUrl: z.string().url().max(500).optional(),
@@ -353,13 +354,13 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        title: z.string().min(1).max(300).optional(),
-        body: z.string().max(50000).optional(),
+        title: boundedText("Title", 300, { min: 1 }).optional(),
+        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
         type: ticketTypeEnum.optional(),
         status: ticketStatusEnum.optional(),
         priority: z.number().int().min(0).max(4).nullable().optional(),
         points: z.number().nullable().optional(),
-        branchName: z.string().max(200).nullable().optional(),
+        branchName: boundedText("Branch name", TEXT_LIMITS.LABEL).nullable().optional(),
         prUrl: z.string().url().max(500).nullable().optional(),
         designUrl: z.string().url().max(500).nullable().optional(),
         specUrl: z.string().url().max(500).nullable().optional(),
@@ -583,7 +584,7 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         ticketId: z.string(),
-        content: z.string().min(1).max(10000),
+        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -722,8 +723,8 @@ export const ticketRouter = createTRPCRouter({
         workspaceId: z.string(),
         productId: z.string().optional(),
         type: ticketTypeEnum,
-        name: z.string().min(1).max(120),
-        body: z.string().max(50000),
+        name: boundedText("Name", 120, { min: 1 }),
+        body: boundedText("Body", TEXT_LIMITS.LARGE),
         isDefault: z.boolean().optional(),
       }),
     )
@@ -749,8 +750,8 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(120).optional(),
-        body: z.string().max(50000).optional(),
+        name: boundedText("Name", 120, { min: 1 }).optional(),
+        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
         isDefault: z.boolean().optional(),
       }),
     )

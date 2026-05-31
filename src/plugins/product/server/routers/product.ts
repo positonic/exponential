@@ -5,6 +5,7 @@ import { getWorkspaceMembership } from "~/server/services/access/resolvers/works
 import { buildProjectAccessWhere } from "~/server/services/access";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -182,15 +183,15 @@ export const productRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
-        name: z.string().min(1).max(120),
+        name: boundedText("Name", 120, { min: 1 }),
         slug: z
           .string()
           .min(1)
           .max(60)
           .regex(/^[a-z0-9-]+$/, "Slug must be kebab-case"),
-        description: z.string().max(2000).optional(),
-        icon: z.string().max(60).optional(),
-        color: z.string().max(60).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
+        icon: boundedText("Icon", 60).optional(),
+        color: boundedText("Color", 60).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -217,10 +218,10 @@ export const productRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(120).optional(),
-        description: z.string().max(2000).optional(),
-        icon: z.string().max(60).optional(),
-        color: z.string().max(60).optional(),
+        name: boundedText("Name", 120, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
+        icon: boundedText("Icon", 60).optional(),
+        color: boundedText("Color", 60).optional(),
         funTicketIds: z.boolean().optional(),
       }),
     )

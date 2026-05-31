@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const featureStatusEnum = z.enum([
   "IDEA",
@@ -167,9 +168,9 @@ export const featureRouter = createTRPCRouter({
     .input(
       z.object({
         productId: z.string(),
-        name: z.string().min(1).max(200),
-        description: z.string().max(10000).optional(),
-        vision: z.string().max(2000).optional(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
+        vision: boundedText("Vision", TEXT_LIMITS.SHORT).optional(),
         status: featureStatusEnum.optional(),
         effort: z.number().optional(),
         priority: z.number().int().min(0).max(4).optional(),
@@ -211,9 +212,9 @@ export const featureRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(200).optional(),
-        description: z.string().max(10000).optional(),
-        vision: z.string().max(2000).optional(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
+        vision: boundedText("Vision", TEXT_LIMITS.SHORT).optional(),
         status: featureStatusEnum.optional(),
         effort: z.number().optional(),
         priority: z.number().int().min(0).max(4).optional(),
@@ -256,8 +257,8 @@ export const featureRouter = createTRPCRouter({
     .input(
       z.object({
         featureId: z.string(),
-        version: z.string().min(1).max(60),
-        description: z.string().min(1).max(10000),
+        version: boundedText("Version", 60, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.LARGE, { min: 1 }),
         status: scopeStatusEnum.optional(),
         shippedAt: z.date().optional(),
       }),
@@ -287,8 +288,8 @@ export const featureRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        version: z.string().min(1).max(60).optional(),
-        description: z.string().min(1).max(10000).optional(),
+        version: boundedText("Version", 60, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE, { min: 1 }).optional(),
         status: scopeStatusEnum.optional(),
         shippedAt: z.date().nullable().optional(),
         displayOrder: z.number().int().optional(),
@@ -318,10 +319,10 @@ export const featureRouter = createTRPCRouter({
       z.object({
         featureId: z.string(),
         scopeId: z.string().optional(),
-        asA: z.string().max(500).optional(),
-        iWant: z.string().max(1000).optional(),
-        soThat: z.string().max(1000).optional(),
-        acceptanceCriteria: z.string().max(10000).optional(),
+        asA: boundedText("As a", 500).optional(),
+        iWant: boundedText("I want", 1000).optional(),
+        soThat: boundedText("So that", 1000).optional(),
+        acceptanceCriteria: boundedText("Acceptance criteria", TEXT_LIMITS.LARGE).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -364,10 +365,10 @@ export const featureRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         scopeId: z.string().nullable().optional(),
-        asA: z.string().max(500).optional(),
-        iWant: z.string().max(1000).optional(),
-        soThat: z.string().max(1000).optional(),
-        acceptanceCriteria: z.string().max(10000).optional(),
+        asA: boundedText("As a", 500).optional(),
+        iWant: boundedText("I want", 1000).optional(),
+        soThat: boundedText("So that", 1000).optional(),
+        acceptanceCriteria: boundedText("Acceptance criteria", TEXT_LIMITS.LARGE).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

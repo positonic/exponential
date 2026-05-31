@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { assertWorkspaceMember } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 async function loadRetroWithAccess(
   db: PrismaClient,
@@ -92,15 +93,15 @@ export const retrospectiveRouter = createTRPCRouter({
         workspaceId: z.string(),
         productId: z.string().optional(),
         cycleId: z.string().optional(),
-        title: z.string().min(1).max(300),
+        title: boundedText("Title", 300, { min: 1 }),
         coversFromDate: z.date().optional(),
         coversToDate: z.date().optional(),
         conductedAt: z.date().optional(),
-        participants: z.string().max(2000).optional(),
-        wentWell: z.string().max(20000).optional(),
-        wentPoorly: z.string().max(20000).optional(),
-        actionItems: z.string().max(20000).optional(),
-        notes: z.string().max(20000).optional(),
+        participants: boundedText("Participants", TEXT_LIMITS.SHORT).optional(),
+        wentWell: boundedText("What went well", TEXT_LIMITS.LARGE).optional(),
+        wentPoorly: boundedText("What went poorly", TEXT_LIMITS.LARGE).optional(),
+        actionItems: boundedText("Action items", TEXT_LIMITS.LARGE).optional(),
+        notes: boundedText("Notes", TEXT_LIMITS.LARGE).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -165,17 +166,17 @@ export const retrospectiveRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        title: z.string().min(1).max(300).optional(),
+        title: boundedText("Title", 300, { min: 1 }).optional(),
         productId: z.string().nullable().optional(),
         cycleId: z.string().nullable().optional(),
         coversFromDate: z.date().nullable().optional(),
         coversToDate: z.date().nullable().optional(),
         conductedAt: z.date().nullable().optional(),
-        participants: z.string().max(2000).nullable().optional(),
-        wentWell: z.string().max(20000).nullable().optional(),
-        wentPoorly: z.string().max(20000).nullable().optional(),
-        actionItems: z.string().max(20000).nullable().optional(),
-        notes: z.string().max(20000).nullable().optional(),
+        participants: boundedText("Participants", TEXT_LIMITS.SHORT).nullable().optional(),
+        wentWell: boundedText("What went well", TEXT_LIMITS.LARGE).nullable().optional(),
+        wentPoorly: boundedText("What went poorly", TEXT_LIMITS.LARGE).nullable().optional(),
+        actionItems: boundedText("Action items", TEXT_LIMITS.LARGE).nullable().optional(),
+        notes: boundedText("Notes", TEXT_LIMITS.LARGE).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

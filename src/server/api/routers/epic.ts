@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const epicStatusSchema = z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]);
 const epicPrioritySchema = z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]);
@@ -92,8 +93,8 @@ export const epicRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
-        name: z.string().min(1).max(200),
-        description: z.string().max(2000).optional(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
         priority: epicPrioritySchema.default("MEDIUM"),
         startDate: z.date().optional(),
         targetDate: z.date().optional(),
@@ -134,8 +135,8 @@ export const epicRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(200).optional(),
-        description: z.string().max(2000).nullable().optional(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).nullable().optional(),
         status: epicStatusSchema.optional(),
         priority: epicPrioritySchema.optional(),
         startDate: z.date().nullable().optional(),
