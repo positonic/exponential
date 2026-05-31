@@ -17,11 +17,14 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
+import { db } from "~/server/db";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
+import { captureAction } from "~/server/services/voice/capture";
+import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
 
 /** The four coarse tools configured on the Realtime session (v1). */
 export const COARSE_TOOLS = [
@@ -78,7 +81,7 @@ export const voiceRouter = createTRPCRouter({
         confirm: z.boolean().optional(),
       }),
     )
-    .mutation(({ input }): DispatchResult => {
+    .mutation(async ({ input }): Promise<DispatchResult> => {
       let userId: string;
       try {
         ({ userId } = verifyVoiceSessionToken(input.token));
@@ -89,18 +92,55 @@ export const voiceRouter = createTRPCRouter({
         });
       }
 
-      // Ticket #1 skeleton: prove auth + dispatch end-to-end. Real coarse-tool
-      // routing (to the zoe-backed brain modules) lands in tickets #2–#5.
-      return {
-        speakable: `Voice brain ready. Received '${input.toolName}'.`,
-        structured: {
-          stub: true,
-          toolName: input.toolName,
-          args: input.args ?? {},
-          mode: input.mode ?? null,
-          userId,
-        },
-        needsConfirmation: false,
-      };
+      switch (input.toolName) {
+        case "capture_action": {
+          // Non-destructive: capture never raises the confirmation gate.
+          const phrase = extractPhrase(input.args);
+          if (!phrase) {
+            return {
+              speakable: "I didn't catch what to capture. Try again?",
+              structured: { error: "missing_phrase" },
+              needsConfirmation: false,
+            };
+          }
+          const { action, inbox } = await captureAction(phrase, userId, db);
+          return {
+            speakable: speakableCaptureConfirmation({
+              name: action.name,
+              dueDate: action.dueDate,
+              projectName: action.project?.name ?? null,
+            }),
+            structured: { action, inbox },
+            needsConfirmation: false,
+          };
+        }
+
+        default: {
+          // Remaining coarse tools land in tickets #3–#5. Until then, echo a
+          // stub so the dispatch + auth contract stays exercisable.
+          return {
+            speakable: `Voice brain ready. Received '${input.toolName}'.`,
+            structured: {
+              stub: true,
+              toolName: input.toolName,
+              args: input.args ?? {},
+              mode: input.mode ?? null,
+              userId,
+            },
+            needsConfirmation: false,
+          };
+        }
+      }
     }),
 });
+
+/** Pull the raw user phrase out of a coarse tool's args (the Realtime model
+ *  passes the phrase under `phrase`, tolerating `text`/`query` aliases). */
+function extractPhrase(args: Record<string, unknown> | undefined): string | null {
+  if (!args) return null;
+  for (const key of ["phrase", "text", "query"]) {
+    const v = args[key];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  return null;
+}

@@ -77,22 +77,23 @@ describe("voice router (integration)", () => {
   });
 
   describe("dispatch (voice brain endpoint)", () => {
-    it("accepts a valid voice-session token and echoes a stub", async () => {
+    it("accepts a valid voice-session token and echoes a stub for an unimplemented tool", async () => {
       const user = await createUser(db);
       const token = mintVoiceSessionToken({ id: user.id });
 
+      // get_todays_plan is still a stub until ticket #3; use it to exercise the
+      // dispatch auth + stub-echo contract (capture_action is now a real tool).
       const res = await createApiKeyCaller(null).voice.dispatch({
         token,
-        toolName: "capture_action",
-        args: { phrase: "draft the investor update by Friday" },
+        toolName: "get_todays_plan",
       });
 
-      expect(res.speakable).toContain("capture_action");
+      expect(res.speakable).toContain("get_todays_plan");
       expect(res.needsConfirmation).toBe(false);
       expect(res.structured).toMatchObject({
         stub: true,
         userId: user.id,
-        toolName: "capture_action",
+        toolName: "get_todays_plan",
       });
     });
 
