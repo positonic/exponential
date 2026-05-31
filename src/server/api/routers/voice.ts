@@ -26,6 +26,7 @@ import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
 import { captureAction } from "~/server/services/voice/capture";
 import { getTodaysPlan } from "~/server/services/voice/dailyBrief";
 import { runQuery } from "~/server/services/voice/query";
+import { completeAction } from "~/server/services/voice/complete";
 import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
 
 /** The four coarse tools configured on the Realtime session (v1). */
@@ -145,6 +146,22 @@ export const voiceRouter = createTRPCRouter({
           }
           const { speakable, structured } = await runQuery(phrase, userId, db);
           return { speakable, structured, needsConfirmation: false };
+        }
+
+        case "complete_action": {
+          // Destructive: gated. completeAction resolves (never silently guesses),
+          // returns needsConfirmation on first call, and only mutates on confirm.
+          // The confirm flag is relayed by the transport on the user's single-word
+          // "yes" (dispatch input carries `confirm`).
+          const phrase = extractPhrase(input.args);
+          if (!phrase) {
+            return {
+              speakable: "Which action should I mark as done?",
+              structured: { error: "missing_phrase" },
+              needsConfirmation: false,
+            };
+          }
+          return completeAction(phrase, userId, db, { confirm: input.confirm });
         }
 
         default: {
