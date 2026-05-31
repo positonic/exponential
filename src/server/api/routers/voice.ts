@@ -25,6 +25,7 @@ import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/v
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
 import { captureAction } from "~/server/services/voice/capture";
 import { getTodaysPlan } from "~/server/services/voice/dailyBrief";
+import { runQuery } from "~/server/services/voice/query";
 import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
 
 /** The four coarse tools configured on the Realtime session (v1). */
@@ -131,8 +132,23 @@ export const voiceRouter = createTRPCRouter({
           };
         }
 
+        case "query": {
+          // Read-only, Action/Project-scoped. Declines out-of-scope topics
+          // (goals/OKRs/blockers) inside runQuery rather than improvising.
+          const phrase = extractPhrase(input.args);
+          if (!phrase) {
+            return {
+              speakable: "What would you like to know about your actions or projects?",
+              structured: { error: "missing_phrase" },
+              needsConfirmation: false,
+            };
+          }
+          const { speakable, structured } = await runQuery(phrase, userId, db);
+          return { speakable, structured, needsConfirmation: false };
+        }
+
         default: {
-          // Remaining coarse tools land in tickets #4–#5. Until then, echo a
+          // Remaining coarse tools land in ticket #5. Until then, echo a
           // stub so the dispatch + auth contract stays exercisable.
           return {
             speakable: `Voice brain ready. Received '${input.toolName}'.`,
