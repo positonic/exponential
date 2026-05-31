@@ -24,6 +24,7 @@ import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
 import { captureAction } from "~/server/services/voice/capture";
+import { getTodaysPlan } from "~/server/services/voice/dailyBrief";
 import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
 
 /** The four coarse tools configured on the Realtime session (v1). */
@@ -115,8 +116,23 @@ export const voiceRouter = createTRPCRouter({
           };
         }
 
+        case "get_todays_plan": {
+          // Read-only briefing: never raises the confirmation gate.
+          const { speakable, data } = await getTodaysPlan(userId, db, {
+            workspaceId:
+              typeof input.args?.workspaceId === "string"
+                ? input.args.workspaceId
+                : undefined,
+          });
+          return {
+            speakable,
+            structured: { briefing: data },
+            needsConfirmation: false,
+          };
+        }
+
         default: {
-          // Remaining coarse tools land in tickets #3–#5. Until then, echo a
+          // Remaining coarse tools land in tickets #4–#5. Until then, echo a
           // stub so the dispatch + auth contract stays exercisable.
           return {
             speakable: `Voice brain ready. Received '${input.toolName}'.`,
