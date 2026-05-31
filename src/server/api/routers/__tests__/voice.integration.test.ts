@@ -81,19 +81,20 @@ describe("voice router (integration)", () => {
       const user = await createUser(db);
       const token = mintVoiceSessionToken({ id: user.id });
 
-      // get_todays_plan is still a stub until ticket #3; use it to exercise the
-      // dispatch auth + stub-echo contract (capture_action is now a real tool).
+      // complete_action is still a stub until ticket #5; use it to exercise the
+      // dispatch auth + stub-echo contract (capture_action and get_todays_plan
+      // are now real tools).
       const res = await createApiKeyCaller(null).voice.dispatch({
         token,
-        toolName: "get_todays_plan",
+        toolName: "complete_action",
       });
 
-      expect(res.speakable).toContain("get_todays_plan");
+      expect(res.speakable).toContain("complete_action");
       expect(res.needsConfirmation).toBe(false);
       expect(res.structured).toMatchObject({
         stub: true,
         userId: user.id,
-        toolName: "get_todays_plan",
+        toolName: "complete_action",
       });
     });
 
