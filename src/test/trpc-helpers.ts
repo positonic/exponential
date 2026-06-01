@@ -78,6 +78,24 @@ export function createUnauthenticatedCaller() {
   });
 }
 
+/**
+ * Create a tRPC caller authenticated by a durable API key (no session),
+ * presented via the `x-api-key` header — the path `apiKeyMiddleware` takes.
+ * Pass `null` to omit the header (for missing/invalid-key guard tests, and for
+ * endpoints like `voice.dispatch` that authenticate via a token argument).
+ */
+export function createApiKeyCaller(apiKey: string | null) {
+  const db = getTestDb();
+  const headers = new Headers();
+  if (apiKey) headers.set("x-api-key", apiKey);
+
+  return createCaller({
+    db,
+    session: null,
+    headers,
+  });
+}
+
 // ── Query Counter ────────────────────────────────────────────────────
 
 interface QueryLog {
