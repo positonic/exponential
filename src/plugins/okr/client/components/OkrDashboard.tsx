@@ -411,16 +411,16 @@ export function OkrDashboard({
       handleViewKeyResult(kr);
       return;
     }
+    // Not in the current period's data — set a minimal item and push the
+    // deep-link param so the URL-driven drawer (ticket 1) opens and fetches it.
     setDrawerItem({
       type: "keyResult",
       id: krId,
-      title: krTitle ?? "",
-      description: null,
+      title: krTitle,
       progress: 0,
       status: "on-track",
-      lifeDomainName: null,
     });
-    openDrawer();
+    openDrawerUrl("keyResult", krId);
   };
 
   // Summary for the header subtitle
