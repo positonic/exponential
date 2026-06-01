@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Drawer, Tooltip, ActionIcon, Skeleton, Textarea } from "@mantine/core";
 import {
   IconTarget,
@@ -1108,9 +1108,11 @@ function ObjectiveActivityFeed({
 function ActivityComposer({
   onSubmit,
   isSubmitting,
+  textareaRef,
 }: {
   onSubmit: (text: string) => Promise<void> | void;
   isSubmitting: boolean;
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
 }) {
   const [text, setText] = useState("");
   const submit = async () => {
@@ -1122,6 +1124,7 @@ function ActivityComposer({
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-border-secondary bg-surface-primary">
       <Textarea
+        ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.currentTarget.value)}
         onKeyDown={(e) => {
@@ -1130,7 +1133,7 @@ function ActivityComposer({
             void submit();
           }
         }}
-        placeholder="Add a comment… use @ to mention"
+        placeholder="Write a comment or update…"
         autosize
         minRows={2}
         variant="unstyled"
@@ -1186,6 +1189,24 @@ export function OkrDetailDrawer({
   useEffect(() => {
     setTab("overview");
   }, [type, itemId]);
+
+  // "Post update" jumps to the Activity tab and focuses the composer. The
+  // composer mounts only when the Activity tab is active, so focus is deferred
+  // to an effect that fires after it renders.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingComposerFocus, setPendingComposerFocus] = useState(false);
+
+  const handlePostUpdate = () => {
+    setTab("activity");
+    setPendingComposerFocus(true);
+  };
+
+  useEffect(() => {
+    if (tab === "activity" && pendingComposerFocus && composerRef.current) {
+      composerRef.current.focus();
+      setPendingComposerFocus(false);
+    }
+  }, [tab, pendingComposerFocus]);
 
   const drawerSize =
     size === "s" ? 560 : size === "l" ? 960 : size === "max" ? "100%" : 720;
@@ -1582,7 +1603,7 @@ export function OkrDetailDrawer({
               )}
             </div>
 
-            <HeroCtas />
+            <HeroCtas onPostUpdate={handlePostUpdate} />
           </div>
 
           <PeopleStrip
@@ -1596,7 +1617,10 @@ export function OkrDetailDrawer({
           <div className="flex-1 overflow-y-auto px-6 pb-10 pt-5">
             {tab === "overview" && (
               <>
-                <LatestUpdateCard latest={view.latestUpdate} />
+                <LatestUpdateCard
+                  latest={view.latestUpdate}
+                  onPostUpdate={handlePostUpdate}
+                />
                 <ZoeNudge
                   body={
                     view.statusConf === "bad" || view.statusConf === "warn"
@@ -1697,6 +1721,7 @@ export function OkrDetailDrawer({
                   isSubmitting={
                     addGoalComment.isPending || addKrComment.isPending
                   }
+                  textareaRef={composerRef}
                 />
                 <SectionHeader title="Activity" count={tabs.find((t) => t.id === "activity")?.count} />
                 {view.kind === "objective" ? (
