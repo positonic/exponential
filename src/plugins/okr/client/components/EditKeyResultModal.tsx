@@ -54,6 +54,7 @@ interface KeyResultData {
   period?: string;
   userId?: string;
   driUserId?: string | null;
+  goalId?: number;
 }
 
 type EditKeyResultModalProps = {
@@ -108,6 +109,7 @@ export function EditKeyResultModal({
   const [confidence, setConfidence] = useState<number | null>(null);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [driUserId, setDriUserId] = useState<string | null>(null);
+  const [objectiveId, setObjectiveId] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const { workspace } = useWorkspace();
@@ -117,6 +119,12 @@ export function EditKeyResultModal({
   const { data: availableProjects = [] } = api.project.getAll.useQuery(
     { workspaceId: workspace?.id ?? createWorkspaceId },
     { enabled: opened && !!(workspace?.id ?? createWorkspaceId) }
+  );
+
+  // Fetch objectives (goals) the user owns in this workspace, for reassignment
+  const { data: availableObjectives = [] } = api.okr.getAvailableGoals.useQuery(
+    { workspaceId: workspace?.id ?? createWorkspaceId },
+    { enabled: !isCreate && opened }
   );
 
   // Query to get fresh key result data (edit mode only)
@@ -165,6 +173,11 @@ export function EditKeyResultModal({
           currentUser?.id ??
           null
       );
+      setObjectiveId(
+        currentKeyResult.goalId != null
+          ? String(currentKeyResult.goalId)
+          : null
+      );
 
       // Populate selected projects from freshKeyResult if available
       const linkedProjectIds =
@@ -191,6 +204,15 @@ export function EditKeyResultModal({
 
     return Array.from(optionMap.values());
   }, [currentUser, workspace?.members]);
+
+  const objectiveOptions = useMemo(
+    () =>
+      availableObjectives.map((goal) => ({
+        value: String(goal.id),
+        label: goal.title,
+      })),
+    [availableObjectives]
+  );
 
   useEffect(() => {
     if (driOptions.length === 0) return;
@@ -284,6 +306,7 @@ export function EditKeyResultModal({
         status,
         confidence: confidence ?? undefined,
         driUserId: driUserId ?? currentUser?.id,
+        goalId: objectiveId ? Number(objectiveId) : undefined,
       });
 
       // Save linked projects
@@ -408,6 +431,20 @@ export function EditKeyResultModal({
             required
             styles={selectStyles}
           />
+
+          {!isCreate && (
+            <Select
+              label="Objective"
+              description="The objective this key result belongs to"
+              placeholder="Search objectives..."
+              data={objectiveOptions}
+              value={objectiveId}
+              onChange={(value) => setObjectiveId(value)}
+              searchable
+              nothingFoundMessage="No objectives found"
+              styles={selectStyles}
+            />
+          )}
 
           {/* Description */}
           <Textarea

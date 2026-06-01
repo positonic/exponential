@@ -37,6 +37,7 @@ const updateKeyResultInput = z.object({
     .optional(),
   confidence: z.number().min(0).max(100).optional(),
   driUserId: z.string().optional(),
+  goalId: z.number().optional(),
 });
 
 const checkInInput = z.object({
@@ -419,6 +420,20 @@ export const keyResultRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Key result not found",
         });
+      }
+
+      // If reassigning to a different objective, verify the user owns the target goal
+      if (updateData.goalId != null && updateData.goalId !== existing.goalId) {
+        const targetGoal = await ctx.db.goal.findFirst({
+          where: { id: updateData.goalId, userId: ctx.session.user.id },
+        });
+
+        if (!targetGoal) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Objective not found",
+          });
+        }
       }
 
       return ctx.db.keyResult.update({
