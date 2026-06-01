@@ -2,6 +2,7 @@
 
 import { NavLinks } from "./NavLinks";
 import { SidebarContent } from "./SidebarContent";
+import { FavouritesNav } from "./FavouritesNav";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
@@ -87,6 +88,8 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <div className="sb-group sb-group--secondary">
             <SidebarContent />
           </div>
+
+          <FavouritesNav />
         </nav>
 
         <UserMenu session={session} onClose={() => setIsMenuOpen(false)} />
