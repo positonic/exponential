@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Drawer, Tooltip, ActionIcon, Skeleton, Textarea } from "@mantine/core";
+import { Drawer, Tooltip, ActionIcon, Skeleton, Textarea, Menu } from "@mantine/core";
 import {
   IconTarget,
   IconTrendingUp,
@@ -18,12 +18,16 @@ import {
   IconAt,
   IconPlus,
   IconLink,
+  IconCheck,
 } from "@tabler/icons-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
 import {
   clamp01,
+  effectiveConfidence,
+  effectiveStatus,
   expectedProgress,
+  objectiveEffectiveConfidence,
   relativeTimeLabel,
   statusToConfidence,
   type Confidence,
@@ -376,16 +380,92 @@ function Kpi({
   );
 }
 
+const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "on-track", label: "On track" },
+  { value: "at-risk", label: "At risk" },
+  { value: "off-track", label: "Off track" },
+  { value: "achieved", label: "Achieved" },
+];
+
+function SetStatusMenu({
+  kind,
+  currentOverride,
+  onSetStatus,
+  disabled,
+}: {
+  kind: "objective" | "keyResult";
+  currentOverride: string | null | undefined;
+  onSetStatus: (status: string | null) => void;
+  disabled?: boolean;
+}) {
+  // Objectives don't have an "achieved" health value (ADR-0004); KRs do.
+  const options =
+    kind === "objective"
+      ? STATUS_OPTIONS.filter((o) => o.value !== "achieved")
+      : STATUS_OPTIONS;
+  const isAuto = currentOverride == null;
+
+  return (
+    <Menu position="bottom-start" width={200} disabled={disabled}>
+      <Menu.Target>
+        <button
+          type="button"
+          disabled={disabled}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border-primary bg-surface-tertiary px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary disabled:opacity-60"
+        >
+          <IconFlag size={13} /> Set status
+        </button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>Set status manually</Menu.Label>
+        {options.map((o) => {
+          const conf = statusToConfidence(o.value);
+          return (
+            <Menu.Item
+              key={o.value}
+              onClick={() => onSetStatus(o.value)}
+              leftSection={
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ background: CONFIDENCE_COLOR[conf] }}
+                />
+              }
+              rightSection={
+                currentOverride === o.value ? <IconCheck size={14} /> : null
+              }
+            >
+              {o.label}
+            </Menu.Item>
+          );
+        })}
+        <Menu.Divider />
+        <Menu.Item
+          onClick={() => onSetStatus(null)}
+          rightSection={isAuto ? <IconCheck size={14} /> : null}
+        >
+          Auto (use derived status)
+        </Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
+}
+
 function HeroCtas({
+  kind,
+  currentOverride,
+  isSettingStatus,
   onUpdateProgress,
   onPostUpdate,
   onSetStatus,
   onStar,
   onShare,
 }: {
+  kind: "objective" | "keyResult";
+  currentOverride: string | null | undefined;
+  isSettingStatus?: boolean;
   onUpdateProgress?: () => void;
   onPostUpdate?: () => void;
-  onSetStatus?: () => void;
+  onSetStatus?: (status: string | null) => void;
   onStar?: () => void;
   onShare?: () => void;
 }) {
@@ -412,13 +492,14 @@ function HeroCtas({
       >
         <IconMessage size={13} /> Post update
       </button>
-      <button
-        type="button"
-        onClick={onSetStatus}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border-primary bg-surface-tertiary px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary"
-      >
-        <IconFlag size={13} /> Set status
-      </button>
+      {onSetStatus && (
+        <SetStatusMenu
+          kind={kind}
+          currentOverride={currentOverride}
+          onSetStatus={onSetStatus}
+          disabled={isSettingStatus}
+        />
+      )}
       <div className="flex-1" />
       <ActionIcon
         variant="subtle"
@@ -793,13 +874,14 @@ function KrMiniCard({
     title: string;
     progress: number;
     status: string;
+    statusOverride?: string | null;
     currentValue: number;
     targetValue: number;
     unit?: string | null;
   };
   onOpen?: () => void;
 }) {
-  const confidence = statusToConfidence(kr.status);
+  const confidence = effectiveConfidence(kr.statusOverride, kr.status);
   const pct = Math.round(clamp01(kr.progress) * 100);
   return (
     <button
@@ -1175,7 +1257,6 @@ export function OkrDetailDrawer({
   type,
   itemId,
   title: titleProp,
-  status: statusProp = "on-track",
   lifeDomainName,
   onOpenKeyResult,
 }: OkrDetailDrawerProps) {
@@ -1253,6 +1334,42 @@ export function OkrDetailDrawer({
     },
   });
 
+  // Manual status override (ADR-0004). Invalidate the drawer's own query plus
+  // the dashboard list so the card badge reconciles immediately.
+  const setObjectiveOverride = api.okr.setObjectiveStatusOverride.useMutation({
+    onSuccess: () => {
+      void utils.goal.getById.invalidate({ id: itemId as number });
+      void utils.okr.getByObjective.invalidate();
+    },
+  });
+  const setKrOverride = api.okr.setKeyResultStatusOverride.useMutation({
+    onSuccess: () => {
+      void utils.okr.getById.invalidate({ id: itemId as string });
+      void utils.okr.getByObjective.invalidate();
+    },
+  });
+
+  const handleSetStatus = (status: string | null) => {
+    if (type === "objective" && typeof itemId === "number") {
+      setObjectiveOverride.mutate({
+        goalId: itemId,
+        status: status as "on-track" | "at-risk" | "off-track" | null,
+      });
+    } else if (type === "keyResult" && typeof itemId === "string") {
+      setKrOverride.mutate({
+        keyResultId: itemId,
+        status: status as
+          | "on-track"
+          | "at-risk"
+          | "off-track"
+          | "achieved"
+          | null,
+      });
+    }
+  };
+  const isSettingStatus =
+    setObjectiveOverride.isPending || setKrOverride.isPending;
+
   const isObjective = type === "objective";
   const data = isObjective ? objectiveQuery.data : krQuery.data;
   const isLoading = isObjective ? objectiveQuery.isLoading : krQuery.isLoading;
@@ -1276,6 +1393,7 @@ export function OkrDetailDrawer({
           title: kr.title,
           progress,
           status: kr.status,
+          statusOverride: kr.statusOverride,
           currentValue: kr.currentValue,
           targetValue: kr.targetValue,
           unit: kr.unit,
@@ -1284,13 +1402,19 @@ export function OkrDetailDrawer({
       const avgProgress =
         krs.length > 0 ? krs.reduce((a, k) => a + k.progress, 0) / krs.length : 0;
       const onTrack = krs.filter(
-        (k) => statusToConfidence(k.status) === "ok",
+        (k) => effectiveConfidence(k.statusOverride, k.status) === "ok",
       ).length;
       const atRisk = krs.filter((k) => {
-        const c = statusToConfidence(k.status);
+        const c = effectiveConfidence(k.statusOverride, k.status);
         return c === "warn" || c === "bad";
       }).length;
-      const statusConf = statusToConfidence(statusProp);
+      // ADR-0004: effective objective status (override ?? health, KR-rollup
+      // fallback when the cache is cold). Same helper the card uses.
+      const statusConf = objectiveEffectiveConfidence(
+        g.healthOverride,
+        g.health,
+        krs.map((k) => effectiveStatus(k.statusOverride, k.status) ?? ""),
+      );
       const expFrac = g.period ? expectedProgress(g.period) : 0;
       const parent = g.period ? /^(Q[1-4]|H[12])-(\d{4})$/.exec(g.period) : null;
       const parentLabel = parent ? `ANNUAL-${parent[2]}` : null;
@@ -1304,6 +1428,7 @@ export function OkrDetailDrawer({
         period: g.period,
         parentLabel,
         statusConf,
+        statusOverride: g.healthOverride, // raw override for the Set status picker
         progressFrac: avgProgress,
         expectedFrac: expFrac,
         deltaPts: 0, // no per-objective history available
@@ -1339,7 +1464,7 @@ export function OkrDetailDrawer({
       range > 0
         ? Math.max(0, Math.min(1, (kr.currentValue - kr.startValue) / range))
         : 0;
-    const statusConf = statusToConfidence(kr.status);
+    const statusConf = effectiveConfidence(kr.statusOverride, kr.status);
     const expFrac = kr.period ? expectedProgress(kr.period) : 0;
 
     // Build trend from check-ins (progress per check-in, oldest first)
@@ -1420,6 +1545,7 @@ export function OkrDetailDrawer({
       parentCode: `O${kr.goal.id}`,
       parentTitle: kr.goal.title,
       statusConf,
+      statusOverride: kr.statusOverride, // raw override for the Set status picker
       progressFrac,
       expectedFrac: expFrac,
       deltaPts,
@@ -1444,7 +1570,6 @@ export function OkrDetailDrawer({
     krQuery.data,
     goalCommentsQuery.data,
     krCommentsQuery.data,
-    statusProp,
   ]);
 
   const comments =
@@ -1603,7 +1728,13 @@ export function OkrDetailDrawer({
               )}
             </div>
 
-            <HeroCtas onPostUpdate={handlePostUpdate} />
+            <HeroCtas
+              kind={kind}
+              currentOverride={view.statusOverride}
+              isSettingStatus={isSettingStatus}
+              onPostUpdate={handlePostUpdate}
+              onSetStatus={handleSetStatus}
+            />
           </div>
 
           <PeopleStrip

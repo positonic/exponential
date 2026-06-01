@@ -1,5 +1,59 @@
 import { describe, it, expect } from "vitest";
-import { periodStatus, periodCountdownLabel } from "../okrDashboardUtils";
+import {
+  periodStatus,
+  periodCountdownLabel,
+  effectiveStatus,
+  effectiveConfidence,
+  objectiveEffectiveConfidence,
+} from "../okrDashboardUtils";
+
+describe("effectiveStatus (ADR-0004 override ?? auto)", () => {
+  it("prefers the override when set", () => {
+    expect(effectiveStatus("at-risk", "on-track")).toBe("at-risk");
+  });
+
+  it("falls back to auto when there is no override", () => {
+    expect(effectiveStatus(null, "on-track")).toBe("on-track");
+    expect(effectiveStatus(undefined, "off-track")).toBe("off-track");
+  });
+
+  it("returns null when neither is set", () => {
+    expect(effectiveStatus(null, null)).toBeNull();
+  });
+
+  it("treats an explicit override as winning even over a different auto", () => {
+    // The whole point: a human can mark at-risk even when the number looks fine.
+    expect(effectiveConfidence("at-risk", "on-track")).toBe("warn");
+  });
+});
+
+describe("objectiveEffectiveConfidence", () => {
+  it("uses the manual override above everything", () => {
+    expect(
+      objectiveEffectiveConfidence("off-track", "on-track", ["on-track"]),
+    ).toBe("bad");
+  });
+
+  it("uses the auto health cache when there is no override", () => {
+    expect(objectiveEffectiveConfidence(null, "at-risk", ["on-track"])).toBe(
+      "warn",
+    );
+  });
+
+  it("falls back to a worst-KR roll-up when the cache is cold", () => {
+    // health null / "no-update" → derive from effective KR statuses (worst wins)
+    expect(
+      objectiveEffectiveConfidence(null, null, ["on-track", "off-track"]),
+    ).toBe("bad");
+    expect(
+      objectiveEffectiveConfidence(null, "no-update", ["on-track", "on-track"]),
+    ).toBe("ok");
+  });
+
+  it("is idle when cold and there are no KRs", () => {
+    expect(objectiveEffectiveConfidence(null, null, [])).toBe("idle");
+  });
+});
 
 describe("periodStatus", () => {
   it("is active inside the period", () => {

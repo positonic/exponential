@@ -851,6 +851,13 @@ model Goal {
   health          String? // "on-track" | "at-risk" | "off-track" | "no-update"
   healthUpdatedAt DateTime?
 
+  // Manual status override stored BESIDE the auto `health` cache (ADR-0004).
+  // Effective status = healthOverride ?? health. null = no override (use auto).
+  // The auto column above is never written by the manual override path.
+  healthOverride     String? // "on-track" | "at-risk" | "off-track"
+  healthOverrideAt   DateTime? // when the override was last set
+  healthOverrideById String? // user id who set it (audit; no FK)
+
   // Display ordering within parent or at root level
   displayOrder Int @default(0)
 
@@ -2529,6 +2536,12 @@ model KeyResult {
   periodStart  DateTime?
   periodEnd    DateTime?
   status       String    @default("on-track") // "on-track", "at-risk", "off-track", "achieved"
+  // Manual status override stored BESIDE the auto `status` (ADR-0004).
+  // Effective status = statusOverride ?? status. null = no override (use auto).
+  // The auto `status` column is never written by the manual override path.
+  statusOverride     String? // "on-track" | "at-risk" | "off-track" | "achieved"
+  statusOverrideAt   DateTime? // when the override was last set
+  statusOverrideById String? // user id who set it (audit; no FK)
   confidence   Int? // 0-100 confidence score
   goalId       Int
   userId       String

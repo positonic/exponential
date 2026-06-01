@@ -246,6 +246,7 @@ export function OkrDashboard({
             unit: kr.unit,
             unitLabel: kr.unitLabel,
             status: kr.status,
+            statusOverride: kr.statusOverride,
             confidence: kr.confidence,
             period: kr.period,
             checkIns: kr.checkIns,
