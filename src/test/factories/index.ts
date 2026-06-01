@@ -1,5 +1,5 @@
 import { Factory } from "fishery";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import type { PrismaClient, $Enums } from "@prisma/client";
 
 // Use randomUUID to avoid collisions when test files run in parallel
@@ -20,6 +20,32 @@ export const userFactory = Factory.define<UserAttrs>(({ sequence }) => ({
 export async function createUser(db: PrismaClient, overrides: Partial<UserAttrs> = {}) {
   const attrs = userFactory.build(overrides);
   return db.user.create({ data: attrs });
+}
+
+// ── Durable API key ──────────────────────────────────────────────────
+// Mirrors how the app stores durable Exponential API keys: a VerificationToken
+// row whose `token` is the sha256 hash of the raw key (the same hashing
+// `apiKeyMiddleware` applies to the incoming `x-api-key` header). Returns the
+// raw (unhashed) key for the caller to present.
+
+export async function createApiKey(
+  db: PrismaClient,
+  userId: string,
+  opts: { expiresAt?: Date } = {},
+) {
+  const raw = `exp_${randomUUID()}${randomUUID()}`.replace(/-/g, "");
+  const token = `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+  const expires =
+    opts.expiresAt ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+  await db.verificationToken.create({
+    data: {
+      identifier: `api-key:${userId}:${uid()}`,
+      token,
+      userId,
+      expires,
+    },
+  });
+  return { raw };
 }
 
 // ── Workspace Factory ────────────────────────────────────────────────
