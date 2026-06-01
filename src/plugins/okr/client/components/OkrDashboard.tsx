@@ -400,6 +400,29 @@ export function OkrDashboard({
     openDrawerUrl("keyResult", kr.id);
   };
 
+  // Open a KR drawer by id — used by the objective Activity tab's rolled-up KR
+  // source chips. Reuses the loaded KR when available (correct progress/status)
+  // and otherwise opens by id so the drawer can fetch it.
+  const handleOpenKeyResultById = (krId: string, krTitle?: string) => {
+    const kr = visibleObjectives
+      .flatMap((o) => o.keyResults)
+      .find((k) => k.id === krId);
+    if (kr) {
+      handleViewKeyResult(kr);
+      return;
+    }
+    // Not in the current period's data — set a minimal item and push the
+    // deep-link param so the URL-driven drawer (ticket 1) opens and fetches it.
+    setDrawerItem({
+      type: "keyResult",
+      id: krId,
+      title: krTitle,
+      progress: 0,
+      status: "on-track",
+    });
+    openDrawerUrl("keyResult", krId);
+  };
+
   // Summary for the header subtitle
   const summary = useMemo(() => {
     const allKrs = visibleObjectives.flatMap((o) => o.keyResults);
@@ -853,6 +876,7 @@ export function OkrDashboard({
         progress={drawerItem?.progress}
         status={drawerItem?.status}
         lifeDomainName={drawerItem?.lifeDomainName}
+        onOpenKeyResult={handleOpenKeyResultById}
       />
     </Container>
   );

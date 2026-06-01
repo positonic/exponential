@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Drawer, Tooltip, ActionIcon, Skeleton, Textarea } from "@mantine/core";
 import {
   IconTarget,
@@ -20,7 +20,7 @@ import {
   IconLink,
 } from "@tabler/icons-react";
 import { formatDistanceToNow, format } from "date-fns";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import {
   clamp01,
   expectedProgress,
@@ -45,6 +45,8 @@ interface OkrDetailDrawerProps {
   progress?: number;
   status?: string;
   lifeDomainName?: string | null;
+  /** Open a key result's drawer — used by rolled-up KR activity source chips. */
+  onOpenKeyResult?: (keyResultId: string, keyResultTitle?: string) => void;
 }
 
 interface DrawerUser {
@@ -961,6 +963,148 @@ function ActivityFeed({
   );
 }
 
+type ObjectiveActivityItem =
+  RouterOutputs["okr"]["getObjectiveActivity"][number];
+
+const GOAL_HEALTH_CONFIDENCE: Record<string, Confidence> = {
+  "on-track": "ok",
+  "at-risk": "warn",
+  "off-track": "bad",
+};
+
+function KrSourceChip({
+  code,
+  title,
+  onOpen,
+}: {
+  code: string;
+  title: string;
+  onOpen?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={!onOpen}
+      className="inline-flex max-w-[220px] items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors enabled:hover:bg-surface-hover disabled:cursor-default"
+      style={{
+        background: "var(--color-brand-glow)",
+        borderColor: "var(--color-brand-glow)",
+        color: "var(--brand-400)",
+      }}
+      title={`${code} · ${title}`}
+    >
+      <IconTrendingUp size={10} className="flex-shrink-0" />
+      <span className="flex-shrink-0">{code}</span>
+      <span className="truncate normal-case tracking-normal opacity-80">
+        {title}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Renders an objective's rolled-up activity timeline (the
+ * `okr.getObjectiveActivity` merge). KR-sourced items carry a clickable source
+ * chip that opens that KR's drawer; objective-native items show no chip.
+ */
+function ObjectiveActivityFeed({
+  items,
+  onOpenKeyResult,
+}: {
+  items: ObjectiveActivityItem[];
+  onOpenKeyResult?: (keyResultId: string, keyResultTitle?: string) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border-primary p-8 text-center text-sm text-text-muted">
+        No activity yet. Post an update or comment to get things started.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {items.map((it) => {
+        const isKr = it.kind === "krComment" || it.kind === "krCheckIn";
+        const verb =
+          it.kind === "goalUpdate"
+            ? "posted an update"
+            : it.kind === "krCheckIn"
+              ? "updated progress"
+              : "commented";
+        return (
+          <div
+            key={`${it.kind}-${it.id}`}
+            className="grid grid-cols-[28px_1fr] gap-3 border-b border-border-secondary py-3 last:border-b-0"
+          >
+            <Avatar user={it.author} size={26} />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="text-xs font-medium text-text-primary">
+                  {it.author?.name ?? "Unknown"}
+                </span>
+                <span className="text-xs text-text-secondary">{verb}</span>
+                {isKr && (
+                  <KrSourceChip
+                    code={it.keyResultCode}
+                    title={it.keyResultTitle}
+                    onOpen={
+                      onOpenKeyResult
+                        ? () => onOpenKeyResult(it.keyResultId, it.keyResultTitle)
+                        : undefined
+                    }
+                  />
+                )}
+                <div className="flex-1" />
+                <span className="text-[11px] text-text-muted">
+                  {formatDistanceToNow(new Date(it.createdAt), {
+                    addSuffix: true,
+                  })}
+                </span>
+              </div>
+              {it.kind === "krCheckIn" ? (
+                <div className="mt-2 inline-flex items-baseline gap-2 rounded-lg border border-border-secondary bg-surface-primary px-3 py-2 tabular-nums">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+                    Progress
+                  </span>
+                  <span className="text-sm text-text-muted line-through">
+                    {it.previousValue}
+                  </span>
+                  <span className="text-xs text-text-muted">→</span>
+                  <span className="text-base font-semibold text-text-primary">
+                    {it.newValue}
+                  </span>
+                  {it.notes && (
+                    <span className="ml-2 text-xs text-text-secondary">
+                      {it.notes}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {it.kind === "goalUpdate" && (
+                    <div className="mt-2">
+                      <StatusPill
+                        confidence={
+                          GOAL_HEALTH_CONFIDENCE[it.health] ?? "idle"
+                        }
+                      />
+                    </div>
+                  )}
+                  <div className="mt-2 whitespace-pre-wrap rounded-lg border border-border-secondary bg-surface-primary p-3 text-sm leading-relaxed text-text-secondary">
+                    {it.content}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ActivityComposer({
   onSubmit,
   isSubmitting,
@@ -1030,10 +1174,18 @@ export function OkrDetailDrawer({
   title: titleProp,
   status: statusProp = "on-track",
   lifeDomainName,
+  onOpenKeyResult,
 }: OkrDetailDrawerProps) {
   const utils = api.useUtils();
   const [tab, setTab] = useState<string>("overview");
   const [size, setSize] = useState<TopBarSize>("m");
+
+  // The "krs" / "projects" tabs are entity-specific, so a tab that's valid for
+  // one entity renders a blank body for another. Reset to "overview" whenever
+  // the drawer switches to a different entity (e.g. objective → key result).
+  useEffect(() => {
+    setTab("overview");
+  }, [type, itemId]);
 
   const drawerSize =
     size === "s" ? 560 : size === "l" ? 960 : size === "max" ? "100%" : 720;
@@ -1057,9 +1209,19 @@ export function OkrDetailDrawer({
     { enabled: opened && type === "keyResult" && typeof itemId === "string" },
   );
 
+  // Objective Activity tab: merged, time-sorted feed of the objective's own
+  // comments/updates rolled up with all child-KR comments + check-ins.
+  const objectiveActivityQuery = api.okr.getObjectiveActivity.useQuery(
+    { goalId: itemId as number },
+    { enabled: opened && type === "objective" && typeof itemId === "number" },
+  );
+
   const addGoalComment = api.okr.addGoalComment.useMutation({
     onSuccess: () => {
       void utils.okr.getGoalComments.invalidate({ goalId: itemId as number });
+      void utils.okr.getObjectiveActivity.invalidate({
+        goalId: itemId as number,
+      });
     },
   });
   const addKrComment = api.okr.addKeyResultComment.useMutation({
@@ -1285,13 +1447,17 @@ export function OkrDetailDrawer({
 
   const kind: "objective" | "keyResult" = type;
 
+  // For an objective the Activity tab reflects the merged rollup total; for a
+  // KR it's that KR's own comments + check-ins.
+  const objectiveActivity = objectiveActivityQuery.data ?? [];
+
   const tabs = useMemo(() => {
     if (!view) return [{ id: "overview", label: "Overview" }];
     if (view.kind === "objective") {
       return [
         { id: "overview", label: "Overview" },
         { id: "krs", label: "Key Results", count: view.krs.length },
-        { id: "activity", label: "Activity", count: comments.length },
+        { id: "activity", label: "Activity", count: objectiveActivity.length },
       ];
     }
     return [
@@ -1303,7 +1469,7 @@ export function OkrDetailDrawer({
         count: comments.length + (view.checkIns?.length ?? 0),
       },
     ];
-  }, [view, comments.length]);
+  }, [view, comments.length, objectiveActivity.length]);
 
   const heroCrumb = view
     ? view.kind === "objective"
@@ -1533,12 +1699,14 @@ export function OkrDetailDrawer({
                   }
                 />
                 <SectionHeader title="Activity" count={tabs.find((t) => t.id === "activity")?.count} />
-                <ActivityFeed
-                  comments={comments}
-                  checkIns={
-                    view.kind === "keyResult" ? view.checkIns : undefined
-                  }
-                />
+                {view.kind === "objective" ? (
+                  <ObjectiveActivityFeed
+                    items={objectiveActivity}
+                    onOpenKeyResult={onOpenKeyResult}
+                  />
+                ) : (
+                  <ActivityFeed comments={comments} checkIns={view.checkIns} />
+                )}
               </>
             )}
           </div>
