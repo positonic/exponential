@@ -1157,6 +1157,77 @@ export const keyResultRouter = createTRPCRouter({
       });
     }),
 
+  // ============================================
+  // Manual status override (ADR-0004)
+  // ============================================
+
+  // Set or clear an objective's manual health override. Writes ONLY the
+  // override columns (healthOverride + audit) — the auto `health` cache that
+  // recomputeHealth maintains is never touched here. Passing status: null
+  // clears the override ("Auto"), at which point the derived value reappears.
+  setObjectiveStatusOverride: protectedProcedure
+    .input(
+      z.object({
+        goalId: z.number(),
+        status: z.enum(["on-track", "at-risk", "off-track"]).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const goal = await ctx.db.goal.findFirst({
+        where: { id: input.goalId, userId: ctx.session.user.id },
+      });
+
+      if (!goal) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Objective not found",
+        });
+      }
+
+      return ctx.db.goal.update({
+        where: { id: input.goalId },
+        data: {
+          healthOverride: input.status,
+          healthOverrideAt: input.status ? new Date() : null,
+          healthOverrideById: input.status ? ctx.session.user.id : null,
+        },
+      });
+    }),
+
+  // Set or clear a key result's manual status override. Writes ONLY the
+  // override columns — the auto `status` that check-ins rewrite is never
+  // touched here. Passing status: null clears the override ("Auto").
+  setKeyResultStatusOverride: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        status: z
+          .enum(["on-track", "at-risk", "off-track", "achieved"])
+          .nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId, userId: ctx.session.user.id },
+      });
+
+      if (!keyResult) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      return ctx.db.keyResult.update({
+        where: { id: input.keyResultId },
+        data: {
+          statusOverride: input.status,
+          statusOverrideAt: input.status ? new Date() : null,
+          statusOverrideById: input.status ? ctx.session.user.id : null,
+        },
+      });
+    }),
+
   // Delete own comment from a key result
   deleteKeyResultComment: protectedProcedure
     .input(

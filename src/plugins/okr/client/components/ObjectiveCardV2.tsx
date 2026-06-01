@@ -15,10 +15,12 @@ import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import {
   clamp01,
+  effectiveConfidence,
+  effectiveStatus,
   expectedProgress,
   krProgress,
+  objectiveEffectiveConfidence,
   relativeTimeLabel,
-  statusToConfidence,
   type Confidence,
 } from "../utils/okrDashboardUtils";
 import {
@@ -59,6 +61,7 @@ export interface ObjectiveCardKeyResult {
   unit?: string;
   unitLabel?: string | null;
   status: string;
+  statusOverride?: string | null; // ADR-0004 manual override
   confidence?: number | null;
   description?: string | null;
   period?: string;
@@ -82,6 +85,8 @@ export interface ObjectiveCardObjective {
   dueDate?: Date | null;
   period?: string | null;
   progress: number; // 0–100
+  health?: string | null; // auto-derived health cache (ADR-0004 auto value)
+  healthOverride?: string | null; // ADR-0004 manual override
   lifeDomain?: LifeDomain | null;
   workspaceId?: string | null;
   driUserId?: string | null;
@@ -137,16 +142,6 @@ const CONFIDENCE_PILL: Record<
     bg: "var(--color-surface-tertiary)",
   },
 };
-
-/** Roll-up status for the objective: worst KR wins. */
-function objectiveRollupStatus(krs: ObjectiveCardKeyResult[]): Confidence {
-  if (krs.length === 0) return "idle";
-  const confs = krs.map((k) => statusToConfidence(k.status));
-  if (confs.includes("bad")) return "bad";
-  if (confs.includes("warn")) return "warn";
-  if (confs.every((c) => c === "idle")) return "idle";
-  return "ok";
-}
 
 function formatKrValue(kr: ObjectiveCardKeyResult): string {
   if (kr.unit === "percent") return `${Math.round(kr.currentValue)}%`;
@@ -276,7 +271,7 @@ function KrLine({
 }) {
   const progress = krProgress(kr);
   const expected = kr.period ? expectedProgress(kr.period) : 0;
-  const confidence = statusToConfidence(kr.status);
+  const confidence = effectiveConfidence(kr.statusOverride, kr.status);
   const color = CONFIDENCE_COLOR[confidence];
   const latestCheckIn = kr.checkIns?.[0];
   const updated = relativeTimeLabel(latestCheckIn?.createdAt);
@@ -478,7 +473,13 @@ export function ObjectiveCardV2({
   onViewObjective,
   onViewKeyResult,
 }: ObjectiveCardV2Props) {
-  const status = objectiveRollupStatus(objective.keyResults);
+  const status = objectiveEffectiveConfidence(
+    objective.healthOverride,
+    objective.health,
+    objective.keyResults.map(
+      (k) => effectiveStatus(k.statusOverride, k.status) ?? "",
+    ),
+  );
   const pill = CONFIDENCE_PILL[status];
   const owner = objective.driUser ?? objective.user;
   const { workspaceSlug } = useWorkspace();

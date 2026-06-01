@@ -42,6 +42,54 @@ export function statusToConfidence(status: string): Confidence {
   }
 }
 
+/**
+ * ADR-0004 effective status: a manual override takes precedence over the
+ * auto-derived value (`Goal.health` for objectives, `KeyResult.status` for key
+ * results). Returns null when neither is set. This is the single reconciliation
+ * point — both the OKR card and the drawer call it, retiring the old three-way
+ * derivation (worst-KR rollup / progress %).
+ */
+export function effectiveStatus(
+  override: string | null | undefined,
+  auto: string | null | undefined,
+): string | null {
+  return override ?? auto ?? null;
+}
+
+/** Effective status mapped to a confidence bucket for status badges. */
+export function effectiveConfidence(
+  override: string | null | undefined,
+  auto: string | null | undefined,
+): Confidence {
+  return statusToConfidence(effectiveStatus(override, auto) ?? "");
+}
+
+/** Worst-wins roll-up over a set of confidence buckets. */
+function worstConfidence(confs: Confidence[]): Confidence {
+  if (confs.length === 0) return "idle";
+  if (confs.includes("bad")) return "bad";
+  if (confs.includes("warn")) return "warn";
+  if (confs.every((c) => c === "idle")) return "idle";
+  return "ok";
+}
+
+/**
+ * Effective confidence for an OBJECTIVE badge (ADR-0004). A manual
+ * `healthOverride` wins; otherwise the auto `health` cache; and when that cache
+ * is cold (null / "no-update") fall back to a worst-effective-KR roll-up so the
+ * badge stays meaningful before the first health recompute. The card and the
+ * drawer both call this, so they always agree.
+ */
+export function objectiveEffectiveConfidence(
+  healthOverride: string | null | undefined,
+  health: string | null | undefined,
+  keyResultEffectiveStatuses: string[],
+): Confidence {
+  if (healthOverride) return statusToConfidence(healthOverride);
+  if (health && health !== "no-update") return statusToConfidence(health);
+  return worstConfidence(keyResultEffectiveStatuses.map(statusToConfidence));
+}
+
 export function krProgress(kr: KrForCompute): number {
   const range = kr.targetValue - kr.startValue;
   if (range === 0) return 0;

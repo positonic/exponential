@@ -426,6 +426,7 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
           id: true,
           title: true,
           status: true,
+          statusOverride: true, // ADR-0004: needed for effective-status badges
           startValue: true,
           currentValue: true,
           targetValue: true,
