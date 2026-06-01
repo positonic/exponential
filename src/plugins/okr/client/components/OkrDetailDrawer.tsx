@@ -19,6 +19,7 @@ import {
   IconPlus,
   IconLink,
   IconCheck,
+  IconStarFilled,
 } from "@tabler/icons-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -571,6 +572,7 @@ function HeroCtas({
   isSettingStatus,
   keyResultId,
   objectiveKrs,
+  favorited,
   onUpdateProgress,
   onPostUpdate,
   onSetStatus,
@@ -582,6 +584,7 @@ function HeroCtas({
   isSettingStatus?: boolean;
   keyResultId?: string;
   objectiveKrs?: UpdateProgressKr[];
+  favorited?: boolean;
   onUpdateProgress?: (keyResultId: string) => void;
   onPostUpdate?: () => void;
   onSetStatus?: (status: string | null) => void;
@@ -615,10 +618,15 @@ function HeroCtas({
       <ActionIcon
         variant="subtle"
         size="md"
-        aria-label="Star"
+        aria-label={favorited ? "Remove from favourites" : "Add to favourites"}
+        aria-pressed={favorited}
         onClick={onStar}
       >
-        <IconStar size={14} />
+        {favorited ? (
+          <IconStarFilled size={14} style={{ color: "var(--accent-okr)" }} />
+        ) : (
+          <IconStar size={14} />
+        )}
       </ActionIcon>
       <ActionIcon
         variant="subtle"
@@ -1482,6 +1490,40 @@ export function OkrDetailDrawer({
   const isSettingStatus =
     setObjectiveOverride.isPending || setKrOverride.isPending;
 
+  // Favourite state for the Star CTA. entityId is stringified so objectives
+  // (numeric id) and key results (cuid) share one polymorphic key.
+  const favoriteKey = {
+    entityType: type,
+    entityId: String(itemId ?? ""),
+  };
+  const favoriteQuery = api.favorite.isFavorite.useQuery(favoriteKey, {
+    enabled: opened && itemId != null,
+  });
+  const favorited = favoriteQuery.data?.favorited ?? false;
+  const toggleFavorite = api.favorite.toggle.useMutation({
+    // Optimistic flip; reconcile on settle.
+    onMutate: async () => {
+      await utils.favorite.isFavorite.cancel(favoriteKey);
+      const prev = utils.favorite.isFavorite.getData(favoriteKey);
+      utils.favorite.isFavorite.setData(favoriteKey, (old) => ({
+        favorited: !(old?.favorited ?? false),
+      }));
+      return { prev };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prev) {
+        utils.favorite.isFavorite.setData(favoriteKey, context.prev);
+      }
+    },
+    onSettled: () => {
+      void utils.favorite.isFavorite.invalidate(favoriteKey);
+    },
+  });
+  const handleToggleFavorite = () => {
+    if (itemId == null) return;
+    toggleFavorite.mutate({ entityType: type, entityId: String(itemId) });
+  };
+
   const isObjective = type === "objective";
   const data = isObjective ? objectiveQuery.data : krQuery.data;
   const isLoading = isObjective ? objectiveQuery.isLoading : krQuery.isLoading;
@@ -1856,8 +1898,10 @@ export function OkrDetailDrawer({
                     }))
                   : undefined
               }
+              favorited={favorited}
               onPostUpdate={handlePostUpdate}
               onSetStatus={handleSetStatus}
+              onStar={handleToggleFavorite}
               onUpdateProgress={onUpdateProgress}
             />
           </div>
