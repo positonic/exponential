@@ -3,6 +3,10 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
+import {
+  mergeObjectiveActivity,
+  type ObjectiveActivityItem,
+} from "../objectiveActivity";
 
 // Input validation schemas
 const createKeyResultInput = z.object({
@@ -45,6 +49,7 @@ const checkInInput = z.object({
   newValue: z.number(),
   notes: z.string().optional(),
 });
+
 
 /**
  * Get the parent annual period for a quarterly or half-year period.
@@ -1047,6 +1052,77 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
         orderBy: { createdAt: "asc" },
+      });
+    }),
+
+  // Merged, time-sorted activity timeline for an objective: the objective's
+  // own comments/updates rolled up with the comments and check-ins of ALL its
+  // child key results. Read-side union over existing tables (no schema change,
+  // same pattern as ADR-0001). The merge happens here so the client never
+  // fans out per-KR (no N+1). KR-sourced items carry the KR id/title/code so
+  // the UI can render a clickable source chip.
+  getObjectiveActivity: protectedProcedure
+    .input(z.object({ goalId: z.number() }))
+    .query(async ({ ctx, input }): Promise<ObjectiveActivityItem[]> => {
+      // Access check mirrors goal.getById: owner, or any member of the goal's
+      // workspace. Shared workspace OKRs stay readable here.
+      const goal = await ctx.db.goal.findUnique({
+        where: { id: input.goalId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Objective not found" });
+      }
+
+      if (goal.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          goal.workspaceId,
+        );
+        if (!membership && goal.userId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      } else if (goal.userId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+      }
+
+      const authorSelect = {
+        select: { id: true, name: true, image: true },
+      } as const;
+
+      const [goalCommentRows, goalUpdateRows, keyResultRows] = await Promise.all([
+        ctx.db.goalComment.findMany({
+          where: { goalId: input.goalId },
+          include: { author: authorSelect },
+        }),
+        ctx.db.goalUpdate.findMany({
+          where: { goalId: input.goalId },
+          include: { author: authorSelect },
+        }),
+        // Order by createdAt asc so the per-objective KR code (KR1, KR2, …) is
+        // stable and matches the KRs tab's listing order.
+        ctx.db.keyResult.findMany({
+          where: { goalId: input.goalId },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            title: true,
+            comments: { include: { author: authorSelect } },
+            checkIns: {
+              include: {
+                createdBy: { select: { id: true, name: true, image: true } },
+              },
+            },
+          },
+        }),
+      ]);
+
+      return mergeObjectiveActivity({
+        goalComments: goalCommentRows,
+        goalUpdates: goalUpdateRows,
+        keyResults: keyResultRows,
       });
     }),
 
