@@ -63,6 +63,10 @@ _Avoid_: Connected repo, tracked repo, linked repo (use "workspace repository" o
 The chronological list shown in the activity panel on `/w/[slug]/home`. A union over the workspace's activity events from all enabled sources, paginated by cursor on `createdAt`. The feed is a **read-side projection** — it merges the two underlying tables (`WorkspaceActivityEvent` and `GitHubActivity`) in app code; the tables are kept separate at rest because they have genuinely different shapes and serve other consumers (Sprint Analytics queries `GitHubActivity` columns directly).
 _Avoid_: Activity log, event log, stream.
 
+**OKR activity**:
+Distinct from the workspace **Activity feed** above — this is the per-item timeline inside the OKR detail drawer's "Activity" tab. For a Key result it merges that KR's comments (`KeyResultComment`) and check-ins (`KeyResultCheckIn`). For an Objective it is a **roll-up**: the objective's own comments/updates (`GoalComment`, `GoalUpdate`) merged with the comments and check-ins of *all its child Key results*, time-sorted into one feed, each rolled-up item tagged with a source chip naming its KR. Built read-side by a single `okr.getObjectiveActivity` procedure (same merge-in-app-code pattern as [ADR-0001](docs/adr/0001-activity-feed-storage.md)), never stored. The objective composer always writes an objective-level `GoalComment`; rolled-up KR items are read-only context.
+_Avoid_: Comments (the tab is a mixed feed of comments **and** check-ins, not comments alone), Discussion.
+
 ## Relationships (activity)
 
 - A **Workspace** has many **Workspace repositories**.
@@ -98,6 +102,14 @@ The measurable arm of an Objective, stored as `KeyResult`. Has `currentValue`, `
 **OKR**:
 Shorthand for the *pair* (Objective + its Key results). Never use "OKR" to mean a single Objective or a single Key result on its own — be specific.
 _Avoid_: Using "OKR" as a singular noun for one of the parts.
+
+**Effective status**:
+What an Objective's or Key result's status badge actually shows. Each entity stores **two separate values**: an **auto** value — `Goal.health` (the "computed health cache aggregated from KRs", rewritten by `recomputeHealth`) / `KeyResult.status` (rewritten by check-ins) — and a nullable **manual override** — `Goal.healthOverride` / `KeyResult.statusOverride`. The effective status displayed everywhere is `override ?? auto`. Setting status via the drawer writes the *override* column only; choosing "Auto" sets the override back to `null` and the derived value reappears. The auto column is never overwritten by the manual path. See [ADR-0004](docs/adr/0004-okr-manual-status-override.md).
+_Avoid_: Conflating "health" (Objective) with "status" (Key result) — same idea, different column per entity; "status" as a single stored value (it is two columns reconciled at read).
+
+**Favourite**:
+A per-user pin of any entity, surfaced in a "Favourites" section in the left nav under "Workspaces". Stored polymorphically in `Favorite { userId, workspaceId, entityType, entityId, createdAt }` — one row per user × entity. v1 wires `entityType` `objective` and `keyResult` only (table is deliberately extensible to projects/meetings later). The Favourites section is **workspace-scoped** — it shows only favourites whose `workspaceId` matches the current workspace. Clicking a favourite opens that item's OKR drawer via its deep link. Toggled by the star CTA in the OKR detail drawer.
+_Avoid_: Star, bookmark, pin (use "favourite"; "star" only for the CTA icon itself).
 
 ### Product alignment chain
 
