@@ -45,6 +45,8 @@ interface OkrDetailDrawerProps {
   progress?: number;
   status?: string;
   lifeDomainName?: string | null;
+  /** Copy a deep link to this item — wires the "Share" CTA. */
+  onShare?: () => void;
 }
 
 interface DrawerUser {
@@ -1030,6 +1032,7 @@ export function OkrDetailDrawer({
   title: titleProp,
   status: statusProp = "on-track",
   lifeDomainName,
+  onShare,
 }: OkrDetailDrawerProps) {
   const utils = api.useUtils();
   const [tab, setTab] = useState<string>("overview");
@@ -1416,7 +1419,7 @@ export function OkrDetailDrawer({
               )}
             </div>
 
-            <HeroCtas />
+            <HeroCtas onShare={onShare} />
           </div>
 
           <PeopleStrip
