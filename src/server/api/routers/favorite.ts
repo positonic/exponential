@@ -39,7 +39,75 @@ async function resolveEntityWorkspace(
   return kr.workspaceId ?? null;
 }
 
+interface FavoriteListItem {
+  id: string;
+  entityType: EntityType;
+  entityId: string;
+  title: string;
+  workspaceId: string | null;
+}
+
 export const favoriteRouter = createTRPCRouter({
+  // The current user's favourites, optionally scoped to a workspace (the
+  // sidebar passes the active workspace). Titles are resolved per entity type;
+  // favourites whose target no longer exists are skipped (stale rows).
+  list: protectedProcedure
+    .input(z.object({ workspaceId: z.string().nullish() }).optional())
+    .query(async ({ ctx, input }): Promise<FavoriteListItem[]> => {
+      const userId = ctx.session.user.id;
+      const favorites = await ctx.db.favorite.findMany({
+        where: {
+          userId,
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const objectiveIds = favorites
+        .filter((f) => f.entityType === "objective")
+        .map((f) => Number(f.entityId))
+        .filter((n) => Number.isInteger(n));
+      const keyResultIds = favorites
+        .filter((f) => f.entityType === "keyResult")
+        .map((f) => f.entityId);
+
+      const [goals, keyResults] = await Promise.all([
+        objectiveIds.length
+          ? ctx.db.goal.findMany({
+              where: { id: { in: objectiveIds } },
+              select: { id: true, title: true },
+            })
+          : Promise.resolve([]),
+        keyResultIds.length
+          ? ctx.db.keyResult.findMany({
+              where: { id: { in: keyResultIds } },
+              select: { id: true, title: true },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      const goalTitle = new Map(goals.map((g) => [String(g.id), g.title]));
+      const krTitle = new Map(keyResults.map((k) => [k.id, k.title]));
+
+      const items: FavoriteListItem[] = [];
+      for (const f of favorites) {
+        const entityType = f.entityType as EntityType;
+        const title =
+          entityType === "objective"
+            ? goalTitle.get(f.entityId)
+            : krTitle.get(f.entityId);
+        if (!title) continue; // target deleted — skip stale favourite
+        items.push({
+          id: f.id,
+          entityType,
+          entityId: f.entityId,
+          title,
+          workspaceId: f.workspaceId,
+        });
+      }
+      return items;
+    }),
+
   // Whether the current user has favourited a given entity.
   isFavorite: protectedProcedure
     .input(z.object({ entityType: entityTypeEnum, entityId: z.string() }))

@@ -1517,6 +1517,8 @@ export function OkrDetailDrawer({
     },
     onSettled: () => {
       void utils.favorite.isFavorite.invalidate(favoriteKey);
+      // Refresh the sidebar Favourites section (warm.wren).
+      void utils.favorite.list.invalidate();
     },
   });
   const handleToggleFavorite = () => {
