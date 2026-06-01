@@ -389,6 +389,28 @@ export function OkrDashboard({
     openEditKrModal();
   };
 
+  // "Update progress" CTA in the drawer opens the KR's check-in modal. Reuse
+  // the loaded KR when available; otherwise (e.g. an objective's KR from a
+  // different period) open an id stub — the modal fetches fresh data by id.
+  const handleUpdateProgressForKr = (krId: string) => {
+    const kr = visibleObjectives
+      .flatMap((o) => o.keyResults)
+      .find((k) => k.id === krId);
+    if (kr) {
+      handleEditKeyResult(kr);
+      return;
+    }
+    setEditingKeyResult({
+      id: krId,
+      title: "",
+      currentValue: 0,
+      targetValue: 0,
+      startValue: 0,
+      status: "on-track",
+    });
+    openEditKrModal();
+  };
+
   const handleViewObjective = (obj: ObjectiveCardObjective) => {
     // Set the item synchronously to avoid a flash before the effect resolves
     // it, then push the deep-link param.
@@ -864,6 +886,9 @@ export function OkrDashboard({
           void utils.okr.getByObjective.invalidate();
           void utils.okr.getStats.invalidate();
           void utils.okr.getCountsByYear.invalidate();
+          // Refresh the objective drawer (goal.getById) so a KR check-in made
+          // via its "Update progress" picker reflects immediately.
+          void utils.goal.getById.invalidate();
         }}
       />
 
@@ -878,6 +903,7 @@ export function OkrDashboard({
         status={drawerItem?.status}
         lifeDomainName={drawerItem?.lifeDomainName}
         onOpenKeyResult={handleOpenKeyResultById}
+        onUpdateProgress={handleUpdateProgressForKr}
       />
     </Container>
   );
