@@ -1073,6 +1073,7 @@ export function OkrDetailDrawer({
   const isObjective = type === "objective";
   const data = isObjective ? objectiveQuery.data : krQuery.data;
   const isLoading = isObjective ? objectiveQuery.isLoading : krQuery.isLoading;
+  const isError = isObjective ? objectiveQuery.isError : krQuery.isError;
 
   // Compute all display fields once we have data
   const view = useMemo(() => {
@@ -1338,7 +1339,12 @@ export function OkrDetailDrawer({
         onClose={onClose}
       />
 
-      {isLoading || !view ? (
+      {isError ? (
+        <div className="grid flex-1 place-items-center p-6 text-center text-sm text-text-muted">
+          This item couldn’t be found. It may have been deleted, or you don’t
+          have access to it.
+        </div>
+      ) : isLoading || !view ? (
         <div className="flex-1 p-6">
           <Skeleton height={28} width={160} mb="md" />
           <Skeleton height={32} width="80%" mb="lg" />
