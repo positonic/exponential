@@ -18,6 +18,7 @@ import {
   ActionIcon,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
+import { notifications } from "@mantine/notifications";
 import {
   IconTargetArrow,
   IconPlus,
@@ -444,6 +445,31 @@ export function OkrDashboard({
       status: "on-track",
     });
     openDrawerUrl("keyResult", krId);
+  };
+
+  // Copy an absolute deep link that reopens this exact drawer (?drawer=type:id)
+  // on the panel that matches this dashboard's scope. Used by the Share CTA.
+  const handleShare = (type: "objective" | "keyResult", id: number | string) => {
+    const tab = scope === "mine" ? "my-goals" : "okrs";
+    const path = workspaceSlug ? `/w/${workspaceSlug}/goals` : "/goals";
+    const url = `${window.location.origin}${path}?tab=${tab}&drawer=${type}:${id}`;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(url).then(
+        () => notifications.show({ message: "Link copied", color: "green" }),
+        () =>
+          notifications.show({
+            title: "Couldn't copy link",
+            message: url,
+            color: "red",
+          }),
+      );
+    } else {
+      notifications.show({
+        title: "Clipboard unavailable — copy this link",
+        message: url,
+        color: "yellow",
+      });
+    }
   };
 
   // Summary for the header subtitle
@@ -904,6 +930,11 @@ export function OkrDashboard({
         lifeDomainName={drawerItem?.lifeDomainName}
         onOpenKeyResult={handleOpenKeyResultById}
         onUpdateProgress={handleUpdateProgressForKr}
+        onShare={
+          drawerItem
+            ? () => handleShare(drawerItem.type, drawerItem.id)
+            : undefined
+        }
       />
     </Container>
   );
