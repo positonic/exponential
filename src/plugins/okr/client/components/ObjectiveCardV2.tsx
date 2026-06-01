@@ -106,6 +106,8 @@ interface ObjectiveCardV2Props {
   onEditSuccess?: () => void;
   onAddKeyResult?: (objectiveId: number) => void;
   onEditKeyResult?: (keyResult: ObjectiveCardKeyResult) => void;
+  onDeleteKeyResult?: (id: string) => void;
+  deletingKeyResultId?: string | null;
   onViewObjective?: () => void;
   onViewKeyResult?: (kr: ObjectiveCardKeyResult) => void;
 }
@@ -260,6 +262,8 @@ function KrLine({
   workspaceSlug,
   onEdit,
   onView,
+  onDelete,
+  isDeleting,
 }: {
   kr: ObjectiveCardKeyResult;
   code: string;
@@ -268,6 +272,8 @@ function KrLine({
   workspaceSlug: string | null | undefined;
   onEdit?: () => void;
   onView?: () => void;
+  onDelete?: (id: string) => void;
+  isDeleting?: boolean;
 }) {
   const progress = krProgress(kr);
   const expected = kr.period ? expectedProgress(kr.period) : 0;
@@ -283,7 +289,7 @@ function KrLine({
   return (
     <div className="border-t border-border-primary first:border-t-0">
       <div
-        className="group grid cursor-pointer grid-cols-[4px_1fr_auto_24px_26px_28px] items-center gap-3 px-1 py-3 transition-colors hover:bg-surface-hover"
+        className="group grid cursor-pointer grid-cols-[4px_1fr_auto_24px_26px_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-surface-hover"
         role="button"
         tabIndex={0}
         aria-expanded={isExpanded}
@@ -319,22 +325,6 @@ function KrLine({
             <Text size="sm" className="truncate font-medium text-text-primary">
               {kr.title}
             </Text>
-            {onView && (
-              <Tooltip label="Discussion">
-                <ActionIcon
-                  variant="subtle"
-                  size="xs"
-                  className="flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                  aria-label="View discussion"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onView();
-                  }}
-                >
-                  <IconMessageCircle size={13} />
-                </ActionIcon>
-              </Tooltip>
-            )}
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
             <span>Updated {updated}</span>
@@ -402,8 +392,26 @@ function KrLine({
           <OwnerAvatar user={owner} size={24} />
         </div>
 
-        {/* Edit button */}
-        <div className="flex justify-end">
+        {/* Discussion / edit / delete actions */}
+        <div
+          className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {onView && (
+            <Tooltip label="Discussion">
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                aria-label="View discussion"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onView();
+                }}
+              >
+                <IconMessageCircle size={14} />
+              </ActionIcon>
+            </Tooltip>
+          )}
           {onEdit && (
             <Tooltip label="Edit / check in">
               <ActionIcon
@@ -416,6 +424,23 @@ function KrLine({
                 }}
               >
                 <IconPencil size={14} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+          {onDelete && (
+            <Tooltip label="Delete key result">
+              <ActionIcon
+                variant="subtle"
+                color="red"
+                size="sm"
+                aria-label="Delete key result"
+                loading={isDeleting}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(kr.id);
+                }}
+              >
+                <IconTrash size={14} />
               </ActionIcon>
             </Tooltip>
           )}
@@ -470,6 +495,8 @@ export function ObjectiveCardV2({
   onEditSuccess,
   onAddKeyResult,
   onEditKeyResult,
+  onDeleteKeyResult,
+  deletingKeyResultId,
   onViewObjective,
   onViewKeyResult,
 }: ObjectiveCardV2Props) {
@@ -577,14 +604,9 @@ export function ObjectiveCardV2({
           </Text>
         </div>
 
-        {/* Contributor stack + owner name */}
+        {/* Contributor stack (avatars only) */}
         <div className="flex items-center gap-2">
           <OwnerStack users={contributors} size={26} max={3} />
-          {owner && (
-            <Text size="xs" className="hidden whitespace-nowrap text-text-secondary lg:block">
-              {owner.name ?? owner.email ?? ""}
-            </Text>
-          )}
         </div>
 
         {/* Edit/delete/discuss actions */}
@@ -656,6 +678,8 @@ export function ObjectiveCardV2({
                 workspaceSlug={workspaceSlug}
                 onEdit={onEditKeyResult ? () => onEditKeyResult(kr) : undefined}
                 onView={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
+                onDelete={onDeleteKeyResult}
+                isDeleting={deletingKeyResultId === kr.id}
               />
             ))
           )}

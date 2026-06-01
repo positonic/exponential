@@ -348,6 +348,14 @@ export function OkrDashboard({
     },
   });
 
+  const deleteKeyResult = api.okr.delete.useMutation({
+    onSuccess: () => {
+      void utils.okr.getByObjective.invalidate();
+      void utils.okr.getStats.invalidate();
+      void utils.okr.getCountsByYear.invalidate();
+    },
+  });
+
   const goalsPath = workspaceSlug ? `/w/${workspaceSlug}/goals` : "/goals";
 
   const handleCreateKeyResult = () => {
@@ -377,6 +385,16 @@ export function OkrDashboard({
       )
     ) {
       deleteObjective.mutate({ id });
+    }
+  };
+
+  const handleDeleteKeyResult = (id: string) => {
+    if (
+      confirm(
+        "Are you sure you want to delete this key result? This action cannot be undone.",
+      )
+    ) {
+      deleteKeyResult.mutate({ id });
     }
   };
 
@@ -744,6 +762,12 @@ export function OkrDashboard({
                     }}
                     onAddKeyResult={handleAddKeyResultToObjective}
                     onEditKeyResult={handleEditKeyResult}
+                    onDeleteKeyResult={handleDeleteKeyResult}
+                    deletingKeyResultId={
+                      deleteKeyResult.isPending
+                        ? (deleteKeyResult.variables?.id ?? null)
+                        : null
+                    }
                     onViewObjective={() => handleViewObjective(obj)}
                     onViewKeyResult={handleViewKeyResult}
                   />
