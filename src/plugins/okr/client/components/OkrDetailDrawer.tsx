@@ -54,6 +54,8 @@ interface OkrDetailDrawerProps {
   onOpenKeyResult?: (keyResultId: string, keyResultTitle?: string) => void;
   /** Open a key result's check-in modal — wires the "Update progress" CTA. */
   onUpdateProgress?: (keyResultId: string) => void;
+  /** Copy a deep link to this item — wires the "Share" CTA. */
+  onShare?: () => void;
 }
 
 interface DrawerUser {
@@ -1379,6 +1381,7 @@ export function OkrDetailDrawer({
   lifeDomainName,
   onOpenKeyResult,
   onUpdateProgress,
+  onShare,
 }: OkrDetailDrawerProps) {
   const utils = api.useUtils();
   const [tab, setTab] = useState<string>("overview");
@@ -1905,6 +1908,7 @@ export function OkrDetailDrawer({
               onSetStatus={handleSetStatus}
               onStar={handleToggleFavorite}
               onUpdateProgress={onUpdateProgress}
+              onShare={onShare}
             />
           </div>
 
