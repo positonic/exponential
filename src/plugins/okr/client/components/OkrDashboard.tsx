@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Container,
   Text,
@@ -64,14 +65,75 @@ const unitOptions = [
   { value: "custom", label: "Custom" },
 ];
 
+interface DrawerItem {
+  type: "objective" | "keyResult";
+  id: number | string;
+  title?: string;
+  description?: string | null;
+  progress: number;
+  status: string;
+  lifeDomainName?: string | null;
+}
+
+function statusFromObjectiveProgress(progress: number): string {
+  return progress >= 100
+    ? "achieved"
+    : progress >= 70
+      ? "on-track"
+      : progress >= 40
+        ? "at-risk"
+        : "off-track";
+}
+
+function buildObjectiveDrawerItem(obj: ObjectiveCardObjective): DrawerItem {
+  return {
+    type: "objective",
+    id: obj.id,
+    title: obj.title,
+    description: obj.description,
+    progress: obj.progress,
+    status: statusFromObjectiveProgress(obj.progress),
+    lifeDomainName: obj.lifeDomain?.name ?? null,
+  };
+}
+
+function buildKeyResultDrawerItem(kr: ObjectiveCardKeyResult): DrawerItem {
+  const range = kr.targetValue - kr.startValue;
+  const progress = range > 0 ? ((kr.currentValue - kr.startValue) / range) * 100 : 0;
+  return {
+    type: "keyResult",
+    id: kr.id,
+    title: kr.title,
+    description: kr.description ?? null,
+    progress: Math.min(100, Math.max(0, progress)),
+    status: kr.status,
+    lifeDomainName: null,
+  };
+}
+
 export function OkrDashboard({
   scope = "workspace",
 }: { scope?: "workspace" | "mine" } = {}) {
   const { workspaceId, workspaceSlug } = useWorkspace();
-  const { year: selectedYear, period: selectedPeriod, setYear, setPeriod } =
-    useOkrSearchParams();
+  const {
+    year: selectedYear,
+    period: selectedPeriod,
+    setYear,
+    setPeriod,
+    drawerParam,
+    openDrawer: openDrawerUrl,
+    closeDrawer: closeDrawerUrl,
+  } = useOkrSearchParams();
+  const searchParams = useSearchParams();
 
   const onlyMine = scope === "mine";
+
+  // Both the OKRs and My Goals tabs mount an OkrDashboard simultaneously
+  // (Mantine keeps inactive Tabs.Panels mounted). Gate URL-driven drawer
+  // opening to the active panel so a `drawer=` param opens only one drawer.
+  const activeTab = searchParams.get("tab") ?? "goals";
+  const isActivePanel =
+    scope === "mine" ? activeTab === "my-goals" : activeTab === "okrs";
 
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
     useDisclosure(false);
@@ -80,17 +142,17 @@ export function OkrDashboard({
   const [editingKeyResult, setEditingKeyResult] =
     useState<ObjectiveCardKeyResult | null>(null);
 
-  const [drawerOpened, { open: openDrawer, close: closeDrawer }] =
-    useDisclosure(false);
-  const [drawerItem, setDrawerItem] = useState<{
-    type: "objective" | "keyResult";
-    id: number | string;
-    title: string;
-    description?: string | null;
-    progress: number;
-    status: string;
-    lifeDomainName?: string | null;
-  } | null>(null);
+  const [drawerItem, setDrawerItem] = useState<DrawerItem | null>(null);
+
+  // The drawer is open when this panel is active and the URL `drawer=` param
+  // resolves to an item we've materialised. Requiring the materialised item to
+  // match the param keeps invalid/stale ids from opening an empty drawer.
+  const drawerOpened =
+    isActivePanel &&
+    drawerParam !== null &&
+    drawerItem !== null &&
+    drawerItem.type === drawerParam.type &&
+    String(drawerItem.id) === drawerParam.id;
 
   const [expandedObjectives, setExpandedObjectives] = useState<Set<number>>(
     new Set(),
@@ -201,6 +263,52 @@ export function OkrDashboard({
     }
   }, [visibleObjectives, expandedObjectives.size]);
 
+  // Materialise the drawer item from the URL `drawer=` param. Handles deep
+  // links, refresh, and browser back/forward where there's no in-memory item
+  // from a click. When the item isn't in the current period's data we open it
+  // by id so the drawer can fetch it; a malformed objective id stays closed.
+  useEffect(() => {
+    if (!isActivePanel || !drawerParam) return;
+    if (
+      drawerItem &&
+      drawerItem.type === drawerParam.type &&
+      String(drawerItem.id) === drawerParam.id
+    ) {
+      return;
+    }
+    if (drawerParam.type === "objective") {
+      const obj = visibleObjectives.find(
+        (o) => String(o.id) === drawerParam.id,
+      );
+      if (obj) {
+        setDrawerItem(buildObjectiveDrawerItem(obj));
+        return;
+      }
+      const numericId = Number(drawerParam.id);
+      if (!Number.isInteger(numericId)) return;
+      setDrawerItem({
+        type: "objective",
+        id: numericId,
+        progress: 0,
+        status: "on-track",
+      });
+    } else {
+      const kr = visibleObjectives
+        .flatMap((o) => o.keyResults)
+        .find((k) => String(k.id) === drawerParam.id);
+      if (kr) {
+        setDrawerItem(buildKeyResultDrawerItem(kr));
+        return;
+      }
+      setDrawerItem({
+        type: "keyResult",
+        id: drawerParam.id,
+        progress: 0,
+        status: "on-track",
+      });
+    }
+  }, [isActivePanel, drawerParam, visibleObjectives, drawerItem]);
+
   const toggleExpand = (objectiveId: number) => {
     setExpandedObjectives((prev) => {
       const next = new Set(prev);
@@ -281,39 +389,15 @@ export function OkrDashboard({
   };
 
   const handleViewObjective = (obj: ObjectiveCardObjective) => {
-    const statusFromProgress =
-      obj.progress >= 100
-        ? "achieved"
-        : obj.progress >= 70
-          ? "on-track"
-          : obj.progress >= 40
-            ? "at-risk"
-            : "off-track";
-    setDrawerItem({
-      type: "objective",
-      id: obj.id,
-      title: obj.title,
-      description: obj.description,
-      progress: obj.progress,
-      status: statusFromProgress,
-      lifeDomainName: obj.lifeDomain?.name ?? null,
-    });
-    openDrawer();
+    // Set the item synchronously to avoid a flash before the effect resolves
+    // it, then push the deep-link param.
+    setDrawerItem(buildObjectiveDrawerItem(obj));
+    openDrawerUrl("objective", obj.id);
   };
 
   const handleViewKeyResult = (kr: ObjectiveCardKeyResult) => {
-    const range = kr.targetValue - kr.startValue;
-    const progress = range > 0 ? ((kr.currentValue - kr.startValue) / range) * 100 : 0;
-    setDrawerItem({
-      type: "keyResult",
-      id: kr.id,
-      title: kr.title,
-      description: kr.description ?? null,
-      progress: Math.min(100, Math.max(0, progress)),
-      status: kr.status,
-      lifeDomainName: null,
-    });
-    openDrawer();
+    setDrawerItem(buildKeyResultDrawerItem(kr));
+    openDrawerUrl("keyResult", kr.id);
   };
 
   // Summary for the header subtitle
@@ -761,7 +845,7 @@ export function OkrDashboard({
 
       <OkrDetailDrawer
         opened={drawerOpened}
-        onClose={closeDrawer}
+        onClose={closeDrawerUrl}
         type={drawerItem?.type ?? "objective"}
         itemId={drawerItem?.id ?? null}
         title={drawerItem?.title}
