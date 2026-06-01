@@ -160,6 +160,8 @@ model User {
   projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
   // Workspace home activity feed
   workspaceActivityEvents     WorkspaceActivityEvent[]
+  // Per-user favourites (polymorphic pins)
+  favorites                   Favorite[]
 
   // Onboarding: Attribution
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
@@ -292,6 +294,7 @@ model Workspace {
   // Plugin and OKR relations
   pluginConfigs           PluginConfig[]
   keyResults              KeyResult[]
+  favorites               Favorite[]
   // Tag relations
   tags                    Tag[]
   weeklyReviewCompletions WeeklyReviewCompletion[]
@@ -2717,6 +2720,25 @@ model KeyResultComment {
   @@index([keyResultId])
   @@index([authorId])
   @@index([createdAt])
+}
+
+// Per-user favourite (polymorphic pin of any entity). v1 wires entityType
+// "objective" and "keyResult"; deliberately extensible to projects/meetings.
+// entityId is a stringified id (Goal id or KeyResult cuid) — no FK because the
+// target is polymorphic. workspaceId is captured for workspace-scoped surfaces.
+model Favorite {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String?
+  entityType  String // "objective" | "keyResult"
+  entityId    String // Goal id (as string) or KeyResult cuid
+  createdAt   DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, entityType, entityId])
+  @@index([userId, workspaceId])
 }
 
 // Action Discussion Comments

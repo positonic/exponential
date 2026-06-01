@@ -73,6 +73,7 @@ import { crmApiRouter } from "./routers/crmApi";
 import { pluginConfigRouter } from "./routers/pluginConfig";
 import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
 import { productPluginRouter } from "~/plugins/product/server/routers";
+import { favoriteRouter } from "~/server/api/routers/favorite";
 import { authRouter } from "./routers/auth";
 import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
@@ -159,6 +160,7 @@ export const appRouter = createTRPCRouter({
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
   product: productPluginRouter,
+  favorite: favoriteRouter,
 });
 
 // export type definition of API
