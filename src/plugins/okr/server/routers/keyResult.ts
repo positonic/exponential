@@ -905,9 +905,11 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify user owns this goal
-      const goal = await ctx.db.goal.findFirst({
-        where: { id: input.goalId, userId: ctx.session.user.id },
+      // Access mirrors getObjectiveActivity: owner, or any member of the goal's
+      // workspace. Shared-workspace OKRs are commentable by members.
+      const goal = await ctx.db.goal.findUnique({
+        where: { id: input.goalId },
+        select: { id: true, userId: true, workspaceId: true },
       });
 
       if (!goal) {
@@ -915,6 +917,19 @@ export const keyResultRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Objective not found",
         });
+      }
+
+      if (goal.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          goal.workspaceId,
+        );
+        if (!membership && goal.userId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      } else if (goal.userId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
 
       const comment = await ctx.db.goalComment.create({
@@ -941,9 +956,11 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      // Verify user owns this goal
-      const goal = await ctx.db.goal.findFirst({
-        where: { id: input.goalId, userId: ctx.session.user.id },
+      // Access mirrors getObjectiveActivity: owner, or any member of the goal's
+      // workspace. Shared-workspace OKRs are readable by members.
+      const goal = await ctx.db.goal.findUnique({
+        where: { id: input.goalId },
+        select: { id: true, userId: true, workspaceId: true },
       });
 
       if (!goal) {
@@ -951,6 +968,19 @@ export const keyResultRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Objective not found",
         });
+      }
+
+      if (goal.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          goal.workspaceId,
+        );
+        if (!membership && goal.userId !== ctx.session.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
+        }
+      } else if (goal.userId !== ctx.session.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
 
       return ctx.db.goalComment.findMany({
@@ -1101,11 +1131,12 @@ export const keyResultRouter = createTRPCRouter({
           where: { goalId: input.goalId },
           include: { author: authorSelect },
         }),
-        // Order by createdAt asc so the per-objective KR code (KR1, KR2, …) is
-        // stable and matches the KRs tab's listing order.
+        // Order by createdAt asc, then id asc as a deterministic tiebreaker so
+        // the per-objective KR code (KR1, KR2, …) is stable even when two KRs
+        // share a createdAt timestamp, and matches the KRs tab's listing order.
         ctx.db.keyResult.findMany({
           where: { goalId: input.goalId },
-          orderBy: { createdAt: "asc" },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           select: {
             id: true,
             title: true,

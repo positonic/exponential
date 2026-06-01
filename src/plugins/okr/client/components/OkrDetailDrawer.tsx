@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Drawer, Tooltip, ActionIcon, Skeleton, Textarea } from "@mantine/core";
 import {
   IconTarget,
@@ -1179,6 +1179,13 @@ export function OkrDetailDrawer({
   const utils = api.useUtils();
   const [tab, setTab] = useState<string>("overview");
   const [size, setSize] = useState<TopBarSize>("m");
+
+  // The "krs" / "projects" tabs are entity-specific, so a tab that's valid for
+  // one entity renders a blank body for another. Reset to "overview" whenever
+  // the drawer switches to a different entity (e.g. objective → key result).
+  useEffect(() => {
+    setTab("overview");
+  }, [type, itemId]);
 
   const drawerSize =
     size === "s" ? 560 : size === "l" ? 960 : size === "max" ? "100%" : 720;
