@@ -27,6 +27,7 @@ import { captureAction } from "~/server/services/voice/capture";
 import { getTodaysPlan } from "~/server/services/voice/dailyBrief";
 import { runQuery } from "~/server/services/voice/query";
 import { completeAction } from "~/server/services/voice/complete";
+import { askExponential } from "~/server/services/voice/brainPassthrough";
 import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
 
 /** The four coarse tools configured on the Realtime session (v1). */
@@ -162,6 +163,31 @@ export const voiceRouter = createTRPCRouter({
             };
           }
           return completeAction(phrase, userId, db, { confirm: input.confirm });
+        }
+
+        case "ask_exponential": {
+          // Brain passthrough (ADR 0003): hand the whole turn to zoe's full agent
+          // for everything the four coarse tools don't cover. zoe self-confirms
+          // destructive actions; on failure we degrade gracefully so the voice
+          // session never hangs.
+          const phrase = extractPhrase(input.args);
+          if (!phrase) {
+            return {
+              speakable: "What would you like me to help with?",
+              structured: { error: "missing_phrase" },
+              needsConfirmation: false,
+            };
+          }
+          try {
+            return await askExponential(phrase, userId, db);
+          } catch (error) {
+            console.error("[voice.dispatch] ask_exponential failed:", error);
+            return {
+              speakable: "I couldn't reach the assistant just now. Try again in a moment.",
+              structured: { error: "brain_unavailable" },
+              needsConfirmation: false,
+            };
+          }
         }
 
         default: {
