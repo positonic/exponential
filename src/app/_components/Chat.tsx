@@ -1,27 +1,33 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { api } from "~/trpc/react";
-import { 
-  Paper, 
-  TextInput, 
-  Button, 
-  Stack, 
-  ScrollArea, 
-  Avatar, 
-  Group, 
+import {
+  Paper,
+  TextInput,
+  Button,
+  Stack,
+  ScrollArea,
+  Avatar,
+  Group,
   Text,
   Box,
-  ActionIcon
+  ActionIcon,
+  Badge,
+  Anchor,
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useVoiceSession } from '~/lib/voice/useVoiceSession';
 
 interface Message {
     type: 'system' | 'human' | 'ai' | 'tool';
     content: string;
     tool_call_id?: string;
     name?: string;
+    /** 'voice' when this turn was spoken (renders the 🎙 marker). */
+    marker?: 'voice';
 }
 
 interface ChatProps {
@@ -66,7 +72,45 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
 
   const utils = api.useUtils();
   const transcribeAudio = api.tools.transcribe.useMutation();
-//const transcribeAudio = api.tools.transcribeFox.useMutation(); 
+//const transcribeAudio = api.tools.transcribeFox.useMutation();
+
+  // ── Voice mode (live WebRTC speech-to-speech) ──────────────────────
+  // Separate, deliberate mode alongside the dictation mic above — that
+  // record→transcribe→fill-textarea flow stays exactly as it is.
+  const { workspaceId } = useWorkspace();
+  const voiceTokenRef = useRef<string | null>(null);
+  const createVoiceSession = api.voice.createSession.useMutation();
+  const persistVoiceTurn = api.voice.persistTurn.useMutation();
+
+  // A committed voice turn: show it in the thread (marked 🎙) and persist it to
+  // the voice-scoped memory thread so the session stays continuous.
+  const recordVoiceTurn = useCallback(
+    (type: 'human' | 'ai', content: string) => {
+      setMessages((prev) => [...prev, { type, content, marker: 'voice' }]);
+      const token = voiceTokenRef.current;
+      if (token) {
+        persistVoiceTurn.mutate({
+          token,
+          role: type === 'human' ? 'user' : 'assistant',
+          text: content,
+        });
+      }
+    },
+    [persistVoiceTurn],
+  );
+
+  const voice = useVoiceSession({
+    createSession: async () => {
+      const res = await createVoiceSession.mutateAsync(
+        workspaceId ? { workspaceId } : undefined,
+      );
+      voiceTokenRef.current = res.voiceSessionToken;
+      return res;
+    },
+    onUserTranscript: (text) => recordVoiceTurn('human', text),
+    onAssistantTranscript: (text) => recordVoiceTurn('ai', text),
+  });
+  const voiceActive = voice.state !== 'idle';
   // Scroll to bottom when messages change
   useEffect(() => {
     if (viewport.current) {
@@ -302,6 +346,11 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                         whiteSpace: 'pre-wrap',
                       }}
                     >
+                      {message.marker === 'voice' && (
+                        <span title="Spoken via voice mode" aria-label="voice" style={{ marginRight: 4 }}>
+                          🎙
+                        </span>
+                      )}
                       {renderMessageContent(message.content)}
                     </Text>
                   </Paper>
@@ -320,6 +369,36 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
               </Box>
             ))}
           </ScrollArea>
+
+          {(voiceActive || voice.permissionDenied || voice.lastError) && (
+            <Box px="md">
+              {voice.permissionDenied ? (
+                <Text size="xs" c="red">
+                  Microphone access is blocked.{' '}
+                  <Anchor
+                    href="https://support.google.com/chrome/answer/2693767"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="xs"
+                  >
+                    Fix browser permissions
+                  </Anchor>{' '}
+                  then click Voice mode again.
+                </Text>
+              ) : voiceActive ? (
+                <Group gap="xs">
+                  <Badge color="blue" variant="light">
+                    Voice: {voice.state}
+                  </Badge>
+                  <Button size="compact-xs" variant="subtle" color="red" onClick={() => voice.stop()}>
+                    End voice
+                  </Button>
+                </Group>
+              ) : voice.lastError ? (
+                <Text size="xs" c="red">{voice.lastError}</Text>
+              ) : null}
+            </Box>
+          )}
 
           <form onSubmit={handleSubmit} style={{ marginTop: 'auto' }}>
             <Group align="flex-end">
@@ -340,15 +419,27 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
                     }
                   }
                 }}
-                rightSectionWidth={100}
+                rightSectionWidth={140}
                 rightSection={
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <ActionIcon
+                      onClick={() => (voiceActive ? voice.stop() : void voice.start())}
+                      variant={voiceActive ? 'filled' : 'subtle'}
+                      color={voiceActive ? 'blue' : 'gray'}
+                      className={voice.state === 'listening' ? 'animate-pulse' : ''}
+                      size="sm"
+                      title="Voice mode — talk to zoe"
+                      aria-label="Toggle voice mode"
+                    >
+                      🎙
+                    </ActionIcon>
                     <ActionIcon
                       onClick={handleMicClick}
                       variant="subtle"
                       color={isRecording ? "red" : "gray"}
                       className={isRecording ? "animate-pulse" : ""}
                       size="sm"
+                      title="Dictate — fill the message box"
                     >
                       {isRecording ? (
                         <IconMicrophoneOff size={16} />

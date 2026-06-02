@@ -53,8 +53,18 @@ export interface UseVoiceSessionOptions {
   createSession: () => Promise<VoiceSessionMint>;
   /** Base URL for brainDispatcher; defaults to same-origin. */
   baseUrl?: string;
-  /** Optional tap on raw Realtime server events (used by the transcript bridge). */
+  /** Optional tap on raw Realtime server events. */
   onServerEvent?: (event: RealtimeServerEvent) => void;
+  /** A committed user utterance transcript (one per finished user turn). */
+  onUserTranscript?: (text: string) => void;
+  /** A committed assistant spoken transcript (one per finished zoe turn). */
+  onAssistantTranscript?: (text: string) => void;
+  /**
+   * Auto-close the session after this many ms of total silence (no speech, no
+   * response activity), to bound Realtime per-minute billing. Default ~25s.
+   * Set to 0 to disable.
+   */
+  endOnSilenceMs?: number;
 }
 
 export interface UseVoiceSession {
@@ -62,7 +72,11 @@ export interface UseVoiceSession {
   start: () => Promise<void>;
   stop: () => void;
   lastError: string | null;
+  /** True when start() failed because mic permission was denied/blocked. */
+  permissionDenied: boolean;
 }
+
+const DEFAULT_END_ON_SILENCE_MS = 25_000;
 
 /** A Realtime server event — a tagged JSON object over the data channel. */
 export interface RealtimeServerEvent {
@@ -75,12 +89,14 @@ export function useVoiceSession(
 ): UseVoiceSession {
   const [state, setState] = useState<VoiceSessionState>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
   const micRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const tokenRef = useRef<string | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the most recent complete_action gate so a confirm pins to that action.
   const pendingActionIdRef = useRef<string | undefined>(undefined);
   // Latest options without forcing start/stop identities to change.
@@ -88,6 +104,10 @@ export function useVoiceSession(
   optionsRef.current = options;
 
   const teardown = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     dcRef.current?.close();
     dcRef.current = null;
     pcRef.current?.getSenders().forEach((s) => s.track?.stop());
@@ -113,6 +133,17 @@ export function useVoiceSession(
 
   // Always release the session if the component using the hook unmounts.
   useEffect(() => () => teardown(), [teardown]);
+
+  /** (Re)start the end-on-silence countdown; any activity event resets it. */
+  const armSilenceTimer = useCallback(() => {
+    const ms = optionsRef.current.endOnSilenceMs ?? DEFAULT_END_ON_SILENCE_MS;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (ms <= 0) return;
+    silenceTimerRef.current = setTimeout(() => {
+      // Only running sessions hold a peer connection; bounds idle billing.
+      if (pcRef.current) stop();
+    }, ms);
+  }, [stop]);
 
   /** Send a client event over the data channel (no-op if not open). */
   const send = useCallback((event: Record<string, unknown>) => {
@@ -186,6 +217,8 @@ export function useVoiceSession(
   const onServerEvent = useCallback(
     (event: RealtimeServerEvent) => {
       optionsRef.current.onServerEvent?.(event);
+      // Any server event is activity — reset the end-on-silence countdown.
+      armSilenceTimer();
 
       switch (event.type) {
         case "input_audio_buffer.speech_started":
@@ -200,6 +233,17 @@ export function useVoiceSession(
         case "output_audio_buffer.stopped":
           setState("listening");
           break;
+        case "conversation.item.input_audio_transcription.completed": {
+          const text = asString(event.transcript)?.trim();
+          if (text) optionsRef.current.onUserTranscript?.(text);
+          break;
+        }
+        case "response.output_audio_transcript.done":
+        case "response.audio_transcript.done": {
+          const text = asString(event.transcript)?.trim();
+          if (text) optionsRef.current.onAssistantTranscript?.(text);
+          break;
+        }
         case "response.function_call_arguments.done": {
           // GA carries name + call_id + arguments on this event.
           const callId = asString(event.call_id);
@@ -226,19 +270,38 @@ export function useVoiceSession(
           break;
       }
     },
-    [handleToolCall],
+    [handleToolCall, armSilenceTimer],
   );
 
   const start = useCallback(async () => {
     if (pcRef.current) return; // already running
     setLastError(null);
+    setPermissionDenied(false);
     setState("connecting");
+
+    let mic: MediaStream;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      // Distinguish a blocked-permission denial so the UI can explain how to fix it.
+      const denied =
+        err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "SecurityError");
+      setPermissionDenied(denied);
+      setLastError(
+        denied
+          ? "Microphone access is blocked. Allow microphone permission in your browser settings, then try again."
+          : err instanceof Error
+            ? err.message
+            : "Couldn't access the microphone.",
+      );
+      setState("idle");
+      return;
+    }
 
     try {
       const mint = await optionsRef.current.createSession();
       tokenRef.current = mint.voiceSessionToken;
-
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
       micRef.current = mic;
 
       const pc = new RTCPeerConnection();
@@ -259,6 +322,7 @@ export function useVoiceSession(
       dc.onopen = () => {
         configureSession();
         setState("listening");
+        armSilenceTimer();
       };
       dc.onmessage = (e) => {
         const parsed = safeParse(e.data);
@@ -289,9 +353,9 @@ export function useVoiceSession(
       teardown();
       setState("idle");
     }
-  }, [configureSession, onServerEvent, teardown]);
+  }, [configureSession, onServerEvent, teardown, armSilenceTimer]);
 
-  return { state, start, stop, lastError };
+  return { state, start, stop, lastError, permissionDenied };
 }
 
 // ── pure helpers ─────────────────────────────────────────────────────

@@ -33,6 +33,11 @@ import {
   resolveWorkspaceId,
   WorkspaceAccessError,
 } from "~/server/services/voice/workspaceResolver";
+import {
+  persistVoiceTurn,
+  voiceThreadKey,
+  EmptyVoiceTurnError,
+} from "~/server/services/voice/voiceTranscriptBridge";
 
 /** The four coarse tools configured on the Realtime session (v1). */
 export const COARSE_TOOLS = [
@@ -254,6 +259,46 @@ export const voiceRouter = createTRPCRouter({
             needsConfirmation: false,
           };
         }
+      }
+    }),
+
+  /**
+   * Persist one voice transcript turn into the voice-scoped memory thread, so a
+   * voice session has continuity across turns. Authed by the voice-session JWT
+   * (same as dispatch). Isolated from text-chat memory — see voiceTranscriptBridge.
+   */
+  persistTurn: publicProcedure
+    .input(
+      z.object({
+        token: z.string().min(1, "voice-session token required"),
+        role: z.enum(["user", "assistant"]),
+        text: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      let userId: string;
+      try {
+        ({ userId } = verifyVoiceSessionToken(input.token));
+      } catch {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid or missing voice-session token",
+        });
+      }
+
+      try {
+        const turn = await persistVoiceTurn({
+          userId,
+          role: input.role,
+          text: input.text,
+          threadKey: voiceThreadKey(userId),
+        });
+        return { id: turn.id, marker: turn.marker };
+      } catch (err) {
+        if (err instanceof EmptyVoiceTurnError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
       }
     }),
 });
