@@ -21,6 +21,8 @@ export interface ParseActionInputOptions {
   projectId?: string;
   /** Whether to parse natural language (default: true) */
   parseNaturalLanguage?: boolean;
+  /** If provided, only match against projects in this workspace. */
+  workspaceId?: string;
 }
 
 /**
@@ -56,6 +58,7 @@ export async function parseActionInput(
     where: {
       createdById: userId,
       status: { not: "COMPLETED" },
+      ...(options?.workspaceId ? { workspaceId: options.workspaceId } : {}),
     },
     select: {
       id: true,

@@ -33,12 +33,23 @@ function getAuthSecret(): string {
  * Mint a voice-session JWT for the given user. ~30-min expiry (DEFAULT_EXPIRY),
  * audience scoped to the voice tool surface.
  */
-export function mintVoiceSessionToken(user: JWTUserPayload): string {
-  return generateJWT(user, { tokenType: "voice-session" });
+export function mintVoiceSessionToken(
+  user: JWTUserPayload,
+  workspaceId?: string,
+): string {
+  return generateJWT(user, {
+    tokenType: "voice-session",
+    ...(workspaceId ? { extraClaims: { workspaceId } } : {}),
+  });
 }
 
 export interface VerifiedVoiceSession {
   userId: string;
+  /**
+   * The workspace this session operates in (verified claim). Absent on legacy
+   * tokens minted before the claim existed — callers fall back accordingly.
+   */
+  workspaceId?: string;
 }
 
 /**
@@ -57,6 +68,7 @@ export function verifyVoiceSessionToken(token: string): VerifiedVoiceSession {
     tokenType?: string;
     nbf?: number;
     securityVersion?: number;
+    workspaceId?: string;
   };
 
   if (decoded.tokenType !== "voice-session") {
@@ -77,5 +89,14 @@ export function verifyVoiceSessionToken(token: string): VerifiedVoiceSession {
     throw new Error("Voice-session token missing user identifier");
   }
 
-  return { userId };
+  // workspaceId is OPTIONAL by design (legacy tokens minted before the claim,
+  // and users who belong to no workspace, carry none — callers fall back). We
+  // therefore don't reject a missing claim; we only guard the TYPE, ignoring a
+  // malformed non-string claim rather than propagating it as a workspaceId.
+  const workspaceId =
+    typeof decoded.workspaceId === "string" && decoded.workspaceId.length > 0
+      ? decoded.workspaceId
+      : undefined;
+
+  return { userId, workspaceId };
 }

@@ -38,6 +38,7 @@ export async function resolveActionByDescription(
   phrase: string,
   userId: string,
   db: PrismaClient,
+  workspaceId?: string,
 ): Promise<ResolveResult> {
   const normalized = normalizeDescription(phrase);
   if (!normalized) return { kind: "none" };
@@ -54,6 +55,9 @@ export async function resolveActionByDescription(
         buildActionAccessWhere(userId),
         { status: { notIn: NON_OPEN_STATUSES } },
         { OR: nameOr },
+        // Scope to the session's workspace so a voice "mark X done" can never
+        // resolve an action from a workspace the session isn't operating in.
+        ...(workspaceId ? [{ workspaceId }] : []),
       ],
     },
     select: {

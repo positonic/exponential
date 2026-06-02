@@ -17,9 +17,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
-import { db } from "~/server/db";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { resolveVoiceCaller } from "~/server/api/middleware/resolveVoiceCaller";
 import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
@@ -29,6 +28,15 @@ import { runQuery } from "~/server/services/voice/query";
 import { completeAction } from "~/server/services/voice/complete";
 import { askExponential } from "~/server/services/voice/brainPassthrough";
 import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
+import {
+  resolveWorkspaceId,
+  WorkspaceAccessError,
+} from "~/server/services/voice/workspaceResolver";
+import {
+  persistVoiceTurn,
+  voiceThreadKey,
+  EmptyVoiceTurnError,
+} from "~/server/services/voice/voiceTranscriptBridge";
 
 /** The four coarse tools configured on the Realtime session (v1). */
 export const COARSE_TOOLS = [
@@ -50,14 +58,37 @@ export interface DispatchResult {
 
 export const voiceRouter = createTRPCRouter({
   /**
-   * Mint a voice session. Authed by the durable Exponential API key via the
-   * x-api-key middleware (ctx.userId is guaranteed non-null here).
+   * Mint a voice session. Authed by the any-of voice gate (resolveVoiceCaller):
+   * a NextAuth session cookie (web), an x-api-key (legacy iOS), or — reserved,
+   * inert today — a device token. Browser users never paste an API key.
    */
-  createSession: apiKeyMiddleware
-    .input(z.object({ mode: modeSchema }).optional())
-    .mutation(async ({ ctx }) => {
+  createSession: publicProcedure
+    .input(
+      z
+        .object({ mode: modeSchema, workspaceId: z.string().optional() })
+        .optional(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { userId } = await resolveVoiceCaller(ctx);
+
+      // Resolve (and validate) the session's workspace once, here — the result
+      // is baked into the voice-session JWT as a verified claim so the device
+      // cannot tamper with the workspace the brain operates in.
+      let workspaceId: string | undefined;
+      try {
+        workspaceId = await resolveWorkspaceId(userId, ctx.db, input?.workspaceId);
+      } catch (err) {
+        if (err instanceof WorkspaceAccessError) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of the requested workspace.",
+          });
+        }
+        throw err;
+      }
+
       const realtime = await createRealtimeSession();
-      const voiceSessionToken = mintVoiceSessionToken({ id: ctx.userId });
+      const voiceSessionToken = mintVoiceSessionToken({ id: userId }, workspaceId);
 
       return {
         openaiEphemeralKey: realtime.ephemeralKey,
@@ -89,10 +120,11 @@ export const voiceRouter = createTRPCRouter({
         pendingActionId: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }): Promise<DispatchResult> => {
+    .mutation(async ({ ctx, input }): Promise<DispatchResult> => {
       let userId: string;
+      let workspaceId: string | undefined;
       try {
-        ({ userId } = verifyVoiceSessionToken(input.token));
+        ({ userId, workspaceId } = verifyVoiceSessionToken(input.token));
       } catch {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -111,7 +143,7 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          const { action, inbox } = await captureAction(phrase, userId, db);
+          const { action, inbox } = await captureAction(phrase, userId, ctx.db, workspaceId);
           return {
             speakable: speakableCaptureConfirmation({
               name: action.name,
@@ -124,12 +156,15 @@ export const voiceRouter = createTRPCRouter({
         }
 
         case "get_todays_plan": {
-          // Read-only briefing: never raises the confirmation gate.
-          const { speakable, data } = await getTodaysPlan(userId, db, {
-            workspaceId:
-              typeof input.args?.workspaceId === "string"
-                ? input.args.workspaceId
-                : undefined,
+          // Read-only briefing: never raises the confirmation gate. The verified
+          // token claim is authoritative; args.workspaceId is honoured only as a
+          // back-compat fallback for one release (see ticket #10 / PRD §33).
+          const argWorkspaceId =
+            typeof input.args?.workspaceId === "string"
+              ? input.args.workspaceId
+              : undefined;
+          const { speakable, data } = await getTodaysPlan(userId, ctx.db, {
+            workspaceId: workspaceId ?? argWorkspaceId,
           });
           return {
             speakable,
@@ -149,13 +184,16 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
+          // Token claim is authoritative; args.workspaceId is back-compat only.
+          const argWorkspaceId =
+            typeof input.args?.workspaceId === "string"
+              ? input.args.workspaceId
+              : undefined;
           const { speakable, structured } = await runQuery(
             phrase,
             userId,
-            db,
-            typeof input.args?.workspaceId === "string"
-              ? input.args.workspaceId
-              : undefined,
+            ctx.db,
+            workspaceId ?? argWorkspaceId,
           );
           return { speakable, structured, needsConfirmation: false };
         }
@@ -173,9 +211,10 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          return completeAction(phrase, userId, db, {
+          return completeAction(phrase, userId, ctx.db, {
             confirm: input.confirm,
             pendingId: input.pendingActionId,
+            workspaceId,
           });
         }
 
@@ -193,7 +232,7 @@ export const voiceRouter = createTRPCRouter({
             };
           }
           try {
-            return await askExponential(phrase, userId, db);
+            return await askExponential(phrase, userId, ctx.db, workspaceId);
           } catch (error) {
             console.error("[voice.dispatch] ask_exponential failed:", error);
             return {
@@ -219,6 +258,46 @@ export const voiceRouter = createTRPCRouter({
             needsConfirmation: false,
           };
         }
+      }
+    }),
+
+  /**
+   * Persist one voice transcript turn into the voice-scoped memory thread, so a
+   * voice session has continuity across turns. Authed by the voice-session JWT
+   * (same as dispatch). Isolated from text-chat memory — see voiceTranscriptBridge.
+   */
+  persistTurn: publicProcedure
+    .input(
+      z.object({
+        token: z.string().min(1, "voice-session token required"),
+        role: z.enum(["user", "assistant"]),
+        text: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      let userId: string;
+      try {
+        ({ userId } = verifyVoiceSessionToken(input.token));
+      } catch {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid or missing voice-session token",
+        });
+      }
+
+      try {
+        const turn = await persistVoiceTurn({
+          userId,
+          role: input.role,
+          text: input.text,
+          threadKey: voiceThreadKey(userId),
+        });
+        return { id: turn.id, marker: turn.marker };
+      } catch (err) {
+        if (err instanceof EmptyVoiceTurnError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
       }
     }),
 });

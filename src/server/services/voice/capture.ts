@@ -38,13 +38,22 @@ export async function captureAction(
   phrase: string,
   userId: string,
   db: PrismaClient,
+  workspaceId?: string,
 ): Promise<CaptureResult> {
-  const parsed = await parseActionInput(phrase, userId, db);
+  const parsed = await parseActionInput(
+    phrase,
+    userId,
+    db,
+    workspaceId ? { workspaceId } : undefined,
+  );
 
-  // Inherit kanban order + workspace from the resolved project (matches the
-  // existing quick-create paths). Inbox actions get neither.
+  // Inherit kanban order from the resolved project (matches the existing
+  // quick-create paths). The action belongs to the session's workspace; a
+  // matched project's workspace (always the session's, since matching is now
+  // scoped above) refines it, and inbox actions still carry the session
+  // workspace so "what's in <workspace>?" sees them.
   let kanbanOrder: number | null = null;
-  let workspaceId: string | null = null;
+  let resolvedWorkspaceId: string | null = workspaceId ?? null;
   if (parsed.projectId) {
     const [highest, proj] = await Promise.all([
       db.action.findFirst({
@@ -58,7 +67,7 @@ export async function captureAction(
       }),
     ]);
     kanbanOrder = (highest?.kanbanOrder ?? 0) + 1;
-    workspaceId = proj?.workspaceId ?? null;
+    resolvedWorkspaceId = proj?.workspaceId ?? resolvedWorkspaceId;
   }
 
   const action = await db.action.create({
@@ -73,7 +82,7 @@ export async function captureAction(
       source: "voice",
       kanbanStatus: parsed.projectId ? "TODO" : null,
       kanbanOrder,
-      workspaceId,
+      workspaceId: resolvedWorkspaceId,
     },
     select: {
       id: true,

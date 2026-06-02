@@ -28,6 +28,7 @@ import { RequestContext } from "@mastra/core/di";
 
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { boundLength } from "~/server/services/voice/speakable";
+import { resolveWorkspaceId } from "~/server/services/voice/workspaceResolver";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
@@ -50,40 +51,23 @@ export interface BrainPassthroughResult {
 }
 
 /**
- * Resolve the user's workspace so zoe's workspace-scoped tools (OKR/goals/etc.)
- * have a valid id — without it, OKR writes hit a FK violation and zoe falls back
- * to `getUserWorkspaces` (currently a 405). Prefer the user's default workspace,
- * else their first membership.
- */
-async function resolveWorkspaceId(
-  userId: string,
-  db: PrismaClient,
-): Promise<string | undefined> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { defaultWorkspaceId: true },
-  });
-  if (user?.defaultWorkspaceId) return user.defaultWorkspaceId;
-
-  const membership = await db.workspaceUser.findFirst({
-    where: { userId },
-    orderBy: { joinedAt: "asc" },
-    select: { workspaceId: true },
-  });
-  return membership?.workspaceId;
-}
-
-/**
  * Run zoe's full agent for a voice turn and return a spoken answer. Throws are
  * caught by the caller (voice.dispatch) which renders a graceful fallback.
+ *
+ * `workspaceId` is the session's verified workspace (from the voice-session JWT
+ * claim, threaded by voice.dispatch) so zoe's workspace-scoped tools (OKR/goals)
+ * have a valid id. Legacy tokens minted before the claim existed pass it as
+ * undefined; we then fall back to the shared `workspaceResolver` (the same
+ * three-tier resolution used at session-mint time).
  */
 export async function askExponential(
   phrase: string,
   userId: string,
   db: PrismaClient,
+  workspaceId?: string,
 ): Promise<BrainPassthroughResult> {
   const agentJWT = generateAgentJWT({ id: userId });
-  const workspaceId = await resolveWorkspaceId(userId, db);
+  const effectiveWorkspaceId = workspaceId ?? (await resolveWorkspaceId(userId, db));
 
   const client = new MastraClient({
     baseUrl: MASTRA_API_URL,
@@ -95,7 +79,7 @@ export async function askExponential(
     ["authToken", agentJWT],
     ["userId", userId],
   ];
-  if (workspaceId) entries.push(["workspaceId", workspaceId]);
+  if (effectiveWorkspaceId) entries.push(["workspaceId", effectiveWorkspaceId]);
   const requestContext = new RequestContext(entries);
 
   const messages: MessageListInput = [
@@ -111,7 +95,7 @@ export async function askExponential(
   const text = (res.text ?? "").trim();
   return {
     speakable: boundLength(text.length > 0 ? text : "I didn't get an answer for that."),
-    structured: { via: "zoe", workspaceId: workspaceId ?? null },
+    structured: { via: "zoe", workspaceId: effectiveWorkspaceId ?? null },
     needsConfirmation: false,
   };
 }
