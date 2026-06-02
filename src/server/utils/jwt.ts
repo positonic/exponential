@@ -60,6 +60,12 @@ export interface GenerateJWTOptions {
   expiryMinutes?: number;
   /** Optional token name (for api-token type) */
   tokenName?: string;
+  /**
+   * Extra non-security claims merged into the token payload (e.g. the
+   * voice-session `workspaceId`). Spread BEFORE the fixed claims so it can never
+   * clobber a security-relevant field (`sub`, `aud`, `exp`, `nbf`, …).
+   */
+  extraClaims?: Record<string, unknown>;
 }
 
 /**
@@ -124,12 +130,15 @@ export function generateJWT(
     tokenType,
     expiryMinutes = DEFAULT_EXPIRY[tokenType],
     tokenName,
+    extraClaims,
   } = options;
 
   const now = Math.floor(Date.now() / 1000);
 
   return jwt.sign(
     {
+      // Spread first so the fixed security claims below always take precedence.
+      ...extraClaims,
       userId: user.id,
       sub: user.id,
       email: user.email,

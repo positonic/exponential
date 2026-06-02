@@ -29,6 +29,10 @@ import { runQuery } from "~/server/services/voice/query";
 import { completeAction } from "~/server/services/voice/complete";
 import { askExponential } from "~/server/services/voice/brainPassthrough";
 import { speakableCaptureConfirmation } from "~/server/services/voice/speakable";
+import {
+  resolveWorkspaceId,
+  WorkspaceAccessError,
+} from "~/server/services/voice/workspaceResolver";
 
 /** The four coarse tools configured on the Realtime session (v1). */
 export const COARSE_TOOLS = [
@@ -54,10 +58,30 @@ export const voiceRouter = createTRPCRouter({
    * x-api-key middleware (ctx.userId is guaranteed non-null here).
    */
   createSession: apiKeyMiddleware
-    .input(z.object({ mode: modeSchema }).optional())
-    .mutation(async ({ ctx }) => {
+    .input(
+      z
+        .object({ mode: modeSchema, workspaceId: z.string().optional() })
+        .optional(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Resolve (and validate) the session's workspace once, here — the result
+      // is baked into the voice-session JWT as a verified claim so the device
+      // cannot tamper with the workspace the brain operates in.
+      let workspaceId: string | undefined;
+      try {
+        workspaceId = await resolveWorkspaceId(ctx.userId, db, input?.workspaceId);
+      } catch (err) {
+        if (err instanceof WorkspaceAccessError) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of the requested workspace.",
+          });
+        }
+        throw err;
+      }
+
       const realtime = await createRealtimeSession();
-      const voiceSessionToken = mintVoiceSessionToken({ id: ctx.userId });
+      const voiceSessionToken = mintVoiceSessionToken({ id: ctx.userId }, workspaceId);
 
       return {
         openaiEphemeralKey: realtime.ephemeralKey,
@@ -91,8 +115,9 @@ export const voiceRouter = createTRPCRouter({
     )
     .mutation(async ({ input }): Promise<DispatchResult> => {
       let userId: string;
+      let workspaceId: string | undefined;
       try {
-        ({ userId } = verifyVoiceSessionToken(input.token));
+        ({ userId, workspaceId } = verifyVoiceSessionToken(input.token));
       } catch {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -111,7 +136,7 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          const { action, inbox } = await captureAction(phrase, userId, db);
+          const { action, inbox } = await captureAction(phrase, userId, db, workspaceId);
           return {
             speakable: speakableCaptureConfirmation({
               name: action.name,
@@ -124,12 +149,15 @@ export const voiceRouter = createTRPCRouter({
         }
 
         case "get_todays_plan": {
-          // Read-only briefing: never raises the confirmation gate.
+          // Read-only briefing: never raises the confirmation gate. The verified
+          // token claim is authoritative; args.workspaceId is honoured only as a
+          // back-compat fallback for one release (see ticket #10 / PRD §33).
+          const argWorkspaceId =
+            typeof input.args?.workspaceId === "string"
+              ? input.args.workspaceId
+              : undefined;
           const { speakable, data } = await getTodaysPlan(userId, db, {
-            workspaceId:
-              typeof input.args?.workspaceId === "string"
-                ? input.args.workspaceId
-                : undefined,
+            workspaceId: workspaceId ?? argWorkspaceId,
           });
           return {
             speakable,
@@ -149,13 +177,16 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
+          // Token claim is authoritative; args.workspaceId is back-compat only.
+          const argWorkspaceId =
+            typeof input.args?.workspaceId === "string"
+              ? input.args.workspaceId
+              : undefined;
           const { speakable, structured } = await runQuery(
             phrase,
             userId,
             db,
-            typeof input.args?.workspaceId === "string"
-              ? input.args.workspaceId
-              : undefined,
+            workspaceId ?? argWorkspaceId,
           );
           return { speakable, structured, needsConfirmation: false };
         }
@@ -176,6 +207,7 @@ export const voiceRouter = createTRPCRouter({
           return completeAction(phrase, userId, db, {
             confirm: input.confirm,
             pendingId: input.pendingActionId,
+            workspaceId,
           });
         }
 
@@ -193,7 +225,7 @@ export const voiceRouter = createTRPCRouter({
             };
           }
           try {
-            return await askExponential(phrase, userId, db);
+            return await askExponential(phrase, userId, db, workspaceId);
           } catch (error) {
             console.error("[voice.dispatch] ask_exponential failed:", error);
             return {

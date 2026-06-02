@@ -32,7 +32,7 @@ export async function completeAction(
   phrase: string,
   userId: string,
   db: PrismaClient,
-  options?: { confirm?: boolean; pendingId?: string },
+  options?: { confirm?: boolean; pendingId?: string; workspaceId?: string },
 ): Promise<CompleteResult> {
   // Confirm pinned to the action the gate originally proposed: complete exactly
   // that id, never re-resolve the phrase. Re-resolving on confirm could land on
@@ -40,10 +40,15 @@ export async function completeAction(
   // — the confirmation the user gave was for the suggested action, not whatever
   // the phrase now matches.
   if (options?.confirm && options.pendingId) {
-    return completeById(options.pendingId, userId, db);
+    return completeById(options.pendingId, userId, db, options.workspaceId);
   }
 
-  const resolution = await resolveActionByDescription(phrase, userId, db);
+  const resolution = await resolveActionByDescription(
+    phrase,
+    userId,
+    db,
+    options?.workspaceId,
+  );
 
   if (resolution.kind === "none") {
     return {
@@ -89,7 +94,7 @@ export async function completeAction(
 
   // Confirmed without a pinned id (legacy confirm path): complete the resolved
   // single match. We already know its name, so pass it to avoid a re-fetch.
-  return completeById(action.id, userId, db, action.name);
+  return completeById(action.id, userId, db, options?.workspaceId, action.name);
 }
 
 /**
@@ -102,6 +107,7 @@ async function completeById(
   id: string,
   userId: string,
   db: PrismaClient,
+  workspaceId?: string,
   knownName?: string,
 ): Promise<CompleteResult> {
   const res = await db.action.updateMany({
@@ -110,6 +116,9 @@ async function completeById(
         { id },
         buildActionAccessWhere(userId),
         { status: { notIn: ["COMPLETED", "DELETED"] } },
+        // Defence in depth: a pinned confirm can only complete an action in the
+        // session's workspace, never one resolved from a different workspace.
+        ...(workspaceId ? [{ workspaceId }] : []),
       ],
     },
     data: { status: "COMPLETED", completedAt: new Date() },
@@ -120,7 +129,13 @@ async function completeById(
   let name = knownName;
   if (name === undefined) {
     const found = await db.action.findFirst({
-      where: { AND: [{ id }, buildActionAccessWhere(userId)] },
+      where: {
+        AND: [
+          { id },
+          buildActionAccessWhere(userId),
+          ...(workspaceId ? [{ workspaceId }] : []),
+        ],
+      },
       select: { name: true },
     });
     name = found?.name ?? "that action";
