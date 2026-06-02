@@ -41,14 +41,32 @@ describe("resolveWorkspaceId — three-tier voice workspace resolution", () => {
     expect(db.user.findUnique).not.toHaveBeenCalled();
   });
 
-  it("default fallback: returns User.defaultWorkspaceId when no explicit id is given", async () => {
+  it("default fallback: returns User.defaultWorkspaceId when the user is still a member", async () => {
     db.user.findUnique.mockResolvedValueOnce({ defaultWorkspaceId: "ws-default" } as never);
+    // Membership check for the default workspace succeeds.
+    db.workspaceUser.findFirst.mockResolvedValueOnce({ workspaceId: "ws-default" } as never);
 
     const result = await resolveWorkspaceId("user-1", db);
 
     expect(result).toBe("ws-default");
-    // Default wins before consulting the membership list.
-    expect(db.workspaceUser.findFirst).not.toHaveBeenCalled();
+    // Verified the default against current memberships before trusting it.
+    expect(db.workspaceUser.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "user-1", workspaceId: "ws-default" },
+      }),
+    );
+  });
+
+  it("stale default: ignores defaultWorkspaceId when the user is no longer a member, falls to first membership", async () => {
+    db.user.findUnique.mockResolvedValueOnce({ defaultWorkspaceId: "ws-removed" } as never);
+    // First findFirst = default-membership check (not a member); second = first-membership fallback.
+    db.workspaceUser.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ workspaceId: "ws-first" } as never);
+
+    const result = await resolveWorkspaceId("user-1", db);
+
+    expect(result).toBe("ws-first");
   });
 
   it("first-membership fallback: returns the oldest membership when no explicit id and no default", async () => {

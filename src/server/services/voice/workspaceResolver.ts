@@ -14,7 +14,8 @@
  *      A caller must never be able to mint a session into a workspace they can't
  *      access (that would be a privilege-escalation path), so an explicit id the
  *      user is not a member of throws rather than silently falling through.
- *   2. the user's `defaultWorkspaceId`.
+ *   2. the user's `defaultWorkspaceId` — only if they are still a member of it
+ *      (a stale default for a workspace they were removed from is ignored).
  *   3. the user's first `WorkspaceUser` membership (oldest by `joinedAt`).
  *
  * Returns `undefined` only when no explicit id was given and the user belongs to
@@ -53,12 +54,21 @@ export async function resolveWorkspaceId(
     return explicit;
   }
 
-  // (2) The user's default workspace.
+  // (2) The user's default workspace — but only if they are STILL a member.
+  //     defaultWorkspaceId can go stale (the user was removed from it without
+  //     the field being cleared); trusting it blindly would mint a session for a
+  //     workspace they no longer belong to. Verify membership, else fall through.
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { defaultWorkspaceId: true },
   });
-  if (user?.defaultWorkspaceId) return user.defaultWorkspaceId;
+  if (user?.defaultWorkspaceId) {
+    const stillMember = await db.workspaceUser.findFirst({
+      where: { userId, workspaceId: user.defaultWorkspaceId },
+      select: { workspaceId: true },
+    });
+    if (stillMember) return user.defaultWorkspaceId;
+  }
 
   // (3) First membership (oldest), as a last resort.
   const membership = await db.workspaceUser.findFirst({

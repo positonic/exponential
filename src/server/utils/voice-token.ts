@@ -89,5 +89,14 @@ export function verifyVoiceSessionToken(token: string): VerifiedVoiceSession {
     throw new Error("Voice-session token missing user identifier");
   }
 
-  return { userId, workspaceId: decoded.workspaceId };
+  // workspaceId is OPTIONAL by design (legacy tokens minted before the claim,
+  // and users who belong to no workspace, carry none — callers fall back). We
+  // therefore don't reject a missing claim; we only guard the TYPE, ignoring a
+  // malformed non-string claim rather than propagating it as a workspaceId.
+  const workspaceId =
+    typeof decoded.workspaceId === "string" && decoded.workspaceId.length > 0
+      ? decoded.workspaceId
+      : undefined;
+
+  return { userId, workspaceId };
 }

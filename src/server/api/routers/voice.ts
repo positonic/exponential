@@ -17,7 +17,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
-import { db } from "~/server/db";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { resolveVoiceCaller } from "~/server/api/middleware/resolveVoiceCaller";
 import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
@@ -77,7 +76,7 @@ export const voiceRouter = createTRPCRouter({
       // cannot tamper with the workspace the brain operates in.
       let workspaceId: string | undefined;
       try {
-        workspaceId = await resolveWorkspaceId(userId, db, input?.workspaceId);
+        workspaceId = await resolveWorkspaceId(userId, ctx.db, input?.workspaceId);
       } catch (err) {
         if (err instanceof WorkspaceAccessError) {
           throw new TRPCError({
@@ -121,7 +120,7 @@ export const voiceRouter = createTRPCRouter({
         pendingActionId: z.string().optional(),
       }),
     )
-    .mutation(async ({ input }): Promise<DispatchResult> => {
+    .mutation(async ({ ctx, input }): Promise<DispatchResult> => {
       let userId: string;
       let workspaceId: string | undefined;
       try {
@@ -144,7 +143,7 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          const { action, inbox } = await captureAction(phrase, userId, db, workspaceId);
+          const { action, inbox } = await captureAction(phrase, userId, ctx.db, workspaceId);
           return {
             speakable: speakableCaptureConfirmation({
               name: action.name,
@@ -164,7 +163,7 @@ export const voiceRouter = createTRPCRouter({
             typeof input.args?.workspaceId === "string"
               ? input.args.workspaceId
               : undefined;
-          const { speakable, data } = await getTodaysPlan(userId, db, {
+          const { speakable, data } = await getTodaysPlan(userId, ctx.db, {
             workspaceId: workspaceId ?? argWorkspaceId,
           });
           return {
@@ -193,7 +192,7 @@ export const voiceRouter = createTRPCRouter({
           const { speakable, structured } = await runQuery(
             phrase,
             userId,
-            db,
+            ctx.db,
             workspaceId ?? argWorkspaceId,
           );
           return { speakable, structured, needsConfirmation: false };
@@ -212,7 +211,7 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          return completeAction(phrase, userId, db, {
+          return completeAction(phrase, userId, ctx.db, {
             confirm: input.confirm,
             pendingId: input.pendingActionId,
             workspaceId,
@@ -233,7 +232,7 @@ export const voiceRouter = createTRPCRouter({
             };
           }
           try {
-            return await askExponential(phrase, userId, db, workspaceId);
+            return await askExponential(phrase, userId, ctx.db, workspaceId);
           } catch (error) {
             console.error("[voice.dispatch] ask_exponential failed:", error);
             return {
