@@ -78,10 +78,16 @@ describe("describeActions", () => {
     );
   });
 
-  it("summarises more than two", () => {
+  it("enumerates up to five results inline", () => {
     expect(
       describeActions("due this week in Acme", false, ["a", "b", "c", "d"]),
-    ).toBe("You have 4 actions due this week in Acme, including a and b.");
+    ).toBe("You have 4 actions due this week in Acme: a, b, c and d.");
+  });
+
+  it("caps the list and counts the rest beyond five", () => {
+    expect(
+      describeActions("overdue", false, ["a", "b", "c", "d", "e", "f", "g"]),
+    ).toBe("You have 7 actions overdue: a, b, c, d and e, and 2 more.");
   });
 
   it("phrases the inbox lead differently", () => {

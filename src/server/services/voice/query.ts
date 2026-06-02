@@ -223,7 +223,14 @@ function scopePhrase(cls: QueryClassification, projectName: string | null): stri
   return [temporal, inProject].filter(Boolean).join(" ") || "open";
 }
 
-/** Pure: render a count + up to two named actions into a bounded spoken answer. */
+/**
+ * Pure: render a count + named actions into a bounded spoken answer. `query` is
+ * the "ask" tool, so it ENUMERATES (names up to MAX_NAMED, earliest-due first
+ * per the DB order) rather than summarizing to two like the daily brief — the
+ * voice transport can only speak names that appear here, so under-listing makes
+ * the model fabricate the rest. Beyond the cap it falls back to "and N more".
+ */
+const MAX_NAMED = 5;
 export function describeActions(scope: string, inbox: boolean, names: string[]): string {
   const n = names.length;
   if (n === 0) {
@@ -233,8 +240,11 @@ export function describeActions(scope: string, inbox: boolean, names: string[]):
   const lead = inbox
     ? `Your inbox has ${n} ${noun}`
     : `You have ${n} ${noun} ${scope}`;
-  const shown = names.slice(0, 2).map((s) => stripMarkdown(s));
-  const tail = n <= 2 ? `: ${joinList(shown)}.` : `, including ${joinList(shown)}.`;
+  const shown = names.slice(0, MAX_NAMED).map((s) => stripMarkdown(s));
+  const tail =
+    n <= MAX_NAMED
+      ? `: ${joinList(shown)}.`
+      : `: ${joinList(shown)}, and ${n - MAX_NAMED} more.`;
   return boundLength(lead + tail);
 }
 
