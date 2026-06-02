@@ -32,8 +32,17 @@ export async function completeAction(
   phrase: string,
   userId: string,
   db: PrismaClient,
-  options?: { confirm?: boolean },
+  options?: { confirm?: boolean; pendingId?: string },
 ): Promise<CompleteResult> {
+  // Confirm pinned to the action the gate originally proposed: complete exactly
+  // that id, never re-resolve the phrase. Re-resolving on confirm could land on
+  // a DIFFERENT action if the user's data changed between the gate and the "yes"
+  // — the confirmation the user gave was for the suggested action, not whatever
+  // the phrase now matches.
+  if (options?.confirm && options.pendingId) {
+    return completeById(options.pendingId, userId, db);
+  }
+
   const resolution = await resolveActionByDescription(phrase, userId, db);
 
   if (resolution.kind === "none") {
@@ -78,14 +87,27 @@ export async function completeAction(
     };
   }
 
-  // Confirmed: complete it. Scope the update by the user's access so a confirm
-  // can only ever complete an action the user may edit (defence in depth on top
-  // of the resolver already being user-scoped). updateMany returns a count, so a
-  // race or access mismatch completes 0 rows rather than the wrong row.
+  // Confirmed without a pinned id (legacy confirm path): complete the resolved
+  // single match. We already know its name, so pass it to avoid a re-fetch.
+  return completeById(action.id, userId, db, action.name);
+}
+
+/**
+ * Complete exactly one action by id. Scope the update by the user's access so a
+ * confirm can only ever complete an action the user may edit (defence in depth
+ * on top of the resolver already being user-scoped). updateMany returns a count,
+ * so a race or access mismatch completes 0 rows rather than the wrong row.
+ */
+async function completeById(
+  id: string,
+  userId: string,
+  db: PrismaClient,
+  knownName?: string,
+): Promise<CompleteResult> {
   const res = await db.action.updateMany({
     where: {
       AND: [
-        { id: action.id },
+        { id },
         buildActionAccessWhere(userId),
         { status: { notIn: ["COMPLETED", "DELETED"] } },
       ],
@@ -93,19 +115,30 @@ export async function completeAction(
     data: { status: "COMPLETED", completedAt: new Date() },
   });
 
+  // Resolve a name for the spoken reply. On the pinned path we don't have it yet;
+  // look it up within the user's access (falls back gracefully if not visible).
+  let name = knownName;
+  if (name === undefined) {
+    const found = await db.action.findFirst({
+      where: { AND: [{ id }, buildActionAccessWhere(userId)] },
+      select: { name: true },
+    });
+    name = found?.name ?? "that action";
+  }
+
   if (res.count === 0) {
     return {
       speakable: boundLength(
-        `I couldn't complete "${stripMarkdown(action.name)}" — it may already be done.`,
+        `I couldn't complete "${stripMarkdown(name)}" — it may already be done.`,
       ),
-      structured: { resolution: "one", completed: false, id: action.id },
+      structured: { resolution: "one", completed: false, id },
       needsConfirmation: false,
     };
   }
 
   return {
-    speakable: boundLength(`Marked "${stripMarkdown(action.name)}" as done.`),
-    structured: { resolution: "one", completed: true, id: action.id, name: action.name },
+    speakable: boundLength(`Marked "${stripMarkdown(name)}" as done.`),
+    structured: { resolution: "one", completed: true, id, name },
     needsConfirmation: false,
   };
 }

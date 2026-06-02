@@ -43,8 +43,9 @@ export async function getTodaysPlan(
 
 /**
  * Pure: structured BriefingData → short spoken string. Names at most the two
- * highest-priority due-today actions to stay useful without becoming a readout;
- * everything else is rendered as counts. Bounded by the speakable ceiling.
+ * earliest-due due-today actions (dueTodayActions is ordered dueDate ascending
+ * by generateBriefingData) to stay useful without becoming a readout; everything
+ * else is rendered as counts. Bounded by the speakable ceiling.
  */
 export function buildDailyBriefSpeakable(data: BriefingData): string {
   const dueToday = data.dueTodayActions;

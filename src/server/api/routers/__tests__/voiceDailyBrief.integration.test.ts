@@ -13,7 +13,6 @@ interface BriefingShape {
   dueTodayActions: unknown[];
   overdueActions: unknown[];
   projectsNeedingAttention: unknown[];
-  stats: Record<string, number>;
 }
 
 describe("voice get_todays_plan (integration)", () => {

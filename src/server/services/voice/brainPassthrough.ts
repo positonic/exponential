@@ -67,6 +67,7 @@ async function resolveWorkspaceId(
 
   const membership = await db.workspaceUser.findFirst({
     where: { userId },
+    orderBy: { joinedAt: "asc" },
     select: { workspaceId: true },
   });
   return membership?.workspaceId;

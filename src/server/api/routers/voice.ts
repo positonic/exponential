@@ -83,6 +83,10 @@ export const voiceRouter = createTRPCRouter({
         args: z.record(z.unknown()).optional(),
         mode: modeSchema,
         confirm: z.boolean().optional(),
+        /** Pins a confirm to the action the gate proposed (structured
+         *  .pendingCompletion.id), so we complete that one rather than
+         *  re-resolving the phrase on "yes". */
+        pendingActionId: z.string().optional(),
       }),
     )
     .mutation(async ({ input }): Promise<DispatchResult> => {
@@ -145,7 +149,14 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          const { speakable, structured } = await runQuery(phrase, userId, db);
+          const { speakable, structured } = await runQuery(
+            phrase,
+            userId,
+            db,
+            typeof input.args?.workspaceId === "string"
+              ? input.args.workspaceId
+              : undefined,
+          );
           return { speakable, structured, needsConfirmation: false };
         }
 
@@ -162,7 +173,10 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          return completeAction(phrase, userId, db, { confirm: input.confirm });
+          return completeAction(phrase, userId, db, {
+            confirm: input.confirm,
+            pendingId: input.pendingActionId,
+          });
         }
 
         case "ask_exponential": {

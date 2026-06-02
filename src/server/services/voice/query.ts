@@ -13,7 +13,7 @@
  *
  * Read-only: every path uses findMany; the confirmation gate is never raised.
  */
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
 
 import { matchProject } from "~/server/services/parsing/ProjectMatcher";
@@ -96,6 +96,7 @@ export async function runQuery(
   phrase: string,
   userId: string,
   db: PrismaClient,
+  workspaceId?: string,
   now: Date = new Date(),
 ): Promise<QueryResult> {
   const cls = classifyQuery(phrase);
@@ -107,16 +108,22 @@ export async function runQuery(
     };
   }
 
-  // Resolve a named project ("in Acme") against the user's active projects.
+  // Resolve a named project ("in Acme") against the user's active projects,
+  // scoped to the session's workspace when one is supplied.
   const projects = await db.project.findMany({
-    where: { createdById: userId, status: { not: "COMPLETED" } },
+    where: {
+      createdById: userId,
+      status: { not: "COMPLETED" },
+      ...(workspaceId ? { workspaceId } : {}),
+    },
     select: { id: true, name: true },
   });
   const matched = cls.inbox ? null : resolveProject(phrase, projects);
 
-  const where: Record<string, unknown> = {
+  const where: Prisma.ActionWhereInput = {
     createdById: userId,
     status: { not: "COMPLETED" },
+    ...(workspaceId ? { workspaceId } : {}),
   };
 
   if (cls.inbox) {
