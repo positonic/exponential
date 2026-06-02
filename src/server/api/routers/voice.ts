@@ -19,7 +19,7 @@ import { TRPCError } from "@trpc/server";
 
 import { db } from "~/server/db";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
-import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { resolveVoiceCaller } from "~/server/api/middleware/resolveVoiceCaller";
 import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
@@ -54,22 +54,25 @@ export interface DispatchResult {
 
 export const voiceRouter = createTRPCRouter({
   /**
-   * Mint a voice session. Authed by the durable Exponential API key via the
-   * x-api-key middleware (ctx.userId is guaranteed non-null here).
+   * Mint a voice session. Authed by the any-of voice gate (resolveVoiceCaller):
+   * a NextAuth session cookie (web), an x-api-key (legacy iOS), or — reserved,
+   * inert today — a device token. Browser users never paste an API key.
    */
-  createSession: apiKeyMiddleware
+  createSession: publicProcedure
     .input(
       z
         .object({ mode: modeSchema, workspaceId: z.string().optional() })
         .optional(),
     )
     .mutation(async ({ ctx, input }) => {
+      const { userId } = await resolveVoiceCaller(ctx);
+
       // Resolve (and validate) the session's workspace once, here — the result
       // is baked into the voice-session JWT as a verified claim so the device
       // cannot tamper with the workspace the brain operates in.
       let workspaceId: string | undefined;
       try {
-        workspaceId = await resolveWorkspaceId(ctx.userId, db, input?.workspaceId);
+        workspaceId = await resolveWorkspaceId(userId, db, input?.workspaceId);
       } catch (err) {
         if (err instanceof WorkspaceAccessError) {
           throw new TRPCError({
@@ -81,7 +84,7 @@ export const voiceRouter = createTRPCRouter({
       }
 
       const realtime = await createRealtimeSession();
-      const voiceSessionToken = mintVoiceSessionToken({ id: ctx.userId }, workspaceId);
+      const voiceSessionToken = mintVoiceSessionToken({ id: userId }, workspaceId);
 
       return {
         openaiEphemeralKey: realtime.ephemeralKey,

@@ -13,8 +13,8 @@ vi.mock("~/server/services/voice/openai-realtime", () => ({
 }));
 
 import { getTestDb } from "~/test/test-db";
-import { createUser, createApiKey } from "~/test/factories";
-import { createApiKeyCaller } from "~/test/trpc-helpers";
+import { createUser, createApiKey, createWorkspace } from "~/test/factories";
+import { createApiKeyCaller, createTestCaller } from "~/test/trpc-helpers";
 import { mintVoiceSessionToken } from "~/server/utils/voice-token";
 import { generateJWT } from "~/server/utils/jwt";
 
@@ -51,6 +51,49 @@ describe("voice router (integration)", () => {
       expect(decoded.sub).toBe(user.id);
       expect(decoded.exp - decoded.iat).toBe(30 * 60);
       expect(res.expiresInSeconds).toBe(1800);
+    });
+
+    it("mints a voice-session JWT from a NextAuth session cookie (no API key)", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id, name: "Cookie WS" });
+
+      // createTestCaller authenticates via a session (the web client's path) —
+      // no x-api-key is ever set.
+      const res = await createTestCaller(user.id).voice.createSession();
+
+      const decoded = jwt.verify(res.voiceSessionToken, process.env.AUTH_SECRET!, {
+        audience: "voice-session",
+        issuer: "todo-app",
+      }) as { sub: string; tokenType: string; workspaceId?: string };
+
+      expect(decoded.tokenType).toBe("voice-session");
+      expect(decoded.sub).toBe(user.id);
+      // The workspace claim from the previous ticket is still stamped on the
+      // cookie path (resolves to the user's only membership).
+      expect(decoded.workspaceId).toBe(ws.id);
+    });
+
+    it("cookie and x-api-key resolve to the same user; both carry the workspace claim", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id, name: "Shared WS" });
+      const { raw } = await createApiKey(db, user.id);
+
+      const viaCookie = await createTestCaller(user.id).voice.createSession();
+      const viaKey = await createApiKeyCaller(raw).voice.createSession();
+
+      const decode = (token: string) =>
+        jwt.verify(token, process.env.AUTH_SECRET!, {
+          audience: "voice-session",
+          issuer: "todo-app",
+        }) as { sub: string; workspaceId?: string };
+
+      const dc = decode(viaCookie.voiceSessionToken);
+      const dk = decode(viaKey.voiceSessionToken);
+
+      expect(dc.sub).toBe(user.id);
+      expect(dk.sub).toBe(user.id);
+      expect(dc.workspaceId).toBe(ws.id);
+      expect(dk.workspaceId).toBe(ws.id);
     });
 
     it("rejects an invalid API key", async () => {
