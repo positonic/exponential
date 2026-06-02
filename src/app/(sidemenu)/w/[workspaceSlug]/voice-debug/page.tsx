@@ -33,6 +33,7 @@ import {
   type BrainDispatchInput,
 } from "~/lib/voice/brainDispatcher";
 import { VOICE_TOOL_CATALOG } from "~/lib/voice/voiceToolCatalog";
+import { useVoiceSession } from "~/lib/voice/useVoiceSession";
 import type { DispatchResult } from "~/server/api/routers/voice";
 
 /** Narrow the `pendingCompletion.id` out of a complete_action gate result. */
@@ -61,6 +62,14 @@ export default function VoiceDebugPage() {
       setResult(null);
     },
     onError: (e) => setError(e.message),
+  });
+
+  const createSessionAsync = api.voice.createSession.useMutation();
+
+  // Live WebRTC audio session (speak to zoe, hear the spoken reply, barge-in).
+  const voice = useVoiceSession({
+    createSession: () =>
+      createSessionAsync.mutateAsync(workspaceId ? { workspaceId } : undefined),
   });
 
   const toolOptions = useMemo(
@@ -134,6 +143,37 @@ export default function VoiceDebugPage() {
               </Button>
             </Group>
           </Group>
+        </Paper>
+
+        <Paper withBorder p="md" radius="md">
+          <Group justify="space-between">
+            <div>
+              <Text fw={500}>Live voice (WebRTC)</Text>
+              <Text size="xs" c="dimmed">
+                Open a Realtime session, speak into your mic, hear zoe reply.
+                Barge-in supported.
+              </Text>
+            </div>
+            <Group gap="xs">
+              <Badge color={voice.state === "idle" ? "gray" : "blue"}>
+                {voice.state}
+              </Badge>
+              {voice.state === "idle" ? (
+                <Button onClick={() => void voice.start()} variant="light">
+                  Open voice session
+                </Button>
+              ) : (
+                <Button onClick={() => voice.stop()} color="red" variant="light">
+                  End session
+                </Button>
+              )}
+            </Group>
+          </Group>
+          {voice.lastError ? (
+            <Text size="xs" c="red" mt="xs">
+              {voice.lastError}
+            </Text>
+          ) : null}
         </Paper>
 
         <Paper withBorder p="md" radius="md">
