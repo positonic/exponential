@@ -134,7 +134,7 @@ function ObjectivesPanel({
   const objectives = api.okr.getByObjective.useQuery({
     workspaceId: workspace.id,
     period,
-    includePairedPeriod: quarter !== "Annual",
+    includePairedPeriod: false,
   });
 
   return (
@@ -249,6 +249,7 @@ function ObjectiveRow({
   const [open, setOpen] = useState(rank === 1);
   const [addKrOpen, setAddKrOpen] = useState(false);
   const krs = objective.keyResults;
+  const hasFocusedKr = krs.some((kr) => focuses.includes(kr.id));
 
   // Aggregate confidence from KRs
   const counts = krs.reduce(
@@ -282,7 +283,7 @@ function ObjectiveRow({
       <div className="pr-obj__head" onClick={() => setOpen(!open)}>
         <div
           className={
-            rank <= 2 ? "pr-obj__rank pr-obj__rank--top" : "pr-obj__rank"
+            hasFocusedKr ? "pr-obj__rank pr-obj__rank--top" : "pr-obj__rank"
           }
         >
           {rank}
