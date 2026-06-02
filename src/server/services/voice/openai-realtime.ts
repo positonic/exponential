@@ -6,7 +6,10 @@
  * Isolated in its own module so `voice.createSession` can be unit/integration
  * tested without hitting the OpenAI network (mock this module).
  */
-const OPENAI_REALTIME_SESSIONS_URL = "https://api.openai.com/v1/realtime/sessions";
+// GA endpoint for minting ephemeral client secrets. The beta
+// `/v1/realtime/sessions` was removed when the Realtime API went GA
+// (deprecated 2026-05-12) — it now 404s with "Invalid URL".
+const OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
 
 export interface RealtimeSession {
   /** The ephemeral client secret the device uses to open the Realtime session. */
@@ -27,16 +30,27 @@ export async function createRealtimeSession(): Promise<RealtimeSession> {
     throw new Error("OPENAI_API_KEY is required to mint a Realtime session");
   }
 
-  const model = process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview";
-  const voice = process.env.OPENAI_REALTIME_VOICE ?? "alloy";
+  const model = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
+  // `marin` is a natural female GA voice (pairs well with the British-accent
+  // persona for Zoe). Override per-deployment via OPENAI_REALTIME_VOICE
+  // (other female options: coral, shimmer, sage; male: cedar, ash, echo).
+  const voice = process.env.OPENAI_REALTIME_VOICE ?? "marin";
 
-  const res = await fetch(OPENAI_REALTIME_SESSIONS_URL, {
+  // GA shape: model + voice are bound to the client secret via the `session`
+  // config; the ephemeral key is returned at the top level as `value`.
+  const res = await fetch(OPENAI_REALTIME_CLIENT_SECRETS_URL, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ model, voice }),
+    body: JSON.stringify({
+      session: {
+        type: "realtime",
+        model,
+        audio: { output: { voice } },
+      },
+    }),
   });
 
   if (!res.ok) {
@@ -44,17 +58,15 @@ export async function createRealtimeSession(): Promise<RealtimeSession> {
     throw new Error(`OpenAI Realtime session request failed (${res.status}): ${detail.slice(0, 300)}`);
   }
 
-  const data = (await res.json()) as {
-    client_secret?: { value?: string; expires_at?: number };
-  };
-  const ephemeralKey = data.client_secret?.value;
+  const data = (await res.json()) as { value?: string; expires_at?: number };
+  const ephemeralKey = data.value;
   if (!ephemeralKey) {
-    throw new Error("OpenAI Realtime session response missing client_secret.value");
+    throw new Error("OpenAI Realtime session response missing client secret value");
   }
 
   return {
     ephemeralKey,
-    expiresAt: data.client_secret?.expires_at,
+    expiresAt: data.expires_at,
     model,
     voice,
   };
