@@ -152,7 +152,7 @@ One of the four fast, deterministic intents the voice router can call — `captu
 _Avoid_: Function, skill, command.
 
 **Brain passthrough**:
-The fifth tool, `ask_exponential` — the catch-all the four coarse tools don't cover (goals/OKRs, calendar, email, Slack, meetings, web, multi-step asks). Unlike a coarse tool it runs Zoe's full agent (Mastra) server-side with her whole tool set. The router still just passes `phrase`; the agent self-confirms destructive actions.
+The fifth tool, `ask_exponential` — the catch-all the four coarse tools don't cover (goals/OKRs, calendar, email, Slack, meetings, web, multi-step asks). Unlike a coarse tool it runs Zoe's full agent (Mastra) server-side with her whole tool set. The router still just passes `phrase`; the agent self-confirms destructive actions. It is also where **referential** requests go — a phrase whose object isn't self-contained ("capture *that* one", "complete *the first* one", "it") — because only the brain reads the **voice memory thread** and can resolve the referent against prior turns; coarse tools take the phrase verbatim and cannot. The **router persona** carries the rule that sends referentials here. See [ADR-0006](docs/adr/0006-web-voice-shares-text-thread.md).
 _Avoid_: Fallback, default tool, catch-all (only in conversation).
 
 **Voice tool catalog**:
@@ -163,6 +163,10 @@ _Avoid_: Tool list, function catalog (use "voice tool catalog" or just "catalog"
 The system instructions that define the voice router's character (Zoe — warm, British, witty) and its hard rules (always defer to a tool, never fabricate, the confirmation handshake, "you are the system — never tell the user to check their own list"). Part of the server-issued **voice tool catalog** payload; one canonical text drives every voice surface.
 _Avoid_: System prompt, instructions (in conversation), persona alone (ambiguous with Zoe-the-agent's own persona).
 
+**Voice memory thread**:
+The Mastra memory thread the **brain** reads and writes for a voice session (`resource = userId`, `thread.id = threadKey`). The keying differs by surface: **web** binds it to the active text chat's **conversationId**, so typing and talking in the Zoe drawer are one continuous conversation (the brain recalls what was typed, and voice turns appear in the text history); **iOS** has no concurrent text chat, so it stays user-scoped (`voice-${userId}`). The **Voice router** stays zero-knowledge regardless — the thread is the brain's memory, never the router's. Supersedes the earlier ISOLATE assumption (voice kept wholly separate from text-chat memory), which now holds for iOS only. See [ADR-0006](docs/adr/0006-web-voice-shares-text-thread.md).
+_Avoid_: Voice thread (ambiguous — say "voice memory thread"), conversation (overloaded).
+
 ## Flagged ambiguities
 
 - **"Meeting type" is not yet stored.** The Meetings v2 redesign surfaces `All / 1:1s / Rituals` tabs, but no `meetingType` column exists on `TranscriptionSession`. v1 ships with: All = full list, 1:1s = derived live from `participantCount = 2`, Rituals = empty state until a recurrence classifier exists. When Rituals gets real, the resolution will be either calendar recurrence data or a `meetingType` enum field with mutually exclusive values `one_on_one | ritual | other`.
@@ -171,3 +175,5 @@ _Avoid_: System prompt, instructions (in conversation), persona alone (ambiguous
 - **"Outcome" is an undocumented table with unresolved semantics.** `model Outcome` (`prisma/schema.prisma:694`) has `description`, `dueDate`, `type @default("daily")`, `whyThisOutcome`, and bridges Goals↔Projects (`goals[]`, `projects[]`) — yet it has no glossary entry and sits *beside* the Objective(Goal)/Key result vocabulary rather than inside it. Owner's current read: an Outcome is "most akin to a **milestone**," and the recursion he wants for goals-of-goals is **already** served by `Goal.parentGoalId` (not by Outcome). Treated as logic/thinking debt: deliberately **excluded from the Exponential iOS voice v1 scope** (which operates on Action + Project only) until the milestone-vs-objective distinction is settled. Do not write a canonical definition until then.
 
 - **One canonical detail surface: `/recording/[id]`.** Meetings v2 retires the inline `TranscriptionDetailsDrawer` in favour of a single navigation to the full detail page (ActionsPane, SummaryPane, TranscriptPane, etc.). When reading deleted drawer code in git history, this is why.
+
+- **Voice/text memory split — resolved per surface.** The web Zoe drawer shows typed and spoken turns in one visual thread (🎙 marker), but they historically wrote to two different **voice memory threads** — text to `conversationId`, voice to `voice-${userId}` — so switching modes looked like Zoe losing the thread ("I can't see anything discussed before"). Resolved: web unifies both onto the `conversationId` thread; iOS stays user-scoped because it has no concurrent text chat. The 🎙 marker is now purely presentational. See [ADR-0006](docs/adr/0006-web-voice-shares-text-thread.md).

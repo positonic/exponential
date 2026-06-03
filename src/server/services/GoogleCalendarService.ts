@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { db } from '~/server/db';
 import NodeCache from 'node-cache';
+import { withTimeout } from '~/server/utils/withTimeout';
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -17,8 +18,17 @@ export type { CalendarEvent, CalendarEventWithSource, CreateEventInput, CreatedC
 export type GoogleCalendarInfo = CalendarInfo;
 export type { CalendarInfo };
 
+/**
+ * Cap on each outbound Google call. Both the OAuth token refresh and the
+ * Calendar REST calls otherwise use googleapis' generous defaults; on a 60s
+ * Vercel function a single stalled call can eat the whole budget and get the
+ * function killed (see `src/server/utils/withTimeout.ts`). 10s is well above
+ * Google's normal latency but fails fast enough to surface a real error.
+ */
+const GOOGLE_TIMEOUT_MS = 10_000;
+
 // Create a cache instance with 15 minute TTL
-const calendarCache = new NodeCache({ 
+const calendarCache = new NodeCache({
   stdTTL: 900, // 15 minutes in seconds
   checkperiod: 120, // Check for expired keys every 2 minutes
   useClones: false // Better performance, but be careful with mutations
@@ -65,8 +75,12 @@ export class GoogleCalendarService implements CalendarProvider {
       });
 
       try {
-        const { credentials } = await oauth2Client.refreshAccessToken();
-        
+        const { credentials } = await withTimeout(
+          oauth2Client.refreshAccessToken(),
+          GOOGLE_TIMEOUT_MS,
+          'google.refreshAccessToken',
+        );
+
         // Update the database with new tokens
         const existingAccount = await db.account.findFirst({
           where: {
@@ -189,14 +203,17 @@ export class GoogleCalendarService implements CalendarProvider {
     const calendar = await this.getCalendarClient(userId);
 
     try {
-      const response = await calendar.events.list({
-        calendarId,
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        maxResults,
-        singleEvents: true,
-        orderBy: 'startTime',
-      });
+      const response = await calendar.events.list(
+        {
+          calendarId,
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString(),
+          maxResults,
+          singleEvents: true,
+          orderBy: 'startTime',
+        },
+        { timeout: GOOGLE_TIMEOUT_MS },
+      );
 
       const events = response.data.items || [];
 
