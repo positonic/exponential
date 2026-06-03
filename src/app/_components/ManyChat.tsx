@@ -636,6 +636,21 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     if (!isOpen && voiceActive) stopVoice();
   }, [isOpen, voiceActive, stopVoice]);
 
+  // Only mint a voice session once the conversation thread exists. The session
+  // token pins conversationId for its whole ~30-min TTL, so starting before
+  // conversationId is set would bind the entire session to no thread and it
+  // could never join the text chat (ADR-0006). conversationId is set on mount
+  // (or a fallback id if init fails), so this gate clears within a tick.
+  const startVoice = voice.start;
+  const canStartVoice = !!conversationId;
+  const handleVoiceToggle = useCallback(() => {
+    if (voiceActive) {
+      stopVoice();
+    } else if (canStartVoice) {
+      void startVoice();
+    }
+  }, [voiceActive, canStartVoice, stopVoice, startVoice]);
+
   // Fetch project context when projectId is provided
   const { data: projectData } = api.project.getById.useQuery(
     { id: projectId! },
@@ -1428,7 +1443,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   size="compact-xs"
                   variant="light"
                   color="blue"
-                  onClick={() => void voice.start()}
+                  disabled={!canStartVoice}
+                  onClick={handleVoiceToggle}
                 >
                   Tap to resume
                 </Button>
@@ -1455,12 +1471,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             />
             <div className="absolute right-3 bottom-2 flex items-center gap-2">
               <ActionIcon
-                onClick={() => (voiceActive ? voice.stop() : void voice.start())}
+                onClick={handleVoiceToggle}
+                disabled={!voiceActive && !canStartVoice}
                 variant={voiceActive ? "filled" : "subtle"}
                 color={voiceActive ? "blue" : undefined}
                 size="lg"
                 radius="xl"
-                title="Voice mode — talk to zoe"
+                title={!voiceActive && !canStartVoice ? "Preparing conversation…" : "Voice mode — talk to zoe"}
                 aria-label="Toggle voice mode"
                 className={`${voice.state === 'listening' ? "animate-pulse" : "text-text-primary hover:bg-surface-hover"}`}
               >

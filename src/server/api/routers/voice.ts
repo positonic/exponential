@@ -294,6 +294,19 @@ export const voiceRouter = createTRPCRouter({
    * turns land on the shared text-chat thread and are visible to the text agent
    * on the next typed turn; iOS / legacy tokens fall back to the user-scoped
    * `voice-${userId}` thread (ADR-0006).
+   *
+   * KNOWN, ACCEPTED FOR v1 — turns routed to `ask_exponential` are persisted
+   * twice on the thread: once here (the spoken transcript) and once by the
+   * brain's own `zoeAgent.generate({ memory })` (the phrase + reply). This was
+   * harmless pre-ADR-0006 (isolated `voice-${userId}` thread) and is now a minor
+   * recall-quality / token cost on the shared thread. We deliberately keep both
+   * writers rather than the alternatives: Mastra's `generate` has no clean
+   * read-without-persist toggle (disabling it would risk the brain's own
+   * recall — the core of ADR-0006), and the only signal the client has to
+   * suppress this writer (the dispatch tool name) can't be reliably correlated
+   * to the decoupled Realtime transcript events. Coarse-tool turns run no agent,
+   * so for them this is the SOLE writer and must stay. Revisit if recall
+   * degrades. See ADR-0006 and brainPassthrough.askExponential.
    */
   persistTurn: publicProcedure
     .input(

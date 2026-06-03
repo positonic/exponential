@@ -87,6 +87,15 @@ export interface UseVoiceSession {
 const DEFAULT_END_ON_SILENCE_MS = 25_000;
 
 /**
+ * Grace period for a "disconnected" ICE state before treating it as a real
+ * drop. Per the WebRTC spec `disconnected` is transient and routinely recovers
+ * to `connected` (wifi handoff, a momentary mobile blip), so we wait this long
+ * for it to heal rather than tearing the call down on every hiccup. `failed`
+ * is terminal and ends immediately.
+ */
+const DISCONNECT_GRACE_MS = 5_000;
+
+/**
  * sessionStorage marker: "a voice session was live and was NOT deliberately
  * stopped." Survives a page refresh (the one teardown path that can't run
  * `stop()`), so on remount we can offer to resume rather than show silence.
@@ -135,6 +144,8 @@ export function useVoiceSession(
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const tokenRef = useRef<string | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending grace timer for a transient "disconnected" transport (see below).
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the most recent complete_action gate so a confirm pins to that action.
   const pendingActionIdRef = useRef<string | undefined>(undefined);
   // Tool calls arrive on two events (function_call_arguments.done AND
@@ -154,6 +165,10 @@ export function useVoiceSession(
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+    }
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
     }
     dcRef.current?.close();
     dcRef.current = null;
@@ -412,10 +427,32 @@ export function useVoiceSession(
       // A dropped/failed transport is an involuntary end — offer to resume.
       // Guard on identity so our own teardown (which fires "closed") and any
       // stale handler from a prior pc never trigger a spurious resume.
+      // `failed` is terminal → end now. `disconnected` is transient and often
+      // self-heals, so give it a grace window before giving up; cancel the
+      // pending end if it recovers.
       pc.onconnectionstatechange = () => {
         if (pcRef.current !== pc) return;
-        if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+        const cs = pc.connectionState;
+        if (cs === "failed") {
+          if (disconnectTimerRef.current) {
+            clearTimeout(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
           endSession(true);
+        } else if (cs === "disconnected") {
+          if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = setTimeout(() => {
+            disconnectTimerRef.current = null;
+            if (pcRef.current === pc && pc.connectionState === "disconnected") {
+              endSession(true);
+            }
+          }, DISCONNECT_GRACE_MS);
+        } else if (cs === "connected") {
+          // Recovered before the grace window elapsed — cancel the pending end.
+          if (disconnectTimerRef.current) {
+            clearTimeout(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
         }
       };
 
