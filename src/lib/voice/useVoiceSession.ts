@@ -225,9 +225,12 @@ export function useVoiceSession(
       });
       // Trigger the spoken reply — but never while a response is still active
       // (the API rejects that). Defer until the in-flight response completes.
+      // Reserve the slot locally BEFORE sending so a second tool completion that
+      // lands before the server's response.created ACK defers instead of racing.
       if (activeResponseRef.current) {
         pendingResponseCreateRef.current = true;
       } else {
+        activeResponseRef.current = true;
         send({ type: "response.create" });
       }
     },
@@ -256,8 +259,11 @@ export function useVoiceSession(
         case "response.done":
           activeResponseRef.current = false;
           // Flush a tool-result reply we deferred while this response ran.
+          // Re-reserve the slot before sending so a completion arriving before
+          // the next response.created ACK doesn't also fire response.create.
           if (pendingResponseCreateRef.current) {
             pendingResponseCreateRef.current = false;
+            activeResponseRef.current = true;
             send({ type: "response.create" });
           }
           setState("listening");
@@ -296,6 +302,9 @@ export function useVoiceSession(
           break;
         }
         case "error":
+          // Release the (possibly optimistically reserved) response slot so a
+          // failed response.create can't wedge the gate shut for the session.
+          activeResponseRef.current = false;
           setLastError(describeServerError(event));
           break;
         default:

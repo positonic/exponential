@@ -939,7 +939,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const handleSubmit = async (e: React.FormEvent | null, overrideText?: string, extraContext?: string) => {
     e?.preventDefault();
     const text = overrideText ?? input;
-    if (!text.trim()) return;
+    // Voice mode and typed streaming are mutually exclusive on this surface: the
+    // typed stream mutates the last AI message in place, which would race with
+    // voice transcripts being appended to the same thread. End voice mode to type.
+    if (!text.trim() || voiceActive) return;
 
     const userMessage: Message = { type: 'human', content: text };
     setMessages(prev => [...prev, userMessage]);
@@ -1446,7 +1449,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 variant="subtle"
                 size="lg"
                 radius="xl"
-                disabled={!input.trim() && !isRecording}
+                disabled={(!input.trim() && !isRecording) || voiceActive}
                 className="text-text-primary hover:bg-surface-hover"
               >
                 <IconSend size={18} />
