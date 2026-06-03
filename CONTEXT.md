@@ -141,6 +141,28 @@ A Ticket is "blocked" when its `openBlockerCount > 0` — i.e. it has at least o
 A per-Product visualisation surfaced on the product detail page that overlays two distinct edge types: ticket-dependency edges (blocking, peer, DAG) and alignment edges (`Ticket → Feature → Objective`, hierarchical). Purpose: trace "this Objective is at risk" down to the specific Tickets jamming progress. Edge types are visually distinguished — not collapsed into one. Key results appear as decoration on Objective nodes (status chip), not as graph nodes.
 _Avoid_: Roadmap (carries timeline connotations), tree (loses the cross-cutting blocking edges), org chart.
 
+### Voice
+
+**Voice router**:
+The OpenAI Realtime model that fronts a voice session (on the iOS app and the web voice client). It is a **router and a voice, with ZERO knowledge of the user's data** — it picks an intent, speaks, and must call a tool for any fact or action, never answering from memory. Strictly distinct from the **brain**: the router decides *which* tool; the server-side brain (`voice.dispatch`) does the work. Governed by the **router persona**.
+_Avoid_: Assistant, agent (the router is not the agent — Zoe-the-agent is the brain passthrough below), bot.
+
+**Coarse tool**:
+One of the four fast, deterministic intents the voice router can call — `capture_action`, `get_todays_plan`, `query`, `complete_action`. Each takes the user's words verbatim as `phrase` and is handled server-side without an LLM (parse → DB → speakable). Distinct from the **brain passthrough**. `complete_action` is the only destructive one and requires the spoken **confirmation handshake**.
+_Avoid_: Function, skill, command.
+
+**Brain passthrough**:
+The fifth tool, `ask_exponential` — the catch-all the four coarse tools don't cover (goals/OKRs, calendar, email, Slack, meetings, web, multi-step asks). Unlike a coarse tool it runs Zoe's full agent (Mastra) server-side with her whole tool set. The router still just passes `phrase`; the agent self-confirms destructive actions.
+_Avoid_: Fallback, default tool, catch-all (only in conversation).
+
+**Voice tool catalog**:
+The canonical set of tool descriptors the voice router is configured with (the four **coarse tools** + the **brain passthrough**), in the OpenAI Realtime flat-function shape. The **server is the single source of truth** — `voice.createSession` emits the catalog and the **router persona** in its response, and clients register exactly what they receive. iOS holds **no** hardcoded copy (it fails the session if the payload omits them); the web client and the server share one TS constant by import. See [ADR-0005](docs/adr/0005-server-issued-voice-catalog.md).
+_Avoid_: Tool list, function catalog (use "voice tool catalog" or just "catalog").
+
+**Router persona**:
+The system instructions that define the voice router's character (Zoe — warm, British, witty) and its hard rules (always defer to a tool, never fabricate, the confirmation handshake, "you are the system — never tell the user to check their own list"). Part of the server-issued **voice tool catalog** payload; one canonical text drives every voice surface.
+_Avoid_: System prompt, instructions (in conversation), persona alone (ambiguous with Zoe-the-agent's own persona).
+
 ## Flagged ambiguities
 
 - **"Meeting type" is not yet stored.** The Meetings v2 redesign surfaces `All / 1:1s / Rituals` tabs, but no `meetingType` column exists on `TranscriptionSession`. v1 ships with: All = full list, 1:1s = derived live from `participantCount = 2`, Rituals = empty state until a recurrence classifier exists. When Rituals gets real, the resolution will be either calendar recurrence data or a `meetingType` enum field with mutually exclusive values `one_on_one | ritual | other`.

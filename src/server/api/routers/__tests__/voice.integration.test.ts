@@ -17,6 +17,11 @@ import { createUser, createApiKey, createWorkspace } from "~/test/factories";
 import { createApiKeyCaller, createTestCaller } from "~/test/trpc-helpers";
 import { mintVoiceSessionToken } from "~/server/utils/voice-token";
 import { generateJWT } from "~/server/utils/jwt";
+import {
+  VOICE_TOOL_CATALOG,
+  VOICE_ROUTER_INSTRUCTIONS,
+  VOICE_TOOL_NAMES,
+} from "~/lib/voice/voiceToolCatalog";
 
 type Db = ReturnType<typeof getTestDb>;
 
@@ -51,6 +56,31 @@ describe("voice router (integration)", () => {
       expect(decoded.sub).toBe(user.id);
       expect(decoded.exp - decoded.iat).toBe(30 * 60);
       expect(res.expiresInSeconds).toBe(1800);
+    });
+
+    it("emits the canonical voice tool catalog + router persona (ADR 0005)", async () => {
+      const user = await createUser(db);
+      const { raw } = await createApiKey(db, user.id);
+
+      const res = await createApiKeyCaller(raw).voice.createSession();
+
+      // The server is the single source of truth: clients (iOS) register exactly
+      // what they receive here, so the payload must carry the canonical constants.
+      expect(res.toolCatalog).toEqual(VOICE_TOOL_CATALOG);
+      expect(res.routerInstructions).toBe(VOICE_ROUTER_INSTRUCTIONS);
+
+      // Catalog is the 5-tool set in the OpenAI Realtime flat-function shape so
+      // clients can pass it straight to session.update.
+      expect(res.toolCatalog.map((t) => t.name)).toEqual([...VOICE_TOOL_NAMES]);
+      for (const tool of res.toolCatalog) {
+        expect(tool.type).toBe("function");
+        expect(typeof tool.description).toBe("string");
+        expect(tool.parameters).toMatchObject({ type: "object" });
+      }
+
+      // Guards the persona superset reconciliation — the iOS-only paragraph that
+      // web previously lacked must be present in the one canonical persona.
+      expect(res.routerInstructions).toContain("YOU ARE THE SYSTEM");
     });
 
     it("mints a voice-session JWT from a NextAuth session cookie (no API key)", async () => {

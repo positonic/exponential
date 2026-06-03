@@ -37,14 +37,10 @@ import {
   voiceThreadKey,
   EmptyVoiceTurnError,
 } from "~/server/services/voice/voiceTranscriptBridge";
-
-/** The four coarse tools configured on the Realtime session (v1). */
-export const COARSE_TOOLS = [
-  "capture_action",
-  "complete_action",
-  "get_todays_plan",
-  "query",
-] as const;
+import {
+  VOICE_TOOL_CATALOG,
+  VOICE_ROUTER_INSTRUCTIONS,
+} from "~/lib/voice/voiceToolCatalog";
 
 /** The session entry-intent (ADR 0001 "mode"). */
 const modeSchema = z.enum(["capture", "daily-brief"]).optional();
@@ -99,6 +95,13 @@ export const voiceRouter = createTRPCRouter({
           voice: realtime.voice,
           expiresAt: realtime.expiresAt,
         },
+        // The server is the single source of truth for the voice tool catalog and
+        // router persona (ADR 0005). Clients register exactly what they receive
+        // here — the iOS app holds no hardcoded copy and fails the session if these
+        // are absent. The catalog is already in the OpenAI Realtime flat-function
+        // shape, so clients pass it straight to `session.update`.
+        toolCatalog: VOICE_TOOL_CATALOG,
+        routerInstructions: VOICE_ROUTER_INSTRUCTIONS,
       };
     }),
 
