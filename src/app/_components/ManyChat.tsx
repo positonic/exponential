@@ -15,8 +15,12 @@ import {
   Text,
   Box,
   ActionIcon,
+  Badge,
+  Button,
+  Anchor,
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { useVoiceSession } from '~/lib/voice/useVoiceSession';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
 import { useAgentModal, type ChatMessage, type PageContext, type ToolCall } from '~/providers/AgentModalProvider';
@@ -298,6 +302,9 @@ const MessageList = memo(function MessageList({ messages, conversationId }: Mess
                     <ToolActivity calls={message.toolCalls} />
                   )}
                   <div className="text-text-primary text-sm leading-relaxed">
+                    {message.marker === 'voice' && (
+                      <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
+                    )}
                     {renderMessageContent(message.content, message.type)}
                   </div>
                   {message.interactionId && (
@@ -315,6 +322,9 @@ const MessageList = memo(function MessageList({ messages, conversationId }: Mess
                   className="bg-surface-tertiary"
                 >
                   <div className="text-text-primary whitespace-pre-wrap text-sm">
+                    {message.marker === 'voice' && (
+                      <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
+                    )}
                     {renderMessageContent(message.content, message.type)}
                   </div>
                 </Paper>
@@ -575,7 +585,44 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // data) and surfaces the row id back via the meta frame. The previous
   // client-side logInteraction.mutateAsync was removed to fix double-logging.
   const startConversation = api.aiInteraction.startConversation.useMutation();
-  
+
+  // ── Voice mode (live WebRTC speech-to-speech) ──────────────────────
+  // A separate, deliberate mode alongside the dictation mic below — that
+  // record→transcribe→fill-textarea flow stays untouched.
+  const voiceTokenRef = useRef<string | null>(null);
+  const createVoiceSession = api.voice.createSession.useMutation();
+  const persistVoiceTurn = api.voice.persistTurn.useMutation();
+
+  // A committed voice turn: show it in the thread (marked 🎙) and persist it to
+  // the voice-scoped memory thread so the session stays continuous.
+  const recordVoiceTurn = useCallback(
+    (type: 'human' | 'ai', content: string) => {
+      setMessages(prev => [...prev, { type, content, marker: 'voice' }]);
+      const token = voiceTokenRef.current;
+      if (token) {
+        persistVoiceTurn.mutate({
+          token,
+          role: type === 'human' ? 'user' : 'assistant',
+          text: content,
+        });
+      }
+    },
+    [setMessages, persistVoiceTurn],
+  );
+
+  const voice = useVoiceSession({
+    createSession: async () => {
+      const res = await createVoiceSession.mutateAsync(
+        workspaceId ? { workspaceId } : undefined,
+      );
+      voiceTokenRef.current = res.voiceSessionToken;
+      return res;
+    },
+    onUserTranscript: (text) => recordVoiceTurn('human', text),
+    onAssistantTranscript: (text) => recordVoiceTurn('ai', text),
+  });
+  const voiceActive = voice.state !== 'idle';
+
   // Fetch project context when projectId is provided
   const { data: projectData } = api.project.getById.useQuery(
     { id: projectId! },
@@ -1324,6 +1371,33 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
+        {(voiceActive || voice.permissionDenied || voice.lastError) && (
+          <div className="mb-2">
+            {voice.permissionDenied ? (
+              <Text size="xs" c="red">
+                Microphone access is blocked.{' '}
+                <Anchor
+                  href="https://support.google.com/chrome/answer/2693767"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  size="xs"
+                >
+                  Fix browser permissions
+                </Anchor>{' '}
+                then click 🎙 again.
+              </Text>
+            ) : voiceActive ? (
+              <Group gap="xs">
+                <Badge color="blue" variant="light">Voice: {voice.state}</Badge>
+                <Button size="compact-xs" variant="subtle" color="red" onClick={() => voice.stop()}>
+                  End voice
+                </Button>
+              </Group>
+            ) : voice.lastError ? (
+              <Text size="xs" c="red">{voice.lastError}</Text>
+            ) : null}
+          </div>
+        )}
         <form onSubmit={handleSubmit}>
           <div className="relative">
             <Textarea
@@ -1341,11 +1415,24 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             />
             <div className="absolute right-3 bottom-2 flex items-center gap-2">
               <ActionIcon
+                onClick={() => (voiceActive ? voice.stop() : void voice.start())}
+                variant={voiceActive ? "filled" : "subtle"}
+                color={voiceActive ? "blue" : undefined}
+                size="lg"
+                radius="xl"
+                title="Voice mode — talk to zoe"
+                aria-label="Toggle voice mode"
+                className={`${voice.state === 'listening' ? "animate-pulse" : "text-text-primary hover:bg-surface-hover"}`}
+              >
+                🎙
+              </ActionIcon>
+              <ActionIcon
                 onClick={handleMicClick}
                 variant={isRecording ? "filled" : "subtle"}
                 color={isRecording ? "red" : undefined}
                 size="lg"
                 radius="xl"
+                title="Dictate — fill the message box"
                 className={`${isRecording ? "animate-pulse" : "text-text-primary hover:bg-surface-hover"}`}
               >
                 {isRecording ? (
