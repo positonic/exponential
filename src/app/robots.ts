@@ -33,7 +33,6 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
           '/settings',
           '/days',
           '/recordings',
-          '/multi-agent',
           '/agent',
           '/w/',
           '/signin',

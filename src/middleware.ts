@@ -30,7 +30,6 @@ export async function middleware(request: NextRequest) {
     '/settings',  // All settings pages require auth
     '/days',
     '/recordings',
-    '/multi-agent',
     '/agent',
     '/actions',
   ];

@@ -99,6 +99,15 @@ export function useVoiceSession(
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the most recent complete_action gate so a confirm pins to that action.
   const pendingActionIdRef = useRef<string | undefined>(undefined);
+  // Tool calls arrive on two events (function_call_arguments.done AND
+  // output_item.done) for the same call_id — handle each call once.
+  const handledCallIdsRef = useRef<Set<string>>(new Set());
+  // Whether a model response is currently in flight. The Realtime API rejects a
+  // response.create while one is active, so we gate/defer ours on this.
+  const activeResponseRef = useRef(false);
+  // A response.create we wanted to send while a response was active; fired when
+  // the active response completes.
+  const pendingResponseCreateRef = useRef(false);
   // Latest options without forcing start/stop identities to change.
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -121,6 +130,9 @@ export function useVoiceSession(
     }
     tokenRef.current = null;
     pendingActionIdRef.current = undefined;
+    handledCallIdsRef.current.clear();
+    activeResponseRef.current = false;
+    pendingResponseCreateRef.current = false;
   }, []);
 
   const stop = useCallback(() => {
@@ -169,6 +181,9 @@ export function useVoiceSession(
     async (callId: string, name: string, rawArgs: string) => {
       const token = tokenRef.current;
       if (!token) return;
+      // The same tool call surfaces on two events; only dispatch it once.
+      if (handledCallIdsRef.current.has(callId)) return;
+      handledCallIdsRef.current.add(callId);
 
       const parsed = parseToolArgs(rawArgs);
       const input: BrainDispatchInput = {
@@ -208,7 +223,16 @@ export function useVoiceSession(
           output: JSON.stringify(output),
         },
       });
-      send({ type: "response.create" });
+      // Trigger the spoken reply — but never while a response is still active
+      // (the API rejects that). Defer until the in-flight response completes.
+      // Reserve the slot locally BEFORE sending so a second tool completion that
+      // lands before the server's response.created ACK defers instead of racing.
+      if (activeResponseRef.current) {
+        pendingResponseCreateRef.current = true;
+      } else {
+        activeResponseRef.current = true;
+        send({ type: "response.create" });
+      }
     },
     [send],
   );
@@ -225,11 +249,25 @@ export function useVoiceSession(
           setState("listening");
           break;
         case "response.created":
+          activeResponseRef.current = true;
+          setState("speaking");
+          break;
         case "response.output_audio.delta":
         case "output_audio_buffer.started":
           setState("speaking");
           break;
         case "response.done":
+          activeResponseRef.current = false;
+          // Flush a tool-result reply we deferred while this response ran.
+          // Re-reserve the slot before sending so a completion arriving before
+          // the next response.created ACK doesn't also fire response.create.
+          if (pendingResponseCreateRef.current) {
+            pendingResponseCreateRef.current = false;
+            activeResponseRef.current = true;
+            send({ type: "response.create" });
+          }
+          setState("listening");
+          break;
         case "output_audio_buffer.stopped":
           setState("listening");
           break;
@@ -264,13 +302,16 @@ export function useVoiceSession(
           break;
         }
         case "error":
+          // Release the (possibly optimistically reserved) response slot so a
+          // failed response.create can't wedge the gate shut for the session.
+          activeResponseRef.current = false;
           setLastError(describeServerError(event));
           break;
         default:
           break;
       }
     },
-    [handleToolCall, armSilenceTimer],
+    [handleToolCall, armSilenceTimer, send],
   );
 
   const start = useCallback(async () => {

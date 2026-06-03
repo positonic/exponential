@@ -27,6 +27,8 @@ export interface ChatMessage {
   agentName?: string;
   interactionId?: string;
   toolCalls?: ToolCall[];
+  /** 'voice' when this turn was spoken via voice mode (renders the 🎙 marker). */
+  marker?: 'voice';
 }
 
 export type ChatDisplayMode = 'panel' | 'modal';
