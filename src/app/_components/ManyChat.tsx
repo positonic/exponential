@@ -23,6 +23,7 @@ import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react
 import { useVoiceSession } from '~/lib/voice/useVoiceSession';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
+import { DraftActionsReviewCard } from './DraftActionsReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext, type ToolCall } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
@@ -307,6 +308,9 @@ const MessageList = memo(function MessageList({ messages, conversationId }: Mess
                     )}
                     {renderMessageContent(message.content, message.type)}
                   </div>
+                  {message.card?.kind === 'draft-actions' && (
+                    <DraftActionsReviewCard transcriptionId={message.card.transcriptionId} />
+                  )}
                   {message.interactionId && (
                     <AgentMessageFeedback
                       aiInteractionId={message.interactionId}

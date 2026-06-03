@@ -29,6 +29,11 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   /** 'voice' when this turn was spoken via voice mode (renders the 🎙 marker). */
   marker?: 'voice';
+  /**
+   * Structured, interactive payload rendered below this message's text instead of
+   * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007).
+   */
+  card?: { kind: 'draft-actions'; transcriptionId: string };
 }
 
 export type ChatDisplayMode = 'panel' | 'modal';

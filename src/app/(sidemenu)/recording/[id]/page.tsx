@@ -20,15 +20,13 @@ import {
 import { DateTimePicker } from "@mantine/dates";
 import { IconPencil } from "@tabler/icons-react";
 import { use, useEffect, useMemo, useState } from "react";
-import RecordingChat from "~/app/_components/RecordingChat";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { TranscriptionContentEditor } from "~/app/_components/TranscriptionContentEditor";
 import { TranscriptionRenderer } from "~/app/_components/TranscriptionRenderer";
-import SaveActionsButton from "~/app/_components/SaveActionsButton";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
 import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
 import { notifications } from "@mantine/notifications";
-import { useAgentModal } from "~/providers/AgentModalProvider";
+import { useAgentModal, type ChatMessage } from "~/providers/AgentModalProvider";
 import { ActionsList } from "~/app/_components/actions/ActionsList";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 
@@ -45,32 +43,6 @@ function isMarkdownContent(content: string) {
     /^>\s/m,
   ];
   return markdownPatterns.some((pattern) => pattern.test(content));
-}
-
-interface AutoSwitchActionsEffectProps {
-  hasAutoSwitched: boolean;
-  setHasAutoSwitched: (value: boolean) => void;
-  setActiveTab: (value: string) => void;
-  actionsSavedAt?: Date | null;
-  actionsCount: number;
-}
-
-function AutoSwitchActionsEffect({
-  hasAutoSwitched,
-  setHasAutoSwitched,
-  setActiveTab,
-  actionsSavedAt,
-  actionsCount,
-}: AutoSwitchActionsEffectProps) {
-  useEffect(() => {
-    if (hasAutoSwitched) return;
-    const shouldFocusActions = Boolean(actionsSavedAt) || actionsCount > 0;
-    if (!shouldFocusActions) return;
-    setActiveTab("actions");
-    setHasAutoSwitched(true);
-  }, [actionsCount, actionsSavedAt, hasAutoSwitched, setActiveTab, setHasAutoSwitched]);
-
-  return null;
 }
 
 function isFirefliesFormat(content: string): boolean {
@@ -161,25 +133,81 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const { data: workspaces } = api.workspace.list.useQuery();
   const utils = api.useUtils();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
-  const { openModal, setMessages, isOpen: isAgentModalOpen } = useAgentModal();
+  const { openModal, setMessages } = useAgentModal();
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [editedDescription, setEditedDescription] = useState("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [editedNotes, setEditedNotes] = useState("");
   const [isEditingSummary, setIsEditingSummary] = useState(false);
   const [editedSummary, setEditedSummary] = useState("");
-  const [activeTab, setActiveTab] = useState<string>("details");
-  const [hasAutoSwitched, setHasAutoSwitched] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>("overview");
   const [pendingMeetingDate, setPendingMeetingDate] = useState<
     Date | null | undefined
   >(undefined);
+
+  // Deterministic extraction: Create Actions runs generateDraftActions (not the LLM),
+  // then appends an interactive review card to the active drawer thread (ADR-0007).
+  const generateDraftsMutation =
+    api.transcription.generateDraftActions.useMutation({
+      onSuccess: (result) => {
+        if (!session) return;
+        if (result.alreadyPublished) {
+          notifications.show({
+            title: "Actions already created",
+            message: "This meeting already has actions.",
+            color: "orange",
+          });
+          return;
+        }
+        if (result.actionsCreated === 0 && result.draftCount === 0) {
+          notifications.show({
+            title: "No actions found",
+            message: "No action items were detected in this meeting.",
+            color: "gray",
+          });
+          return;
+        }
+        void utils.transcription.getById.invalidate({ id });
+        // Append to the active continuous thread (no clearChat) and open the drawer.
+        // Dedup: if a review card for this meeting already exists in the thread,
+        // just re-open the drawer rather than stacking another identical card.
+        const transcriptionId = session.id;
+        setMessages((prev) => {
+          const alreadyHasCard = prev.some(
+            (m) => m.card?.kind === "draft-actions" && m.card.transcriptionId === transcriptionId
+          );
+          if (alreadyHasCard) return prev;
+          const cardMessage: ChatMessage = {
+            type: "ai",
+            agentName: "Zoe",
+            content:
+              "I found some actions in this meeting — review and create the ones you want below.",
+            card: { kind: "draft-actions", transcriptionId },
+          };
+          return [...prev, cardMessage];
+        });
+        openModal();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Error",
+          message: error.message || "Failed to generate draft actions",
+          color: "red",
+        });
+      },
+    });
+
+  function handleCreateActions() {
+    if (!session) return;
+    generateDraftsMutation.mutate({ transcriptionId: session.id });
+  }
 
   // Register page context so the agent chat knows what recording the user is viewing
   const recordingPageContext = useMemo(() => {
     if (!session) return null;
     return {
       pageType: 'recording' as const,
-      pageTitle: session.title ?? 'Transcription Details',
+      pageTitle: session.title ?? 'Meeting',
       pagePath: `/recording/${id}`,
       data: {
         transcriptionId: session.id,
@@ -295,8 +323,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       notifications.show({
         title: "Saved",
         message: workspaceId
-          ? "Recording moved to workspace"
-          : "Recording removed from workspace",
+          ? "Meeting moved to workspace"
+          : "Meeting removed from workspace",
         color: "green",
       });
       void utils.transcription.getById.invalidate({ id });
@@ -346,92 +374,36 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   }, [pendingMeetingDate]);
 
   if (isLoading) {
-    return (
-      <>
-        <AutoSwitchActionsEffect
-          hasAutoSwitched={hasAutoSwitched}
-          setHasAutoSwitched={setHasAutoSwitched}
-          setActiveTab={setActiveTab}
-          actionsSavedAt={undefined}
-          actionsCount={transcriptActions.length}
-        />
-        <Skeleton height={400} />
-      </>
-    );
+    return <Skeleton height={400} />;
   }
 
   if (!session) {
     return (
-      <>
-        <AutoSwitchActionsEffect
-          hasAutoSwitched={hasAutoSwitched}
-          setHasAutoSwitched={setHasAutoSwitched}
-          setActiveTab={setActiveTab}
-          actionsSavedAt={undefined}
-          actionsCount={transcriptActions.length}
-        />
-        <Paper p="md">
-          <Text>Transcription session not found</Text>
-        </Paper>
-      </>
+      <Paper p="md">
+        <Text>Meeting not found</Text>
+      </Paper>
     );
   }
 
-  const actionPromptText = "Want me to create actions for this transcript?";
-  const shouldShowActionPrompt = Boolean(session.transcription) && !session.actionsSavedAt && !isAgentModalOpen;
-
-  function handleActionPromptClick() {
-    setMessages((currentMessages) => {
-      const hasPrompt = currentMessages.some(
-        (message) => message.type === "ai" && message.content === actionPromptText
-      );
-      if (hasPrompt) return currentMessages;
-      return [
-        ...currentMessages,
-        {
-          type: "ai",
-          agentName: "Zoe",
-          content: actionPromptText,
-        },
-      ];
-    });
-    openModal();
-  }
-  
   return (
     <>
-      <AutoSwitchActionsEffect
-        hasAutoSwitched={hasAutoSwitched}
-        setHasAutoSwitched={setHasAutoSwitched}
-        setActiveTab={setActiveTab}
-        actionsSavedAt={session.actionsSavedAt}
-        actionsCount={transcriptActions.length}
-      />
       <Paper p="md">
         <Group justify="space-between" mb="lg">
-          <Title order={2}>{session.title ?? "Transcription Details"}</Title>
-          {session.transcription && (
-            <SaveActionsButton
-              transcriptionId={session.id}
-              actionsSavedAt={session.actionsSavedAt}
-            />
-          )}
+          <Title order={2}>{session.title ?? "Meeting"}</Title>
         </Group>
 
       <Tabs
         value={activeTab}
-        onChange={(value) => setActiveTab(value ?? "details")}
+        onChange={(value) => setActiveTab(value ?? "overview")}
         keepMounted={false}
       >
         <Tabs.List>
-          <Tabs.Tab value="details">Details</Tabs.Tab>
+          <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="transcription">Transcription</Tabs.Tab>
           <Tabs.Tab value="screenshots">Screenshots</Tabs.Tab>
-          <Tabs.Tab value="actions">Actions</Tabs.Tab>
-          <Tabs.Tab value="agent">Agent</Tabs.Tab>
         </Tabs.List>
 
-        <Tabs.Panel value="details" pt="md">
+        <Tabs.Panel value="overview" pt="md">
           <Stack gap="sm">
             <Stack gap={4}>
               <Group justify="space-between">
@@ -635,7 +607,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           {workspaces && workspaces.length > 0 && (
             <Select
               label="Workspace"
-              description="Move this recording to a different workspace"
+              description="Move this meeting to a different workspace"
               data={[
                 { value: '', label: 'No Workspace' },
                 ...workspaces.map(ws => ({ value: ws.id, label: ws.name }))
@@ -647,6 +619,37 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
               mt="md"
             />
           )}
+
+          <Stack gap="sm" mt="xl">
+            <Text fw={600}>
+              Actions
+              {transcriptActions.length > 0 ? ` (${transcriptActions.length})` : ""}
+            </Text>
+            {isActionsLoading ? (
+              <Skeleton height={120} />
+            ) : transcriptActions.length > 0 ? (
+              <ActionsList
+                viewName="transcription-actions"
+                actions={transcriptActions}
+                showCheckboxes={false}
+                showProject
+              />
+            ) : session.transcription ? (
+              <Stack gap="sm" align="flex-start">
+                <Text c="dimmed">No actions created from this meeting yet.</Text>
+                <Button
+                  onClick={handleCreateActions}
+                  loading={generateDraftsMutation.isPending}
+                >
+                  Create Actions
+                </Button>
+              </Stack>
+            ) : (
+              <Text c="dimmed">
+                No transcript available to create actions from.
+              </Text>
+            )}
+          </Stack>
         </Tabs.Panel>
 
         <Tabs.Panel value="transcription" pt="md">
@@ -676,46 +679,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           )}
         </Tabs.Panel>
 
-        <Tabs.Panel value="actions" pt="md">
-          {isActionsLoading ? (
-            <Skeleton height={200} />
-          ) : transcriptActions.length > 0 ? (
-            <ActionsList
-              viewName="transcription-actions"
-              actions={transcriptActions}
-              showCheckboxes={false}
-              showProject
-            />
-          ) : (
-            <Text c="dimmed">No actions created from this transcript yet.</Text>
-          )}
-        </Tabs.Panel>
-
-        <Tabs.Panel value="agent" pt="md">
-          <RecordingChat
-            initialMessages={undefined}
-            transcription={session.transcription}
-            githubSettings={{
-              owner: "akashic-fund", // This would come from your project settings in the future
-              repo: "akashic",
-              validAssignees: ["0xshikhar", "Prajjawalk", "Positonic"],
-            }}
-          />
-        </Tabs.Panel>
       </Tabs>
-
-      {shouldShowActionPrompt ? (
-        <button
-          type="button"
-          onClick={handleActionPromptClick}
-          aria-label="Ask the agent to create actions for this transcript"
-          className="fixed bottom-36 right-4 z-50 max-w-[240px] rounded-lg border border-border-primary bg-surface-primary px-3 py-2 text-left text-sm text-text-primary shadow-sm transition hover:bg-surface-hover sm:bottom-20"
-        >
-          <span className="block font-medium">{actionPromptText}</span>
-          <span className="absolute -bottom-2 right-6 h-4 w-4 rotate-45 border-b border-r border-border-primary bg-surface-primary" />
-        </button>
-      ) : null}
       </Paper>
     </>
   );
-} 
+}
