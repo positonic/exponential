@@ -612,9 +612,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
   const voice = useVoiceSession({
     createSession: async () => {
-      const res = await createVoiceSession.mutateAsync(
-        workspaceId ? { workspaceId } : undefined,
-      );
+      // Bind the voice session to the active text-chat conversation so typing
+      // and talking share one memory thread (ADR-0006). The server bakes this
+      // into the voice-session token as an authoritative claim.
+      const res = await createVoiceSession.mutateAsync({
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(conversationId ? { conversationId } : {}),
+      });
       voiceTokenRef.current = res.voiceSessionToken;
       return res;
     },
@@ -622,6 +626,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     onAssistantTranscript: (text) => recordVoiceTurn('ai', text),
   });
   const voiceActive = voice.state !== 'idle';
+
+  // Release the mic when the drawer closes. ZoeDrawer toggles visibility via
+  // CSS and never unmounts ManyChat, so without this the WebRTC session and the
+  // live mic keep running invisibly behind a closed drawer. A drawer close is a
+  // deliberate end — voice.stop() also clears any "tap to resume" prompt.
+  const stopVoice = voice.stop;
+  useEffect(() => {
+    if (!isOpen && voiceActive) stopVoice();
+  }, [isOpen, voiceActive, stopVoice]);
 
   // Fetch project context when projectId is provided
   const { data: projectData } = api.project.getById.useQuery(
@@ -1374,7 +1387,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
-        {(voiceActive || voice.permissionDenied || voice.lastError) && (
+        {(voiceActive || voice.permissionDenied || voice.lastError || voice.needsResume) && (
           <div className="mb-2">
             {voice.permissionDenied ? (
               <Text size="xs" c="red">
@@ -1391,9 +1404,33 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               </Text>
             ) : voiceActive ? (
               <Group gap="xs">
-                <Badge color="blue" variant="light">Voice: {voice.state}</Badge>
+                {/* Live-mic indicator: a pulsing filled-red badge shown for the
+                    whole lifetime of an active session, gone the moment it ends. */}
+                <Badge
+                  color="red"
+                  variant="filled"
+                  className="animate-pulse"
+                  aria-label="Microphone is live"
+                >
+                  ● Mic live · {voice.state}
+                </Badge>
                 <Button size="compact-xs" variant="subtle" color="red" onClick={() => voice.stop()}>
                   End voice
+                </Button>
+              </Group>
+            ) : voice.needsResume ? (
+              // Involuntary end (refresh, network drop, or silence timeout): offer
+              // an explicit resume instead of silence. Resuming mints a fresh
+              // session on the same conversationId (ADR-0006) — never auto-mic.
+              <Group gap="xs">
+                <Text size="xs" c="dimmed">Voice ended.</Text>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="blue"
+                  onClick={() => void voice.start()}
+                >
+                  Tap to resume
                 </Button>
               </Group>
             ) : voice.lastError ? (

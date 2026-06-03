@@ -9,6 +9,7 @@ import {
   persistVoiceTurn,
   voiceTurnId,
   voiceThreadKey,
+  resolveVoiceThreadKey,
   EmptyVoiceTurnError,
   type VoiceMemoryClient,
 } from "~/server/services/voice/voiceTranscriptBridge";
@@ -75,5 +76,23 @@ describe("voiceTranscriptBridge.persistVoiceTurn", () => {
       { client },
     );
     expect(saveMessageToMemory.mock.calls[0]![0].messages[0]!.content).toBe("hello");
+  });
+});
+
+describe("voiceTranscriptBridge.resolveVoiceThreadKey", () => {
+  it("binds to the conversationId thread when present (web / ADR-0006)", () => {
+    // Web sessions carry the text-chat conversationId so voice + text converge
+    // on one thread — the brain reads/writes the SAME thread the text chat uses.
+    expect(resolveVoiceThreadKey("u1", "conv_abc123")).toBe("conv_abc123");
+  });
+
+  it("falls back to the user-scoped voice thread with no conversationId (iOS)", () => {
+    // iOS has no concurrent text chat — the divergence is intentional.
+    expect(resolveVoiceThreadKey("u1")).toBe("voice-u1");
+    expect(resolveVoiceThreadKey("u1")).toBe(voiceThreadKey("u1"));
+  });
+
+  it("treats an empty-string conversationId as absent (falls back)", () => {
+    expect(resolveVoiceThreadKey("u1", "")).toBe("voice-u1");
   });
 });

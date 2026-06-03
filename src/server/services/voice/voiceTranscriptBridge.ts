@@ -119,7 +119,26 @@ export async function persistVoiceTurn(
   return { id, role: input.role, threadKey: input.threadKey, marker: input.marker ?? "voice" };
 }
 
-/** The voice-scoped memory thread key for a user (matches brainPassthrough). */
+/** The voice-scoped memory thread key for a user (the iOS / no-conversation fallback). */
 export function voiceThreadKey(userId: string): string {
   return `voice-${userId}`;
+}
+
+/**
+ * Resolve the Mastra memory thread the brain reads/writes for a voice turn
+ * (ADR-0006). On web the voice-session token carries the active text-chat
+ * `conversationId`, so voice and text converge on ONE thread (the text chat
+ * already keys memory on `thread.id = conversationId`, `resource = userId`).
+ * With no conversationId (iOS / legacy tokens) it falls back to the
+ * user-scoped `voice-${userId}` thread, preserving the prior behaviour.
+ *
+ * `resource` is `userId` on both sides regardless — only the thread key differs.
+ */
+export function resolveVoiceThreadKey(
+  userId: string,
+  conversationId?: string,
+): string {
+  return conversationId && conversationId.length > 0
+    ? conversationId
+    : voiceThreadKey(userId);
 }

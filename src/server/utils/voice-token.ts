@@ -32,14 +32,24 @@ function getAuthSecret(): string {
 /**
  * Mint a voice-session JWT for the given user. ~30-min expiry (DEFAULT_EXPIRY),
  * audience scoped to the voice tool surface.
+ *
+ * `conversationId`, when present, pins this session's memory thread to the web
+ * text-chat conversation so typing and talking share one thread (ADR-0006). It
+ * is baked into the token as a verified claim — the same "claim is
+ * authoritative" pattern as `workspaceId` — so `dispatch` trusts the token over
+ * any per-call arg. iOS mints without it and stays user-scoped.
  */
 export function mintVoiceSessionToken(
   user: JWTUserPayload,
   workspaceId?: string,
+  conversationId?: string,
 ): string {
+  const extraClaims: Record<string, unknown> = {};
+  if (workspaceId) extraClaims.workspaceId = workspaceId;
+  if (conversationId) extraClaims.conversationId = conversationId;
   return generateJWT(user, {
     tokenType: "voice-session",
-    ...(workspaceId ? { extraClaims: { workspaceId } } : {}),
+    ...(Object.keys(extraClaims).length > 0 ? { extraClaims } : {}),
   });
 }
 
@@ -50,6 +60,13 @@ export interface VerifiedVoiceSession {
    * tokens minted before the claim existed — callers fall back accordingly.
    */
   workspaceId?: string;
+  /**
+   * The text-chat conversation this voice session is bound to (verified claim,
+   * web only). When present, the brain reads/writes this thread so voice and
+   * text are one continuous conversation (ADR-0006). Absent on iOS / legacy
+   * tokens — callers fall back to the user-scoped `voice-${userId}` thread.
+   */
+  conversationId?: string;
 }
 
 /**
@@ -69,6 +86,7 @@ export function verifyVoiceSessionToken(token: string): VerifiedVoiceSession {
     nbf?: number;
     securityVersion?: number;
     workspaceId?: string;
+    conversationId?: string;
   };
 
   if (decoded.tokenType !== "voice-session") {
@@ -98,5 +116,14 @@ export function verifyVoiceSessionToken(token: string): VerifiedVoiceSession {
       ? decoded.workspaceId
       : undefined;
 
-  return { userId, workspaceId };
+  // conversationId is OPTIONAL by design — present only for web sessions bound
+  // to a text-chat thread (ADR-0006); iOS / legacy tokens carry none. Same type
+  // guard as workspaceId: ignore a malformed non-string claim rather than
+  // propagating it.
+  const conversationId =
+    typeof decoded.conversationId === "string" && decoded.conversationId.length > 0
+      ? decoded.conversationId
+      : undefined;
+
+  return { userId, workspaceId, conversationId };
 }

@@ -29,8 +29,19 @@ import { RequestContext } from "@mastra/core/di";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { boundLength } from "~/server/services/voice/speakable";
 import { resolveWorkspaceId } from "~/server/services/voice/workspaceResolver";
+import { resolveVoiceThreadKey } from "~/server/services/voice/voiceTranscriptBridge";
+import { withTimeout } from "~/server/utils/withTimeout";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
+
+/**
+ * Bound zoe's full agent run. The tRPC route this sits under is a 60s Vercel
+ * function (see `src/app/api/trpc/[trpc]/route.ts`); zoe's loop (model turns +
+ * tool calls into Google/Slack/etc.) has no timeout of its own. Cap it below the
+ * wall so a stalled tool rejects HERE — the caller (voice.dispatch) then speaks a
+ * fallback instead of the function being killed mid-flight.
+ */
+const GENERATE_TIMEOUT_MS = 45_000;
 
 /**
  * System guard. Two jobs: keep replies spoken-length, and stop zoe from making
@@ -59,12 +70,19 @@ export interface BrainPassthroughResult {
  * have a valid id. Legacy tokens minted before the claim existed pass it as
  * undefined; we then fall back to the shared `workspaceResolver` (the same
  * three-tier resolution used at session-mint time).
+ *
+ * `conversationId` is the session's verified text-chat thread (web only,
+ * ADR-0006). When present, zoe reads/writes that same memory thread so the
+ * brain recalls what was typed and voice turns appear in the text history;
+ * absent (iOS / legacy), it falls back to the user-scoped `voice-${userId}`
+ * thread. `resource` stays `userId` either way.
  */
 export async function askExponential(
   phrase: string,
   userId: string,
   db: PrismaClient,
   workspaceId?: string,
+  conversationId?: string,
 ): Promise<BrainPassthroughResult> {
   const agentJWT = generateAgentJWT({ id: userId });
   const effectiveWorkspaceId = workspaceId ?? (await resolveWorkspaceId(userId, db));
@@ -87,10 +105,17 @@ export async function askExponential(
     { role: "user", content: phrase },
   ];
 
-  const res = await client.getAgent("zoeAgent").generate(messages, {
-    requestContext: requestContext as RequestContext<unknown>,
-    memory: { resource: userId, thread: `voice-${userId}` },
-  });
+  const res = await withTimeout(
+    client.getAgent("zoeAgent").generate(messages, {
+      requestContext: requestContext as RequestContext<unknown>,
+      memory: {
+        resource: userId,
+        thread: resolveVoiceThreadKey(userId, conversationId),
+      },
+    }),
+    GENERATE_TIMEOUT_MS,
+    "zoeAgent.generate",
+  );
 
   const text = (res.text ?? "").trim();
   return {
