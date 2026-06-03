@@ -74,9 +74,55 @@ export interface UseVoiceSession {
   lastError: string | null;
   /** True when start() failed because mic permission was denied/blocked. */
   permissionDenied: boolean;
+  /**
+   * True when a session ended for a reason OTHER than a deliberate user stop —
+   * the end-on-silence timer, a network drop, or a page refresh mid-session.
+   * The UI surfaces a "tap to resume" affordance instead of silently dying;
+   * calling `start()` mints a fresh session on the same conversationId
+   * (ADR-0006). False after a deliberate `stop()` or once resumed.
+   */
+  needsResume: boolean;
 }
 
 const DEFAULT_END_ON_SILENCE_MS = 25_000;
+
+/**
+ * Grace period for a "disconnected" ICE state before treating it as a real
+ * drop. Per the WebRTC spec `disconnected` is transient and routinely recovers
+ * to `connected` (wifi handoff, a momentary mobile blip), so we wait this long
+ * for it to heal rather than tearing the call down on every hiccup. `failed`
+ * is terminal and ends immediately.
+ */
+const DISCONNECT_GRACE_MS = 5_000;
+
+/**
+ * sessionStorage marker: "a voice session was live and was NOT deliberately
+ * stopped." Survives a page refresh (the one teardown path that can't run
+ * `stop()`), so on remount we can offer to resume rather than show silence.
+ * Per-tab, like the conversation/messages keys in AgentModalProvider.
+ */
+const VOICE_RESUMABLE_KEY = "exp:voice-resumable";
+
+function readResumableMarker(): boolean {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(VOICE_RESUMABLE_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function writeResumableMarker(on: boolean): void {
+  try {
+    if (typeof window === "undefined") return;
+    if (on) window.sessionStorage.setItem(VOICE_RESUMABLE_KEY, "1");
+    else window.sessionStorage.removeItem(VOICE_RESUMABLE_KEY);
+  } catch {
+    // sessionStorage unavailable (private mode / SSR) — resume just won't persist.
+  }
+}
 
 /** A Realtime server event — a tagged JSON object over the data channel. */
 export interface RealtimeServerEvent {
@@ -90,6 +136,7 @@ export function useVoiceSession(
   const [state, setState] = useState<VoiceSessionState>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [needsResume, setNeedsResume] = useState(false);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
@@ -97,6 +144,8 @@ export function useVoiceSession(
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const tokenRef = useRef<string | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending grace timer for a transient "disconnected" transport (see below).
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track the most recent complete_action gate so a confirm pins to that action.
   const pendingActionIdRef = useRef<string | undefined>(undefined);
   // Tool calls arrive on two events (function_call_arguments.done AND
@@ -117,6 +166,10 @@ export function useVoiceSession(
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+    }
     dcRef.current?.close();
     dcRef.current = null;
     pcRef.current?.getSenders().forEach((s) => s.track?.stop());
@@ -135,16 +188,36 @@ export function useVoiceSession(
     pendingResponseCreateRef.current = false;
   }, []);
 
-  const stop = useCallback(() => {
-    if (pcRef.current || dcRef.current || micRef.current) {
-      setState("ending");
-      teardown();
-    }
-    setState("idle");
-  }, [teardown]);
+  /**
+   * Tear down the live session. `resumable` distinguishes an INVOLUNTARY end
+   * (silence timer, network drop) — which leaves the resume affordance up — from
+   * a DELIBERATE end (user tapped stop / closed the drawer), which clears it.
+   */
+  const endSession = useCallback(
+    (resumable: boolean) => {
+      if (pcRef.current || dcRef.current || micRef.current) {
+        setState("ending");
+        teardown();
+      }
+      setState("idle");
+      setNeedsResume(resumable);
+      // Keep the refresh-survival marker only while a resume is on offer.
+      writeResumableMarker(resumable);
+    },
+    [teardown],
+  );
+
+  // Public stop is always a deliberate end — no resume prompt.
+  const stop = useCallback(() => endSession(false), [endSession]);
 
   // Always release the session if the component using the hook unmounts.
   useEffect(() => () => teardown(), [teardown]);
+
+  // On mount, if a prior session was interrupted (marker survived a refresh),
+  // offer to resume — but NEVER auto-open the mic (no surprise hot mic).
+  useEffect(() => {
+    if (readResumableMarker()) setNeedsResume(true);
+  }, []);
 
   /** (Re)start the end-on-silence countdown; any activity event resets it. */
   const armSilenceTimer = useCallback(() => {
@@ -153,9 +226,10 @@ export function useVoiceSession(
     if (ms <= 0) return;
     silenceTimerRef.current = setTimeout(() => {
       // Only running sessions hold a peer connection; bounds idle billing.
-      if (pcRef.current) stop();
+      // An idle-timeout end is involuntary — offer to resume (ADR-0006).
+      if (pcRef.current) endSession(true);
     }, ms);
-  }, [stop]);
+  }, [endSession]);
 
   /** Send a client event over the data channel (no-op if not open). */
   const send = useCallback((event: Record<string, unknown>) => {
@@ -318,6 +392,8 @@ export function useVoiceSession(
     if (pcRef.current) return; // already running
     setLastError(null);
     setPermissionDenied(false);
+    // Starting (or resuming) clears the resume affordance — we're acting on it.
+    setNeedsResume(false);
     setState("connecting");
 
     let mic: MediaStream;
@@ -348,6 +424,38 @@ export function useVoiceSession(
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
+      // A dropped/failed transport is an involuntary end — offer to resume.
+      // Guard on identity so our own teardown (which fires "closed") and any
+      // stale handler from a prior pc never trigger a spurious resume.
+      // `failed` is terminal → end now. `disconnected` is transient and often
+      // self-heals, so give it a grace window before giving up; cancel the
+      // pending end if it recovers.
+      pc.onconnectionstatechange = () => {
+        if (pcRef.current !== pc) return;
+        const cs = pc.connectionState;
+        if (cs === "failed") {
+          if (disconnectTimerRef.current) {
+            clearTimeout(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
+          endSession(true);
+        } else if (cs === "disconnected") {
+          if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = setTimeout(() => {
+            disconnectTimerRef.current = null;
+            if (pcRef.current === pc && pc.connectionState === "disconnected") {
+              endSession(true);
+            }
+          }, DISCONNECT_GRACE_MS);
+        } else if (cs === "connected") {
+          // Recovered before the grace window elapsed — cancel the pending end.
+          if (disconnectTimerRef.current) {
+            clearTimeout(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
+        }
+      };
+
       // Play zoe's audio: route the remote track to a hidden <audio> element.
       const audioEl = new Audio();
       audioEl.autoplay = true;
@@ -364,6 +472,8 @@ export function useVoiceSession(
         configureSession();
         setState("listening");
         armSilenceTimer();
+        // Session is live — mark it so a refresh mid-session can offer resume.
+        writeResumableMarker(true);
       };
       dc.onmessage = (e) => {
         const parsed = safeParse(e.data);
@@ -394,9 +504,9 @@ export function useVoiceSession(
       teardown();
       setState("idle");
     }
-  }, [configureSession, onServerEvent, teardown, armSilenceTimer]);
+  }, [configureSession, onServerEvent, teardown, armSilenceTimer, endSession]);
 
-  return { state, start, stop, lastError, permissionDenied };
+  return { state, start, stop, lastError, permissionDenied, needsResume };
 }
 
 // ── pure helpers ─────────────────────────────────────────────────────

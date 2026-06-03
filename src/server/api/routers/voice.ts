@@ -34,7 +34,7 @@ import {
 } from "~/server/services/voice/workspaceResolver";
 import {
   persistVoiceTurn,
-  voiceThreadKey,
+  resolveVoiceThreadKey,
   EmptyVoiceTurnError,
 } from "~/server/services/voice/voiceTranscriptBridge";
 import {
@@ -61,7 +61,17 @@ export const voiceRouter = createTRPCRouter({
   createSession: publicProcedure
     .input(
       z
-        .object({ mode: modeSchema, workspaceId: z.string().optional() })
+        .object({
+          mode: modeSchema,
+          workspaceId: z.string().optional(),
+          /**
+           * The active text-chat conversation to bind this voice session to
+           * (web only, ADR-0006). Baked into the token as an authoritative
+           * claim so voice and text share one memory thread. iOS omits it and
+           * stays user-scoped (`voice-${userId}`).
+           */
+          conversationId: z.string().optional(),
+        })
         .optional(),
     )
     .mutation(async ({ ctx, input }) => {
@@ -84,7 +94,11 @@ export const voiceRouter = createTRPCRouter({
       }
 
       const realtime = await createRealtimeSession();
-      const voiceSessionToken = mintVoiceSessionToken({ id: userId }, workspaceId);
+      const voiceSessionToken = mintVoiceSessionToken(
+        { id: userId },
+        workspaceId,
+        input?.conversationId,
+      );
 
       return {
         openaiEphemeralKey: realtime.ephemeralKey,
@@ -126,8 +140,11 @@ export const voiceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }): Promise<DispatchResult> => {
       let userId: string;
       let workspaceId: string | undefined;
+      let conversationId: string | undefined;
       try {
-        ({ userId, workspaceId } = verifyVoiceSessionToken(input.token));
+        ({ userId, workspaceId, conversationId } = verifyVoiceSessionToken(
+          input.token,
+        ));
       } catch {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -235,7 +252,13 @@ export const voiceRouter = createTRPCRouter({
             };
           }
           try {
-            return await askExponential(phrase, userId, ctx.db, workspaceId);
+            return await askExponential(
+              phrase,
+              userId,
+              ctx.db,
+              workspaceId,
+              conversationId,
+            );
           } catch (error) {
             console.error("[voice.dispatch] ask_exponential failed:", error);
             return {
@@ -265,9 +288,25 @@ export const voiceRouter = createTRPCRouter({
     }),
 
   /**
-   * Persist one voice transcript turn into the voice-scoped memory thread, so a
+   * Persist one voice transcript turn into the session's memory thread, so a
    * voice session has continuity across turns. Authed by the voice-session JWT
-   * (same as dispatch). Isolated from text-chat memory — see voiceTranscriptBridge.
+   * (same as dispatch). On web the token carries a `conversationId`, so voice
+   * turns land on the shared text-chat thread and are visible to the text agent
+   * on the next typed turn; iOS / legacy tokens fall back to the user-scoped
+   * `voice-${userId}` thread (ADR-0006).
+   *
+   * KNOWN, ACCEPTED FOR v1 — turns routed to `ask_exponential` are persisted
+   * twice on the thread: once here (the spoken transcript) and once by the
+   * brain's own `zoeAgent.generate({ memory })` (the phrase + reply). This was
+   * harmless pre-ADR-0006 (isolated `voice-${userId}` thread) and is now a minor
+   * recall-quality / token cost on the shared thread. We deliberately keep both
+   * writers rather than the alternatives: Mastra's `generate` has no clean
+   * read-without-persist toggle (disabling it would risk the brain's own
+   * recall — the core of ADR-0006), and the only signal the client has to
+   * suppress this writer (the dispatch tool name) can't be reliably correlated
+   * to the decoupled Realtime transcript events. Coarse-tool turns run no agent,
+   * so for them this is the SOLE writer and must stay. Revisit if recall
+   * degrades. See ADR-0006 and brainPassthrough.askExponential.
    */
   persistTurn: publicProcedure
     .input(
@@ -279,8 +318,9 @@ export const voiceRouter = createTRPCRouter({
     )
     .mutation(async ({ input }) => {
       let userId: string;
+      let conversationId: string | undefined;
       try {
-        ({ userId } = verifyVoiceSessionToken(input.token));
+        ({ userId, conversationId } = verifyVoiceSessionToken(input.token));
       } catch {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -293,7 +333,7 @@ export const voiceRouter = createTRPCRouter({
           userId,
           role: input.role,
           text: input.text,
-          threadKey: voiceThreadKey(userId),
+          threadKey: resolveVoiceThreadKey(userId, conversationId),
         });
         return { id: turn.id, marker: turn.marker };
       } catch (err) {
