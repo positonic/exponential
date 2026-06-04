@@ -18,6 +18,7 @@ import {
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
+import { getWorkspaceFocusSummary } from "~/server/services/activity/workspaceFocusSummary";
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
 import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
@@ -1580,6 +1581,44 @@ export const workspaceRouter = createTRPCRouter({
       }
 
       return getWorkspaceHomeStats(ctx.db, {
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+      });
+    }),
+
+  // Activity-home hero "This week's focus" widget: the goals the caller pinned
+  // for the current week (via the portfolio weekly review → WorkspaceWeeklyFocus,
+  // rolled up from pinned key results), with an at-a-glance fallback over active
+  // goals. See src/server/services/activity/workspaceFocusSummary.ts.
+  getFocusSummary: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Same access guard as getHomeStats: direct membership, else team-based.
+      const member = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: {
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+          },
+        },
+        select: { role: true },
+      });
+
+      if (!member) {
+        const teamBased = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!teamBased) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
+      return getWorkspaceFocusSummary(ctx.db, {
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
       });

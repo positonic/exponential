@@ -176,12 +176,153 @@
 .wsa-hero__stat-delta--down { color: var(--activity-accent-due); }
 .wsa-hero__stat-delta--flat { color: var(--color-text-muted); }
 
+/* --------------------------------------------------------------------------
+   HERO — "This week's focus" widget (replaces the KPI stats)
+   -------------------------------------------------------------------------- */
+.wsa-hero__focus {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: 6px;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.wsa-hero__focus-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.wsa-hero__focus-theme {
+  margin: 2px 0 4px;
+  font-size: 12.5px;
+  font-style: italic;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.wsa-hero__focus-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 100%;
+}
+
+.wsa-hero__focus-goal {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.wsa-hero__focus-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  order: -1;
+  background: var(--color-text-muted);
+}
+
+.wsa-hero__focus-dot--on-track  { background: var(--activity-accent-crm); }
+.wsa-hero__focus-dot--at-risk   { background: var(--activity-accent-okr); }
+.wsa-hero__focus-dot--off-track { background: var(--activity-accent-due); }
+.wsa-hero__focus-dot--no-update { background: var(--color-text-muted); }
+
+.wsa-hero__focus-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 230px;
+}
+
+.wsa-hero__focus-title:hover {
+  color: var(--color-brand-primary);
+}
+
+.wsa-hero__focus-pct {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.wsa-hero__focus-more {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  margin-top: 2px;
+}
+
+.wsa-hero__focus-more:hover { color: var(--color-text-secondary); }
+
+/* at-a-glance fallback */
+.wsa-hero__focus-glance {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.wsa-hero__focus-count {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  line-height: 1.1;
+}
+
+.wsa-hero__focus-count-label {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.wsa-hero__focus-breakdown {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.wsa-hero__focus-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-brand-primary);
+  text-decoration: none;
+}
+
+.wsa-hero__focus-cta:hover { color: var(--color-brand-primary-hover); }
+
 @media (max-width: 920px) {
   .wsa-hero {
     grid-template-columns: 1fr;
     align-items: start;
   }
   .wsa-hero__stats {
+    justify-content: flex-start;
+  }
+  .wsa-hero__focus {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .wsa-hero__focus-goal {
     justify-content: flex-start;
   }
 }
