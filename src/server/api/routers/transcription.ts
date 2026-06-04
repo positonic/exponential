@@ -12,6 +12,10 @@ import { TranscriptionProcessingService } from "~/server/services/TranscriptionP
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
+  TranscriptSummarizerService,
+  SummarizationNotConfiguredError,
+} from "~/server/services/TranscriptSummarizerService";
+import {
   buildProjectAccessWhere,
   canEditProject,
   getProjectAccess,
@@ -230,6 +234,42 @@ export const transcriptionRouter = createTRPCRouter({
         id: input.id,
         savedAt: new Date().toISOString(),
       };
+    }),
+
+  // Stateless transcript → meeting-summary markdown for the device's **Local
+  // summary** "Exponential server" provider (ADR 0006, exponential-ios). A pure
+  // preview: it creates NO TranscriptionSession and writes nothing — the device
+  // renders the markdown locally and never Submits it, so a preview can't pollute
+  // a Meeting. Authenticated like the other device calls (device-token JWT or
+  // x-api-key) via apiKeyMiddleware; `ctx.userId` gates access even though no row
+  // is touched, so it isn't an unauthenticated LLM endpoint.
+  summarize: apiKeyMiddleware
+    .input(
+      z.object({
+        transcript: z.string().min(1, "Transcript is required"),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<{ markdown: string }> => {
+      // Touch userId so the call is unambiguously authenticated (and lints clean).
+      void ctx.userId;
+      try {
+        const markdown = await TranscriptSummarizerService.summarize(
+          input.transcript,
+        );
+        return { markdown };
+      } catch (error) {
+        if (error instanceof SummarizationNotConfiguredError) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: error.message,
+          });
+        }
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error ? error.message : "Failed to summarize transcript",
+        });
+      }
     }),
 
   getSessions: protectedProcedure.query(async ({ ctx }) => {
