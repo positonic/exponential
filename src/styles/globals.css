@@ -912,6 +912,47 @@
 }
 
 /* ==========================================================================
+   Meeting detail surface (/recording/[id], redesigned "workspace" layout) —
+   scoped design tokens. Consumed by
+   src/app/_components/meeting/meeting-detail.css. Mirrors today-surface: all
+   raw color values live here (this file is allow-listed by the pre-commit
+   hook); the feature CSS uses only var(). Tints reference the global rgb
+   triplets so they track the active theme; identity gradients are fixed
+   (participant identity, never page chrome).
+   ========================================================================== */
+.meeting-detail {
+  /* Blue chrome tints (type pill, AI card glow, active tab, key-moment chips) */
+  --mp-brand-05: rgb(var(--brand-400-rgb) / 0.05);
+  --mp-brand-08: rgb(var(--brand-400-rgb) / 0.08);
+  --mp-brand-10: rgb(var(--brand-400-rgb) / 0.10);
+  --mp-brand-14: rgb(var(--brand-400-rgb) / 0.14);
+  --mp-brand-22: rgb(var(--brand-400-rgb) / 0.22);
+  --mp-brand-25: rgb(var(--brand-400-rgb) / 0.25);
+
+  /* Amber accents (draft pills, transcript highlights, flag chips) */
+  --mp-amber-08: rgb(var(--accent-okr-rgb) / 0.08);
+  --mp-amber-12: rgb(var(--accent-okr-rgb) / 0.12);
+  --mp-amber-18: rgb(var(--accent-okr-rgb) / 0.18);
+  --mp-amber-22: rgb(var(--accent-okr-rgb) / 0.22);
+  --mp-amber-25: rgb(var(--accent-okr-rgb) / 0.25);
+
+  /* Participant identity gradients (avatars) — reserved for identity only */
+  --mp-identity-me: linear-gradient(135deg, var(--brand-400), var(--brand-500));
+  --mp-identity-them: linear-gradient(135deg, #A78BFA, #7C5BFF);
+  --mp-identity-alt: linear-gradient(135deg, #4ADE8C, #18A86B);
+
+  /* Linked-row glyph gradients */
+  --mp-glyph-ritual: linear-gradient(135deg, #6B8CFF, #3D5BE0);
+  --mp-glyph-okr: linear-gradient(135deg, #F5B94A, #D89019);
+
+  /* Screenshot timestamp/flag overlay scrim */
+  --mp-shot-overlay: rgb(5 8 13 / 0.7);
+
+  /* Foreground on filled accent surfaces (avatars, primary buttons, glyphs) */
+  --mp-on-accent: #ffffff;
+}
+
+/* ==========================================================================
    Today desktop surface (/today, redesigned shell) — scoped design tokens.
    Consumed by src/app/_components/today-redesign/today-desktop.css.
    Mirrors auth-surface / portfolio-review-surface: all hex lives here, the
