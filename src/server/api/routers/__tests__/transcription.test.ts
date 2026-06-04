@@ -518,3 +518,77 @@ describe("transcription router (mocked) — findRelated", () => {
     expect(result.byTitle).toHaveLength(3);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// saveTranscription — optional `notes` (exponential-ios ADR 0006 amendment).
+// The transcript always appends; notes REPLACE when provided and are left
+// untouched (field omitted from the update) when absent.
+// ──────────────────────────────────────────────────────────────────────
+describe("transcription router (mocked) — saveTranscription notes", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    // An existing session owned by the caller, with prior transcript text.
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: callerId,
+      transcription: "earlier text",
+      notes: "old notes",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.transcriptionSession.update.mockResolvedValue({} as any);
+  });
+
+  function updateData() {
+    const call = dbMock.transcriptionSession.update.mock.calls[0]?.[0] as
+      | { data: { transcription: string; notes?: string } }
+      | undefined;
+    return call?.data;
+  }
+
+  it("replaces notes and appends the transcript when notes are provided", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.saveTranscription({
+      id: "sess1",
+      transcription: "new line",
+      notes: "ask Sam about pricing",
+    });
+
+    const data = updateData();
+    expect(data?.transcription).toBe("earlier text new line");
+    expect(data?.notes).toBe("ask Sam about pricing");
+  });
+
+  it("leaves notes untouched (field omitted) when notes are absent", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.saveTranscription({
+      id: "sess1",
+      transcription: "new line",
+    });
+
+    const data = updateData();
+    expect(data?.transcription).toBe("earlier text new line");
+    // No `notes` key at all — the server must not overwrite existing notes.
+    expect(data).not.toHaveProperty("notes");
+  });
+
+  it("re-submitting replaces (does not duplicate) the notes", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.saveTranscription({
+      id: "sess1",
+      transcription: "more",
+      notes: "edited notes",
+    });
+
+    // Replace semantics: the update sets notes to exactly the new value, never
+    // appending to "old notes".
+    expect(updateData()?.notes).toBe("edited notes");
+  });
+});
