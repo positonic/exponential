@@ -50,7 +50,7 @@ export function Heatmap() {
   );
 
   const [tip, setTip] = useState<TooltipState | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   const activeRangeDef =
     RANGES.find((r) => r.key === activeRange) ?? RANGES[2];
@@ -100,40 +100,42 @@ export function Heatmap() {
       {isLoading || !cells ? (
         <Skeleton height={140} />
       ) : (
-        <div className="wsa-heatmap__scroll" ref={scrollRef}>
-          <div className="wsa-heatmap__grid" data-range={activeRange}>
-            {cells.map((c, i) => (
-              <button
-                type="button"
-                key={i}
-                className="wsa-heatmap__cell"
-                data-l={c.level}
-                data-today={c.isToday || undefined}
-                aria-label={`${c.count} ${c.count === 1 ? 'event' : 'events'} on ${formatDateForTip(c.date)}`}
-                onMouseEnter={(e) => {
-                  const cell = e.currentTarget;
-                  const container = scrollRef.current;
-                  if (!container) return;
-                  const cellRect = cell.getBoundingClientRect();
-                  const parentRect = container.getBoundingClientRect();
-                  setTip({
-                    count: c.count,
-                    date: formatDateForTip(c.date),
-                    x: cellRect.left - parentRect.left + cellRect.width / 2,
-                    y: cellRect.top - parentRect.top,
-                  });
-                }}
-                onMouseLeave={() => setTip(null)}
-                onFocus={(e) => {
-                  // Mirror mouseenter for keyboard users so the tooltip stays
-                  // accessible.
-                  e.currentTarget.dispatchEvent(
-                    new MouseEvent('mouseenter', { bubbles: false }),
-                  );
-                }}
-                onBlur={() => setTip(null)}
-              />
-            ))}
+        <div className="wsa-heatmap" ref={wrapperRef}>
+          <div className="wsa-heatmap__scroll">
+            <div className="wsa-heatmap__grid" data-range={activeRange}>
+              {cells.map((c, i) => (
+                <button
+                  type="button"
+                  key={i}
+                  className="wsa-heatmap__cell"
+                  data-l={c.level}
+                  data-today={c.isToday || undefined}
+                  aria-label={`${c.count} ${c.count === 1 ? 'event' : 'events'} on ${formatDateForTip(c.date)}`}
+                  onMouseEnter={(e) => {
+                    const cell = e.currentTarget;
+                    const wrapper = wrapperRef.current;
+                    if (!wrapper) return;
+                    const cellRect = cell.getBoundingClientRect();
+                    const parentRect = wrapper.getBoundingClientRect();
+                    setTip({
+                      count: c.count,
+                      date: formatDateForTip(c.date),
+                      x: cellRect.left - parentRect.left + cellRect.width / 2,
+                      y: cellRect.top - parentRect.top,
+                    });
+                  }}
+                  onMouseLeave={() => setTip(null)}
+                  onFocus={(e) => {
+                    // Mirror mouseenter for keyboard users so the tooltip stays
+                    // accessible.
+                    e.currentTarget.dispatchEvent(
+                      new MouseEvent('mouseenter', { bubbles: false }),
+                    );
+                  }}
+                  onBlur={() => setTip(null)}
+                />
+              ))}
+            </div>
           </div>
           {tip ? (
             <div
