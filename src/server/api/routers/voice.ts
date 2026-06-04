@@ -37,6 +37,7 @@ import {
   resolveVoiceThreadKey,
   EmptyVoiceTurnError,
 } from "~/server/services/voice/voiceTranscriptBridge";
+import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
   VOICE_TOOL_CATALOG,
   VOICE_ROUTER_INSTRUCTIONS,
@@ -314,13 +315,22 @@ export const voiceRouter = createTRPCRouter({
         token: z.string().min(1, "voice-session token required"),
         role: z.enum(["user", "assistant"]),
         text: z.string(),
+        // For assistant turns: the paired user utterance + the dictation→reply
+        // latency, so the turn is also logged to AiInteractionHistory (the same
+        // metrics/feedback table typed turns use). Without these we only write
+        // to Mastra memory and the turn stays invisible to metrics + rating.
+        userMessage: z.string().optional(),
+        responseTime: z.number().int().nonnegative().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       let userId: string;
+      let workspaceId: string | undefined;
       let conversationId: string | undefined;
       try {
-        ({ userId, conversationId } = verifyVoiceSessionToken(input.token));
+        ({ userId, workspaceId, conversationId } = verifyVoiceSessionToken(
+          input.token,
+        ));
       } catch {
         throw new TRPCError({
           code: "UNAUTHORIZED",
@@ -328,6 +338,7 @@ export const voiceRouter = createTRPCRouter({
         });
       }
 
+      let turnId: string;
       try {
         const turn = await persistVoiceTurn({
           userId,
@@ -335,13 +346,40 @@ export const voiceRouter = createTRPCRouter({
           text: input.text,
           threadKey: resolveVoiceThreadKey(userId, conversationId),
         });
-        return { id: turn.id, marker: turn.marker };
+        turnId = turn.id;
       } catch (err) {
         if (err instanceof EmptyVoiceTurnError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
         }
         throw err;
       }
+
+      // Log the completed exchange to AiInteractionHistory so voice turns appear
+      // in metrics and can carry a rateable interactionId. Best-effort: a logging
+      // failure must never break the live voice session, so we swallow errors.
+      let interactionId: string | undefined;
+      if (input.role === "assistant" && input.userMessage?.trim()) {
+        try {
+          interactionId = await getAiInteractionLogger(ctx.db).logInteraction({
+            platform: "voice",
+            systemUserId: userId,
+            userMessage: input.userMessage,
+            aiResponse: input.text,
+            agentName: "Zoe",
+            model: "openai-realtime",
+            ...(conversationId ? { conversationId } : {}),
+            ...(workspaceId ? { workspaceId } : {}),
+            ...(input.responseTime !== undefined
+              ? { responseTime: input.responseTime }
+              : {}),
+            messageType: "voice",
+          });
+        } catch (err) {
+          console.error("[voice.persistTurn] interaction logging failed:", err);
+        }
+      }
+
+      return { id: turnId, marker: "voice" as const, interactionId };
     }),
 });
 
