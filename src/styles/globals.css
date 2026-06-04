@@ -46,6 +46,7 @@
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
     --brand-500: #1F5DE0;
+    --brand-600: #1A4EC4;
     --color-bg-hover: #f1f3f5;
     --color-surface-muted: #f8f9fa;
     --color-border-subtle: #e9ecef;
@@ -197,6 +198,7 @@
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
     --brand-500: #1F5DE0;
+    --brand-600: #1A4EC4;
     --color-bg-hover: #1A263E;
     --color-surface-muted: #141E32;
     --color-border-subtle: #141E32;
@@ -348,6 +350,7 @@
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
     --brand-500: #1F5DE0;
+    --brand-600: #1A4EC4;
     --color-bg-hover: #1A263E;
     --color-surface-muted: #141E32;
     --color-border-subtle: #141E32;
@@ -1085,6 +1088,27 @@
 
   /* Type */
   --sb-font: "Inter Tight", -apple-system, system-ui, sans-serif;
+}
+
+/* Light-mode sidebar palette. The base .app-sidebar tokens above are the
+   dark design; these override the neutrals when the active color scheme is
+   light so the left nav tracks the rest of the app. Accent + accent washes
+   stay the same blue (legible on the light surface). */
+[data-mantine-color-scheme="light"] .app-sidebar {
+  --sb-accent: #1F5DE0;
+  --sb-accent-10: rgba(31, 93, 224, 0.08);
+  --sb-accent-12: rgba(31, 93, 224, 0.12);
+  --sb-accent-18: rgba(31, 93, 224, 0.18);
+  --sb-accent-30: rgba(31, 93, 224, 0.30);
+  --sb-accent-55: rgba(31, 93, 224, 0.55);
+
+  --sb-bg: #f8f9fa;
+
+  --sb-hair: rgba(0, 0, 0, 0.08);
+  --sb-text: #212529;
+  --sb-muted: rgba(33, 37, 41, 0.68);
+  --sb-faint: rgba(33, 37, 41, 0.45);
+  --sb-wash: rgba(0, 0, 0, 0.04);
 }
 
 /* ==========================================================================
