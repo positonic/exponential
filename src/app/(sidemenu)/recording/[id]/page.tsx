@@ -4,6 +4,7 @@ import { api } from "~/trpc/react";
 import { Skeleton, Paper, Text } from "@mantine/core";
 import { use, useMemo } from "react";
 import { notifications } from "@mantine/notifications";
+import { useRouter } from "next/navigation";
 import { useAgentModal, type ChatMessage } from "~/providers/AgentModalProvider";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { MeetingDetail } from "~/app/_components/meeting/MeetingDetail";
@@ -19,7 +20,26 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     );
   const { data: workspaces } = api.workspace.list.useQuery();
   const utils = api.useUtils();
+  const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
+  const archiveMutation = api.transcription.archiveTranscription.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: "Archived",
+        message: "Meeting moved to archive.",
+        color: "green",
+      });
+      const slug = session?.workspace?.slug;
+      router.push(slug ? `/w/${slug}/meetings` : "/recordings");
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to archive",
+        color: "red",
+      });
+    },
+  });
   const { openModal, setMessages } = useAgentModal();
 
   // Deterministic extraction: Create Actions runs generateDraftActions (not the
@@ -77,6 +97,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   function handleCreateActions() {
     if (!session) return;
     generateDraftsMutation.mutate({ transcriptionId: session.id });
+  }
+
+  function handleArchive() {
+    if (!session) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm("Archive this meeting? You can restore it later.")
+    )
+      return;
+    archiveMutation.mutate({ id: session.id });
   }
 
   async function handleSaveSummary(value: string) {
@@ -177,6 +207,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       onMeetingDateChange={handleMeetingDateChange}
       onWorkspaceChange={handleWorkspaceChange}
       onCreateActions={handleCreateActions}
+      onArchive={handleArchive}
     />
   );
 }

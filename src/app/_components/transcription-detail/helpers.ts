@@ -166,6 +166,30 @@ function collapseConsecutive(rows: ParsedTurn[]): ParsedTurn[] {
   return out;
 }
 
+/**
+ * Format an exact timestamp like "04 Jun 2026, 18:19:02" for the Details rail.
+ */
+export function formatTimestamp(d: Date | string | null | undefined): string {
+  if (!d) return "—";
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+/** Truncated session id for display, e.g. "…942278". */
+export function shortSessionId(id: string | null | undefined): string {
+  if (!id) return "—";
+  return id.length <= 6 ? id : `…${id.slice(-6)}`;
+}
+
 export function initialsOf(name: string | null | undefined): string {
   if (!name) return "?";
   const parts = name.trim().split(/\s+/).filter(Boolean);

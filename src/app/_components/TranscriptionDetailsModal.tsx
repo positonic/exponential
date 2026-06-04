@@ -3,11 +3,14 @@
 import { LoadingOverlay, Menu, Modal, Textarea } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
+  IconArchive,
+  IconArrowUpRight,
   IconBolt,
   IconCheck,
   IconExternalLink,
   IconLink,
   IconNotes,
+  IconShare,
   IconSparkles,
   IconX,
 } from "@tabler/icons-react";
@@ -28,8 +31,11 @@ import { SummaryPane } from "./transcription-detail/SummaryPane";
 import { TranscriptPane } from "./transcription-detail/TranscriptPane";
 import {
   extractChapters,
+  formatMeetingDate,
+  formatTimestamp,
   parseTurns,
   pickTldr,
+  shortSessionId,
 } from "./transcription-detail/helpers";
 import { TranscriptionDraftActionsModal } from "./TranscriptionDraftActionsModal";
 
@@ -316,6 +322,7 @@ export function TranscriptionDetailsModal({
     const out: Array<{
       href: string;
       glyph: string;
+      tone: "blue" | "amber" | "purple" | "green";
       title: string;
       sub: string;
     }> = [];
@@ -325,12 +332,43 @@ export function TranscriptionDetailsModal({
       out.push({
         href: `/w/${workspaceSlug}/projects/${project.slug ?? project.id}`,
         glyph: (project.name?.slice(0, 1) ?? "P").toUpperCase(),
+        tone: "blue",
         title: project.name,
         sub: "Project",
       });
     }
     return out;
   }, [data?.project, data?.workspace?.slug, workspace?.slug]);
+
+  const railDetails = useMemo(() => {
+    const rows: Array<{ label: string; value: string; mono?: boolean }> = [];
+    const meetingDate = data?.meetingDate ?? data?.createdAt ?? null;
+    rows.push({
+      label: "Meeting date",
+      value: formatMeetingDate(meetingDate).fullLabel,
+    });
+    rows.push({
+      label: "Workspace",
+      value: data?.workspace?.name ?? workspace?.name ?? "—",
+    });
+    if (data?.createdAt) {
+      rows.push({ label: "Created", value: formatTimestamp(data.createdAt) });
+    }
+    if (data?.sessionId) {
+      rows.push({
+        label: "Session",
+        value: shortSessionId(data.sessionId),
+        mono: true,
+      });
+    }
+    return rows;
+  }, [
+    data?.meetingDate,
+    data?.createdAt,
+    data?.sessionId,
+    data?.workspace?.name,
+    workspace?.name,
+  ]);
 
   const hasScreenshots =
     Array.isArray(data?.screenshots) && data.screenshots.length > 0;
@@ -566,38 +604,69 @@ export function TranscriptionDetailsModal({
             participants={participants}
             analyticsJson={data?.analyticsJson}
             links={links}
-            sourceTitle={sourceTitle}
-            sourceSub={sourceSub}
-            onShare={() => {
-              const url =
-                typeof window !== "undefined" ? window.location.href : "";
-              if (!url) return;
-              void navigator.clipboard
-                .writeText(url)
-                .then(() =>
-                  notifications.show({
-                    title: "Link copied",
-                    message: "Share URL copied to clipboard.",
-                    color: "green",
-                  }),
-                )
-                .catch(() => undefined);
+            source={{
+              title: sourceTitle,
+              sub: sourceSub,
+              href:
+                typeof data?.videoUrl === "string" && data.videoUrl
+                  ? data.videoUrl
+                  : undefined,
             }}
-            onArchive={() => {
-              if (!data?.id) return;
-              archiveMutation.mutate({ id: data.id });
-            }}
-            onDelete={() => {
-              if (!data?.id) return;
-              if (
-                typeof window !== "undefined" &&
-                !window.confirm(
-                  "Delete this meeting record? Linked actions will be unlinked.",
-                )
-              )
-                return;
-              deleteMutation.mutate({ id: data.id });
-            }}
+            details={railDetails}
+            actions={[
+              {
+                key: "share",
+                label: "Share with team",
+                icon: <IconShare size={13} />,
+                onClick: () => {
+                  const url =
+                    typeof window !== "undefined" ? window.location.href : "";
+                  if (!url) return;
+                  void navigator.clipboard
+                    .writeText(url)
+                    .then(() =>
+                      notifications.show({
+                        title: "Link copied",
+                        message: "Share URL copied to clipboard.",
+                        color: "green",
+                      }),
+                    )
+                    .catch(() => undefined);
+                },
+              },
+              {
+                key: "export",
+                label: "Export transcript",
+                icon: <IconArrowUpRight size={13} />,
+                onClick: () => void handleCopyTranscript(),
+              },
+              {
+                key: "archive",
+                label: "Archive meeting",
+                icon: <IconArchive size={13} />,
+                onClick: () => {
+                  if (!data?.id) return;
+                  archiveMutation.mutate({ id: data.id });
+                },
+              },
+              {
+                key: "delete",
+                label: "Delete record",
+                icon: <IconX size={13} />,
+                danger: true,
+                onClick: () => {
+                  if (!data?.id) return;
+                  if (
+                    typeof window !== "undefined" &&
+                    !window.confirm(
+                      "Delete this meeting record? Linked actions will be unlinked.",
+                    )
+                  )
+                    return;
+                  deleteMutation.mutate({ id: data.id });
+                },
+              },
+            ]}
           />
         </div>
 

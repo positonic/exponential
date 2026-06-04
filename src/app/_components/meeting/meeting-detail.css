@@ -227,15 +227,17 @@
 .mp-rail__section { padding: 18px 22px; border-bottom: 1px solid var(--color-border-subtle); }
 .mp-rail__section:last-child { border-bottom: 0; }
 .mp-rail__label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+.mp-rail__add { display: grid; place-items: center; width: 20px; height: 20px; border-radius: var(--radius-sm); color: var(--color-text-muted); transition: color 120ms, background 120ms; }
+.mp-rail__add:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
 .mp-people { display: flex; flex-direction: column; gap: 12px; }
 .mp-person { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 11px; }
 .mp-person .mp-av { width: 30px; height: 30px; font-size: 10px; }
 .mp-person__name { font-size: 13px; font-weight: 500; color: var(--color-text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-person__role { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.2; margin-top: 1px; }
 .mp-person__talk { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; padding: 3px 7px; border-radius: 3px; background: var(--color-surface-muted); }
-.mp-linkrow { display: grid; grid-template-columns: 22px 1fr 14px; gap: 11px; align-items: center; padding: 9px 10px; margin: 0 -10px; border-radius: var(--radius-md); transition: background 120ms; }
+.mp-linkrow { display: grid; grid-template-columns: 26px 1fr 14px; gap: 11px; align-items: center; padding: 9px 10px; margin: 0 -10px; border-radius: var(--radius-md); transition: background 120ms; }
 .mp-linkrow:hover { background: var(--color-bg-hover); }
-.mp-linkrow__glyph { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; font-size: 10px; font-weight: 700; color: var(--mp-on-accent); }
+.mp-linkrow__glyph { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--mp-on-accent); }
 .mp-linkrow__glyph--ritual { background: var(--mp-glyph-ritual); }
 .mp-linkrow__glyph--okr { background: var(--mp-glyph-okr); }
 .mp-linkrow__title { font-size: 12.5px; color: var(--color-text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

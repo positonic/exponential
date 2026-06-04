@@ -1,15 +1,20 @@
 "use client";
 
 import {
-  IconArchive,
   IconArrowRight,
-  IconExternalLink,
-  IconFileText,
-  IconShare,
-  IconX,
+  IconArrowUpRight,
+  IconPlayerPlayFilled,
+  IconPlus,
 } from "@tabler/icons-react";
 import Link from "next/link";
-import { extractTalkShares, initialsOf } from "./helpers";
+import type { ReactNode } from "react";
+import {
+  getAvatarColor,
+  getColorSeed,
+  getInitial,
+  getTextColor,
+} from "~/utils/avatarColors";
+import { extractTalkShares } from "./helpers";
 
 interface RailParticipant {
   id: string;
@@ -19,35 +24,58 @@ interface RailParticipant {
   isMe: boolean;
 }
 
+type RailTone = "blue" | "amber" | "purple" | "green";
+
 interface RailLink {
   href: string;
+  /** Single-character glyph shown when no icon is supplied. */
   glyph: string;
+  /** Optional icon rendered inside the glyph box instead of the letter. */
+  icon?: ReactNode;
+  tone?: RailTone;
   title: string;
   sub: string;
+}
+
+interface RailSource {
+  title: string;
+  sub: string;
+  /** When set, the source card becomes an external link. */
+  href?: string;
+}
+
+interface RailDetail {
+  label: string;
+  value: string;
+  mono?: boolean;
+}
+
+interface RailAction {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  danger?: boolean;
 }
 
 interface RailProps {
   participants: RailParticipant[];
   analyticsJson: unknown;
   links: RailLink[];
-  sourceTitle: string;
-  sourceSub: string;
-  onShare?: () => void;
-  onOpenJournal?: () => void;
-  onArchive?: () => void;
-  onDelete?: () => void;
+  source: RailSource | null;
+  details: RailDetail[];
+  actions: RailAction[];
+  onAddParticipant?: () => void;
 }
 
 export function Rail({
   participants,
   analyticsJson,
   links,
-  sourceTitle,
-  sourceSub,
-  onShare,
-  onOpenJournal,
-  onArchive,
-  onDelete,
+  source,
+  details,
+  actions,
+  onAddParticipant,
 }: RailProps) {
   const talkShares = extractTalkShares(analyticsJson);
   const getShare = (p: RailParticipant): string | null => {
@@ -64,17 +92,32 @@ export function Rail({
     <aside className="mdm-rail">
       {participants.length > 0 && (
         <div className="mdm-rail__section">
-          <div className="mdm-rail__label">Participants</div>
+          <div className="mdm-rail__label">
+            <span>Participants</span>
+            {onAddParticipant && (
+              <button
+                type="button"
+                className="mdm-rail__add"
+                onClick={onAddParticipant}
+                aria-label="Add participant"
+              >
+                <IconPlus size={14} />
+              </button>
+            )}
+          </div>
           <div className="mdm-people">
             {participants.map((p) => {
               const share = getShare(p);
               const display = p.name ?? p.email;
+              const seed = getColorSeed(p.name, p.email);
+              const bg = getAvatarColor(seed);
               return (
                 <div key={p.id} className="mdm-person">
                   <div
-                    className={`mdm-person__avatar mdm-person__avatar--${p.isMe ? "me" : "them"}`}
+                    className="mdm-person__avatar"
+                    style={{ backgroundColor: bg, color: getTextColor(bg) }}
                   >
-                    {initialsOf(display)}
+                    {getInitial(p.name, p.email)}
                   </div>
                   <div className="min-w-0">
                     <div className="mdm-person__name truncate">{display}</div>
@@ -96,63 +139,107 @@ export function Rail({
 
       {links.length > 0 && (
         <div className="mdm-rail__section">
-          <div className="mdm-rail__label">Linked</div>
+          <div className="mdm-rail__label">
+            <span>Linked</span>
+          </div>
           {links.map((l) => (
             <Link key={l.href} href={l.href} className="mdm-link-row">
-              <span className="mdm-link-row__glyph">{l.glyph}</span>
+              <span
+                className={`mdm-link-row__glyph mdm-link-row__glyph--${l.tone ?? "blue"}`}
+              >
+                {l.icon ?? l.glyph}
+              </span>
               <div className="min-w-0">
                 <div className="mdm-link-row__title">{l.title}</div>
                 <div className="mdm-link-row__sub">{l.sub}</div>
               </div>
-              <IconArrowRight size={12} className="mdm-link-row__arrow" />
+              <IconArrowRight size={14} className="mdm-link-row__arrow" />
             </Link>
           ))}
         </div>
       )}
 
-      <div className="mdm-rail__section">
-        <div className="mdm-rail__label">Source</div>
-        <div className="mdm-source">
-          <div className="mdm-source__icon">
-            <IconFileText size={14} />
+      {source && (
+        <div className="mdm-rail__section">
+          <div className="mdm-rail__label">
+            <span>Source</span>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="mdm-source__title truncate">{sourceTitle}</div>
-            <div className="mdm-source__sub">{sourceSub}</div>
-          </div>
+          <SourceCard source={source} />
         </div>
-      </div>
+      )}
 
-      <div className="mdm-rail__section" style={{ marginTop: "auto" }}>
-        <div className="mdm-rail__label">Actions</div>
-        <div className="mdm-rail__quick">
-          {onShare && (
-            <button className="mdm-rail__quick-btn" onClick={onShare}>
-              <IconShare size={13} /> Share
-            </button>
-          )}
-          {onOpenJournal && (
-            <button className="mdm-rail__quick-btn" onClick={onOpenJournal}>
-              <IconExternalLink size={13} /> Open in journal
-            </button>
-          )}
-          {onArchive && (
-            <button className="mdm-rail__quick-btn" onClick={onArchive}>
-              <IconArchive size={13} /> Archive
-            </button>
-          )}
-          {onDelete && (
-            <button
-              className="mdm-rail__quick-btn mdm-rail__quick-btn--danger"
-              onClick={onDelete}
-            >
-              <IconX size={13} /> Delete record
-            </button>
-          )}
+      {details.length > 0 && (
+        <div className="mdm-rail__section">
+          <div className="mdm-rail__label">
+            <span>Details</span>
+          </div>
+          <div className="mdm-detail-list">
+            {details.map((d) => (
+              <div key={d.label} className="mdm-detail-row">
+                <span className="mdm-detail-row__label">{d.label}</span>
+                <span
+                  className={`mdm-detail-row__value${d.mono ? " mdm-detail-row__value--mono" : ""}`}
+                  title={d.value}
+                >
+                  {d.value}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {actions.length > 0 && (
+        <div className="mdm-rail__section" style={{ marginTop: "auto" }}>
+          <div className="mdm-rail__label">
+            <span>Actions</span>
+          </div>
+          <div className="mdm-rail__quick">
+            {actions.map((a) => (
+              <button
+                key={a.key}
+                className={`mdm-rail__quick-btn${a.danger ? " mdm-rail__quick-btn--danger" : ""}`}
+                onClick={a.onClick}
+              >
+                {a.icon} {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </aside>
   );
+}
+
+function SourceCard({ source }: { source: RailSource }) {
+  const inner = (
+    <>
+      <div className="mdm-source__icon">
+        <IconPlayerPlayFilled size={13} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="mdm-source__title truncate">{source.title}</div>
+        <div className="mdm-source__sub">{source.sub}</div>
+      </div>
+      {source.href && (
+        <IconArrowUpRight size={14} className="mdm-source__arrow" />
+      )}
+    </>
+  );
+
+  if (source.href) {
+    return (
+      <a
+        href={source.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mdm-source mdm-source--link"
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <div className="mdm-source">{inner}</div>;
 }
 
 function formatShare(value: number): string {

@@ -9,6 +9,8 @@ import {
   IconShare,
   IconFileExport,
   IconExternalLink,
+  IconArchive,
+  IconPlus,
 } from "@tabler/icons-react";
 import { MpAvatar } from "./MpAvatar";
 import type { MeetingParticipant } from "~/lib/meeting-view-model";
@@ -32,6 +34,8 @@ interface ContextRailProps {
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
+  onArchive: () => void;
+  onAddParticipant?: () => void;
 }
 
 export function ContextRail({
@@ -53,12 +57,26 @@ export function ContextRail({
   onShare,
   onExportTranscript,
   canExport,
+  onArchive,
+  onAddParticipant,
 }: ContextRailProps) {
   return (
     <aside className="mp-rail">
       {participants.length > 0 && (
         <div className="mp-rail__section">
-          <div className="mp-rail__label">Participants</div>
+          <div className="mp-rail__label">
+            <span>Participants</span>
+            {onAddParticipant && (
+              <button
+                type="button"
+                className="mp-rail__add"
+                onClick={onAddParticipant}
+                aria-label="Add participant"
+              >
+                <IconPlus size={14} />
+              </button>
+            )}
+          </div>
           <div className="mp-people">
             {participants.map((p) => (
               <div key={p.id} className="mp-person">
@@ -137,7 +155,7 @@ export function ContextRail({
           <div className="mp-railkv__row">
             <span className="mp-railkv__k">Session</span>
             <span className="mp-railkv__v mp-railkv__v--mono" title={sessionId}>
-              {sessionId}
+              {sessionId.length > 8 ? `…${sessionId.slice(-6)}` : sessionId}
             </span>
           </div>
         </div>
@@ -177,16 +195,9 @@ export function ContextRail({
           <button className="mp-quick__btn" onClick={onExportTranscript} disabled={!canExport}>
             <IconFileExport size={13} /> Export transcript
           </button>
-          {videoUrl && (
-            <a
-              className="mp-quick__btn"
-              href={videoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <IconExternalLink size={13} /> Open recording
-            </a>
-          )}
+          <button className="mp-quick__btn" onClick={onArchive}>
+            <IconArchive size={13} /> Archive meeting
+          </button>
         </div>
       </div>
     </aside>

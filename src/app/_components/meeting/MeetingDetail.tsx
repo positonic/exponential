@@ -26,6 +26,7 @@ interface MeetingDetailProps {
   onMeetingDateChange: (value: Date | null) => void;
   onWorkspaceChange: (value: string | null) => void;
   onCreateActions: () => void;
+  onArchive: () => void;
 }
 
 const dateFmt: Intl.DateTimeFormatOptions = {
@@ -33,6 +34,17 @@ const dateFmt: Intl.DateTimeFormatOptions = {
   day: "numeric",
   month: "short",
   year: "numeric",
+};
+
+// Exact timestamp for the Details rail, e.g. "04 Jun 2026, 18:19:02".
+const timestampFmt: Intl.DateTimeFormatOptions = {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
 };
 
 export function MeetingDetail({
@@ -45,6 +57,7 @@ export function MeetingDetail({
   onMeetingDateChange,
   onWorkspaceChange,
   onCreateActions,
+  onArchive,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>("summary");
   const vm = useMemo(() => buildMeetingViewModel(session), [session]);
@@ -93,6 +106,13 @@ export function MeetingDetail({
     a.download = `${session.title ?? "transcript"}.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function handleAddParticipant() {
+    notifications.show({
+      message: "Editing participants is coming soon",
+      color: "blue",
+    });
   }
 
   return (
@@ -184,8 +204,8 @@ export function MeetingDetail({
             sourceLabel={sourceLabel}
             sourceSub={sourceSub || null}
             sessionId={session.sessionId}
-            createdLabel={new Date(session.createdAt).toLocaleString()}
-            updatedLabel={new Date(session.updatedAt).toLocaleString()}
+            createdLabel={new Date(session.createdAt).toLocaleString(undefined, timestampFmt)}
+            updatedLabel={new Date(session.updatedAt).toLocaleString(undefined, timestampFmt)}
             meetingDate={meetingDateObj}
             onMeetingDateChange={onMeetingDateChange}
             workspaceId={session.workspaceId ?? null}
@@ -194,6 +214,8 @@ export function MeetingDetail({
             onShare={handleShare}
             onExportTranscript={handleExportTranscript}
             canExport={Boolean(session.transcription)}
+            onArchive={onArchive}
+            onAddParticipant={handleAddParticipant}
           />
         </div>
       </div>
