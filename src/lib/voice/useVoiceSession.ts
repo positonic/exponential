@@ -246,6 +246,12 @@ export function useVoiceSession(
         instructions: VOICE_ROUTER_INSTRUCTIONS,
         tools: VOICE_TOOL_CATALOG,
         tool_choice: "auto",
+        // Enable transcription of the USER's speech. Without this, OpenAI never
+        // emits `conversation.item.input_audio_transcription.completed`, so
+        // `onUserTranscript` never fires and the spoken user turn never renders
+        // (the assistant reply is transcribed by default, which is why only its
+        // side showed up). The capability is also bound at mint time server-side.
+        audio: { input: { transcription: { model: "whisper-1" } } },
       },
     });
   }, [send]);

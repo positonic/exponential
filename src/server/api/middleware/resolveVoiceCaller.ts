@@ -4,13 +4,14 @@
  *
  * Collapses three credential sources into one `(ctx) → { userId }` helper, tried
  * in priority order:
- *   1. NextAuth session cookie (web client). `createTRPCContext` also normalizes
- *      a valid `Authorization: Bearer <app-JWT>` into `ctx.session`, so legacy
- *      Bearer callers resolve here too.
+ *   1. NextAuth session cookie (web client). `createTRPCContext` also verifies a
+ *      valid `Authorization: Bearer <JWT>` (raw `AUTH_SECRET`, no audience check)
+ *      and normalizes it into `ctx.session` — so Bearer callers, INCLUDING the
+ *      native **device-token** (ADR 0005), resolve here too.
  *   2. `x-api-key` header (legacy iOS; kept indefinitely as a dev fallback).
- *   3. `Authorization: Bearer <device-token>` — RESERVED for the upcoming native
- *      OAuth effort and intentionally INERT today (no exchanger exists yet).
- *      Wired into the chain so that work slots in without re-touching this gate.
+ *   3. `Authorization: Bearer <device-token>` — a now-REDUNDANT slot. Device
+ *      tokens already resolve via step 1's session normalization; this returns
+ *      null and exists only as a place to add device-specific handling later.
  *
  * Rejects with `UNAUTHORIZED` when no source resolves a caller.
  */
@@ -44,7 +45,8 @@ export async function resolveVoiceCaller(
     if (userId) return { userId };
   }
 
-  // 3. Device-token slot — reserved, inert today.
+  // 3. Device-token slot — redundant (device-tokens resolve via step 1's session
+  //    normalization in createTRPCContext); returns null today.
   const deviceCaller = await resolveDeviceToken(ctx);
   if (deviceCaller) return deviceCaller;
 
@@ -77,10 +79,10 @@ async function resolveApiKeyUserId(
 }
 
 /**
- * Reserved slot for native-OAuth device tokens
- * (`Authorization: Bearer <device-token>`). INERT until the native OAuth feature
- * lands — always returns null today. The future ticket implements the exchanger
- * here without re-touching `resolveVoiceCaller` or `voice.createSession`.
+ * Redundant slot for native device tokens (`Authorization: Bearer <device-token>`).
+ * Always returns null: a valid device-token is already verified by
+ * `createTRPCContext` and normalized into `ctx.session`, so it resolves via step 1
+ * above. Kept only as an explicit hook for future device-specific handling.
  */
 function resolveDeviceToken(
   _ctx: VoiceCallerContext,

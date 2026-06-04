@@ -572,6 +572,17 @@
   background-color: var(--color-surface-hover);
 }
 
+/* ActionIcon default variant — Mantine's fallback renders grey, so map it onto
+   the same semantic tokens as Button's default variant. */
+.mantine-ActionIcon-root[data-variant="default"] {
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+.mantine-ActionIcon-root[data-variant="default"]:hover:not([data-disabled]) {
+  background-color: var(--color-surface-hover);
+}
+
 /* --- Calendar header controls (DateInput, DatePicker, Calendar) --- */
 .mantine-DateInput-calendarHeaderControl:hover,
 .mantine-DatePicker-calendarHeaderControl:hover,

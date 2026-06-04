@@ -48,7 +48,14 @@ export async function createRealtimeSession(): Promise<RealtimeSession> {
       session: {
         type: "realtime",
         model,
-        audio: { output: { voice } },
+        // Bind input transcription to the ephemeral key so the device receives
+        // `…input_audio_transcription.completed` events for the user's speech
+        // (mirrors the live `session.update` in useVoiceSession). Without it the
+        // spoken user turn is never transcribed and never rendered.
+        audio: {
+          output: { voice },
+          input: { transcription: { model: "whisper-1" } },
+        },
       },
     }),
   });

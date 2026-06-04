@@ -30,6 +30,12 @@ export interface ChatMessage {
   /** 'voice' when this turn was spoken via voice mode (renders the 🎙 marker). */
   marker?: 'voice';
   /**
+   * Stable client-generated id for a spoken assistant turn, set at render time so
+   * the async-returned `interactionId` attaches to THIS turn even when an
+   * identical reply (e.g. "Done.") was rendered earlier in the session.
+   */
+  voiceTurnId?: string;
+  /**
    * Structured, interactive payload rendered below this message's text instead of
    * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007).
    */

@@ -597,19 +597,57 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const createVoiceSession = api.voice.createSession.useMutation();
   const persistVoiceTurn = api.voice.persistTurn.useMutation();
 
+  // The most recent spoken user turn, kept so an assistant turn can be logged as
+  // a paired exchange (userMessage + reply latency) to AiInteractionHistory.
+  const lastVoiceUserTurnRef = useRef<{ text: string; at: number } | null>(null);
+
   // A committed voice turn: show it in the thread (marked 🎙) and persist it to
   // the voice-scoped memory thread so the session stays continuous.
   const recordVoiceTurn = useCallback(
     (type: 'human' | 'ai', content: string) => {
-      setMessages(prev => [...prev, { type, content, marker: 'voice' }]);
       const token = voiceTokenRef.current;
-      if (token) {
-        persistVoiceTurn.mutate({
-          token,
-          role: type === 'human' ? 'user' : 'assistant',
-          text: content,
-        });
+
+      if (type === 'human') {
+        setMessages(prev => [...prev, { type, content, marker: 'voice' }]);
+        if (!token) return;
+        lastVoiceUserTurnRef.current = { text: content, at: Date.now() };
+        persistVoiceTurn.mutate({ token, role: 'user', text: content });
+        return;
       }
+
+      // Assistant turn: tag the rendered message with a stable client id so the
+      // async-returned interactionId attaches to THIS turn (matching on content
+      // would misfire when Zoe repeats a short reply like "Done." in a session).
+      const voiceTurnId = crypto.randomUUID();
+      setMessages(prev => [...prev, { type, content, marker: 'voice', voiceTurnId }]);
+      if (!token) return;
+
+      // Persist + log the paired exchange, then attach the returned interactionId
+      // to the tagged message so the rating widget appears for voice too (mirrors
+      // the typed-stream meta-frame path).
+      const paired = lastVoiceUserTurnRef.current;
+      lastVoiceUserTurnRef.current = null;
+      persistVoiceTurn
+        .mutateAsync({
+          token,
+          role: 'assistant',
+          text: content,
+          ...(paired?.text ? { userMessage: paired.text } : {}),
+          ...(paired ? { responseTime: Date.now() - paired.at } : {}),
+        })
+        .then(res => {
+          if (!res.interactionId) return;
+          setMessages(prev =>
+            prev.map(m =>
+              m.voiceTurnId === voiceTurnId
+                ? { ...m, interactionId: res.interactionId }
+                : m,
+            ),
+          );
+        })
+        .catch(err => {
+          console.error('[ManyChat] voice turn persistence failed:', err);
+        });
     },
     [setMessages, persistVoiceTurn],
   );

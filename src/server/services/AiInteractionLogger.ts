@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 export interface AiInteractionData {
   // Source Information (Required)
-  platform: "slack" | "manychat" | "api" | "webhook" | "direct" | "web";
+  platform: "slack" | "manychat" | "api" | "webhook" | "direct" | "web" | "voice";
   sourceId?: string; // Platform-specific ID (Slack channel, chat session, etc.)
 
   // User Context
