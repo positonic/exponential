@@ -17,7 +17,11 @@
   overflow: hidden;
 }
 .meeting-detail * { box-sizing: border-box; }
-.meeting-detail button { background: none; border: 0; cursor: pointer; font: inherit; color: inherit; padding: 0; }
+/* Zero-specificity (:where) so component classes like .mp-tab / .mp-btn keep
+   their own padding. A plain `.meeting-detail button` reset (0-1-1) outranks
+   single-class component rules (0-1-0) and silently strips their padding —
+   which collapsed the tab row (icons glued to the previous label). */
+:where(.meeting-detail button) { background: none; border: 0; cursor: pointer; font: inherit; color: inherit; padding: 0; }
 
 /* avatar identity gradients */
 .mp-av { border-radius: 50%; display: grid; place-items: center; color: var(--mp-on-accent); font-weight: 700; letter-spacing: 0.02em; flex-shrink: 0; }

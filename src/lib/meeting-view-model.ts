@@ -52,6 +52,42 @@ export interface MeetingViewModel {
   questions: never[];
   hasVideo: boolean;
   captureCount: number;
+  /** Number of diarized transcript turns; 0 for plain-text / no transcript
+   *  (so the Transcript tab badge self-hides). Mirrors TranscriptTab parsing. */
+  transcriptCount: number;
+}
+
+/** Count diarized transcript turns the way {@link TranscriptTab} renders them:
+ *  prefer `sentencesJson`, fall back to a Fireflies-shaped `transcription`
+ *  string. Plain text has no discrete turns → 0. */
+function countTranscriptTurns(
+  transcription: string | null,
+  sentencesJson: unknown,
+): number {
+  const countArray = (arr: unknown[]): number =>
+    arr.filter(
+      (s) => s && typeof s === "object" && typeof (s as { text?: unknown }).text === "string",
+    ).length;
+
+  if (Array.isArray(sentencesJson)) {
+    const n = countArray(sentencesJson);
+    if (n > 0) return n;
+  }
+  if (transcription) {
+    try {
+      const obj: unknown = JSON.parse(transcription);
+      if (
+        obj &&
+        typeof obj === "object" &&
+        Array.isArray((obj as { sentences?: unknown }).sentences)
+      ) {
+        return countArray((obj as { sentences: unknown[] }).sentences);
+      }
+    } catch {
+      /* not JSON — plain text, no discrete turns */
+    }
+  }
+  return 0;
 }
 
 function capitalise(value: string): string {
@@ -162,5 +198,6 @@ export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel
     questions: [],
     hasVideo: Boolean(session.videoUrl),
     captureCount: session.screenshots.length,
+    transcriptCount: countTranscriptTurns(session.transcription, session.sentencesJson),
   };
 }

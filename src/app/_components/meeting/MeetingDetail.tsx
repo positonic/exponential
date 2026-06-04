@@ -127,6 +127,7 @@ export function MeetingDetail({
             onClick={() => setTab("transcript")}
           >
             <IconFileText size={14} /> Transcript
+            {vm.transcriptCount > 0 && <span className="mp-tab__count">{vm.transcriptCount}</span>}
           </button>
           <button
             role="tab"
