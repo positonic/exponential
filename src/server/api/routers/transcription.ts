@@ -193,6 +193,11 @@ export const transcriptionRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         transcription: z.string(),
+        // Optional human-authored Notes from the device (exponential-ios, ADR 0006
+        // amendment). Additive + backward-compatible: existing callers omit it and
+        // behave exactly as before. When present it REPLACES the session's notes;
+        // the transcript continues to append regardless.
+        notes: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -222,12 +227,17 @@ export const transcriptionRouter = createTRPCRouter({
           ? `${existingSession.transcription} ${input.transcription}`
           : input.transcription;
 
-      // Update with the combined transcription
+      // Update with the combined transcription, and replace notes only when the
+      // caller provided them (absent → leave existing notes untouched).
+      const updateData: { transcription: string; notes?: string } = {
+        transcription: updatedTranscription,
+      };
+      if (input.notes !== undefined) {
+        updateData.notes = input.notes;
+      }
       await ctx.db.transcriptionSession.update({
         where: { id: input.id },
-        data: {
-          transcription: updatedTranscription,
-        },
+        data: updateData,
       });
       return {
         success: true,
