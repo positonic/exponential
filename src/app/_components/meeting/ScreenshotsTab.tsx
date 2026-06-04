@@ -1,5 +1,6 @@
 "use client";
 
+import { Image } from "@mantine/core";
 import { IconExternalLink } from "@tabler/icons-react";
 
 interface ScreenshotItem {
@@ -42,10 +43,10 @@ export function ScreenshotsTab({ screenshots, videoUrl }: ScreenshotsTabProps) {
           <figure key={shot.id} className="mp-shot" style={{ margin: 0 }}>
             <div className="mp-shot__frame">
               {shot.timestamp && <span className="mp-shot__time">{shot.timestamp}</span>}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 className="mp-shot__img"
                 src={shot.url}
+                fit="cover"
                 alt={`Screen capture${shot.timestamp ? ` at ${shot.timestamp}` : ""}`}
                 onClick={() => window.open(shot.url, "_blank")}
               />

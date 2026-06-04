@@ -59,6 +59,11 @@ function capitalise(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+/**
+ * Format a duration in seconds into a short human-readable label.
+ * @param seconds Duration in seconds; null/undefined/≤0 yields null.
+ * @returns e.g. "44 min", "1 hr", "1 hr 30 min", or null when unavailable.
+ */
 export function formatDuration(seconds: number | null | undefined): string | null {
   if (!seconds || seconds <= 0) return null;
   const mins = Math.round(seconds / 60);
@@ -101,6 +106,15 @@ function extractTalkTime(analyticsJson: unknown): Map<string, string> {
   return result;
 }
 
+/**
+ * Map a `TranscriptionSession` (+ parsed Fireflies summary/analytics) into the
+ * view model the meeting-detail UI consumes. Derives meeting type, summary
+ * (rich Fireflies object or plain text), duration, participants with talk-time,
+ * and transcript chapters. Sections we have no source for yet (key moments,
+ * decisions, open questions) are returned empty so the UI self-hides them.
+ * @param session The transcription session record from `transcription.getById`.
+ * @returns The derived {@link MeetingViewModel}.
+ */
 export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel {
   const firefliesSummary = parseFirefliesSummary(session.summary);
   const hasRichSummary =

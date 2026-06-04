@@ -58,6 +58,8 @@ export function SummaryTab({
     try {
       await onSaveSummary(draft);
       setIsEditing(false);
+    } catch {
+      // onSaveSummary surfaces its own error notification; stay in edit mode.
     } finally {
       setIsSaving(false);
     }
