@@ -48,7 +48,7 @@ export interface JWTUserPayload {
 /**
  * Supported JWT token types in the application.
  */
-export type JWTTokenType = "agent-context" | "whatsapp-gateway" | "telegram-gateway" | "api-token" | "extension-token" | "voice-session";
+export type JWTTokenType = "agent-context" | "whatsapp-gateway" | "telegram-gateway" | "api-token" | "extension-token" | "voice-session" | "device-token";
 
 /**
  * Options for unified JWT generation.
@@ -78,6 +78,7 @@ export const DEFAULT_EXPIRY: Record<JWTTokenType, number> = {
   "api-token": 1440,        // 24 hours (default, usually overridden)
   "extension-token": 1440,  // 24 hours
   "voice-session": 30,      // 30 minutes (one push-to-talk session; no mid-call refresh in v1, see ADR 0002)
+  "device-token": 43200,    // 30 days (native iOS/Mac sign-in; ADR 0005 native-signin-device-token)
 };
 
 /**
@@ -92,6 +93,9 @@ const TOKEN_AUDIENCE: Record<JWTTokenType, string> = {
   "extension-token": "mastra-agents",
   // Scoped to the voice tool surface so the brain endpoint can validate only its own tokens.
   "voice-session": "voice-session",
+  // Per-device durable credential minted by native sign-in (ADR 0005). Accepted as an
+  // `Authorization: Bearer` everywhere the tRPC context validates JWTs (api/trpc.ts).
+  "device-token": "device",
 };
 
 // =============================================================================
