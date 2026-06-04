@@ -293,8 +293,10 @@ export function EditKeyResultModal({
 
       if (!currentKeyResult) return;
 
-      // Save key result fields
-      await updateKeyResult.mutateAsync({
+      // Fire the mutations without blocking on their query invalidations,
+      // so the modal can close immediately. The onSuccess handlers refresh
+      // data in the background.
+      updateKeyResult.mutate({
         id: currentKeyResult.id,
         title,
         description: description || undefined,
@@ -310,7 +312,7 @@ export function EditKeyResultModal({
       });
 
       // Save linked projects
-      await updateLinkedProjects.mutateAsync({
+      updateLinkedProjects.mutate({
         keyResultId: currentKeyResult.id,
         projectIds: selectedProjectIds,
       });
