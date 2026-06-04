@@ -170,6 +170,26 @@ export function TranscriptionDetailsModal({
       },
     });
 
+  const generateSummaryMutation =
+    api.transcription.generateSummary.useMutation({
+      onSuccess: () => {
+        notifications.show({
+          title: "Summary generated",
+          message: "An AI summary was created from the transcript.",
+          color: "green",
+        });
+        void utils.transcription.getAllTranscriptions.invalidate();
+        void refetch();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Error",
+          message: error.message || "Failed to generate summary",
+          color: "red",
+        });
+      },
+    });
+
   const archiveMutation = api.transcription.archiveTranscription.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -416,6 +436,15 @@ export function TranscriptionDetailsModal({
                 tldr={tldr}
                 chapters={chapters}
                 onJumpToTimestamp={handleJumpToTimestamp}
+                canGenerate={turns.length > 0 && !!data?.id}
+                isGenerating={generateSummaryMutation.isPending}
+                onGenerate={() => {
+                  if (data?.id) {
+                    generateSummaryMutation.mutate({
+                      transcriptionId: data.id,
+                    });
+                  }
+                }}
               />
             )}
             {tab === "notes" && (

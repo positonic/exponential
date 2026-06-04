@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@mantine/core";
 import { IconChevronRight, IconSparkles } from "@tabler/icons-react";
 import type { Chapter } from "./helpers";
 
@@ -7,12 +8,21 @@ interface SummaryPaneProps {
   tldr: string | null;
   chapters: Chapter[];
   onJumpToTimestamp: (startSeconds: number) => void;
+  /** True when there's a transcript that can be summarized by AI. */
+  canGenerate?: boolean;
+  /** True while an AI summary is being generated. */
+  isGenerating?: boolean;
+  /** Kick off AI summary generation for this meeting. */
+  onGenerate?: () => void;
 }
 
 export function SummaryPane({
   tldr,
   chapters,
   onJumpToTimestamp,
+  canGenerate = false,
+  isGenerating = false,
+  onGenerate,
 }: SummaryPaneProps) {
   const hasAnything = tldr || chapters.length > 0;
 
@@ -67,6 +77,19 @@ export function SummaryPane({
             <p className="mdm-tldr__text" style={{ color: "var(--color-text-muted)" }}>
               No AI summary available yet for this meeting.
             </p>
+            {canGenerate && onGenerate && (
+              <Button
+                size="xs"
+                variant="light"
+                color="brand"
+                mt="sm"
+                leftSection={<IconSparkles size={14} />}
+                loading={isGenerating}
+                onClick={onGenerate}
+              >
+                Generate summary with AI
+              </Button>
+            )}
           </div>
         )}
       </div>

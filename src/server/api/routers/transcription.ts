@@ -8,6 +8,10 @@ import { TRPCError } from "@trpc/server";
 //import { getSetups } from "~/server/services/videoService";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
+import {
+  FirefliesService,
+  type FirefliesTranscript,
+} from "~/server/services/FirefliesService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
@@ -142,6 +146,38 @@ async function ensureTranscriptionAccess(
         ? "Not authorized to view this transcription"
         : "Not authorized to update this transcription",
   });
+}
+
+/** Cap the transcript fed to the summarizer to bound LLM cost/latency. */
+const MAX_SUMMARY_TRANSCRIPT_CHARS = 200_000;
+
+/**
+ * Normalize a stored `transcription` field into readable plain text for the
+ * summarizer. Fireflies sessions store a JSON `{ sentences: [...] }` blob;
+ * device sessions store plain text. Returns "" when there's nothing to summarize.
+ */
+function extractReadableTranscript(raw: string | null): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return "";
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      const sentences =
+        parsed && typeof parsed === "object" && "sentences" in parsed
+          ? (parsed as { sentences?: FirefliesTranscript["sentences"] })
+              .sentences
+          : undefined;
+      if (sentences?.length) {
+        return FirefliesService.formatTranscriptText(sentences);
+      }
+    } catch {
+      // Not JSON — fall through and treat the raw string as plain text.
+    }
+  }
+
+  return trimmed;
 }
 
 export const transcriptionRouter = createTRPCRouter({
@@ -1291,6 +1327,74 @@ export const transcriptionRouter = createTRPCRouter({
       }
 
       return result;
+    }),
+
+  // Summary-only: generate a Fireflies-shaped AI summary from the transcript and
+  // persist it to `summary`, so it renders through the same path as a synced
+  // summary. Does NOT extract actions — that stays a separate, explicit step.
+  generateSummary: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+        select: {
+          id: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          transcription: true,
+        },
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      const transcriptText = extractReadableTranscript(session.transcription);
+      if (transcriptText.trim().length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This meeting has no transcript to summarize",
+        });
+      }
+
+      try {
+        const summary =
+          await TranscriptSummarizerService.summarizeToFirefliesSummary(
+            transcriptText.slice(0, MAX_SUMMARY_TRANSCRIPT_CHARS),
+          );
+        return ctx.db.transcriptionSession.update({
+          where: { id: session.id },
+          data: {
+            summary: JSON.stringify(summary, null, 2),
+            updatedAt: new Date(),
+          },
+          select: { id: true, summary: true },
+        });
+      } catch (error) {
+        if (error instanceof SummarizationNotConfiguredError) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: error.message,
+          });
+        }
+        console.error("[transcription.generateSummary] failed:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to generate summary",
+          cause: error,
+        });
+      }
     }),
 
   generateDraftActions: protectedProcedure
