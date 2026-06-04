@@ -3,13 +3,13 @@
 import {
   ActionIcon,
   Button,
-  Group,
   Loader,
   Skeleton,
   Tooltip,
 } from '@mantine/core';
 import {
   IconChartBar,
+  IconPlayerPlay,
   IconRefresh,
   IconSparkles,
   IconTrendingDown,
@@ -38,23 +38,30 @@ function currentWeekRange(now: Date): string {
   return `${FMT_DATE(monday)} – ${FMT_DATE(sunday)}`;
 }
 
-interface WeeklyHeadlineProps {
-  total: number;
-  delta: number;
+/**
+ * Bar-height in px within the 150px plot (which reserves ~46px for the value
+ * label, day label, and gaps, leaving ~104px for the tallest bar). Future days
+ * are rendered as a fixed dashed stub via CSS, so this returns 0 for them and
+ * the `--future` modifier takes over.
+ *
+ *   height = value ? max(6, round(value / max * 104)) : 0
+ */
+function barHeightPx(value: number, max: number): number {
+  return value ? Math.max(6, Math.round((value / max) * 104)) : 0;
 }
 
 function WeeklyDelta({ delta }: { delta: number }) {
   if (delta > 0) {
     return (
       <span className="wsa-week__delta wsa-week__delta--up">
-        <IconTrendingUp size={11} stroke={1.8} />+{delta} vs last week
+        <IconTrendingUp size={12} stroke={1.8} />+{delta} vs last week
       </span>
     );
   }
   if (delta < 0) {
     return (
       <span className="wsa-week__delta wsa-week__delta--down">
-        <IconTrendingDown size={11} stroke={1.8} />
+        <IconTrendingDown size={12} stroke={1.8} />
         {delta} vs last week
       </span>
     );
@@ -62,27 +69,20 @@ function WeeklyDelta({ delta }: { delta: number }) {
   return <span className="wsa-week__delta wsa-week__delta--flat">steady</span>;
 }
 
-function WeeklyHeadline({ total, delta }: WeeklyHeadlineProps) {
-  return (
-    <div className="wsa-week__headline">
-      <span className="wsa-week__num">{total}</span>
-      <span className="wsa-week__num-label">
-        {total === 1 ? 'event this week' : 'events this week'}
-      </span>
-      <WeeklyDelta delta={delta} />
-    </div>
-  );
-}
-
 /**
- * Week-in-Review card: weekly headline + delta pill, 7-day sparkline,
- * compare-row (last week / 4-week avg / best week), and an AI-generated
- * narrative paragraph + 3 highlights. The refresh icon in the card head
- * force-regenerates the narrative.
+ * Week-in-Review card — "Direction A · refined bars" redesign.
+ *
+ * Left column: eyebrow + range pill, a large headline event count with a
+ * signed week-over-week delta pill, the AI narrative, three highlight rows,
+ * and two CTAs. Right column: an inset "Events per day" chart panel whose bars
+ * are classified elapsed / today / future — future days render as dashed ghost
+ * stubs with an em-dash rather than zero-height bars (the mid-week fix) — plus
+ * a compare footer (last week / 4-week avg / best week).
  *
  * Data: stats from `workspace.getHomeStats` (sparkline + multi-week totals
  * sourced from `WorkspaceActivityEvent`); narrative from
- * `workspace.getWeeklyNarrative` (cached per workspace + ISO week).
+ * `workspace.getWeeklyNarrative` (cached per workspace + ISO week). The refresh
+ * icon force-regenerates the narrative.
  */
 export function WeekInReview() {
   const { workspaceId, workspaceSlug, workspace } = useWorkspace();
@@ -120,7 +120,15 @@ export function WeekInReview() {
   const sparkline = data?.weeklySparkline ?? [];
   const sparkMax =
     sparkline.length === 0 ? 0 : Math.max(...sparkline.map((b) => b.count));
+  const max = Math.max(sparkMax, 1);
   const peakDay = sparkline.find((b) => b.count > 0 && b.count === sparkMax);
+
+  // Classify each bar as elapsed / today / future from "today". Days after
+  // today are future (dashed ghost stub + em-dash) — never zero-height bars.
+  // If no bar is flagged today (shouldn't happen for the current ISO week),
+  // treat the whole week as elapsed so nothing renders as a ghost.
+  const todayIdx = sparkline.findIndex((b) => b.isToday);
+  const effTodayIdx = todayIdx === -1 ? sparkline.length - 1 : todayIdx;
 
   // Total events this week = sum of the sparkline. We don't reuse
   // thisWeek.completed (DailyScore) here because the eyebrow card is
@@ -130,40 +138,45 @@ export function WeekInReview() {
 
   return (
     <section className="wsa-card wsa-week">
-      <div>
-        <div className="wsa-card__head">
-          <h2 className="wsa-card__title">
+      {/* ── Left column: textual summary ─────────────────────────────── */}
+      <div className="wsa-week__left">
+        <div className="wsa-week__eyebrow-row">
+          <span className="wsa-week__eyebrow-ico" aria-hidden="true">
             <IconChartBar size={14} stroke={1.8} />
-            Week in review
-          </h2>
-          <Group gap={6}>
-            <span className="wsa-week__eyebrow">
-              <span className="wsa-week__pulse" aria-hidden="true" />
-              {range}
-            </span>
-            <Tooltip label="Regenerate narrative" withArrow position="top">
-              <ActionIcon
-                size="sm"
-                variant="subtle"
-                color="gray"
-                aria-label="Regenerate narrative"
-                disabled={!workspaceId || narrativeBusy}
-                loading={regenerate.isPending}
-                onClick={() => {
-                  if (!workspaceId) return;
-                  regenerate.mutate({ workspaceId });
-                }}
-              >
-                <IconRefresh size={14} stroke={1.8} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
+          </span>
+          <span className="wsa-week__eyebrow-label">Week in review</span>
+          <span className="wsa-week__range">
+            <span className="wsa-week__range-dot" aria-hidden="true" />
+            {range}
+          </span>
+          <Tooltip label="Regenerate narrative" withArrow position="top">
+            <ActionIcon
+              size="sm"
+              variant="subtle"
+              color="gray"
+              aria-label="Regenerate narrative"
+              disabled={!workspaceId || narrativeBusy}
+              loading={regenerate.isPending}
+              onClick={() => {
+                if (!workspaceId) return;
+                regenerate.mutate({ workspaceId });
+              }}
+            >
+              <IconRefresh size={14} stroke={1.8} />
+            </ActionIcon>
+          </Tooltip>
         </div>
 
         {showSkeleton ? (
-          <Skeleton height={36} width="60%" />
+          <Skeleton height={58} width="65%" />
         ) : (
-          <WeeklyHeadline total={thisWeekTotal} delta={delta} />
+          <div className="wsa-week__hero">
+            <span className="wsa-week__num">{thisWeekTotal}</span>
+            <span className="wsa-week__num-unit">
+              {thisWeekTotal === 1 ? 'event logged' : 'events logged'}
+            </span>
+            <WeeklyDelta delta={delta} />
+          </div>
         )}
 
         {narrativeBusy ? (
@@ -174,16 +187,19 @@ export function WeekInReview() {
             </span>
           </div>
         ) : narrativeQ.data ? (
-          <div className="wsa-week__narrative">
+          <>
             <p className="wsa-week__narrative-text">
               {narrativeQ.data.narrative}
             </p>
-            <ul className="wsa-week__highlights">
+            <ul className="wsa-week__chips">
               {narrativeQ.data.highlights.map((h, i) => (
-                <li key={i}>{h}</li>
+                <li className="wsa-week__chip" key={i}>
+                  <span className="wsa-week__chip-dot" aria-hidden="true" />
+                  <span className="wsa-week__chip-text">{h}</span>
+                </li>
               ))}
             </ul>
-          </div>
+          </>
         ) : (
           <span
             className="wsa-card__caption"
@@ -193,11 +209,12 @@ export function WeekInReview() {
           </span>
         )}
 
-        <Group className="wsa-week__cta-row">
+        <div className="wsa-week__cta-row">
           <Button
             size="sm"
             variant="filled"
             color="brand"
+            leftSection={<IconPlayerPlay size={13} stroke={2} />}
             component={Link}
             href={workspaceSlug ? `/w/${workspaceSlug}/weekly-plan` : '#'}
             disabled={!workspaceSlug}
@@ -252,75 +269,72 @@ export function WeekInReview() {
           >
             Ask agent to summarize
           </Button>
-        </Group>
+        </div>
       </div>
 
-      <div>
+      {/* ── Right column: chart panel ────────────────────────────────── */}
+      <div className="wsa-week-chart">
+        <div className="wsa-week-chart__head">
+          <span className="wsa-week-chart__title">Events per day</span>
+          {peakDay ? (
+            <span className="wsa-week-chart__peak">
+              Peak <b>{peakDay.count}</b> · {peakDay.day}
+            </span>
+          ) : null}
+        </div>
+
         {showSkeleton ? (
-          <Skeleton height={120} />
+          <Skeleton height={150} />
         ) : (
           <>
-            <div className="wsa-week__spark" role="img" aria-label="Daily activity for this week">
-              {sparkline.map((bar) => {
-                const heightPct =
-                  sparkMax === 0 ? 0 : (bar.count / sparkMax) * 100;
-                const isPeak = bar.count > 0 && bar.count === sparkMax;
+            <div
+              className="wsa-week__bars"
+              role="img"
+              aria-label="Daily activity for this week"
+            >
+              {sparkline.map((bar, i) => {
+                const isFuture = i > effTodayIdx;
+                const cls = [
+                  'wsa-week__bar',
+                  bar.isToday ? 'wsa-week__bar--today' : '',
+                  isFuture ? 'wsa-week__bar--future' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ');
                 return (
-                  <div key={bar.day} className="wsa-week__spark-col">
-                    {bar.count > 0 ? (
-                      <span className="wsa-week__spark-val">{bar.count}</span>
-                    ) : null}
-                    <div
-                      className={[
-                        'wsa-week__spark-bar',
-                        bar.isToday ? 'wsa-week__spark-bar--today' : '',
-                        isPeak ? 'wsa-week__spark-bar--peak' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      style={{ height: `${Math.max(heightPct, 4)}%` }}
+                  <div key={bar.day} className={cls}>
+                    <span className="wsa-week__bar-val">
+                      {isFuture ? '—' : bar.count}
+                    </span>
+                    <span
+                      className="wsa-week__bar-track"
+                      style={{
+                        height: isFuture ? 20 : barHeightPx(bar.count, max),
+                      }}
                     />
+                    <span className="wsa-week__bar-day">{bar.day}</span>
                   </div>
                 );
               })}
             </div>
-            <div className="wsa-week__spark-labels">
-              {sparkline.map((bar) => (
-                <span
-                  key={bar.day}
-                  className={
-                    bar.isToday
-                      ? 'wsa-week__spark-label wsa-week__spark-label--today'
-                      : 'wsa-week__spark-label'
-                  }
-                >
-                  {bar.day}
-                </span>
-              ))}
-            </div>
-            {peakDay ? (
-              <span
-                className="wsa-card__caption"
-                style={{ display: 'block', marginTop: 10 }}
-              >
-                Peak: {peakDay.day} ({peakDay.count}{' '}
-                {peakDay.count === 1 ? 'event' : 'events'})
-              </span>
-            ) : null}
 
-            <div className="wsa-week__compare">
-              <span>
-                <b className="wsa-week__compare-num">{data.lastWeekTotal}</b>
-                last week
-              </span>
-              <span>
-                <b className="wsa-week__compare-num">{data.fourWeekAvg}</b>
-                4-week avg
-              </span>
-              <span>
-                <b className="wsa-week__compare-num">{data.bestWeekTotal}</b>
-                best week
-              </span>
+            <div className="wsa-week-chart__foot wsa-week__compare">
+              <div className="wsa-week__compare-item">
+                <span className="wsa-week__compare-val">
+                  {data.lastWeekTotal}
+                </span>
+                <span className="wsa-week__compare-lbl">Last week</span>
+              </div>
+              <div className="wsa-week__compare-item">
+                <span className="wsa-week__compare-val">{data.fourWeekAvg}</span>
+                <span className="wsa-week__compare-lbl">4-week avg</span>
+              </div>
+              <div className="wsa-week__compare-item">
+                <span className="wsa-week__compare-val wsa-week__compare-val--accent">
+                  {data.bestWeekTotal}
+                </span>
+                <span className="wsa-week__compare-lbl">Best week</span>
+              </div>
             </div>
           </>
         )}
