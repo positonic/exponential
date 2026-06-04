@@ -12,6 +12,10 @@ import { TranscriptionProcessingService } from "~/server/services/TranscriptionP
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
+  TranscriptSummarizerService,
+  SummarizationNotConfiguredError,
+} from "~/server/services/TranscriptSummarizerService";
+import {
   buildProjectAccessWhere,
   canEditProject,
   getProjectAccess,
@@ -230,6 +234,53 @@ export const transcriptionRouter = createTRPCRouter({
         id: input.id,
         savedAt: new Date().toISOString(),
       };
+    }),
+
+  // Stateless transcript → meeting-summary markdown for the device's **Local
+  // summary** "Exponential server" provider (ADR 0006, exponential-ios). A pure
+  // preview: it creates NO TranscriptionSession and writes nothing — the device
+  // renders the markdown locally and never Submits it, so a preview can't pollute
+  // a Meeting. Authenticated like the other device calls (device-token JWT or
+  // x-api-key) via apiKeyMiddleware; `ctx.userId` gates access even though no row
+  // is touched, so it isn't an unauthenticated LLM endpoint.
+  summarize: apiKeyMiddleware
+    .input(
+      z.object({
+        // Normalize + bound at the boundary: trim (so whitespace-only fails
+        // min(1)) and cap length so oversized prompts are rejected before they
+        // reach the LLM. 200k chars (~50k tokens) leaves headroom for a long
+        // meeting while still bounding cost/abuse.
+        transcript: z
+          .string()
+          .trim()
+          .min(1, "Transcript is required")
+          .max(200_000, "Transcript is too long"),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<{ markdown: string }> => {
+      // Touch userId so the call is unambiguously authenticated (and lints clean).
+      void ctx.userId;
+      try {
+        const markdown = await TranscriptSummarizerService.summarize(
+          input.transcript,
+        );
+        return { markdown };
+      } catch (error) {
+        if (error instanceof SummarizationNotConfiguredError) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: error.message,
+          });
+        }
+        // Log the full error server-side; return a stable, generic message so
+        // upstream/LLM error details aren't leaked to the device.
+        console.error("[transcription.summarize] failed:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to summarize transcript",
+          cause: error,
+        });
+      }
     }),
 
   getSessions: protectedProcedure.query(async ({ ctx }) => {
