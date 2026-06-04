@@ -91,8 +91,14 @@ export class SummarizationNotConfiguredError extends Error {
   }
 }
 
+/** Default hard deadline for the LLM call; override via `SUMMARIZE_TIMEOUT_MS`. */
+const DEFAULT_SUMMARIZE_TIMEOUT_MS = Number(
+  process.env.SUMMARIZE_TIMEOUT_MS ?? 60_000,
+);
+
 interface SummarizeOptions {
   modelName?: string;
+  timeoutMs?: number;
 }
 
 export class TranscriptSummarizerService {
@@ -117,17 +123,47 @@ export class TranscriptSummarizerService {
     }
 
     const modelName = options.modelName ?? process.env.LLM_MODEL ?? "gpt-4o";
-    const model = new ChatOpenAI({ modelName, temperature: 0.3 });
+    const timeoutMs = options.timeoutMs ?? DEFAULT_SUMMARIZE_TIMEOUT_MS;
+    const model = new ChatOpenAI({
+      modelName,
+      temperature: 0.3,
+      timeout: timeoutMs,
+    });
 
-    const response = await model.invoke([
-      new SystemMessage(buildSummarySystemPrompt()),
-      new HumanMessage(buildSummaryUserPrompt(text)),
-    ]);
+    // Hard deadline: abort the underlying request when the timer fires so a
+    // hung LLM call can't block the device's summarize flow indefinitely.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await model.invoke(
+        [
+          new SystemMessage(buildSummarySystemPrompt()),
+          new HumanMessage(buildSummaryUserPrompt(text)),
+        ],
+        { signal: controller.signal },
+      );
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Summarization timed out after ${timeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
 
     const raw =
       typeof response.content === "string"
         ? response.content
-        : String(response.content);
+        : response.content
+            .map((part) =>
+              typeof part === "string"
+                ? part
+                : "text" in part && typeof part.text === "string"
+                  ? part.text
+                  : "",
+            )
+            .join("");
     const markdown = cleanSummaryMarkdown(raw);
     if (markdown.length === 0) {
       throw new Error("The model returned an empty summary.");

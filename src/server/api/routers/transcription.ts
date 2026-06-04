@@ -246,7 +246,15 @@ export const transcriptionRouter = createTRPCRouter({
   summarize: apiKeyMiddleware
     .input(
       z.object({
-        transcript: z.string().min(1, "Transcript is required"),
+        // Normalize + bound at the boundary: trim (so whitespace-only fails
+        // min(1)) and cap length so oversized prompts are rejected before they
+        // reach the LLM. 200k chars (~50k tokens) leaves headroom for a long
+        // meeting while still bounding cost/abuse.
+        transcript: z
+          .string()
+          .trim()
+          .min(1, "Transcript is required")
+          .max(200_000, "Transcript is too long"),
       }),
     )
     .mutation(async ({ ctx, input }): Promise<{ markdown: string }> => {
@@ -264,10 +272,13 @@ export const transcriptionRouter = createTRPCRouter({
             message: error.message,
           });
         }
+        // Log the full error server-side; return a stable, generic message so
+        // upstream/LLM error details aren't leaked to the device.
+        console.error("[transcription.summarize] failed:", error);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message:
-            error instanceof Error ? error.message : "Failed to summarize transcript",
+          message: "Failed to summarize transcript",
+          cause: error,
         });
       }
     }),
