@@ -66,9 +66,11 @@ describe("resolveVoiceCaller — any-of voice auth gate", () => {
     });
   });
 
-  it("device-token slot is inert: a Bearer device token alone does not resolve", async () => {
-    // The Authorization Bearer slot is reserved for native OAuth and returns
-    // "not resolved" today, so a request carrying only it is rejected.
+  it("device-token slot is redundant: the resolver's own Bearer slot does not resolve", async () => {
+    // Tests the resolver IN ISOLATION: with no `ctx.session`, the step-3 slot
+    // returns nothing. End-to-end a real device-token still authenticates voice —
+    // `createTRPCContext` verifies the Bearer JWT and populates `ctx.session`
+    // first, so it resolves via step 1 (see resolveVoiceCaller header doc).
     const headers = new Headers({ authorization: "Bearer device-token-xyz" });
     await expect(resolveVoiceCaller(ctx({ headers }))).rejects.toMatchObject({
       code: "UNAUTHORIZED",

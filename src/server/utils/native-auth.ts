@@ -29,7 +29,14 @@ export const NATIVE_REDIRECT_URI = "exponential://auth/callback";
 /** Signed, httpOnly cookie carrying the PKCE request across the NextAuth login bounce. */
 export const NATIVE_AUTH_REQUEST_COOKIE = "native_auth_req";
 
-/** Auth code lifetime. Deliberately tiny — it's a single-hop bearer, redeemed immediately. */
+/**
+ * Auth code lifetime. Deliberately tiny — a single-hop bearer redeemed
+ * immediately. NOTE: it is stateless (no DB row) and the `jti` minted below is
+ * NOT tracked, so a code is technically *replayable* within this 60s window. That
+ * is safe only because PKCE binds it: a replayed code is useless without the
+ * `code_verifier`, which never leaves the device. True single-use (persist `jti`
+ * on first redemption) waits on the Phase 2 Device store (#21).
+ */
 const AUTH_CODE_TTL_SECONDS = 60;
 
 /** Request-cookie lifetime — long enough to complete an OAuth provider round-trip. */

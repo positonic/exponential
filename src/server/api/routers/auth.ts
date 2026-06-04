@@ -61,6 +61,12 @@ export const authRouter = createTRPCRouter({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "User not found" });
       }
 
+      // A 30-day device-token accepted as a full-account Bearer by api/trpc.ts
+      // (which verifies with raw AUTH_SECRET, no audience/tokenType constraint).
+      // ⚠️ Phase 1 has no Device store, so there is NO per-token revocation: a
+      // leaked device-token is valid for its full lifetime, and the only kill
+      // switch is the global SECURITY_FIX_TIMESTAMP / AUTH_SECRET rotation (which
+      // logs out every user). Per-device denylist + rotation land in Phase 2 (#21).
       const deviceToken = generateJWT(user, { tokenType: "device-token" });
       const deviceTokenExpiresAt = Math.floor(Date.now() / 1000) + DEFAULT_EXPIRY["device-token"] * 60;
 

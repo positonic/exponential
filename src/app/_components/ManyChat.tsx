@@ -605,19 +605,26 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // the voice-scoped memory thread so the session stays continuous.
   const recordVoiceTurn = useCallback(
     (type: 'human' | 'ai', content: string) => {
-      setMessages(prev => [...prev, { type, content, marker: 'voice' }]);
       const token = voiceTokenRef.current;
-      if (!token) return;
 
       if (type === 'human') {
+        setMessages(prev => [...prev, { type, content, marker: 'voice' }]);
+        if (!token) return;
         lastVoiceUserTurnRef.current = { text: content, at: Date.now() };
         persistVoiceTurn.mutate({ token, role: 'user', text: content });
         return;
       }
 
-      // Assistant turn: persist + log the paired exchange, then attach the
-      // returned interactionId to the rendered message so the rating widget
-      // appears for voice too (mirrors the typed-stream meta-frame path).
+      // Assistant turn: tag the rendered message with a stable client id so the
+      // async-returned interactionId attaches to THIS turn (matching on content
+      // would misfire when Zoe repeats a short reply like "Done." in a session).
+      const voiceTurnId = crypto.randomUUID();
+      setMessages(prev => [...prev, { type, content, marker: 'voice', voiceTurnId }]);
+      if (!token) return;
+
+      // Persist + log the paired exchange, then attach the returned interactionId
+      // to the tagged message so the rating widget appears for voice too (mirrors
+      // the typed-stream meta-frame path).
       const paired = lastVoiceUserTurnRef.current;
       lastVoiceUserTurnRef.current = null;
       persistVoiceTurn
@@ -630,22 +637,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         })
         .then(res => {
           if (!res.interactionId) return;
-          setMessages(prev => {
-            const updated = [...prev];
-            for (let i = updated.length - 1; i >= 0; i--) {
-              const m = updated[i];
-              if (
-                m?.type === 'ai' &&
-                m.marker === 'voice' &&
-                m.content === content &&
-                !m.interactionId
-              ) {
-                updated[i] = { ...m, interactionId: res.interactionId };
-                break;
-              }
-            }
-            return updated;
-          });
+          setMessages(prev =>
+            prev.map(m =>
+              m.voiceTurnId === voiceTurnId
+                ? { ...m, interactionId: res.interactionId }
+                : m,
+            ),
+          );
         })
         .catch(err => {
           console.error('[ManyChat] voice turn persistence failed:', err);

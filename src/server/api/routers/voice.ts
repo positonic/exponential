@@ -56,8 +56,10 @@ export interface DispatchResult {
 export const voiceRouter = createTRPCRouter({
   /**
    * Mint a voice session. Authed by the any-of voice gate (resolveVoiceCaller):
-   * a NextAuth session cookie (web), an x-api-key (legacy iOS), or — reserved,
-   * inert today — a device token. Browser users never paste an API key.
+   * a NextAuth session cookie (web), an `Authorization: Bearer <device-token>`
+   * (native app — verified + normalized into ctx.session by createTRPCContext,
+   * so it resolves via the gate's session path), or an x-api-key (legacy iOS).
+   * Browser users never paste an API key.
    */
   createSession: publicProcedure
     .input(
