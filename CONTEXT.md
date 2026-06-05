@@ -111,6 +111,37 @@ _Avoid_: Conflating "health" (Objective) with "status" (Key result) — same ide
 A per-user pin of any entity, surfaced in a "Favourites" section in the left nav under "Workspaces". Stored polymorphically in `Favorite { userId, workspaceId, entityType, entityId, createdAt }` — one row per user × entity. v1 wires `entityType` `objective` and `keyResult` only (table is deliberately extensible to projects/meetings later). The Favourites section is **workspace-scoped** — it shows only favourites whose `workspaceId` matches the current workspace. Clicking a favourite opens that item's OKR drawer via its deep link. Toggled by the star CTA in the OKR detail drawer.
 _Avoid_: Star, bookmark, pin (use "favourite"; "star" only for the CTA icon itself).
 
+### Pipeline triage
+
+The product-strategy pipeline that moves work from raw signal to committed delivery through **distinct gates**, so a team doesn't "ship clever solutions to problems nobody had". The chain (read left-to-right, each arrow is a gate that an item must pass or be **Parked**):
+
+```
+Problem ──<has many>── Hypothesis ──<has many>── Approach (= Project) ──► Roadmap | Backlog
+  "is it real?"          "is it right?"            "is it worth building?"
+```
+
+The deliberate separation of the three gate-questions is the whole point — collapsing them is the failure mode the process exists to prevent. Source process: "Pipeline Triage & Prioritisation Process".
+
+**Problem**:
+A validated issue in the product worth solving — "who's hurt and how", backed by evidence (a count, a quote, an incident, a screenshot). Stored as `Problem`, scoped to a Product (`productId`). Carries a **lifecycle** (`Idea → Qualified → Prioritised`), an `impact` and a `confidence` score (the two prioritisation axes — **ease is deliberately not scored here**; ease lives on the Approach), and a free-text per-product `category` ("Data Scarcity", "Pipeline problems"). Strictly **distinct from Insight** — an Insight is raw evidence/observation from research; a Problem is the committed issue that enters the pipeline. A Problem may later be backed by Insights, but is filed directly today.
+_Avoid_: Insight, issue, bug (a Problem is a strategy artefact, not an engineering ticket), pain point (that's an Insight type).
+
+**Hypothesis**:
+A **falsifiable claim** about how to resolve a Problem, plus how you'd know it's true or false. A lightweight child of a Problem (one Problem has many) — the size of a `UserStory`, rendered inline on the Problem, **not** a Project. Holds a `statement`, a `result` (the measurement plan), and an epistemic `status` (`Proposed → Testing → Confirmed → Refuted → Parked`). "An opinion until it has a measurement plan." Tested by an **Approach**.
+_Avoid_: Bet, assumption, experiment (an Experiment/`Research` is what you *run* to test a Hypothesis, not the Hypothesis itself).
+
+**Approach**:
+A concrete way to **test or implement** a Hypothesis — *this is a `Project`*, not a separate model (a pursued approach is real, deliverable work with a repo, actions, a DRI). Two flavours: a **Test Approach** (confirm/refute the Hypothesis cheaply) or an **Implementation Approach** (roll out a confirmed Hypothesis). Scored on **effort/ease** (the axis Problems deliberately omit). Linked to its Hypothesis; a confirmed Implementation Approach **graduates** to the Roadmap or the Backlog.
+_Avoid_: Solution, initiative (use "approach"); modelling it as its own table (it is a Project).
+
+**Roadmap / Backlog**:
+Where a confirmed Implementation **Approach (Project)** lands — **not a separate entity**. **Roadmap** = committed work *with timing* (a scheduled Project); **Backlog** = validated but not yet scheduled. There is no `Roadmap` table; a roadmap is a **view/state over Projects**. (The legacy static `/roadmap` marketing page is unrelated and not data-backed.)
+_Avoid_: Treating "Roadmap" as a database or as the dependency-graph view (which deliberately avoids the word — it carries timeline connotations).
+
+**Parked**:
+A cross-cutting state for **Problems, Hypotheses, and Approaches** alike — an item that didn't pass its gate is parked **with a reason** (insufficient evidence, out of scope, duplicate, …), never deleted. The record of what was considered and why it was passed over; revisited quarterly. Modelled as `parkedAt` + `parkReason` on each entity, not a status value (an item's lifecycle status and its parked-ness are independent).
+_Avoid_: Cancelled, rejected, dropped (parking is reversible and intentionally preserved).
+
 ### Product alignment chain
 
 The strategic-alignment chain (read top-down, container relationship):
