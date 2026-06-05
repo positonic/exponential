@@ -10,6 +10,7 @@ import {
   Group,
   Menu,
   Modal,
+  SegmentedControl,
   Select,
   Skeleton,
   Stack,
@@ -20,7 +21,9 @@ import {
 } from "@mantine/core";
 import {
   IconDots,
+  IconLayoutKanban,
   IconPlus,
+  IconTable,
   IconTargetArrow,
   IconTrash,
 } from "@tabler/icons-react";
@@ -28,6 +31,7 @@ import { modals } from "@mantine/modals";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
+import { ProblemKanbanBoard } from "~/app/_components/product/ProblemKanbanBoard";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -343,6 +347,7 @@ export default function ProblemsPage() {
   const [modalOpened, setModalOpened] = useState(false);
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [view, setView] = useState<"table" | "board">("table");
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -388,6 +393,15 @@ export default function ProblemsPage() {
     return list;
   }, [problems, stageFilter, categoryFilter]);
 
+  // The board groups by stage in its lanes, so the stage filter doesn't apply
+  // there — only the category filter narrows the board.
+  const boardProblems = useMemo(() => {
+    if (!problems) return [];
+    return categoryFilter
+      ? problems.filter((p) => p.category === categoryFilter)
+      : problems;
+  }, [problems, categoryFilter]);
+
   const handleDelete = (id: string, title: string) => {
     modals.openConfirmModal({
       title: "Delete problem",
@@ -406,19 +420,50 @@ export default function ProblemsPage() {
     <Stack gap="sm">
       {/* Action bar */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Select
-          value={stageFilter}
-          onChange={setStageFilter}
-          data={STAGE_OPTIONS.map((s) => ({ value: s.value, label: s.label }))}
-          placeholder="Stage"
+        <SegmentedControl
           size="xs"
-          clearable
-          comboboxProps={{ withinPortal: true }}
-          styles={{
-            root: { width: 140 },
-            input: { height: 30, minHeight: 30, fontSize: "0.8rem" },
-          }}
+          value={view}
+          onChange={(v) => setView(v as "table" | "board")}
+          data={[
+            {
+              value: "table",
+              label: (
+                <Group gap={4} wrap="nowrap">
+                  <IconTable size={14} />
+                  <span>Table</span>
+                </Group>
+              ),
+            },
+            {
+              value: "board",
+              label: (
+                <Group gap={4} wrap="nowrap">
+                  <IconLayoutKanban size={14} />
+                  <span>Board</span>
+                </Group>
+              ),
+            },
+          ]}
         />
+
+        {view === "table" && (
+          <Select
+            value={stageFilter}
+            onChange={setStageFilter}
+            data={STAGE_OPTIONS.map((s) => ({
+              value: s.value,
+              label: s.label,
+            }))}
+            placeholder="Stage"
+            size="xs"
+            clearable
+            comboboxProps={{ withinPortal: true }}
+            styles={{
+              root: { width: 140 },
+              input: { height: 30, minHeight: 30, fontSize: "0.8rem" },
+            }}
+          />
+        )}
 
         <Select
           value={categoryFilter}
@@ -456,6 +501,28 @@ export default function ProblemsPage() {
             <Skeleton key={i} height={48} />
           ))}
         </Stack>
+      ) : view === "board" ? (
+        product && problems && problems.length > 0 ? (
+          <ProblemKanbanBoard
+            problems={boardProblems}
+            productId={product.id}
+          />
+        ) : (
+          <EmptyState
+            icon={IconTargetArrow}
+            message="No problems yet. Capture validated issues worth solving — who's hurt and how, backed by evidence."
+            action={
+              <Button
+                onClick={() => setModalOpened(true)}
+                leftSection={<IconPlus size={16} />}
+                color="brand"
+                disabled={!product}
+              >
+                New problem
+              </Button>
+            }
+          />
+        )
       ) : filtered.length > 0 ? (
         <div className="border border-border-primary rounded-lg overflow-x-auto">
           <Table verticalSpacing="xs" horizontalSpacing="md" highlightOnHover>
