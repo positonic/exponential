@@ -16,16 +16,20 @@ import {
   Select,
   Skeleton,
   Stack,
+  Switch,
   Table,
   Text,
   Textarea,
   TextInput,
+  Tooltip,
   UnstyledButton,
 } from "@mantine/core";
 import {
   IconAffiliate,
+  IconArchiveOff,
   IconDots,
   IconLayoutKanban,
+  IconPlayerPause,
   IconPlus,
   IconTable,
   IconTargetArrow,
@@ -444,31 +448,47 @@ export default function ProblemsPage() {
   const [stageFilter, setStageFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [view, setView] = useState<"table" | "board">("table");
+  const [showParked, setShowParked] = useState(false);
+  const [parkTarget, setParkTarget] = useState<string | null>(null);
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
     { enabled: !!workspaceId && !!productSlug },
   );
 
+  // The board always needs parked items (for its Parked lane); the table only
+  // when "Show parked" is on. Parked-ness is independent of stage.
+  const includeParked = view === "board" || showParked;
+
   const { data: problems, isLoading } = api.product.problem.list.useQuery(
-    { productId: product?.id ?? "" },
+    { productId: product?.id ?? "", includeParked },
     { enabled: !!product?.id },
   );
 
   const utils = api.useUtils();
 
+  const invalidateList = async () => {
+    if (product?.id)
+      await utils.product.problem.list.invalidate({ productId: product.id });
+  };
+
   const update = api.product.problem.update.useMutation({
-    onSuccess: async () => {
-      if (product?.id)
-        await utils.product.problem.list.invalidate({ productId: product.id });
-    },
+    onSuccess: invalidateList,
   });
 
   const deleteProblem = api.product.problem.delete.useMutation({
+    onSuccess: invalidateList,
+  });
+
+  const park = api.product.problem.park.useMutation({
     onSuccess: async () => {
-      if (product?.id)
-        await utils.product.problem.list.invalidate({ productId: product.id });
+      setParkTarget(null);
+      await invalidateList();
     },
+  });
+
+  const unpark = api.product.problem.unpark.useMutation({
+    onSuccess: invalidateList,
   });
 
   // Distinct categories present in the data, for the category filter.
@@ -578,6 +598,15 @@ export default function ProblemsPage() {
 
         <div className="flex-1" />
 
+        {view === "table" && (
+          <Switch
+            size="xs"
+            label="Show parked"
+            checked={showParked}
+            onChange={(e) => setShowParked(e.currentTarget.checked)}
+          />
+        )}
+
         <Button
           size="xs"
           leftSection={<IconPlus size={14} />}
@@ -602,6 +631,8 @@ export default function ProblemsPage() {
           <ProblemKanbanBoard
             problems={boardProblems}
             productId={product.id}
+            onPark={(id) => setParkTarget(id)}
+            onUnpark={(id) => unpark.mutate({ id })}
           />
         ) : (
           <EmptyState
@@ -637,17 +668,32 @@ export default function ProblemsPage() {
             </Table.Thead>
             <Table.Tbody>
               {filtered.map((problem) => (
-                <Table.Tr key={problem.id}>
+                <Table.Tr
+                  key={problem.id}
+                  className={problem.parkedAt ? "opacity-60" : undefined}
+                >
                   <Table.Td>
-                    <EditableText
-                      value={problem.title}
-                      placeholder="Untitled"
-                      required
-                      onCommit={(next) =>
-                        next != null &&
-                        update.mutate({ id: problem.id, title: next })
-                      }
-                    />
+                    <Group gap="xs" wrap="nowrap" align="center">
+                      {problem.parkedAt && (
+                        <Tooltip
+                          label={problem.parkReason ?? "Parked"}
+                          withinPortal
+                        >
+                          <Badge size="xs" variant="light" color="yellow">
+                            Parked
+                          </Badge>
+                        </Tooltip>
+                      )}
+                      <EditableText
+                        value={problem.title}
+                        placeholder="Untitled"
+                        required
+                        onCommit={(next) =>
+                          next != null &&
+                          update.mutate({ id: problem.id, title: next })
+                        }
+                      />
+                    </Group>
                   </Table.Td>
                   <Table.Td>
                     <EditableMultiline
@@ -756,6 +802,22 @@ export default function ProblemsPage() {
                           </ActionIcon>
                         </Menu.Target>
                         <Menu.Dropdown>
+                          {problem.parkedAt ? (
+                            <Menu.Item
+                              leftSection={<IconArchiveOff size={14} />}
+                              onClick={() => unpark.mutate({ id: problem.id })}
+                            >
+                              Unpark
+                            </Menu.Item>
+                          ) : (
+                            <Menu.Item
+                              leftSection={<IconPlayerPause size={14} />}
+                              onClick={() => setParkTarget(problem.id)}
+                            >
+                              Park…
+                            </Menu.Item>
+                          )}
+                          <Menu.Divider />
                           <Menu.Item
                             color="red"
                             leftSection={<IconTrash size={14} />}
@@ -802,6 +864,77 @@ export default function ProblemsPage() {
           productId={product.id}
         />
       )}
+
+      <ParkReasonModal
+        key={parkTarget ?? "none"}
+        opened={parkTarget !== null}
+        onClose={() => setParkTarget(null)}
+        loading={park.isPending}
+        onConfirm={(reason) => {
+          if (parkTarget) park.mutate({ id: parkTarget, reason });
+        }}
+      />
     </Stack>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Park reason modal
+// ---------------------------------------------------------------------------
+
+function ParkReasonModal({
+  opened,
+  onClose,
+  onConfirm,
+  loading,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  loading: boolean;
+}) {
+  const [reason, setReason] = useState("");
+
+  // Reset when the modal closes so the next park starts blank.
+  const handleClose = () => {
+    setReason("");
+    onClose();
+  };
+
+  return (
+    <Modal opened={opened} onClose={handleClose} title="Park problem" size="md">
+      <Stack gap="md">
+        <Text size="sm" className="text-text-muted">
+          Set this problem aside with a reason — it keeps its stage and can be
+          un-parked later. Parked items are hidden by default.
+        </Text>
+        <Textarea
+          label="Reason"
+          placeholder="e.g. Insufficient evidence, out of scope, duplicate…"
+          value={reason}
+          onChange={(e) => setReason(e.currentTarget.value)}
+          autosize
+          minRows={2}
+          maxRows={5}
+          size="sm"
+          required
+          data-autofocus
+        />
+        <Group justify="flex-end">
+          <Button variant="subtle" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button
+            color="yellow"
+            leftSection={<IconPlayerPause size={16} />}
+            onClick={() => onConfirm(reason.trim())}
+            loading={loading}
+            disabled={!reason.trim()}
+          >
+            Park
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }

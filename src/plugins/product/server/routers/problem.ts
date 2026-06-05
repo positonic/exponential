@@ -41,6 +41,10 @@ export const problemRouter = createTRPCRouter({
         productId: z.string(),
         stage: problemStageEnum.optional(),
         category: z.string().optional(),
+        // Parked items are hidden by default — parked-ness is independent of
+        // stage (a Problem keeps its stage while parked). Pass true to include
+        // them (the table's "Show parked" toggle and the board's Parked lane).
+        includeParked: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -51,6 +55,7 @@ export const problemRouter = createTRPCRouter({
           productId: input.productId,
           ...(input.stage ? { stage: input.stage } : {}),
           ...(input.category ? { category: input.category } : {}),
+          ...(input.includeParked ? {} : { parkedAt: null }),
         },
         orderBy: [{ createdAt: "desc" }],
         include: {
@@ -167,6 +172,38 @@ export const problemRouter = createTRPCRouter({
       await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.problem.delete({ where: { id: input.id } });
       return { success: true };
+    }),
+
+  // ── Parking ───────────────────────────────────────────────────────────
+  // An item that didn't pass its gate is set aside WITH A REASON, never
+  // deleted — and can be revived later at the stage it left. Parked-ness is
+  // independent of `stage` (it is NOT a status value).
+
+  park: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        reason: boundedText("Reason", TEXT_LIMITS.MEDIUM, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.id);
+      return ctx.db.problem.update({
+        where: { id: input.id },
+        data: { parkedAt: new Date(), parkReason: input.reason },
+      });
+    }),
+
+  unpark: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.id);
+      // Clearing parkedAt/parkReason restores the item at its prior stage,
+      // which was never touched while parked.
+      return ctx.db.problem.update({
+        where: { id: input.id },
+        data: { parkedAt: null, parkReason: null },
+      });
     }),
 
   // ── Approaches (Problem ↔ Project links) ──────────────────────────────
