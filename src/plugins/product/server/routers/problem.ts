@@ -1,0 +1,151 @@
+import { z } from "zod";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { TRPCError } from "@trpc/server";
+import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import type { PrismaClient } from "@prisma/client";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+
+const problemStageEnum = z.enum(["IDEA", "QUALIFIED", "PRIORITISED"]);
+
+// impact/confidence are the two prioritisation axes, scored 1–5.
+const scoreSchema = z.number().int().min(1).max(5);
+
+/**
+ * Load a problem and verify the caller is a member of its product's workspace.
+ * Mirrors `loadInsightWithAccess`.
+ */
+async function loadProblemWithAccess(
+  db: PrismaClient,
+  userId: string,
+  problemId: string,
+) {
+  const problem = await db.problem.findUnique({
+    where: { id: problemId },
+    select: {
+      id: true,
+      productId: true,
+      product: { select: { workspaceId: true } },
+    },
+  });
+  if (!problem) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Problem not found" });
+  }
+  await assertWorkspaceMember(db, userId, problem.product.workspaceId);
+  return problem;
+}
+
+export const problemRouter = createTRPCRouter({
+  list: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        stage: problemStageEnum.optional(),
+        category: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      return ctx.db.problem.findMany({
+        where: {
+          productId: input.productId,
+          ...(input.stage ? { stage: input.stage } : {}),
+          ...(input.category ? { category: input.category } : {}),
+        },
+        orderBy: [{ createdAt: "desc" }],
+        include: {
+          createdBy: { select: { id: true, name: true, image: true } },
+        },
+      });
+    }),
+
+  getById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const problem = await ctx.db.problem.findUnique({
+        where: { id: input.id },
+        include: {
+          product: {
+            select: { id: true, slug: true, workspaceId: true, name: true },
+          },
+          createdBy: { select: { id: true, name: true, image: true } },
+        },
+      });
+      if (!problem) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Problem not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        problem.product.workspaceId,
+      );
+      return problem;
+    }),
+
+  create: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        title: boundedText("Title", 500, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
+        evidence: boundedText("Evidence", TEXT_LIMITS.LARGE).optional(),
+        category: boundedText("Category", TEXT_LIMITS.LABEL).optional(),
+        impact: scoreSchema.optional(),
+        confidence: scoreSchema.optional(),
+        stage: problemStageEnum.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      return ctx.db.problem.create({
+        data: {
+          productId: input.productId,
+          title: input.title,
+          description: input.description,
+          evidence: input.evidence,
+          category: input.category,
+          impact: input.impact,
+          confidence: input.confidence,
+          stage: input.stage ?? "IDEA",
+          createdById: ctx.session.user.id,
+        },
+      });
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: boundedText("Title", 500, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE)
+          .nullable()
+          .optional(),
+        evidence: boundedText("Evidence", TEXT_LIMITS.LARGE)
+          .nullable()
+          .optional(),
+        category: boundedText("Category", TEXT_LIMITS.LABEL)
+          .nullable()
+          .optional(),
+        impact: scoreSchema.nullable().optional(),
+        confidence: scoreSchema.nullable().optional(),
+        stage: problemStageEnum.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const { id, ...data } = input;
+      return ctx.db.problem.update({
+        where: { id },
+        data,
+      });
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await ctx.db.problem.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+});
