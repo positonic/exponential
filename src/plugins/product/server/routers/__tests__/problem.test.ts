@@ -212,4 +212,55 @@ describe("problem router (mocked)", () => {
       expect(dbMock.problem.findMany).not.toHaveBeenCalled();
     });
   });
+
+  describe("linkProject (Approaches)", () => {
+    const problemId = "problem-1";
+
+    /** Stub the problem lookup that `loadProblemWithAccess` runs. */
+    function stubProblemLookup() {
+      dbMock.problem.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: problemId, productId, product: { workspaceId } } as any,
+      );
+    }
+
+    it("links a Project that belongs to the same product", async () => {
+      stubProblemLookup();
+      stubMembership(dbMock, true);
+      dbMock.project.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "proj-1", productId } as any,
+      );
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.problem.linkProject({
+        problemId,
+        projectId: "proj-1",
+      });
+
+      expect(dbMock.problemApproach.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: { problemId, projectId: "proj-1" },
+        }),
+      );
+    });
+
+    it("rejects linking a Project from a different product", async () => {
+      stubProblemLookup();
+      stubMembership(dbMock, true);
+      dbMock.project.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "proj-2", productId: "other-product" } as any,
+      );
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.product.problem.linkProject({
+          problemId,
+          projectId: "proj-2",
+        }),
+      ).rejects.toThrow(/does not belong/);
+      expect(dbMock.problemApproach.upsert).not.toHaveBeenCalled();
+    });
+  });
 });

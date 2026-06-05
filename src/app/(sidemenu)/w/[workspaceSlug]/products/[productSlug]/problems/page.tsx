@@ -10,6 +10,8 @@ import {
   Group,
   Menu,
   Modal,
+  MultiSelect,
+  Popover,
   Select,
   Skeleton,
   Stack,
@@ -17,8 +19,10 @@ import {
   Text,
   Textarea,
   TextInput,
+  UnstyledButton,
 } from "@mantine/core";
 import {
+  IconAffiliate,
   IconDots,
   IconPlus,
   IconTargetArrow,
@@ -193,6 +197,98 @@ function ScoreCell({
         input: { height: 28, minHeight: 28, fontSize: "0.8rem" },
       }}
     />
+  );
+}
+
+/**
+ * Inline Approaches editor — the Projects (Approaches) linked to a Problem,
+ * rendered as chips with a Notion-relation-style multi-select picker. Options
+ * are scoped to the product's own Projects. Forward direction only (v1).
+ */
+function ApproachesEditor({
+  problemId,
+  productId,
+  currentApproaches,
+}: {
+  problemId: string;
+  productId: string;
+  currentApproaches: Array<{ project: { id: string; name: string } }>;
+}) {
+  const utils = api.useUtils();
+  const [opened, setOpened] = useState(false);
+  const [selected, setSelected] = useState<string[]>(
+    currentApproaches.map((a) => a.project.id),
+  );
+
+  const { data: projects } = api.product.problem.productProjects.useQuery(
+    { productId },
+    { enabled: opened },
+  );
+
+  const setProjects = api.product.problem.setProjects.useMutation({
+    onSuccess: async () => {
+      await utils.product.problem.list.invalidate({ productId });
+    },
+  });
+
+  const hasApproaches = currentApproaches.length > 0;
+
+  return (
+    <Popover
+      position="bottom-start"
+      withinPortal
+      shadow="md"
+      opened={opened}
+      onChange={(next) => {
+        setOpened(next);
+        if (next) setSelected(currentApproaches.map((a) => a.project.id));
+      }}
+    >
+      <Popover.Target>
+        <UnstyledButton
+          onClick={() => setOpened((o) => !o)}
+          className="inline-flex flex-wrap items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
+        >
+          {hasApproaches ? (
+            currentApproaches.map((a) => (
+              <Badge key={a.project.id} size="xs" variant="light" color="indigo">
+                {a.project.name}
+              </Badge>
+            ))
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <IconAffiliate size={12} />
+              <Text size="xs">Add approach</Text>
+            </span>
+          )}
+        </UnstyledButton>
+      </Popover.Target>
+      <Popover.Dropdown
+        styles={{
+          dropdown: {
+            backgroundColor: "var(--color-bg-elevated)",
+            border: "1px solid var(--color-border-primary)",
+            minWidth: 260,
+          },
+        }}
+      >
+        <MultiSelect
+          autoFocus
+          value={selected}
+          onChange={(next) => {
+            setSelected(next);
+            setProjects.mutate({ problemId, projectIds: next });
+          }}
+          data={(projects ?? []).map((p) => ({ value: p.id, label: p.name }))}
+          searchable
+          clearable
+          size="xs"
+          placeholder="Search projects..."
+          comboboxProps={{ withinPortal: true }}
+          nothingFoundMessage="No projects in this product yet"
+        />
+      </Popover.Dropdown>
+    </Popover>
   );
 }
 
@@ -465,6 +561,7 @@ export default function ProblemsPage() {
                 <Table.Th style={{ minWidth: 200 }}>Description</Table.Th>
                 <Table.Th style={{ minWidth: 200 }}>Evidence</Table.Th>
                 <Table.Th style={{ minWidth: 120 }}>Category</Table.Th>
+                <Table.Th style={{ minWidth: 160 }}>Approaches</Table.Th>
                 <Table.Th>Impact</Table.Th>
                 <Table.Th>Conf.</Table.Th>
                 <Table.Th style={{ minWidth: 130 }}>Stage</Table.Th>
@@ -511,6 +608,15 @@ export default function ProblemsPage() {
                         update.mutate({ id: problem.id, category: next })
                       }
                     />
+                  </Table.Td>
+                  <Table.Td>
+                    {product && (
+                      <ApproachesEditor
+                        problemId={problem.id}
+                        productId={product.id}
+                        currentApproaches={problem.approaches}
+                      />
+                    )}
                   </Table.Td>
                   <Table.Td>
                     <ScoreCell
