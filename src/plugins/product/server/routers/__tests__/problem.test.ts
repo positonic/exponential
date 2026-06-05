@@ -194,10 +194,24 @@ describe("problem router (mocked)", () => {
       });
 
       expect(result).toHaveLength(1);
+      // Parked items are excluded by default (parkedAt: null).
       expect(dbMock.problem.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { productId, stage: "QUALIFIED" },
+          where: { productId, stage: "QUALIFIED", parkedAt: null },
         }),
+      );
+    });
+
+    it("includes parked items when includeParked is true", async () => {
+      stubProductLookup(dbMock);
+      stubMembership(dbMock, true);
+      dbMock.problem.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.problem.list({ productId, includeParked: true });
+
+      expect(dbMock.problem.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { productId } }),
       );
     });
 
@@ -210,6 +224,62 @@ describe("problem router (mocked)", () => {
         caller.product.problem.list({ productId }),
       ).rejects.toThrow(TRPCError);
       expect(dbMock.problem.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("park / unpark", () => {
+    const problemId = "problem-1";
+
+    function stubProblemLookup() {
+      dbMock.problem.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: problemId, productId, product: { workspaceId } } as any,
+      );
+    }
+
+    it("park sets parkedAt + parkReason, leaving stage untouched", async () => {
+      stubProblemLookup();
+      stubMembership(dbMock, true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.problem.update.mockResolvedValue({ id: problemId } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.problem.park({
+        id: problemId,
+        reason: "Out of scope",
+      });
+
+      const call = dbMock.problem.update.mock.calls[0]?.[0];
+      expect(call?.where).toEqual({ id: problemId });
+      expect(call?.data).toMatchObject({ parkReason: "Out of scope" });
+      expect(call?.data).toHaveProperty("parkedAt");
+      expect(call?.data).not.toHaveProperty("stage");
+    });
+
+    it("park rejects an empty reason", async () => {
+      stubProblemLookup();
+      stubMembership(dbMock, true);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.product.problem.park({ id: problemId, reason: "" }),
+      ).rejects.toThrow();
+      expect(dbMock.problem.update).not.toHaveBeenCalled();
+    });
+
+    it("unpark clears parkedAt + parkReason", async () => {
+      stubProblemLookup();
+      stubMembership(dbMock, true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.problem.update.mockResolvedValue({ id: problemId } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.problem.unpark({ id: problemId });
+
+      expect(dbMock.problem.update).toHaveBeenCalledWith({
+        where: { id: problemId },
+        data: { parkedAt: null, parkReason: null },
+      });
     });
   });
 
