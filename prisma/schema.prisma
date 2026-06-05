@@ -763,6 +763,8 @@ model Project {
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
   deals                 Deal[]
+  // Pipeline Triage: Problems this project is an Approach for (ADR-0008)
+  problemApproaches     ProblemApproach[]
 
   @@index([name])
   @@index([status])
@@ -3938,12 +3940,28 @@ model Problem {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy User    @relation("ProblemCreatedBy", fields: [createdById], references: [id])
+  product    Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy  User              @relation("ProblemCreatedBy", fields: [createdById], references: [id])
+  approaches ProblemApproach[]
 
   @@index([productId])
   @@index([stage])
   @@index([createdById])
+}
+
+/// "Approaches" — the many-to-many link between a Problem and the Projects
+/// that tackle it (ADR-0008: an Approach IS a Project, not a new model). A
+/// Project can address several Problems; a Problem has several Approaches.
+model ProblemApproach {
+  problemId String
+  projectId String
+  createdAt DateTime @default(now())
+
+  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, projectId])
+  @@index([projectId])
 }
 
 // ============================================

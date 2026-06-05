@@ -55,7 +55,27 @@ export const problemRouter = createTRPCRouter({
         orderBy: [{ createdAt: "desc" }],
         include: {
           createdBy: { select: { id: true, name: true, image: true } },
+          approaches: {
+            include: {
+              project: { select: { id: true, name: true, slug: true } },
+            },
+          },
         },
+      });
+    }),
+
+  /**
+   * The product's own Projects, used to populate the Approach picker. Scoped to
+   * the product (and therefore its workspace, ADR-0003) — a bounded list.
+   */
+  productProjects: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      return ctx.db.project.findMany({
+        where: { productId: input.productId },
+        select: { id: true, name: true, slug: true },
+        orderBy: [{ name: "asc" }],
       });
     }),
 
@@ -146,6 +166,92 @@ export const problemRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.problem.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // ── Approaches (Problem ↔ Project links) ──────────────────────────────
+  // Forward direction only in v1: on a Problem, pick the Projects (Approaches)
+  // that tackle it. Links existing Projects only — never creates a Project.
+
+  linkProject: protectedProcedure
+    .input(z.object({ problemId: z.string(), projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const problem = await loadProblemWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.problemId,
+      );
+      const project = await ctx.db.project.findUnique({
+        where: { id: input.projectId },
+        select: { id: true, productId: true },
+      });
+      if (!project) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      if (project.productId !== problem.productId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Project does not belong to this problem's product",
+        });
+      }
+      await ctx.db.problemApproach.upsert({
+        where: {
+          problemId_projectId: {
+            problemId: input.problemId,
+            projectId: input.projectId,
+          },
+        },
+        create: { problemId: input.problemId, projectId: input.projectId },
+        update: {},
+      });
+      return { success: true };
+    }),
+
+  unlinkProject: protectedProcedure
+    .input(z.object({ problemId: z.string(), projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProblemWithAccess(ctx.db, ctx.session.user.id, input.problemId);
+      await ctx.db.problemApproach.deleteMany({
+        where: { problemId: input.problemId, projectId: input.projectId },
+      });
+      return { success: true };
+    }),
+
+  /** Replace the full set of Projects (Approaches) linked to a Problem. */
+  setProjects: protectedProcedure
+    .input(z.object({ problemId: z.string(), projectIds: z.array(z.string()) }))
+    .mutation(async ({ ctx, input }) => {
+      const problem = await loadProblemWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.problemId,
+      );
+      const uniqueProjectIds = [...new Set(input.projectIds)];
+      await ctx.db.$transaction(async (tx) => {
+        if (uniqueProjectIds.length > 0) {
+          const validProjects = await tx.project.findMany({
+            where: { id: { in: uniqueProjectIds }, productId: problem.productId },
+            select: { id: true },
+          });
+          if (validProjects.length !== uniqueProjectIds.length) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                "One or more projects do not belong to this problem's product",
+            });
+          }
+        }
+        await tx.problemApproach.deleteMany({
+          where: { problemId: input.problemId },
+        });
+        await tx.problemApproach.createMany({
+          data: uniqueProjectIds.map((projectId) => ({
+            problemId: input.problemId,
+            projectId,
+          })),
+          skipDuplicates: true,
+        });
+      });
       return { success: true };
     }),
 });
