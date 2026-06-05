@@ -10,6 +10,7 @@ import {
   IconSettings,
   IconPlus,
   IconAffiliate,
+  IconTargetArrow,
 } from "@tabler/icons-react";
 import {
   ActionIcon,
@@ -25,6 +26,7 @@ import { api } from "~/trpc/react";
 
 const tabs = [
   { value: "overview", href: "", label: "Overview", icon: IconHome },
+  { value: "problems", href: "/problems", label: "Problems", icon: IconTargetArrow },
   { value: "backlog", href: "/tickets", label: "Backlog", icon: IconLayoutList },
   { value: "features", href: "/features", label: "Features", icon: IconBulb },
   { value: "graph", href: "/graph", label: "Graph", icon: IconAffiliate },

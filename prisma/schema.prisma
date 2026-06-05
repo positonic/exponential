@@ -219,6 +219,7 @@ model User {
   ticketComments        TicketComment[]    @relation("TicketCommentAuthor")
   ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
   insightsCreated       Insight[]          @relation("InsightCreatedBy")
+  problemsCreated       Problem[]          @relation("ProblemCreatedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -343,9 +344,9 @@ model Workspace {
   pendingDriveUploads              PendingDriveUpload[]
 
   // Workspace home activity feed
-  activityEvents    WorkspaceActivityEvent[]
+  activityEvents   WorkspaceActivityEvent[]
   // Cached AI-generated Week-in-Review narratives (one row per ISO week).
-  weeklyNarratives  WorkspaceWeeklyNarrative[]
+  weeklyNarratives WorkspaceWeeklyNarrative[]
 
   @@index([slug])
   @@index([ownerId])
@@ -2527,31 +2528,31 @@ model PluginConfig {
 // ============================================
 
 model KeyResult {
-  id           String    @id @default(cuid())
-  title        String
-  description  String?
-  targetValue  Float
-  currentValue Float     @default(0)
-  startValue   Float     @default(0)
-  unit         String    @default("percent") // "percent", "count", "currency", "hours", "custom"
-  unitLabel    String? // Custom label like "$" or "users"
-  period       String // "Q1-2025", "H1-2025", "Annual-2025"
-  periodStart  DateTime?
-  periodEnd    DateTime?
-  status       String    @default("on-track") // "on-track", "at-risk", "off-track", "achieved"
+  id                 String    @id @default(cuid())
+  title              String
+  description        String?
+  targetValue        Float
+  currentValue       Float     @default(0)
+  startValue         Float     @default(0)
+  unit               String    @default("percent") // "percent", "count", "currency", "hours", "custom"
+  unitLabel          String? // Custom label like "$" or "users"
+  period             String // "Q1-2025", "H1-2025", "Annual-2025"
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  status             String    @default("on-track") // "on-track", "at-risk", "off-track", "achieved"
   // Manual status override stored BESIDE the auto `status` (ADR-0004).
   // Effective status = statusOverride ?? status. null = no override (use auto).
   // The auto `status` column is never written by the manual override path.
   statusOverride     String? // "on-track" | "at-risk" | "off-track" | "achieved"
   statusOverrideAt   DateTime? // when the override was last set
   statusOverrideById String? // user id who set it (audit; no FK)
-  confidence   Int? // 0-100 confidence score
-  goalId       Int
-  userId       String
-  driUserId    String?
-  workspaceId  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  confidence         Int? // 0-100 confidence score
+  goalId             Int
+  userId             String
+  driUserId          String?
+  workspaceId        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   goal      Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
   user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3510,6 +3511,7 @@ model Product {
   retrospectives  Retrospective[]
   ticketTemplates TicketTemplate[]
   projects        Project[]
+  problems        Problem[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -3900,6 +3902,48 @@ model InsightTag {
 
   @@unique([insightId, tagId])
   @@index([tagId])
+}
+
+// ============================================
+// Pipeline Triage — Problem (see docs/adr/0008-pipeline-triage-model.md)
+// ============================================
+
+/// Lifecycle of a Problem as it moves through the triage pipeline.
+/// Independent of parked-ness (a Problem can be parked at any stage).
+enum ProblemStage {
+  IDEA
+  QUALIFIED
+  PRIORITISED
+}
+
+/// A validated issue worth solving — "who's hurt and how", scoped to a Product.
+/// Distinct from an Insight (raw research evidence); a Problem is the committed
+/// issue that enters the strategy pipeline. `impact`/`confidence` are the two
+/// prioritisation axes — ease is deliberately NOT scored here (it lives on the
+/// Approach later). `parkedAt`/`parkReason` are populated by a later slice but
+/// the columns exist now to avoid a second migration.
+model Problem {
+  id          String       @id @default(cuid())
+  productId   String
+  title       String
+  description String?
+  evidence    String?
+  category    String?
+  impact      Int?
+  confidence  Int?
+  stage       ProblemStage @default(IDEA)
+  parkedAt    DateTime?
+  parkReason  String?
+  createdById String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("ProblemCreatedBy", fields: [createdById], references: [id])
+
+  @@index([productId])
+  @@index([stage])
+  @@index([createdById])
 }
 
 // ============================================
