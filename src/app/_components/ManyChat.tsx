@@ -306,8 +306,9 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   )}
                   {isStreaming &&
                     index === visibleMessages.length - 1 &&
-                    message.content === '' &&
-                    !message.toolCalls?.length && <ThinkingStatus />}
+                    message.content === '' && (
+                      <ThinkingStatus toolCalls={message.toolCalls} />
+                    )}
                   <div className="text-text-primary text-sm leading-relaxed">
                     {message.marker === 'voice' && (
                       <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>

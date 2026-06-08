@@ -21,3 +21,32 @@ export const THINKING_MESSAGES = [
   "Sizing up your day…",
   "Won't be a moment…",
 ] as const;
+
+/** Shown once Zoe's tools have all returned but she hasn't started writing yet. */
+export const COMPOSING_MESSAGE = "Putting it together…";
+
+// Maps a tool name (the kebab id from the stream, e.g. "get-all-projects") to a
+// Zoe-voiced, present-continuous narration so the wait reads as her thinking out
+// loud. Substring match collapses variants ("search-emails", "get-recent-emails")
+// onto one line. Order matters — first hit wins, write-verbs before entities so
+// "create-project-action" narrates as a write, not a read.
+const TOOL_NARRATION: ReadonlyArray<readonly [RegExp, string]> = [
+  [/(^|-)(create|update|delete|add|quick|checkin|check-in|link|unlink)/, "Jotting that down…"],
+  [/calendar|diary|event|slot/, "Peeking at your diary…"],
+  [/goal|okr|objective|key.?result/, "Lining up your goals…"],
+  [/project|action|task/, "Going through your projects…"],
+  [/email|inbox|gmail/, "Skimming your inbox…"],
+  [/slack/, "Catching up on Slack…"],
+  [/crm|contact|organi[sz]ation|deal/, "Looking up your contacts…"],
+  [/notion/, "Digging through Notion…"],
+  [/meeting|transcript/, "Revisiting your meetings…"],
+  [/web|search|fetch/, "Having a quick search…"],
+];
+
+export function narrateTool(name: string): string {
+  const n = name.toLowerCase();
+  for (const [re, line] of TOOL_NARRATION) {
+    if (re.test(n)) return line;
+  }
+  return "Having a look…";
+}
