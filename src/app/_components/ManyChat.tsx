@@ -23,6 +23,7 @@ import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react
 import { useVoiceSession } from '~/lib/voice/useVoiceSession';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
+import { ThinkingStatus } from './agent/ThinkingStatus';
 import { DraftActionsReviewCard } from './DraftActionsReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext, type ToolCall } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -271,9 +272,10 @@ function renderMessageContent(content: string, messageType: string) {
 interface MessageListProps {
   messages: ChatMessage[];
   conversationId: string;
+  isStreaming: boolean;
 }
 
-const MessageList = memo(function MessageList({ messages, conversationId }: MessageListProps) {
+const MessageList = memo(function MessageList({ messages, conversationId, isStreaming }: MessageListProps) {
   const viewport = useRef<HTMLDivElement>(null);
 
   const visibleMessages = useMemo(
@@ -302,6 +304,10 @@ const MessageList = memo(function MessageList({ messages, conversationId }: Mess
                   {message.toolCalls && message.toolCalls.length > 0 && (
                     <ToolActivity calls={message.toolCalls} />
                   )}
+                  {isStreaming &&
+                    index === visibleMessages.length - 1 &&
+                    message.content === '' &&
+                    !message.toolCalls?.length && <ThinkingStatus />}
                   <div className="text-text-primary text-sm leading-relaxed">
                     {message.marker === 'voice' && (
                       <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
@@ -1440,7 +1446,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       )}
 
       {/* Messages Area */}
-      <MessageList messages={messages} conversationId={conversationId} />
+      <MessageList messages={messages} conversationId={conversationId} isStreaming={isStreaming} />
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
