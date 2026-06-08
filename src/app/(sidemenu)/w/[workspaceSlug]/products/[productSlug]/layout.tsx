@@ -51,6 +51,8 @@ export default function ProductLayout({
   // navigation is still pending — so the click feels acknowledged at once.
   const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
 
+  const utils = api.useUtils();
+
   const { data: product, isLoading } = api.product.product.getBySlug.useQuery(
     {
       workspaceId: workspaceId ?? "",
@@ -70,6 +72,40 @@ export default function ProductLayout({
       router.prefetch(`${base}${tab.href}`);
     }
   }, [workspace, productSlug, router]);
+
+  // Warm the *data* for every tab once the product resolves, so the first click
+  // on any tab finds its query already in cache and renders without a skeleton.
+  // Deferred to browser-idle so it never competes with the tab you're actually
+  // looking at. Inputs must match each page's useQuery exactly (incl. their
+  // default toggle state) or the cache key won't hit.
+  const productId = product?.id;
+  useEffect(() => {
+    if (!productId || !workspaceId) return;
+    if (typeof window === "undefined") return;
+
+    const warm = () => {
+      void utils.product.problem.list.prefetch({ productId, includeParked: false });
+      void utils.product.ticket.list.prefetch({ productId });
+      void utils.product.feature.list.prefetch({ productId });
+      void utils.product.product.getDependencyGraph.prefetch({
+        productId,
+        includeCompleted: false,
+      });
+      void utils.product.insight.list.prefetch({ productId });
+      // NB: cycle.list is intentionally NOT prewarmed — with autoCreate it
+      // writes (ensureUpcomingCycles / reconcileCycleStatuses), so eagerly
+      // prefetching it would create sprint data for products whose Cycles tab
+      // is never opened. The Cycles tab still feels instant via loading.tsx.
+      void utils.product.retrospective.list.prefetch({ workspaceId, productId });
+    };
+
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(warm);
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(warm, 200);
+    return () => window.clearTimeout(id);
+  }, [productId, workspaceId, utils]);
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
