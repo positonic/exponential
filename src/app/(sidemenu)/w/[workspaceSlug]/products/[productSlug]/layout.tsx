@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   IconHome,
@@ -46,6 +46,10 @@ export default function ProductLayout({
   const params = useParams();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
+  const [isPending, startTransition] = useTransition();
+  // Tab the user just clicked, shown as active immediately while the route
+  // navigation is still pending — so the click feels acknowledged at once.
+  const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
 
   const { data: product, isLoading } = api.product.product.getBySlug.useQuery(
     {
@@ -77,19 +81,24 @@ export default function ProductLayout({
   }
 
   // Determine active tab from pathname
-  const activeTab =
+  const pathnameTab =
     tabs.find(
       (t) =>
         t.href !== "" &&
         (pathname === `${basePath}${t.href}` ||
           pathname.startsWith(`${basePath}${t.href}/`)),
     )?.value ?? "overview";
+  // While a navigation is pending, show the just-clicked tab as active so the
+  // tab bar responds instantly; fall back to the real route once it commits.
+  const activeTab = isPending && optimisticTab ? optimisticTab : pathnameTab;
 
   const handleTabChange = (value: string | null) => {
     const tab = tabs.find((t) => t.value === value);
-    if (tab) {
+    if (!tab || value === pathnameTab) return;
+    setOptimisticTab(value);
+    startTransition(() => {
       router.push(`${basePath}${tab.href}`);
-    }
+    });
   };
 
   return (
