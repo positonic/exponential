@@ -4002,6 +4002,156 @@ export const mastraRouter = createTRPCRouter({
         },
       };
     }),
+
+  // Bulk-create tickets in one product in a single call. Mirrors createTicket
+  // per item, and additionally resolves cycle and assignee by NAME server-side
+  // (within the product's workspace) so an agent can file a pasted table of
+  // work items without first looking up cycle/user IDs. Returns a manifest of
+  // what was created (with any unresolved-field warnings) and what failed.
+  bulkCreateTickets: protectedProcedure
+    .input(z.object({
+      productId: z.string(),
+      tickets: z.array(z.object({
+        title: z.string().min(1).max(300),
+        body: z.string().optional(),
+        type: z.enum(['BUG', 'FEATURE', 'CHORE', 'IMPROVEMENT', 'SPIKE', 'RESEARCH']).optional(),
+        status: z.enum([
+          'BACKLOG', 'NEEDS_REFINEMENT', 'READY_TO_PLAN', 'COMMITTED',
+          'IN_PROGRESS', 'BLOCKED', 'QA', 'DONE', 'DEPLOYED', 'ARCHIVED',
+        ]).optional(),
+        priority: z.number().int().min(0).max(4).optional(),
+        points: z.number().optional(),
+        cycleName: z.string().optional(),
+        assigneeName: z.string().optional(),
+      })).min(1).max(100),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`🎫 [tRPC bulkCreateTickets] RECEIVED: productId=${input.productId}, count=${input.tickets.length}, userId=${userId}`);
+
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      // Pre-resolve cycles (SPRINT lists in the workspace) and members once.
+      const [cycles, members] = await Promise.all([
+        ctx.db.list.findMany({
+          where: { workspaceId: product.workspaceId, listType: "SPRINT" },
+          select: { id: true, name: true },
+        }),
+        ctx.db.workspaceUser.findMany({
+          where: { workspaceId: product.workspaceId },
+          select: { user: { select: { id: true, name: true, email: true } } },
+        }),
+      ]);
+      const cycleByName = new Map(cycles.map((c) => [c.name.trim().toLowerCase(), c.id]));
+      const memberMatches = (name: string): string | null => {
+        const q = name.trim().toLowerCase();
+        const hits = members
+          .map((m) => m.user)
+          .filter((u) =>
+            u.name?.trim().toLowerCase() === q ||
+            u.email?.trim().toLowerCase() === q ||
+            (u.name?.trim().toLowerCase().startsWith(q) ?? false),
+          );
+        // Only resolve when unambiguous.
+        return hits.length === 1 ? hits[0]!.id : null;
+      };
+
+      // Fun-ID bookkeeping: load existing IDs once, add to the set as we go.
+      const existingIds = new Set<string>();
+      if (product) {
+        const existing = await ctx.db.ticket.findMany({
+          where: { productId: input.productId },
+          select: { shortId: true },
+        });
+        for (const t of existing) if (t.shortId) existingIds.add(t.shortId);
+      }
+
+      const created: {
+        id: string;
+        number: number;
+        shortId: string | null;
+        title: string;
+        status: string;
+        type: string;
+        warnings: string[];
+      }[] = [];
+      const failed: { title: string; error: string }[] = [];
+
+      for (const t of input.tickets) {
+        try {
+          const warnings: string[] = [];
+
+          let cycleId: string | undefined;
+          if (t.cycleName) {
+            cycleId = cycleByName.get(t.cycleName.trim().toLowerCase());
+            if (!cycleId) warnings.push(`Cycle "${t.cycleName}" not found — left unassigned`);
+          }
+
+          let assigneeId: string | undefined;
+          if (t.assigneeName) {
+            assigneeId = memberMatches(t.assigneeName) ?? undefined;
+            if (!assigneeId) warnings.push(`Owner "${t.assigneeName}" not matched to a workspace member — left unassigned`);
+          }
+
+          const updated = await ctx.db.product.update({
+            where: { id: input.productId },
+            data: { ticketCounter: { increment: 1 } },
+            select: { ticketCounter: true, funTicketIds: true },
+          });
+
+          let shortId: string | null = null;
+          if (updated.funTicketIds) {
+            shortId = generateFunId(existingIds);
+            existingIds.add(shortId);
+          }
+
+          const ticket = await ctx.db.ticket.create({
+            data: {
+              productId: input.productId,
+              number: updated.ticketCounter,
+              shortId,
+              title: t.title,
+              body: t.body,
+              type: t.type ?? "FEATURE",
+              status: t.status ?? "BACKLOG",
+              priority: t.priority,
+              points: t.points,
+              cycleId,
+              assigneeId,
+              createdById: userId,
+            },
+          });
+
+          await recordActivity(ctx.db, {
+            workspaceId: product.workspaceId,
+            userId,
+            entityType: "ticket",
+            entityId: ticket.id,
+            action: "created",
+            metadata: { title: t.title },
+          }).catch(() => {
+            /* instrumentation failure is non-fatal */
+          });
+
+          created.push({
+            id: ticket.id,
+            number: ticket.number,
+            shortId: ticket.shortId,
+            title: ticket.title,
+            status: ticket.status,
+            type: ticket.type,
+            warnings,
+          });
+        } catch (err) {
+          failed.push({ title: t.title, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      console.log(`✅ [tRPC bulkCreateTickets] Done: ${created.length} created, ${failed.length} failed`);
+
+      return { created, failed, totalCreated: created.length, totalFailed: failed.length };
+    }),
 });
 
 // Helper function for fallback AI suggestions
