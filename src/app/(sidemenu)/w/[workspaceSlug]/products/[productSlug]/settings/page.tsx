@@ -400,6 +400,7 @@ export default function ProductSettingsPage() {
 
   const [section, setSection] = useState<SectionId>("general");
   const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [funTicketIds, setFunTicketIds] = useState(true);
   const [enableCycles, setEnableCycles] = useState(true);
@@ -417,19 +418,26 @@ export default function ProductSettingsPage() {
   useEffect(() => {
     if (product) {
       setName(product.name);
+      setSlug(product.slug);
       setDescription(product.description ?? "");
       setFunTicketIds(product.funTicketIds);
     }
   }, [product]);
 
   const updateProduct = api.product.product.update.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (updated) => {
       if (workspaceId) {
         await utils.product.product.list.invalidate({ workspaceId });
         await utils.product.product.getBySlug.invalidate({
           workspaceId,
           slug: productSlug,
         });
+      }
+      // The page is keyed by slug — follow it to the new URL if it changed.
+      if (workspace && updated.slug !== productSlug) {
+        router.replace(
+          `/w/${workspace.slug}/products/${updated.slug}/settings`,
+        );
       }
     },
     onError: (err) => setError(err.message),
@@ -464,11 +472,15 @@ export default function ProductSettingsPage() {
 
   if (!product || !workspace) return null;
 
+  const trimmedSlug = slug.trim();
+  const slugValid = /^[a-z0-9-]+$/.test(trimmedSlug);
+
   const onSave = () => {
     setError(null);
     updateProduct.mutate({
       id: product.id,
       name: name.trim(),
+      slug: trimmedSlug,
       description: description.trim() || undefined,
       funTicketIds,
     });
@@ -582,6 +594,26 @@ export default function ProductSettingsPage() {
             </SettingsField>
 
             <SettingsField
+              label="Slug"
+              sublabel="Used in this product's URL. Lowercase letters, numbers, and hyphens only. Existing links using the old slug will stop working."
+            >
+              <TextInput
+                value={slug}
+                onChange={(e) =>
+                  setSlug(e.currentTarget.value.toLowerCase())
+                }
+                size="xs"
+                maxLength={60}
+                className="max-w-xs"
+                error={
+                  trimmedSlug && !slugValid
+                    ? "Lowercase letters, numbers, and hyphens only"
+                    : undefined
+                }
+              />
+            </SettingsField>
+
+            <SettingsField
               label="Fun ticket IDs"
               sublabel="Use memorable word pairs (e.g. swift.falcon) instead of sequential IDs."
             >
@@ -620,7 +652,7 @@ export default function ProductSettingsPage() {
                 color="brand"
                 onClick={onSave}
                 loading={updateProduct.isPending}
-                disabled={!name.trim()}
+                disabled={!name.trim() || !slugValid}
               >
                 Save changes
               </Button>

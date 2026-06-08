@@ -219,6 +219,12 @@ export const productRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         name: boundedText("Name", 120, { min: 1 }).optional(),
+        slug: z
+          .string()
+          .min(1)
+          .max(60)
+          .regex(/^[a-z0-9-]+$/, "Slug must be kebab-case")
+          .optional(),
         description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
         icon: boundedText("Icon", 60).optional(),
         color: boundedText("Color", 60).optional(),
@@ -226,9 +232,34 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
 
       const { id, ...data } = input;
+
+      // If the slug is changing, ensure it stays unique within the workspace
+      // (Product has @@unique([workspaceId, slug])).
+      if (data.slug && data.slug !== product.slug) {
+        const clash = await ctx.db.product.findUnique({
+          where: {
+            workspaceId_slug: {
+              workspaceId: product.workspaceId,
+              slug: data.slug,
+            },
+          },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Another product in this workspace already uses that slug",
+          });
+        }
+      }
+
       return ctx.db.product.update({
         where: { id },
         data,
