@@ -3871,9 +3871,12 @@ export const mastraRouter = createTRPCRouter({
   // List the products the user can access, so an agent can resolve a product
   // by name → productId before creating a ticket. Scoped to the user's
   // workspace memberships; pass workspaceId to narrow to one workspace.
+  // NOTE: defined as a mutation (not a query) on purpose — the agent tool
+  // plumbing (authenticatedTrpcCall) always POSTs, and tRPC rejects POST to a
+  // query procedure (405). It has no side effects; mutation is just transport.
   listProducts: protectedProcedure
     .input(z.object({ workspaceId: z.string().optional() }).optional())
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
       const memberships = await ctx.db.workspaceUser.findMany({
