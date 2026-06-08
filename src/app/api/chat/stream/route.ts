@@ -478,6 +478,10 @@ export async function POST(req: Request) {
           }
         }, HEARTBEAT_MS);
 
+        // [DIAGNOSTIC] Per-step timing — revert after Zoe hang investigation.
+        let lastStepAt = Date.now();
+        let stepIndex = 0;
+
         let fullText = "";
         // Tracks ONLY text-delta byte length, not progress markers (tool
         // call indicators, keepalive zwsp) we inject. Used by the Haiku→
@@ -630,6 +634,10 @@ export async function POST(req: Request) {
                 emit(`\n\n⚠️ **Agent error:** ${msg}\n`);
               } else if (chunk.type === "step-finish") {
                 const fr = readString(chunk.payload, 'finishReason');
+                // [DIAGNOSTIC] Per-step timing — revert after Zoe hang investigation.
+                console.log(`⏱️ [step-timing] step ${stepIndex} took ${Date.now() - lastStepAt}ms, finishReason=${fr ?? 'unknown'}, toolsSoFar=${toolCallNames.length}`);
+                lastStepAt = Date.now();
+                stepIndex += 1;
                 if (fr) {
                   lastStepFinishReason = fr;
                   // 'stop' and 'tool-calls' are normal; other reasons indicate a cap/filter was hit

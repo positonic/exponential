@@ -22,8 +22,8 @@ export function UnalignedContainer({
       className="rounded-md border border-dashed border-border-primary bg-surface-secondary/40 px-3 py-2"
       style={{ width: 240 }}
     >
-      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
       <Group gap="xs" wrap="nowrap" align="center">
         <IconLink size={14} className="text-text-muted" />
         <Text size="sm" fw={500} className="text-text-muted">

@@ -143,6 +143,101 @@ export function layoutHierarchical(
   return { nodes: positioned, bandsUsed };
 }
 
+/** A node for the roadmap (left-to-right cascade) layout. */
+export interface RoadmapNodeInput {
+  id: string;
+  width?: number;
+  height?: number;
+}
+
+/** A positioned node from {@link layoutRoadmap} (top-left origin). */
+export interface RoadmapPositionedNode {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface RoadmapLayoutOptions {
+  defaultWidth?: number;
+  defaultHeight?: number;
+  /** Horizontal gap between dependency ranks (drives the cascade's stride). */
+  rankSep?: number;
+  /** Vertical gap between nodes sharing a rank. */
+  nodeSep?: number;
+}
+
+const ROADMAP_DEFAULTS: Required<RoadmapLayoutOptions> = {
+  defaultWidth: 260,
+  defaultHeight: 56,
+  rankSep: 96,
+  nodeSep: 28,
+};
+
+/**
+ * Roadmap layout — a single left-to-right dependency cascade (no fixed bands).
+ *
+ * Unlike {@link layoutHierarchical}, this keeps dagre's native x/y so the flow
+ * reads like a timeline: roots (objectives / features / unblocked tickets) sit
+ * on the left and each dependent steps to the right (and stacks vertically) of
+ * whatever it depends on. Both alignment and blocking edges drive ranks;
+ * blocking edges are weighted heavier so dependency chains stay tight.
+ *
+ * Pure function — zero React, zero DOM, no Prisma.
+ */
+export function layoutRoadmap(
+  nodes: RoadmapNodeInput[],
+  edges: LayoutEdgeInput[],
+  options: RoadmapLayoutOptions = {},
+): RoadmapPositionedNode[] {
+  const opts = { ...ROADMAP_DEFAULTS, ...options };
+
+  if (nodes.length === 0) return [];
+
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: "LR",
+    nodesep: opts.nodeSep,
+    ranksep: opts.rankSep,
+    marginx: 24,
+    marginy: 24,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  const ids = new Set(nodes.map((n) => n.id));
+  for (const n of nodes) {
+    g.setNode(n.id, {
+      width: n.width ?? opts.defaultWidth,
+      height: n.height ?? opts.defaultHeight,
+    });
+  }
+  for (const e of edges) {
+    // Skip edges that reference a node we aren't drawing.
+    if (!ids.has(e.source) || !ids.has(e.target)) continue;
+    g.setEdge(e.source, e.target, {
+      weight: e.kind === "blocking" ? 3 : 1,
+      minlen: 1,
+    });
+  }
+
+  dagre.layout(g);
+
+  return nodes.map((n) => {
+    const dn = g.node(n.id);
+    const width = n.width ?? opts.defaultWidth;
+    const height = n.height ?? opts.defaultHeight;
+    return {
+      id: n.id,
+      // dagre returns the node center; React Flow wants top-left.
+      x: (dn?.x ?? 0) - width / 2,
+      y: (dn?.y ?? 0) - height / 2,
+      width,
+      height,
+    };
+  });
+}
+
 /**
  * Convenience helper: compact a band-spec when a band has no nodes, so the
  * upstream bands shift up to absorb the empty row. Used by the client to

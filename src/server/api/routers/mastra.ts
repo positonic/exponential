@@ -21,6 +21,9 @@ import { getWorkspaceMembership } from "~/server/services/access/resolvers/works
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
+import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
+import { generateFunId } from "~/lib/fun-ids";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -3859,6 +3862,143 @@ export const mastraRouter = createTRPCRouter({
           dueDate: action.dueDate?.toISOString(),
           projectId: action.projectId,
           project: action.project,
+        },
+      };
+    }),
+
+  // ==================== Product Pipeline Tickets ====================
+
+  // List the products the user can access, so an agent can resolve a product
+  // by name → productId before creating a ticket. Scoped to the user's
+  // workspace memberships; pass workspaceId to narrow to one workspace.
+  listProducts: protectedProcedure
+    .input(z.object({ workspaceId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const memberships = await ctx.db.workspaceUser.findMany({
+        where: { userId },
+        select: { workspaceId: true },
+      });
+      const allowedWorkspaceIds = memberships.map((m) => m.workspaceId);
+
+      // If a workspaceId is requested, only honour it when the user is a member.
+      const workspaceFilter = input?.workspaceId
+        ? allowedWorkspaceIds.filter((id) => id === input.workspaceId)
+        : allowedWorkspaceIds;
+
+      const products = await ctx.db.product.findMany({
+        where: { workspaceId: { in: workspaceFilter } },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          workspaceId: true,
+          workspace: { select: { name: true, slug: true } },
+          _count: { select: { tickets: true } },
+        },
+        orderBy: { name: "asc" },
+      });
+
+      return {
+        products: products.map((p) => ({
+          id: p.id,
+          name: p.name,
+          slug: p.slug,
+          workspaceId: p.workspaceId,
+          workspaceName: p.workspace.name,
+          workspaceSlug: p.workspace.slug,
+          ticketCount: p._count.tickets,
+        })),
+      };
+    }),
+
+  // Create a ticket in a product's pipeline. Mirrors the core logic of the
+  // product plugin's `ticket.create` mutation (counter increment, fun ID,
+  // activity feed) so agents can file tickets through the same code path.
+  createTicket: protectedProcedure
+    .input(z.object({
+      productId: z.string(),
+      title: z.string().min(1).max(300),
+      body: z.string().optional(),
+      type: z.enum(['BUG', 'FEATURE', 'CHORE', 'IMPROVEMENT', 'SPIKE', 'RESEARCH']).optional(),
+      status: z.enum([
+        'BACKLOG', 'NEEDS_REFINEMENT', 'READY_TO_PLAN', 'COMMITTED',
+        'IN_PROGRESS', 'BLOCKED', 'QA', 'DONE', 'DEPLOYED', 'ARCHIVED',
+      ]).optional(),
+      priority: z.number().int().min(0).max(4).optional(),
+      points: z.number().optional(),
+      assigneeId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`🎫 [tRPC createTicket] RECEIVED: productId=${input.productId}, title="${input.title}", type=${input.type ?? 'FEATURE'}, status=${input.status ?? 'BACKLOG'}, userId=${userId}`);
+
+      // Verifies the product exists and the user is a member of its workspace.
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      // Atomically increment the product's ticket counter to get the number.
+      const updated = await ctx.db.product.update({
+        where: { id: input.productId },
+        data: { ticketCounter: { increment: 1 } },
+        select: { ticketCounter: true, funTicketIds: true },
+      });
+      const ticketNumber = updated.ticketCounter;
+
+      // Generate a fun short ID if the product has them enabled.
+      let shortId: string | null = null;
+      if (updated.funTicketIds) {
+        const existing = await ctx.db.ticket.findMany({
+          where: { productId: input.productId },
+          select: { shortId: true },
+        });
+        const existingIds = new Set(
+          existing.map((t) => t.shortId).filter(Boolean) as string[],
+        );
+        shortId = generateFunId(existingIds);
+      }
+
+      const ticket = await ctx.db.ticket.create({
+        data: {
+          productId: input.productId,
+          number: ticketNumber,
+          shortId,
+          title: input.title,
+          body: input.body,
+          type: input.type ?? "FEATURE",
+          status: input.status ?? "BACKLOG",
+          priority: input.priority,
+          points: input.points,
+          assigneeId: input.assigneeId,
+          createdById: userId,
+        },
+      });
+
+      // Workspace activity feed (non-fatal if it fails).
+      await recordActivity(ctx.db, {
+        workspaceId: product.workspaceId,
+        userId,
+        entityType: "ticket",
+        entityId: ticket.id,
+        action: "created",
+        metadata: { title: input.title },
+      }).catch(() => {
+        /* instrumentation failure is non-fatal */
+      });
+
+      console.log(`✅ [tRPC createTicket] CREATED: id=${ticket.id}, number=${ticket.number}, shortId=${ticket.shortId ?? 'none'}`);
+
+      return {
+        ticket: {
+          id: ticket.id,
+          number: ticket.number,
+          shortId: ticket.shortId,
+          title: ticket.title,
+          type: ticket.type,
+          status: ticket.status,
+          priority: ticket.priority,
+          productId: ticket.productId,
         },
       };
     }),

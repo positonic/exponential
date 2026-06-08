@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   IconHome,
@@ -53,6 +54,18 @@ export default function ProductLayout({
     },
     { enabled: !!workspaceId && !!productSlug },
   );
+
+  // Warm every sibling tab's route (RSC payload + JS chunk) as soon as a
+  // product page mounts, so the first click on any tab is instant instead of
+  // paying the cold route-fetch cost. Mirrors what Next <Link> prefetch does
+  // for in-viewport links; no-op in dev (Next disables prefetch there).
+  useEffect(() => {
+    if (!workspace) return;
+    const base = `/w/${workspace.slug}/products/${productSlug}`;
+    for (const tab of tabs) {
+      router.prefetch(`${base}${tab.href}`);
+    }
+  }, [workspace, productSlug, router]);
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;

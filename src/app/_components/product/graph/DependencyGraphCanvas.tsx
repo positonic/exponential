@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
+import { useComputedColorScheme } from "@mantine/core";
 import {
   ReactFlow,
   Background,
   Controls,
+  MarkerType,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -18,10 +20,9 @@ import {
   type UnalignedContainerData,
 } from "./nodes/UnalignedContainer";
 import {
-  compactBandSpec,
-  layoutHierarchical,
+  layoutRoadmap,
   type LayoutEdgeInput,
-  type LayoutNodeInput,
+  type RoadmapNodeInput,
 } from "./layout";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 import type {
@@ -54,20 +55,29 @@ interface Props {
   onNodeClick?: (event: GraphNodeClick) => void;
 }
 
+// Amber connector for active dependency ("blocking") edges — the roadmap look.
+const BLOCKING_EDGE_COLOR = "var(--mantine-color-yellow-7)";
+// Muted connector once the blocker is completed, and for structural alignment.
+const MUTED_EDGE_COLOR = "var(--color-border-primary)";
+
 const alignmentEdgeStyle = {
-  stroke: "var(--color-border-primary)",
-  strokeWidth: 1,
-  strokeDasharray: "4 4",
+  stroke: MUTED_EDGE_COLOR,
+  strokeWidth: 1.5,
+  strokeDasharray: "2 4",
 };
 
-const BAND_Y = { objectives: 0, features: 200, tickets: 400 };
-const BAND_ROW_HEIGHT = 200;
+const alignmentMarker = {
+  type: MarkerType.ArrowClosed,
+  color: MUTED_EDGE_COLOR,
+  width: 14,
+  height: 14,
+} as const;
 
 /**
- * Three-band canvas — Objectives → Features → Tickets. Bands collapse
- * (and downstream bands shift up) when empty. Blocking edges between
- * Tickets are solid; alignment edges (Feature→Ticket, Objective→Feature)
- * are dashed and never red.
+ * Roadmap canvas — a single left-to-right dependency cascade. Objectives and
+ * Features flow into the Tickets that realise them; blocking dependencies push
+ * dependents further right and are drawn as curvy amber arrows. Alignment edges
+ * (Feature→Ticket, Objective→Feature) are subtle dashed connectors.
  */
 export function DependencyGraphCanvas({
   tickets,
@@ -76,6 +86,9 @@ export function DependencyGraphCanvas({
   blockingEdges = [],
   onNodeClick,
 }: Props) {
+  // Theme the xyflow chrome (Controls / Background) to the app's color scheme
+  // so the zoom controls don't render as a white block in dark mode.
+  const colorMode = useComputedColorScheme("dark");
   const handleNodeClick: NodeMouseHandler = (_event, node) => {
     if (!onNodeClick) return;
     if (node.type === "ticket") {
@@ -102,33 +115,18 @@ export function DependencyGraphCanvas({
       reachableObjectiveIds.has(o.id),
     );
 
-    const presentBands = new Set<"objectives" | "features" | "tickets">();
-    if (reachableObjectives.length > 0) presentBands.add("objectives");
-    if (features.length > 0 || showUnaligned) presentBands.add("features");
-    if (tickets.length > 0) presentBands.add("tickets");
-
-    const bandSpec = compactBandSpec(
-      { y: BAND_Y },
-      presentBands,
-      BAND_ROW_HEIGHT,
-    );
-
-    const layoutInputs: LayoutNodeInput[] = [];
+    const layoutInputs: RoadmapNodeInput[] = [];
     for (const o of reachableObjectives) {
-      layoutInputs.push({ id: objectiveNodeId(o.id), band: "objectives" });
+      layoutInputs.push({ id: objectiveNodeId(o.id) });
     }
     for (const f of features) {
-      layoutInputs.push({ id: f.id, band: "features" });
+      layoutInputs.push({ id: f.id });
     }
     if (showUnaligned) {
-      layoutInputs.push({
-        id: UNALIGNED_NODE_ID,
-        band: "features",
-        unaligned: true,
-      });
+      layoutInputs.push({ id: UNALIGNED_NODE_ID });
     }
     for (const t of tickets) {
-      layoutInputs.push({ id: t.id, band: "tickets" });
+      layoutInputs.push({ id: t.id });
     }
 
     const layoutEdges: LayoutEdgeInput[] = [];
@@ -164,7 +162,7 @@ export function DependencyGraphCanvas({
       });
     }
 
-    const positioned = layoutHierarchical(layoutInputs, layoutEdges, bandSpec);
+    const positioned = layoutRoadmap(layoutInputs, layoutEdges);
 
     const ticketById = new Map(tickets.map((t) => [t.id, t]));
     const featureById = new Map(features.map((f) => [f.id, f]));
@@ -172,10 +170,10 @@ export function DependencyGraphCanvas({
       reachableObjectives.map((o) => [objectiveNodeId(o.id), o]),
     );
 
-    const flowNodes: Node[] = positioned.nodes.map((n) => {
+    const flowNodes: Node[] = positioned.map((n) => {
       const position = { x: n.x, y: n.y };
-      if (n.band === "tickets") {
-        const t = ticketById.get(n.id)!;
+      const t = ticketById.get(n.id);
+      if (t) {
         const data: TicketNodeData = {
           title: t.title,
           status: t.status,
@@ -185,53 +183,28 @@ export function DependencyGraphCanvas({
           openBlockerCount: t.openBlockerCount,
           isBlocked: t.isBlocked,
         };
+        return { id: n.id, type: "ticket", position, data, draggable: false };
+      }
+      if (n.id === UNALIGNED_NODE_ID) {
+        const data: UnalignedContainerData = {
+          ticketCount: orphanTickets.length,
+        };
         return {
           id: n.id,
-          type: "ticket",
+          type: "unaligned",
           position,
           data,
           draggable: false,
         };
       }
-      if (n.band === "features") {
-        if (n.unaligned) {
-          const data: UnalignedContainerData = {
-            ticketCount: orphanTickets.length,
-          };
-          return {
-            id: n.id,
-            type: "unaligned",
-            position,
-            data,
-            draggable: false,
-          };
-        }
-        const f = featureById.get(n.id)!;
-        const data: FeatureNodeData = {
-          name: f.name,
-          status: f.status,
-        };
-        return {
-          id: n.id,
-          type: "feature",
-          position,
-          data,
-          draggable: false,
-        };
+      const f = featureById.get(n.id);
+      if (f) {
+        const data: FeatureNodeData = { name: f.name, status: f.status };
+        return { id: n.id, type: "feature", position, data, draggable: false };
       }
-      // Objectives band
       const o = objectiveByNodeId.get(n.id)!;
-      const data: ObjectiveNodeData = {
-        title: o.title,
-        period: o.period,
-      };
-      return {
-        id: n.id,
-        type: "objective",
-        position,
-        data,
-        draggable: false,
-      };
+      const data: ObjectiveNodeData = { title: o.title, period: o.period };
+      return { id: n.id, type: "objective", position, data, draggable: false };
     });
 
     const flowEdges: Edge[] = [];
@@ -247,6 +220,7 @@ export function DependencyGraphCanvas({
         target: f.id,
         type: "default",
         style: alignmentEdgeStyle,
+        markerEnd: alignmentMarker,
       });
     }
 
@@ -260,24 +234,29 @@ export function DependencyGraphCanvas({
         target: t.id,
         type: "default",
         style: alignmentEdgeStyle,
+        markerEnd: alignmentMarker,
       });
     }
 
-    // Blocking edges: solid; red when source Ticket is non-completed.
+    // Blocking edges: curvy amber arrows; muted once the blocker is completed.
     for (const e of blockingEdges) {
       const source = ticketById.get(e.fromTicketId);
       const sourceCompleted = source
         ? COMPLETED_TICKET_STATUSES.includes(source.status)
         : false;
-      const stroke = sourceCompleted
-        ? "var(--color-border-primary)"
-        : "var(--mantine-color-red-5)";
+      const stroke = sourceCompleted ? MUTED_EDGE_COLOR : BLOCKING_EDGE_COLOR;
       flowEdges.push({
         id: `blocking:${e.fromTicketId}->${e.toTicketId}`,
         source: e.fromTicketId,
         target: e.toTicketId,
         type: "default",
-        style: { stroke, strokeWidth: 1.5 },
+        style: { stroke, strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: stroke,
+          width: 18,
+          height: 18,
+        },
       });
     }
 
@@ -287,20 +266,22 @@ export function DependencyGraphCanvas({
   return (
     <div
       className="rounded-md border border-border-primary bg-background-primary"
-      style={{ height: 600 }}
+      style={{ height: 640 }}
     >
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        colorMode={colorMode}
         nodeTypes={nodeTypes}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         onNodeClick={handleNodeClick}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={24} />
+        <Background gap={28} size={1} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>

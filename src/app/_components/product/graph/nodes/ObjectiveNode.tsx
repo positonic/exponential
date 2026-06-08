@@ -2,6 +2,7 @@
 
 import { Badge, Group, Stack, Text } from "@mantine/core";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { ROADMAP_CARD_CLASS, ROADMAP_CARD_WIDTH } from "./nodeVisuals";
 
 export interface ObjectiveNodeData extends Record<string, unknown> {
   title: string;
@@ -11,14 +12,19 @@ export interface ObjectiveNodeData extends Record<string, unknown> {
 export function ObjectiveNode({ data }: NodeProps) {
   const d = data as unknown as ObjectiveNodeData;
   return (
-    <div
-      className="rounded-md border border-border-primary bg-surface-secondary px-3 py-2 shadow-sm"
-      style={{ width: 240 }}
-    >
-      <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+    <div className={ROADMAP_CARD_CLASS} style={{ width: ROADMAP_CARD_WIDTH }}>
+      <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
+      <Handle type="source" position={Position.Right} style={{ opacity: 0 }} />
       <Stack gap={2}>
         <Group gap="xs" wrap="nowrap" align="center">
+          <span
+            role="img"
+            aria-label="Objective"
+            className="shrink-0 leading-none"
+            style={{ fontSize: 16 }}
+          >
+            🎯
+          </span>
           <Text
             size="sm"
             fw={600}
