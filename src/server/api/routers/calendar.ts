@@ -129,9 +129,19 @@ async function loadAccountCalendars(
     }
   }
 
+  const calendars = parseCalendarsFromJson(preference.cachedCalendars);
+
+  // Normalize a legacy `"primary"` selection (the old default) to the real
+  // primary calendar id, so the per-calendar checkbox in the sidebar matches.
+  // Google/Microsoft both still accept the real id when fetching events.
+  const primaryId = calendars.find((c) => c.primary)?.id;
+  const selectedCalendarIds = primaryId
+    ? preference.selectedCalendarIds.map((id) => (id === "primary" ? primaryId : id))
+    : preference.selectedCalendarIds;
+
   return {
-    selectedCalendarIds: preference.selectedCalendarIds,
-    calendars: parseCalendarsFromJson(preference.cachedCalendars),
+    selectedCalendarIds,
+    calendars,
     cacheUpdatedAt: preference.cacheUpdatedAt,
   };
 }

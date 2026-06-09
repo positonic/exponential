@@ -20,7 +20,10 @@ SET "accountId" = (
       WHEN cp."provider" = 'microsoft' THEN 'microsoft-entra-id'
       ELSE cp."provider"
     END
-  ORDER BY a."id"
+  -- For users who already had multiple accounts of the same provider, prefer
+  -- the one that is actually connected (has a token, latest expiry) so the
+  -- legacy selection lands on the live account rather than an arbitrary id.
+  ORDER BY (a."access_token" IS NOT NULL) DESC, a."expires_at" DESC NULLS LAST, a."id"
   LIMIT 1
 )
 WHERE cp."accountId" IS NULL;

@@ -146,17 +146,25 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // The (provider, providerAccountId) unique is global, so the matched row
+    // could belong to a DIFFERENT app user. Never silently reassign it —
+    // doing so would detach the other user's calendar integration.
+    if (existingAccount && existingAccount.userId !== session.user.id) {
+      console.error(
+        "❌ Microsoft account already linked to another user — refusing to reassign",
+      );
+      redirect(`${returnUrl}?calendar_error=account_linked_elsewhere`);
+    }
+
     if (existingAccount) {
       // Update existing account with calendar tokens
       const updateData: {
-        userId: string;
         access_token: string;
         refresh_token?: string;
         expires_at: number | null;
         scope: string;
         providerEmail?: string;
       } = {
-        userId: session.user.id,
         access_token: tokens.access_token,
         expires_at: expiresAt,
         scope: tokens.scope,
