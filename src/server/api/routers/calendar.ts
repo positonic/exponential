@@ -178,7 +178,10 @@ export const calendarRouter = createTRPCRouter({
       const provider = input?.provider ?? "google";
       const accountProvider = getAccountProvider(provider);
 
-      const account = await ctx.db.connectedAccount.findFirst({
+      // Aggregate across ALL of the user's connected accounts for this
+      // provider — a user can connect several, so a single findFirst could
+      // report the wrong one as (dis)connected.
+      const accounts = await ctx.db.connectedAccount.findMany({
         where: {
           userId: ctx.session.user.id,
           provider: accountProvider,
@@ -188,25 +191,22 @@ export const calendarRouter = createTRPCRouter({
           refresh_token: true,
           scope: true,
           expires_at: true,
+          provider: true,
         },
       });
 
-      if (!account?.access_token) {
-        return { isConnected: false, hasCalendarScope: false };
-      }
-
-      const hasCalendarScope = provider === "google"
-        ? (account.scope?.includes("https://www.googleapis.com/auth/calendar.events") ?? false)
-        : (account.scope?.includes("Calendars.Read") ?? false);
-
-      const tokenNotExpired = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
-      const canRefresh = !!account.refresh_token;
-      const isTokenValid = tokenNotExpired || canRefresh;
+      const calendarScope = calendarScopeFor(accountProvider);
+      const hasCalendarScope = accounts.some((a) => a.scope?.includes(calendarScope) ?? false);
+      const anyTokenNotExpired = accounts.some(
+        (a) => !a.expires_at || a.expires_at > Math.floor(Date.now() / 1000) + 300,
+      );
+      const canRefresh = accounts.some((a) => !!a.refresh_token);
+      const isConnected = accounts.some((a) => isCalendarConnected(a));
 
       return {
-        isConnected: hasCalendarScope && isTokenValid,
+        isConnected,
         hasCalendarScope,
-        tokenExpired: !tokenNotExpired,
+        tokenExpired: hasCalendarScope && !anyTokenNotExpired,
         canRefresh,
       };
     }),

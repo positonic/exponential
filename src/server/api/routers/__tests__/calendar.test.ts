@@ -29,8 +29,7 @@ vi.hoisted(() => {
 
 vi.mock("openai", () => ({
   default: class MockOpenAI {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(_opts?: any) {
+    constructor(_opts?: unknown) {
       // intentionally empty
     }
   },

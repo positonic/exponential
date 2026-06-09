@@ -609,20 +609,21 @@ export const keyResultRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // Authorize the KR by ownership OR workspace membership — the weekly-plan
       // KR pool (getByObjective) is workspace-scoped, so a member must be able
-      // to link a KR owned by another member of the same workspace. Matches the
-      // authorization model used by getByIds.
+      // to link a KR owned by another member of the same workspace. Uses the
+      // centralized resolver so team-derived workspace access is honored (the
+      // inline members.some check missed team membership).
       const userId = ctx.session.user.id;
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.keyResultId,
-          OR: [
-            { userId },
-            { workspace: { members: { some: { userId } } } },
-          ],
-        },
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
@@ -666,19 +667,20 @@ export const keyResultRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       // Authorize the KR by ownership OR workspace membership (mirrors
-      // linkProject / getByIds) so members can unlink workspace-shared KRs.
+      // linkProject) via the centralized resolver, so team-derived workspace
+      // access is honored when unlinking workspace-shared KRs.
       const userId = ctx.session.user.id;
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.keyResultId,
-          OR: [
-            { userId },
-            { workspace: { members: { some: { userId } } } },
-          ],
-        },
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
