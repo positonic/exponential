@@ -24,7 +24,9 @@ export type ActivityEntityType =
   | "ticket_comment"
   | "project"
   | "goal"
-  | "weekly_review";
+  | "weekly_review"
+  | "workspace_member"
+  | "deal";
 
 export interface RecordActivityInput {
   workspaceId: string;

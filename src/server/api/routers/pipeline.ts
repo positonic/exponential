@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   requireProjectAccess,
   getProjectAccess,
@@ -608,6 +609,27 @@ export const pipelineRouter = createTRPCRouter({
               toStageName: newStage.name,
             },
           },
+        });
+      }
+
+      // Surface a closed deal (won or lost) as a workspace milestone — but only
+      // on the transition into a terminal stage (oldDeal.closedAt was empty), so
+      // dragging between active stages or re-saving a closed deal doesn't spam
+      // the feed. Fire-and-forget: recordActivity never throws.
+      if (isTerminal && !oldDeal.closedAt) {
+        await recordActivity(ctx.db, {
+          workspaceId: oldDeal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "deal",
+          entityId: deal.id,
+          action: "completed",
+          metadata: {
+            name: deal.title,
+            outcome: newStage.type, // "won" | "lost"
+            value: oldDeal.value,
+          },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
         });
       }
 

@@ -39,6 +39,20 @@ describe("resolveFeedHint", () => {
     expect(hint.template).toBe("{actor} completed goal {entityRef}");
   });
 
+  it("renders a workspace member join with the joiner as actor", () => {
+    const hint = resolveFeedHint("workspace_member", "created");
+    expect(hint.template).toBe("{actor} joined the workspace");
+    // Self-contained: the actor IS the new member, so no {entityRef} needed.
+    expect(hint.template).not.toContain("{entityRef}");
+  });
+
+  it("renders a closed deal neutrally (no trophy for lost deals)", () => {
+    const hint = resolveFeedHint("deal", "completed");
+    expect(hint.template).toBe("{actor} closed deal {entityRef}");
+    expect(hint.iconKind).toBe("completed");
+    expect(hint.iconKind).not.toBe("milestone");
+  });
+
   it("falls back to a neutral hint for unknown pairs", () => {
     const hint = resolveFeedHint("nonsense", "nonsense");
     expect(hint.iconKind).toBe("fallback");

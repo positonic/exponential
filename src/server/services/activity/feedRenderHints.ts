@@ -106,6 +106,22 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} completed their weekly review",
     iconKind: "milestone",
   },
+
+  // Workspace membership — {actor} is always the person who joined (both the
+  // admin-add and invitation-accept paths set userId to the new member), so a
+  // single self-contained template covers both.
+  [key("workspace_member", "created")]: {
+    template: "{actor} joined the workspace",
+    iconKind: "created",
+  },
+
+  // CRM deals — a closed deal (won or lost) is a milestone. Neutral "closed"
+  // wording + "completed" icon so a lost deal isn't shown with a trophy; the
+  // won/lost outcome and value live in metadata for future enrichment.
+  [key("deal", "completed")]: {
+    template: "{actor} closed deal {entityRef}",
+    iconKind: "completed",
+  },
 };
 
 /** Default hint used when no entry exists for the (entityType, action) pair. */
