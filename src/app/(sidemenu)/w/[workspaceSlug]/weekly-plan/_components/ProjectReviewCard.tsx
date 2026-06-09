@@ -259,21 +259,35 @@ export function ProjectReviewCard({
     endDate?: Date | null;
   }) => {
     // Reflect the change immediately — the page renders from a snapshot during
-    // review, so the badge won't update from the refetch on its own.
+    // review, so the badge won't update from the refetch on its own. Snapshot
+    // the prior values so we can roll back (and only confirm success) once the
+    // server responds.
+    const prevStartDate = startDate;
+    const prevEndDate = endDate;
     if ("startDate" in dates) setStartDate(dates.startDate ?? null);
     if ("endDate" in dates) setEndDate(dates.endDate ?? null);
-    updateProject.mutate({
-      id: project.id,
-      name: project.name,
-      status: status as ProjectStatus,
-      priority: priority as ProjectPriority,
-      ...dates,
-    });
-    notifications.show({
-      title: "Dates updated",
-      message: "Project dates have been saved",
-      color: "green",
-    });
+    updateProject.mutate(
+      {
+        id: project.id,
+        name: project.name,
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
+        ...dates,
+      },
+      {
+        onSuccess: () => {
+          notifications.show({
+            title: "Dates updated",
+            message: "Project dates have been saved",
+            color: "green",
+          });
+        },
+        onError: () => {
+          setStartDate(prevStartDate);
+          setEndDate(prevEndDate);
+        },
+      },
+    );
   };
 
   // Inline description editing — commits on blur (quiet affordance, no banner).
@@ -292,20 +306,29 @@ export function ProjectReviewCard({
   };
 
   const handleDriUpdate = (driId: string | null, driUser: ProjectDri) => {
-    // Optimistically swap the displayed DRI (snapshot won't refresh mid-review).
+    // Optimistically swap the displayed DRI (snapshot won't refresh mid-review),
+    // rolling back if the save fails so the badge never lies about what's saved.
+    const prevDri = dri;
     setDri(driUser);
-    updateProject.mutate({
-      id: project.id,
-      name: project.name,
-      status: status as ProjectStatus,
-      priority: priority as ProjectPriority,
-      driId,
-    });
-    notifications.show({
-      title: "DRI updated",
-      message: "Project DRI has been saved",
-      color: "green",
-    });
+    updateProject.mutate(
+      {
+        id: project.id,
+        name: project.name,
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
+        driId,
+      },
+      {
+        onSuccess: () => {
+          notifications.show({
+            title: "DRI updated",
+            message: "Project DRI has been saved",
+            color: "green",
+          });
+        },
+        onError: () => setDri(prevDri),
+      },
+    );
   };
 
   // Keyboard shortcuts: ↩ mark reviewed, S skip, ← previous, → next.

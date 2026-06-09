@@ -7,6 +7,7 @@ import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
 import { getSundayWeekStart } from "~/lib/weekUtils";
 import { ScoringService } from "~/server/services/ScoringService";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { getWorkspaceMembership } from "~/server/services/access";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -487,6 +488,24 @@ export const weeklyReviewRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const weekStartDate = getSundayWeekStart(new Date());
+
+      // A workspaceId here is client-supplied and gates a write into the
+      // team-visible activity feed (and the workspace bonus). Verify membership
+      // first so a user can't inject a "completed a weekly review" event into a
+      // workspace they don't belong to.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          userId,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
 
       // Find existing completion for this week
       const existing = await ctx.db.weeklyReviewCompletion.findFirst({
