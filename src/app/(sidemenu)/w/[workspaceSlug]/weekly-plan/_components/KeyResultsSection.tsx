@@ -137,7 +137,7 @@ function KrRow({ kr, objectiveCode, krCode, elapsedPct, pending, onToggle }: KrR
   return (
     <div
       className={
-        "flex items-center gap-3 rounded-lg border px-3 py-3 " +
+        "flex flex-wrap items-center gap-3 rounded-lg border px-3 py-3 " +
         (kr.linked
           ? "border-l-[3px] border-l-blue-500 border-border-primary bg-surface-secondary"
           : "border-border-subtle bg-background-primary hover:border-border-strong")
@@ -148,8 +148,9 @@ function KrRow({ kr, objectiveCode, krCode, elapsedPct, pending, onToggle }: KrR
           type="button"
           onClick={onToggle}
           disabled={pending}
-          aria-label="Unlink this Key Result"
-          className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-blue-500 bg-blue-500 px-2.5 text-[11px] font-semibold text-white transition-colors hover:border-red-500 hover:bg-red-500 disabled:opacity-50"
+          aria-pressed={true}
+          aria-label={`Key Result linked — ${kr.title}. Activate to unlink.`}
+          className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-blue-500 bg-blue-500 px-2.5 text-[11px] font-semibold text-white transition-colors hover:border-red-500 hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-50"
         >
           <IconLink size={13} />
           <span className="group-hover:hidden">Linked</span>
@@ -160,8 +161,9 @@ function KrRow({ kr, objectiveCode, krCode, elapsedPct, pending, onToggle }: KrR
           type="button"
           onClick={onToggle}
           disabled={pending}
-          aria-label="Link this Key Result"
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted transition-colors hover:border-blue-500 hover:text-blue-500 disabled:opacity-50"
+          aria-pressed={false}
+          aria-label={`Key Result not linked — ${kr.title}. Activate to link.`}
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted transition-colors hover:border-blue-500 hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-50"
         >
           <IconLink size={13} />
           Link

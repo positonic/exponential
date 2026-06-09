@@ -163,15 +163,29 @@ export default function WeeklyReviewPage() {
   };
 
   const handleMarkReviewed = (projectId: string, projectChanges: ProjectChanges) => {
-    setReviewedProjects((prev) => new Set(prev).add(projectId));
+    const reviewedAfter = new Set(reviewedProjects).add(projectId);
+    setReviewedProjects(reviewedAfter);
     setChanges((prev) => new Map(prev).set(projectId, projectChanges));
 
-    if (currentProjectIndex < reviewSessionProjects.length - 1) {
-      setCurrentProjectIndex((prev) => prev + 1);
-    } else {
+    // Auto-advance to the next project that hasn't been reviewed yet
+    // (search forward from here, then wrap). If all are reviewed, complete.
+    const total = reviewSessionProjects.length;
+    let nextIndex = -1;
+    for (let offset = 1; offset <= total; offset++) {
+      const i = (currentProjectIndex + offset) % total;
+      const candidate = reviewSessionProjects[i];
+      if (candidate && !reviewedAfter.has(candidate.id)) {
+        nextIndex = i;
+        break;
+      }
+    }
+
+    if (nextIndex === -1) {
       // Review complete - refresh the projects list now that all changes are done
       void utils.project.getActiveWithDetails.invalidate();
       setStep("complete");
+    } else {
+      setCurrentProjectIndex(nextIndex);
     }
   };
 

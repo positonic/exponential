@@ -41,12 +41,12 @@ export function WpStepper({
         aria-label="Previous project"
         disabled={currentIndex === 0}
         onClick={() => onJump(currentIndex - 1)}
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-30"
       >
         <IconChevronLeft size={16} />
       </button>
 
-      <ol className="grid flex-1 auto-cols-fr grid-flow-col gap-2">
+      <ol className="hidden flex-1 auto-cols-fr grid-flow-col gap-2 min-[821px]:grid">
         {projects.map((p, i) => {
           const done = reviewedIds.has(p.id);
           const current = i === currentIndex;
@@ -58,7 +58,7 @@ export function WpStepper({
                 onClick={() => onJump(i)}
                 aria-current={current ? "step" : undefined}
                 className={
-                  "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors " +
+                  "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 " +
                   (current
                     ? "border-blue-500/50 bg-blue-500/10"
                     : "border-border-subtle bg-surface-secondary hover:border-border-strong")
@@ -95,12 +95,12 @@ export function WpStepper({
         aria-label="Next project"
         disabled={currentIndex >= total - 1}
         onClick={() => onJump(currentIndex + 1)}
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-30"
       >
         <IconChevronRight size={16} />
       </button>
 
-      <div className="min-w-[86px] flex-shrink-0 text-right text-xs text-text-muted">
+      <div className="ml-auto min-w-[86px] flex-shrink-0 text-right text-xs text-text-muted">
         <strong className="block text-sm font-semibold text-text-primary">
           {reviewedCount} / {total}
         </strong>

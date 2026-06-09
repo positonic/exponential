@@ -5,7 +5,6 @@ import {
   Button,
   Card,
   Group,
-  Select,
   Stack,
   Text,
   Textarea,
@@ -29,12 +28,30 @@ import { ProjectDateBadges } from "./ProjectDateBadges";
 import { ProjectDriBadge } from "./ProjectDriBadge";
 import { KeyResultsSection } from "./KeyResultsSection";
 import { ReviewBottomBar } from "./ReviewBottomBar";
+import { WpSegmentedControl, type SegOption } from "./WpSegmentedControl";
 import {
-  PROJECT_PRIORITY_OPTIONS,
-  PROJECT_STATUS_OPTIONS,
   type ProjectPriority,
   type ProjectStatus,
 } from "~/types/project";
+
+// Segmented-control options with token colors (dot shown on the selected one).
+const STATUS_SEG: SegOption[] = [
+  { value: "ACTIVE", label: "Active", color: "var(--accent-crm)" },
+  { value: "ON_HOLD", label: "On hold", color: "var(--accent-okr)" },
+  { value: "COMPLETED", label: "Completed", color: "var(--brand-400)" },
+  { value: "CANCELLED", label: "Cancelled", color: "var(--accent-due)" },
+];
+const PRIORITY_SEG: SegOption[] = [
+  { value: "HIGH", label: "High", color: "var(--accent-due)" },
+  { value: "MEDIUM", label: "Medium", color: "var(--accent-okr)" },
+  { value: "LOW", label: "Low", color: "var(--color-text-muted)" },
+  { value: "NONE", label: "None", color: "var(--color-text-faint)" },
+];
+const HEALTH_SEG: SegOption[] = [
+  { value: "ON_TRACK", label: "On track", color: "var(--accent-crm)" },
+  { value: "AT_RISK", label: "At risk", color: "var(--accent-okr)" },
+  { value: "OFF_TRACK", label: "Off track", color: "var(--accent-due)" },
+];
 
 type ProjectWithDetails = RouterOutputs["project"]["getActiveWithDetails"][number];
 
@@ -92,11 +109,6 @@ function deriveHealth(
   return "ON_TRACK";
 }
 
-const HEALTH_OPTIONS = [
-  { value: "ON_TRACK", label: "On track" },
-  { value: "AT_RISK", label: "At risk" },
-  { value: "OFF_TRACK", label: "Off track" },
-];
 
 export function ProjectReviewCard({
   project,
@@ -117,6 +129,7 @@ export function ProjectReviewCard({
   const [reflection, setReflection] = useState("");
   const [editingDesc, setEditingDesc] = useState(false);
   const [description, setDescription] = useState(project.description ?? "");
+  const [showReflect, setShowReflect] = useState(false);
   const [localActions, setLocalActions] = useState(project.actions);
 
   const utils = api.useUtils();
@@ -197,13 +210,15 @@ export function ProjectReviewCard({
     status: string;
   }) => {
     setActionAdded(true);
+    // Prepend so the new action lands at the top of the Open list.
     setLocalActions((prev) => [
-      ...prev,
       {
         ...newAction,
         completedAt: null,
         dueDate: null,
-      } as (typeof prev)[0],
+        tags: [],
+      } as unknown as (typeof prev)[0],
+      ...prev,
     ]);
   };
 
@@ -288,8 +303,10 @@ export function ProjectReviewCard({
           handleMarkReviewed();
         }
       } else if (e.key === "s" || e.key === "S") {
-        e.preventDefault();
-        onSkip();
+        if (hasNext) {
+          e.preventDefault();
+          onSkip();
+        }
       } else if (e.key === "ArrowLeft") {
         if (hasPrevious) {
           e.preventDefault();
@@ -339,7 +356,7 @@ export function ProjectReviewCard({
               {workspace.name}
             </span>
           )}
-          <Text size="xl" fw={700} className="text-text-primary">
+          <Text size="xl" fw={700} className="text-text-primary" lineClamp={2}>
             {project.name}
           </Text>
         </Stack>
@@ -418,37 +435,48 @@ export function ProjectReviewCard({
         )}
       </div>
 
-      {/* Three-up controls */}
-      <Group grow className="mb-4" align="flex-start">
-        <Select
-          label="Status"
-          data={[...PROJECT_STATUS_OPTIONS]}
-          value={status}
-          onChange={(val) => val && handleStatusChange(val)}
-          allowDeselect={false}
-        />
-        <Select
-          label="Priority"
-          data={[...PROJECT_PRIORITY_OPTIONS]}
-          value={priority}
-          onChange={(val) => val && handlePriorityChange(val)}
-          allowDeselect={false}
-        />
-        <Tooltip
-          label="Health is derived from project signals — soon you'll be able to set it manually."
-          withArrow
-        >
-          <div>
-            <Select
-              label="Health"
-              data={HEALTH_OPTIONS}
-              value={derivedHealth}
-              readOnly
-              rightSectionPointerEvents="none"
-            />
-          </div>
-        </Tooltip>
-      </Group>
+      {/* Status / Priority / Health — segmented controls (stack ≤820px) */}
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-2 min-[821px]:grid-cols-[96px_1fr] min-[821px]:items-center min-[821px]:gap-4">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Status
+          </span>
+          <WpSegmentedControl
+            label="Status"
+            options={STATUS_SEG}
+            value={status}
+            onChange={handleStatusChange}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 min-[821px]:grid-cols-[96px_1fr] min-[821px]:items-center min-[821px]:gap-4">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Priority
+          </span>
+          <WpSegmentedControl
+            label="Priority"
+            options={PRIORITY_SEG}
+            value={priority}
+            onChange={handlePriorityChange}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 min-[821px]:grid-cols-[96px_1fr] min-[821px]:items-center min-[821px]:gap-4">
+          <Tooltip
+            label="Health is derived from project signals — soon you'll be able to set it manually."
+            withArrow
+            position="top-start"
+          >
+            <span className="w-fit cursor-help text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Health
+            </span>
+          </Tooltip>
+          <WpSegmentedControl
+            label="Health (derived, read-only)"
+            options={HEALTH_SEG}
+            value={derivedHealth}
+            readOnly
+          />
+        </div>
+      </div>
 
       {/* Health indicator strip — preserved */}
       <Group gap={10} className="mb-5">
@@ -544,28 +572,43 @@ export function ProjectReviewCard({
         />
       </div>
 
-      {/* Reflection */}
+      {/* Reflection — collapsed by default, optional */}
       <div className="mb-2">
-        <Group gap={6} className="mb-2">
-          <IconMessage size={14} className="text-text-muted" />
-          <Text
-            size="xs"
-            className="font-semibold uppercase tracking-wider text-text-muted"
+        {showReflect || reflection.trim() ? (
+          <>
+            <Group gap={6} className="mb-2">
+              <IconMessage size={14} className="text-text-muted" />
+              <Text
+                size="xs"
+                className="font-semibold uppercase tracking-wider text-text-muted"
+              >
+                Reflection · Optional
+              </Text>
+              <Text size="xs" className="ml-auto text-text-muted">
+                One sentence is enough
+              </Text>
+            </Group>
+            <Textarea
+              autoFocus={showReflect}
+              placeholder="What changed since last week? What's the unlock?"
+              value={reflection}
+              onChange={(e) => setReflection(e.currentTarget.value)}
+              autosize
+              minRows={2}
+              maxRows={4}
+            />
+          </>
+        ) : (
+          <Button
+            variant="subtle"
+            size="compact-sm"
+            color="gray"
+            leftSection={<IconMessage size={14} />}
+            onClick={() => setShowReflect(true)}
           >
-            Reflection · Optional
-          </Text>
-          <Text size="xs" className="ml-auto text-text-muted">
-            One sentence is enough
-          </Text>
-        </Group>
-        <Textarea
-          placeholder="What changed since last week? What's the unlock?"
-          value={reflection}
-          onChange={(e) => setReflection(e.currentTarget.value)}
-          autosize
-          minRows={2}
-          maxRows={4}
-        />
+            Add a reflection (optional)
+          </Button>
+        )}
       </div>
 
       {/* Bottom action bar */}
@@ -574,6 +617,8 @@ export function ProjectReviewCard({
         onMarkReviewed={handleMarkReviewed}
         canMarkReviewed={hasNextAction}
         isPending={updateProject.isPending}
+        isReviewed={isReviewed}
+        canSkip={hasNext}
       />
     </Card>
   );

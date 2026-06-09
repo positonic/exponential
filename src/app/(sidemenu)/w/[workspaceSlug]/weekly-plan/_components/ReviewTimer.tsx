@@ -83,6 +83,7 @@ export function ReviewTimer({
           size="sm"
           color="gray"
           onClick={togglePause}
+          aria-label={isPaused ? "Resume timer" : "Pause timer"}
         >
           {isPaused ? <IconPlayerPlay size={14} /> : <IconPlayerPause size={14} />}
         </ActionIcon>
