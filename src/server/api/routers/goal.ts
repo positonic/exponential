@@ -18,6 +18,7 @@ import {
   getGoalTree,
   computeGoalHealth,
   updateGoalIcon,
+  verifyGoalAccess,
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -223,6 +224,27 @@ export const goalRouter = createTRPCRouter({
       return ctx.db.goal.update({
         where: { id: input.id },
         data: { status: input.status },
+      });
+    }),
+
+  // Set or clear a goal's manual progress override (0–100). When set, it wins
+  // over the KR-derived progress (see goalProgress.ts). Passing progress: null
+  // clears the override, at which point the KR mean (or "not started") returns.
+  // Mirrors the ADR-0004 healthOverride audit pattern.
+  setProgressOverride: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      progress: z.number().min(0).max(100).nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await verifyGoalAccess({ ctx, goalId: input.id });
+      return ctx.db.goal.update({
+        where: { id: input.id },
+        data: {
+          progressOverride: input.progress,
+          progressOverrideAt: input.progress !== null ? new Date() : null,
+          progressOverrideById: input.progress !== null ? ctx.session.user.id : null,
+        },
       });
     }),
 
