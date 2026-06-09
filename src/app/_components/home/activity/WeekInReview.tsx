@@ -219,7 +219,7 @@ export function WeekInReview() {
             href={workspaceSlug ? `/w/${workspaceSlug}/weekly-plan` : '#'}
             disabled={!workspaceSlug}
           >
-            Start weekly review
+            Plan next week
           </Button>
           <Button
             size="sm"
