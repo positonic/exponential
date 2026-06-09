@@ -101,16 +101,10 @@ export async function GET(request: NextRequest) {
       console.error("  3. Or the prompt=consent parameter didn't work");
     }
 
-    // Store tokens in the database
-    // First, find or create a Google account record for this user
-    const existingAccount = await db.account.findFirst({
-      where: {
-        userId: session.user.id,
-        provider: "google",
-      },
-    });
-
-    // Fetch the Google account's email address
+    // Fetch the Google account's identity (id is the stable providerAccountId).
+    // We need this BEFORE writing so we can target the exact account being
+    // (re)connected — connecting a *different* Google account must create a new
+    // row, not overwrite an existing one.
     const googleUserInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -128,53 +122,68 @@ export async function GET(request: NextRequest) {
       ? ((await googleUserInfoResponse.json()) as { id: string; email?: string })
       : null;
 
+    if (!googleUserInfo?.id) {
+      // Without the provider account id we can't safely target a row.
+      console.error("❌ No id in Google user info response — cannot link account");
+      redirect(`${returnUrl}?calendar_error=token_exchange_failed`);
+    }
+
     // Log if email is missing
-    if (!googleUserInfo?.email) {
+    if (!googleUserInfo.email) {
       console.error("⚠️ No email in Google user info response");
     }
 
+    const expiresAt = tokens.expires_in
+      ? Math.floor(Date.now() / 1000) + tokens.expires_in
+      : null;
+
+    // Look up by the unique (provider, providerAccountId) so reconnecting the
+    // same Google account updates it, while a new account creates a new row.
+    const existingAccount = await db.account.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: "google",
+          providerAccountId: googleUserInfo.id,
+        },
+      },
+    });
+
     if (existingAccount) {
-      // Update existing account with calendar tokens
-      // IMPORTANT: Only update refresh_token if we got a new one
+      // Update tokens. Only overwrite refresh_token if Google sent a new one.
       const updateData: {
+        userId: string;
         access_token: string;
         refresh_token?: string;
         expires_at: number | null;
         scope: string;
         providerEmail?: string;
       } = {
+        // Re-claim the account for the current user in case it was orphaned.
+        userId: session.user.id,
         access_token: tokens.access_token,
-        expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+        expires_at: expiresAt,
         scope: tokens.scope,
       };
 
-      // Only update refresh_token if Google sent a new one
       if (tokens.refresh_token) {
         updateData.refresh_token = tokens.refresh_token;
       }
 
-      if (googleUserInfo?.email) {
+      if (googleUserInfo.email) {
         updateData.providerEmail = googleUserInfo.email;
       }
 
       await db.account.update({
-        where: {
-          id: existingAccount.id,
-        },
+        where: { id: existingAccount.id },
         data: updateData,
       });
 
       console.log("✅ Updated existing Google account with new tokens");
     } else {
-      // User doesn't have a Google account yet (e.g., signed in with Discord)
-      // Create a new Google Account record
+      // First time connecting this particular Google account.
       if (!tokens.refresh_token) {
         console.error("❌ Cannot create Google account without refresh token!");
         redirect(`${returnUrl}?calendar_error=no_refresh_token`);
-      }
-
-      if (!googleUserInfo) {
-        throw new Error("Failed to fetch Google user info");
       }
 
       await db.account.create({
@@ -185,7 +194,7 @@ export async function GET(request: NextRequest) {
           providerAccountId: googleUserInfo.id,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
-          expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+          expires_at: expiresAt,
           token_type: tokens.token_type ?? "Bearer",
           scope: tokens.scope,
           providerEmail: googleUserInfo.email,

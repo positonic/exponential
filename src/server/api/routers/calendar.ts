@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
@@ -23,6 +23,34 @@ function getAccountProvider(provider: ProviderType): string {
   return provider === "microsoft" ? "microsoft-entra-id" : "google";
 }
 
+/** Maps a NextAuth account provider name back to our provider type */
+function toProviderType(accountProvider: string): ProviderType {
+  return accountProvider === "microsoft-entra-id" ? "microsoft" : "google";
+}
+
+/** The OAuth scope that grants calendar access for each provider */
+function calendarScopeFor(accountProvider: string): string {
+  return accountProvider === "microsoft-entra-id"
+    ? "Calendars.Read"
+    : "https://www.googleapis.com/auth/calendar.events";
+}
+
+/** Whether an account currently has a usable (scoped + non-expired-or-refreshable) calendar connection */
+function isCalendarConnected(account: {
+  access_token: string | null;
+  refresh_token: string | null;
+  scope: string | null;
+  expires_at: number | null;
+  provider: string;
+}): boolean {
+  if (!account.access_token) return false;
+  const hasScope = account.scope?.includes(calendarScopeFor(account.provider)) ?? false;
+  const tokenNotExpired =
+    !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
+  const isTokenValid = tokenNotExpired || !!account.refresh_token;
+  return hasScope && isTokenValid;
+}
+
 // Helper to convert CalendarInfo array to Prisma JSON-compatible format
 function calendarsToJson(calendars: CalendarInfo[]): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(calendars)) as Prisma.InputJsonValue;
@@ -36,6 +64,100 @@ function parseCalendarsFromJson(json: Prisma.JsonValue | null | undefined): Cale
 
 // Cache duration for calendar list (24 hours in milliseconds)
 const CALENDAR_LIST_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+type DbClient = PrismaClient;
+
+/**
+ * Get-or-create the CalendarPreference for a specific account, refreshing the
+ * cached calendar list from the provider when it's missing or stale. Returns
+ * the account's selected calendar ids and the full calendar list (for the UI).
+ */
+async function loadAccountCalendars(
+  db: DbClient,
+  userId: string,
+  account: { id: string; provider: string },
+) {
+  const provider = toProviderType(account.provider);
+
+  let preference = await db.calendarPreference.findUnique({
+    where: { accountId: account.id },
+  });
+
+  const cacheStale =
+    !preference?.cacheUpdatedAt ||
+    Date.now() - preference.cacheUpdatedAt.getTime() > CALENDAR_LIST_CACHE_TTL;
+
+  if (!preference || cacheStale) {
+    try {
+      const service = getCalendarService(provider);
+      const calendars = await service.listCalendars(userId, account.id);
+
+      if (!preference) {
+        const primaryCalendar = calendars.find((c) => c.primary);
+        // upsert (not create) because getCalendarAccounts and
+        // getEventsMultiCalendar both call this concurrently on page load and
+        // would otherwise race on the unique accountId.
+        preference = await db.calendarPreference.upsert({
+          where: { accountId: account.id },
+          create: {
+            userId,
+            accountId: account.id,
+            provider,
+            selectedCalendarIds: primaryCalendar ? [primaryCalendar.id] : ["primary"],
+            cachedCalendars: calendarsToJson(calendars),
+            cacheUpdatedAt: new Date(),
+          },
+          update: {
+            cachedCalendars: calendarsToJson(calendars),
+            cacheUpdatedAt: new Date(),
+          },
+        });
+      } else {
+        preference = await db.calendarPreference.update({
+          where: { id: preference.id },
+          data: {
+            cachedCalendars: calendarsToJson(calendars),
+            cacheUpdatedAt: new Date(),
+          },
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to refresh ${provider} calendar list for account ${account.id}:`, error);
+      if (!preference) {
+        return { selectedCalendarIds: ["primary"], calendars: [], cacheUpdatedAt: null };
+      }
+    }
+  }
+
+  return {
+    selectedCalendarIds: preference.selectedCalendarIds,
+    calendars: parseCalendarsFromJson(preference.cachedCalendars),
+    cacheUpdatedAt: preference.cacheUpdatedAt,
+  };
+}
+
+/**
+ * Resolve a concrete Account from either an explicit accountId (multi-account
+ * callers) or a provider (legacy single-account callers, picks the first match).
+ */
+async function resolveAccount(
+  db: DbClient,
+  userId: string,
+  input: { accountId?: string; provider?: ProviderType } | undefined,
+) {
+  if (input?.accountId) {
+    return db.account.findFirst({
+      where: { id: input.accountId, userId },
+      select: { id: true, provider: true },
+    });
+  }
+  const accountProvider = getAccountProvider(input?.provider ?? "google");
+  return db.account.findFirst({
+    where: { userId, provider: accountProvider },
+    select: { id: true, provider: true },
+    orderBy: { id: "asc" },
+  });
+}
 
 export const calendarRouter = createTRPCRouter({
   // Returns connection status for a single provider (backwards compatible)
@@ -94,28 +216,24 @@ export const calendarRouter = createTRPCRouter({
       },
     });
 
-    const googleAccount = accounts.find((a) => a.provider === "google");
-    const microsoftAccount = accounts.find((a) => a.provider === "microsoft-entra-id");
-
-    function checkStatus(account: typeof googleAccount, calendarScopeCheck: string) {
-      if (!account?.access_token) {
-        return { isConnected: false, hasCalendarScope: false };
-      }
-      const hasCalendarScope = account.scope?.includes(calendarScopeCheck) ?? false;
-      const tokenNotExpired = !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
-      const canRefresh = !!account.refresh_token;
-      const isTokenValid = tokenNotExpired || canRefresh;
+    // A provider counts as connected if ANY of its accounts is connected, so a
+    // disconnected first Google account doesn't hide a connected second one.
+    function checkStatus(accountProvider: string) {
+      const providerAccounts = accounts.filter((a) => a.provider === accountProvider);
+      const connectedCount = providerAccounts.filter((a) => isCalendarConnected(a)).length;
+      const anyHasScope = providerAccounts.some(
+        (a) => a.scope?.includes(calendarScopeFor(accountProvider)) ?? false,
+      );
       return {
-        isConnected: hasCalendarScope && isTokenValid,
-        hasCalendarScope,
-        tokenExpired: !tokenNotExpired,
-        canRefresh,
+        isConnected: connectedCount > 0,
+        hasCalendarScope: anyHasScope,
+        connectedCount,
       };
     }
 
     return {
-      google: checkStatus(googleAccount, "https://www.googleapis.com/auth/calendar.events"),
-      microsoft: checkStatus(microsoftAccount, "Calendars.Read"),
+      google: checkStatus("google"),
+      microsoft: checkStatus("microsoft-entra-id"),
     };
   }),
 
@@ -230,6 +348,64 @@ export const calendarRouter = createTRPCRouter({
     return { connectedAccounts };
   }),
 
+  // Returns every connected calendar account (Google + Microsoft) with its own
+  // calendar list and selected-calendar preferences. Backs the multi-account
+  // sidebar (Apple-Calendar-style: one section per account, checkbox per calendar).
+  getCalendarAccounts: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+
+    const accounts = await ctx.db.account.findMany({
+      where: {
+        userId,
+        provider: { in: ["google", "microsoft-entra-id"] },
+      },
+      select: {
+        id: true,
+        provider: true,
+        scope: true,
+        expires_at: true,
+        access_token: true,
+        refresh_token: true,
+        providerEmail: true,
+        user: { select: { email: true, name: true } },
+      },
+      orderBy: { id: "asc" },
+    });
+
+    const connected = accounts.filter((a) => isCalendarConnected(a));
+
+    const result = await Promise.all(
+      connected.map(async (account) => {
+        // Backfill provider email if missing
+        let providerEmail = account.providerEmail;
+        if (!providerEmail && account.access_token) {
+          const service = getCalendarService(toProviderType(account.provider));
+          providerEmail = await service.fetchAndUpdateProviderEmail(
+            account.id,
+            account.access_token,
+          );
+        }
+
+        const { selectedCalendarIds, calendars } = await loadAccountCalendars(
+          ctx.db as DbClient,
+          userId,
+          account,
+        );
+
+        return {
+          id: account.id,
+          provider: toProviderType(account.provider),
+          email: providerEmail ?? account.user.email,
+          name: account.user.name,
+          selectedCalendarIds,
+          calendars,
+        };
+      }),
+    );
+
+    return { accounts: result };
+  }),
+
   getTodayEvents: protectedProcedure
     .input(z.object({ provider: providerSchema }).optional())
     .query(async ({ ctx, input }) => {
@@ -290,43 +466,44 @@ export const calendarRouter = createTRPCRouter({
     }),
 
   disconnect: protectedProcedure
-    .input(z.object({ provider: providerSchema }).optional())
+    .input(
+      z
+        .object({
+          provider: providerSchema.optional(),
+          accountId: z.string().optional(),
+        })
+        .optional(),
+    )
     .mutation(async ({ ctx, input }) => {
-      const provider = input?.provider ?? "google";
-      const accountProvider = getAccountProvider(provider);
+      const userId = ctx.session.user.id;
+      const account = await resolveAccount(ctx.db as DbClient, userId, input);
 
-      const account = await ctx.db.account.findFirst({
-        where: {
-          userId: ctx.session.user.id,
-          provider: accountProvider,
+      if (!account) {
+        return { success: true, message: "No calendar account to disconnect" };
+      }
+
+      const provider = toProviderType(account.provider);
+
+      // Revoke tokens on this specific account only
+      await ctx.db.account.update({
+        where: { id: account.id },
+        data: {
+          access_token: null,
+          refresh_token: null,
+          expires_at: null,
+          scope: null,
         },
       });
 
-      if (account) {
-        await ctx.db.account.update({
-          where: { id: account.id },
-          data: {
-            access_token: null,
-            refresh_token: null,
-            expires_at: null,
-            scope: null,
-          },
-        });
-      }
-
       // Clear calendar cache for this user
       const service = getCalendarService(provider);
-      service.clearUserCache(ctx.session.user.id);
+      service.clearUserCache(userId);
 
-      // Remove calendar preferences for this provider
-      const preference = await ctx.db.calendarPreference.findFirst({
-        where: { userId: ctx.session.user.id, provider },
+      // Remove this account's calendar preference (cascade also covers it, but
+      // tokens are only nulled above, so delete explicitly)
+      await ctx.db.calendarPreference.deleteMany({
+        where: { accountId: account.id },
       });
-      if (preference) {
-        await ctx.db.calendarPreference.delete({
-          where: { id: preference.id },
-        });
-      }
 
       return { success: true, message: "Calendar disconnected successfully" };
     }),
@@ -368,104 +545,71 @@ export const calendarRouter = createTRPCRouter({
   // ============================================
 
   listCalendars: protectedProcedure
-    .input(z.object({ provider: providerSchema }).optional())
+    .input(
+      z
+        .object({ provider: providerSchema.optional(), accountId: z.string().optional() })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
-      const service = getCalendarService(input?.provider ?? "google");
-      return service.listCalendars(ctx.session.user.id);
+      const userId = ctx.session.user.id;
+      const account = await resolveAccount(ctx.db as DbClient, userId, input);
+      if (!account) return [];
+      const service = getCalendarService(toProviderType(account.provider));
+      return service.listCalendars(userId, account.id);
     }),
 
   getCalendarPreferences: protectedProcedure
-    .input(z.object({ provider: providerSchema }).optional())
+    .input(
+      z
+        .object({ provider: providerSchema.optional(), accountId: z.string().optional() })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const provider = input?.provider ?? "google";
+      const account = await resolveAccount(ctx.db as DbClient, userId, input);
 
-      // Get or create calendar preference for this provider
-      let preference = await ctx.db.calendarPreference.findFirst({
-        where: { userId, provider },
-      });
-
-      // Check if cache is stale
-      const cacheStale = !preference?.cacheUpdatedAt ||
-        (Date.now() - preference.cacheUpdatedAt.getTime()) > CALENDAR_LIST_CACHE_TTL;
-
-      // If no preference or cache is stale, fetch fresh calendar list
-      if (!preference || cacheStale) {
-        try {
-          const service = getCalendarService(provider);
-          const calendars = await service.listCalendars(userId);
-
-          if (!preference) {
-            const primaryCalendar = calendars.find(c => c.primary);
-            preference = await ctx.db.calendarPreference.create({
-              data: {
-                userId,
-                provider,
-                selectedCalendarIds: primaryCalendar ? [primaryCalendar.id] : ["primary"],
-                cachedCalendars: calendarsToJson(calendars),
-                cacheUpdatedAt: new Date(),
-              },
-            });
-          } else {
-            preference = await ctx.db.calendarPreference.update({
-              where: { id: preference.id },
-              data: {
-                cachedCalendars: calendarsToJson(calendars),
-                cacheUpdatedAt: new Date(),
-              },
-            });
-          }
-        } catch (error) {
-          console.error(`Failed to fetch ${provider} calendar list:`, error);
-          if (!preference) {
-            return {
-              selectedCalendarIds: ["primary"],
-              allCalendars: [],
-              cacheUpdatedAt: null,
-            };
-          }
-        }
+      if (!account) {
+        return { selectedCalendarIds: ["primary"], allCalendars: [], cacheUpdatedAt: null };
       }
 
+      const { selectedCalendarIds, calendars, cacheUpdatedAt } =
+        await loadAccountCalendars(ctx.db as DbClient, userId, account);
+
       return {
-        selectedCalendarIds: preference.selectedCalendarIds,
-        allCalendars: parseCalendarsFromJson(preference.cachedCalendars),
-        cacheUpdatedAt: preference.cacheUpdatedAt,
+        selectedCalendarIds,
+        allCalendars: calendars,
+        cacheUpdatedAt: cacheUpdatedAt ?? null,
       };
     }),
 
   updateSelectedCalendars: protectedProcedure
     .input(z.object({
       calendarIds: z.array(z.string()).min(1, "Select at least one calendar"),
-      provider: providerSchema,
+      provider: providerSchema.optional(),
+      accountId: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const userId = ctx.session.user.id;
-      const { provider } = input;
+      const account = await resolveAccount(ctx.db as DbClient, userId, input);
+      if (!account) {
+        throw new Error("No connected calendar account to update");
+      }
+      const provider = toProviderType(account.provider);
 
       // Limit to 10 calendars
       const limitedIds = input.calendarIds.slice(0, 10);
 
-      // Find existing preference for this provider
-      const existing = await ctx.db.calendarPreference.findFirst({
-        where: { userId, provider },
+      // Upsert the preference for this specific account
+      const preference = await ctx.db.calendarPreference.upsert({
+        where: { accountId: account.id },
+        update: { selectedCalendarIds: limitedIds },
+        create: {
+          userId,
+          accountId: account.id,
+          provider,
+          selectedCalendarIds: limitedIds,
+        },
       });
-
-      let preference;
-      if (existing) {
-        preference = await ctx.db.calendarPreference.update({
-          where: { id: existing.id },
-          data: { selectedCalendarIds: limitedIds },
-        });
-      } else {
-        preference = await ctx.db.calendarPreference.create({
-          data: {
-            userId,
-            provider,
-            selectedCalendarIds: limitedIds,
-          },
-        });
-      }
 
       // Clear calendar event cache since selection changed
       const service = getCalendarService(provider);
@@ -478,37 +622,37 @@ export const calendarRouter = createTRPCRouter({
     }),
 
   syncCalendarList: protectedProcedure
-    .input(z.object({ provider: providerSchema }).optional())
+    .input(
+      z
+        .object({ provider: providerSchema.optional(), accountId: z.string().optional() })
+        .optional(),
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const provider = input?.provider ?? "google";
+      const account = await resolveAccount(ctx.db as DbClient, userId, input);
+      if (!account) {
+        return { success: true, calendars: [] };
+      }
+      const provider = toProviderType(account.provider);
       const service = getCalendarService(provider);
 
-      const calendars = await service.listCalendars(userId);
+      const calendars = await service.listCalendars(userId, account.id);
 
-      const existing = await ctx.db.calendarPreference.findFirst({
-        where: { userId, provider },
+      await ctx.db.calendarPreference.upsert({
+        where: { accountId: account.id },
+        update: {
+          cachedCalendars: calendarsToJson(calendars),
+          cacheUpdatedAt: new Date(),
+        },
+        create: {
+          userId,
+          accountId: account.id,
+          provider,
+          selectedCalendarIds: ["primary"],
+          cachedCalendars: calendarsToJson(calendars),
+          cacheUpdatedAt: new Date(),
+        },
       });
-
-      if (existing) {
-        await ctx.db.calendarPreference.update({
-          where: { id: existing.id },
-          data: {
-            cachedCalendars: calendarsToJson(calendars),
-            cacheUpdatedAt: new Date(),
-          },
-        });
-      } else {
-        await ctx.db.calendarPreference.create({
-          data: {
-            userId,
-            provider,
-            selectedCalendarIds: ["primary"],
-            cachedCalendars: calendarsToJson(calendars),
-            cacheUpdatedAt: new Date(),
-          },
-        });
-      }
 
       return {
         success: true,
@@ -526,37 +670,30 @@ export const calendarRouter = createTRPCRouter({
     .query(async ({ input, ctx }) => {
       const userId = ctx.session.user.id;
 
-      // Get all calendar preferences for this user
-      let preferences = await ctx.db.calendarPreference.findMany({
-        where: { userId },
-      });
-
-      // Auto-create default preferences for connected providers that are missing one
-      const connectedAccounts = await ctx.db.account.findMany({
+      // Fetch events from every connected calendar account, keyed by the
+      // specific Account row so multiple Google accounts each contribute their
+      // own selected calendars.
+      const accounts = await ctx.db.account.findMany({
         where: {
           userId,
           provider: { in: ["google", "microsoft-entra-id"] },
-          access_token: { not: null },
         },
-        select: { provider: true },
+        select: {
+          id: true,
+          provider: true,
+          scope: true,
+          expires_at: true,
+          access_token: true,
+          refresh_token: true,
+          providerEmail: true,
+        },
       });
 
-      for (const account of connectedAccounts) {
-        const providerKey = account.provider === "microsoft-entra-id" ? "microsoft" : "google";
-        const hasPref = preferences.some((p) => p.provider === providerKey);
-        if (!hasPref) {
-          const newPref = await ctx.db.calendarPreference.create({
-            data: {
-              userId,
-              provider: providerKey,
-              selectedCalendarIds: ["primary"],
-            },
-          });
-          preferences = [...preferences, newPref];
-        }
-      }
+      const connectedAccounts = accounts.filter((a) => isCalendarConnected(a));
 
       const allEvents: Array<{
+        accountId: string;
+        accountEmail: string | null;
         calendarId: string;
         calendarName?: string;
         calendarColor?: string;
@@ -572,53 +709,37 @@ export const calendarRouter = createTRPCRouter({
         status: string;
       }> = [];
 
-      // Fetch from Google if connected
-      const googlePref = preferences.find((p) => p.provider === "google");
-      if (googlePref) {
-        try {
-          const googleService = new GoogleCalendarService();
-          const googleEvents = await googleService.getEventsFromMultipleCalendars(
-            userId,
-            googlePref.selectedCalendarIds,
-            input,
-            parseCalendarsFromJson(googlePref.cachedCalendars),
-          );
-          allEvents.push(...googleEvents.map((e) => ({ ...e, provider: "google" as const })));
-        } catch (error) {
-          console.error("Failed to fetch Google calendar events:", error);
-        }
-      }
+      const perAccountEvents = await Promise.all(
+        connectedAccounts.map(async (account) => {
+          const provider = toProviderType(account.provider);
+          try {
+            const { selectedCalendarIds, calendars } = await loadAccountCalendars(
+              ctx.db as DbClient,
+              userId,
+              account,
+            );
+            const service = getCalendarService(provider);
+            const events = await service.getEventsFromMultipleCalendars(
+              userId,
+              selectedCalendarIds,
+              { ...input, accountId: account.id },
+              calendars,
+            );
+            return events.map((e) => ({
+              ...e,
+              provider,
+              accountId: account.id,
+              accountEmail: account.providerEmail,
+            }));
+          } catch (error) {
+            console.error(`Failed to fetch ${provider} calendar events for account ${account.id}:`, error);
+            return [];
+          }
+        }),
+      );
 
-      // Fetch from Microsoft if connected
-      const msPref = preferences.find((p) => p.provider === "microsoft");
-      if (msPref) {
-        try {
-          const msService = new MicrosoftCalendarService();
-          const msEvents = await msService.getEventsFromMultipleCalendars(
-            userId,
-            msPref.selectedCalendarIds,
-            input,
-            parseCalendarsFromJson(msPref.cachedCalendars),
-          );
-          allEvents.push(...msEvents.map((e) => ({ ...e, provider: "microsoft" as const })));
-        } catch (error) {
-          console.error("Failed to fetch Microsoft calendar events:", error);
-        }
-      }
-
-      // If no preferences exist, try fetching from Google as fallback (backward compat)
-      if (preferences.length === 0) {
-        try {
-          const googleService = new GoogleCalendarService();
-          const events = await googleService.getEventsFromMultipleCalendars(
-            userId,
-            ["primary"],
-            input,
-          );
-          allEvents.push(...events.map((e) => ({ ...e, provider: "google" as const })));
-        } catch {
-          // No calendar connected
-        }
+      for (const events of perAccountEvents) {
+        allEvents.push(...events);
       }
 
       // Sort all events by start time

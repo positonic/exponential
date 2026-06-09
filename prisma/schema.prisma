@@ -34,6 +34,7 @@ model Account {
   refresh_token_expires_in Int?
   providerEmail            String?
   user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarPreferences      CalendarPreference[]
 
   @@unique([provider, providerAccountId])
 }
@@ -1642,6 +1643,9 @@ model BriefingInteraction {
 model CalendarPreference {
   id                  String    @id @default(cuid())
   userId              String
+  // The specific OAuth Account this preference belongs to. Optional only to
+  // tolerate legacy rows during migration; new rows always set it.
+  accountId           String?
   provider            String    @default("google")
   selectedCalendarIds String[]  @default([])
   cachedCalendars     Json?
@@ -1649,9 +1653,11 @@ model CalendarPreference {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account             Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, provider])
+  @@unique([accountId])
   @@index([userId])
+  @@index([accountId])
 }
 
 model ScheduledNotification {

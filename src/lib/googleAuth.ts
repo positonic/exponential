@@ -52,7 +52,10 @@ export async function checkGoogleScopes(
   userId: string,
   requiredScopes: string[]
 ): Promise<{ hasScopes: boolean; currentScopes: string[] }> {
-  const account = await db.account.findFirst({
+  // A user may have multiple Google accounts (e.g. a calendar-only account
+  // plus a CRM-scoped one). Consider the account whose scopes best satisfy the
+  // request so adding a narrow second account never hides an existing grant.
+  const accounts = await db.account.findMany({
     where: {
       userId,
       provider: "google",
@@ -60,16 +63,24 @@ export async function checkGoogleScopes(
     select: { scope: true },
   });
 
-  if (!account?.scope) {
-    return { hasScopes: false, currentScopes: [] };
+  const scopeSatisfies = (scope: string | null) => {
+    if (!scope) return false;
+    const current = scope.split(" ");
+    return requiredScopes.every((required) =>
+      current.some((c) => c.includes(required) || required.includes(c)),
+    );
+  };
+
+  const matching = accounts.find((a) => scopeSatisfies(a.scope));
+  if (matching?.scope) {
+    return { hasScopes: true, currentScopes: matching.scope.split(" ") };
   }
 
-  const currentScopes = account.scope.split(" ");
-  const hasScopes = requiredScopes.every((required) =>
-    currentScopes.some((current) => current.includes(required) || required.includes(current))
-  );
-
-  return { hasScopes, currentScopes };
+  // None fully satisfy — return the broadest account's scopes for context.
+  const broadest = accounts
+    .map((a) => a.scope?.split(" ") ?? [])
+    .sort((a, b) => b.length - a.length)[0];
+  return { hasScopes: false, currentScopes: broadest ?? [] };
 }
 
 /**

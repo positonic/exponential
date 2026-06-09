@@ -21,10 +21,6 @@ export function CalendarPageContent() {
   const { data: connectionStatuses, isLoading: statusLoading } =
     api.calendar.getAllConnectionStatuses.useQuery();
 
-  // Query connected calendar account details
-  const { data: connectedAccounts } =
-    api.calendar.getConnectedCalendarAccounts.useQuery();
-
   const googleConnected = connectionStatuses?.google?.isConnected ?? false;
   const microsoftConnected = connectionStatuses?.microsoft?.isConnected ?? false;
   const calendarConnected = googleConnected || microsoftConnected;
@@ -440,9 +436,6 @@ export function CalendarPageContent() {
         <CalendarSidebar
           selectedDate={selectedDate}
           onDateSelect={setDate}
-          googleConnected={googleConnected}
-          microsoftConnected={microsoftConnected}
-          connectedAccounts={connectedAccounts?.connectedAccounts ?? []}
         />
       </div>
 

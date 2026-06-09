@@ -120,32 +120,45 @@ export async function GET(request: NextRequest) {
       ? ((await msUserInfoResponse.json()) as MicrosoftUserInfo)
       : null;
 
+    if (!msUserInfo?.id) {
+      console.error("❌ No id in Microsoft user info response — cannot link account");
+      redirect(`${returnUrl}?calendar_error=token_exchange_failed`);
+    }
+
     // Log if email is missing
-    if (!msUserInfo?.mail) {
+    if (!msUserInfo.mail) {
       console.error("⚠️ No mail in Microsoft user info response");
     }
 
-    // Find existing Microsoft account for this user
-    const existingAccount = await db.account.findFirst({
+    const expiresAt = tokens.expires_in
+      ? Math.floor(Date.now() / 1000) + tokens.expires_in
+      : null;
+
+    // Look up by the unique (provider, providerAccountId) so reconnecting the
+    // same Microsoft account updates it, while a different account creates a
+    // new row instead of overwriting the existing one.
+    const existingAccount = await db.account.findUnique({
       where: {
-        userId: session.user.id,
-        provider: "microsoft-entra-id",
+        provider_providerAccountId: {
+          provider: "microsoft-entra-id",
+          providerAccountId: msUserInfo.id,
+        },
       },
     });
 
     if (existingAccount) {
       // Update existing account with calendar tokens
       const updateData: {
+        userId: string;
         access_token: string;
         refresh_token?: string;
         expires_at: number | null;
         scope: string;
         providerEmail?: string;
       } = {
+        userId: session.user.id,
         access_token: tokens.access_token,
-        expires_at: tokens.expires_in
-          ? Math.floor(Date.now() / 1000) + tokens.expires_in
-          : null,
+        expires_at: expiresAt,
         scope: tokens.scope,
       };
 
@@ -153,7 +166,7 @@ export async function GET(request: NextRequest) {
         updateData.refresh_token = tokens.refresh_token;
       }
 
-      if (msUserInfo?.mail) {
+      if (msUserInfo.mail) {
         updateData.providerEmail = msUserInfo.mail;
       }
 
@@ -166,16 +179,12 @@ export async function GET(request: NextRequest) {
         "✅ Updated existing Microsoft account with calendar tokens",
       );
     } else {
-      // User doesn't have a Microsoft account yet (signed in with Google/Discord/email)
+      // First time connecting this particular Microsoft account.
       if (!tokens.refresh_token) {
         console.error(
           "❌ Cannot create Microsoft account without refresh token!",
         );
         redirect(`${returnUrl}?calendar_error=no_refresh_token`);
-      }
-
-      if (!msUserInfo) {
-        throw new Error("Failed to fetch Microsoft user info");
       }
 
       await db.account.create({
@@ -186,9 +195,7 @@ export async function GET(request: NextRequest) {
           providerAccountId: msUserInfo.id,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
-          expires_at: tokens.expires_in
-            ? Math.floor(Date.now() / 1000) + tokens.expires_in
-            : null,
+          expires_at: expiresAt,
           token_type: tokens.token_type ?? "Bearer",
           scope: tokens.scope,
           providerEmail: msUserInfo.mail,
