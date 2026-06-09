@@ -289,6 +289,22 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
+      // Record a workspace activity event when a project is created. Mirrors the
+      // completion instrumentation below; skipped for personal (no-workspace)
+      // projects. Fire-and-forget: recordActivity never throws.
+      if (project.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: project.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "project",
+          entityId: project.id,
+          action: "created",
+          metadata: { name: project.name },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       // Sync onboarding progress (fire-and-forget)
       void completeOnboardingStep(ctx.db, ctx.session.user.id, "project").catch(
         (err: unknown) => { console.error("[onboarding-sync] project:", err); },

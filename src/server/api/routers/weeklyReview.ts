@@ -6,6 +6,7 @@ import { SlackNotificationService } from "~/server/services/notifications/SlackN
 import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
 import { getSundayWeekStart } from "~/lib/weekUtils";
 import { ScoringService } from "~/server/services/ScoringService";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -534,6 +535,25 @@ export const weeklyReviewRouter = createTRPCRouter({
       ).catch((err) => {
         console.error("[weeklyReview.markComplete] Failed to apply bonus:", err);
       });
+
+      // Surface the completed review as a team-visible milestone in the workspace
+      // activity feed. The feed is workspace-scoped, so personal (no-workspace)
+      // reviews produce no entry. Fire-and-forget: recordActivity never throws.
+      if (input.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: input.workspaceId,
+          userId,
+          entityType: "weekly_review",
+          entityId: completion.id,
+          action: "completed",
+          metadata: {
+            reviewMode: input.reviewMode,
+            projectsReviewed: input.projectsReviewed,
+          },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return completion;
     }),

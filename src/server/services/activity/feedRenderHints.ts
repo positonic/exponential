@@ -85,8 +85,25 @@ const HINTS: Record<string, FeedRenderHint> = {
 
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
+  [key("project", "created")]: {
+    template: "{actor} created project {entityRef}",
+    iconKind: "created",
+  },
   [key("project", "completed")]: {
     template: "{actor} completed project {entityRef}",
+    iconKind: "milestone",
+  },
+
+  // Goals — completing a strategic goal is a milestone.
+  [key("goal", "completed")]: {
+    template: "{actor} completed goal {entityRef}",
+    iconKind: "milestone",
+  },
+
+  // Weekly review — a completed review is a team-visible milestone. Self-contained
+  // template (no {entityRef}) because the completion row has no entity name.
+  [key("weekly_review", "completed")]: {
+    template: "{actor} completed their weekly review",
     iconKind: "milestone",
   },
 };
