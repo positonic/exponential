@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Modal, TextInput, Textarea, Select, MultiSelect, Button, Group, Text, Stack } from "@mantine/core";
-import { DatePickerInput } from "@mantine/dates";
+import { Modal, TextInput, Textarea, Select, MultiSelect, Button, Group, Text, Stack, Input } from "@mantine/core";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 
@@ -155,14 +155,18 @@ export function WeeklyOutcomeModal({
               required
             />
             
-            <DatePickerInput
-              label="Due Date (Optional)"
-              placeholder="Select due date"
-              value={dueDate}
-              onChange={setDueDate}
-              minDate={weekStartDate}
-              maxDate={new Date(weekStartDate.getTime() + 6 * 24 * 60 * 60 * 1000)} // End of week
-            />
+            <Input.Wrapper label="Due Date (Optional)">
+              <div>
+                <UnifiedDatePicker
+                  value={dueDate}
+                  onChange={setDueDate}
+                  placeholder="Select due date"
+                  notificationContext="outcome"
+                  minDate={weekStartDate}
+                  maxDate={new Date(weekStartDate.getTime() + 6 * 24 * 60 * 60 * 1000)} // End of week
+                />
+              </div>
+            </Input.Wrapper>
           </Group>
           
           <MultiSelect

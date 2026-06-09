@@ -1,5 +1,5 @@
-import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader, Switch } from '@mantine/core';
-import { DateInput } from '@mantine/dates';
+import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader, Switch, Input } from '@mantine/core';
+import { UnifiedDatePicker } from '~/app/_components/UnifiedDatePicker';
 import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
@@ -425,34 +425,26 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           />
 
           <Group grow mt="md" align="flex-start">
-            <DateInput
-              label="Start date"
-              placeholder="Select start date"
-              value={startDate}
-              onChange={setStartDate}
-              clearable
-              styles={{
-                input: {
-                  backgroundColor: 'var(--color-surface-secondary)',
-                  color: 'var(--color-text-primary)',
-                  borderColor: 'var(--color-border-primary)',
-                },
-              }}
-            />
-            <DateInput
-              label="End date"
-              placeholder="Select end date"
-              value={endDate}
-              onChange={setEndDate}
-              clearable
-              styles={{
-                input: {
-                  backgroundColor: 'var(--color-surface-secondary)',
-                  color: 'var(--color-text-primary)',
-                  borderColor: 'var(--color-border-primary)',
-                },
-              }}
-            />
+            <Input.Wrapper label="Start date">
+              <div>
+                <UnifiedDatePicker
+                  value={startDate}
+                  onChange={setStartDate}
+                  placeholder="Select start date"
+                  notificationContext="project"
+                />
+              </div>
+            </Input.Wrapper>
+            <Input.Wrapper label="End date">
+              <div>
+                <UnifiedDatePicker
+                  value={endDate}
+                  onChange={setEndDate}
+                  placeholder="Select end date"
+                  notificationContext="project"
+                />
+              </div>
+            </Input.Wrapper>
           </Group>
 
           <Tooltip

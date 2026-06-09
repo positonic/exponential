@@ -11,8 +11,10 @@ import {
   NumberInput,
   Text,
   Alert,
+  Input,
 } from "@mantine/core";
-import { DateInput, TimeInput } from "@mantine/dates";
+import { TimeInput } from "@mantine/dates";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { useDisclosure } from "@mantine/hooks";
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
@@ -223,14 +225,17 @@ export function CreateMeetingModal({
               />
 
               <Group grow>
-                <DateInput
-                  label="Date"
-                  placeholder="Select date"
-                  value={meetingDate}
-                  onChange={setMeetingDate}
-                  required
-                  minDate={new Date()}
-                />
+                <Input.Wrapper label="Date" required>
+                  <div>
+                    <UnifiedDatePicker
+                      value={meetingDate}
+                      onChange={setMeetingDate}
+                      placeholder="Select date"
+                      notificationContext="meeting"
+                      minDate={new Date()}
+                    />
+                  </div>
+                </Input.Wrapper>
                 <TimeInput
                   label="Start Time"
                   value={startTime}

@@ -1,7 +1,7 @@
 'use client';
 
-import { Button, Group, Modal, Select, Stack, TextInput, Textarea } from '@mantine/core';
-import { DateInput } from '@mantine/dates';
+import { Button, Group, Modal, Select, Stack, TextInput, Textarea, Input } from '@mantine/core';
+import { UnifiedDatePicker } from '~/app/_components/UnifiedDatePicker';
 import { useState } from 'react';
 import { api } from '~/trpc/react';
 import { EPIC_PRIORITY_OPTIONS } from '~/types/epic';
@@ -121,22 +121,26 @@ export function CreateEpicModal({ opened, onClose, workspaceId, onCreated }: Cre
         />
 
         <Group grow>
-          <DateInput
-            label="Start Date"
-            value={startDate}
-            onChange={setStartDate}
-            placeholder="Optional"
-            clearable
-            styles={inputStyles}
-          />
-          <DateInput
-            label="Target Date"
-            value={targetDate}
-            onChange={setTargetDate}
-            placeholder="Optional"
-            clearable
-            styles={inputStyles}
-          />
+          <Input.Wrapper label="Start Date">
+            <div>
+              <UnifiedDatePicker
+                value={startDate}
+                onChange={setStartDate}
+                placeholder="Optional"
+                notificationContext="epic"
+              />
+            </div>
+          </Input.Wrapper>
+          <Input.Wrapper label="Target Date">
+            <div>
+              <UnifiedDatePicker
+                value={targetDate}
+                onChange={setTargetDate}
+                placeholder="Optional"
+                notificationContext="epic"
+              />
+            </div>
+          </Input.Wrapper>
         </Group>
 
         <Group justify="flex-end" mt="sm">

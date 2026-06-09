@@ -7,8 +7,9 @@ import {
   TextInput,
   Textarea,
   Stack,
+  Input,
 } from "@mantine/core";
-import { DateInput } from "@mantine/dates";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { useDisclosure } from "@mantine/hooks";
 import { useState } from "react";
 import { api } from "~/trpc/react";
@@ -126,18 +127,16 @@ export function CreateTranscriptionModal({
               onChange={(e) => setDescription(e.target.value)}
             />
 
-            <DateInput
-              label="Meeting Date"
-              placeholder="When did the meeting occur?"
-              value={meetingDate}
-              onChange={setMeetingDate}
-              clearable
-              valueFormat="MMMM D, YYYY"
-              popoverProps={{
-                withinPortal: true,
-                zIndex: 1000,
-              }}
-            />
+            <Input.Wrapper label="Meeting Date">
+              <div>
+                <UnifiedDatePicker
+                  value={meetingDate}
+                  onChange={setMeetingDate}
+                  placeholder="When did the meeting occur?"
+                  notificationContext="meeting"
+                />
+              </div>
+            </Input.Wrapper>
 
             <Textarea
               label="Transcript"
