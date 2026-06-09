@@ -1,13 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   Button,
   Card,
   Group,
-  Popover,
-  Select,
   Stack,
   Text,
   Textarea,
@@ -15,11 +12,8 @@ import {
 } from "@mantine/core";
 import {
   IconActivity,
-  IconAlertCircle,
   IconCalendarCheck,
   IconCheck,
-  IconChevronLeft,
-  IconChevronRight,
   IconMessage,
   IconPlayerPlay,
   IconPlus,
@@ -30,18 +24,34 @@ import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { NextActionCapture } from "./NextActionCapture";
-import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { ProjectDateBadges } from "./ProjectDateBadges";
 import { ProjectDriBadge } from "./ProjectDriBadge";
 import { KeyResultsSection } from "./KeyResultsSection";
 import { ReviewBottomBar } from "./ReviewBottomBar";
-import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
+import { WpSegmentedControl, type SegOption } from "./WpSegmentedControl";
 import {
-  PROJECT_PRIORITY_OPTIONS,
-  PROJECT_STATUS_OPTIONS,
   type ProjectPriority,
   type ProjectStatus,
 } from "~/types/project";
+
+// Segmented-control options with token colors (dot shown on the selected one).
+const STATUS_SEG: SegOption[] = [
+  { value: "ACTIVE", label: "Active", color: "var(--accent-crm)" },
+  { value: "ON_HOLD", label: "On hold", color: "var(--accent-okr)" },
+  { value: "COMPLETED", label: "Completed", color: "var(--brand-400)" },
+  { value: "CANCELLED", label: "Cancelled", color: "var(--accent-due)" },
+];
+const PRIORITY_SEG: SegOption[] = [
+  { value: "HIGH", label: "High", color: "var(--accent-due)" },
+  { value: "MEDIUM", label: "Medium", color: "var(--accent-okr)" },
+  { value: "LOW", label: "Low", color: "var(--color-text-muted)" },
+  { value: "NONE", label: "None", color: "var(--color-text-faint)" },
+];
+const HEALTH_SEG: SegOption[] = [
+  { value: "ON_TRACK", label: "On track", color: "var(--accent-crm)" },
+  { value: "AT_RISK", label: "At risk", color: "var(--accent-okr)" },
+  { value: "OFF_TRACK", label: "Off track", color: "var(--accent-due)" },
+];
 
 type ProjectWithDetails = RouterOutputs["project"]["getActiveWithDetails"][number];
 
@@ -63,17 +73,6 @@ interface ProjectReviewCardProps {
   hasPrevious: boolean;
   hasNext: boolean;
   workspaceId: string | null;
-  /** 1-based index of this project in the review session, used for "01 / 05". */
-  currentIndex: number;
-  /** Total number of projects in this review session. */
-  totalCount: number;
-}
-
-// Period strings used by KRs are quarterly (e.g. "Q2-2026").
-function getCurrentQuarterPeriod(now: Date = new Date()): string {
-  const month = now.getUTCMonth();
-  const quarter = Math.floor(month / 3) + 1;
-  return `Q${quarter}-${now.getUTCFullYear()}`;
 }
 
 function calculateHealthIndicators(project: ProjectWithDetails) {
@@ -110,11 +109,6 @@ function deriveHealth(
   return "ON_TRACK";
 }
 
-const HEALTH_OPTIONS = [
-  { value: "ON_TRACK", label: "On track" },
-  { value: "AT_RISK", label: "At risk" },
-  { value: "OFF_TRACK", label: "Off track" },
-];
 
 export function ProjectReviewCard({
   project,
@@ -126,8 +120,6 @@ export function ProjectReviewCard({
   hasPrevious,
   hasNext,
   workspaceId,
-  currentIndex,
-  totalCount,
 }: ProjectReviewCardProps) {
   const { workspace } = useWorkspace();
   const [status, setStatus] = useState(project.status);
@@ -135,27 +127,10 @@ export function ProjectReviewCard({
   const [actionAdded, setActionAdded] = useState(false);
   const [keyResultsChanged, setKeyResultsChanged] = useState(false);
   const [reflection, setReflection] = useState("");
-  const [descriptionDismissed, setDescriptionDismissed] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [description, setDescription] = useState(project.description ?? "");
+  const [showReflect, setShowReflect] = useState(false);
   const [localActions, setLocalActions] = useState(project.actions);
-
-  // Goal picker → KR create modal state (preserved from prior implementation)
-  const [createPopoverOpen, setCreatePopoverOpen] = useState(false);
-  const [createGoalId, setCreateGoalId] = useState<number | null>(null);
-  const [krModalOpen, setKrModalOpen] = useState(false);
-
-  const goalsQuery = api.okr.getAvailableGoals.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId },
-  );
-  const goalOptions = useMemo(
-    () =>
-      (goalsQuery.data ?? []).map((g) => ({
-        value: String(g.id),
-        label: g.title,
-      })),
-    [goalsQuery.data],
-  );
-  const currentQuarterPeriod = useMemo(() => getCurrentQuarterPeriod(), []);
 
   const utils = api.useUtils();
 
@@ -229,22 +204,6 @@ export function ProjectReviewCard({
     onMarkReviewed,
   ]);
 
-  const handleActionAdded = (newAction: {
-    id: string;
-    name: string;
-    status: string;
-  }) => {
-    setActionAdded(true);
-    setLocalActions((prev) => [
-      ...prev,
-      {
-        ...newAction,
-        completedAt: null,
-        dueDate: null,
-      } as (typeof prev)[0],
-    ]);
-  };
-
   const handleActionUpdated = async () => {
     const freshData = await utils.project.getActiveWithDetails.fetch({
       workspaceId: workspaceId ?? undefined,
@@ -253,6 +212,28 @@ export function ProjectReviewCard({
     if (freshProject) {
       setLocalActions(freshProject.actions);
     }
+  };
+
+  const handleActionAdded = (newAction: {
+    id: string;
+    name: string;
+    status: string;
+  }) => {
+    setActionAdded(true);
+    // Optimistically prepend a stub so the new action shows at the top of Open
+    // immediately, then rehydrate from the server so it has its full shape
+    // (tags, assignees, project, …) before anything — e.g. the edit modal —
+    // reads it.
+    setLocalActions((prev) => [
+      {
+        ...newAction,
+        completedAt: null,
+        dueDate: null,
+        tags: [],
+      } as unknown as (typeof prev)[0],
+      ...prev,
+    ]);
+    void handleActionUpdated();
   };
 
   const handleDateUpdate = (dates: {
@@ -271,6 +252,21 @@ export function ProjectReviewCard({
       message: "Project dates have been saved",
       color: "green",
     });
+  };
+
+  // Inline description editing — commits on blur (quiet affordance, no banner).
+  const handleDescriptionCommit = () => {
+    setEditingDesc(false);
+    const trimmed = description.trim();
+    if (trimmed !== (project.description ?? "").trim()) {
+      updateProject.mutate({
+        id: project.id,
+        name: project.name,
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
+        description: trimmed,
+      });
+    }
   };
 
   const handleDriUpdate = (driId: string | null) => {
@@ -311,8 +307,10 @@ export function ProjectReviewCard({
           handleMarkReviewed();
         }
       } else if (e.key === "s" || e.key === "S") {
-        e.preventDefault();
-        onSkip();
+        if (hasNext) {
+          e.preventDefault();
+          onSkip();
+        }
       } else if (e.key === "ArrowLeft") {
         if (hasPrevious) {
           e.preventDefault();
@@ -337,9 +335,6 @@ export function ProjectReviewCard({
     onNext,
   ]);
 
-  const totalLabel = String(totalCount).padStart(2, "0");
-  const currentLabel = String(currentIndex).padStart(2, "0");
-
   return (
     <Card
       withBorder
@@ -347,60 +342,6 @@ export function ProjectReviewCard({
       className="border-border-primary bg-surface-secondary"
       p="lg"
     >
-      {/* Top nav row */}
-      <Group justify="space-between" className="mb-4">
-        <Button
-          variant="subtle"
-          size="sm"
-          color="gray"
-          leftSection={<IconChevronLeft size={16} />}
-          onClick={onPrevious}
-          disabled={!hasPrevious}
-        >
-          Previous
-        </Button>
-        <Text size="xs" className="font-mono text-text-muted">
-          {currentLabel} / {totalLabel}
-        </Text>
-        <Button
-          variant="subtle"
-          size="sm"
-          color="gray"
-          rightSection={<IconChevronRight size={16} />}
-          onClick={onNext}
-          disabled={!hasNext}
-        >
-          Next
-        </Button>
-      </Group>
-
-      {/* No-description warning (preserved) */}
-      {(!project.description || project.description.trim() === "") &&
-        !descriptionDismissed && (
-          <Alert
-            variant="light"
-            color="yellow"
-            title="No description"
-            icon={<IconAlertCircle size={16} />}
-            className="mb-4"
-            classNames={{ root: "border-yellow-500/20" }}
-            withCloseButton
-            onClose={() => setDescriptionDismissed(true)}
-          >
-            <Group justify="space-between" align="center">
-              <Text size="sm" className="text-text-secondary">
-                Add context to help understand this project&apos;s purpose and
-                goals
-              </Text>
-              <CreateProjectModal project={project}>
-                <Button size="xs" variant="light" color="yellow">
-                  Add Description
-                </Button>
-              </CreateProjectModal>
-            </Group>
-          </Alert>
-        )}
-
       {/* Identity row: workspace tag + title + DRI + reviewed checkmark */}
       <Group justify="space-between" align="flex-start" className="mb-2">
         <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
@@ -419,15 +360,15 @@ export function ProjectReviewCard({
               {workspace.name}
             </span>
           )}
-          <Text size="xl" fw={700} className="text-text-primary">
+          <Text size="xl" fw={700} className="text-text-primary" lineClamp={2}>
             {project.name}
           </Text>
         </Stack>
         <Group gap="sm" align="center">
           {isReviewed && (
             <Tooltip label="Already reviewed" withArrow>
-              <div className="rounded-full bg-green-500/10 p-1.5">
-                <IconCheck size={16} className="text-green-500" />
+              <div className="rounded-full bg-accent-crm/10 p-1.5">
+                <IconCheck size={16} className="text-accent-crm" />
               </div>
             </Tooltip>
           )}
@@ -458,37 +399,88 @@ export function ProjectReviewCard({
         </Group>
       </Group>
 
-      {/* Three-up controls */}
-      <Group grow className="mb-4" align="flex-start">
-        <Select
-          label="Status"
-          data={[...PROJECT_STATUS_OPTIONS]}
-          value={status}
-          onChange={(val) => val && handleStatusChange(val)}
-          allowDeselect={false}
-        />
-        <Select
-          label="Priority"
-          data={[...PROJECT_PRIORITY_OPTIONS]}
-          value={priority}
-          onChange={(val) => val && handlePriorityChange(val)}
-          allowDeselect={false}
-        />
-        <Tooltip
-          label="Health is derived from project signals — soon you'll be able to set it manually."
-          withArrow
-        >
-          <div>
-            <Select
-              label="Health"
-              data={HEALTH_OPTIONS}
-              value={derivedHealth}
-              readOnly
-              rightSectionPointerEvents="none"
-            />
-          </div>
-        </Tooltip>
-      </Group>
+      {/* Inline description — quiet affordance, not a warning banner */}
+      <div className="mb-5">
+        {editingDesc ? (
+          <Textarea
+            autoFocus
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            onBlur={handleDescriptionCommit}
+            placeholder="Add context to help the team understand this project's purpose and goals…"
+            autosize
+            minRows={2}
+            maxRows={5}
+          />
+        ) : description.trim() ? (
+          <Group gap={6} align="baseline">
+            <Text size="sm" className="text-text-secondary">
+              {description}
+            </Text>
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              color="gray"
+              onClick={() => setEditingDesc(true)}
+            >
+              Edit
+            </Button>
+          </Group>
+        ) : (
+          <Button
+            variant="default"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            onClick={() => setEditingDesc(true)}
+            styles={{ root: { borderStyle: "dashed" } }}
+          >
+            Add description
+          </Button>
+        )}
+      </div>
+
+      {/* Status / Priority / Health — segmented controls (stack ≤820px) */}
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-2 min-[821px]:grid-cols-[96px_1fr] min-[821px]:items-center min-[821px]:gap-4">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Status
+          </span>
+          <WpSegmentedControl
+            label="Status"
+            options={STATUS_SEG}
+            value={status}
+            onChange={handleStatusChange}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 min-[821px]:grid-cols-[96px_1fr] min-[821px]:items-center min-[821px]:gap-4">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            Priority
+          </span>
+          <WpSegmentedControl
+            label="Priority"
+            options={PRIORITY_SEG}
+            value={priority}
+            onChange={handlePriorityChange}
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 min-[821px]:grid-cols-[96px_1fr] min-[821px]:items-center min-[821px]:gap-4">
+          <Tooltip
+            label="Health is derived from project signals — soon you'll be able to set it manually."
+            withArrow
+            position="top-start"
+          >
+            <span className="w-fit cursor-help text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              Health
+            </span>
+          </Tooltip>
+          <WpSegmentedControl
+            label="Health (derived, read-only)"
+            options={HEALTH_SEG}
+            value={derivedHealth}
+            readOnly
+          />
+        </div>
+      </div>
 
       {/* Health indicator strip — preserved */}
       <Group gap={10} className="mb-5">
@@ -503,7 +495,7 @@ export function ProjectReviewCard({
           <IconTarget
             size={14}
             className={
-              indicators.weeklyPlanning ? "text-green-500" : "text-red-500"
+              indicators.weeklyPlanning ? "text-accent-crm" : "text-accent-due"
             }
           />
         </Tooltip>
@@ -516,7 +508,7 @@ export function ProjectReviewCard({
           <IconActivity
             size={14}
             className={
-              indicators.recentActivity ? "text-green-500" : "text-yellow-500"
+              indicators.recentActivity ? "text-accent-crm" : "text-accent-okr"
             }
           />
         </Tooltip>
@@ -531,7 +523,7 @@ export function ProjectReviewCard({
           <IconPlayerPlay
             size={14}
             className={
-              indicators.momentum ? "text-green-500" : "text-yellow-500"
+              indicators.momentum ? "text-accent-crm" : "text-accent-okr"
             }
           />
         </Tooltip>
@@ -541,7 +533,7 @@ export function ProjectReviewCard({
         >
           <IconCalendarCheck
             size={14}
-            className={indicators.onTrack ? "text-green-500" : "text-red-500"}
+            className={indicators.onTrack ? "text-accent-crm" : "text-accent-due"}
           />
         </Tooltip>
         <Tooltip
@@ -553,13 +545,13 @@ export function ProjectReviewCard({
           <IconTrendingUp
             size={14}
             className={
-              indicators.hasProgress ? "text-green-500" : "text-text-muted"
+              indicators.hasProgress ? "text-accent-crm" : "text-text-muted"
             }
           />
         </Tooltip>
       </Group>
 
-      {/* Key Results section (rail with link picker + create flow) */}
+      {/* Key Results section (linked-first rows, pill toggle, inline link + create) */}
       <div className="mb-5">
         <KeyResultsSection
           project={project}
@@ -571,70 +563,6 @@ export function ProjectReviewCard({
             void utils.okr.getAll.invalidate();
           }}
         />
-
-        {/* Create-new-KR popover (preserved from prior implementation) */}
-        <Popover
-          opened={createPopoverOpen}
-          onChange={setCreatePopoverOpen}
-          position="bottom-start"
-          withArrow
-          shadow="md"
-        >
-          <Popover.Target>
-            <Button
-              variant="subtle"
-              size="xs"
-              leftSection={<IconPlus size={14} />}
-              className="mt-2"
-              onClick={() => setCreatePopoverOpen((o) => !o)}
-              disabled={!workspaceId}
-            >
-              Create new key result
-            </Button>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <Stack gap="xs" style={{ minWidth: 260 }}>
-              <Text size="xs" className="text-text-secondary">
-                Pick a goal for this Key Result
-              </Text>
-              <Select
-                placeholder={
-                  goalsQuery.isLoading ? "Loading goals…" : "Select a goal"
-                }
-                data={goalOptions}
-                value={createGoalId != null ? String(createGoalId) : null}
-                onChange={(val) => {
-                  if (!val) return;
-                  const id = Number(val);
-                  setCreateGoalId(id);
-                  setCreatePopoverOpen(false);
-                  setKrModalOpen(true);
-                }}
-                searchable
-                nothingFoundMessage="No goals in this workspace"
-              />
-            </Stack>
-          </Popover.Dropdown>
-        </Popover>
-
-        {createGoalId != null && workspaceId && (
-          <EditKeyResultModal
-            mode="create"
-            opened={krModalOpen}
-            onClose={() => {
-              setKrModalOpen(false);
-              setCreateGoalId(null);
-            }}
-            goalId={createGoalId}
-            period={currentQuarterPeriod}
-            workspaceId={workspaceId}
-            initialProjectIds={[project.id]}
-            onSuccess={() => {
-              setKeyResultsChanged(true);
-              void utils.project.getActiveWithDetails.invalidate();
-            }}
-          />
-        )}
       </div>
 
       {/* Actions section */}
@@ -648,28 +576,43 @@ export function ProjectReviewCard({
         />
       </div>
 
-      {/* Reflection */}
+      {/* Reflection — collapsed by default, optional */}
       <div className="mb-2">
-        <Group gap={6} className="mb-2">
-          <IconMessage size={14} className="text-text-muted" />
-          <Text
-            size="xs"
-            className="font-semibold uppercase tracking-wider text-text-muted"
+        {showReflect || reflection.trim() ? (
+          <>
+            <Group gap={6} className="mb-2">
+              <IconMessage size={14} className="text-text-muted" />
+              <Text
+                size="xs"
+                className="font-semibold uppercase tracking-wider text-text-muted"
+              >
+                Reflection · Optional
+              </Text>
+              <Text size="xs" className="ml-auto text-text-muted">
+                One sentence is enough
+              </Text>
+            </Group>
+            <Textarea
+              autoFocus={showReflect}
+              placeholder="What changed since last week? What's the unlock?"
+              value={reflection}
+              onChange={(e) => setReflection(e.currentTarget.value)}
+              autosize
+              minRows={2}
+              maxRows={4}
+            />
+          </>
+        ) : (
+          <Button
+            variant="subtle"
+            size="compact-sm"
+            color="gray"
+            leftSection={<IconMessage size={14} />}
+            onClick={() => setShowReflect(true)}
           >
-            Reflection · Optional
-          </Text>
-          <Text size="xs" className="ml-auto text-text-muted">
-            One sentence is enough
-          </Text>
-        </Group>
-        <Textarea
-          placeholder="What changed since last week? What's the unlock?"
-          value={reflection}
-          onChange={(e) => setReflection(e.currentTarget.value)}
-          autosize
-          minRows={2}
-          maxRows={4}
-        />
+            Add a reflection (optional)
+          </Button>
+        )}
       </div>
 
       {/* Bottom action bar */}
@@ -678,6 +621,8 @@ export function ProjectReviewCard({
         onMarkReviewed={handleMarkReviewed}
         canMarkReviewed={hasNextAction}
         isPending={updateProject.isPending}
+        isReviewed={isReviewed}
+        canSkip={hasNext}
       />
     </Card>
   );

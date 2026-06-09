@@ -556,6 +556,7 @@ export const projectRouter = createTRPCRouter({
               assignees: {
                 include: { user: { select: { id: true, name: true, email: true, image: true } } },
               },
+              tags: { include: { tag: true } },
             },
           },
           outcomes: {
@@ -752,6 +753,7 @@ export const projectRouter = createTRPCRouter({
               assignees: {
                 include: { user: { select: { id: true, name: true, email: true, image: true } } },
               },
+              tags: { include: { tag: true } },
             },
           },
           dri: {

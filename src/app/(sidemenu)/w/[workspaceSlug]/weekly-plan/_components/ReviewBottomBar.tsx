@@ -8,6 +8,10 @@ interface ReviewBottomBarProps {
   onMarkReviewed: () => void;
   canMarkReviewed: boolean;
   isPending: boolean;
+  /** Whether this project has already been marked reviewed (green state). */
+  isReviewed: boolean;
+  /** Skip is disabled on the last project of the pass. */
+  canSkip: boolean;
 }
 
 function HintKey({ children }: { children: React.ReactNode }) {
@@ -23,9 +27,11 @@ export function ReviewBottomBar({
   onMarkReviewed,
   canMarkReviewed,
   isPending,
+  isReviewed,
+  canSkip,
 }: ReviewBottomBarProps) {
   return (
-    <div className="mt-6 flex items-center justify-between border-t border-border-primary pt-4">
+    <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-6 flex items-center justify-between border-t border-border-primary bg-surface-secondary px-5 py-4">
       <div className="flex items-center gap-3 text-xs text-text-muted">
         <IconInfoCircle size={14} />
         <span className="flex items-center gap-1.5">
@@ -40,23 +46,35 @@ export function ReviewBottomBar({
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="subtle" color="gray" onClick={onSkip}>
+        <Button variant="subtle" color="gray" onClick={onSkip} disabled={!canSkip}>
           Skip
         </Button>
-        <Tooltip
-          label="Add at least one next action before marking as reviewed"
-          disabled={canMarkReviewed}
-          withArrow
-        >
+        {isReviewed ? (
           <Button
+            color="green"
+            variant="light"
             onClick={onMarkReviewed}
             loading={isPending}
             leftSection={<IconCheck size={16} />}
-            disabled={!canMarkReviewed}
           >
-            Mark reviewed
+            Reviewed
           </Button>
-        </Tooltip>
+        ) : (
+          <Tooltip
+            label="Add at least one next action before marking as reviewed"
+            disabled={canMarkReviewed}
+            withArrow
+          >
+            <Button
+              onClick={onMarkReviewed}
+              loading={isPending}
+              leftSection={<IconCheck size={16} />}
+              disabled={!canMarkReviewed}
+            >
+              Mark reviewed
+            </Button>
+          </Tooltip>
+        )}
       </div>
     </div>
   );

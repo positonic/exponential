@@ -6,7 +6,7 @@ import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WeeklyReviewIntro, type ReviewMode, type TimerDuration } from "./_components/WeeklyReviewIntro";
 import { ProjectReviewCard } from "./_components/ProjectReviewCard";
-import { ReviewProgress } from "./_components/ReviewProgress";
+import { WpStepper } from "./_components/WpStepper";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
 import { ReviewTimer } from "./_components/ReviewTimer";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
@@ -163,15 +163,29 @@ export default function WeeklyReviewPage() {
   };
 
   const handleMarkReviewed = (projectId: string, projectChanges: ProjectChanges) => {
-    setReviewedProjects((prev) => new Set(prev).add(projectId));
+    const reviewedAfter = new Set(reviewedProjects).add(projectId);
+    setReviewedProjects(reviewedAfter);
     setChanges((prev) => new Map(prev).set(projectId, projectChanges));
 
-    if (currentProjectIndex < reviewSessionProjects.length - 1) {
-      setCurrentProjectIndex((prev) => prev + 1);
-    } else {
+    // Auto-advance to the next project that hasn't been reviewed yet
+    // (search forward from here, then wrap). If all are reviewed, complete.
+    const total = reviewSessionProjects.length;
+    let nextIndex = -1;
+    for (let offset = 1; offset <= total; offset++) {
+      const i = (currentProjectIndex + offset) % total;
+      const candidate = reviewSessionProjects[i];
+      if (candidate && !reviewedAfter.has(candidate.id)) {
+        nextIndex = i;
+        break;
+      }
+    }
+
+    if (nextIndex === -1) {
       // Review complete - refresh the projects list now that all changes are done
       void utils.project.getActiveWithDetails.invalidate();
       setStep("complete");
+    } else {
+      setCurrentProjectIndex(nextIndex);
     }
   };
 
@@ -194,6 +208,13 @@ export default function WeeklyReviewPage() {
   const handleNext = () => {
     if (currentProjectIndex < reviewSessionProjects.length - 1) {
       setCurrentProjectIndex((prev) => prev + 1);
+    }
+  };
+
+  // Jump to any project in the pass via the unified stepper.
+  const handleJump = (index: number) => {
+    if (index >= 0 && index < reviewSessionProjects.length) {
+      setCurrentProjectIndex(index);
     }
   };
 
@@ -238,8 +259,8 @@ export default function WeeklyReviewPage() {
         <div className="mb-6 flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="mb-2 flex items-center gap-2">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-blue-500">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-brand-400">
                 Weekly Plan · Project Pass
               </span>
             </div>
@@ -277,10 +298,11 @@ export default function WeeklyReviewPage() {
 
       {step === "reviewing" && currentProject && (
         <>
-          <ReviewProgress
-            current={currentProjectIndex + 1}
-            total={reviewSessionProjects.length}
-            reviewedCount={reviewedProjects.size}
+          <WpStepper
+            projects={reviewSessionProjects}
+            currentIndex={currentProjectIndex}
+            reviewedIds={reviewedProjects}
+            onJump={handleJump}
           />
           <ProjectReviewCard
             key={currentProject.id}
@@ -295,8 +317,6 @@ export default function WeeklyReviewPage() {
             hasPrevious={currentProjectIndex > 0}
             hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
-            currentIndex={currentProjectIndex + 1}
-            totalCount={reviewSessionProjects.length}
           />
         </>
       )}
