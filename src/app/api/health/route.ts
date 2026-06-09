@@ -11,9 +11,13 @@ export const dynamic = "force-dynamic";
  * confirm *what* is live without guessing. On Vercel, `VERCEL_GIT_COMMIT_SHA`
  * is injected at build + runtime; locally it's usually unset.
  *
- * GET /api/health  →  { status, commit, branch, builtAt? }
+ * GET /api/health  →  { status, commit, shortCommit, branch, env }
+ *   - commit:      full SHA (or "unknown" locally)
+ *   - shortCommit: first 8 chars of the SHA (or "unknown")
+ *   - branch:      VERCEL_GIT_COMMIT_REF, or null
+ *   - env:         VERCEL_ENV / NODE_ENV, or null
  */
-export function GET() {
+export function GET(): NextResponse {
   const commit =
     process.env.VERCEL_GIT_COMMIT_SHA ??
     process.env.GIT_COMMIT_SHA ??
