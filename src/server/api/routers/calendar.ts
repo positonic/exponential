@@ -147,8 +147,9 @@ async function loadAccountCalendars(
 }
 
 /**
- * Resolve a concrete Account from either an explicit accountId (multi-account
- * callers) or a provider (legacy single-account callers, picks the first match).
+ * Resolve a concrete ConnectedAccount from either an explicit accountId
+ * (multi-account callers) or a provider (legacy callers → the user's primary,
+ * i.e. earliest-created, connection for that provider).
  */
 async function resolveAccount(
   db: DbClient,
@@ -165,7 +166,7 @@ async function resolveAccount(
   return db.connectedAccount.findFirst({
     where: { userId, provider: accountProvider },
     select: { id: true, provider: true },
-    orderBy: { id: "asc" },
+    orderBy: { createdAt: "asc" },
   });
 }
 
@@ -245,117 +246,6 @@ export const calendarRouter = createTRPCRouter({
       google: checkStatus("google"),
       microsoft: checkStatus("microsoft-entra-id"),
     };
-  }),
-
-  // Returns connected calendar accounts with email addresses
-  getConnectedCalendarAccounts: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.session.user.id;
-
-    // Fetch Google Calendar account
-    const googleAccount = await ctx.db.connectedAccount.findFirst({
-      where: {
-        userId,
-        provider: "google",
-      },
-      select: {
-        id: true,
-        provider: true,
-        scope: true,
-        expires_at: true,
-        providerEmail: true,
-        access_token: true,
-        user: {
-          select: {
-            email: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    // Fetch Microsoft Calendar account
-    const microsoftAccount = await ctx.db.connectedAccount.findFirst({
-      where: {
-        userId,
-        provider: "microsoft-entra-id",
-      },
-      select: {
-        id: true,
-        provider: true,
-        scope: true,
-        expires_at: true,
-        providerEmail: true,
-        access_token: true,
-        user: {
-          select: {
-            email: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    const connectedAccounts: Array<{
-      provider: "google" | "microsoft";
-      email: string | null;
-      name: string | null;
-    }> = [];
-
-    // Check Google Calendar
-    if (googleAccount) {
-      const hasCalendarScope = googleAccount.scope?.includes("calendar.events") ?? false;
-      const now = Math.floor(Date.now() / 1000);
-      const isValid = (googleAccount.expires_at != null && googleAccount.expires_at > now);
-
-      if (hasCalendarScope && isValid) {
-        let providerEmail = googleAccount.providerEmail;
-
-        // Backfill provider email if missing
-        if (!providerEmail && googleAccount.access_token) {
-          console.log("🔄 Backfilling missing providerEmail for Google account");
-          const googleCalendarService = new GoogleCalendarService();
-          providerEmail = await googleCalendarService.fetchAndUpdateProviderEmail(
-            googleAccount.id,
-            googleAccount.access_token
-          );
-        }
-
-        connectedAccounts.push({
-          provider: "google",
-          email: providerEmail ?? googleAccount.user.email, // Still fallback just in case
-          name: googleAccount.user.name,
-        });
-      }
-    }
-
-    // Check Microsoft Calendar
-    if (microsoftAccount) {
-      const hasCalendarScope = microsoftAccount.scope?.includes("Calendars.Read") ?? false;
-      const now = Math.floor(Date.now() / 1000);
-      const isValid = (microsoftAccount.expires_at != null && microsoftAccount.expires_at > now);
-
-      if (hasCalendarScope && isValid) {
-        let providerEmail = microsoftAccount.providerEmail;
-
-        // Backfill provider email if missing
-        if (!providerEmail && microsoftAccount.access_token) {
-          console.log("🔄 Backfilling missing providerEmail for Microsoft account");
-          const microsoftCalendarService = new MicrosoftCalendarService();
-          providerEmail = await microsoftCalendarService.fetchAndUpdateProviderEmail(
-            microsoftAccount.id,
-            microsoftAccount.access_token
-          );
-        }
-
-        connectedAccounts.push({
-          provider: "microsoft",
-          email: providerEmail ?? microsoftAccount.user.email, // Still fallback just in case
-          name: microsoftAccount.user.name,
-        });
-      }
-    }
-
-    return { connectedAccounts };
   }),
 
   // Returns every connected calendar account (Google + Microsoft) with its own

@@ -69,6 +69,9 @@ export class MicrosoftCalendarService implements CalendarProvider {
       where: accountId
         ? { id: accountId, userId, provider: "microsoft-entra-id" }
         : { userId, provider: "microsoft-entra-id" },
+      // Deterministic fallback to the earliest-created (primary) connection
+      // when no accountId is supplied.
+      orderBy: { createdAt: "asc" },
       select: {
         id: true,
         access_token: true,
