@@ -30,19 +30,28 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ] as const;
 
+// Calendar access. `calendar.events` grants read/write of events on any
+// calendar the user can access, but it does NOT permit `calendarList.list`
+// (listing the user's calendars) — that needs `calendar.readonly`. The
+// multi-calendar sidebar lists calendars per account, so both are required.
+const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
+] as const;
+
 export const GOOGLE_SCOPE_SETS = {
   calendar: [
     ...GOOGLE_IDENTITY_SCOPES,
-    "https://www.googleapis.com/auth/calendar.events",
+    ...GOOGLE_CALENDAR_SCOPES,
   ],
   contacts: [
     ...GOOGLE_IDENTITY_SCOPES,
-    "https://www.googleapis.com/auth/calendar.events",
+    ...GOOGLE_CALENDAR_SCOPES,
     "https://www.googleapis.com/auth/contacts.readonly",
   ],
   crm: [
     ...GOOGLE_IDENTITY_SCOPES,
-    "https://www.googleapis.com/auth/calendar.events",
+    ...GOOGLE_CALENDAR_SCOPES,
     "https://www.googleapis.com/auth/contacts.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
   ],
