@@ -6,7 +6,7 @@ import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WeeklyReviewIntro, type ReviewMode, type TimerDuration } from "./_components/WeeklyReviewIntro";
 import { ProjectReviewCard } from "./_components/ProjectReviewCard";
-import { ReviewProgress } from "./_components/ReviewProgress";
+import { WpStepper } from "./_components/WpStepper";
 import { ReviewCompletion } from "./_components/ReviewCompletion";
 import { ReviewTimer } from "./_components/ReviewTimer";
 import { WeeklyReviewExplainer } from "./_components/WeeklyReviewExplainer";
@@ -197,6 +197,13 @@ export default function WeeklyReviewPage() {
     }
   };
 
+  // Jump to any project in the pass via the unified stepper.
+  const handleJump = (index: number) => {
+    if (index >= 0 && index < reviewSessionProjects.length) {
+      setCurrentProjectIndex(index);
+    }
+  };
+
   const handleRestartReview = () => {
     // Refresh the projects list to get latest data before restarting
     void utils.project.getActiveWithDetails.invalidate();
@@ -277,10 +284,11 @@ export default function WeeklyReviewPage() {
 
       {step === "reviewing" && currentProject && (
         <>
-          <ReviewProgress
-            current={currentProjectIndex + 1}
-            total={reviewSessionProjects.length}
-            reviewedCount={reviewedProjects.size}
+          <WpStepper
+            projects={reviewSessionProjects}
+            currentIndex={currentProjectIndex}
+            reviewedIds={reviewedProjects}
+            onJump={handleJump}
           />
           <ProjectReviewCard
             key={currentProject.id}
@@ -295,8 +303,6 @@ export default function WeeklyReviewPage() {
             hasPrevious={currentProjectIndex > 0}
             hasNext={currentProjectIndex < reviewSessionProjects.length - 1}
             workspaceId={workspaceId}
-            currentIndex={currentProjectIndex + 1}
-            totalCount={reviewSessionProjects.length}
           />
         </>
       )}

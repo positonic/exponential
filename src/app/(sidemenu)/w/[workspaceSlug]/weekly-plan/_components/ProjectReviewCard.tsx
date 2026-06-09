@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
   Button,
   Card,
   Group,
-  Popover,
   Select,
   Stack,
   Text,
@@ -15,11 +13,8 @@ import {
 } from "@mantine/core";
 import {
   IconActivity,
-  IconAlertCircle,
   IconCalendarCheck,
   IconCheck,
-  IconChevronLeft,
-  IconChevronRight,
   IconMessage,
   IconPlayerPlay,
   IconPlus,
@@ -30,12 +25,10 @@ import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { NextActionCapture } from "./NextActionCapture";
-import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { ProjectDateBadges } from "./ProjectDateBadges";
 import { ProjectDriBadge } from "./ProjectDriBadge";
 import { KeyResultsSection } from "./KeyResultsSection";
 import { ReviewBottomBar } from "./ReviewBottomBar";
-import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
 import {
   PROJECT_PRIORITY_OPTIONS,
   PROJECT_STATUS_OPTIONS,
@@ -63,17 +56,6 @@ interface ProjectReviewCardProps {
   hasPrevious: boolean;
   hasNext: boolean;
   workspaceId: string | null;
-  /** 1-based index of this project in the review session, used for "01 / 05". */
-  currentIndex: number;
-  /** Total number of projects in this review session. */
-  totalCount: number;
-}
-
-// Period strings used by KRs are quarterly (e.g. "Q2-2026").
-function getCurrentQuarterPeriod(now: Date = new Date()): string {
-  const month = now.getUTCMonth();
-  const quarter = Math.floor(month / 3) + 1;
-  return `Q${quarter}-${now.getUTCFullYear()}`;
 }
 
 function calculateHealthIndicators(project: ProjectWithDetails) {
@@ -126,8 +108,6 @@ export function ProjectReviewCard({
   hasPrevious,
   hasNext,
   workspaceId,
-  currentIndex,
-  totalCount,
 }: ProjectReviewCardProps) {
   const { workspace } = useWorkspace();
   const [status, setStatus] = useState(project.status);
@@ -135,27 +115,9 @@ export function ProjectReviewCard({
   const [actionAdded, setActionAdded] = useState(false);
   const [keyResultsChanged, setKeyResultsChanged] = useState(false);
   const [reflection, setReflection] = useState("");
-  const [descriptionDismissed, setDescriptionDismissed] = useState(false);
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [description, setDescription] = useState(project.description ?? "");
   const [localActions, setLocalActions] = useState(project.actions);
-
-  // Goal picker → KR create modal state (preserved from prior implementation)
-  const [createPopoverOpen, setCreatePopoverOpen] = useState(false);
-  const [createGoalId, setCreateGoalId] = useState<number | null>(null);
-  const [krModalOpen, setKrModalOpen] = useState(false);
-
-  const goalsQuery = api.okr.getAvailableGoals.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId },
-  );
-  const goalOptions = useMemo(
-    () =>
-      (goalsQuery.data ?? []).map((g) => ({
-        value: String(g.id),
-        label: g.title,
-      })),
-    [goalsQuery.data],
-  );
-  const currentQuarterPeriod = useMemo(() => getCurrentQuarterPeriod(), []);
 
   const utils = api.useUtils();
 
@@ -273,6 +235,21 @@ export function ProjectReviewCard({
     });
   };
 
+  // Inline description editing — commits on blur (quiet affordance, no banner).
+  const handleDescriptionCommit = () => {
+    setEditingDesc(false);
+    const trimmed = description.trim();
+    if (trimmed !== (project.description ?? "").trim()) {
+      updateProject.mutate({
+        id: project.id,
+        name: project.name,
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
+        description: trimmed,
+      });
+    }
+  };
+
   const handleDriUpdate = (driId: string | null) => {
     updateProject.mutate({
       id: project.id,
@@ -337,9 +314,6 @@ export function ProjectReviewCard({
     onNext,
   ]);
 
-  const totalLabel = String(totalCount).padStart(2, "0");
-  const currentLabel = String(currentIndex).padStart(2, "0");
-
   return (
     <Card
       withBorder
@@ -347,60 +321,6 @@ export function ProjectReviewCard({
       className="border-border-primary bg-surface-secondary"
       p="lg"
     >
-      {/* Top nav row */}
-      <Group justify="space-between" className="mb-4">
-        <Button
-          variant="subtle"
-          size="sm"
-          color="gray"
-          leftSection={<IconChevronLeft size={16} />}
-          onClick={onPrevious}
-          disabled={!hasPrevious}
-        >
-          Previous
-        </Button>
-        <Text size="xs" className="font-mono text-text-muted">
-          {currentLabel} / {totalLabel}
-        </Text>
-        <Button
-          variant="subtle"
-          size="sm"
-          color="gray"
-          rightSection={<IconChevronRight size={16} />}
-          onClick={onNext}
-          disabled={!hasNext}
-        >
-          Next
-        </Button>
-      </Group>
-
-      {/* No-description warning (preserved) */}
-      {(!project.description || project.description.trim() === "") &&
-        !descriptionDismissed && (
-          <Alert
-            variant="light"
-            color="yellow"
-            title="No description"
-            icon={<IconAlertCircle size={16} />}
-            className="mb-4"
-            classNames={{ root: "border-yellow-500/20" }}
-            withCloseButton
-            onClose={() => setDescriptionDismissed(true)}
-          >
-            <Group justify="space-between" align="center">
-              <Text size="sm" className="text-text-secondary">
-                Add context to help understand this project&apos;s purpose and
-                goals
-              </Text>
-              <CreateProjectModal project={project}>
-                <Button size="xs" variant="light" color="yellow">
-                  Add Description
-                </Button>
-              </CreateProjectModal>
-            </Group>
-          </Alert>
-        )}
-
       {/* Identity row: workspace tag + title + DRI + reviewed checkmark */}
       <Group justify="space-between" align="flex-start" className="mb-2">
         <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
@@ -457,6 +377,46 @@ export function ProjectReviewCard({
           </Text>
         </Group>
       </Group>
+
+      {/* Inline description — quiet affordance, not a warning banner */}
+      <div className="mb-5">
+        {editingDesc ? (
+          <Textarea
+            autoFocus
+            value={description}
+            onChange={(e) => setDescription(e.currentTarget.value)}
+            onBlur={handleDescriptionCommit}
+            placeholder="Add context to help the team understand this project's purpose and goals…"
+            autosize
+            minRows={2}
+            maxRows={5}
+          />
+        ) : description.trim() ? (
+          <Group gap={6} align="baseline">
+            <Text size="sm" className="text-text-secondary">
+              {description}
+            </Text>
+            <Button
+              variant="subtle"
+              size="compact-xs"
+              color="gray"
+              onClick={() => setEditingDesc(true)}
+            >
+              Edit
+            </Button>
+          </Group>
+        ) : (
+          <Button
+            variant="default"
+            size="xs"
+            leftSection={<IconPlus size={14} />}
+            onClick={() => setEditingDesc(true)}
+            styles={{ root: { borderStyle: "dashed" } }}
+          >
+            Add description
+          </Button>
+        )}
+      </div>
 
       {/* Three-up controls */}
       <Group grow className="mb-4" align="flex-start">
@@ -559,7 +519,7 @@ export function ProjectReviewCard({
         </Tooltip>
       </Group>
 
-      {/* Key Results section (rail with link picker + create flow) */}
+      {/* Key Results section (linked-first rows, pill toggle, inline link + create) */}
       <div className="mb-5">
         <KeyResultsSection
           project={project}
@@ -571,70 +531,6 @@ export function ProjectReviewCard({
             void utils.okr.getAll.invalidate();
           }}
         />
-
-        {/* Create-new-KR popover (preserved from prior implementation) */}
-        <Popover
-          opened={createPopoverOpen}
-          onChange={setCreatePopoverOpen}
-          position="bottom-start"
-          withArrow
-          shadow="md"
-        >
-          <Popover.Target>
-            <Button
-              variant="subtle"
-              size="xs"
-              leftSection={<IconPlus size={14} />}
-              className="mt-2"
-              onClick={() => setCreatePopoverOpen((o) => !o)}
-              disabled={!workspaceId}
-            >
-              Create new key result
-            </Button>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <Stack gap="xs" style={{ minWidth: 260 }}>
-              <Text size="xs" className="text-text-secondary">
-                Pick a goal for this Key Result
-              </Text>
-              <Select
-                placeholder={
-                  goalsQuery.isLoading ? "Loading goals…" : "Select a goal"
-                }
-                data={goalOptions}
-                value={createGoalId != null ? String(createGoalId) : null}
-                onChange={(val) => {
-                  if (!val) return;
-                  const id = Number(val);
-                  setCreateGoalId(id);
-                  setCreatePopoverOpen(false);
-                  setKrModalOpen(true);
-                }}
-                searchable
-                nothingFoundMessage="No goals in this workspace"
-              />
-            </Stack>
-          </Popover.Dropdown>
-        </Popover>
-
-        {createGoalId != null && workspaceId && (
-          <EditKeyResultModal
-            mode="create"
-            opened={krModalOpen}
-            onClose={() => {
-              setKrModalOpen(false);
-              setCreateGoalId(null);
-            }}
-            goalId={createGoalId}
-            period={currentQuarterPeriod}
-            workspaceId={workspaceId}
-            initialProjectIds={[project.id]}
-            onSuccess={() => {
-              setKeyResultsChanged(true);
-              void utils.project.getActiveWithDetails.invalidate();
-            }}
-          />
-        )}
       </div>
 
       {/* Actions section */}

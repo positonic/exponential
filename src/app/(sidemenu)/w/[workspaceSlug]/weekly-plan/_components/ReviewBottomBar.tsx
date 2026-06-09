@@ -25,7 +25,7 @@ export function ReviewBottomBar({
   isPending,
 }: ReviewBottomBarProps) {
   return (
-    <div className="mt-6 flex items-center justify-between border-t border-border-primary pt-4">
+    <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-6 flex items-center justify-between border-t border-border-primary bg-surface-secondary px-5 py-4">
       <div className="flex items-center gap-3 text-xs text-text-muted">
         <IconInfoCircle size={14} />
         <span className="flex items-center gap-1.5">
