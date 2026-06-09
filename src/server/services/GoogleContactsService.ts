@@ -74,7 +74,10 @@ export class GoogleContactsService {
     userId: string,
     pageToken?: string
   ): Promise<{ contacts: GoogleContact[]; nextPageToken?: string }> {
-    const accessToken = await GoogleTokenManager.getValidAccessToken(userId);
+    const accessToken = await GoogleTokenManager.getValidAccessToken(
+      userId,
+      "https://www.googleapis.com/auth/contacts.readonly",
+    );
 
     const people = google.people({ version: "v1" });
 
@@ -124,7 +127,10 @@ export class GoogleContactsService {
     timeMin: Date,
     timeMax: Date
   ): Promise<GoogleCalendarEvent[]> {
-    const accessToken = await GoogleTokenManager.getValidAccessToken(userId);
+    const accessToken = await GoogleTokenManager.getValidAccessToken(
+      userId,
+      "https://www.googleapis.com/auth/calendar.events",
+    );
 
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,

@@ -57,15 +57,18 @@ export class MicrosoftCalendarService implements CalendarProvider {
       timeMax?: Date;
       calendarId?: string;
       maxResults?: number;
+      accountId?: string;
     },
   ): string {
-    const { timeMin, timeMax, calendarId, maxResults } = options;
-    return `mscal:${userId}:${calendarId ?? "default"}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;
+    const { timeMin, timeMax, calendarId, maxResults, accountId } = options;
+    return `mscal:${userId}:${accountId ?? "default"}:${calendarId ?? "default"}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;
   }
 
-  private async getAccessToken(userId: string): Promise<string> {
+  private async getAccessToken(userId: string, accountId?: string): Promise<string> {
     const account = await db.account.findFirst({
-      where: { userId, provider: "microsoft-entra-id" },
+      where: accountId
+        ? { id: accountId, userId, provider: "microsoft-entra-id" }
+        : { userId, provider: "microsoft-entra-id" },
       select: {
         id: true,
         access_token: true,
@@ -138,8 +141,8 @@ export class MicrosoftCalendarService implements CalendarProvider {
     return account.access_token;
   }
 
-  private async graphFetch<T>(userId: string, url: string): Promise<T> {
-    const accessToken = await this.getAccessToken(userId);
+  private async graphFetch<T>(userId: string, url: string, accountId?: string): Promise<T> {
+    const accessToken = await this.getAccessToken(userId, accountId);
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -256,6 +259,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
       calendarId?: string;
       maxResults?: number;
       useCache?: boolean;
+      accountId?: string;
     } = {},
   ): Promise<CalendarEvent[]> {
     const {
@@ -264,6 +268,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
       calendarId,
       maxResults = 50,
       useCache = true,
+      accountId,
     } = options;
 
     const cacheKey = this.generateCacheKey(userId, {
@@ -271,6 +276,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
       timeMax,
       calendarId,
       maxResults,
+      accountId,
     });
 
     if (useCache) {
@@ -302,7 +308,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
     const url = `https://graph.microsoft.com/v1.0/${calendarPath}?${params.toString()}`;
     const data = await this.graphFetch<{
       value: GraphCalendarViewEvent[];
-    }>(userId, url);
+    }>(userId, url, accountId);
 
     const events = data.value.map((event) =>
       this.mapGraphEventToCalendarEvent(event),
@@ -343,10 +349,11 @@ export class MicrosoftCalendarService implements CalendarProvider {
     });
   }
 
-  async listCalendars(userId: string): Promise<CalendarInfo[]> {
+  async listCalendars(userId: string, accountId?: string): Promise<CalendarInfo[]> {
     const data = await this.graphFetch<{ value: GraphCalendar[] }>(
       userId,
       "https://graph.microsoft.com/v1.0/me/calendars",
+      accountId,
     );
 
     return data.value.map(
@@ -370,6 +377,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
       timeMax?: Date;
       maxResults?: number;
       useCache?: boolean;
+      accountId?: string;
     } = {},
     calendarMetadata?: CalendarInfo[],
   ): Promise<CalendarEventWithSource[]> {

@@ -1,44 +1,122 @@
 "use client";
 
-import { Text, Stack, Group, UnstyledButton } from "@mantine/core";
+import {
+  Text,
+  Stack,
+  Group,
+  UnstyledButton,
+  Checkbox,
+  Menu,
+  ActionIcon,
+  Loader,
+} from "@mantine/core";
 import {
   IconBrandGoogle,
   IconBrandWindows,
   IconPlus,
+  IconDots,
+  IconUnlink,
 } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
+import { api } from "~/trpc/react";
 import { CalendarMiniWidget } from "./CalendarMiniWidget";
 
 interface CalendarSidebarProps {
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
-  googleConnected?: boolean;
-  microsoftConnected?: boolean;
-  connectedAccounts?: Array<{
-    provider: 'google' | 'microsoft';
-    email: string | null;
-    name: string | null;
-  }>;
 }
 
 export function CalendarSidebar({
   selectedDate,
   onDateSelect,
-  googleConnected,
-  microsoftConnected,
-  connectedAccounts = [],
 }: CalendarSidebarProps) {
-  const handleConnectGoogle = () => {
+  const utils = api.useUtils();
+
+  const { data, isLoading } = api.calendar.getCalendarAccounts.useQuery();
+  const accounts = data?.accounts ?? [];
+  const hasMicrosoft = accounts.some((a) => a.provider === "microsoft");
+
+  const startOAuth = (path: string) => {
     const returnUrl = encodeURIComponent(
       window.location.pathname + window.location.search,
     );
-    window.location.href = `/api/auth/google-calendar?returnUrl=${returnUrl}`;
+    window.location.href = `${path}?returnUrl=${returnUrl}`;
   };
 
-  const handleConnectMicrosoft = () => {
-    const returnUrl = encodeURIComponent(
-      window.location.pathname + window.location.search,
-    );
-    window.location.href = `/api/auth/microsoft-calendar?returnUrl=${returnUrl}`;
+  const updateSelected = api.calendar.updateSelectedCalendars.useMutation({
+    onMutate: async ({ accountId, calendarIds }) => {
+      await utils.calendar.getCalendarAccounts.cancel();
+      const previous = utils.calendar.getCalendarAccounts.getData();
+      utils.calendar.getCalendarAccounts.setData(undefined, (old) =>
+        old
+          ? {
+              accounts: old.accounts.map((a) =>
+                a.id === accountId
+                  ? { ...a, selectedCalendarIds: calendarIds }
+                  : a,
+              ),
+            }
+          : old,
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) {
+        utils.calendar.getCalendarAccounts.setData(undefined, ctx.previous);
+      }
+      notifications.show({
+        title: "Couldn't update calendars",
+        message: "Your selection was reverted.",
+        color: "red",
+      });
+    },
+    onSettled: () => {
+      void utils.calendar.getCalendarAccounts.invalidate();
+      void utils.calendar.getEventsMultiCalendar.invalidate();
+    },
+  });
+
+  const disconnect = api.calendar.disconnect.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.calendar.getCalendarAccounts.invalidate(),
+        utils.calendar.getAllConnectionStatuses.invalidate(),
+        utils.calendar.getEventsMultiCalendar.invalidate(),
+      ]);
+      notifications.show({
+        title: "Calendar disconnected",
+        message: "The account was removed from your calendar.",
+        color: "blue",
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message ?? "Failed to disconnect calendar",
+        color: "red",
+      });
+    },
+  });
+
+  const toggleCalendar = (
+    accountId: string,
+    selectedCalendarIds: string[],
+    calendarId: string,
+    checked: boolean,
+  ) => {
+    const next = checked
+      ? [...selectedCalendarIds, calendarId]
+      : selectedCalendarIds.filter((id) => id !== calendarId);
+    // updateSelectedCalendars requires at least one selected calendar.
+    if (next.length === 0) {
+      notifications.show({
+        title: "Keep at least one calendar",
+        message: "Select another calendar before hiding this one.",
+        color: "yellow",
+      });
+      return;
+    }
+    updateSelected.mutate({ accountId, calendarIds: next });
   };
 
   return (
@@ -57,61 +135,124 @@ export function CalendarSidebar({
           <Text size="sm" fw={600} mb="sm" className="text-text-primary">
             Calendars
           </Text>
-          <Stack gap="xs">
-            {/* Show connected calendars with email */}
-            {connectedAccounts && connectedAccounts.length > 0 ? (
-              connectedAccounts.map((account) => (
-                <Group key={account.provider} gap="xs" wrap="nowrap">
-                  {/* Provider icon */}
-                  {account.provider === 'google' && (
-                    <IconBrandGoogle size={16} className="text-text-secondary flex-shrink-0" />
-                  )}
-                  {account.provider === 'microsoft' && (
-                    <IconBrandWindows size={16} className="text-text-secondary flex-shrink-0" />
-                  )}
 
-                  {/* Email and name */}
-                  <div className="flex-1 min-w-0">
-                    <Text size="sm" className="text-text-primary truncate">
-                      {account.name ?? account.email}
-                    </Text>
-                    {account.name && account.email && (
-                      <Text size="xs" c="dimmed" className="truncate">
-                        {account.email}
-                      </Text>
-                    )}
-                  </div>
-
-                  {/* Connected indicator */}
-                  <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-                </Group>
-              ))
-            ) : (
+          <Stack gap="md">
+            {isLoading ? (
+              <Group gap="xs">
+                <Loader size="xs" />
+                <Text size="sm" c="dimmed">
+                  Loading calendars…
+                </Text>
+              </Group>
+            ) : accounts.length === 0 ? (
               <Text size="sm" c="dimmed">
                 No calendars connected
               </Text>
+            ) : (
+              accounts.map((account) => (
+                <div key={account.id}>
+                  {/* Account header */}
+                  <Group gap="xs" wrap="nowrap" mb="xs">
+                    {account.provider === "google" ? (
+                      <IconBrandGoogle
+                        size={14}
+                        className="text-text-secondary flex-shrink-0"
+                      />
+                    ) : (
+                      <IconBrandWindows
+                        size={14}
+                        className="text-text-secondary flex-shrink-0"
+                      />
+                    )}
+                    <Text
+                      size="xs"
+                      fw={600}
+                      className="text-text-secondary flex-1 truncate"
+                      title={account.email ?? undefined}
+                    >
+                      {account.email ?? account.name ?? "Calendar account"}
+                    </Text>
+                    <Menu position="bottom-end" withinPortal>
+                      <Menu.Target>
+                        <ActionIcon
+                          variant="subtle"
+                          color="gray"
+                          size="sm"
+                          aria-label="Account options"
+                        >
+                          <IconDots size={14} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<IconUnlink size={14} />}
+                          color="red"
+                          onClick={() =>
+                            disconnect.mutate({ accountId: account.id })
+                          }
+                        >
+                          Disconnect
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Group>
+
+                  {/* Per-calendar checkboxes */}
+                  <Stack gap={6} pl="md">
+                    {account.calendars.length === 0 ? (
+                      <Text size="xs" c="dimmed">
+                        No calendars found
+                      </Text>
+                    ) : (
+                      account.calendars.map((cal) => (
+                        <Checkbox
+                          key={cal.id}
+                          size="xs"
+                          checked={account.selectedCalendarIds.includes(cal.id)}
+                          onChange={(e) =>
+                            toggleCalendar(
+                              account.id,
+                              account.selectedCalendarIds,
+                              cal.id,
+                              e.currentTarget.checked,
+                            )
+                          }
+                          label={
+                            <Group gap={6} wrap="nowrap">
+                              {cal.backgroundColor && (
+                                <span
+                                  className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                                  style={{ backgroundColor: cal.backgroundColor }}
+                                />
+                              )}
+                              <Text size="xs" className="truncate" title={cal.summary}>
+                                {cal.summary}
+                              </Text>
+                            </Group>
+                          }
+                        />
+                      ))
+                    )}
+                  </Stack>
+                </div>
+              ))
             )}
 
-            {/* Divider if there are connected accounts */}
-            {connectedAccounts && connectedAccounts.length > 0 && (
-              <div className="border-t border-border-primary my-2" />
-            )}
+            <div className="border-t border-border-primary my-1" />
 
-            {/* Add buttons for disconnected providers */}
-            {!googleConnected && (
+            {/* Add accounts. Google can always stack additional accounts. */}
+            <UnstyledButton
+              onClick={() => startOAuth("/api/auth/google-calendar")}
+              className="flex items-center gap-2 text-text-secondary transition-colors hover:text-text-primary"
+            >
+              <IconPlus size={16} />
+              <Text size="sm">Add Google account</Text>
+            </UnstyledButton>
+
+            {!hasMicrosoft && (
               <UnstyledButton
-                onClick={handleConnectGoogle}
-                className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
-              >
-                <IconPlus size={16} />
-                <Text size="sm">Add Google</Text>
-              </UnstyledButton>
-            )}
-
-            {!microsoftConnected && (
-              <UnstyledButton
-                onClick={handleConnectMicrosoft}
-                className="flex items-center gap-2 text-text-secondary hover:text-text-primary transition-colors"
+                onClick={() => startOAuth("/api/auth/microsoft-calendar")}
+                className="flex items-center gap-2 text-text-secondary transition-colors hover:text-text-primary"
               >
                 <IconPlus size={16} />
                 <Text size="sm">Add Outlook</Text>

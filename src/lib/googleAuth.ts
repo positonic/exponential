@@ -15,16 +15,43 @@ import { db } from "~/server/db";
  * - "contacts": Calendar + Contacts (sensitive scopes)
  * - "crm": Calendar + Contacts + Gmail (includes restricted scope, requires security audit)
  */
+/**
+ * Identity scopes requested alongside every set. Without these the
+ * `oauth2/v2/userinfo` call returns 401, so the OAuth callback can't read the
+ * Google account id/email it needs to upsert the Account by
+ * (provider, providerAccountId). These are non-sensitive and don't affect
+ * Google's verification tier. They also make the calendar account's
+ * providerAccountId match the one stored at NextAuth sign-in, so reconnecting
+ * dedupes onto the same row instead of creating a duplicate.
+ */
+const GOOGLE_IDENTITY_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+] as const;
+
+// Calendar access. `calendar.events` grants read/write of events on any
+// calendar the user can access, but it does NOT permit `calendarList.list`
+// (listing the user's calendars) — that needs `calendar.readonly`. The
+// multi-calendar sidebar lists calendars per account, so both are required.
+const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.readonly",
+] as const;
+
 export const GOOGLE_SCOPE_SETS = {
   calendar: [
-    "https://www.googleapis.com/auth/calendar.events",
+    ...GOOGLE_IDENTITY_SCOPES,
+    ...GOOGLE_CALENDAR_SCOPES,
   ],
   contacts: [
-    "https://www.googleapis.com/auth/calendar.events",
+    ...GOOGLE_IDENTITY_SCOPES,
+    ...GOOGLE_CALENDAR_SCOPES,
     "https://www.googleapis.com/auth/contacts.readonly",
   ],
   crm: [
-    "https://www.googleapis.com/auth/calendar.events",
+    ...GOOGLE_IDENTITY_SCOPES,
+    ...GOOGLE_CALENDAR_SCOPES,
     "https://www.googleapis.com/auth/contacts.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
   ],
@@ -52,7 +79,10 @@ export async function checkGoogleScopes(
   userId: string,
   requiredScopes: string[]
 ): Promise<{ hasScopes: boolean; currentScopes: string[] }> {
-  const account = await db.account.findFirst({
+  // A user may have multiple Google accounts (e.g. a calendar-only account
+  // plus a CRM-scoped one). Consider the account whose scopes best satisfy the
+  // request so adding a narrow second account never hides an existing grant.
+  const accounts = await db.account.findMany({
     where: {
       userId,
       provider: "google",
@@ -60,16 +90,24 @@ export async function checkGoogleScopes(
     select: { scope: true },
   });
 
-  if (!account?.scope) {
-    return { hasScopes: false, currentScopes: [] };
+  const scopeSatisfies = (scope: string | null) => {
+    if (!scope) return false;
+    const current = scope.split(" ");
+    return requiredScopes.every((required) =>
+      current.some((c) => c.includes(required) || required.includes(c)),
+    );
+  };
+
+  const matching = accounts.find((a) => scopeSatisfies(a.scope));
+  if (matching?.scope) {
+    return { hasScopes: true, currentScopes: matching.scope.split(" ") };
   }
 
-  const currentScopes = account.scope.split(" ");
-  const hasScopes = requiredScopes.every((required) =>
-    currentScopes.some((current) => current.includes(required) || required.includes(current))
-  );
-
-  return { hasScopes, currentScopes };
+  // None fully satisfy — return the broadest account's scopes for context.
+  const broadest = accounts
+    .map((a) => a.scope?.split(" ") ?? [])
+    .sort((a, b) => b.length - a.length)[0];
+  return { hasScopes: false, currentScopes: broadest ?? [] };
 }
 
 /**

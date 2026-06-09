@@ -11,12 +11,54 @@ const tokenCache = new Map<string, TokenCache>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
 const TOKEN_REFRESH_BUFFER = 5 * 60 * 1000; // Refresh 5 minutes before expiry
 
+interface GoogleAccountRow {
+  id: string;
+  access_token: string | null;
+  refresh_token: string | null;
+  scope: string | null;
+  expires_at: number | null;
+}
+
+/**
+ * Choose which Google account to use when a user has connected more than one.
+ * Prefers (in order): an account that has the required scope, an account with a
+ * refresh token, then the account granting the most scopes. This keeps Gmail/CRM
+ * features working even after the user adds a calendar-only second Google account.
+ */
+function pickBestGoogleAccount<T extends GoogleAccountRow>(
+  accounts: T[],
+  requiredScope?: string,
+): T | undefined {
+  const usable = accounts.filter((a) => a.access_token);
+  if (usable.length === 0) return undefined;
+
+  const scopeCount = (a: GoogleAccountRow) =>
+    a.scope ? a.scope.split(" ").length : 0;
+
+  return [...usable].sort((a, b) => {
+    if (requiredScope) {
+      const aHas = a.scope?.includes(requiredScope) ? 1 : 0;
+      const bHas = b.scope?.includes(requiredScope) ? 1 : 0;
+      if (aHas !== bHas) return bHas - aHas;
+    }
+    const aRefresh = a.refresh_token ? 1 : 0;
+    const bRefresh = b.refresh_token ? 1 : 0;
+    if (aRefresh !== bRefresh) return bRefresh - aRefresh;
+    return scopeCount(b) - scopeCount(a);
+  })[0];
+}
+
 export class GoogleTokenManager {
   /**
-   * Get a valid access token, refreshing if necessary
+   * Get a valid access token, refreshing if necessary.
+   * When the user has multiple Google accounts, pass `requiredScope` to target
+   * the account that granted it; otherwise the broadest-scoped account is used.
    */
-  static async getValidAccessToken(userId: string): Promise<string> {
-    const cacheKey = userId;
+  static async getValidAccessToken(
+    userId: string,
+    requiredScope?: string,
+  ): Promise<string> {
+    const cacheKey = `${userId}:${requiredScope ?? "default"}`;
 
     // Check cache first
     const cached = tokenCache.get(cacheKey);
@@ -27,13 +69,15 @@ export class GoogleTokenManager {
       }
     }
 
-    // Fetch from database
-    const account = await db.account.findFirst({
+    // Fetch all Google accounts and pick the best one for this purpose
+    const accounts = await db.account.findMany({
       where: {
         userId,
         provider: "google",
       },
     });
+
+    const account = pickBestGoogleAccount(accounts, requiredScope);
 
     if (!account) {
       throw new Error("No Google account connection found");
@@ -48,7 +92,7 @@ export class GoogleTokenManager {
     const needsRefresh = expiresAt <= Date.now() + TOKEN_REFRESH_BUFFER;
 
     if (needsRefresh) {
-      return await this.refreshAccessToken(account.id, userId);
+      return await this.refreshAccessToken(account.id, cacheKey);
     }
 
     // Cache the token
@@ -66,7 +110,7 @@ export class GoogleTokenManager {
    */
   private static async refreshAccessToken(
     accountId: string,
-    userId: string
+    cacheKey: string
   ): Promise<string> {
     console.log("🔄 Refreshing Google access token...");
 
@@ -124,7 +168,7 @@ export class GoogleTokenManager {
       });
 
       // Update cache
-      tokenCache.set(userId, {
+      tokenCache.set(cacheKey, {
         accessToken: tokens.access_token,
         expiresAt: expiresAt * 1000, // Convert to ms
         cachedAt: Date.now(),
@@ -139,10 +183,15 @@ export class GoogleTokenManager {
   }
 
   /**
-   * Invalidate cache for a user
+   * Invalidate all cached tokens for a user (across scope variants).
    */
   static invalidateCache(userId: string): void {
-    tokenCache.delete(userId);
+    tokenCache.delete(userId); // legacy key
+    for (const key of tokenCache.keys()) {
+      if (key.startsWith(`${userId}:`)) {
+        tokenCache.delete(key);
+      }
+    }
   }
 
   /**
@@ -153,15 +202,18 @@ export class GoogleTokenManager {
   }
 
   /**
-   * Get Google Account connection details
+   * Get Google Account connection details. When the user has multiple Google
+   * accounts, pass `requiredScope` to pick the account that granted it;
+   * otherwise the broadest-scoped account is returned.
    */
-  static async getConnection(userId: string) {
-    return await db.account.findFirst({
+  static async getConnection(userId: string, requiredScope?: string) {
+    const accounts = await db.account.findMany({
       where: {
         userId,
         provider: "google",
       },
     });
+    return pickBestGoogleAccount(accounts, requiredScope) ?? null;
   }
 
   /**

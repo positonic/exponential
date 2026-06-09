@@ -19,6 +19,15 @@ function parseState(state: string | null): OAuthState | null {
   }
 }
 
+/**
+ * Append a query param to a returnUrl that may already contain a query string
+ * (e.g. "/calendar?date=2026-06-09"), using the correct separator so we don't
+ * produce a malformed "?a=1?b=2" URL.
+ */
+function withParam(url: string, param: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}${param}`;
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth();
 
@@ -36,11 +45,11 @@ export async function GET(request: NextRequest) {
   const returnUrl = state?.returnUrl ?? "/plan";
 
   if (error) {
-    redirect(`${returnUrl}?calendar_error=access_denied`);
+    redirect(withParam(returnUrl, "calendar_error=access_denied"));
   }
 
   if (!code || !state || state.userId !== session.user.id) {
-    redirect(`${returnUrl}?calendar_error=invalid_request`);
+    redirect(withParam(returnUrl, "calendar_error=invalid_request"));
   }
 
   // Get the host from the request headers to handle different ports
@@ -101,16 +110,10 @@ export async function GET(request: NextRequest) {
       console.error("  3. Or the prompt=consent parameter didn't work");
     }
 
-    // Store tokens in the database
-    // First, find or create a Google account record for this user
-    const existingAccount = await db.account.findFirst({
-      where: {
-        userId: session.user.id,
-        provider: "google",
-      },
-    });
-
-    // Fetch the Google account's email address
+    // Fetch the Google account's identity (id is the stable providerAccountId).
+    // We need this BEFORE writing so we can target the exact account being
+    // (re)connected — connecting a *different* Google account must create a new
+    // row, not overwrite an existing one.
     const googleUserInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -128,14 +131,44 @@ export async function GET(request: NextRequest) {
       ? ((await googleUserInfoResponse.json()) as { id: string; email?: string })
       : null;
 
+    if (!googleUserInfo?.id) {
+      // Without the provider account id we can't safely target a row.
+      console.error("❌ No id in Google user info response — cannot link account");
+      redirect(withParam(returnUrl, "calendar_error=token_exchange_failed"));
+    }
+
     // Log if email is missing
-    if (!googleUserInfo?.email) {
+    if (!googleUserInfo.email) {
       console.error("⚠️ No email in Google user info response");
     }
 
+    const expiresAt = tokens.expires_in
+      ? Math.floor(Date.now() / 1000) + tokens.expires_in
+      : null;
+
+    // Look up by the unique (provider, providerAccountId) so reconnecting the
+    // same Google account updates it, while a new account creates a new row.
+    const existingAccount = await db.account.findUnique({
+      where: {
+        provider_providerAccountId: {
+          provider: "google",
+          providerAccountId: googleUserInfo.id,
+        },
+      },
+    });
+
+    // The (provider, providerAccountId) unique is global, so the matched row
+    // could belong to a DIFFERENT app user. Never silently reassign it —
+    // doing so would detach the other user's calendar/CRM integration.
+    if (existingAccount && existingAccount.userId !== session.user.id) {
+      console.error(
+        "❌ Google account already linked to another user — refusing to reassign",
+      );
+      redirect(withParam(returnUrl, "calendar_error=account_linked_elsewhere"));
+    }
+
     if (existingAccount) {
-      // Update existing account with calendar tokens
-      // IMPORTANT: Only update refresh_token if we got a new one
+      // Update tokens. Only overwrite refresh_token if Google sent a new one.
       const updateData: {
         access_token: string;
         refresh_token?: string;
@@ -144,37 +177,29 @@ export async function GET(request: NextRequest) {
         providerEmail?: string;
       } = {
         access_token: tokens.access_token,
-        expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+        expires_at: expiresAt,
         scope: tokens.scope,
       };
 
-      // Only update refresh_token if Google sent a new one
       if (tokens.refresh_token) {
         updateData.refresh_token = tokens.refresh_token;
       }
 
-      if (googleUserInfo?.email) {
+      if (googleUserInfo.email) {
         updateData.providerEmail = googleUserInfo.email;
       }
 
       await db.account.update({
-        where: {
-          id: existingAccount.id,
-        },
+        where: { id: existingAccount.id },
         data: updateData,
       });
 
       console.log("✅ Updated existing Google account with new tokens");
     } else {
-      // User doesn't have a Google account yet (e.g., signed in with Discord)
-      // Create a new Google Account record
+      // First time connecting this particular Google account.
       if (!tokens.refresh_token) {
         console.error("❌ Cannot create Google account without refresh token!");
-        redirect(`${returnUrl}?calendar_error=no_refresh_token`);
-      }
-
-      if (!googleUserInfo) {
-        throw new Error("Failed to fetch Google user info");
+        redirect(withParam(returnUrl, "calendar_error=no_refresh_token"));
       }
 
       await db.account.create({
@@ -185,7 +210,7 @@ export async function GET(request: NextRequest) {
           providerAccountId: googleUserInfo.id,
           access_token: tokens.access_token,
           refresh_token: tokens.refresh_token,
-          expires_at: tokens.expires_in ? Math.floor(Date.now() / 1000) + tokens.expires_in : null,
+          expires_at: expiresAt,
           token_type: tokens.token_type ?? "Bearer",
           scope: tokens.scope,
           providerEmail: googleUserInfo.email,
@@ -196,7 +221,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log("✅ Calendar tokens stored successfully!");
-    redirect(`${returnUrl}?calendar_connected=true`);
+    redirect(withParam(returnUrl, "calendar_connected=true"));
   } catch (error) {
     // Don't catch Next.js redirect errors
     if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
@@ -209,6 +234,6 @@ export async function GET(request: NextRequest) {
       code: (error as { code?: string } | null)?.code,
       response: (error as { response?: { data?: unknown } } | null)?.response?.data,
     });
-    redirect(`${returnUrl}?calendar_error=token_exchange_failed`);
+    redirect(withParam(returnUrl, "calendar_error=token_exchange_failed"));
   }
 }

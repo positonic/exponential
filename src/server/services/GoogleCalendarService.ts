@@ -36,22 +36,34 @@ const calendarCache = new NodeCache({
 
 export class GoogleCalendarService implements CalendarProvider {
   private generateCacheKey(userId: string, options: any): string {
-    const { timeMin, timeMax, calendarId, maxResults } = options;
-    return `cal:${userId}:${calendarId}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;
+    const { timeMin, timeMax, calendarId, maxResults, accountId } = options;
+    // accountId is part of the key so events from different Google accounts
+    // never collide. Legacy single-account callers omit it.
+    return `cal:${userId}:${accountId ?? 'default'}:${calendarId}:${timeMin?.getTime()}:${timeMax?.getTime()}:${maxResults}`;
   }
-  private async getCalendarClient(userId: string) {
-    // Get the user's Google OAuth tokens from database
-    const account = await db.account.findFirst({
-      where: {
-        userId: userId,
-        provider: 'google',
-      },
+
+  /**
+   * Resolve the Account row to use. When accountId is given we target that
+   * specific connected Google account (scoped to the user); otherwise we fall
+   * back to the user's first Google account (legacy single-account behaviour).
+   */
+  private async resolveAccount(userId: string, accountId?: string) {
+    return db.account.findFirst({
+      where: accountId
+        ? { id: accountId, userId, provider: 'google' }
+        : { userId, provider: 'google' },
       select: {
+        id: true,
         access_token: true,
         refresh_token: true,
         expires_at: true,
       },
     });
+  }
+
+  private async getCalendarClient(userId: string, accountId?: string) {
+    // Get the user's Google OAuth tokens from database
+    const account = await this.resolveAccount(userId, accountId);
 
     if (!account?.access_token) {
       throw new Error('No Google Calendar access token found. Please connect your Google Calendar.');
@@ -81,26 +93,17 @@ export class GoogleCalendarService implements CalendarProvider {
           'google.refreshAccessToken',
         );
 
-        // Update the database with new tokens
-        const existingAccount = await db.account.findFirst({
+        // Update the database with new tokens for this specific account
+        await db.account.update({
           where: {
-            userId: userId,
-            provider: 'google',
+            id: account.id,
+          },
+          data: {
+            access_token: credentials.access_token,
+            expires_at: credentials.expiry_date ? Math.floor(credentials.expiry_date / 1000) : null,
+            refresh_token: credentials.refresh_token || account.refresh_token, // Keep existing if not provided
           },
         });
-        
-        if (existingAccount) {
-          await db.account.update({
-            where: {
-              id: existingAccount.id,
-            },
-            data: {
-              access_token: credentials.access_token,
-              expires_at: credentials.expiry_date ? Math.floor(credentials.expiry_date / 1000) : null,
-              refresh_token: credentials.refresh_token || account.refresh_token, // Keep existing if not provided
-            },
-          });
-        }
 
         oauth2Client.setCredentials(credentials);
         return google.calendar({ version: 'v3', auth: oauth2Client });
@@ -171,6 +174,7 @@ export class GoogleCalendarService implements CalendarProvider {
       calendarId?: string;
       maxResults?: number;
       useCache?: boolean;
+      accountId?: string;
     } = {}
   ): Promise<CalendarEvent[]> {
     const {
@@ -179,6 +183,7 @@ export class GoogleCalendarService implements CalendarProvider {
       calendarId = 'primary',
       maxResults = 50,
       useCache = true,
+      accountId,
     } = options;
 
     // Generate cache key
@@ -187,6 +192,7 @@ export class GoogleCalendarService implements CalendarProvider {
       timeMax,
       calendarId,
       maxResults,
+      accountId,
     });
 
     // Try to get from cache first
@@ -200,7 +206,7 @@ export class GoogleCalendarService implements CalendarProvider {
 
     console.log(`Calendar cache miss for user ${userId}, fetching from API`);
 
-    const calendar = await this.getCalendarClient(userId);
+    const calendar = await this.getCalendarClient(userId, accountId);
 
     try {
       const response = await calendar.events.list(
@@ -376,8 +382,8 @@ export class GoogleCalendarService implements CalendarProvider {
   /**
    * List all calendars available to the user
    */
-  async listCalendars(userId: string): Promise<GoogleCalendarInfo[]> {
-    const calendar = await this.getCalendarClient(userId);
+  async listCalendars(userId: string, accountId?: string): Promise<GoogleCalendarInfo[]> {
+    const calendar = await this.getCalendarClient(userId, accountId);
 
     try {
       const response = await calendar.calendarList.list({
@@ -412,6 +418,7 @@ export class GoogleCalendarService implements CalendarProvider {
       timeMax?: Date;
       maxResults?: number;
       useCache?: boolean;
+      accountId?: string;
     } = {},
     calendarMetadata?: GoogleCalendarInfo[]
   ): Promise<CalendarEventWithSource[]> {

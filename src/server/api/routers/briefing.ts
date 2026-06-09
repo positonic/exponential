@@ -96,28 +96,54 @@ export const briefingRouter = createTRPCRouter({
       if (hour >= 12 && hour < 17) greetingPrefix = "Good afternoon";
       if (hour >= 17) greetingPrefix = "Good evening";
 
-      // 1. Get calendar events for today (if calendar is connected)
+      // 1. Get calendar events for today across ALL connected Google accounts
       let calendarEvents: BriefingCalendarEvent[] = [];
       if (input?.includeCalendar !== false) {
         try {
-          // Check if Google Calendar is connected
-          const googleAccount = await ctx.db.account.findFirst({
+          // Find every Google account that has calendar scope
+          const googleAccounts = await ctx.db.account.findMany({
             where: {
               userId,
               provider: "google",
             },
-            select: { scope: true },
+            select: { id: true, scope: true },
           });
 
-          if (googleAccount?.scope?.includes("calendar.events")) {
+          const calendarAccounts = googleAccounts.filter((a) =>
+            a.scope?.includes("calendar.events"),
+          );
+
+          if (calendarAccounts.length > 0) {
             // Import the service dynamically to avoid circular deps
             const { GoogleCalendarService } = await import(
               "~/server/services/GoogleCalendarService"
             );
             const calendarService = new GoogleCalendarService();
-            
-            const events = await calendarService.getTodayEvents(userId);
-            calendarEvents = events.map((e) => ({
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+
+            const perAccount = await Promise.all(
+              calendarAccounts.map(async (account) => {
+                try {
+                  return await calendarService.getEvents(userId, {
+                    timeMin: today,
+                    timeMax: tomorrow,
+                    accountId: account.id,
+                  });
+                } catch (error) {
+                  console.error(
+                    `[briefing] Failed to fetch calendar events for account ${account.id}:`,
+                    error,
+                  );
+                  return [];
+                }
+              }),
+            );
+
+            calendarEvents = perAccount.flat().map((e) => ({
               id: e.id,
               title: e.summary,
               start: e.start.dateTime ? new Date(e.start.dateTime) : todayStart,
