@@ -247,7 +247,9 @@ export function KeyResultsSection({
   );
 
   // The workspace's KR pool for the current quarter (for "link another KR").
-  const poolQuery = api.okr.getAll.useQuery(
+  // getByObjective is workspace-scoped — it returns ALL members' OKRs for the
+  // period (and validates membership), unlike getAll which is user-scoped.
+  const poolQuery = api.okr.getByObjective.useQuery(
     { workspaceId: workspaceId ?? undefined, period: quarter.period },
     { enabled: workspaceId !== null },
   );
@@ -283,19 +285,11 @@ export function KeyResultsSection({
 
   // Normalize linked + pool into one display list, then split.
   const { linkedRows, otherRows, codes } = useMemo(() => {
-    const linked: DisplayKr[] = (linkedQuery.data ?? []).map((kr) => ({
-      id: kr.id,
-      title: kr.title,
-      status: kr.status,
-      currentValue: kr.currentValue,
-      targetValue: kr.targetValue,
-      startValue: kr.startValue,
-      goalId: kr.goalId,
-      goalTitle: kr.goal?.title ?? "",
-      linked: true,
-    }));
-    const others: DisplayKr[] = (poolQuery.data ?? [])
-      .filter((kr) => !linkedSet.has(kr.id))
+    // Filter by linkedSet (source of truth from project.keyResults) so that
+    // unlinking the last KR — which disables getByIds and leaves stale data —
+    // correctly empties the linked list and reveals the orphan state.
+    const linked: DisplayKr[] = (linkedQuery.data ?? [])
+      .filter((kr) => linkedSet.has(kr.id))
       .map((kr) => ({
         id: kr.id,
         title: kr.title,
@@ -305,8 +299,24 @@ export function KeyResultsSection({
         startValue: kr.startValue,
         goalId: kr.goalId,
         goalTitle: kr.goal?.title ?? "",
-        linked: false,
+        linked: true,
       }));
+    // getByObjective groups KRs under their objective (goal); flatten to rows.
+    const others: DisplayKr[] = (poolQuery.data ?? [])
+      .flatMap((goal) =>
+        goal.keyResults.map((kr) => ({
+          id: kr.id,
+          title: kr.title,
+          status: kr.status,
+          currentValue: kr.currentValue,
+          targetValue: kr.targetValue,
+          startValue: kr.startValue,
+          goalId: kr.goalId,
+          goalTitle: goal.title,
+          linked: false,
+        })),
+      )
+      .filter((kr) => !linkedSet.has(kr.id));
     return {
       linkedRows: linked,
       otherRows: others,

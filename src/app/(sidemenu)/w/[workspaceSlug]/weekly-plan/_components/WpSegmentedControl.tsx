@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 export interface SegOption {
   value: string;
@@ -37,30 +37,41 @@ export function WpSegmentedControl({
     0,
     options.findIndex((o) => o.value === value),
   );
+  // Roving focus index, seeded at the selected option. Arrow keys move focus
+  // ONLY (manual activation); selection commits on click / Enter / Space — so
+  // keyboard navigation never fires a persist-per-keystroke.
+  const [focusedIndex, setFocusedIndex] = useState(selectedIndex);
 
-  const select = (index: number) => {
+  const commit = (index: number) => {
     if (readOnly || !onChange) return;
     const opt = options[index];
     if (!opt) return;
+    setFocusedIndex(index);
     onChange(opt.value);
-    refs.current[index]?.focus();
+  };
+
+  const moveFocus = (index: number) => {
+    const n = options.length;
+    if (n === 0) return;
+    const next = ((index % n) + n) % n;
+    setFocusedIndex(next);
+    refs.current[next]?.focus();
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (readOnly) return;
-    const n = options.length;
     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault();
-      select((selectedIndex + 1) % n);
+      moveFocus(focusedIndex + 1);
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       e.preventDefault();
-      select((selectedIndex - 1 + n) % n);
+      moveFocus(focusedIndex - 1);
     } else if (e.key === "Home") {
       e.preventDefault();
-      select(0);
+      moveFocus(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      select(n - 1);
+      moveFocus(options.length - 1);
     }
   };
 
@@ -84,8 +95,8 @@ export function WpSegmentedControl({
             role="radio"
             aria-checked={on}
             disabled={readOnly}
-            tabIndex={readOnly ? -1 : on ? 0 : -1}
-            onClick={() => select(i)}
+            tabIndex={readOnly ? -1 : i === focusedIndex ? 0 : -1}
+            onClick={() => commit(i)}
             className={
               "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 " +
               (on

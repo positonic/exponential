@@ -204,13 +204,26 @@ export function ProjectReviewCard({
     onMarkReviewed,
   ]);
 
+  const handleActionUpdated = async () => {
+    const freshData = await utils.project.getActiveWithDetails.fetch({
+      workspaceId: workspaceId ?? undefined,
+    });
+    const freshProject = freshData?.find((p) => p.id === project.id);
+    if (freshProject) {
+      setLocalActions(freshProject.actions);
+    }
+  };
+
   const handleActionAdded = (newAction: {
     id: string;
     name: string;
     status: string;
   }) => {
     setActionAdded(true);
-    // Prepend so the new action lands at the top of the Open list.
+    // Optimistically prepend a stub so the new action shows at the top of Open
+    // immediately, then rehydrate from the server so it has its full shape
+    // (tags, assignees, project, …) before anything — e.g. the edit modal —
+    // reads it.
     setLocalActions((prev) => [
       {
         ...newAction,
@@ -220,16 +233,7 @@ export function ProjectReviewCard({
       } as unknown as (typeof prev)[0],
       ...prev,
     ]);
-  };
-
-  const handleActionUpdated = async () => {
-    const freshData = await utils.project.getActiveWithDetails.fetch({
-      workspaceId: workspaceId ?? undefined,
-    });
-    const freshProject = freshData?.find((p) => p.id === project.id);
-    if (freshProject) {
-      setLocalActions(freshProject.actions);
-    }
+    void handleActionUpdated();
   };
 
   const handleDateUpdate = (dates: {
