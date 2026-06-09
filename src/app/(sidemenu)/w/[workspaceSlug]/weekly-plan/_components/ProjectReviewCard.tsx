@@ -367,8 +367,8 @@ export function ProjectReviewCard({
         <Group gap="sm" align="center">
           {isReviewed && (
             <Tooltip label="Already reviewed" withArrow>
-              <div className="rounded-full bg-green-500/10 p-1.5">
-                <IconCheck size={16} className="text-green-500" />
+              <div className="rounded-full bg-accent-crm/10 p-1.5">
+                <IconCheck size={16} className="text-accent-crm" />
               </div>
             </Tooltip>
           )}
@@ -495,7 +495,7 @@ export function ProjectReviewCard({
           <IconTarget
             size={14}
             className={
-              indicators.weeklyPlanning ? "text-green-500" : "text-red-500"
+              indicators.weeklyPlanning ? "text-accent-crm" : "text-accent-due"
             }
           />
         </Tooltip>
@@ -508,7 +508,7 @@ export function ProjectReviewCard({
           <IconActivity
             size={14}
             className={
-              indicators.recentActivity ? "text-green-500" : "text-yellow-500"
+              indicators.recentActivity ? "text-accent-crm" : "text-accent-okr"
             }
           />
         </Tooltip>
@@ -523,7 +523,7 @@ export function ProjectReviewCard({
           <IconPlayerPlay
             size={14}
             className={
-              indicators.momentum ? "text-green-500" : "text-yellow-500"
+              indicators.momentum ? "text-accent-crm" : "text-accent-okr"
             }
           />
         </Tooltip>
@@ -533,7 +533,7 @@ export function ProjectReviewCard({
         >
           <IconCalendarCheck
             size={14}
-            className={indicators.onTrack ? "text-green-500" : "text-red-500"}
+            className={indicators.onTrack ? "text-accent-crm" : "text-accent-due"}
           />
         </Tooltip>
         <Tooltip
@@ -545,7 +545,7 @@ export function ProjectReviewCard({
           <IconTrendingUp
             size={14}
             className={
-              indicators.hasProgress ? "text-green-500" : "text-text-muted"
+              indicators.hasProgress ? "text-accent-crm" : "text-text-muted"
             }
           />
         </Tooltip>

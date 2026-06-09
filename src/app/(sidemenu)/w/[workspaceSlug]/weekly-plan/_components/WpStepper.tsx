@@ -41,7 +41,7 @@ export function WpStepper({
         aria-label="Previous project"
         disabled={currentIndex === 0}
         onClick={() => onJump(currentIndex - 1)}
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-not-allowed disabled:opacity-30"
       >
         <IconChevronLeft size={16} />
       </button>
@@ -58,9 +58,9 @@ export function WpStepper({
                 onClick={() => onJump(i)}
                 aria-current={current ? "step" : undefined}
                 className={
-                  "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 " +
+                  "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 " +
                   (current
-                    ? "border-blue-500/50 bg-blue-500/10"
+                    ? "border-brand-400/50 bg-brand-400/10"
                     : "border-border-subtle bg-surface-secondary hover:border-border-strong")
                 }
               >
@@ -68,9 +68,9 @@ export function WpStepper({
                   className={
                     "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-semibold " +
                     (current
-                      ? "bg-blue-500 text-white"
+                      ? "bg-brand-400 text-white"
                       : done
-                        ? "bg-green-500/20 text-green-500"
+                        ? "bg-accent-crm/20 text-accent-crm"
                         : "bg-surface-hover text-text-muted")
                   }
                 >
@@ -95,7 +95,7 @@ export function WpStepper({
         aria-label="Next project"
         disabled={currentIndex >= total - 1}
         onClick={() => onJump(currentIndex + 1)}
-        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-30"
+        className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-border-primary bg-surface-secondary text-text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-not-allowed disabled:opacity-30"
       >
         <IconChevronRight size={16} />
       </button>

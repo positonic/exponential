@@ -98,7 +98,7 @@ export function WpSegmentedControl({
             tabIndex={readOnly ? -1 : i === focusedIndex ? 0 : -1}
             onClick={() => commit(i)}
             className={
-              "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 " +
+              "inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 " +
               (on
                 ? "bg-surface-secondary text-text-primary shadow-sm"
                 : "text-text-secondary hover:bg-background-elevated hover:text-text-primary") +

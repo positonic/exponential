@@ -61,10 +61,10 @@ function ActionRow({ action, done, pending, onToggle, onOpen }: ActionRowProps) 
         aria-pressed={done}
         aria-label={done ? "Mark not done" : "Mark done"}
         className={
-          "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-50 " +
+          "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50 " +
           (done
-            ? "border-green-500 bg-green-500 text-white"
-            : "border-border-strong hover:border-blue-500")
+            ? "border-accent-crm bg-accent-crm text-white"
+            : "border-border-strong hover:border-brand-400")
         }
       >
         {done && <IconCheck size={12} />}
@@ -83,7 +83,7 @@ function ActionRow({ action, done, pending, onToggle, onOpen }: ActionRowProps) 
           {action.name}
         </span>
         {tag && (
-          <span className="shrink-0 rounded bg-blue-500/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-blue-300">
+          <span className="shrink-0 rounded bg-brand-400/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-[var(--brand-200)]">
             {tag}
           </span>
         )}
@@ -211,7 +211,7 @@ export function NextActionCapture({
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={
-              "inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 " +
+              "inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 " +
               (tab === t.key
                 ? "bg-surface-secondary text-text-primary"
                 : "text-text-muted hover:text-text-secondary")
@@ -221,7 +221,7 @@ export function NextActionCapture({
             <span
               className={
                 "font-mono text-[10.5px] " +
-                (tab === t.key ? "text-blue-400" : "text-text-faint")
+                (tab === t.key ? "text-brand-400" : "text-text-faint")
               }
             >
               {t.count}

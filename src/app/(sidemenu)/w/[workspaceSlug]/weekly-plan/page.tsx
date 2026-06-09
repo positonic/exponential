@@ -259,8 +259,8 @@ export default function WeeklyReviewPage() {
         <div className="mb-6 flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="mb-2 flex items-center gap-2">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-blue-500">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-brand-400">
                 Weekly Plan · Project Pass
               </span>
             </div>

@@ -60,11 +60,11 @@ function confColor(status: string | null): string {
   switch (status) {
     case "achieved":
     case "on-track":
-      return "bg-green-500";
+      return "bg-accent-crm";
     case "at-risk":
-      return "bg-yellow-500";
+      return "bg-accent-okr";
     case "off-track":
-      return "bg-red-500";
+      return "bg-accent-due";
     default:
       return "bg-surface-hover";
   }
@@ -80,10 +80,10 @@ function derivePace(
   elapsedPct: number,
   status: string | null,
 ): { label: string; className: string } {
-  const ahead = { label: "Ahead", className: "bg-green-500/10 text-green-500" };
-  const on = { label: "On pace", className: "bg-green-500/10 text-green-500" };
-  const behind = { label: "Behind", className: "bg-red-500/10 text-red-500" };
-  const watch = { label: "Watch", className: "bg-yellow-500/10 text-yellow-500" };
+  const ahead = { label: "Ahead", className: "bg-accent-crm/10 text-accent-crm" };
+  const on = { label: "On pace", className: "bg-accent-crm/10 text-accent-crm" };
+  const behind = { label: "Behind", className: "bg-accent-due/10 text-accent-due" };
+  const watch = { label: "Watch", className: "bg-accent-okr/10 text-accent-okr" };
 
   if (status === "off-track") return behind;
   if (status === "at-risk") return watch;
@@ -139,7 +139,7 @@ function KrRow({ kr, objectiveCode, krCode, elapsedPct, pending, onToggle }: KrR
       className={
         "flex flex-wrap items-center gap-3 rounded-lg border px-3 py-3 " +
         (kr.linked
-          ? "border-l-[3px] border-l-blue-500 border-border-primary bg-surface-secondary"
+          ? "border-l-[3px] border-l-brand-400 border-border-primary bg-surface-secondary"
           : "border-border-subtle bg-background-primary hover:border-border-strong")
       }
     >
@@ -150,7 +150,7 @@ function KrRow({ kr, objectiveCode, krCode, elapsedPct, pending, onToggle }: KrR
           disabled={pending}
           aria-pressed={true}
           aria-label={`Key Result linked — ${kr.title}. Activate to unlink.`}
-          className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-blue-500 bg-blue-500 px-2.5 text-[11px] font-semibold text-white transition-colors hover:border-red-500 hover:bg-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-50"
+          className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-brand-400 bg-brand-400 px-2.5 text-[11px] font-semibold text-white transition-colors hover:border-accent-due hover:bg-accent-due focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50"
         >
           <IconLink size={13} />
           <span className="group-hover:hidden">Linked</span>
@@ -163,7 +163,7 @@ function KrRow({ kr, objectiveCode, krCode, elapsedPct, pending, onToggle }: KrR
           disabled={pending}
           aria-pressed={false}
           aria-label={`Key Result not linked — ${kr.title}. Activate to link.`}
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted transition-colors hover:border-blue-500 hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 disabled:opacity-50"
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[11px] font-semibold text-text-muted transition-colors hover:border-brand-400 hover:text-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50"
         >
           <IconLink size={13} />
           Link
@@ -349,7 +349,7 @@ export function KeyResultsSection({
           <span className="text-sm font-semibold text-text-primary">
             Key Results
           </span>
-          <span className="rounded bg-yellow-500/10 px-1.5 py-0.5 font-mono text-[10.5px] text-yellow-500">
+          <span className="rounded bg-accent-okr/10 px-1.5 py-0.5 font-mono text-[10.5px] text-accent-okr">
             {quarter.label}
           </span>
         </div>
@@ -366,8 +366,8 @@ export function KeyResultsSection({
       ) : (
         <div className="flex flex-col gap-2">
           {linkedRows.length === 0 && (
-            <div className="flex items-center gap-3 rounded-lg border border-dashed border-yellow-500/30 bg-yellow-500/5 px-4 py-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-yellow-500/10 text-yellow-500">
+            <div className="flex items-center gap-3 rounded-lg border border-dashed border-accent-okr/30 bg-accent-okr/5 px-4 py-4">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-okr/10 text-accent-okr">
                 <IconCompass size={18} />
               </div>
               <div className="min-w-0">
