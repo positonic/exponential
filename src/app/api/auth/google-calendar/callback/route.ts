@@ -19,6 +19,15 @@ function parseState(state: string | null): OAuthState | null {
   }
 }
 
+/**
+ * Append a query param to a returnUrl that may already contain a query string
+ * (e.g. "/calendar?date=2026-06-09"), using the correct separator so we don't
+ * produce a malformed "?a=1?b=2" URL.
+ */
+function withParam(url: string, param: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}${param}`;
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth();
 
@@ -36,11 +45,11 @@ export async function GET(request: NextRequest) {
   const returnUrl = state?.returnUrl ?? "/plan";
 
   if (error) {
-    redirect(`${returnUrl}?calendar_error=access_denied`);
+    redirect(withParam(returnUrl, "calendar_error=access_denied"));
   }
 
   if (!code || !state || state.userId !== session.user.id) {
-    redirect(`${returnUrl}?calendar_error=invalid_request`);
+    redirect(withParam(returnUrl, "calendar_error=invalid_request"));
   }
 
   // Get the host from the request headers to handle different ports
@@ -125,7 +134,7 @@ export async function GET(request: NextRequest) {
     if (!googleUserInfo?.id) {
       // Without the provider account id we can't safely target a row.
       console.error("❌ No id in Google user info response — cannot link account");
-      redirect(`${returnUrl}?calendar_error=token_exchange_failed`);
+      redirect(withParam(returnUrl, "calendar_error=token_exchange_failed"));
     }
 
     // Log if email is missing
@@ -155,7 +164,7 @@ export async function GET(request: NextRequest) {
       console.error(
         "❌ Google account already linked to another user — refusing to reassign",
       );
-      redirect(`${returnUrl}?calendar_error=account_linked_elsewhere`);
+      redirect(withParam(returnUrl, "calendar_error=account_linked_elsewhere"));
     }
 
     if (existingAccount) {
@@ -190,7 +199,7 @@ export async function GET(request: NextRequest) {
       // First time connecting this particular Google account.
       if (!tokens.refresh_token) {
         console.error("❌ Cannot create Google account without refresh token!");
-        redirect(`${returnUrl}?calendar_error=no_refresh_token`);
+        redirect(withParam(returnUrl, "calendar_error=no_refresh_token"));
       }
 
       await db.account.create({
@@ -212,7 +221,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.log("✅ Calendar tokens stored successfully!");
-    redirect(`${returnUrl}?calendar_connected=true`);
+    redirect(withParam(returnUrl, "calendar_connected=true"));
   } catch (error) {
     // Don't catch Next.js redirect errors
     if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
@@ -225,6 +234,6 @@ export async function GET(request: NextRequest) {
       code: (error as { code?: string } | null)?.code,
       response: (error as { response?: { data?: unknown } } | null)?.response?.data,
     });
-    redirect(`${returnUrl}?calendar_error=token_exchange_failed`);
+    redirect(withParam(returnUrl, "calendar_error=token_exchange_failed"));
   }
 }

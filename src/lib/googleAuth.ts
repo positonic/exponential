@@ -15,15 +15,33 @@ import { db } from "~/server/db";
  * - "contacts": Calendar + Contacts (sensitive scopes)
  * - "crm": Calendar + Contacts + Gmail (includes restricted scope, requires security audit)
  */
+/**
+ * Identity scopes requested alongside every set. Without these the
+ * `oauth2/v2/userinfo` call returns 401, so the OAuth callback can't read the
+ * Google account id/email it needs to upsert the Account by
+ * (provider, providerAccountId). These are non-sensitive and don't affect
+ * Google's verification tier. They also make the calendar account's
+ * providerAccountId match the one stored at NextAuth sign-in, so reconnecting
+ * dedupes onto the same row instead of creating a duplicate.
+ */
+const GOOGLE_IDENTITY_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+] as const;
+
 export const GOOGLE_SCOPE_SETS = {
   calendar: [
+    ...GOOGLE_IDENTITY_SCOPES,
     "https://www.googleapis.com/auth/calendar.events",
   ],
   contacts: [
+    ...GOOGLE_IDENTITY_SCOPES,
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/contacts.readonly",
   ],
   crm: [
+    ...GOOGLE_IDENTITY_SCOPES,
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/contacts.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
