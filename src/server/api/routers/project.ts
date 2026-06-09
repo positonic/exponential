@@ -14,6 +14,7 @@ import {
   AccessControlService,
 } from "~/server/services/access";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -397,6 +398,14 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
+      // Snapshot the prior status so we only emit a "completed" activity event
+      // on the actual transition into COMPLETED (not on every re-save of an
+      // already-completed project).
+      const priorProject = await ctx.db.project.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+
       // A product can only be linked to a project in the same workspace.
       if (productId) {
         let effectiveWorkspaceId: string | null;
@@ -465,6 +474,26 @@ export const projectRouter = createTRPCRouter({
           ...(enableBounties !== undefined ? { enableBounties } : {}),
         },
       });
+
+      // Record a milestone activity event when a project is newly completed.
+      // Fire-and-forget: recordActivity never throws, and a null workspaceId is
+      // skipped (personal projects with no workspace produce no feed entry).
+      if (
+        input.status === "COMPLETED" &&
+        priorProject?.status !== "COMPLETED" &&
+        updated.workspaceId
+      ) {
+        await recordActivity(ctx.db, {
+          workspaceId: updated.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "project",
+          entityId: updated.id,
+          action: "completed",
+          metadata: { name: updated.name },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       // Replace key result links when keyResultIds is provided
       if (keyResultIds !== undefined) {

@@ -990,6 +990,28 @@
 .wsa-feed__icon[data-kind='completed']      { color: var(--activity-accent-crm); }
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
 
+/* Milestone (completed project) — a filled gold chip instead of a tinted glyph,
+   so it reads as a celebration rather than another status change. */
+.wsa-feed__icon[data-kind='milestone'] {
+  color: var(--activity-accent-milestone-contrast);
+  background: var(--activity-accent-milestone);
+}
+
+/* Emphasized milestone row: soft gold wash, a gold left rail, and a touch more
+   breathing room so a completed project visibly punctuates the feed. */
+.wsa-feed__row[data-kind='milestone'] {
+  background: var(--activity-accent-milestone-soft);
+  border: 1px solid var(--activity-accent-milestone-border);
+  border-left-width: 3px;
+  border-radius: 8px;
+  padding-left: 10px;
+  padding-right: 10px;
+  margin: 4px 0;
+}
+.wsa-feed__row[data-kind='milestone'] .wsa-feed__entity {
+  color: var(--activity-accent-milestone);
+}
+
 .wsa-feed__footer {
   margin-top: 12px;
   padding-top: 10px;

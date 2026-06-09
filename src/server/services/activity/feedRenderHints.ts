@@ -19,6 +19,7 @@ export type IconKind =
   | "status_changed"
   | "completed"
   | "commented"
+  | "milestone"
   | "fallback";
 
 export interface FeedRenderHint {
@@ -80,6 +81,13 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("ticket_comment", "created")]: {
     template: "{actor} commented on ticket {entityRef}",
     iconKind: "commented",
+  },
+
+  // Projects — completing a project is a milestone, so it gets the emphasized
+  // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
+  [key("project", "completed")]: {
+    template: "{actor} completed project {entityRef}",
+    iconKind: "milestone",
   },
 };
 

@@ -1269,6 +1269,13 @@
   --activity-accent-crm-border: rgba(74, 222, 140, 0.22);
   --activity-accent-due-soft: rgba(248, 113, 113, 0.10);
   --activity-accent-due-border: rgba(248, 113, 113, 0.22);
+
+  /* Milestone (project-completed) accent — celebratory gold. Filled chip plus a
+     soft wash so completed-project rows stand out from routine task churn. */
+  --activity-accent-milestone: #F5B94A;
+  --activity-accent-milestone-contrast: #1A1300;
+  --activity-accent-milestone-soft: rgba(245, 185, 74, 0.12);
+  --activity-accent-milestone-border: rgba(245, 185, 74, 0.34);
 }
 
 /* Pulsing dot used by active-timer indicators (sidebar widget, action surfaces,

@@ -9,6 +9,7 @@ import {
   IconMessageCircle,
   IconRefresh,
   IconStatusChange,
+  IconTrophy,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -24,6 +25,7 @@ const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
   status_changed: IconStatusChange,
   completed: IconCheck,
   commented: IconMessageCircle,
+  milestone: IconTrophy,
   fallback: IconRefresh,
 };
 
@@ -232,7 +234,11 @@ export function WorkspaceActivityFullFeed() {
                 const Icon = ICON_BY_KIND[event.hint.iconKind] ?? IconRefresh;
                 const actorName = event.actor?.name ?? 'Someone';
                 return (
-                  <div key={event.id} className="wsa-feed__row">
+                  <div
+                    key={event.id}
+                    className="wsa-feed__row"
+                    data-kind={event.hint.iconKind}
+                  >
                     <div
                       className={`wsa-feed__avatar${event.actor ? '' : ' wsa-feed__avatar--anonymous'}`}
                       aria-hidden="true"
