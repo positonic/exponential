@@ -575,7 +575,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
             }}
             onSearchChange={setGoalSearchValue}
             searchValue={goalSearchValue}
-            label="Link to Goals"
+            label="Link to Goals (Objectives)"
+            description="High-level objectives this project supports"
             placeholder="Select or create goals"
             mt="md"
             searchable
@@ -610,6 +611,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
             value={selectedKeyResults}
             onChange={setSelectedKeyResults}
             label="Link to Key Results"
+            description="Listed as “Objective › Key Result”"
             placeholder="Select key results"
             searchable
             clearable

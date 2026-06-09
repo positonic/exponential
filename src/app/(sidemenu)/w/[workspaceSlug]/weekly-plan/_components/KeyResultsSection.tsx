@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Loader, Popover, Select, Stack, Text } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { IconCompass, IconLink, IconPlus, IconTarget } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
@@ -334,7 +335,18 @@ export function KeyResultsSection({
     const mutation = currentlyLinked ? unlinkProject : linkProject;
     mutation.mutate(
       { keyResultId: krId, projectId: project.id },
-      { onSuccess: refetchAll },
+      {
+        onSuccess: refetchAll,
+        onError: (error) => {
+          notifications.show({
+            color: "red",
+            title: currentlyLinked
+              ? "Couldn't unlink Key Result"
+              : "Couldn't link Key Result",
+            message: error.message,
+          });
+        },
+      },
     );
   };
 
