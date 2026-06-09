@@ -48,7 +48,7 @@ export class GoogleCalendarService implements CalendarProvider {
    * back to the user's first Google account (legacy single-account behaviour).
    */
   private async resolveAccount(userId: string, accountId?: string) {
-    return db.account.findFirst({
+    return db.connectedAccount.findFirst({
       where: accountId
         ? { id: accountId, userId, provider: 'google' }
         : { userId, provider: 'google' },
@@ -94,7 +94,7 @@ export class GoogleCalendarService implements CalendarProvider {
         );
 
         // Update the database with new tokens for this specific account
-        await db.account.update({
+        await db.connectedAccount.update({
           where: {
             id: account.id,
           },
@@ -153,7 +153,7 @@ export class GoogleCalendarService implements CalendarProvider {
       }
 
       // Update the Account record with the provider email
-      await db.account.update({
+      await db.connectedAccount.update({
         where: { id: accountId },
         data: { providerEmail: userInfo.email },
       });
