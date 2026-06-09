@@ -893,6 +893,13 @@ model Goal {
   healthOverrideAt   DateTime? // when the override was last set
   healthOverrideById String? // user id who set it (audit; no FK)
 
+  // Manual progress override (0–100). When set, it wins over the KR-derived
+  // progress for any goal. null = no override (fall back to KR mean, else none).
+  // Mirrors the healthOverride audit pattern above.
+  progressOverride     Float? // 0–100 percentage
+  progressOverrideAt   DateTime? // when the override was last set
+  progressOverrideById String? // user id who set it (audit; no FK)
+
   // Display ordering within parent or at root level
   displayOrder Int @default(0)
 

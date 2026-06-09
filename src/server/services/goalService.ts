@@ -1,5 +1,6 @@
 import { type Context } from "~/server/auth/types";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 
 /**
  * Verifies the current user has access to the given goal.
@@ -341,10 +342,10 @@ export async function computeGoalHealth({ ctx, goalId }: { ctx: Context, goalId:
     }
   }
 
-  // 2. Projects: use progress field (0-1 float)
+  // 2. Projects: use progress field (already stored 0-100)
   for (const project of goal.projects) {
     if (project.progress !== null && project.progress !== undefined) {
-      healthScores.push(Number(project.progress) * 100);
+      healthScores.push(Math.max(0, Math.min(100, Number(project.progress))));
     }
     if (project.createdAt && (!latestUpdate || project.createdAt > latestUpdate)) {
       latestUpdate = project.createdAt;
@@ -450,7 +451,15 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
     },
   });
 
-  return goal;
+  if (!goal) return goal;
+
+  // Attach the resolved progress (manual override > KR mean > null) so every
+  // consumer reads one number instead of recomputing. See goalProgress.ts.
+  return {
+    ...goal,
+    resolvedProgress: resolveGoalProgress(goal),
+    isProgressManual: isManualProgress(goal),
+  };
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
