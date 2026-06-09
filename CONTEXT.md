@@ -222,6 +222,10 @@ _Avoid_: Slow Thread (vague), latency (one symptom/metric, not the concern), exp
 
 ### Identity & device auth
 
+**Connected account**:
+An external OAuth account (Google/Microsoft) a `User` has linked for **data access** — calendar today, Contacts/Gmail later. Stored in `ConnectedAccount`, owned by the linking User, and strictly **distinct from `Account`** (the NextAuth sign-in identity, whose global `@@unique([provider, providerAccountId])` is load-bearing for auth). Keyed by `(userId, provider, providerAccountId)`, so the *same* external account can be connected by many Users independently and one User can connect many — and linking it **never touches that account's own login** (e.g. signed in as `jamespfarrell@gmail.com`, you can add `email@jamesfarrell.me`'s calendar without affecting `jamesfarrell.me`'s user). Calendar tokens live here, not on `Account`, so signing in with Google can't clobber them. The OAuth callback writes `ConnectedAccount` for `type=calendar` and the legacy `Account` for `type=contacts|crm` (CRM hasn't migrated yet). Disconnect hard-deletes the row. See [ADR-0009](docs/adr/0009-connected-accounts-decoupled-from-auth.md).
+_Avoid_: "Account" (reserved for the sign-in identity), integration, calendar connection (it's the account, not the calendar — one connected account exposes many calendars).
+
 **Device-token**:
 The durable per-device credential a native iOS/Mac app holds after sign-in — a ~30-day JWT (`aud: "device"`, `tokenType: "device-token"`), signed with `AUTH_SECRET` by `generateJWT`. Sent as `Authorization: Bearer` and accepted everywhere the tRPC context validates JWTs (`api/trpc.ts`), so it resolves to a userId exactly like the web session cookie or a legacy `x-api-key`. Minted by `auth.exchangeAuthCode`. Distinct from the **voice-session JWT** (~30 min, `aud: "voice-session"`, body-only) and the legacy durable **API key** (`x-api-key`, a `VerificationToken` row).
 _Avoid_: API key, session token (both are different credentials), bearer (the mechanism, not the credential).

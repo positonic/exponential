@@ -80,7 +80,7 @@ async function loadAccountCalendars(
   const provider = toProviderType(account.provider);
 
   let preference = await db.calendarPreference.findUnique({
-    where: { accountId: account.id },
+    where: { connectedAccountId: account.id },
   });
 
   const cacheStale =
@@ -96,12 +96,12 @@ async function loadAccountCalendars(
         const primaryCalendar = calendars.find((c) => c.primary);
         // upsert (not create) because getCalendarAccounts and
         // getEventsMultiCalendar both call this concurrently on page load and
-        // would otherwise race on the unique accountId.
+        // would otherwise race on the unique connectedAccountId.
         preference = await db.calendarPreference.upsert({
-          where: { accountId: account.id },
+          where: { connectedAccountId: account.id },
           create: {
             userId,
-            accountId: account.id,
+            connectedAccountId: account.id,
             provider,
             selectedCalendarIds: primaryCalendar ? [primaryCalendar.id] : ["primary"],
             cachedCalendars: calendarsToJson(calendars),
@@ -156,13 +156,13 @@ async function resolveAccount(
   input: { accountId?: string; provider?: ProviderType } | undefined,
 ) {
   if (input?.accountId) {
-    return db.account.findFirst({
+    return db.connectedAccount.findFirst({
       where: { id: input.accountId, userId },
       select: { id: true, provider: true },
     });
   }
   const accountProvider = getAccountProvider(input?.provider ?? "google");
-  return db.account.findFirst({
+  return db.connectedAccount.findFirst({
     where: { userId, provider: accountProvider },
     select: { id: true, provider: true },
     orderBy: { id: "asc" },
@@ -177,7 +177,7 @@ export const calendarRouter = createTRPCRouter({
       const provider = input?.provider ?? "google";
       const accountProvider = getAccountProvider(provider);
 
-      const account = await ctx.db.account.findFirst({
+      const account = await ctx.db.connectedAccount.findFirst({
         where: {
           userId: ctx.session.user.id,
           provider: accountProvider,
@@ -212,7 +212,7 @@ export const calendarRouter = createTRPCRouter({
 
   // Returns connection status for all providers in one call
   getAllConnectionStatuses: protectedProcedure.query(async ({ ctx }) => {
-    const accounts = await ctx.db.account.findMany({
+    const accounts = await ctx.db.connectedAccount.findMany({
       where: {
         userId: ctx.session.user.id,
         provider: { in: ["google", "microsoft-entra-id"] },
@@ -252,7 +252,7 @@ export const calendarRouter = createTRPCRouter({
     const userId = ctx.session.user.id;
 
     // Fetch Google Calendar account
-    const googleAccount = await ctx.db.account.findFirst({
+    const googleAccount = await ctx.db.connectedAccount.findFirst({
       where: {
         userId,
         provider: "google",
@@ -274,7 +274,7 @@ export const calendarRouter = createTRPCRouter({
     });
 
     // Fetch Microsoft Calendar account
-    const microsoftAccount = await ctx.db.account.findFirst({
+    const microsoftAccount = await ctx.db.connectedAccount.findFirst({
       where: {
         userId,
         provider: "microsoft-entra-id",
@@ -364,7 +364,7 @@ export const calendarRouter = createTRPCRouter({
   getCalendarAccounts: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
 
-    const accounts = await ctx.db.account.findMany({
+    const accounts = await ctx.db.connectedAccount.findMany({
       where: {
         userId,
         provider: { in: ["google", "microsoft-entra-id"] },
@@ -494,25 +494,15 @@ export const calendarRouter = createTRPCRouter({
 
       const provider = toProviderType(account.provider);
 
-      // Revoke tokens on this specific account only
-      await ctx.db.account.update({
-        where: { id: account.id },
-        data: {
-          access_token: null,
-          refresh_token: null,
-          expires_at: null,
-          scope: null,
-        },
-      });
-
-      // Clear calendar cache for this user
+      // Clear calendar cache for this user before removing the connection
       const service = getCalendarService(provider);
       service.clearUserCache(userId);
 
-      // Remove this account's calendar preference (cascade also covers it, but
-      // tokens are only nulled above, so delete explicitly)
-      await ctx.db.calendarPreference.deleteMany({
-        where: { accountId: account.id },
+      // Hard-delete the ConnectedAccount row — it is purely a calendar
+      // connection (never a sign-in identity), so removal is the honest model
+      // of "remove this calendar". Its CalendarPreference cascades.
+      await ctx.db.connectedAccount.delete({
+        where: { id: account.id },
       });
 
       return { success: true, message: "Calendar disconnected successfully" };
@@ -609,13 +599,13 @@ export const calendarRouter = createTRPCRouter({
       // Limit to 10 calendars
       const limitedIds = input.calendarIds.slice(0, 10);
 
-      // Upsert the preference for this specific account
+      // Upsert the preference for this specific connected account
       const preference = await ctx.db.calendarPreference.upsert({
-        where: { accountId: account.id },
+        where: { connectedAccountId: account.id },
         update: { selectedCalendarIds: limitedIds },
         create: {
           userId,
-          accountId: account.id,
+          connectedAccountId: account.id,
           provider,
           selectedCalendarIds: limitedIds,
         },
@@ -649,14 +639,14 @@ export const calendarRouter = createTRPCRouter({
       const calendars = await service.listCalendars(userId, account.id);
 
       await ctx.db.calendarPreference.upsert({
-        where: { accountId: account.id },
+        where: { connectedAccountId: account.id },
         update: {
           cachedCalendars: calendarsToJson(calendars),
           cacheUpdatedAt: new Date(),
         },
         create: {
           userId,
-          accountId: account.id,
+          connectedAccountId: account.id,
           provider,
           selectedCalendarIds: ["primary"],
           cachedCalendars: calendarsToJson(calendars),
@@ -683,7 +673,7 @@ export const calendarRouter = createTRPCRouter({
       // Fetch events from every connected calendar account, keyed by the
       // specific Account row so multiple Google accounts each contribute their
       // own selected calendars.
-      const accounts = await ctx.db.account.findMany({
+      const accounts = await ctx.db.connectedAccount.findMany({
         where: {
           userId,
           provider: { in: ["google", "microsoft-entra-id"] },

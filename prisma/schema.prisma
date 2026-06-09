@@ -34,9 +34,36 @@ model Account {
   refresh_token_expires_in Int?
   providerEmail            String?
   user                     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  calendarPreferences      CalendarPreference[]
 
   @@unique([provider, providerAccountId])
+}
+
+// An external OAuth account (Google/Microsoft) a User has linked for DATA
+// ACCESS — calendar today, Contacts/Gmail later. Deliberately separate from
+// `Account` (the NextAuth sign-in identity), whose global
+// @@unique([provider, providerAccountId]) is load-bearing for auth and cannot
+// hold a second row for the same external account. Keyed by
+// (userId, provider, providerAccountId) so the SAME external account can be
+// connected by many Users independently, and one User can connect many — and
+// linking it never touches that account's own login. See ADR-0009.
+model ConnectedAccount {
+  id                 String              @id @default(cuid())
+  userId             String
+  provider           String // "google" | "microsoft-entra-id"
+  providerAccountId  String
+  providerEmail      String?
+  access_token       String?
+  refresh_token      String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarPreference CalendarPreference?
+
+  @@unique([userId, provider, providerAccountId])
+  @@index([userId])
 }
 
 model Session {
@@ -69,6 +96,7 @@ model User {
   lastLogin                   DateTime?
   defaultWorkspaceId          String?
   accounts                    Account[]
+  connectedAccounts           ConnectedAccount[]
   actions                     Action[]
   actionAssignees             ActionAssignee[]            @relation("ActionAssignees")
   timeEntries                 TimeEntry[]
@@ -1641,23 +1669,23 @@ model BriefingInteraction {
 }
 
 model CalendarPreference {
-  id                  String    @id @default(cuid())
+  id                  String           @id @default(cuid())
   userId              String
-  // The specific OAuth Account this preference belongs to. Optional only to
-  // tolerate legacy rows during migration; new rows always set it.
-  accountId           String?
-  provider            String    @default("google")
-  selectedCalendarIds String[]  @default([])
+  // The ConnectedAccount this preference belongs to (one preference per
+  // connected calendar account).
+  connectedAccountId  String
+  provider            String           @default("google")
+  selectedCalendarIds String[]         @default([])
   cachedCalendars     Json?
   cacheUpdatedAt      DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account             Account?  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectedAccount    ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
 
-  @@unique([accountId])
+  @@unique([connectedAccountId])
   @@index([userId])
-  @@index([accountId])
+  @@index([connectedAccountId])
 }
 
 model ScheduledNotification {
