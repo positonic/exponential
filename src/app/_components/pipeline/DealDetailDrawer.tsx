@@ -15,8 +15,9 @@ import {
   Loader,
   NumberInput,
   TextInput,
+  Input,
 } from "@mantine/core";
-import { DateInput } from "@mantine/dates";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import {
   IconArrowRight,
   IconCurrencyDollar,
@@ -216,12 +217,16 @@ export function DealDetailDrawer({
                   onChange={(val) => setEditProbability(typeof val === "number" ? val : undefined)}
                 />
               </Group>
-              <DateInput
-                label="Expected Close Date"
-                value={editExpectedCloseDate}
-                onChange={setEditExpectedCloseDate}
-                clearable
-              />
+              <Input.Wrapper label="Expected Close Date">
+                <div>
+                  <UnifiedDatePicker
+                    value={editExpectedCloseDate}
+                    onChange={setEditExpectedCloseDate}
+                    placeholder="Select date"
+                    notificationContext="deal"
+                  />
+                </div>
+              </Input.Wrapper>
             </Stack>
           ) : (
             <Stack gap="xs">

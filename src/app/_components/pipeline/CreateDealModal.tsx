@@ -10,8 +10,9 @@ import {
   Button,
   Group,
   Stack,
+  Input,
 } from "@mantine/core";
-import { DateInput } from "@mantine/dates";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 
@@ -203,13 +204,16 @@ export function CreateDealModal({
           clearable
         />
 
-        <DateInput
-          label="Expected Close Date"
-          placeholder="Select date"
-          value={expectedCloseDate}
-          onChange={setExpectedCloseDate}
-          clearable
-        />
+        <Input.Wrapper label="Expected Close Date">
+          <div>
+            <UnifiedDatePicker
+              value={expectedCloseDate}
+              onChange={setExpectedCloseDate}
+              placeholder="Select date"
+              notificationContext="deal"
+            />
+          </div>
+        </Input.Wrapper>
 
         <Group justify="flex-end" mt="sm">
           <Button variant="subtle" onClick={onClose}>

@@ -632,7 +632,7 @@
   color: var(--color-text-disabled);
 }
 .mantine-DateInput-day[data-today] {
-  background-color: var(--color-brand-success);
+  background-color: var(--color-brand-primary);
   color: var(--color-text-inverse);
   font-weight: 600;
 }
@@ -653,7 +653,7 @@
   color: var(--color-text-disabled);
 }
 .mantine-DatePicker-day[data-today] {
-  background-color: var(--color-brand-error);
+  background-color: var(--color-brand-primary);
   color: var(--color-text-inverse);
   font-weight: 600;
 }

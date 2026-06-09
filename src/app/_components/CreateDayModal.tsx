@@ -1,10 +1,10 @@
 "use client";
 
-import { Modal, Button, Group, Select } from '@mantine/core';
+import { Modal, Button, Group, Select, Input } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useState } from "react";
 import { api } from "~/trpc/react";
-import { DateInput } from '@mantine/dates';
+import { UnifiedDatePicker } from '~/app/_components/UnifiedDatePicker';
 
 interface CreateDayModalProps {
   children: React.ReactNode;
@@ -83,24 +83,16 @@ export function CreateDayModal({ children }: CreateDayModalProps) {
           }}
           className="p-4"
         >
-          <DateInput
-            value={date}
-            onChange={setDate}
-            label="Select date"
-            placeholder="Pick a date"
-            required
-            mt="md"
-            styles={{
-              input: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                color: 'var(--color-text-primary)',
-                borderColor: 'var(--color-border-primary)',
-              },
-              label: {
-                color: 'var(--color-text-primary)',
-              },
-            }}
-          />
+          <Input.Wrapper label="Select date" required mt="md">
+            <div>
+              <UnifiedDatePicker
+                value={date}
+                onChange={setDate}
+                placeholder="Pick a date"
+                notificationContext="day"
+              />
+            </div>
+          </Input.Wrapper>
           
           <Select
             label="Select week"

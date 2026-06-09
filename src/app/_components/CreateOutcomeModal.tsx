@@ -1,11 +1,11 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select, Textarea } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Textarea, Input } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
-import { DateInput } from '@mantine/dates';
+import { UnifiedDatePicker } from '~/app/_components/UnifiedDatePicker';
 import { CreateGoalModal } from './CreateGoalModal';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
@@ -377,41 +377,16 @@ export function CreateOutcomeModal({ children, projectId, outcome, trigger, onSu
             }}
           />
           
-          <DateInput
-            value={dueDate}
-            onChange={setDueDate}
-            label="Due date (optional)"
-            placeholder="Pick a date"
-            mt="md"
-            highlightToday={true}
-            styles={{
-              input: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                color: 'var(--color-text-primary)',
-                borderColor: 'var(--color-border-primary)',
-              },
-              label: {
-                color: 'var(--color-text-primary)',
-              },
-
-              calendarHeader: {
-                backgroundColor: 'var(--color-surface-secondary)',
-                color: 'var(--color-text-primary)',
-              },
-              monthCell: {
-                color: 'var(--color-text-primary)',
-              },
-              month: {
-                color: 'var(--color-text-primary)',
-              },
-              weekday: {
-                color: 'var(--color-text-muted)',
-              },
-              day: {
-                color: 'var(--color-text-primary)',
-              },
-            }}
-          />
+          <Input.Wrapper label="Due date (optional)" mt="md">
+            <div>
+              <UnifiedDatePicker
+                value={dueDate}
+                onChange={setDueDate}
+                placeholder="Pick a date"
+                notificationContext="outcome"
+              />
+            </div>
+          </Input.Wrapper>
 
           {outcome && workspaces && workspaces.length > 0 && (
             <Select

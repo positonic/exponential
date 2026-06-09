@@ -1,10 +1,9 @@
 "use client";
 
-import { Badge, Group, Tooltip } from "@mantine/core";
-import { DatePickerInput } from "@mantine/dates";
+import { Badge, Group } from "@mantine/core";
 import { IconCalendarEvent, IconCalendarDue } from "@tabler/icons-react";
 import { format, differenceInDays } from "date-fns";
-import { useState } from "react";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 
 interface ProjectDateBadgesProps {
   projectId: string;
@@ -19,9 +18,6 @@ export function ProjectDateBadges({
   endDate,
   onUpdate,
 }: ProjectDateBadgesProps) {
-  const [isEditingStart, setIsEditingStart] = useState(false);
-  const [isEditingEnd, setIsEditingEnd] = useState(false);
-
   const getEndDateColor = (date: Date | null | undefined): string => {
     if (!date) return "gray";
 
@@ -43,6 +39,11 @@ export function ProjectDateBadges({
     return format(new Date(date), "MMM d, yyyy");
   };
 
+  const getStartDateTooltip = (date: Date | null | undefined): string => {
+    if (!date) return "Click to set start date";
+    return format(new Date(date), "EEEE, MMMM d, yyyy");
+  };
+
   const getEndDateTooltip = (date: Date | null | undefined): string => {
     if (!date) return "No due date set";
 
@@ -62,64 +63,48 @@ export function ProjectDateBadges({
   return (
     <Group gap="sm">
       {/* Start Date */}
-      {isEditingStart ? (
-        <DatePickerInput
-          placeholder="Select start date"
-          value={startDate ? new Date(startDate) : null}
-          onChange={(value) => {
-            onUpdate({ startDate: value });
-            setIsEditingStart(false);
-          }}
-          clearable
-          popoverProps={{ opened: true, onClose: () => setIsEditingStart(false) }}
-          size="xs"
-          w={180}
-          leftSection={<IconCalendarEvent size={14} />}
-        />
-      ) : (
-        <Tooltip label={startDate ? format(new Date(startDate), "EEEE, MMMM d, yyyy") : "Click to set start date"} withArrow>
+      <UnifiedDatePicker
+        value={startDate ? new Date(startDate) : null}
+        onChange={(date) => onUpdate({ startDate: date })}
+        notificationContext="project start date"
+        onClear={() => onUpdate({ startDate: null })}
+        leftSection={<IconCalendarEvent size={14} />}
+        renderTrigger={({ toggle }) => (
           <Badge
             size="lg"
             variant="light"
             color="gray"
             leftSection={<IconCalendarEvent size={14} />}
             className="cursor-pointer"
-            onClick={() => setIsEditingStart(true)}
+            onClick={toggle}
+            title={getStartDateTooltip(startDate)}
           >
             Start: {formatDateBadge(startDate)}
           </Badge>
-        </Tooltip>
-      )}
+        )}
+      />
 
       {/* End Date */}
-      {isEditingEnd ? (
-        <DatePickerInput
-          placeholder="Select due date"
-          value={endDate ? new Date(endDate) : null}
-          onChange={(value) => {
-            onUpdate({ endDate: value });
-            setIsEditingEnd(false);
-          }}
-          clearable
-          popoverProps={{ opened: true, onClose: () => setIsEditingEnd(false) }}
-          size="xs"
-          w={180}
-          leftSection={<IconCalendarDue size={14} />}
-        />
-      ) : (
-        <Tooltip label={getEndDateTooltip(endDate)} withArrow>
+      <UnifiedDatePicker
+        value={endDate ? new Date(endDate) : null}
+        onChange={(date) => onUpdate({ endDate: date })}
+        notificationContext="project due date"
+        onClear={() => onUpdate({ endDate: null })}
+        leftSection={<IconCalendarDue size={14} />}
+        renderTrigger={({ toggle }) => (
           <Badge
             size="lg"
             variant="light"
             color={getEndDateColor(endDate)}
             leftSection={<IconCalendarDue size={14} />}
             className="cursor-pointer"
-            onClick={() => setIsEditingEnd(true)}
+            onClick={toggle}
+            title={getEndDateTooltip(endDate)}
           >
             Due: {formatDateBadge(endDate)}
           </Badge>
-        </Tooltip>
-      )}
+        )}
+      />
     </Group>
   );
 }
