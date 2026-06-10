@@ -220,12 +220,12 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
     if (projectId || !workspaceId) return null;
     return {
       pageType: "goals-list",
-      pageTitle: "Goals",
+      pageTitle: terminology.goals,
       pagePath: pathname,
       data: { workspaceId, goalCount: filteredGoals.length, statusFilter },
     };
-  }, [projectId, workspaceId, pathname, filteredGoals.length, statusFilter]);
-  useRegisterPageContext(goalsPageContext);
+  }, [projectId, workspaceId, pathname, filteredGoals.length, statusFilter, terminology.goals]);
+  useRegisterPageContext(goalsPageContext, { clearOnUnmount: false });
 
 
   return (

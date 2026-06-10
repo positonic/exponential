@@ -562,7 +562,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       data: { workspaceId, meetingCount: transcriptions?.length ?? 0 },
     };
   }, [workspaceId, pathname, transcriptions?.length]);
-  useRegisterPageContext(meetingsPageContext);
+  useRegisterPageContext(meetingsPageContext, { clearOnUnmount: false });
 
   const { data: projects } = api.project.getAll.useQuery({});
   const { data: workflows = [] } = api.workflow.list.useQuery();

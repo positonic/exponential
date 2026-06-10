@@ -490,7 +490,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
       data: { workspaceId, projectCount: projectsData?.length ?? 0 },
     };
   }, [workspaceId, pathname, projectsData?.length]);
-  useRegisterPageContext(projectsPageContext);
+  useRegisterPageContext(projectsPageContext, { clearOnUnmount: false });
 
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const firstNotionWorkflowId = workflows.find((w) => w.provider === 'notion')?.id;
