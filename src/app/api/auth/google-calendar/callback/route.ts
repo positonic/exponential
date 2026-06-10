@@ -146,78 +146,117 @@ export async function GET(request: NextRequest) {
       ? Math.floor(Date.now() / 1000) + tokens.expires_in
       : null;
 
-    // Look up by the unique (provider, providerAccountId) so reconnecting the
-    // same Google account updates it, while a new account creates a new row.
-    const existingAccount = await db.account.findUnique({
-      where: {
-        provider_providerAccountId: {
-          provider: "google",
-          providerAccountId: googleUserInfo.id,
+    const scopeType = state.scopeType ?? "calendar";
+
+    if (scopeType === "calendar") {
+      // Connected calendar → ConnectedAccount, owned by the logged-in user.
+      // Keyed by (userId, provider, providerAccountId), so the SAME Google
+      // account can be connected by multiple users independently — no
+      // cross-user guard, and connecting an account never touches its own
+      // login or another user's connection. See ADR-0009.
+      const existing = await db.connectedAccount.findUnique({
+        where: {
+          userId_provider_providerAccountId: {
+            userId: session.user.id,
+            provider: "google",
+            providerAccountId: googleUserInfo.id,
+          },
         },
-      },
-    });
-
-    // The (provider, providerAccountId) unique is global, so the matched row
-    // could belong to a DIFFERENT app user. Never silently reassign it —
-    // doing so would detach the other user's calendar/CRM integration.
-    if (existingAccount && existingAccount.userId !== session.user.id) {
-      console.error(
-        "❌ Google account already linked to another user — refusing to reassign",
-      );
-      redirect(withParam(returnUrl, "calendar_error=account_linked_elsewhere"));
-    }
-
-    if (existingAccount) {
-      // Update tokens. Only overwrite refresh_token if Google sent a new one.
-      const updateData: {
-        access_token: string;
-        refresh_token?: string;
-        expires_at: number | null;
-        scope: string;
-        providerEmail?: string;
-      } = {
-        access_token: tokens.access_token,
-        expires_at: expiresAt,
-        scope: tokens.scope,
-      };
-
-      if (tokens.refresh_token) {
-        updateData.refresh_token = tokens.refresh_token;
-      }
-
-      if (googleUserInfo.email) {
-        updateData.providerEmail = googleUserInfo.email;
-      }
-
-      await db.account.update({
-        where: { id: existingAccount.id },
-        data: updateData,
       });
 
-      console.log("✅ Updated existing Google account with new tokens");
+      if (existing) {
+        await db.connectedAccount.update({
+          where: { id: existing.id },
+          data: {
+            access_token: tokens.access_token,
+            expires_at: expiresAt,
+            scope: tokens.scope,
+            ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
+            ...(googleUserInfo.email ? { providerEmail: googleUserInfo.email } : {}),
+          },
+        });
+        console.log("✅ Updated existing Google calendar connection");
+      } else {
+        if (!tokens.refresh_token) {
+          console.error("❌ Cannot create calendar connection without refresh token!");
+          redirect(withParam(returnUrl, "calendar_error=no_refresh_token"));
+        }
+        await db.connectedAccount.create({
+          data: {
+            userId: session.user.id,
+            provider: "google",
+            providerAccountId: googleUserInfo.id,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_at: expiresAt,
+            token_type: tokens.token_type ?? "Bearer",
+            scope: tokens.scope,
+            providerEmail: googleUserInfo.email,
+          },
+        });
+        console.log("✅ Created new Google calendar connection");
+      }
     } else {
-      // First time connecting this particular Google account.
-      if (!tokens.refresh_token) {
-        console.error("❌ Cannot create Google account without refresh token!");
-        redirect(withParam(returnUrl, "calendar_error=no_refresh_token"));
-      }
-
-      await db.account.create({
-        data: {
-          userId: session.user.id,
-          type: "oauth",
-          provider: "google",
-          providerAccountId: googleUserInfo.id,
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
-          expires_at: expiresAt,
-          token_type: tokens.token_type ?? "Bearer",
-          scope: tokens.scope,
-          providerEmail: googleUserInfo.email,
+      // CRM / contacts flow → legacy Account path (unchanged). Account also
+      // backs sign-in, so its (provider, providerAccountId) is globally unique
+      // and we never reassign it across users.
+      const existingAccount = await db.account.findUnique({
+        where: {
+          provider_providerAccountId: {
+            provider: "google",
+            providerAccountId: googleUserInfo.id,
+          },
         },
       });
 
-      console.log("✅ Created new Google account record for user");
+      if (existingAccount && existingAccount.userId !== session.user.id) {
+        console.error(
+          "❌ Google account already linked to another user — refusing to reassign",
+        );
+        redirect(withParam(returnUrl, "calendar_error=account_linked_elsewhere"));
+      }
+
+      if (existingAccount) {
+        const updateData: {
+          access_token: string;
+          refresh_token?: string;
+          expires_at: number | null;
+          scope: string;
+          providerEmail?: string;
+        } = {
+          access_token: tokens.access_token,
+          expires_at: expiresAt,
+          scope: tokens.scope,
+        };
+        if (tokens.refresh_token) updateData.refresh_token = tokens.refresh_token;
+        if (googleUserInfo.email) updateData.providerEmail = googleUserInfo.email;
+
+        await db.account.update({
+          where: { id: existingAccount.id },
+          data: updateData,
+        });
+        console.log("✅ Updated existing Google account (CRM scopes)");
+      } else {
+        if (!tokens.refresh_token) {
+          console.error("❌ Cannot create Google account without refresh token!");
+          redirect(withParam(returnUrl, "calendar_error=no_refresh_token"));
+        }
+        await db.account.create({
+          data: {
+            userId: session.user.id,
+            type: "oauth",
+            provider: "google",
+            providerAccountId: googleUserInfo.id,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_at: expiresAt,
+            token_type: tokens.token_type ?? "Bearer",
+            scope: tokens.scope,
+            providerEmail: googleUserInfo.email,
+          },
+        });
+        console.log("✅ Created new Google account record (CRM scopes)");
+      }
     }
 
     console.log("✅ Calendar tokens stored successfully!");

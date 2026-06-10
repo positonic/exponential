@@ -100,8 +100,8 @@ export const briefingRouter = createTRPCRouter({
       let calendarEvents: BriefingCalendarEvent[] = [];
       if (input?.includeCalendar !== false) {
         try {
-          // Find every Google account that has calendar scope
-          const googleAccounts = await ctx.db.account.findMany({
+          // Find every connected Google calendar that has calendar scope
+          const googleAccounts = await ctx.db.connectedAccount.findMany({
             where: {
               userId,
               provider: "google",

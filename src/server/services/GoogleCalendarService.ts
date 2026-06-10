@@ -43,15 +43,19 @@ export class GoogleCalendarService implements CalendarProvider {
   }
 
   /**
-   * Resolve the Account row to use. When accountId is given we target that
-   * specific connected Google account (scoped to the user); otherwise we fall
-   * back to the user's first Google account (legacy single-account behaviour).
+   * Resolve the ConnectedAccount to use. When accountId is given we target that
+   * specific connected Google account (scoped to the user). Otherwise we fall
+   * back to the user's **primary** connected account — the earliest-created one
+   * — chosen deterministically so callers that omit accountId (e.g. the agent's
+   * createEvent, getTodayEvents) don't bind to a random account now that a user
+   * can connect several.
    */
   private async resolveAccount(userId: string, accountId?: string) {
-    return db.account.findFirst({
+    return db.connectedAccount.findFirst({
       where: accountId
         ? { id: accountId, userId, provider: 'google' }
         : { userId, provider: 'google' },
+      orderBy: { createdAt: 'asc' },
       select: {
         id: true,
         access_token: true,
@@ -94,7 +98,7 @@ export class GoogleCalendarService implements CalendarProvider {
         );
 
         // Update the database with new tokens for this specific account
-        await db.account.update({
+        await db.connectedAccount.update({
           where: {
             id: account.id,
           },
@@ -153,7 +157,7 @@ export class GoogleCalendarService implements CalendarProvider {
       }
 
       // Update the Account record with the provider email
-      await db.account.update({
+      await db.connectedAccount.update({
         where: { id: accountId },
         data: { providerEmail: userInfo.email },
       });

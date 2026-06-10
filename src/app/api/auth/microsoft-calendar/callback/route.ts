@@ -142,71 +142,40 @@ export async function GET(request: NextRequest) {
       ? Math.floor(Date.now() / 1000) + tokens.expires_in
       : null;
 
-    // Look up by the unique (provider, providerAccountId) so reconnecting the
-    // same Microsoft account updates it, while a different account creates a
-    // new row instead of overwriting the existing one.
-    const existingAccount = await db.account.findUnique({
+    // Outlook calendar → ConnectedAccount, owned by the logged-in user and
+    // keyed by (userId, provider, providerAccountId). The same Microsoft
+    // account can be connected by multiple users independently; connecting it
+    // never touches its own login. See ADR-0009.
+    const existing = await db.connectedAccount.findUnique({
       where: {
-        provider_providerAccountId: {
+        userId_provider_providerAccountId: {
+          userId: session.user.id,
           provider: "microsoft-entra-id",
           providerAccountId: msUserInfo.id,
         },
       },
     });
 
-    // The (provider, providerAccountId) unique is global, so the matched row
-    // could belong to a DIFFERENT app user. Never silently reassign it —
-    // doing so would detach the other user's calendar integration.
-    if (existingAccount && existingAccount.userId !== session.user.id) {
-      console.error(
-        "❌ Microsoft account already linked to another user — refusing to reassign",
-      );
-      redirect(withParam(returnUrl, "calendar_error=account_linked_elsewhere"));
-    }
-
-    if (existingAccount) {
-      // Update existing account with calendar tokens
-      const updateData: {
-        access_token: string;
-        refresh_token?: string;
-        expires_at: number | null;
-        scope: string;
-        providerEmail?: string;
-      } = {
-        access_token: tokens.access_token,
-        expires_at: expiresAt,
-        scope: tokens.scope,
-      };
-
-      if (tokens.refresh_token) {
-        updateData.refresh_token = tokens.refresh_token;
-      }
-
-      if (msUserInfo.mail) {
-        updateData.providerEmail = msUserInfo.mail;
-      }
-
-      await db.account.update({
-        where: { id: existingAccount.id },
-        data: updateData,
+    if (existing) {
+      await db.connectedAccount.update({
+        where: { id: existing.id },
+        data: {
+          access_token: tokens.access_token,
+          expires_at: expiresAt,
+          scope: tokens.scope,
+          ...(tokens.refresh_token ? { refresh_token: tokens.refresh_token } : {}),
+          ...(msUserInfo.mail ? { providerEmail: msUserInfo.mail } : {}),
+        },
       });
-
-      console.log(
-        "✅ Updated existing Microsoft account with calendar tokens",
-      );
+      console.log("✅ Updated existing Microsoft calendar connection");
     } else {
-      // First time connecting this particular Microsoft account.
       if (!tokens.refresh_token) {
-        console.error(
-          "❌ Cannot create Microsoft account without refresh token!",
-        );
+        console.error("❌ Cannot create calendar connection without refresh token!");
         redirect(withParam(returnUrl, "calendar_error=no_refresh_token"));
       }
-
-      await db.account.create({
+      await db.connectedAccount.create({
         data: {
           userId: session.user.id,
-          type: "oauth",
           provider: "microsoft-entra-id",
           providerAccountId: msUserInfo.id,
           access_token: tokens.access_token,
@@ -217,8 +186,7 @@ export async function GET(request: NextRequest) {
           providerEmail: msUserInfo.mail,
         },
       });
-
-      console.log("✅ Created new Microsoft account record for user");
+      console.log("✅ Created new Microsoft calendar connection");
     }
 
     console.log("✅ Microsoft Calendar tokens stored successfully!");

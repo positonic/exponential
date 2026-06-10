@@ -2,6 +2,10 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getProjectAccess,
+  canEditProject,
+} from "~/server/services/access/resolvers/projectResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
 import {
   mergeObjectiveActivity,
@@ -603,18 +607,35 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify user owns the key result
+      // Authorize the KR by ownership OR workspace membership — the weekly-plan
+      // KR pool (getByObjective) is workspace-scoped, so a member must be able
+      // to link a KR owned by another member of the same workspace. Uses the
+      // centralized resolver so team-derived workspace access is honored (the
+      // inline members.some check missed team membership).
+      const userId = ctx.session.user.id;
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.keyResultId,
-          userId: ctx.session.user.id,
-        },
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
+        });
+      }
+
+      // Verify the user can edit the project being linked.
+      const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!canEditProject(projectAccess)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to link this project",
         });
       }
 
@@ -645,18 +666,33 @@ export const keyResultRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify user owns the key result
+      // Authorize the KR by ownership OR workspace membership (mirrors
+      // linkProject) via the centralized resolver, so team-derived workspace
+      // access is honored when unlinking workspace-shared KRs.
+      const userId = ctx.session.user.id;
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.keyResultId,
-          userId: ctx.session.user.id,
-        },
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
+        });
+      }
+
+      // Verify the user can edit the project being unlinked.
+      const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!canEditProject(projectAccess)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to unlink this project",
         });
       }
 

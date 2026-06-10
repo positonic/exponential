@@ -116,7 +116,9 @@ export const userRouter = createTRPCRouter({
             source: { not: 'onboarding' },
           },
         }),
-        ctx.db.account.findMany({
+        // Calendar onboarding step is satisfied by an actual calendar
+        // connection (ConnectedAccount), not merely signing in with Google.
+        ctx.db.connectedAccount.findMany({
           where: {
             userId,
             provider: { in: ['google', 'microsoft-entra-id'] },

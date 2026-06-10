@@ -65,10 +65,13 @@ export class MicrosoftCalendarService implements CalendarProvider {
   }
 
   private async getAccessToken(userId: string, accountId?: string): Promise<string> {
-    const account = await db.account.findFirst({
+    const account = await db.connectedAccount.findFirst({
       where: accountId
         ? { id: accountId, userId, provider: "microsoft-entra-id" }
         : { userId, provider: "microsoft-entra-id" },
+      // Deterministic fallback to the earliest-created (primary) connection
+      // when no accountId is supplied.
+      orderBy: { createdAt: "asc" },
       select: {
         id: true,
         access_token: true,
@@ -124,7 +127,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
         expires_in?: number;
       };
 
-      await db.account.update({
+      await db.connectedAccount.update({
         where: { id: account.id },
         data: {
           access_token: tokens.access_token,
@@ -202,7 +205,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
         return null;
       }
 
-      await db.account.update({
+      await db.connectedAccount.update({
         where: { id: accountId },
         data: { providerEmail: userInfo.mail },
       });
