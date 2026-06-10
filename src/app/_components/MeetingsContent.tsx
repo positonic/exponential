@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { SlackSummaryModal } from './SlackSummaryModal';
 import Link from "next/link";
 import {
@@ -513,6 +514,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     document.head.appendChild(style);
   }
   const router = useRouter();
+  const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<TabValue>("all");
   const [_successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message (kept for future sync-status UI)
   const [_syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
@@ -549,6 +551,19 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
     }
   );
+  // Register lightweight page context for the AI agent. Counts only; the agent
+  // fetches actual meetings on demand via its `get-meeting-transcriptions` tool.
+  const meetingsPageContext = useMemo(() => {
+    if (!workspaceId) return null;
+    return {
+      pageType: "meetings-list",
+      pageTitle: "Meetings",
+      pagePath: pathname,
+      data: { workspaceId, meetingCount: transcriptions?.length ?? 0 },
+    };
+  }, [workspaceId, pathname, transcriptions?.length]);
+  useRegisterPageContext(meetingsPageContext);
+
   const { data: projects } = api.project.getAll.useQuery({});
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: webhookLogsData, isLoading: isLoadingLogs, refetch: refetchLogs } = api.transcription.getWebhookLogs.useQuery(

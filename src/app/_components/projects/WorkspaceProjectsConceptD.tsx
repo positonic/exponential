@@ -48,6 +48,7 @@ import {
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
 import { useProjectViewState, filterProjects } from './useProjectViewState';
+import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
 import { hasActiveFilters } from '~/types/filter';
 import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import { slugify } from '~/utils/slugify';
@@ -477,6 +478,19 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
     { workspaceId: effectiveWorkspaceId, include: { actions: true } },
     { enabled: showAllWorkspaces || !!workspaceId },
   );
+
+  // Register lightweight page context for the AI agent. Counts only; the agent
+  // fetches the actual projects on demand via its `get-all-projects` tool.
+  const projectsPageContext = useMemo(() => {
+    if (!workspaceId) return null;
+    return {
+      pageType: 'projects-list',
+      pageTitle: 'Projects',
+      pagePath: pathname,
+      data: { workspaceId, projectCount: projectsData?.length ?? 0 },
+    };
+  }, [workspaceId, pathname, projectsData?.length]);
+  useRegisterPageContext(projectsPageContext);
 
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const firstNotionWorkflowId = workflows.find((w) => w.provider === 'notion')?.id;
