@@ -26,6 +26,7 @@ import {
   IconArrowRight,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { stripHtml } from '~/lib/utils';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useAgentModal } from '~/providers/AgentModalProvider';
 import styles from '../home/WorkspaceHomeConceptD.module.css';
@@ -111,7 +112,9 @@ export function CommandPalette() {
   const filteredActions = useMemo(
     () =>
       showTasks
-        ? (actionsData ?? []).filter((a) => q && a.name.toLowerCase().includes(q)).slice(0, 4)
+        ? (actionsData ?? [])
+            .filter((a) => q && stripHtml(a.name).toLowerCase().includes(q))
+            .slice(0, 4)
         : [],
     [showTasks, actionsData, q],
   );
@@ -147,7 +150,7 @@ export function CommandPalette() {
       })),
       ...filteredActions.map((a) => ({
         type: 'task' as const,
-        label: a.name,
+        label: stripHtml(a.name),
         sub: 'Task',
         icon: IconSquareRoundedCheck,
         href: `/w/${workspaceSlug}/projects-tasks`,
@@ -157,7 +160,7 @@ export function CommandPalette() {
         label: g.title,
         sub: 'Goal',
         icon: IconTarget,
-        href: `/w/${workspaceSlug}/goals`,
+        href: `/w/${workspaceSlug}/goals/${g.id}`,
       })),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
