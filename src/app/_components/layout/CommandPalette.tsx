@@ -24,6 +24,12 @@ import {
   IconCalendar,
   IconLayoutDashboard,
   IconArrowRight,
+  IconHome,
+  IconLayoutGrid,
+  IconRobot,
+  IconBook2,
+  IconCalendarEvent,
+  IconUsers,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { stripHtml } from '~/lib/utils';
@@ -46,6 +52,24 @@ const PAGES = [
   { label: 'Projects', path: 'projects', icon: IconStack2 },
   { label: 'Tasks', path: 'projects-tasks', icon: IconSquareRoundedCheck },
   { label: 'Goals', path: 'goals', icon: IconTarget },
+];
+
+// Workspace-scoped sections surfaced when searching by workspace name.
+const WORKSPACE_SECTIONS: {
+  label: string;
+  icon: React.ElementType;
+  href: (slug: string) => string;
+  requiresProduct?: boolean;
+}[] = [
+  { label: 'Home', icon: IconHome, href: (s) => `/w/${s}/home` },
+  { label: 'Goals', icon: IconTarget, href: (s) => `/w/${s}/goals` },
+  { label: 'Projects', icon: IconStack2, href: (s) => `/w/${s}/projects` },
+  { label: 'Products', icon: IconLayoutGrid, href: (s) => `/w/${s}/products`, requiresProduct: true },
+  { label: 'Agent', icon: IconRobot, href: (s) => `/w/${s}/agent` },
+  { label: 'Knowledge', icon: IconBook2, href: (s) => `/w/${s}/knowledge-base` },
+  { label: 'Meetings', icon: IconCalendarEvent, href: (s) => `/w/${s}/meetings` },
+  { label: 'CRM', icon: IconUsers, href: (s) => `/w/${s}/crm` },
+  { label: 'Calendar', icon: IconCalendar, href: () => `/calendar` },
 ];
 
 const SUGGESTED = [
@@ -101,6 +125,46 @@ export function CommandPalette() {
 
   const q = query.toLowerCase();
 
+  // All workspaces the user can navigate to (for workspace-name search).
+  const { data: workspacesData } = api.workspace.list.useQuery(undefined, {
+    enabled: isOpen,
+  });
+
+  // Per-workspace enabled plugins, so the "Products" section only appears
+  // for workspaces where the product plugin is activated.
+  const pluginResults = api.useQueries((t) =>
+    (workspacesData ?? []).map((w) =>
+      t.pluginConfig.getEnabled(
+        { workspaceId: w.id },
+        { enabled: isOpen && q.length > 0, staleTime: 5 * 60 * 1000 },
+      ),
+    ),
+  );
+
+  const productEnabledByWorkspaceId = useMemo(() => {
+    const map = new Map<string, boolean>();
+    (workspacesData ?? []).forEach((w, idx) => {
+      const enabled = pluginResults[idx]?.data;
+      map.set(w.id, Array.isArray(enabled) && enabled.includes('product'));
+    });
+    return map;
+  }, [workspacesData, pluginResults]);
+
+  const filteredWorkspaceNav = useMemo(() => {
+    if (!q) return [];
+    const results: { label: string; href: string; icon: React.ElementType }[] = [];
+    for (const w of workspacesData ?? []) {
+      const productEnabled = productEnabledByWorkspaceId.get(w.id) ?? false;
+      for (const section of WORKSPACE_SECTIONS) {
+        if (section.requiresProduct && !productEnabled) continue;
+        const label = `${w.name} - ${section.label}`;
+        if (!label.toLowerCase().includes(q)) continue;
+        results.push({ label, href: section.href(w.slug), icon: section.icon });
+      }
+    }
+    return results.slice(0, 12);
+  }, [q, workspacesData, productEnabledByWorkspaceId]);
+
   const filteredProjects = useMemo(
     () =>
       showProjects
@@ -141,6 +205,13 @@ export function CommandPalette() {
         icon: p.icon,
         href: `/w/${workspaceSlug}/${p.path}`,
       })),
+      ...filteredWorkspaceNav.map((w) => ({
+        type: 'workspace-nav' as const,
+        label: w.label,
+        sub: 'Workspace',
+        icon: w.icon,
+        href: w.href,
+      })),
       ...filteredProjects.map((p) => ({
         type: 'project' as const,
         label: p.name,
@@ -164,7 +235,7 @@ export function CommandPalette() {
       })),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredPages, filteredProjects, filteredActions, filteredGoals, workspaceSlug],
+    [filteredPages, filteredWorkspaceNav, filteredProjects, filteredActions, filteredGoals, workspaceSlug],
   );
 
   const showNoResults =
@@ -172,6 +243,7 @@ export function CommandPalette() {
     filteredProjects.length === 0 &&
     filteredActions.length === 0 &&
     filteredGoals.length === 0 &&
+    filteredWorkspaceNav.length === 0 &&
     filteredPages.length === 0;
 
   const isLoading = (showProjects && projectsLoading) || (showTasks && actionsLoading) || (showGoals && goalsLoading);
@@ -389,7 +461,9 @@ export function CommandPalette() {
                   stroke={1.75}
                   style={{
                     color:
-                      result.type === 'page' ? 'var(--brand-400)' : 'var(--color-text-muted)',
+                      result.type === 'page' || result.type === 'workspace-nav'
+                        ? 'var(--brand-400)'
+                        : 'var(--color-text-muted)',
                     flexShrink: 0,
                   }}
                 />
