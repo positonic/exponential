@@ -6,6 +6,8 @@ import { SlackNotificationService } from "~/server/services/notifications/SlackN
 import { SlackChannelResolver } from "~/server/services/SlackChannelResolver";
 import { getSundayWeekStart } from "~/lib/weekUtils";
 import { ScoringService } from "~/server/services/ScoringService";
+import { recordActivity } from "~/server/services/activity/recordActivity";
+import { getWorkspaceMembership } from "~/server/services/access";
 
 export const weeklyReviewRouter = createTRPCRouter({
   
@@ -487,6 +489,24 @@ export const weeklyReviewRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const weekStartDate = getSundayWeekStart(new Date());
 
+      // A workspaceId here is client-supplied and gates a write into the
+      // team-visible activity feed (and the workspace bonus). Verify membership
+      // first so a user can't inject a "completed a weekly review" event into a
+      // workspace they don't belong to.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          userId,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this workspace",
+          });
+        }
+      }
+
       // Find existing completion for this week
       const existing = await ctx.db.weeklyReviewCompletion.findFirst({
         where: {
@@ -534,6 +554,25 @@ export const weeklyReviewRouter = createTRPCRouter({
       ).catch((err) => {
         console.error("[weeklyReview.markComplete] Failed to apply bonus:", err);
       });
+
+      // Surface the completed review as a team-visible milestone in the workspace
+      // activity feed. The feed is workspace-scoped, so personal (no-workspace)
+      // reviews produce no entry. Fire-and-forget: recordActivity never throws.
+      if (input.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: input.workspaceId,
+          userId,
+          entityType: "weekly_review",
+          entityId: completion.id,
+          action: "completed",
+          metadata: {
+            reviewMode: input.reviewMode,
+            projectsReviewed: input.projectsReviewed,
+          },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return completion;
     }),

@@ -7,15 +7,17 @@ import { getAvatarColor, getInitial, getColorSeed } from "~/utils/avatarColors";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
+type DriUser = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+};
+
 interface ProjectDriBadgeProps {
   projectId: string;
-  dri?: {
-    id: string;
-    name: string | null;
-    email: string | null;
-    image: string | null;
-  } | null;
-  onUpdate: (driId: string | null) => void;
+  dri?: DriUser | null;
+  onUpdate: (driId: string | null, dri: DriUser | null) => void;
 }
 
 export function ProjectDriBadge({
@@ -52,14 +54,19 @@ export function ProjectDriBadge({
         placeholder="Select DRI"
         data={[
           { value: "", label: "No DRI assigned" },
-          ...workspaceMembers.map((member: { user: { id: string; name: string | null; email: string | null } }) => ({
+          ...workspaceMembers.map((member: { user: DriUser }) => ({
             value: member.user.id,
             label: member.user.name ?? member.user.email ?? "Unknown user",
           })),
         ]}
         value={dri?.id ?? ""}
         onChange={(value) => {
-          onUpdate(value === "" ? null : value);
+          const driId = value === "" ? null : value;
+          const selected =
+            workspaceMembers.find(
+              (member: { user: DriUser }) => member.user.id === driId,
+            )?.user ?? null;
+          onUpdate(driId, selected);
           setIsEditing(false);
         }}
         searchable

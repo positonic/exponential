@@ -22,6 +22,7 @@ import { getWorkspaceFocusSummary } from "~/server/services/activity/workspaceFo
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
 import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   getOrGenerateWeeklyNarrative,
   NarrativeRateLimitError,
@@ -646,6 +647,20 @@ export const workspaceRouter = createTRPCRouter({
           }
         }
 
+        // Record a "joined the workspace" activity. The actor (userId) is the
+        // new member, not the admin who added them, so the feed reads
+        // "{newMember} joined the workspace". Fire-and-forget: never throws.
+        await recordActivity(ctx.db, {
+          workspaceId: input.workspaceId,
+          userId: userToAdd.id,
+          entityType: "workspace_member",
+          entityId: userToAdd.id,
+          action: "created",
+          metadata: { name: newMember.user.name ?? newMember.user.email },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+
         return { type: "member_added" as const, member: newMember };
       } else {
         // User doesn't exist - create invitation
@@ -1198,6 +1213,19 @@ export const workspaceRouter = createTRPCRouter({
           },
         }),
       ]);
+
+      // Record a "joined the workspace" activity for the accepting user.
+      // Fire-and-forget: never throws.
+      await recordActivity(ctx.db, {
+        workspaceId: invitation.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "workspace_member",
+        entityId: ctx.session.user.id,
+        action: "created",
+        metadata: { name: ctx.session.user.name ?? ctx.session.user.email },
+      }).catch(() => {
+        /* instrumentation failure is non-fatal */
+      });
 
       return { success: true, workspace: invitation.workspace };
     }),

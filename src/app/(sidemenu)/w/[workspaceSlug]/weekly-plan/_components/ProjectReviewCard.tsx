@@ -54,6 +54,7 @@ const HEALTH_SEG: SegOption[] = [
 ];
 
 type ProjectWithDetails = RouterOutputs["project"]["getActiveWithDetails"][number];
+type ProjectDri = ProjectWithDetails["dri"];
 
 interface ProjectChanges {
   statusChanged: boolean;
@@ -131,10 +132,20 @@ export function ProjectReviewCard({
   const [description, setDescription] = useState(project.description ?? "");
   const [showReflect, setShowReflect] = useState(false);
   const [localActions, setLocalActions] = useState(project.actions);
+  // Locally-owned copies of the fields the badges below mutate. During a review
+  // session the page renders projects from a frozen snapshot, so invalidating
+  // the query alone won't refresh these — we keep optimistic state here (this
+  // card remounts per project, keyed by id, so initial values stay correct).
+  const [dri, setDri] = useState<ProjectDri>(project.dri);
+  const [startDate, setStartDate] = useState(project.startDate);
+  const [endDate, setEndDate] = useState(project.endDate);
 
   const utils = api.useUtils();
 
   const updateProject = api.project.update.useMutation({
+    onSuccess: () => {
+      void utils.project.getActiveWithDetails.invalidate();
+    },
     onError: (error) => {
       notifications.show({
         title: "Error",
@@ -205,6 +216,13 @@ export function ProjectReviewCard({
   ]);
 
   const handleActionUpdated = async () => {
+    // Invalidate first: the query has a 30s staleTime, so a plain .fetch() right
+    // after creating an action returns cached data that doesn't yet include it,
+    // which would clobber the optimistic stub (the new action only "appears"
+    // after a second add). Awaiting invalidate forces a fresh server read.
+    await utils.project.getActiveWithDetails.invalidate({
+      workspaceId: workspaceId ?? undefined,
+    });
     const freshData = await utils.project.getActiveWithDetails.fetch({
       workspaceId: workspaceId ?? undefined,
     });
@@ -240,18 +258,36 @@ export function ProjectReviewCard({
     startDate?: Date | null;
     endDate?: Date | null;
   }) => {
-    updateProject.mutate({
-      id: project.id,
-      name: project.name,
-      status: status as ProjectStatus,
-      priority: priority as ProjectPriority,
-      ...dates,
-    });
-    notifications.show({
-      title: "Dates updated",
-      message: "Project dates have been saved",
-      color: "green",
-    });
+    // Reflect the change immediately — the page renders from a snapshot during
+    // review, so the badge won't update from the refetch on its own. Snapshot
+    // the prior values so we can roll back (and only confirm success) once the
+    // server responds.
+    const prevStartDate = startDate;
+    const prevEndDate = endDate;
+    if ("startDate" in dates) setStartDate(dates.startDate ?? null);
+    if ("endDate" in dates) setEndDate(dates.endDate ?? null);
+    updateProject.mutate(
+      {
+        id: project.id,
+        name: project.name,
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
+        ...dates,
+      },
+      {
+        onSuccess: () => {
+          notifications.show({
+            title: "Dates updated",
+            message: "Project dates have been saved",
+            color: "green",
+          });
+        },
+        onError: () => {
+          setStartDate(prevStartDate);
+          setEndDate(prevEndDate);
+        },
+      },
+    );
   };
 
   // Inline description editing — commits on blur (quiet affordance, no banner).
@@ -269,19 +305,30 @@ export function ProjectReviewCard({
     }
   };
 
-  const handleDriUpdate = (driId: string | null) => {
-    updateProject.mutate({
-      id: project.id,
-      name: project.name,
-      status: status as ProjectStatus,
-      priority: priority as ProjectPriority,
-      driId,
-    });
-    notifications.show({
-      title: "DRI updated",
-      message: "Project DRI has been saved",
-      color: "green",
-    });
+  const handleDriUpdate = (driId: string | null, driUser: ProjectDri) => {
+    // Optimistically swap the displayed DRI (snapshot won't refresh mid-review),
+    // rolling back if the save fails so the badge never lies about what's saved.
+    const prevDri = dri;
+    setDri(driUser);
+    updateProject.mutate(
+      {
+        id: project.id,
+        name: project.name,
+        status: status as ProjectStatus,
+        priority: priority as ProjectPriority,
+        driId,
+      },
+      {
+        onSuccess: () => {
+          notifications.show({
+            title: "DRI updated",
+            message: "Project DRI has been saved",
+            color: "green",
+          });
+        },
+        onError: () => setDri(prevDri),
+      },
+    );
   };
 
   // Keyboard shortcuts: ↩ mark reviewed, S skip, ← previous, → next.
@@ -374,7 +421,7 @@ export function ProjectReviewCard({
           )}
           <ProjectDriBadge
             projectId={project.id}
-            dri={project.dri}
+            dri={dri}
             onUpdate={handleDriUpdate}
           />
         </Group>
@@ -384,8 +431,8 @@ export function ProjectReviewCard({
       <Group gap="md" className="mb-5" wrap="wrap">
         <ProjectDateBadges
           projectId={project.id}
-          startDate={project.startDate}
-          endDate={project.endDate}
+          startDate={startDate}
+          endDate={endDate}
           onUpdate={handleDateUpdate}
         />
         <Group gap={4} className="ml-auto">

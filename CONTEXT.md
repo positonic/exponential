@@ -75,6 +75,24 @@ _Avoid_: Comments (the tab is a mixed feed of comments **and** check-ins, not co
 - GitHub events shown in the activity feed are **not persisted** for the panel's purposes. They are fetched on page load via a shared `GITHUB_API_TOKEN` PAT (impactful-events style), with a ~5min server-side cache per repo to absorb refreshes.
 - The existing webhook path (`/api/webhooks/github`) and `GitHubActivity` table remain — they continue to feed `SprintSnapshot` analytics, **independent** of the activity panel. The two paths can coexist for the same repo; the activity feed only uses live-fetch.
 
+### Weekly planning
+
+**Weekly plan**:
+The personal, GTD-style weekly ritual where a user reviews their active **Projects**, has the system spot issues on each (stale, blocked, overdue, no next **Action**, no **Key result** linked, no end date, no description), tidies them, and records completion to keep a **streak**. The canonical user-facing and conversational word is "Weekly plan" — including when **Zoe** runs it in chat. The underlying schema is *review*-flavoured for historical reasons: the wizard at `/weekly-plan` runs `intro → reviewing → complete`, backed by `weeklyReview.ts`, `weeklyReviewCompletion` (one upserted row per `userId × workspaceId × week`), and `markComplete`. Strictly distinct from **Weekly outcomes** below.
+_Avoid_: Weekly review (only in code/schema references — `weeklyReview*`), weekly planning (reserved for the team **Weekly outcomes** flow).
+
+**Weekly outcomes**:
+Forward-looking *team* planning — per-**Project**, per-week commitments with assignees, priority, and a due date — stored as `weeklyOutcomes` and managed by `weeklyPlanning.ts`. Distinct from the personal **Weekly plan**: outcomes are about *what the team will do this week*, the Weekly plan is about *reviewing the state of your projects*. The `/weekly-plan` command runs the Weekly plan, **not** this.
+_Avoid_: Weekly plan (that's the personal review), outcome (overloaded — see the flagged `Outcome` table ambiguity).
+
+**Weekly plan digest**:
+The deterministic, server-computed list of the user's active Projects each annotated with its spotted issues and a health score — the single artefact both the `/weekly-plan` wizard UI and **Zoe** present. Today the scoring lives only in the React page (`calculateProjectHealthScore`); it is being extracted to one server procedure (`weeklyReview.getDigest`) so UI and agent show provably identical issues (same one-source-of-truth pattern as [ADR-0007](docs/adr/0007-deterministic-action-extraction.md)).
+_Avoid_: Health score (that's one field of a digest entry, not the digest), needs-attention list.
+
+**Weekly plan session**:
+The single, server-persisted state of one in-progress **Weekly plan** — position, the set of reviewed Projects, the running change tally (`statusChanges`, `actionsAdded`, …), and `reviewMode` — keyed per `(userId, workspaceId, week)`, the same key as `weeklyReviewCompletion`. Shared by **both** surfaces: the `/weekly-plan` wizard and **Zoe**'s chat walk read and write the same session, so a user can review three projects in chat, open the wizard, and resume at the fourth (the ADR-0006 "two surfaces, one thread" pattern). A session is created at *start* and stamped `completedAt` at finish — so "completed this week" means `completedAt != null`, **not** mere row existence.
+_Avoid_: Review session (only in code), wizard state (it is no longer client-only).
+
 ### Product
 
 **Product**:

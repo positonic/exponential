@@ -8,6 +8,7 @@ import { getWorkspaceMembership } from "~/server/services/access/resolvers/works
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 import {
   getMyPublicGoals,
@@ -220,10 +221,32 @@ export const goalRouter = createTRPCRouter({
       } else if (goal.userId !== ctx.session.user.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or unauthorized" });
       }
-      return ctx.db.goal.update({
+      const updated = await ctx.db.goal.update({
         where: { id: input.id },
         data: { status: input.status },
       });
+
+      // Surface goal completion as a workspace milestone. Only on the transition
+      // into "completed", and only for workspace-scoped goals. This is distinct
+      // from the per-goal update/comment feed. Fire-and-forget: never throws.
+      if (
+        input.status === "completed" &&
+        goal.status !== "completed" &&
+        goal.workspaceId
+      ) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal",
+          entityId: String(goal.id),
+          action: "completed",
+          metadata: { title: goal.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Trigger health recomputation for a goal

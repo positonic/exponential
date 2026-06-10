@@ -85,9 +85,42 @@ const HINTS: Record<string, FeedRenderHint> = {
 
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
+  [key("project", "created")]: {
+    template: "{actor} created project {entityRef}",
+    iconKind: "created",
+  },
   [key("project", "completed")]: {
     template: "{actor} completed project {entityRef}",
     iconKind: "milestone",
+  },
+
+  // Goals — completing a strategic goal is a milestone.
+  [key("goal", "completed")]: {
+    template: "{actor} completed goal {entityRef}",
+    iconKind: "milestone",
+  },
+
+  // Weekly review — a completed review is a team-visible milestone. Self-contained
+  // template (no {entityRef}) because the completion row has no entity name.
+  [key("weekly_review", "completed")]: {
+    template: "{actor} completed their weekly review",
+    iconKind: "milestone",
+  },
+
+  // Workspace membership — {actor} is always the person who joined (both the
+  // admin-add and invitation-accept paths set userId to the new member), so a
+  // single self-contained template covers both.
+  [key("workspace_member", "created")]: {
+    template: "{actor} joined the workspace",
+    iconKind: "created",
+  },
+
+  // CRM deals — a closed deal (won or lost) is a milestone. Neutral "closed"
+  // wording + "completed" icon so a lost deal isn't shown with a trophy; the
+  // won/lost outcome and value live in metadata for future enrichment.
+  [key("deal", "completed")]: {
+    template: "{actor} closed deal {entityRef}",
+    iconKind: "completed",
   },
 };
 
