@@ -48,6 +48,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import DOMPurify from "dompurify";
 import { CreateGoalModal } from "../CreateGoalModal";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
+import { GoalProgressControl } from "./GoalProgressControl";
 import { GoalActivityTab } from "./GoalActivityTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
 import { GoalIcon } from "../GoalIcon";
@@ -432,6 +433,14 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                   </ActionIcon>
                 </Group>
               </Card>
+
+              {/* Progress */}
+              <GoalProgressControl
+                goalId={goal.id}
+                resolvedProgress={goal.resolvedProgress ?? null}
+                isManual={goal.isProgressManual ?? false}
+                keyResults={goal.keyResults}
+              />
 
               {/* Description */}
               <div>
