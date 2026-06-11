@@ -65,6 +65,8 @@ export default {
           error: 'var(--color-brand-error)',
           info: 'var(--color-brand-info)',
           'primary-opacity': 'var(--color-brand-primary-opacity)',
+          // Subtle brand wash (rgba ~6%) — e.g. the calendar "today" column.
+          subtle: 'var(--color-brand-subtle)',
           // Meetings v2: secondary brand tier used for "TODAY" date label,
           // sparkline highlight bar, "Open transcript" link. Uses the RGB
           // triplet form so opacity modifiers like `bg-brand-400/10` resolve
@@ -98,6 +100,64 @@ export default {
           // The design calls this "knowledge"; the existing CSS var is named
           // `--accent-quick`. Keep the CSS var name; expose under the design's.
           knowledge: 'rgb(var(--accent-quick-rgb) / <alpha-value>)',
+        },
+        // Calendar event palette — harmonized 7-hue tint-fill + accent-bar
+        // system. Each hue exposes its base (accent bar / "now" line), the
+        // tinted fill (+ hover / past), the AA label, the dimmed past label,
+        // and the secondary "sub" text. All layers are precomputed via
+        // color-mix in globals.css, so these alias the vars directly (no
+        // opacity-modifier form needed). Usage:
+        //   bg-event-indigo-fill text-event-indigo-label border-l-event-indigo
+        event: {
+          indigo: 'var(--ev-indigo)',
+          'indigo-fill': 'var(--ev-indigo-fill)',
+          'indigo-fill-hover': 'var(--ev-indigo-fill-hover)',
+          'indigo-fill-past': 'var(--ev-indigo-fill-past)',
+          'indigo-label': 'var(--ev-indigo-label)',
+          'indigo-label-past': 'var(--ev-indigo-label-past)',
+          'indigo-sub': 'var(--ev-indigo-sub)',
+          cyan: 'var(--ev-cyan)',
+          'cyan-fill': 'var(--ev-cyan-fill)',
+          'cyan-fill-hover': 'var(--ev-cyan-fill-hover)',
+          'cyan-fill-past': 'var(--ev-cyan-fill-past)',
+          'cyan-label': 'var(--ev-cyan-label)',
+          'cyan-label-past': 'var(--ev-cyan-label-past)',
+          'cyan-sub': 'var(--ev-cyan-sub)',
+          green: 'var(--ev-green)',
+          'green-fill': 'var(--ev-green-fill)',
+          'green-fill-hover': 'var(--ev-green-fill-hover)',
+          'green-fill-past': 'var(--ev-green-fill-past)',
+          'green-label': 'var(--ev-green-label)',
+          'green-label-past': 'var(--ev-green-label-past)',
+          'green-sub': 'var(--ev-green-sub)',
+          amber: 'var(--ev-amber)',
+          'amber-fill': 'var(--ev-amber-fill)',
+          'amber-fill-hover': 'var(--ev-amber-fill-hover)',
+          'amber-fill-past': 'var(--ev-amber-fill-past)',
+          'amber-label': 'var(--ev-amber-label)',
+          'amber-label-past': 'var(--ev-amber-label-past)',
+          'amber-sub': 'var(--ev-amber-sub)',
+          violet: 'var(--ev-violet)',
+          'violet-fill': 'var(--ev-violet-fill)',
+          'violet-fill-hover': 'var(--ev-violet-fill-hover)',
+          'violet-fill-past': 'var(--ev-violet-fill-past)',
+          'violet-label': 'var(--ev-violet-label)',
+          'violet-label-past': 'var(--ev-violet-label-past)',
+          'violet-sub': 'var(--ev-violet-sub)',
+          rose: 'var(--ev-rose)',
+          'rose-fill': 'var(--ev-rose-fill)',
+          'rose-fill-hover': 'var(--ev-rose-fill-hover)',
+          'rose-fill-past': 'var(--ev-rose-fill-past)',
+          'rose-label': 'var(--ev-rose-label)',
+          'rose-label-past': 'var(--ev-rose-label-past)',
+          'rose-sub': 'var(--ev-rose-sub)',
+          slate: 'var(--ev-slate)',
+          'slate-fill': 'var(--ev-slate-fill)',
+          'slate-fill-hover': 'var(--ev-slate-fill-hover)',
+          'slate-fill-past': 'var(--ev-slate-fill-past)',
+          'slate-label': 'var(--ev-slate-label)',
+          'slate-label-past': 'var(--ev-slate-label-past)',
+          'slate-sub': 'var(--ev-slate-sub)',
         },
         // Gradient color references
         gradient: {

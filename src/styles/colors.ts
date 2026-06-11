@@ -49,6 +49,19 @@ export const colorTokens = {
       okr: '#F5B94A',
       due: '#F87171',
     },
+    // Calendar event palette — 7 harmonized hues, all ~L 0.72 / C 0.10 in
+    // oklch so the set reads as one family. These are base (full-strength)
+    // hues; the tinted fill / label layers are derived via color-mix in
+    // globals.css. See dev-docs/styling-architecture.md.
+    event: {
+      indigo: 'oklch(0.72 0.11 262)',
+      cyan: 'oklch(0.74 0.09 215)',
+      green: 'oklch(0.74 0.10 158)',
+      amber: 'oklch(0.77 0.10 78)',
+      violet: 'oklch(0.71 0.11 300)',
+      rose: 'oklch(0.71 0.11 12)',
+      slate: 'oklch(0.66 0.025 255)',
+    },
     avatar: {
       red: '#FF6B6B',
       teal: '#4ECDC4',
@@ -116,6 +129,19 @@ export const colorTokens = {
       crm: '#4ADE8C',
       okr: '#F5B94A',
       due: '#F87171',
+    },
+    // Calendar event palette — 7 harmonized hues, all ~L 0.72 / C 0.10 in
+    // oklch so the set reads as one family. These are base (full-strength)
+    // hues; the tinted fill / label layers are derived via color-mix in
+    // globals.css. See dev-docs/styling-architecture.md.
+    event: {
+      indigo: 'oklch(0.72 0.11 262)',
+      cyan: 'oklch(0.74 0.09 215)',
+      green: 'oklch(0.74 0.10 158)',
+      amber: 'oklch(0.77 0.10 78)',
+      violet: 'oklch(0.71 0.11 300)',
+      rose: 'oklch(0.71 0.11 12)',
+      slate: 'oklch(0.66 0.025 255)',
     },
     avatar: {
       red: '#FF6B6B',
