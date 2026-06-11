@@ -38,6 +38,7 @@ import {
   EmptyVoiceTurnError,
 } from "~/server/services/voice/voiceTranscriptBridge";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { PROMPT_VERSION } from "~/server/services/promptVersion";
 import {
   VOICE_TOOL_CATALOG,
   VOICE_ROUTER_INSTRUCTIONS,
@@ -369,6 +370,7 @@ export const voiceRouter = createTRPCRouter({
             aiResponse: input.text,
             agentName: "Zoe",
             model: "openai-realtime",
+            promptVersion: PROMPT_VERSION,
             ...(conversationId ? { conversationId } : {}),
             ...(workspaceId ? { workspaceId } : {}),
             ...(input.responseTime !== undefined
