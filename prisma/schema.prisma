@@ -1534,14 +1534,16 @@ model ThreadScore {
 // Frozen, replayable eval case distilled from a scored-bad Thread (ADR-0012
 // decision 8). Candidate fixes are scored offline against these before deploy.
 model EvalCase {
-  id             String      @id @default(cuid())
-  threadScoreId  String      @unique
-  conversationId String
-  transcript     Json // ordered user/assistant turns needed to replay the Thread
-  expectation    String // the contract expectation violated, e.g. "must not deflect"
-  lane           String // code_bug | agent_behaviour | capability_gap
-  createdAt      DateTime    @default(now())
-  threadScore    ThreadScore @relation(fields: [threadScoreId], references: [id], onDelete: Cascade)
+  id                 String      @id @default(cuid())
+  threadScoreId      String      @unique
+  conversationId     String
+  transcript         Json // ordered user/assistant turns needed to replay the Thread
+  violatingTurnIndex Int // 0-based index into transcript; replay feeds transcript[0..index) + that turn's user message as the frozen prefix (ADR-0013)
+  expectation        String // the contract expectation violated, e.g. "must not deflect"
+  lane               String // code_bug | agent_behaviour | capability_gap
+  active             Boolean     @default(true) // retired manually when the product changes underneath the case (ADR-0013)
+  createdAt          DateTime    @default(now())
+  threadScore        ThreadScore @relation(fields: [threadScoreId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
   @@index([lane])

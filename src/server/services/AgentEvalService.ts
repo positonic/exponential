@@ -129,6 +129,7 @@ const judgementSchema = z.object({
   failureLane: z.enum(FAILURE_LANES).nullable(),
   reasoning: z.string(),
   expectation: z.string().nullable(),
+  violatingTurn: z.number().int().min(1).nullable(),
 });
 
 export type Judgement = z.infer<typeof judgementSchema>;
@@ -154,6 +155,7 @@ Scoring:
   - "agent_behaviour" — Zoe fabricated, deflected, mis-resolved a reference, or otherwise violated her contract while the tools worked: the fix is a prompt/instruction change.
   - "capability_gap" — the user asked for something no tool covers; Zoe handled it as well as possible: the fix is a product feature, not a bug.
 - When failing, also state the single violated contract expectation as a short imperative sentence usable as an eval assertion (e.g. "must call a tool before stating which actions are due", "must not tell the user to check their own list").
+- When failing, also give violatingTurn: the turn number (as labelled) where the violation occurred — the turn whose response an eval replay must re-generate and judge.
 
 Record your judgement with the record_judgement tool.`;
 
@@ -199,6 +201,12 @@ const JUDGE_TOOL: Anthropic.Tool = {
         description:
           "When failing: the violated contract expectation as a short imperative sentence. Null when passing.",
       },
+      violatingTurn: {
+        type: ["integer", "null"],
+        minimum: 1,
+        description:
+          "When failing: the turn number (as labelled in the transcript) where the violation occurred. Null when passing.",
+      },
     },
     required: [
       "resolved",
@@ -209,6 +217,7 @@ const JUDGE_TOOL: Anthropic.Tool = {
       "failureLane",
       "reasoning",
       "expectation",
+      "violatingTurn",
     ],
   },
 };
@@ -418,6 +427,12 @@ export class AgentEvalService {
                 create: {
                   conversationId,
                   transcript: thread.turns as unknown as Prisma.InputJsonValue,
+                  // 1-based judge label -> 0-based index, clamped; default to the
+                  // last turn when the judge gives none (ADR-0013 frozen prefix).
+                  violatingTurnIndex: Math.min(
+                    Math.max((judgement.violatingTurn ?? thread.turns.length) - 1, 0),
+                    thread.turns.length - 1,
+                  ),
                   expectation:
                     judgement.expectation ??
                     "must satisfy Zoe's contract (judge gave no specific expectation)",
