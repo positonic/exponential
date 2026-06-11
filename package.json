@@ -35,6 +35,7 @@
     "electron:build:win": "npm run electron:build -- --win",
     "electron:build:linux": "npm run electron:build -- --linux",
     "score-threads": "tsx scripts/score-threads.ts",
+    "eval-prompt": "tsx scripts/eval-prompt.ts",
     "okr": "npx tsx scripts/okr-cli.ts",
     "okr:list": "npx tsx scripts/okr-cli.ts list",
     "okr:stats": "npx tsx scripts/okr-cli.ts stats",
