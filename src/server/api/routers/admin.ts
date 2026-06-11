@@ -2,6 +2,13 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { feedbackDigestService } from "~/server/services/notifications/FeedbackDigestService";
+import { threadScoreDigestService } from "~/server/services/notifications/ThreadScoreDigestService";
+import {
+  buildLaneBreakdown,
+  buildPromptVersionBreakdown,
+  buildScoreTrend,
+  lastPromptVersionByConversation,
+} from "~/server/services/threadScoreAnalytics";
 
 // `tokenUsage` is written via `JSON.stringify(...)` in AiInteractionLogger,
 // so Prisma returns it as a string. Older rows (or rows written via Prisma
@@ -417,6 +424,179 @@ export const adminRouter = createTRPCRouter({
       platform: p.platform,
       count: p._count.platform,
     }));
+  }),
+
+  /**
+   * Thread-score analytics (ADR-0012 Phase 2): judge-score trend by agent,
+   * Failure-lane breakdown, and score-by-Prompt-version. Thread score is the
+   * judge's APPARENT-quality verdict — distinct from the human Feedback
+   * rating and from Zoe's self-reported confidence; the UI labels all three.
+   */
+  getThreadScoreAnalytics: adminProcedure
+    .input(
+      z
+        .object({
+          days: z.number().int().min(1).max(365).default(30),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 30;
+      const to = new Date();
+      const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+
+      const scores = await ctx.db.threadScore.findMany({
+        where: { createdAt: { gte: from } },
+        select: {
+          conversationId: true,
+          agentId: true,
+          overallScore: true,
+          failureLane: true,
+          createdAt: true,
+        },
+      });
+
+      // A Thread is attributed to the promptVersion of its last stamped turn.
+      const turnRows =
+        scores.length > 0
+          ? await ctx.db.aiInteractionHistory.findMany({
+              where: {
+                conversationId: { in: scores.map((s) => s.conversationId) },
+                promptVersion: { not: null },
+              },
+              select: { conversationId: true, promptVersion: true, createdAt: true },
+            })
+          : [];
+      const turns = turnRows.filter(
+        (t): t is typeof t & { conversationId: string } => t.conversationId !== null,
+      );
+
+      const failureCount = scores.filter((s) => s.failureLane !== null).length;
+      return {
+        summary: {
+          scoredThreads: scores.length,
+          avgScore:
+            scores.length > 0
+              ? Math.round(scores.reduce((sum, s) => sum + s.overallScore, 0) / scores.length)
+              : null,
+          failureCount,
+        },
+        trend: buildScoreTrend(scores, from, to),
+        laneBreakdown: buildLaneBreakdown(scores),
+        promptVersions: buildPromptVersionBreakdown(
+          scores,
+          lastPromptVersionByConversation(turns),
+        ),
+      };
+    }),
+
+  /**
+   * Worst-Thread drilldown: lowest judge scores with reasoning, the violated
+   * expectation (from the distilled EvalCase), plus the human rating and
+   * self-reported confidence for the same Thread — labelled separately,
+   * never blended.
+   */
+  getWorstThreads: adminProcedure
+    .input(
+      z
+        .object({
+          days: z.number().int().min(1).max(365).default(30),
+          limit: z.number().int().min(1).max(50).default(10),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const days = input?.days ?? 30;
+      const limit = input?.limit ?? 10;
+      const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+      const scores = await ctx.db.threadScore.findMany({
+        where: { createdAt: { gte: from } },
+        orderBy: { overallScore: "asc" },
+        take: limit,
+        include: {
+          evalCase: { select: { expectation: true, lane: true, active: true } },
+        },
+      });
+
+      const conversationIds = scores.map((s) => s.conversationId);
+      const turns =
+        conversationIds.length > 0
+          ? await ctx.db.aiInteractionHistory.findMany({
+              where: { conversationId: { in: conversationIds } },
+              select: {
+                conversationId: true,
+                promptVersion: true,
+                confidenceScore: true,
+                createdAt: true,
+                feedback: { select: { rating: true } },
+              },
+              orderBy: { createdAt: "asc" },
+            })
+          : [];
+
+      const turnsByConversation = new Map<string, typeof turns>();
+      for (const turn of turns) {
+        if (turn.conversationId === null) continue;
+        const bucket = turnsByConversation.get(turn.conversationId) ?? [];
+        bucket.push(turn);
+        turnsByConversation.set(turn.conversationId, bucket);
+      }
+
+      return scores.map((score) => {
+        const threadTurns = turnsByConversation.get(score.conversationId) ?? [];
+        const humanRatings = threadTurns.flatMap((t) => t.feedback.map((f) => f.rating));
+        const confidences = threadTurns
+          .map((t) => t.confidenceScore)
+          .filter((c): c is number => c !== null);
+        const lastStamped = [...threadTurns].reverse().find((t) => t.promptVersion);
+        return {
+          conversationId: score.conversationId,
+          agentId: score.agentId,
+          overallScore: score.overallScore,
+          axes: {
+            resolved: score.resolved,
+            grounded: score.grounded,
+            toolSuccess: score.toolSuccess,
+            noDeflection: score.noDeflection,
+          },
+          failureLane: score.failureLane,
+          reasoning: score.reasoning,
+          expectation: score.evalCase?.expectation ?? null,
+          turnCount: score.turnCount,
+          lastTurnAt: score.lastTurnAt,
+          promptVersion: lastStamped?.promptVersion ?? null,
+          // Human ground truth (Feedback.rating) — sparse; null when nobody rated.
+          humanRating:
+            humanRatings.length > 0
+              ? humanRatings.reduce((a, b) => a + b, 0) / humanRatings.length
+              : null,
+          humanRatingCount: humanRatings.length,
+          // Zoe's self-report — the third, distinct number.
+          avgConfidence:
+            confidences.length > 0
+              ? confidences.reduce((a, b) => a + b, 0) / confidences.length
+              : null,
+        };
+      });
+    }),
+
+  /**
+   * Generate and preview the weekly Thread-score digest (without sending)
+   */
+  previewThreadScoreDigest: adminProcedure.query(async () => {
+    return threadScoreDigestService.generateWeeklyDigest();
+  }),
+
+  /**
+   * Send the weekly Thread-score digest to all admin users via Slack
+   */
+  sendThreadScoreDigest: adminProcedure.mutation(async () => {
+    const result = await threadScoreDigestService.sendDigestToAdmins();
+    if (!result.success && result.errors.length > 0) {
+      console.error("[Admin] Thread-score digest errors:", result.errors);
+    }
+    return result;
   }),
 
   /**
