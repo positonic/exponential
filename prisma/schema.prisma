@@ -1524,6 +1524,10 @@ model ThreadScore {
   firstTurnAt     DateTime
   lastTurnAt      DateTime
   avgResponseTime Int? // computed mean of AiInteractionHistory.responseTime (ms), not judged
+  // Level B auto-filing idempotency (ADR-0012 decision 4): set once this
+  // failure has been filed into its lane's tracker; never filed twice.
+  filedAt         DateTime?
+  filedRef        String? // destination ref, e.g. "beads:exponential-x12", "ticket:<cuid>"
   createdAt       DateTime  @default(now())
   evalCase        EvalCase?
 
