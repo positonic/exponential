@@ -14,6 +14,7 @@ import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { composePromptVersion } from "~/server/services/promptVersion";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import {
   pickModelTier,
@@ -790,6 +791,8 @@ export async function POST(req: Request) {
             response.headers.get("x-request-id") ??
             response.headers.get("x-anthropic-request-id") ??
             undefined;
+          // brain@<hash> reported by ../mastra (ADR-0013); absent on older deploys.
+          const brainVersion = response.headers.get("x-brain-version");
           const lastUserMsg =
             [...messages].reverse().find(m => m.role === "user")?.content ?? "";
           const logPromise: Promise<string | undefined> = getAiInteractionLogger(db)
@@ -827,6 +830,7 @@ export async function POST(req: Request) {
               workspaceId: workspaceId ?? undefined,
               model: responseModelId ?? "mastra-agents",
               messageType: "question",
+              promptVersion: composePromptVersion(brainVersion),
             })
             // If the DB write fails AFTER the race below times out, the
             // rejection would otherwise be unhandled. Swallow + log here.

@@ -893,6 +893,13 @@ model Goal {
   healthOverrideAt   DateTime? // when the override was last set
   healthOverrideById String? // user id who set it (audit; no FK)
 
+  // Manual progress override (0–100). When set, it wins over the KR-derived
+  // progress for any goal. null = no override (fall back to KR mean, else none).
+  // Mirrors the healthOverride audit pattern above.
+  progressOverride     Float? // 0–100 percentage
+  progressOverrideAt   DateTime? // when the override was last set
+  progressOverrideById String? // user id who set it (audit; no FK)
+
   // Display ordering within parent or at root level
   displayOrder Int @default(0)
 
@@ -1451,6 +1458,7 @@ model AiInteractionHistory {
   userAgent          String?
   ipAddress          String?
   anthropicRequestId String?
+  promptVersion      String?
   createdAt          DateTime   @default(now())
   project            Project?   @relation(fields: [projectId], references: [id])
   user               User?      @relation(fields: [systemUserId], references: [id])
@@ -1489,6 +1497,56 @@ model Feedback {
   @@index([createdAt])
   @@index([feature, rating])
   @@index([aiInteractionId])
+}
+
+// Agent-quality Thread scoring (ADR-0012). One row per judged Thread — a
+// conversationId-scoped exchange with Zoe-the-brain, judged as a whole by an
+// LLM judge against Zoe's contract. Different grain from per-turn Feedback:
+// Feedback is a human ground-truth rating on one turn; ThreadScore is the
+// judge's apparent-quality verdict on the whole Thread.
+model ThreadScore {
+  id              String    @id @default(cuid())
+  conversationId  String    @unique
+  userId          String?
+  agentId         String?
+  // Judged axes (Zoe's contract, ADR-0012 decision 2). Latency is computed, never judged.
+  resolved        Boolean
+  grounded        Boolean
+  toolSuccess     Boolean
+  noDeflection    Boolean
+  overallScore    Int // 0-100, judge's holistic score across the four axes
+  // code_bug | agent_behaviour | capability_gap — null when the Thread passes (decision 4)
+  failureLane     String?
+  judgeModel      String
+  judgeVersion    String // versioned judge prompt (decision 9)
+  reasoning       String // judge's explanation
+  turnCount       Int
+  firstTurnAt     DateTime
+  lastTurnAt      DateTime
+  avgResponseTime Int? // computed mean of AiInteractionHistory.responseTime (ms), not judged
+  createdAt       DateTime  @default(now())
+  evalCase        EvalCase?
+
+  @@index([failureLane])
+  @@index([createdAt])
+}
+
+// Frozen, replayable eval case distilled from a scored-bad Thread (ADR-0012
+// decision 8). Candidate fixes are scored offline against these before deploy.
+model EvalCase {
+  id                 String      @id @default(cuid())
+  threadScoreId      String      @unique
+  conversationId     String
+  transcript         Json // ordered user/assistant turns needed to replay the Thread
+  violatingTurnIndex Int // 0-based index into transcript; replay feeds transcript[0..index) + that turn's user message as the frozen prefix (ADR-0013)
+  expectation        String // the contract expectation violated, e.g. "must not deflect"
+  lane               String // code_bug | agent_behaviour | capability_gap
+  active             Boolean     @default(true) // retired manually when the product changes underneath the case (ADR-0013)
+  createdAt          DateTime    @default(now())
+  threadScore        ThreadScore @relation(fields: [threadScoreId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([lane])
 }
 
 model FeatureRequest {
