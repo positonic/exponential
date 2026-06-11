@@ -21,6 +21,7 @@ import {
   IconRoute,
   IconAlertTriangle,
   IconVersions,
+  IconScale,
 } from "@tabler/icons-react";
 import {
   CartesianGrid,
@@ -71,6 +72,135 @@ function AxisBadge({ label, passed }: { label: string; passed: boolean }) {
     <Badge color={passed ? "green" : "red"} size="xs" variant="outline">
       {passed ? "✓" : "✗"} {label}
     </Badge>
+  );
+}
+
+/**
+ * Judge-vs-human calibration (ADR-0012 decision 9): directional agreement
+ * on Threads that have BOTH a judge ThreadScore and a human Feedback
+ * rating. Level B/C autonomy stays locked until the gate opens. The
+ * overlap set's rating distribution is shown because human ratings are
+ * selection-biased (people rate when angry or delighted).
+ */
+function CalibrationCard() {
+  const { data: calibration, isLoading } = api.admin.getCalibration.useQuery();
+  const gate = calibration?.gate;
+  const currentStats = gate?.stats ?? null;
+  const distributionTotal =
+    currentStats?.ratingDistribution.reduce((sum, d) => sum + d.count, 0) ?? 0;
+
+  return (
+    <Card className="border border-border-primary bg-surface-secondary">
+      <Group gap="xs" className="mb-4" justify="space-between">
+        <Group gap="xs">
+          <IconScale size={20} className="text-text-muted" />
+          <Title order={4} className="text-text-primary">
+            Judge calibration (vs human ratings)
+          </Title>
+          <Text size="xs" className="text-text-muted">
+            gates Level B/C autonomy — ADR-0012 decision 9
+          </Text>
+        </Group>
+        {isLoading ? (
+          <Skeleton height={24} width={110} />
+        ) : (
+          <Badge color={gate?.calibrated ? "green" : "red"} size="lg" variant="light">
+            Gate {gate?.calibrated ? "open" : "closed"}
+          </Badge>
+        )}
+      </Group>
+
+      {isLoading ? (
+        <Skeleton height={100} />
+      ) : (
+        <Stack gap="md">
+          <Text size="sm" className="text-text-secondary">
+            {gate?.reason}
+          </Text>
+
+          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+            <div>
+              <Text size="sm" className="text-text-muted">
+                Overlap pairs (judge {calibration?.currentJudgeVersion})
+              </Text>
+              <Title order={4} className="text-text-primary">
+                {currentStats?.pairCount ?? 0}
+                <Text span size="sm" className="ml-1 text-text-muted">
+                  ({currentStats?.directionalPairs ?? 0} directional)
+                </Text>
+              </Title>
+            </div>
+            <div>
+              <Text size="sm" className="text-text-muted">
+                Directional agreement
+              </Text>
+              <Title order={4} className="text-text-primary">
+                {currentStats?.agreementRate != null
+                  ? `${(currentStats.agreementRate * 100).toFixed(1)}%`
+                  : "—"}
+                <Text span size="sm" className="ml-1 text-text-muted">
+                  (threshold {((gate?.threshold ?? 0.8) * 100).toFixed(0)}%)
+                </Text>
+              </Title>
+            </div>
+            <div>
+              <Text size="sm" className="text-text-muted">
+                Overlap rating distribution (selection-bias check)
+              </Text>
+              <Stack gap={4} mt={4}>
+                {currentStats?.ratingDistribution.map((d) => (
+                  <Group key={d.rating} gap="xs">
+                    <Text size="xs" className="w-6 text-text-muted">
+                      {d.rating}★
+                    </Text>
+                    <Progress
+                      value={distributionTotal > 0 ? (d.count / distributionTotal) * 100 : 0}
+                      size="xs"
+                      className="flex-1"
+                      color={d.rating >= 4 ? "green" : d.rating <= 2 ? "red" : "yellow"}
+                    />
+                    <Text size="xs" className="w-6 text-right text-text-muted">
+                      {d.count}
+                    </Text>
+                  </Group>
+                )) ?? <Text className="text-text-muted">No overlap yet</Text>}
+              </Stack>
+            </div>
+          </SimpleGrid>
+
+          {(calibration?.perVersion.length ?? 0) > 1 && (
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Judge version</Table.Th>
+                  <Table.Th>Pairs</Table.Th>
+                  <Table.Th>Directional</Table.Th>
+                  <Table.Th>Agreement</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {calibration?.perVersion.map((stats) => (
+                  <Table.Tr key={stats.judgeVersion}>
+                    <Table.Td>
+                      <Text size="sm" className="font-mono text-text-primary">
+                        {stats.judgeVersion}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>{stats.pairCount}</Table.Td>
+                    <Table.Td>{stats.directionalPairs}</Table.Td>
+                    <Table.Td>
+                      {stats.agreementRate != null
+                        ? `${(stats.agreementRate * 100).toFixed(1)}%`
+                        : "—"}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
+        </Stack>
+      )}
+    </Card>
   );
 }
 
@@ -263,6 +393,9 @@ export function ThreadScoreAnalytics() {
           )}
         </Card>
       </SimpleGrid>
+
+      {/* Judge calibration gate */}
+      <CalibrationCard />
 
       {/* Prompt-version breakdown */}
       <Card className="border border-border-primary bg-surface-secondary">

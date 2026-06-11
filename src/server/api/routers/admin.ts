@@ -9,6 +9,9 @@ import {
   buildScoreTrend,
   lastPromptVersionByConversation,
 } from "~/server/services/threadScoreAnalytics";
+import { computeCalibration, isCalibrated } from "~/server/services/calibrationGate";
+import { buildCalibrationPairs } from "~/server/services/calibrationGateService";
+import { JUDGE_VERSION } from "~/server/services/AgentEvalService";
 
 // `tokenUsage` is written via `JSON.stringify(...)` in AiInteractionLogger,
 // so Prisma returns it as a string. Older rows (or rows written via Prisma
@@ -580,6 +583,22 @@ export const adminRouter = createTRPCRouter({
         };
       });
     }),
+
+  /**
+   * Judge-vs-human calibration state (ADR-0012 decision 9): overlap pairs,
+   * directional agreement per judge version, and whether the Level B/C
+   * autonomy gate is open for the CURRENT judge version. The overlap set's
+   * rating distribution is included so selection bias (humans rate when
+   * angry or delighted) is visible rather than silently trusted.
+   */
+  getCalibration: adminProcedure.query(async ({ ctx }) => {
+    const pairs = await buildCalibrationPairs(ctx.db);
+    return {
+      currentJudgeVersion: JUDGE_VERSION,
+      gate: isCalibrated(pairs, JUDGE_VERSION),
+      perVersion: computeCalibration(pairs),
+    };
+  }),
 
   /**
    * Generate and preview the weekly Thread-score digest (without sending)
