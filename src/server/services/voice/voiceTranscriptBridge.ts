@@ -66,6 +66,12 @@ export interface VoiceMemoryClient {
       type: "text";
     }>;
   }): Promise<unknown>;
+  createMemoryThread(params: {
+    threadId: string;
+    resourceId: string;
+    agentId: string;
+    title?: string;
+  }): Promise<unknown>;
 }
 
 function defaultClient(userId: string): VoiceMemoryClient {
@@ -86,10 +92,24 @@ export function voiceTurnId(threadKey: string, role: VoiceTurnRole, text: string
   return `voice-${hash}`;
 }
 
+/** Mastra's saveMessages rejects writes to a nonexistent thread with this. */
+function isThreadNotFound(err: unknown): boolean {
+  return err instanceof Error && /thread .* not found/i.test(err.message);
+}
+
 /**
  * Persist one voice turn into its voice-scoped memory thread. Rejects empty
  * turns; idempotent on retry (deterministic id). Returns the persisted record
  * (carrying the marker the chat UI renders as 🎙).
+ *
+ * A conversation can BEGIN with a voice turn (ADR-0006 binds web voice to the
+ * text chat's conversationId, but the Mastra thread is only created when the
+ * agent first runs against it — `saveMessages` does NOT auto-create). Observed
+ * 2026-06-11: every turn of a voice-first session failed with "Thread conv_…
+ * not found" and the client retried forever, losing the whole transcript. So
+ * on that specific failure we create the thread and retry the save once. The
+ * create is best-effort (a concurrent turn may have won the race); the retried
+ * save is the call that decides success.
  */
 export async function persistVoiceTurn(
   input: PersistVoiceTurnInput,
@@ -101,20 +121,41 @@ export async function persistVoiceTurn(
   const id = voiceTurnId(input.threadKey, input.role, text);
   const client = deps.client ?? defaultClient(input.userId);
 
-  await client.saveMessageToMemory({
-    agentId: VOICE_AGENT_ID,
-    messages: [
-      {
-        id,
-        role: input.role,
-        content: text,
-        createdAt: new Date(),
+  const save = () =>
+    client.saveMessageToMemory({
+      agentId: VOICE_AGENT_ID,
+      messages: [
+        {
+          id,
+          role: input.role,
+          content: text,
+          createdAt: new Date(),
+          threadId: input.threadKey,
+          resourceId: input.userId,
+          type: "text",
+        },
+      ],
+    });
+
+  try {
+    await save();
+  } catch (err) {
+    if (!isThreadNotFound(err)) throw err;
+    try {
+      await client.createMemoryThread({
         threadId: input.threadKey,
         resourceId: input.userId,
-        type: "text",
-      },
-    ],
-  });
+        agentId: VOICE_AGENT_ID,
+        title: "Voice conversation",
+      });
+    } catch (createErr) {
+      console.warn(
+        "[voiceTranscriptBridge] createMemoryThread failed (may have lost a benign race):",
+        createErr,
+      );
+    }
+    await save();
+  }
 
   return { id, role: input.role, threadKey: input.threadKey, marker: input.marker ?? "voice" };
 }
