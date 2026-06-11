@@ -220,6 +220,12 @@ export function CalendarSidebar({
                           }
                           label={
                             <Group gap={6} wrap="nowrap">
+                              {/* Legend dot shows the calendar's DEFAULT hue
+                                  (the calendarId hash). Per-event overrides —
+                                  cancelled→rose, tentative→amber, or a summary
+                                  matching the low-signal regex→slate — are not
+                                  reflected here, so an individual chip may
+                                  differ from its calendar's dot. */}
                               <span
                                 className={`inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full ${
                                   EVENT_HUE_DOT[

@@ -18,7 +18,7 @@ import { format, addMinutes, setHours, setMinutes, startOfDay, parseISO } from "
 import type { RouterOutputs } from "~/trpc/react";
 import { HTMLContent } from "~/app/_components/HTMLContent";
 import { CalendarEventBlock } from "~/app/_components/calendar/CalendarEventBlock";
-import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
+import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
 
 type DailyPlan = RouterOutputs["dailyPlan"]["getOrCreateToday"];
 type DailyPlanAction = DailyPlan["plannedActions"][number];
@@ -26,7 +26,7 @@ type DailyPlanAction = DailyPlan["plannedActions"][number];
 interface TimeGridProps {
   planDate: Date;
   tasks: DailyPlanAction[];
-  calendarEvents?: CalendarEvent[];
+  calendarEvents?: CalendarEventWithSource[];
   onScheduleTask: (taskId: string, scheduledStart: Date, scheduledEnd: Date) => Promise<void>;
   workHoursStart: string;
   workHoursEnd: string;

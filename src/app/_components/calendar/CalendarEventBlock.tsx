@@ -2,21 +2,25 @@
 
 import { Text, Stack, Tooltip } from "@mantine/core";
 import { format, parseISO } from "date-fns";
-import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
+import type {
+  CalendarEvent,
+  CalendarEventWithSource,
+} from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./types";
 import { stripHtml } from "~/lib/utils";
 import { HTMLContent } from "~/app/_components/HTMLContent";
 import {
   getEventHue,
   eventChipClasses,
+  isEventPast,
   EVENT_HUE_CLASSES,
 } from "./eventHue";
 
 interface EventBlockProps {
-  // Base CalendarEvent at the type level; getEventHue reads calendarId
-  // structurally (it's present at runtime on the multi-calendar payload)
-  // to keep the hue stable per source calendar.
-  event: CalendarEvent;
+  // CalendarEventWithSource (not the base CalendarEvent) so the compiler
+  // guarantees `calendarId` is present — getEventHue keys hue stability off
+  // it, and the multi-calendar payload always supplies it.
+  event: CalendarEventWithSource;
   style: React.CSSProperties;
 }
 
@@ -24,12 +28,6 @@ interface ActionBlockProps {
   action: ScheduledAction;
   style: React.CSSProperties;
   onClick?: (action: ScheduledAction) => void;
-}
-
-function isEventPast(event: CalendarEvent): boolean {
-  const endIso = event.end.dateTime ?? event.end.date;
-  if (!endIso) return false;
-  return new Date(endIso).getTime() < Date.now();
 }
 
 function formatEventTime(event: CalendarEvent): string {
@@ -48,7 +46,7 @@ function formatEventTime(event: CalendarEvent): string {
 export function CalendarEventBlock({ event, style }: EventBlockProps) {
   const height = typeof style.height === "number" ? style.height : 60;
   const hue = getEventHue(event);
-  const isPast = isEventPast(event);
+  const isPast = isEventPast(event.end);
   const hueClasses = EVENT_HUE_CLASSES[hue];
 
   return (

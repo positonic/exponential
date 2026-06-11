@@ -13,7 +13,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
+import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./types";
 import {
   HOUR_HEIGHT,
@@ -40,7 +40,7 @@ import {
 import type { CalendarTimeEntry } from "./types";
 
 interface CalendarWeekTimeGridProps {
-  events: CalendarEvent[];
+  events: CalendarEventWithSource[];
   scheduledActions: ScheduledAction[];
   timeEntries?: CalendarTimeEntry[];
   dateRange: { start: Date; end: Date };

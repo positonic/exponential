@@ -152,6 +152,35 @@ export const EVENT_HUE_CLASSES: Record<EventHue, EventHueClasses> = {
   },
 };
 
+/**
+ * Whether an event has already ended (used for "past" dimming).
+ *
+ * Timed events compare on their ISO `end.dateTime`. All-day events expose a
+ * bare `end.date` ("YYYY-MM-DD") that is EXCLUSIVE — Google sets it to the day
+ * *after* the event's last day. Parsing that string with `new Date(str)` would
+ * treat it as UTC midnight, which falls in the previous evening for any
+ * negative-UTC-offset zone (the Americas), so today's all-day events would dim
+ * from mid-afternoon onward. We parse the components into a LOCAL date instead,
+ * so the comparison matches the user's wall clock. `now` is injectable for
+ * deterministic tests.
+ */
+export function isEventPast(
+  end: { dateTime?: string; date?: string },
+  now: number = Date.now(),
+): boolean {
+  if (end.dateTime) {
+    return new Date(end.dateTime).getTime() < now;
+  }
+  if (end.date) {
+    const [y, m, d] = end.date.split("-").map(Number);
+    if (y && m && d) {
+      // end.date is exclusive, so the event is past once we reach that local midnight.
+      return new Date(y, m - 1, d).getTime() <= now;
+    }
+  }
+  return false;
+}
+
 /** Full-strength hue background, for legend dots / swatches. All literal. */
 export const EVENT_HUE_DOT: Record<EventHue, string> = {
   indigo: "bg-event-indigo",
