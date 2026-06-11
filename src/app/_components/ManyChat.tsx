@@ -152,6 +152,22 @@ function formatPageContextData(context: PageContext): string {
   };
 
   switch (context.pageType) {
+    case 'goals-list': {
+      const count = str(context.data.goalCount, '0');
+      const filter = str(context.data.statusFilter, 'active');
+      return `  - The user is viewing their Goals list (${count} ${filter} goals shown).
+  - To read, reference, or discuss the actual goals, call the \`get-all-goals\` tool. Do NOT ask the user to paste them.`;
+    }
+    case 'projects-list': {
+      const count = str(context.data.projectCount, '0');
+      return `  - The user is viewing their Projects list (${count} projects shown).
+  - To read, reference, or discuss the actual projects, call the \`get-all-projects\` tool. Do NOT ask the user to paste them.`;
+    }
+    case 'meetings-list': {
+      const count = str(context.data.meetingCount, '0');
+      return `  - The user is viewing their Meetings list (${count} meetings shown).
+  - To read, reference, or discuss meetings, call the \`get-meeting-transcriptions\` tool (pass includeTranscript: false for a fast title/date list). Do NOT ask the user to paste them.`;
+    }
     case 'recording': {
       const d = context.data;
       const rawSummary = str(d.summary, 'No summary');
