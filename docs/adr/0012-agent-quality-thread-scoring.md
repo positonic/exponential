@@ -4,9 +4,8 @@
 
 Accepted — 2026-06-04. Amended 2026-06-11: decisions 7–9 (prompt versioning,
 eval-set distillation, calibration gate) close the verify/attribute stages of
-the loop. Originally drafted as ADR-0008; renumbered to 0010 on landing because
-main had since taken 0008 (pipeline triage model) and 0009 (connected
-accounts).
+the loop. Originally drafted as ADR-0008; renumbered to 0012 on landing because
+main had since taken 0008–0011.
 
 ## Context
 
