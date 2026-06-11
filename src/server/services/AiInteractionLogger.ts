@@ -56,6 +56,7 @@ export interface AiInteractionData {
   userAgent?: string; // Browser/client information
   ipAddress?: string; // For security/analytics (should be hashed)
   anthropicRequestId?: string; // Anthropic API request ID for correlation
+  promptVersion?: string; // Prompt-state fingerprint at write time (ADR-0012 decision 7)
 }
 
 export interface ConversationContext {
@@ -138,6 +139,7 @@ export class AiInteractionLogger {
             ? this.hashIpAddress(data.ipAddress)
             : data.ipAddress,
           anthropicRequestId: data.anthropicRequestId,
+          promptVersion: data.promptVersion,
         },
       });
 

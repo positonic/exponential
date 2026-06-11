@@ -14,6 +14,7 @@ import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { PROMPT_VERSION } from "~/server/services/promptVersion";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import {
   pickModelTier,
@@ -827,6 +828,7 @@ export async function POST(req: Request) {
               workspaceId: workspaceId ?? undefined,
               model: responseModelId ?? "mastra-agents",
               messageType: "question",
+              promptVersion: PROMPT_VERSION,
             })
             // If the DB write fails AFTER the race below times out, the
             // rejection would otherwise be unhandled. Swallow + log here.
