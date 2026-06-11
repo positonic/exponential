@@ -16,8 +16,9 @@ import {
 
 function mockClient() {
   const saveMessageToMemory = vi.fn(async () => ({}));
-  const client: VoiceMemoryClient = { saveMessageToMemory };
-  return { client, saveMessageToMemory };
+  const createMemoryThread = vi.fn(async () => ({}));
+  const client: VoiceMemoryClient = { saveMessageToMemory, createMemoryThread };
+  return { client, saveMessageToMemory, createMemoryThread };
 }
 
 describe("voiceTranscriptBridge.persistVoiceTurn", () => {
@@ -76,6 +77,79 @@ describe("voiceTranscriptBridge.persistVoiceTurn", () => {
       { client },
     );
     expect(saveMessageToMemory.mock.calls[0]![0].messages[0]!.content).toBe("hello");
+  });
+
+  // A conversation can begin with a voice turn: web voice binds to the text
+  // chat's conversationId (ADR-0006), but the Mastra thread only exists once
+  // the agent has run against it — saveMessages does NOT auto-create. Observed
+  // 2026-06-11: every turn of a voice-first session failed "Thread conv_… not
+  // found" and the transcript was lost.
+  it("creates the missing thread and retries the save once on 'Thread not found'", async () => {
+    const { client, saveMessageToMemory, createMemoryThread } = mockClient();
+    saveMessageToMemory
+      .mockRejectedValueOnce(new Error("Thread conv_123 not found"))
+      .mockResolvedValueOnce({});
+
+    const result = await persistVoiceTurn(
+      { userId: "u1", role: "user", text: "voice-first turn", threadKey: "conv_123" },
+      { client },
+    );
+
+    expect(createMemoryThread).toHaveBeenCalledTimes(1);
+    expect(createMemoryThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "conv_123",
+        resourceId: "u1",
+        agentId: "zoeAgent",
+      }),
+    );
+    expect(saveMessageToMemory).toHaveBeenCalledTimes(2);
+    expect(result.threadKey).toBe("conv_123");
+  });
+
+  it("propagates non-thread-not-found save errors without creating a thread", async () => {
+    const { client, saveMessageToMemory, createMemoryThread } = mockClient();
+    saveMessageToMemory.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+
+    await expect(
+      persistVoiceTurn(
+        { userId: "u1", role: "user", text: "hello", threadKey: "conv_123" },
+        { client },
+      ),
+    ).rejects.toThrow(/ECONNREFUSED/);
+
+    expect(createMemoryThread).not.toHaveBeenCalled();
+    expect(saveMessageToMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it("still retries the save when thread creation loses a concurrent-create race", async () => {
+    const { client, saveMessageToMemory, createMemoryThread } = mockClient();
+    saveMessageToMemory
+      .mockRejectedValueOnce(new Error("Thread conv_123 not found"))
+      .mockResolvedValueOnce({});
+    createMemoryThread.mockRejectedValueOnce(new Error("Thread already exists"));
+
+    const result = await persistVoiceTurn(
+      { userId: "u1", role: "user", text: "raced turn", threadKey: "conv_123" },
+      { client },
+    );
+
+    expect(saveMessageToMemory).toHaveBeenCalledTimes(2);
+    expect(result.id).toBeTruthy();
+  });
+
+  it("propagates the failure when the retried save also fails", async () => {
+    const { client, saveMessageToMemory } = mockClient();
+    saveMessageToMemory.mockRejectedValue(new Error("Thread conv_123 not found"));
+
+    await expect(
+      persistVoiceTurn(
+        { userId: "u1", role: "user", text: "doomed turn", threadKey: "conv_123" },
+        { client },
+      ),
+    ).rejects.toThrow(/not found/);
+
+    expect(saveMessageToMemory).toHaveBeenCalledTimes(2);
   });
 });
 
