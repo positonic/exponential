@@ -153,6 +153,75 @@
     --color-shader-blob-5: #D6ECF5;
     --color-shader-blob-6: #7AADCC;
     --color-shader-bg: #E8F4FA;
+
+    /* ===== Calendar event palette =====================================
+       7 harmonized hues (all ~L 0.72 / C 0.10 in oklch) + the three derived
+       layers of the tint-fill + accent-bar recipe. The base hues and the
+       fill/sub layers are theme-independent: `fill` mixes the hue into the
+       live `--color-bg-secondary`, and `sub` into the live
+       `--color-text-secondary`, so a nested var() resolves on the using
+       element and they adapt automatically across light / dark-navy /
+       dark-slate. Only `label` needs a per-theme anchor (dark text here in
+       light mode; the dark block below re-anchors it toward white). */
+    --ev-indigo: oklch(0.72 0.11 262);
+    --ev-cyan:   oklch(0.74 0.09 215);
+    --ev-green:  oklch(0.74 0.10 158);
+    --ev-amber:  oklch(0.77 0.10 78);
+    --ev-violet: oklch(0.71 0.11 300);
+    --ev-rose:   oklch(0.71 0.11 12);
+    --ev-slate:  oklch(0.66 0.025 255);
+
+    /* Tinted fill — dark/light surface shows through (15% / hover 24% / past 10%) */
+    --ev-indigo-fill: color-mix(in oklab, var(--ev-indigo) 15%, var(--color-bg-secondary));
+    --ev-cyan-fill:   color-mix(in oklab, var(--ev-cyan) 15%, var(--color-bg-secondary));
+    --ev-green-fill:  color-mix(in oklab, var(--ev-green) 15%, var(--color-bg-secondary));
+    --ev-amber-fill:  color-mix(in oklab, var(--ev-amber) 15%, var(--color-bg-secondary));
+    --ev-violet-fill: color-mix(in oklab, var(--ev-violet) 15%, var(--color-bg-secondary));
+    --ev-rose-fill:   color-mix(in oklab, var(--ev-rose) 15%, var(--color-bg-secondary));
+    --ev-slate-fill:  color-mix(in oklab, var(--ev-slate) 15%, var(--color-bg-secondary));
+
+    --ev-indigo-fill-hover: color-mix(in oklab, var(--ev-indigo) 24%, var(--color-bg-secondary));
+    --ev-cyan-fill-hover:   color-mix(in oklab, var(--ev-cyan) 24%, var(--color-bg-secondary));
+    --ev-green-fill-hover:  color-mix(in oklab, var(--ev-green) 24%, var(--color-bg-secondary));
+    --ev-amber-fill-hover:  color-mix(in oklab, var(--ev-amber) 24%, var(--color-bg-secondary));
+    --ev-violet-fill-hover: color-mix(in oklab, var(--ev-violet) 24%, var(--color-bg-secondary));
+    --ev-rose-fill-hover:   color-mix(in oklab, var(--ev-rose) 24%, var(--color-bg-secondary));
+    --ev-slate-fill-hover:  color-mix(in oklab, var(--ev-slate) 24%, var(--color-bg-secondary));
+
+    --ev-indigo-fill-past: color-mix(in oklab, var(--ev-indigo) 10%, var(--color-bg-secondary));
+    --ev-cyan-fill-past:   color-mix(in oklab, var(--ev-cyan) 10%, var(--color-bg-secondary));
+    --ev-green-fill-past:  color-mix(in oklab, var(--ev-green) 10%, var(--color-bg-secondary));
+    --ev-amber-fill-past:  color-mix(in oklab, var(--ev-amber) 10%, var(--color-bg-secondary));
+    --ev-violet-fill-past: color-mix(in oklab, var(--ev-violet) 10%, var(--color-bg-secondary));
+    --ev-rose-fill-past:   color-mix(in oklab, var(--ev-rose) 10%, var(--color-bg-secondary));
+    --ev-slate-fill-past:  color-mix(in oklab, var(--ev-slate) 10%, var(--color-bg-secondary));
+
+    /* Secondary text inside an event (time, location) — theme-adaptive */
+    --ev-indigo-sub: color-mix(in oklab, var(--ev-indigo) 38%, var(--color-text-secondary));
+    --ev-cyan-sub:   color-mix(in oklab, var(--ev-cyan) 38%, var(--color-text-secondary));
+    --ev-green-sub:  color-mix(in oklab, var(--ev-green) 38%, var(--color-text-secondary));
+    --ev-amber-sub:  color-mix(in oklab, var(--ev-amber) 38%, var(--color-text-secondary));
+    --ev-violet-sub: color-mix(in oklab, var(--ev-violet) 38%, var(--color-text-secondary));
+    --ev-rose-sub:   color-mix(in oklab, var(--ev-rose) 38%, var(--color-text-secondary));
+    --ev-slate-sub:  color-mix(in oklab, var(--ev-slate) 38%, var(--color-text-secondary));
+
+    /* Label — LIGHT mode: anchor toward primary (dark) text for AA on the
+       pale tinted fill. Dark block below overrides toward white. */
+    --ev-indigo-label: color-mix(in oklab, var(--ev-indigo) 72%, var(--color-text-primary));
+    --ev-cyan-label:   color-mix(in oklab, var(--ev-cyan) 72%, var(--color-text-primary));
+    --ev-green-label:  color-mix(in oklab, var(--ev-green) 72%, var(--color-text-primary));
+    --ev-amber-label:  color-mix(in oklab, var(--ev-amber) 72%, var(--color-text-primary));
+    --ev-violet-label: color-mix(in oklab, var(--ev-violet) 72%, var(--color-text-primary));
+    --ev-rose-label:   color-mix(in oklab, var(--ev-rose) 72%, var(--color-text-primary));
+    --ev-slate-label:  color-mix(in oklab, var(--ev-slate) 72%, var(--color-text-primary));
+
+    --ev-indigo-label-past: color-mix(in oklab, var(--ev-indigo) 50%, var(--color-text-muted));
+    --ev-cyan-label-past:   color-mix(in oklab, var(--ev-cyan) 50%, var(--color-text-muted));
+    --ev-green-label-past:  color-mix(in oklab, var(--ev-green) 50%, var(--color-text-muted));
+    --ev-amber-label-past:  color-mix(in oklab, var(--ev-amber) 50%, var(--color-text-muted));
+    --ev-violet-label-past: color-mix(in oklab, var(--ev-violet) 50%, var(--color-text-muted));
+    --ev-rose-label-past:   color-mix(in oklab, var(--ev-rose) 50%, var(--color-text-muted));
+    --ev-slate-label-past:  color-mix(in oklab, var(--ev-slate) 50%, var(--color-text-muted));
   }
 
   /* Dark theme colors */
@@ -452,6 +521,28 @@
     --color-shader-blob-5: #101E3A;
     --color-shader-blob-6: #060A16;
     --color-shader-bg: #040810;
+  }
+
+  /* Calendar event labels — DARK themes (navy + slate): re-anchor the label
+     toward white for AA contrast on the dark tinted fill. Base hues, fills
+     and sub text are inherited from :root and adapt automatically. */
+  [data-mantine-color-scheme="dark"],
+  .dark {
+    --ev-indigo-label: color-mix(in oklab, var(--ev-indigo) 62%, white);
+    --ev-cyan-label:   color-mix(in oklab, var(--ev-cyan) 62%, white);
+    --ev-green-label:  color-mix(in oklab, var(--ev-green) 62%, white);
+    --ev-amber-label:  color-mix(in oklab, var(--ev-amber) 62%, white);
+    --ev-violet-label: color-mix(in oklab, var(--ev-violet) 62%, white);
+    --ev-rose-label:   color-mix(in oklab, var(--ev-rose) 62%, white);
+    --ev-slate-label:  color-mix(in oklab, var(--ev-slate) 62%, white);
+
+    --ev-indigo-label-past: color-mix(in oklab, var(--ev-indigo) 48%, white);
+    --ev-cyan-label-past:   color-mix(in oklab, var(--ev-cyan) 48%, white);
+    --ev-green-label-past:  color-mix(in oklab, var(--ev-green) 48%, white);
+    --ev-amber-label-past:  color-mix(in oklab, var(--ev-amber) 48%, white);
+    --ev-violet-label-past: color-mix(in oklab, var(--ev-violet) 48%, white);
+    --ev-rose-label-past:   color-mix(in oklab, var(--ev-rose) 48%, white);
+    --ev-slate-label-past:  color-mix(in oklab, var(--ev-slate) 48%, white);
   }
 
   /* Slate dark theme variant (original gray/black) */

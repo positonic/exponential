@@ -20,6 +20,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { CalendarMiniWidget } from "./CalendarMiniWidget";
+import { getEventHue, EVENT_HUE_DOT } from "./eventHue";
 
 interface CalendarSidebarProps {
   selectedDate: Date;
@@ -219,12 +220,18 @@ export function CalendarSidebar({
                           }
                           label={
                             <Group gap={6} wrap="nowrap">
-                              {cal.backgroundColor && (
-                                <span
-                                  className="inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                                  style={{ backgroundColor: cal.backgroundColor }}
-                                />
-                              )}
+                              <span
+                                className={`inline-block h-2.5 w-2.5 flex-shrink-0 rounded-full ${
+                                  EVENT_HUE_DOT[
+                                    getEventHue({
+                                      id: cal.id,
+                                      calendarId: cal.id,
+                                      calendarName: cal.summary,
+                                      summary: cal.summary,
+                                    })
+                                  ]
+                                }`}
+                              />
                               <Text size="xs" className="truncate" title={cal.summary}>
                                 {cal.summary}
                               </Text>

@@ -278,7 +278,7 @@ export function CalendarWeekTimeGrid({
                 <div
                   key={dayKey}
                   className={`relative flex-1 border-l border-border-secondary first:border-l-0 ${
-                    isTodayDate ? "bg-blue-500/5" : ""
+                    isTodayDate ? "bg-brand-subtle" : ""
                   }`}
                   style={{ minWidth: 100 }}
                 >
@@ -383,10 +383,10 @@ function CurrentTimeIndicator({ startHour }: { startHour: number }) {
 
   return (
     <div
-      className="absolute left-0 right-0 border-t-2 border-red-500"
+      className="absolute left-0 right-0 border-t-2 border-event-rose"
       style={{ top, zIndex: 100 }}
     >
-      <div className="-ml-1 -mt-1 h-2 w-2 rounded-full bg-red-500" />
+      <div className="-ml-1 -mt-1 h-2 w-2 rounded-full bg-event-rose" />
     </div>
   );
 }

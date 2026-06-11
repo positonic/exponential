@@ -6,8 +6,16 @@ import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./types";
 import { stripHtml } from "~/lib/utils";
 import { HTMLContent } from "~/app/_components/HTMLContent";
+import {
+  getEventHue,
+  eventChipClasses,
+  EVENT_HUE_CLASSES,
+} from "./eventHue";
 
 interface EventBlockProps {
+  // Base CalendarEvent at the type level; getEventHue reads calendarId
+  // structurally (it's present at runtime on the multi-calendar payload)
+  // to keep the hue stable per source calendar.
   event: CalendarEvent;
   style: React.CSSProperties;
 }
@@ -18,27 +26,10 @@ interface ActionBlockProps {
   onClick?: (action: ScheduledAction) => void;
 }
 
-function getEventColor(event: CalendarEvent): string {
-  if (event.status === "cancelled")
-    return "bg-red-500/20 border-l-4 border-l-red-500 border-y-0 border-r-0 text-red-200";
-  if (event.status === "tentative")
-    return "bg-yellow-500/20 border-l-4 border-l-yellow-500 border-y-0 border-r-0 text-yellow-200";
-
-  // Colors matching Reclaim.ai/screenshot style - solid left border with transparent fill
-  const colors: string[] = [
-    "bg-blue-500/20 border-l-4 border-l-blue-500 border-y-0 border-r-0 text-blue-100", // Blue
-    "bg-teal-500/20 border-l-4 border-l-teal-500 border-y-0 border-r-0 text-teal-100", // Teal
-    "bg-rose-500/20 border-l-4 border-l-rose-500 border-y-0 border-r-0 text-rose-100", // Coral/Rose
-    "bg-violet-500/20 border-l-4 border-l-violet-500 border-y-0 border-r-0 text-violet-100", // Purple
-    "bg-amber-500/20 border-l-4 border-l-amber-500 border-y-0 border-r-0 text-amber-100", // Amber
-    "bg-cyan-500/20 border-l-4 border-l-cyan-500 border-y-0 border-r-0 text-cyan-100", // Cyan
-  ];
-
-  const colorIndex =
-    event.id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0) %
-    colors.length;
-  // Safe to assert non-null since colorIndex is always within bounds (modulo operation)
-  return colors[colorIndex]!;
+function isEventPast(event: CalendarEvent): boolean {
+  const endIso = event.end.dateTime ?? event.end.date;
+  if (!endIso) return false;
+  return new Date(endIso).getTime() < Date.now();
 }
 
 function formatEventTime(event: CalendarEvent): string {
@@ -56,6 +47,9 @@ function formatEventTime(event: CalendarEvent): string {
 
 export function CalendarEventBlock({ event, style }: EventBlockProps) {
   const height = typeof style.height === "number" ? style.height : 60;
+  const hue = getEventHue(event);
+  const isPast = isEventPast(event);
+  const hueClasses = EVENT_HUE_CLASSES[hue];
 
   return (
     <Tooltip
@@ -83,7 +77,7 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
       withArrow
     >
       <div
-        className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all hover:brightness-110 ${getEventColor(event)}`}
+        className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all ${eventChipClasses(hue, { isPast })}`}
         style={style}
         onClick={() => event.htmlLink && window.open(event.htmlLink, "_blank")}
       >
@@ -105,7 +99,11 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
         </Text>
 
         {height >= 35 && event.start.dateTime && (
-          <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
+          <Text
+            size="xs"
+            className={isPast ? hueClasses.labelPast : hueClasses.sub}
+            style={{ fontSize: "10px" }}
+          >
             {format(parseISO(event.start.dateTime), "h:mm a")}
           </Text>
         )}
@@ -121,6 +119,11 @@ export function CalendarActionBlock({
 }: ActionBlockProps) {
   const height = typeof style.height === "number" ? style.height : 60;
   const isCompleted = action.status === "COMPLETED";
+  // Active scheduled tasks read as default-work indigo; completed ones fade
+  // to low-signal slate with a strike-through.
+  const actionSubClass = isCompleted
+    ? EVENT_HUE_CLASSES.slate.labelPast
+    : EVENT_HUE_CLASSES.indigo.sub;
 
   return (
     <Tooltip
@@ -141,10 +144,10 @@ export function CalendarActionBlock({
       withArrow
     >
       <div
-        className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all hover:brightness-110 ${
+        className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all ${
           isCompleted
-            ? "bg-green-500/20 border-l-4 border-l-green-500 border-y-0 border-r-0 text-green-100 line-through opacity-60"
-            : "bg-brand-primary/20 border-l-4 border-l-brand-primary border-y-0 border-r-0 text-text-primary"
+            ? `${eventChipClasses("slate", { isPast: true })} line-through opacity-60`
+            : eventChipClasses("indigo")
         }`}
         style={style}
         onClick={() => onClick?.(action)}
@@ -168,7 +171,11 @@ export function CalendarActionBlock({
         </Text>
 
         {height >= 35 && (
-          <Text size="xs" c="dimmed" style={{ fontSize: "10px" }}>
+          <Text
+            size="xs"
+            className={actionSubClass}
+            style={{ fontSize: "10px" }}
+          >
             {format(new Date(action.scheduledStart), "h:mm a")}
           </Text>
         )}
