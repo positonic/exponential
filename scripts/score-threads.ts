@@ -91,7 +91,7 @@ async function main(): Promise<void> {
         `Settled unscored Threads: ${settled.length}; judging ${planned} this run.\n`,
     );
 
-    const results = await service.scoreBacklog({
+    const { results, errors } = await service.scoreBacklog({
       limit,
       onProgress: (done, total, result) => {
         const verdict =
@@ -102,12 +102,19 @@ async function main(): Promise<void> {
           `[${done}/${total}] ${result.conversationId} — ${verdict} (${result.turnCount} turns)`,
         );
       },
+      onThreadError: (conversationId, error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[skip] ${conversationId} — judging failed, left unscored for the next run: ${oneLine(message)}`,
+        );
+      },
     });
 
     const failures = results.filter((result) => result.failureLane !== null);
     console.log(
       `\nDone. Judged ${results.length} Thread(s): ` +
-        `${results.length - failures.length} passed, ${failures.length} failed.`,
+        `${results.length - failures.length} passed, ${failures.length} failed` +
+        (errors.length > 0 ? `; ${errors.length} errored (will retry next run).` : "."),
     );
 
     const report = buildLaneReport(results);
