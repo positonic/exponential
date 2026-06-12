@@ -4,6 +4,7 @@
  * (Anthropic) is never called here.
  */
 import { describe, expect, it } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
 import { mockDeep } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
@@ -205,5 +206,148 @@ describe("findSettledThreadIds (mocked Prisma)", () => {
     ]);
     await expect(service.findSettledThreadIds(NOW)).resolves.toEqual([]);
     expect(db.threadScore.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Judgement parsing + backlog resilience (exponential-3jpn)
+// ---------------------------------------------------------------------------
+
+const settledAt2 = new Date(NOW.getTime() - 2 * SETTLED_AFTER_MS);
+
+function turnRow(conversationId: string) {
+  return {
+    userMessage: "what's on my list?",
+    aiResponse: "Here is your list.",
+    toolsUsed: ["get-project-actions"],
+    hadError: false,
+    responseTime: 1200,
+    createdAt: settledAt2,
+    systemUserId: "user-1",
+    agentId: "zoeAgent",
+  };
+}
+
+function judgementInput(overrides: Record<string, unknown> = {}) {
+  return {
+    resolved: true,
+    grounded: true,
+    toolSuccess: true,
+    noDeflection: true,
+    overallScore: 90,
+    failureLane: null,
+    reasoning: "fine",
+    expectation: null,
+    violatingTurn: null,
+    ...overrides,
+  };
+}
+
+function fakeAnthropic(
+  responses: Array<Record<string, unknown> | Error>,
+): Anthropic {
+  let call = 0;
+  return {
+    messages: {
+      create: async () => {
+        const next = responses[Math.min(call++, responses.length - 1)]!;
+        if (next instanceof Error) throw next;
+        return {
+          stop_reason: "tool_use",
+          content: [{ type: "tool_use", name: "record_judgement", input: next }],
+        };
+      },
+    },
+  } as unknown as Anthropic;
+}
+
+describe("judgeTranscript coercion", () => {
+  it("accepts numeric judge fields returned as JSON strings", async () => {
+    const db = mockDeep<PrismaClient>();
+    const service = new AgentEvalService(
+      db,
+      fakeAnthropic([
+        judgementInput({
+          overallScore: "35",
+          failureLane: "agent_behaviour",
+          violatingTurn: "2",
+        }),
+      ]),
+    );
+    const judgement = await service.judgeTranscript([]);
+    expect(judgement.overallScore).toBe(35);
+    expect(judgement.violatingTurn).toBe(2);
+  });
+
+  it("still rejects garbage numerics", async () => {
+    const db = mockDeep<PrismaClient>();
+    const service = new AgentEvalService(
+      db,
+      fakeAnthropic([judgementInput({ violatingTurn: "second turn" })]),
+    );
+    await expect(service.judgeTranscript([])).rejects.toThrow();
+  });
+});
+
+describe("scoreBacklog resilience", () => {
+  function makeBacklogDb(ids: string[]) {
+    const db = mockDeep<PrismaClient>();
+    db.aiInteractionHistory.groupBy.mockResolvedValue(
+      ids.map((conversationId) => ({
+        conversationId,
+        _max: { createdAt: settledAt2 },
+      })) as never,
+    );
+    db.threadScore.findMany.mockResolvedValue([] as never);
+    db.threadScore.findUnique.mockResolvedValue(null as never);
+    db.aiInteractionHistory.findMany.mockImplementation(((args: {
+      where: { conversationId: string };
+    }) => Promise.resolve([turnRow(args.where.conversationId)])) as never);
+    db.threadScore.create.mockResolvedValue({} as never);
+    return db;
+  }
+
+  it("skips a Thread whose judgement fails and keeps draining", async () => {
+    const db = makeBacklogDb(["bad-1", "good-1"]);
+    const service = new AgentEvalService(
+      db,
+      fakeAnthropic([new Error("model returned garbage"), judgementInput()]),
+    );
+    const errored: string[] = [];
+    const { results, errors } = await service.scoreBacklog({
+      now: NOW,
+      onThreadError: (conversationId) => errored.push(conversationId),
+    });
+
+    expect(results.map((r) => r.conversationId)).toEqual(["good-1"]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.conversationId).toBe("bad-1");
+    expect(errored).toEqual(["bad-1"]);
+    // the failed Thread was never persisted — it stays unscored for retry
+    expect(db.threadScore.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists a coerced string violatingTurn as a 0-based index on the EvalCase", async () => {
+    const db = makeBacklogDb(["fail-1"]);
+    const service = new AgentEvalService(
+      db,
+      fakeAnthropic([
+        judgementInput({
+          resolved: false,
+          overallScore: "20",
+          failureLane: "agent_behaviour",
+          expectation: "must not deflect",
+          violatingTurn: "1",
+        }),
+      ]),
+    );
+    const { results, errors } = await service.scoreBacklog({ now: NOW });
+    expect(errors).toEqual([]);
+    expect(results).toHaveLength(1);
+    const createArgs = db.threadScore.create.mock.calls[0]?.[0] as {
+      data: { overallScore: number; evalCase: { create: { violatingTurnIndex: number } } };
+    };
+    expect(createArgs.data.overallScore).toBe(20);
+    expect(createArgs.data.evalCase.create.violatingTurnIndex).toBe(0);
   });
 });
