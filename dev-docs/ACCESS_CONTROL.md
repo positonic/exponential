@@ -87,6 +87,37 @@ A user can **edit** a project if ANY of these are true:
 2. They are a workspace owner or admin
 3. They are a team owner or admin
 
+**Restricted projects** (`Project.isRestricted = true`): paths 3 and 4 above
+are revoked — only the creator, explicit `ProjectMember`s, and workspace
+owners/admins (escape hatch) retain access. Members of the owning team do
+NOT keep access; add them as project members. `isPublic` overrides
+restriction for view.
+
+### Meetings (TranscriptionSessions)
+
+Resolver: `resolvers/transcriptionResolver.ts` — the single source of truth
+for Meeting visibility (see also `CONTEXT.md` "Meeting visibility"). Use
+`buildTranscriptionAccessWhere(userId)` for every bulk/aggregate read
+(meetings list, weekly stats, related-meeting search) and
+`getTranscriptionAccess` + `canViewTranscription`/`canEditTranscription`
+for per-row checks. Never write inline meeting permission logic in routers.
+
+A user can **view** a meeting if ANY of these are true:
+1. They created it (`TranscriptionSession.userId`)
+2. They are a linked Participant on it (`TranscriptionSessionParticipant.userId`)
+   — attendance trumps project restriction: people who were in the meeting can
+   always view it, even inside a restricted project they can't otherwise access
+3. It is assigned to a project they can view (project access is authoritative —
+   a workspace member without project access is denied)
+4. It has no project and they are a member of its workspace (any role)
+
+A user can **edit** a meeting if ANY of these are true:
+1. They created it
+2. It is assigned to a project they can edit
+3. It has no project and they hold a non-`viewer` role in its workspace
+
+Attendance (path 2 for view) never grants edit.
+
 ### Workspaces
 
 Access is based on `WorkspaceUser` membership and role. See the permission mapping table above.

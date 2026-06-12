@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { buildTranscriptionAccessWhere } from "~/server/services/access";
 
 /**
  * Deep server-side aggregation for the Meetings v2 header strip and right
@@ -91,6 +92,9 @@ function participantDisplayName(p: {
  * Compute the weekly Meeting roll-up for the header strip and right rail.
  *
  * Behaviour:
+ * - Only Meetings the caller can see (per the centralized
+ *   `buildTranscriptionAccessWhere` rule) are counted — the rail numbers
+ *   always match the Meetings list for the same user.
  * - Archived Meetings (`archivedAt != null`) are excluded from every metric.
  * - Workspace scoping is applied to both the Meeting itself and (via the
  *   Meeting's project) any project-scoped Meeting.
@@ -114,6 +118,19 @@ export async function weeklyMeetingStats(
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
 
+  // Access control: never aggregate Meetings the caller couldn't open.
+  const andFilters: Record<string, unknown>[] = [
+    buildTranscriptionAccessWhere(input.userId),
+  ];
+  if (input.workspaceId) {
+    andFilters.push({
+      OR: [
+        { workspaceId: input.workspaceId },
+        { project: { workspaceId: input.workspaceId } },
+      ],
+    });
+  }
+
   const where: Record<string, unknown> = {
     archivedAt: null,
     OR: [
@@ -125,17 +142,8 @@ export async function weeklyMeetingStats(
         ],
       },
     ],
+    AND: andFilters,
   };
-  if (input.workspaceId) {
-    where.AND = [
-      {
-        OR: [
-          { workspaceId: input.workspaceId },
-          { project: { workspaceId: input.workspaceId } },
-        ],
-      },
-    ];
-  }
 
   const sessions = await db.transcriptionSession.findMany({
     where,

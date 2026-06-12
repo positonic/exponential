@@ -33,6 +33,14 @@ _Avoid_: Attendee (only as a count word — "4 attendees"), invitee.
 A person who actually talked, derived from `transcription.sentences[].speaker_name`. Strictly distinct from **Participant** — a Speaker may be unmatched to any Participant ("Unknown"), and a Participant may never have spoken. Use Speaker for transcript navigation; use Participant for "who's on this call" UI.
 _Avoid_: Talker, contributor.
 
+**Meeting visibility**:
+Who can see a Meeting. A user sees a Meeting if they created it, are a **Participant** on it, or can access its **Project**. Attendance trumps restriction: a Participant may *view* a Meeting they were in even when it sits in a **Restricted project** they can't otherwise access — restriction hides a project's contents from bystanders, not from the people in the room (view only; *edit* still requires project edit access). Meetings with no project fall back to workspace membership: any member of the workspace may view, and any non-viewer role may edit. Visibility **inherits from the project**; team ownership of a project does **not** narrow it (decision 2026-06-12: team-scoped-by-default was considered and rejected — use a **Restricted project** instead).
+_Avoid_: Meeting permissions, sharing.
+
+**Restricted project**:
+A Project with `isRestricted: true` (default off, set via the "Restricted project" switch). Its content — Meetings included — is visible only to the project creator, explicit project members, and workspace **owners/admins** (the admin escape hatch). Restriction is an **explicit allowlist**: members of the owning *team* do **not** count (decision 2026-06-12 — joining a team must never silently grant access to its restricted projects; add teammates as project members instead). An *unrestricted* project and everything in it is visible to every workspace member regardless of role (viewer included) or team. This is the canonical mechanism for "admins may see it, plain members may not".
+_Avoid_: Private project (use "restricted"), team project (team ownership ≠ restriction).
+
 ## Relationships
 
 - A **Meeting** has zero or more **Participants** (`TranscriptionSessionParticipant`).
