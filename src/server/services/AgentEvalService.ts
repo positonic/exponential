@@ -120,16 +120,20 @@ export interface TranscriptTurn {
   createdAt: string; // ISO 8601 — kept JSON-serializable for EvalCase.transcript
 }
 
+// Numeric fields are coerced: the judge model occasionally returns numbers
+// as JSON strings ("2" instead of 2) despite the tool schema, and a strict
+// parse would reject an otherwise-sound judgement. null short-circuits
+// .nullable() before coercion, so nullables stay nullable.
 const judgementSchema = z.object({
   resolved: z.boolean(),
   grounded: z.boolean(),
   toolSuccess: z.boolean(),
   noDeflection: z.boolean(),
-  overallScore: z.number().int().min(0).max(100),
+  overallScore: z.coerce.number().int().min(0).max(100),
   failureLane: z.enum(FAILURE_LANES).nullable(),
   reasoning: z.string(),
   expectation: z.string().nullable(),
-  violatingTurn: z.number().int().min(1).nullable(),
+  violatingTurn: z.coerce.number().int().min(1).nullable(),
 });
 
 export type Judgement = z.infer<typeof judgementSchema>;
@@ -253,7 +257,15 @@ export interface ScoreBacklogOptions {
   limit?: number;
   /** Called after each Thread is judged (for CLI progress logging). */
   onProgress?: (done: number, total: number, result: ScoreThreadResult) => void;
+  /** Called when one Thread fails to judge/persist; the drain continues. */
+  onThreadError?: (conversationId: string, error: unknown) => void;
   now?: Date;
+}
+
+export interface ScoreBacklogSummary {
+  results: ScoreThreadResult[];
+  /** Threads that errored this run — left unscored, retried on the next run. */
+  errors: Array<{ conversationId: string; error: unknown }>;
 }
 
 export class AgentEvalService {
@@ -457,23 +469,31 @@ export class AgentEvalService {
 
   /**
    * Drain the settled-Thread backlog sequentially. Idempotent — re-running
-   * skips everything already in ThreadScore.
+   * skips everything already in ThreadScore. A Thread that fails to judge
+   * (e.g. a malformed judgement) is reported and skipped rather than
+   * aborting the drain: it stays unscored and is retried on the next run.
    */
   async scoreBacklog(
     options: ScoreBacklogOptions = {},
-  ): Promise<ScoreThreadResult[]> {
+  ): Promise<ScoreBacklogSummary> {
     const ids = await this.findSettledThreadIds(options.now ?? new Date());
     const queue =
       options.limit !== undefined ? ids.slice(0, options.limit) : ids;
 
     const results: ScoreThreadResult[] = [];
+    const errors: ScoreBacklogSummary["errors"] = [];
     for (const conversationId of queue) {
-      const result = await this.scoreThread(conversationId);
-      if (result) {
-        results.push(result);
-        options.onProgress?.(results.length, queue.length, result);
+      try {
+        const result = await this.scoreThread(conversationId);
+        if (result) {
+          results.push(result);
+          options.onProgress?.(results.length, queue.length, result);
+        }
+      } catch (error) {
+        errors.push({ conversationId, error });
+        options.onThreadError?.(conversationId, error);
       }
     }
-    return results;
+    return { results, errors };
   }
 }
