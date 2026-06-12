@@ -10,8 +10,10 @@ import {
 } from "~/server/services/failureFiling";
 import {
   fileFailures,
+  MAX_FILINGS_PER_RUN,
   type DestinationFilers,
 } from "~/server/services/failureFilingService";
+import { JUDGE_VERSION } from "~/server/services/AgentEvalService";
 
 const failure = (overrides: Partial<FailureToFile>): FailureToFile => ({
   conversationId: "conv-1",
@@ -206,12 +208,31 @@ describe("fileFailures", () => {
 
     expect(result.filed).toEqual([]);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("No unfiled failures"));
-    // only queries failures with filedAt: null — the idempotency filter
+    // only queries failures with filedAt: null — the idempotency filter —
+    // scoped to the judge version the gate actually calibrated
     expect(db.threadScore.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        where: { failureLane: { not: null }, filedAt: null },
+        where: { failureLane: { not: null }, filedAt: null, judgeVersion: JUDGE_VERSION },
       }),
     );
+  });
+
+  it("caps filings per run and logs the deferred cluster count", async () => {
+    // Disjoint expectations → every failure is its own cluster.
+    const db = mockDb({
+      gateOpen: true,
+      unfiled: Array.from({ length: MAX_FILINGS_PER_RUN + 2 }, (_, i) => ({
+        ...unfiledRow(`t-${i}`),
+        evalCase: { expectation: `distinct${i} clause${i} violation${i}` },
+      })),
+    });
+    const f = filers();
+    const log = vi.fn();
+    const result = await fileFailures(db, { filers: f, log });
+
+    expect(result.filed).toHaveLength(MAX_FILINGS_PER_RUN);
+    expect(f["exponential-beads"]).toHaveBeenCalledTimes(MAX_FILINGS_PER_RUN);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("2 cluster(s) deferred"));
   });
 
   it("dry-run reports filings but neither files nor marks", async () => {

@@ -1,5 +1,6 @@
 import { type PrismaClient } from "@prisma/client";
 
+import { JUDGE_VERSION } from "./AgentEvalService";
 import { getCalibrationGate } from "./calibrationGateService";
 import { type CalibrationGateResult } from "./calibrationGate";
 import {
@@ -28,12 +29,17 @@ export type DestinationFilers = Record<
   (filing: Filing) => Promise<string /* destination ref, e.g. "beads:x12" */>
 >;
 
+/** Blast-radius cap: a bad batch defers to later runs instead of spamming trackers. */
+export const MAX_FILINGS_PER_RUN = 10;
+
 export interface FileFailuresOptions {
   filers: DestinationFilers;
   /** Testing escape hatch — files even when the calibration gate is closed. */
   overrideGate?: boolean;
   /** Report what would be filed without filing or marking anything. */
   dryRun?: boolean;
+  /** Per-run filing cap; deferred clusters stay unfiled and surface next run. */
+  maxFilings?: number;
   log?: (message: string) => void;
   now?: () => Date;
 }
@@ -71,9 +77,11 @@ export async function fileFailures(
     log(`⚠️  Calibration gate CLOSED but --override-gate supplied (testing only). ${gate.reason}`);
   }
 
-  // Idempotency: only failures never filed before (decision 4).
+  // Idempotency: only failures never filed before (decision 4). Scoped to the
+  // current judge version — the gate's calibration evidence is partitioned per
+  // version (decision 9), so verdicts from a superseded judge carry no credential.
   const unfiled = await db.threadScore.findMany({
-    where: { failureLane: { not: null }, filedAt: null },
+    where: { failureLane: { not: null }, filedAt: null, judgeVersion: JUDGE_VERSION },
     select: {
       conversationId: true,
       failureLane: true,
@@ -104,8 +112,17 @@ export async function fileFailures(
     `${failures.length} unfiled failure(s) → ${filings.length} filing(s) after clustering.`,
   );
 
+  const cap = options.maxFilings ?? MAX_FILINGS_PER_RUN;
+  const toFile = filings.slice(0, cap);
+  if (toFile.length < filings.length) {
+    log(
+      `Capping at ${cap} filing(s) this run; ${filings.length - toFile.length} cluster(s) ` +
+        `deferred — their Threads stay unfiled and surface on the next run.`,
+    );
+  }
+
   const filed: FiledResult[] = [];
-  for (const filing of filings) {
+  for (const filing of toFile) {
     if (options.dryRun) {
       log(`[dry-run] ${filing.destination}: ${filing.title} (${filing.conversationIds.length} Thread(s))`);
       filed.push({ filing, ref: "(dry-run)" });

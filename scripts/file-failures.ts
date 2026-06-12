@@ -24,11 +24,13 @@
  * Tickets. Refuses non-local DB hosts unless --yes is passed.
  */
 import { execFileSync } from "child_process";
+import { existsSync } from "fs";
 
 import { PrismaClient } from "@prisma/client";
 
 import { fileFailures } from "../src/server/services/failureFilingService";
 import { type Filing } from "../src/server/services/failureFiling";
+import { JUDGE_VERSION } from "../src/server/services/AgentEvalService";
 import { generateFunId } from "../src/lib/fun-ids";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "host.docker.internal"]);
@@ -66,6 +68,8 @@ function parseArgs(argv: string[]): Args {
 /** Create a beads issue via the bd CLI; returns "beads:<issue-id>". */
 function fileBeadsIssue(filing: Filing, cwd: string): string {
   const issueType = filing.lane === "code_bug" ? "bug" : "task";
+  // --silent outputs only the issue id — stable for scripting, unlike the
+  // human-readable banner.
   const stdout = execFileSync(
     "bd",
     [
@@ -73,16 +77,20 @@ function fileBeadsIssue(filing: Filing, cwd: string): string {
       `--title=${filing.title}`,
       `--type=${issueType}`,
       "--priority=2",
+      "--silent",
       "-d",
       filing.body,
     ],
     { cwd, encoding: "utf8" },
   );
-  const match = /(?:created issue:?\s*)([a-z0-9]+-[a-z0-9]+)/i.exec(stdout);
-  if (!match?.[1]) {
-    throw new Error(`Could not parse bd create output for issue id:\n${stdout}`);
+  const issueId = stdout.trim();
+  if (!/^[a-z0-9]+(-[a-z0-9]+)+$/i.test(issueId)) {
+    throw new Error(
+      `bd create succeeded but output was not a bare issue id — ` +
+        `the issue MAY ALREADY EXIST in ${cwd}; check before re-running:\n${stdout}`,
+    );
   }
-  return `beads:${match[1]}`;
+  return `beads:${issueId}`;
 }
 
 async function main(): Promise<void> {
@@ -111,6 +119,33 @@ async function main(): Promise<void> {
 
   const db = new PrismaClient();
   try {
+    // Preflight destination preconditions before any filing happens, so a run
+    // never crashes mid-loop with real side effects already behind it.
+    if (!args.dryRun) {
+      const unfiledByLane = (lane: string) =>
+        db.threadScore.count({
+          where: { failureLane: lane, filedAt: null, judgeVersion: JUDGE_VERSION },
+        });
+      const capabilityGaps = await unfiledByLane("capability_gap");
+      if (capabilityGaps > 0 && !args.productId) {
+        console.error(
+          `${capabilityGaps} unfiled capability_gap failure(s) need a product Ticket — ` +
+            "pass --product <cuid>.",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const agentBehaviours = await unfiledByLane("agent_behaviour");
+      if (agentBehaviours > 0 && !existsSync(args.mastraDir)) {
+        console.error(
+          `--mastra directory "${args.mastraDir}" does not exist — ` +
+            "agent_behaviour filings may go there. Pass --mastra <path>.",
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
+
     // Resolve who owns capability_gap Tickets we create.
     const resolveCreator = async (): Promise<string> => {
       if (args.userId) return args.userId;
