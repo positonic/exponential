@@ -13,7 +13,6 @@ import {
   IconFolder,
   IconHistory,
   IconHome,
-  IconMessageChatbot,
   IconPlus,
   IconSparkles,
   IconX,
@@ -417,6 +416,22 @@ export function ZoeDrawer() {
   );
 }
 
+function SparkMark() {
+  return (
+    <svg className={classes.zoeFabIcon} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 2.5c.4 4.3 2.2 6.1 6.5 6.5-4.3.4-6.1 2.2-6.5 6.5-.4-4.3-2.2-6.1-6.5-6.5C9.8 8.6 11.6 6.8 12 2.5Z"
+        fill="currentColor"
+      />
+      <path
+        d="M18.5 14.5c.2 1.9 1 2.7 2.9 2.9-1.9.2-2.7 1-2.9 2.9-.2-1.9-1-2.7-2.9-2.9 1.9-.2 2.7-1 2.9-2.9Z"
+        fill="currentColor"
+        opacity={0.75}
+      />
+    </svg>
+  );
+}
+
 export function ZoeFab() {
   const { isOpen, openModal, closeModal, pendingNotification, openModalWithNotification } =
     useAgentModal();
@@ -433,11 +448,14 @@ export function ZoeFab() {
 
   return (
     <button
+      type="button"
       className={classes.zoeFab}
       onClick={handleClick}
+      title="Ask Zoe · ⌘J"
       aria-label={isOpen ? "Close Zoe" : "Open Zoe"}
     >
-      <IconMessageChatbot size={20} />
+      <span className={classes.zoeFabHalo} aria-hidden />
+      <SparkMark />
       <span className={classes.zoeFabPulse} aria-hidden />
       <span className={classes.zoeFabKbd}>Ask Zoe · ⌘J</span>
     </button>
