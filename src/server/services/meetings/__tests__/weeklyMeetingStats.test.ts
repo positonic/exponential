@@ -281,11 +281,15 @@ describe("weeklyMeetingStats — workspace scoping & archive exclusion", () => {
     });
     // workspace scoping is added under AND with both direct workspaceId and
     // project.workspaceId matching.
-    const and = capturedWhere?.AND as Array<{ OR: Array<Record<string, unknown>> }>;
+    const and = capturedWhere?.AND as Array<{ OR?: Array<Record<string, unknown>> }>;
     expect(and).toBeDefined();
-    const orClauses = and[0]!.OR;
-    expect(orClauses).toContainEqual({ workspaceId: "ws-1" });
-    expect(orClauses).toContainEqual({ project: { workspaceId: "ws-1" } });
+    const workspaceClause = and.find(
+      (c) => c.OR?.some((o) => o.workspaceId === "ws-1"),
+    );
+    expect(workspaceClause?.OR).toContainEqual({ workspaceId: "ws-1" });
+    expect(workspaceClause?.OR).toContainEqual({
+      project: { workspaceId: "ws-1" },
+    });
   });
 
   it("omits workspace scoping when workspaceId is not provided", async () => {
@@ -299,6 +303,37 @@ describe("weeklyMeetingStats — workspace scoping & archive exclusion", () => {
       userId: "u1",
       weekStart: WEEK_START,
     });
-    expect(capturedWhere?.AND).toBeUndefined();
+    const and = capturedWhere?.AND as Array<Record<string, unknown>>;
+    // Only the caller-access filter remains — no workspace scoping clause.
+    expect(and).toHaveLength(1);
+    expect(JSON.stringify(and)).not.toContain("ws-1");
+  });
+});
+
+describe("weeklyMeetingStats — caller access control", () => {
+  it("always ANDs the caller's transcription access filter into the query", async () => {
+    let capturedWhere: Record<string, unknown> | undefined;
+    dbMock.transcriptionSession.findMany.mockImplementation(((args: { where: Record<string, unknown> }) => {
+      capturedWhere = args.where;
+      return Promise.resolve([] as never);
+    }) as never);
+
+    await weeklyMeetingStats(dbMock, {
+      userId: "u1",
+      workspaceId: "ws-1",
+      weekStart: WEEK_START,
+    });
+
+    // Regression guard: stats must never aggregate Meetings the caller
+    // couldn't open. The first AND clause is the centralized access filter —
+    // it must mention the caller on the owner and participant paths.
+    const and = capturedWhere?.AND as Array<{ OR?: Array<Record<string, unknown>> }>;
+    const accessClause = and.find(
+      (c) => c.OR?.some((o) => o.userId === "u1"),
+    );
+    expect(accessClause).toBeDefined();
+    expect(accessClause?.OR).toContainEqual({
+      participants: { some: { userId: "u1" } },
+    });
   });
 });

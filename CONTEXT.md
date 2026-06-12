@@ -33,6 +33,14 @@ _Avoid_: Attendee (only as a count word — "4 attendees"), invitee.
 A person who actually talked, derived from `transcription.sentences[].speaker_name`. Strictly distinct from **Participant** — a Speaker may be unmatched to any Participant ("Unknown"), and a Participant may never have spoken. Use Speaker for transcript navigation; use Participant for "who's on this call" UI.
 _Avoid_: Talker, contributor.
 
+**Meeting visibility**:
+Who can see a Meeting. A user sees a Meeting if they created it, are a **Participant** on it, or can access its **Project**. Attendance trumps restriction: a Participant may *view* a Meeting they were in even when it sits in a **Restricted project** they can't otherwise access — restriction hides a project's contents from bystanders, not from the people in the room (view only; *edit* still requires project edit access). Meetings with no project fall back to workspace membership: any member of the workspace may view, and any non-viewer role may edit. Visibility **inherits from the project**; team ownership of a project does **not** narrow it (decision 2026-06-12: team-scoped-by-default was considered and rejected — use a **Restricted project** instead).
+_Avoid_: Meeting permissions, sharing.
+
+**Restricted project**:
+A Project with `isRestricted: true` (default off, set via the "Restricted project" switch). Its content — Meetings included — is visible only to the project creator, explicit project members, and workspace **owners/admins** (the admin escape hatch). Restriction is an **explicit allowlist**: members of the owning *team* do **not** count (decision 2026-06-12 — joining a team must never silently grant access to its restricted projects; add teammates as project members instead). An *unrestricted* project and everything in it is visible to every workspace member regardless of role (viewer included) or team. This is the canonical mechanism for "admins may see it, plain members may not".
+_Avoid_: Private project (use "restricted"), team project (team ownership ≠ restriction).
+
 ## Relationships
 
 - A **Meeting** has zero or more **Participants** (`TranscriptionSessionParticipant`).
@@ -216,7 +224,15 @@ _Avoid_: System prompt, instructions (in conversation), persona alone (ambiguous
 The Mastra memory thread the **brain** reads and writes for a voice session (`resource = userId`, `thread.id = threadKey`). The keying differs by surface: **web** binds it to the active text chat's **conversationId**, so typing and talking in the Zoe drawer are one continuous conversation (the brain recalls what was typed, and voice turns appear in the text history); **iOS** has no concurrent text chat, so it stays user-scoped (`voice-${userId}`). The **Voice router** stays zero-knowledge regardless — the thread is the brain's memory, never the router's. Supersedes the earlier ISOLATE assumption (voice kept wholly separate from text-chat memory), which now holds for iOS only. See [ADR-0006](docs/adr/0006-web-voice-shares-text-thread.md).
 _Avoid_: Voice thread (ambiguous — say "voice memory thread"), conversation (overloaded).
 
+### Chat
+
+**ManyChat**:
+The shared in-app agent chat component (`src/app/_components/ManyChat.tsx`) behind every embedded chat surface — the Zoe drawer and the agent chat pages — rendering streamed responses, tool activity, voice input, and the per-message feedback stars. Talks to `/api/chat/stream` under the signed-in user's web session. The name is purely internal and predates any awareness of **manychat.com** (the WhatsApp/Instagram automation SaaS) — in this codebase "ManyChat" always means this component, never that product. Rename candidate if the collision keeps confusing people (and agents).
+_Avoid_: Reading it as manychat.com; chat widget, chatbox.
+
 ### Agent quality
+
+_Operations (what to run, when, in what order): [dev-docs/AGENT_QUALITY_RUNBOOK.md](dev-docs/AGENT_QUALITY_RUNBOOK.md)._
 
 **Thread**:
 The unit of agent-quality measurement — one `conversationId`-scoped exchange between a user and **Zoe** (the brain), spanning one or more turns. A turn is a single `AiInteractionHistory` row (user message → Zoe response). On web a Thread is **mixed-modality**: typed and spoken turns share one `conversationId` (ADR-0006), so a Thread is judged as a whole regardless of how each turn was entered. Quality is assessed at the **Thread** level ("did Zoe resolve what the user came for?"), never per isolated turn — a turn like "do it" is only meaningful in Thread context. Turn-level facts (tool error, latency) are *inputs* to the Thread judgement, not separately scored entities. A Thread is in scope only when **Zoe-the-brain actually reasoned**: typed web, web-voice **brain passthrough**, Slack/API (`callAgent`), WhatsApp. **Coarse-tool** turns are out of scope — they are deterministic (parse → DB → speakable, no LLM), so their correctness is a unit-test concern, not a judge concern. iOS voice is deferred (see flagged ambiguity).

@@ -51,6 +51,16 @@ export interface AiInteractionData {
     data?: unknown;
   }>;
   toolsUsed?: string[]; // Tools/functions called ["createAction", "retrieveActions"]
+  // Per-call detail (redacted args, error codes) — see redactToolArgs.
+  // Feeds ADR-0012 judge axes and ADR-0013 replay baselines.
+  toolCalls?: Array<{
+    name: string;
+    args: string;
+    isError?: boolean;
+    errorCode?: string;
+    providerExecuted?: boolean;
+    argsDropped?: boolean;
+  }>;
 
   // Additional metadata
   userAgent?: string; // Browser/client information
@@ -132,6 +142,7 @@ export class AiInteractionLogger {
           workspaceId: data.workspaceId,
           actionsTaken: data.actionsTaken ? JSON.stringify(data.actionsTaken) : undefined,
           toolsUsed: data.toolsUsed ?? [],
+          toolCalls: data.toolCalls ?? undefined,
 
           // Additional metadata
           userAgent: data.userAgent,
