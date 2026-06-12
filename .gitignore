@@ -98,3 +98,4 @@ db-backups/
 /release/
 
 .exponential/
+.claude/worktrees/
