@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
+import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -539,9 +540,31 @@ export const mastraRouter = createTRPCRouter({
           : undefined;
 
         const lastUserMessage = [...input.messages].reverse().find(m => m.role === 'user')?.content ?? '';
-        const toolsUsed = ((responseData.toolCalls ?? []) as Array<{ toolName?: string; name?: string }>)
-          .map(tc => tc.toolName ?? tc.name)
+        // Tool calls arrive either flat ({toolName, args}) or wrapped in
+        // Mastra's chunk envelope ({type: 'tool-call', payload: {...}}).
+        const flatToolCalls = ((responseData.toolCalls ?? []) as Array<Record<string, unknown>>)
+          .map(tc =>
+            tc.payload && typeof tc.payload === 'object'
+              ? (tc.payload as Record<string, unknown>)
+              : tc,
+          );
+        const toolsUsed = flatToolCalls
+          .map(tc => {
+            const n = tc.toolName ?? tc.name;
+            return typeof n === 'string' ? n : undefined;
+          })
           .filter((n): n is string => !!n);
+        const loggedToolCalls = capToolCallsForTurn(
+          flatToolCalls.flatMap(tc => {
+            const n = tc.toolName ?? tc.name;
+            if (typeof n !== 'string') return [];
+            return [{
+              name: n,
+              args: redactToolArgs(tc.args ?? tc.input),
+              ...(tc.providerExecuted === true ? { providerExecuted: true } : {}),
+            }];
+          }),
+        );
 
         void getAiInteractionLogger(ctx.db).logInteraction({
           platform: 'direct',
@@ -558,6 +581,7 @@ export const mastraRouter = createTRPCRouter({
           responseTime: Date.now() - startTime,
           tokenUsage,
           toolsUsed,
+          toolCalls: loggedToolCalls.length > 0 ? loggedToolCalls : undefined,
         });
 
         return {

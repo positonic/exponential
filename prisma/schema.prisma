@@ -1455,6 +1455,11 @@ model AiInteractionHistory {
   workspaceId        String?
   actionsTaken       Json?
   toolsUsed          String[]
+  // Per-call detail for the agent-quality loop (ADR-0012 judges, ADR-0013
+  // replay baselines) and incident diagnosis: [{name, args, isError,
+  // errorCode?, providerExecuted?}]. Args are redacted+truncated at capture
+  // (see redactToolArgs) — never store raw secrets here.
+  toolCalls          Json?
   userAgent          String?
   ipAddress          String?
   anthropicRequestId String?
