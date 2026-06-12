@@ -697,6 +697,15 @@ export async function POST(req: Request) {
                 const response = readUnknown(chunk.payload, 'response');
                 const modelId = readString(response, 'modelId');
                 if (modelId) responseModelId = modelId;
+              } else if (chunk.type === "text-start") {
+                // Model text blocks stream as raw markdown deltas; blocks
+                // separated by tool calls (or step boundaries) would
+                // otherwise concatenate with no separator — "…right
+                // people.⚠️ Tool Error…", "…tool format:✅ Done!". Start
+                // each new block after prior output on its own paragraph.
+                if (modelTextChars > 0 && !fullText.endsWith("\n")) {
+                  emit("\n\n");
+                }
               } else {
                 nonTextChunkTypes.add(chunk.type);
                 // Emit a zero-width-space keepalive byte. The client's idle
