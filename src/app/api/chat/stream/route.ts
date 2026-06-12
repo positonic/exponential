@@ -14,6 +14,11 @@ import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import {
+  capToolCallsForTurn,
+  redactToolArgs,
+  type LoggedToolCall,
+} from "~/server/utils/redactToolArgs";
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import {
@@ -456,6 +461,11 @@ export async function POST(req: Request) {
     let textChunkCount = 0;
     const nonTextChunkTypes = new Set<string>();
     const toolCallNames: string[] = [];
+    // Per-call detail persisted on AiInteractionHistory.toolCalls: redacted
+    // args + error codes. toolsUsed (names only) starves the ADR-0012 judge
+    // axes and made the 2026-06-12 web_fetch incident undiagnosable.
+    const loggedToolCalls: LoggedToolCall[] = [];
+    const loggedToolCallIndexById = new Map<string, number>();
     let lastStepFinishReason: string | undefined;
     let hadToolError = false;
     let hadAgentError = false;
@@ -616,10 +626,36 @@ export async function POST(req: Request) {
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${toolCallNames.length}`;
                 const args = truncateArgs(readUnknown(chunk.payload, 'args'));
                 toolCallNames.push(name);
+                loggedToolCallIndexById.set(id, loggedToolCalls.length);
+                loggedToolCalls.push({
+                  name,
+                  args: redactToolArgs(readUnknown(chunk.payload, 'args')),
+                  ...(readUnknown(chunk.payload, 'providerExecuted') === true
+                    ? { providerExecuted: true }
+                    : {}),
+                });
                 toolFrame({ phase: 'call', id, name, args });
               } else if (chunk.type === "tool-result") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
+                // Provider-executed tools (webSearch/webFetch) report failures
+                // as tool-result + isError, not tool-error — without this branch
+                // a refused web_fetch is invisible in the log row.
+                if (readUnknown(chunk.payload, 'isError') === true) {
+                  const result = readUnknown(chunk.payload, 'result');
+                  const errorCode =
+                    readString(result, 'errorCode') ?? readString(result, 'error');
+                  const idx = loggedToolCallIndexById.get(id);
+                  const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
+                  if (logged) {
+                    logged.isError = true;
+                    if (errorCode) logged.errorCode = errorCode.slice(0, 200);
+                  }
+                  if (firstToolErrorMessages.length < 3) {
+                    firstToolErrorMessages.push(`${name}: ${errorCode ?? 'provider tool error'}`);
+                  }
+                  hadToolError = true;
+                }
                 toolFrame({ phase: 'result', id, name });
               } else if (chunk.type === "tool-error") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
@@ -627,6 +663,12 @@ export async function POST(req: Request) {
                 const msg = formatErr(readUnknown(chunk.payload, 'error'));
                 if (firstToolErrorMessages.length < 3) firstToolErrorMessages.push(`${name}: ${msg}`);
                 hadToolError = true;
+                const idx = loggedToolCallIndexById.get(id);
+                const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
+                if (logged) {
+                  logged.isError = true;
+                  logged.errorCode = msg.slice(0, 200);
+                }
                 toolFrame({ phase: 'error', id, name, msg });
               } else if (chunk.type === "error") {
                 const msg = readString(chunk.payload, 'message')
@@ -696,6 +738,8 @@ export async function POST(req: Request) {
                 textChunkCount = 0;
                 nonTextChunkTypes.clear();
                 toolCallNames.length = 0;
+                loggedToolCalls.length = 0;
+                loggedToolCallIndexById.clear();
                 firstToolErrorMessages.length = 0;
                 lastStepFinishReason = undefined;
                 hadToolError = false;
@@ -807,6 +851,9 @@ export async function POST(req: Request) {
               // every turn and reads grounded responses as fabrication
               // (ADR-0012 GROUNDED axis). Kept in call order, repeats included.
               toolsUsed: toolCallNames,
+              toolCalls: loggedToolCalls.length > 0
+                ? capToolCallsForTurn(loggedToolCalls)
+                : undefined,
               tokenUsage: finishUsage
                 ? {
                     prompt: finishUsage.inputTokens,
