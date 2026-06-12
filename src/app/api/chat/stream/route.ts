@@ -14,6 +14,7 @@ import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import { withTimeout } from "~/server/utils/withTimeout";
 import {
   capToolCallsForTurn,
   maskTokenLike,
@@ -84,6 +85,7 @@ const ALLOWED_AGENT_IDS = new Set([
 ]);
 
 export async function POST(req: Request) {
+  const requestStart = Date.now();
   try {
     // Require authentication
     const session = await auth();
@@ -231,11 +233,17 @@ export async function POST(req: Request) {
         // Resolve channel ID (needed for Slack API tool calls)
         let channelId = projectSlackConfig.slackChannelId;
         if (!channelId) {
-          // Backfill: resolve channel name → ID via Slack API
-          channelId = await resolveSlackChannelId(
-            projectSlackConfig.integrationId,
-            projectSlackConfig.slackChannel
-          );
+          // Backfill: resolve channel name → ID via Slack API. This runs
+          // BEFORE the stream opens, so a slow conversations.list (1000
+          // channels) silently delays the user's first byte — bound it.
+          channelId = await withTimeout(
+            resolveSlackChannelId(
+              projectSlackConfig.integrationId,
+              projectSlackConfig.slackChannel
+            ),
+            3_000,
+            "slack channel-id backfill",
+          ).catch(() => null);
           // Cache the resolved ID in the database for future requests
           if (channelId) {
             await db.slackChannelConfig.update({
@@ -489,6 +497,10 @@ export async function POST(req: Request) {
             // block clears the interval, so this is the last spurious fire.
           }
         }, HEARTBEAT_MS);
+        // First byte immediately: flushes headers and gives the client's
+        // reader a byte the moment the stream opens, instead of waiting up
+        // to HEARTBEAT_MS (or the model's first token) for proof of life.
+        controller.enqueue(new TextEncoder().encode("​"));
 
         // [DIAGNOSTIC] Per-step timing — revert after Zoe hang investigation.
         let lastStepAt = Date.now();
@@ -639,13 +651,25 @@ export async function POST(req: Request) {
               } else if (chunk.type === "tool-result") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
-                // Provider-executed tools (webSearch/webFetch) report failures
-                // as tool-result + isError, not tool-error — without this branch
-                // a refused web_fetch is invisible in the log row.
-                if (readUnknown(chunk.payload, 'isError') === true) {
-                  const result = readUnknown(chunk.payload, 'result');
+                // Failed calls (provider-executed refusals like web_fetch
+                // url_not_allowed, and input-validation rejections) arrive as
+                // tool-result + isError, not tool-error. Without this branch
+                // they're invisible in the log row AND render as ✓ in the UI
+                // (the "16 identical checkmarks, 8 of them failures" bug).
+                const result = readUnknown(chunk.payload, 'result');
+                // Three observed error-result shapes: provider refusals
+                // ({type: '*_tool_result_error'}), Mastra input-validation
+                // rejections ({error: true, message}), and an isError flag.
+                const resultIsError =
+                  readUnknown(chunk.payload, 'isError') === true ||
+                  (typeof result === 'object' && result !== null && (
+                    (result as Record<string, unknown>).error === true ||
+                    (typeof (result as Record<string, unknown>).type === 'string' &&
+                      ((result as Record<string, unknown>).type as string).endsWith('_error'))
+                  ));
+                if (resultIsError) {
                   const errorCode =
-                    readString(result, 'errorCode') ?? readString(result, 'error');
+                    readString(result, 'errorCode') ?? readString(result, 'error') ?? readString(result, 'message');
                   const idx = loggedToolCallIndexById.get(id);
                   const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
                   if (logged) {
@@ -658,8 +682,13 @@ export async function POST(req: Request) {
                     );
                   }
                   hadToolError = true;
+                  toolFrame({
+                    phase: 'error', id, name,
+                    msg: errorCode ? maskTokenLike(errorCode).slice(0, 200) : 'tool returned an error',
+                  });
+                } else {
+                  toolFrame({ phase: 'result', id, name });
                 }
-                toolFrame({ phase: 'result', id, name });
               } else if (chunk.type === "tool-error") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
@@ -942,6 +971,11 @@ export async function POST(req: Request) {
         }
       },
     });
+
+    // Everything above this line (auth, workspace/project context, Slack
+    // backfill, JWT minting) runs before the client sees a single byte —
+    // when "nothing happens for a minute", this number is the first suspect.
+    console.log(`⏱️ [chat/stream] pre-stream setup took ${Date.now() - requestStart}ms`);
 
     return new Response(textStream, {
       headers: {
