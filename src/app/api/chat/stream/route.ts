@@ -803,6 +803,10 @@ export async function POST(req: Request) {
               conversationId: threadId,
               userMessage: lastUserMsg.slice(0, 2000),
               aiResponse: fullText.slice(0, 5000),
+              // Without this the Thread judge sees "TOOLS INVOKED: (none)" on
+              // every turn and reads grounded responses as fabrication
+              // (ADR-0012 GROUNDED axis). Kept in call order, repeats included.
+              toolsUsed: toolCallNames,
               tokenUsage: finishUsage
                 ? {
                     prompt: finishUsage.inputTokens,
