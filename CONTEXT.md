@@ -216,6 +216,12 @@ _Avoid_: System prompt, instructions (in conversation), persona alone (ambiguous
 The Mastra memory thread the **brain** reads and writes for a voice session (`resource = userId`, `thread.id = threadKey`). The keying differs by surface: **web** binds it to the active text chat's **conversationId**, so typing and talking in the Zoe drawer are one continuous conversation (the brain recalls what was typed, and voice turns appear in the text history); **iOS** has no concurrent text chat, so it stays user-scoped (`voice-${userId}`). The **Voice router** stays zero-knowledge regardless — the thread is the brain's memory, never the router's. Supersedes the earlier ISOLATE assumption (voice kept wholly separate from text-chat memory), which now holds for iOS only. See [ADR-0006](docs/adr/0006-web-voice-shares-text-thread.md).
 _Avoid_: Voice thread (ambiguous — say "voice memory thread"), conversation (overloaded).
 
+### Chat
+
+**ManyChat**:
+The shared in-app agent chat component (`src/app/_components/ManyChat.tsx`) behind every embedded chat surface — the Zoe drawer and the agent chat pages — rendering streamed responses, tool activity, voice input, and the per-message feedback stars. Talks to `/api/chat/stream` under the signed-in user's web session. The name is purely internal and predates any awareness of **manychat.com** (the WhatsApp/Instagram automation SaaS) — in this codebase "ManyChat" always means this component, never that product. Rename candidate if the collision keeps confusing people (and agents).
+_Avoid_: Reading it as manychat.com; chat widget, chatbox.
+
 ### Agent quality
 
 **Thread**:
