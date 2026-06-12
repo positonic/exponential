@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   capToolCallsForTurn,
+  maskTokenLike,
   redactToolArgs,
   type LoggedToolCall,
 } from "../redactToolArgs";
@@ -29,6 +30,16 @@ describe("redactToolArgs", () => {
     expect(out).toContain('"retries":3');
   });
 
+  it("keeps entity-id keys that merely contain a sensitive word", () => {
+    const out = redactToolArgs({
+      keyResultId: "kr_cmpv4j6jc0005l104",
+      keywords: ["roadmap", "okr"],
+    });
+    expect(out).toContain("kr_cmpv4j6jc0005l104");
+    expect(out).toContain("roadmap");
+    expect(out).not.toContain("[redacted]");
+  });
+
   it("redacts token-like strings pasted under benign keys", () => {
     const pastedKey = "a".repeat(24) + "B1_x-".repeat(8); // 64 unbroken chars
     const out = redactToolArgs({ text: `here is my key ${pastedKey} thanks` });
@@ -47,6 +58,16 @@ describe("redactToolArgs", () => {
     cyclic.self = cyclic;
     expect(() => redactToolArgs(cyclic)).not.toThrow();
     expect(redactToolArgs(cyclic)).toContain("[depth-capped]");
+  });
+});
+
+describe("maskTokenLike", () => {
+  it("masks credential echoes in error text but keeps the message readable", () => {
+    const key = "ff_live_" + "a1B2c3D4".repeat(6);
+    const out = maskTokenLike(`Invalid API key ${key} — check your dashboard`);
+    expect(out).not.toContain(key);
+    expect(out).toContain("Invalid API key");
+    expect(out).toContain("check your dashboard");
   });
 });
 

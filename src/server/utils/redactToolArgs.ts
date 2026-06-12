@@ -21,7 +21,10 @@ export interface LoggedToolCall {
   argsDropped?: boolean;
 }
 
-const SENSITIVE_KEY = /key|token|secret|password|credential|authorization|bearer/i;
+// Suffix-anchored: `apiKey`/`slackToken`/`tokens` redact, but entity-id keys
+// like `keyResultId` (OKR tools) or `keywords` must survive — they're the
+// grounding signal the judges read.
+const SENSITIVE_KEY = /(api[_-]?key|key|token|secret|password|credential|authorization|bearer)s?$/i;
 // Long unbroken base64url-ish runs are likely pasted credentials. CUIDs are
 // 25 chars, so the 40+ threshold leaves IDs and URLs readable.
 const TOKEN_LIKE = /[A-Za-z0-9_-]{40,}/g;
@@ -52,6 +55,14 @@ function redactValue(value: unknown, keyHint: string, depth: number): unknown {
     return out;
   }
   return undefined;
+}
+
+/**
+ * Mask token-like runs in a plain string. For error messages and other
+ * free text that may echo a credential (e.g. "Invalid API key ff_live_…").
+ */
+export function maskTokenLike(text: string): string {
+  return text.replace(TOKEN_LIKE, REDACTED);
 }
 
 /** Redact secrets from tool args and serialize, capped per call. */

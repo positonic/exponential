@@ -16,6 +16,7 @@ import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
   capToolCallsForTurn,
+  maskTokenLike,
   redactToolArgs,
   type LoggedToolCall,
 } from "~/server/utils/redactToolArgs";
@@ -649,10 +650,12 @@ export async function POST(req: Request) {
                   const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
                   if (logged) {
                     logged.isError = true;
-                    if (errorCode) logged.errorCode = errorCode.slice(0, 200);
+                    if (errorCode) logged.errorCode = maskTokenLike(errorCode).slice(0, 200);
                   }
                   if (firstToolErrorMessages.length < 3) {
-                    firstToolErrorMessages.push(`${name}: ${errorCode ?? 'provider tool error'}`);
+                    firstToolErrorMessages.push(
+                      `${name}: ${errorCode ? maskTokenLike(errorCode) : 'provider tool error'}`,
+                    );
                   }
                   hadToolError = true;
                 }
@@ -660,7 +663,10 @@ export async function POST(req: Request) {
               } else if (chunk.type === "tool-error") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
-                const msg = formatErr(readUnknown(chunk.payload, 'error'));
+                // Error text routinely echoes inputs (e.g. "Invalid API key
+                // ff_live_…"), so mask token-like runs before anything is
+                // persisted via errorMessage or toolCalls.
+                const msg = maskTokenLike(formatErr(readUnknown(chunk.payload, 'error')));
                 if (firstToolErrorMessages.length < 3) firstToolErrorMessages.push(`${name}: ${msg}`);
                 hadToolError = true;
                 const idx = loggedToolCallIndexById.get(id);
