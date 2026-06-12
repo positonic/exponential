@@ -232,6 +232,8 @@ _Avoid_: Reading it as manychat.com; chat widget, chatbox.
 
 ### Agent quality
 
+_Operations (what to run, when, in what order): [dev-docs/AGENT_QUALITY_RUNBOOK.md](dev-docs/AGENT_QUALITY_RUNBOOK.md)._
+
 **Thread**:
 The unit of agent-quality measurement — one `conversationId`-scoped exchange between a user and **Zoe** (the brain), spanning one or more turns. A turn is a single `AiInteractionHistory` row (user message → Zoe response). On web a Thread is **mixed-modality**: typed and spoken turns share one `conversationId` (ADR-0006), so a Thread is judged as a whole regardless of how each turn was entered. Quality is assessed at the **Thread** level ("did Zoe resolve what the user came for?"), never per isolated turn — a turn like "do it" is only meaningful in Thread context. Turn-level facts (tool error, latency) are *inputs* to the Thread judgement, not separately scored entities. A Thread is in scope only when **Zoe-the-brain actually reasoned**: typed web, web-voice **brain passthrough**, Slack/API (`callAgent`), WhatsApp. **Coarse-tool** turns are out of scope — they are deterministic (parse → DB → speakable, no LLM), so their correctness is a unit-test concern, not a judge concern. iOS voice is deferred (see flagged ambiguity).
 _Avoid_: Conversation (banned — overloaded), session (reserved against Meeting), chat.
