@@ -307,7 +307,14 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   {isStreaming &&
                     index === visibleMessages.length - 1 &&
                     message.content === '' && (
-                      <ThinkingStatus toolCalls={message.toolCalls} />
+                      <ThinkingStatus
+                        toolCalls={message.toolCalls}
+                        requestText={
+                          [...visibleMessages]
+                            .reverse()
+                            .find((m) => m.type === 'human')?.content
+                        }
+                      />
                     )}
                   <div className="text-text-primary text-sm leading-relaxed">
                     {message.marker === 'voice' && (
