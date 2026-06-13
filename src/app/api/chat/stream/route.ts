@@ -127,14 +127,28 @@ export async function POST(req: Request) {
     // it: every turn re-inflates the unobserved-token count (tripping
     // observational-memory consolidation more often than it should) and
     // re-bills prompt tokens for history Mastra already holds. Mastra's docs
-    // warn against this explicitly. Prior turns are supplied by thread memory
-    // (lastMessages / semanticRecall); the server-injected system/context
-    // messages prepended below are NOT conversational history and still flow.
+    // warn against this explicitly. Prior turns are supplied by thread memory's
+    // `lastMessages` window (configured in ../mastra/src/mastra/memory/index.ts;
+    // bumped to 40 to cover a multi-turn session). semanticRecall is NOT enabled
+    // (no vector store/embedder configured), so there is no semantic fallback for
+    // turns older than that window — keep `lastMessages` wide enough to match the
+    // working set. The server-injected system/context messages prepended below
+    // are NOT conversational history and still flow.
     const conversationMessages = messages.filter(m => m.role !== 'system');
     const latestUserMessage = [...conversationMessages]
       .reverse()
       .find(m => m.role === 'user');
-    let finalMessages: CoreMessage[] = latestUserMessage ? [latestUserMessage] : [];
+    // No user message means there is nothing to act on — bail before the agent
+    // call rather than streaming a turn built from system/context only (which
+    // yields an empty/confused response). Normal web callers always end on a
+    // user turn; this guards programmatic/regeneration payloads.
+    if (!latestUserMessage) {
+      return new Response(
+        JSON.stringify({ error: "No user message in request" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    let finalMessages: CoreMessage[] = [latestUserMessage];
 
     // Track per-source contribution to the prompt so we can see WHERE the
     // input tokens are actually going. The total observed in Anthropic
