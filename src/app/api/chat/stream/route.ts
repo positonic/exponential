@@ -12,7 +12,6 @@ import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
-import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
   capToolCallsForTurn,
@@ -120,24 +119,36 @@ export async function POST(req: Request) {
       .filter(m => m.role === 'system')
       .map(m => m.content)
       .join('\n');
-    let finalMessages: CoreMessage[] = messages.filter(m => m.role !== 'system');
 
-    // Defensive token-budget trim: don't trust the client to keep history
-    // bounded. Anything older than the budget is dropped here; Mastra memory
-    // (resource+thread) is expected to surface relevant older turns via
-    // semanticRecall / lastMessages when the agent needs them.
-    const HISTORY_TOKEN_BUDGET = Number(
-      process.env.CHAT_HISTORY_TOKEN_BUDGET ?? "20000",
-    );
-    const trimmed = trimByTokenBudget(finalMessages, HISTORY_TOKEN_BUDGET);
-    if (trimmed.droppedCount > 0) {
-      console.log('✂️ [chat/stream] Trimmed conversation history', {
-        droppedCount: trimmed.droppedCount,
-        estimatedTokens: trimmed.estimatedTokens,
-        budgetTokens: HISTORY_TOKEN_BUDGET,
-      });
+    // Send ONLY the latest user message to the agent — do NOT re-send the
+    // prior transcript. Mastra already persists prior turns in its thread
+    // store (see `memory: { resource, thread }` on agent.stream() below), so
+    // passing the full client history alongside thread memory double-feeds
+    // it: every turn re-inflates the unobserved-token count (tripping
+    // observational-memory consolidation more often than it should) and
+    // re-bills prompt tokens for history Mastra already holds. Mastra's docs
+    // warn against this explicitly. Prior turns are supplied by thread memory's
+    // `lastMessages` window (configured in ../mastra/src/mastra/memory/index.ts;
+    // bumped to 40 to cover a multi-turn session). semanticRecall is NOT enabled
+    // (no vector store/embedder configured), so there is no semantic fallback for
+    // turns older than that window — keep `lastMessages` wide enough to match the
+    // working set. The server-injected system/context messages prepended below
+    // are NOT conversational history and still flow.
+    const conversationMessages = messages.filter(m => m.role !== 'system');
+    const latestUserMessage = [...conversationMessages]
+      .reverse()
+      .find(m => m.role === 'user');
+    // No user message means there is nothing to act on — bail before the agent
+    // call rather than streaming a turn built from system/context only (which
+    // yields an empty/confused response). Normal web callers always end on a
+    // user turn; this guards programmatic/regeneration payloads.
+    if (!latestUserMessage) {
+      return new Response(
+        JSON.stringify({ error: "No user message in request" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
     }
-    finalMessages = trimmed.messages;
+    let finalMessages: CoreMessage[] = [latestUserMessage];
 
     // Track per-source contribution to the prompt so we can see WHERE the
     // input tokens are actually going. The total observed in Anthropic
