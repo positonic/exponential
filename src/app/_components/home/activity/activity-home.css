@@ -973,6 +973,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Per-row workspace badge, only rendered by the aggregated cross-workspace
+   feed at /activity. Sits inline in the meta row beside the timestamp. */
+.wsa-feed__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wsa-feed__workspace {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wsa-feed__workspace:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
 .wsa-feed__icon {
   width: 24px;
   height: 24px;
