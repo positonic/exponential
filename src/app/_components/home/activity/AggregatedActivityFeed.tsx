@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '~/trpc/react';
 import type { IconKind } from '~/server/services/activity/feedRenderHints';
+import { WeeklyWorkDigestPanel } from './WeeklyWorkDigestPanel';
 
 import './activity-home.css';
 
@@ -167,6 +168,8 @@ export function AggregatedActivityFeed() {
             Every event across the workspaces you belong to, newest first.
           </Text>
         </div>
+
+        <WeeklyWorkDigestPanel />
 
         <section className="wsa-card">
           <div className="wsa-card__head">
