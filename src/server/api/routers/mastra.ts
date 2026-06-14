@@ -3470,7 +3470,9 @@ export const mastraRouter = createTRPCRouter({
   // creator-only check or duplicate logic. See ADR-0016.
   addGoalComment: protectedProcedure
     .input(z.object({
-      goalId: z.number(),
+      // Agent-facing: the model often passes goalId as a string lifted from the
+      // prompt's page context, so coerce. The tool coerces too (defense in depth).
+      goalId: z.coerce.number(),
       content: z.string().min(1).max(10000),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -3489,7 +3491,9 @@ export const mastraRouter = createTRPCRouter({
   // NOT copy the legacy OKR endpoints' inline creator-only check. See ADR-0016.
   addGoalUpdate: protectedProcedure
     .input(z.object({
-      goalId: z.number(),
+      // Agent-facing: the model often passes goalId as a string lifted from the
+      // prompt's page context, so coerce. The tool coerces too (defense in depth).
+      goalId: z.coerce.number(),
       content: z.string().min(1).max(10000),
       health: z.enum(["on-track", "at-risk", "off-track"]),
     }))
