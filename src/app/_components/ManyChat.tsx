@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
+import { toolTriggersGoalActivityRefresh } from "./manyChatToolRefresh";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -374,6 +375,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, pendingContext, consumePendingPrompt } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const workspaceId = workspaceIdProp ?? urlWorkspaceId;
+  const utils = api.useUtils();
 
   // Fetch the user's custom assistant (if configured)
   const { data: customAssistant } = api.assistant.getDefault.useQuery(
@@ -1329,6 +1331,24 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
       clearIdleTimer();
       setIsStreaming(false);
+
+      // When Zoe posts to a goal's activity feed from chat (objective comment /
+      // update), that feed renders in a sibling component with its own React
+      // Query cache, so it stays stale until reload. Invalidate the same key set
+      // useGoalActivity.invalidate() uses (feed + count + the goal for the health
+      // badge). Procedure-wide (no args) avoids goalId source/coercion fragility;
+      // only one goal feed is mounted, so the cost is one refetch.
+      if (pageContext?.pageType === 'goal') {
+        const postedToGoalActivity = Array.from(toolCallsById.values()).some(
+          (tc) => tc.status === 'success' && toolTriggersGoalActivityRefresh(tc.name),
+        );
+        if (postedToGoalActivity) {
+          void utils.goalActivity.getFeed.invalidate();
+          void utils.goalActivity.getCount.invalidate();
+          void utils.goal.getById.invalidate();
+        }
+      }
+
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —
       // the user sees those calls in the ToolActivity row.
