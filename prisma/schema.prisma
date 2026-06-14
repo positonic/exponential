@@ -133,6 +133,7 @@ model User {
   teamCapacities              TeamMemberWeeklyCapacity[]  @relation("TeamMemberCapacity")
   weeklyReviewSharing         WeeklyReviewSharing[]
   weeklyReviewCompletions     WeeklyReviewCompletion[]
+  weeklyWorkDigests           WeeklyWorkDigest[]
   portfolioReviewCompletions  PortfolioReviewCompletion[]
   workspaceWeeklyFocuses      WorkspaceWeeklyFocus[]
   wheelOfLifeAssessments      WheelOfLifeAssessment[]
@@ -427,6 +428,31 @@ model WorkspaceWeeklyNarrative {
 
   @@unique([workspaceId, isoYear, isoWeek])
   @@index([workspaceId, generatedAt])
+}
+
+// Cached AI-generated personal Weekly work digest. One row per (user, ISO week).
+// The personal, cross-workspace sibling of WorkspaceWeeklyNarrative: scoped to a
+// single user across all their workspaces, private to them, and additionally
+// carries content angles. Regenerated lazily on read; TTL on the active week.
+// See ADR-0018. v1 gathers three sources (activity events, assigned/owned items,
+// meetings attended); commits are deferred (ADR-0019).
+model WeeklyWorkDigest {
+  id          String   @id @default(cuid())
+  userId      String
+  isoYear     Int
+  isoWeek     Int // 1–53
+  narrative   String   @db.Text
+  highlights  Json // string[]
+  angles      Json // string[] — AI-suggested content angles
+  model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, isoYear, isoWeek])
+  @@index([userId, generatedAt])
 }
 
 model WorkspaceUser {
