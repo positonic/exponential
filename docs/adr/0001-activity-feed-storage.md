@@ -4,6 +4,12 @@
 
 Accepted — 2026-05-14
 
+Amended by [ADR-0019](0019-persist-polled-commits.md) (2026-06-14): decisions #3
+and #4 below — "GitHub events are not persisted for the panel" and "persist
+polled GitHub data on a cron — rejected for v1" — are superseded for **commits**,
+which are now cron-polled and persisted to serve the aggregated feed and the
+Weekly work digest. The live-fetch union still describes PRs.
+
 ## Context
 
 Two append-only event streams already exist:
