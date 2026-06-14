@@ -122,6 +122,15 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} closed deal {entityRef}",
     iconKind: "completed",
   },
+
+  // Meetings — a recorded/ingested meeting (TranscriptionSession) surfaces in the
+  // feed via the internal write-path (ADR-0018). The meeting title rides in
+  // metadata so {entityRef} renders the title, not a raw CUID. Reuses the
+  // generic "created" icon kind.
+  [key("meeting", "created")]: {
+    template: "{actor} had a meeting {entityRef}",
+    iconKind: "created",
+  },
 };
 
 /** Default hint used when no entry exists for the (entityType, action) pair. */
