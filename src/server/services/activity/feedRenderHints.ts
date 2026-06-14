@@ -124,7 +124,7 @@ const HINTS: Record<string, FeedRenderHint> = {
   },
 
   // Meetings — a recorded/ingested meeting (TranscriptionSession) surfaces in the
-  // feed via the internal write-path (ADR-0017). The meeting title rides in
+  // feed via the internal write-path (ADR-0018). The meeting title rides in
   // metadata so {entityRef} renders the title, not a raw CUID. Reuses the
   // generic "created" icon kind.
   [key("meeting", "created")]: {

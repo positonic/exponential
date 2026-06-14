@@ -646,7 +646,7 @@ export const transcriptionRouter = createTRPCRouter({
         },
       });
 
-      // Record a workspace activity event when a meeting lands (ADR-0017): one
+      // Record a workspace activity event when a meeting lands (ADR-0018): one
       // write surfaces it in the workspace feed, the aggregated /activity feed,
       // and the weekly work digest. Skipped for personal (no-workspace) meetings
       // since recordActivity requires a workspaceId. The title rides in metadata
