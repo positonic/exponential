@@ -477,6 +477,16 @@ The application uses a comprehensive styling system with light/dark mode support
 
 Always ensure code follows the project's ESLint rules and TypeScript configuration. Run `npm run check` before committing changes to maintain code quality.
 
+## Content Rendering (Markdown)
+
+**Markdown is the single canonical format for authored prose** (descriptions, updates, comments, chat, notes, bodies). Decision: [ADR-0016](docs/adr/0016-markdown-canonical-content-format.md).
+
+- **Display** prose with `<MarkdownRenderer content variant="prose|compact" />` (`~/app/_components/shared/MarkdownRenderer`). It tolerates legacy HTML on read.
+- **Accept** prose with `<MarkdownInput />` (or `CommentInput` for comments) — never a bare `<Textarea>` for prose.
+- **Never** import `react-markdown` directly, use `dangerouslySetInnerHTML`, or add a Tiptap editor for prose. New content is stored as Markdown; legacy HTML converts to Markdown lazily on edit.
+
+**Read `/dev-docs/CONTENT_RENDERING.md` before any content input/display work** — it has the full component API, the internals, and the reviewer checklist.
+
 ## Debugging & Logs
 
 ### Application Logs
