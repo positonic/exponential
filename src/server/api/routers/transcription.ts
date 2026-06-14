@@ -209,23 +209,12 @@ export const transcriptionRouter = createTRPCRouter({
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
 
-      // Record a workspace activity event when a device-initiated meeting starts
-      // (ADR-0017). Skipped for personal (no-workspace) sessions since
-      // recordActivity requires a workspaceId. The title rides in metadata so
-      // describeEntityRef renders the title (when present), not a CUID.
-      // Fire-and-forget: recordActivity never throws.
-      if (session.workspaceId) {
-        await recordActivity(ctx.db, {
-          workspaceId: session.workspaceId,
-          userId,
-          entityType: "meeting",
-          entityId: session.id,
-          action: "created",
-          metadata: { title: session.title },
-        }).catch(() => {
-          /* instrumentation failure is non-fatal */
-        });
-      }
+      // NOTE: no activity event here. A device session is created empty (no
+      // transcript, title usually null) and may be abandoned, so emitting at
+      // start would render "had a meeting <CUID>" and log non-meetings. Device
+      // meetings should be instrumented at a "landed + titled" hook in a
+      // follow-up (coordinating with the auto-summarize work). The manual path
+      // (createManualTranscription) emits on completion with a required title.
 
       return {
         id: session.id,
