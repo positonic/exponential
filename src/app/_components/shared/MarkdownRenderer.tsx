@@ -1,10 +1,10 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
-import DOMPurify from "dompurify";
 import { CodeHighlight } from "@mantine/code-highlight";
 import { Badge, Title, Text } from "@mantine/core";
 import type { ReactNode } from "react";
+import { SanitizedHtml } from "~/app/_components/shared/SanitizedHtml";
 import {
   remarkMentions,
   MENTION_CLASS,
@@ -352,17 +352,15 @@ export function MarkdownRenderer({
   className,
 }: MarkdownRendererProps) {
   // Tolerate legacy HTML on read (sanitised). New writes are always Markdown.
+  // Sanitisation runs in a client boundary because DOMPurify needs a DOM —
+  // doing it here would throw during SSR (this component is server-capable).
   if (detectContentType(content) === "html") {
-    const clean = DOMPurify.sanitize(content, {
-      ALLOWED_TAGS: ALLOWED_HTML_TAGS,
-      ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "class"],
-      ALLOW_DATA_ATTR: false,
-    });
     return (
-      <div
+      <SanitizedHtml
+        html={content}
         className={className}
-        // Sanitised directly above; this is the canonical tolerated-HTML path.
-        dangerouslySetInnerHTML={{ __html: clean }}
+        allowedTags={ALLOWED_HTML_TAGS}
+        allowedAttr={["href", "target", "rel", "src", "alt", "class"]}
       />
     );
   }
