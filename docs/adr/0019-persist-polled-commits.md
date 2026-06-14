@@ -2,11 +2,21 @@
 
 ## Status
 
-Accepted — 2026-06-14
+**Deferred — 2026-06-14.** Records the intended design, but **not implemented**:
+it rests on primitives that turned out not to exist. A code audit (schema,
+`develop`, all of `src/`) found **no `WorkspaceRepository` model, no
+`User.githubLogin`, no GitHub OAuth provider, and no GitHub union in the
+activity feed** — i.e. ADR-0001's GitHub half (decisions #3–#5) was written
+"Accepted" but never built. So there is no repo list to poll, no identity to
+attribute commits by, and no live-fetch to retire. Commits are therefore
+**dropped from the Weekly work digest v1** ([ADR-0018](0018-weekly-work-digest-personal-sibling.md)).
+Delivering this needs a prerequisite mini-epic first: a repo-declaration model
+(+ settings UI), a GitHub identity claim (+ a verified way to set it), then the
+ingest/persist, then the feed union + grouped render. Revisit then.
 
-Amends [ADR-0001](0001-activity-feed-storage.md) decision #3 ("GitHub events for
-the panel are not persisted") and #4 ("persist polled GitHub data on a cron —
-rejected for v1").
+When eventually built, this would amend [ADR-0001](0001-activity-feed-storage.md)
+decisions #3 ("GitHub events for the panel are not persisted") and #4 ("persist
+polled GitHub data on a cron — rejected for v1").
 
 ## Context
 
