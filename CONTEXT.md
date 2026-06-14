@@ -87,6 +87,10 @@ _Avoid_: Weekly narrative / Week-in-Review (that's the team, single-workspace ar
 An AI-suggested content starting point — a hook or framing for a social post, derived from the **Weekly work digest** (e.g. "what I learned shipping a cross-workspace feed"). Raw material for the user's own writing, not a finished draft. Surfaced as a labelled sub-section of the digest.
 _Avoid_: Content idea, post draft (an angle is a prompt, not a written post), suggestion.
 
+**Commit activity**:
+Git commits **polled and persisted** per **Workspace repository** by a cron (PAT-based, no GitHub App required), upserted by `commitSha`. Stored **per-commit** but **rendered grouped** in feeds ("pushed 7 commits to `exponential`"), and summarised in prose by the **Weekly work digest**. "Mine" is resolved by matching `commitAuthor` to the viewer's **GitHub identity claim** (`User.githubLogin`). This persists commits for the **Aggregated activity feed** and the digest — an explicit amendment of [ADR-0001](docs/adr/0001-activity-feed-storage.md)'s "GitHub events are not persisted for the panel" stance (the change ADR-0001 anticipated "later if latency/rate-limits bite").
+_Avoid_: Commits feed, GitHub feed (use "commit activity"); conflating with the webhook-fed `GitHubActivity` analytics path.
+
 ## Relationships (activity)
 
 - A **Workspace** has many **Workspace repositories**.
@@ -94,6 +98,8 @@ _Avoid_: Content idea, post draft (an angle is a prompt, not a written post), su
 - The **Activity feed** is the read-side union of `WorkspaceActivityEvent` rows (internal) and GitHub commits + PRs fetched live from each `WorkspaceRepository` at query time.
 - GitHub events shown in the activity feed are **not persisted** for the panel's purposes. They are fetched on page load via a shared `GITHUB_API_TOKEN` PAT (impactful-events style), with a ~5min server-side cache per repo to absorb refreshes.
 - The existing webhook path (`/api/webhooks/github`) and `GitHubActivity` table remain — they continue to feed `SprintSnapshot` analytics, **independent** of the activity panel. The two paths can coexist for the same repo; the activity feed only uses live-fetch.
+- **Meetings** now emit `WorkspaceActivityEvent` rows via `recordActivity` (entityType `meeting`: `created`, then `summarized` once the auto-summary lands) — the internal-data write-path of ADR-0001, so a meeting appears in the workspace feed, the **Aggregated activity feed**, and the **Weekly work digest** from one write.
+- **Commit activity** is **polled and persisted** (cron, PAT-based) so commits reach the **Aggregated activity feed** and the digest — amending ADR-0001's not-persisted stance (to be formalised in a follow-up ADR). The per-workspace panel's live-fetch vs. persisted-read reconciliation is an open decision for that ADR.
 
 ### Weekly planning
 
