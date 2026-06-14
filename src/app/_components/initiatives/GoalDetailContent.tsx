@@ -139,6 +139,10 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
         goalDescription: goal.description ?? '',
         goalWhy: goal.whyThisGoal ?? '',
         goalStatus: goal.status ?? '',
+        // Effective health (override wins; ADR-0004) so Zoe can default an
+        // Objective update's health to the current value and not silently
+        // flip the status badge. Distinct from goalStatus (lifecycle state).
+        goalHealth: goal.healthOverride ?? goal.health ?? '',
         ...(workspaceId && {
           workspaceId,
           workspaceName: workspace?.name,

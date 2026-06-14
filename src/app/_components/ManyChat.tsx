@@ -463,6 +463,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     const goalDescription = typeof pageContext?.data?.goalDescription === 'string' ? pageContext.data.goalDescription : '';
     const goalWhy = typeof pageContext?.data?.goalWhy === 'string' ? pageContext.data.goalWhy : '';
     const goalStatus = typeof pageContext?.data?.goalStatus === 'string' ? pageContext.data.goalStatus : '';
+    const goalHealth = typeof pageContext?.data?.goalHealth === 'string' ? pageContext.data.goalHealth : '';
     const goalContext = pageContext?.pageType === 'goal' ? `
 
       🎯 CURRENT GOAL CONTEXT:
@@ -470,9 +471,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Description: ${goalDescription || 'No description'}
       - Why: ${goalWhy || 'Not specified'}
       - Status: ${goalStatus || 'Unknown'}
+      - Current health: ${goalHealth || 'no-update'}
       🎯 ACTIONS:
       - When creating actions or outcomes, link to this goal where appropriate
       - When asked about progress, refer to this goal's description and why
+      - When posting an Objective update whose health is unclear, default to this Current health so the status badge does not silently change
     ` : '';
 
     // Extract workspace info from page context for the system prompt
