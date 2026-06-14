@@ -29,6 +29,64 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
   throw new Error("Access denied");
 }
 
+/** The health a check-in can set. Mirrors the auto `Goal.health` values an
+ * Objective update writes — never the manual `healthOverride` (ADR-0004). */
+export type GoalUpdateHealth = "on-track" | "at-risk" | "off-track";
+
+/**
+ * Creates an **Objective update** (`GoalUpdate`) — a health-bearing check-in
+ * (content + health). Authored by the calling user. In the same transaction it
+ * syncs the Objective's **auto** health cache (`Goal.health` + `healthUpdatedAt`)
+ * so the status badge moves — but it NEVER writes the manual `healthOverride`,
+ * which stays the "Set status" CTA's job (ADR-0004). A set override is left
+ * intact, so the effective badge stays `healthOverride ?? health`.
+ *
+ * This is the single place the update-write rule lives: both the human router
+ * (`goalUpdate.addUpdate`) and the agent-facing proxy (`mastra.addGoalUpdate`)
+ * call it, so the health-sync behaviour cannot drift between surfaces. Access
+ * mirrors the human path exactly via `verifyGoalAccess`. See ADR-0016.
+ */
+export async function createGoalUpdate({
+  ctx,
+  goalId,
+  content,
+  health,
+}: {
+  ctx: Context;
+  goalId: number;
+  content: string;
+  health: GoalUpdateHealth;
+}) {
+  await verifyGoalAccess({ ctx, goalId });
+
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const [update] = await ctx.db.$transaction([
+    ctx.db.goalUpdate.create({
+      data: {
+        goalId,
+        authorId: userId,
+        content,
+        health,
+      },
+      include: {
+        author: { select: { id: true, name: true, image: true } },
+      },
+    }),
+    // Sync the goal's cached (auto) health status. Never touches healthOverride.
+    ctx.db.goal.update({
+      where: { id: goalId },
+      data: {
+        health,
+        healthUpdatedAt: new Date(),
+      },
+    }),
+  ]);
+
+  return update;
+}
+
 /**
  * Creates an **Objective comment** (`GoalComment`) — a narrative note with no
  * health that never moves the status badge. Authored by the calling user.

@@ -98,3 +98,98 @@ describe("mastra.addGoalComment", () => {
     expect(after?.healthOverride).toBe(before?.healthOverride ?? null);
   });
 });
+
+describe("mastra.addGoalUpdate", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("posts an update to an Objective the user owns and syncs its auto health", async () => {
+    const user = await createUser(db);
+    const goal = await createGoal(db, { userId: user.id, title: "Owned Objective" });
+
+    const caller = createTestCaller(user.id);
+    const update = await caller.mastra.addGoalUpdate({
+      goalId: goal.id,
+      content: "Slipping on the launch KR",
+      health: "at-risk",
+    });
+
+    expect(update.content).toBe("Slipping on the launch KR");
+    expect(update.health).toBe("at-risk");
+    expect(update.authorId).toBe(user.id);
+
+    // The auto health cache moved; the manual override stayed null.
+    const after = await db.goal.findUnique({ where: { id: goal.id } });
+    expect(after?.health).toBe("at-risk");
+    expect(after?.healthUpdatedAt).not.toBeNull();
+    expect(after?.healthOverride).toBeNull();
+  });
+
+  it("leaves a set manual override intact (effective badge = override ?? health)", async () => {
+    const user = await createUser(db);
+    const goal = await createGoal(db, { userId: user.id, title: "Pinned Objective" });
+    // Pin a manual override via the drawer path (ADR-0004).
+    await db.goal.update({
+      where: { id: goal.id },
+      data: { healthOverride: "on-track", healthOverrideById: user.id },
+    });
+
+    const caller = createTestCaller(user.id);
+    await caller.mastra.addGoalUpdate({
+      goalId: goal.id,
+      content: "Actually we're behind",
+      health: "off-track",
+    });
+
+    const after = await db.goal.findUnique({ where: { id: goal.id } });
+    // Auto health reflects the update; the override is untouched.
+    expect(after?.health).toBe("off-track");
+    expect(after?.healthOverride).toBe("on-track");
+  });
+
+  it("posts to a shared workspace Objective the user did not create, authored by caller", async () => {
+    const owner = await createUser(db);
+    const member = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: owner.id, slug: "update-ws" });
+    await addWorkspaceMember(db, ws.id, member.id, "member");
+    const goal = await createGoal(db, {
+      userId: owner.id,
+      workspaceId: ws.id,
+      title: "Shared Objective",
+    });
+
+    const memberCaller = createTestCaller(member.id);
+    const update = await memberCaller.mastra.addGoalUpdate({
+      goalId: goal.id,
+      content: "Teammate check-in via Zoe",
+      health: "on-track",
+    });
+
+    expect(update.authorId).toBe(member.id);
+    expect(update.health).toBe("on-track");
+  });
+
+  it("rejects posting an update to an Objective the user cannot access", async () => {
+    const owner = await createUser(db);
+    const stranger = await createUser(db);
+    const goal = await createGoal(db, { userId: owner.id, title: "Private Objective" });
+
+    const strangerCaller = createTestCaller(stranger.id);
+    await expect(
+      strangerCaller.mastra.addGoalUpdate({
+        goalId: goal.id,
+        content: "should not be allowed",
+        health: "off-track",
+      }),
+    ).rejects.toThrow(/access denied/i);
+
+    const count = await db.goalUpdate.count({ where: { goalId: goal.id } });
+    expect(count).toBe(0);
+    // Health was not touched on the rejected write.
+    const after = await db.goal.findUnique({ where: { id: goal.id } });
+    expect(after?.health ?? null).toBeNull();
+  });
+});

@@ -24,7 +24,7 @@ vi.hoisted(() => {
   process.env.GOOGLE_CLIENT_SECRET ??= "test";
 });
 
-import { createGoalComment } from "../goalService";
+import { createGoalComment, createGoalUpdate } from "../goalService";
 import type { Context } from "~/server/auth/types";
 
 const USER_ID = "user-1";
@@ -111,5 +111,92 @@ describe("goalService.createGoalComment", () => {
     ).rejects.toThrow(/access denied/i);
 
     expect(db.goalComment.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("goalService.createGoalUpdate", () => {
+  beforeEach(() => {
+    mockReset(db);
+    // $transaction runs the array of (mocked) Prisma promises and returns their
+    // results in order — mirroring Prisma's batch transaction semantics.
+    db.$transaction.mockImplementation((ops: unknown) =>
+      Promise.all(ops as Promise<unknown>[]),
+    );
+  });
+
+  function grantOwnerAccess() {
+    db.goal.findUnique.mockResolvedValue({
+      id: GOAL_ID,
+      userId: USER_ID,
+      driUserId: null,
+      workspaceId: null,
+    } as never);
+  }
+
+  it("creates a GoalUpdate with content + health, authored by the caller", async () => {
+    grantOwnerAccess();
+    const created = { id: "u1", goalId: GOAL_ID, authorId: USER_ID, health: "at-risk" };
+    db.goalUpdate.create.mockResolvedValue(created as never);
+    db.goal.update.mockResolvedValue({ id: GOAL_ID } as never);
+
+    const result = await createGoalUpdate({
+      ctx: makeCtx(),
+      goalId: GOAL_ID,
+      content: "Behind on KR2",
+      health: "at-risk",
+    });
+
+    expect(result).toBe(created);
+    const createArg = db.goalUpdate.create.mock.calls[0]![0]!;
+    expect(createArg.data).toMatchObject({
+      goalId: GOAL_ID,
+      authorId: USER_ID,
+      content: "Behind on KR2",
+      health: "at-risk",
+    });
+  });
+
+  it("syncs the auto Goal.health + healthUpdatedAt, and never writes healthOverride", async () => {
+    grantOwnerAccess();
+    db.goalUpdate.create.mockResolvedValue({ id: "u1" } as never);
+    db.goal.update.mockResolvedValue({ id: GOAL_ID } as never);
+
+    await createGoalUpdate({
+      ctx: makeCtx(),
+      goalId: GOAL_ID,
+      content: "Back on track",
+      health: "on-track",
+    });
+
+    expect(db.goal.update).toHaveBeenCalledTimes(1);
+    const updateArg = db.goal.update.mock.calls[0]![0]!;
+    expect(updateArg.where).toEqual({ id: GOAL_ID });
+    expect(updateArg.data.health).toBe("on-track");
+    expect(updateArg.data.healthUpdatedAt).toBeInstanceOf(Date);
+    // The manual override must be left untouched (ADR-0004).
+    expect(updateArg.data).not.toHaveProperty("healthOverride");
+    expect(updateArg.data).not.toHaveProperty("healthOverrideAt");
+    expect(updateArg.data).not.toHaveProperty("healthOverrideById");
+  });
+
+  it("throws when the caller lacks access, and writes nothing", async () => {
+    db.goal.findUnique.mockResolvedValue({
+      id: GOAL_ID,
+      userId: "someone-else",
+      driUserId: null,
+      workspaceId: null,
+    } as never);
+
+    await expect(
+      createGoalUpdate({
+        ctx: makeCtx(),
+        goalId: GOAL_ID,
+        content: "nope",
+        health: "off-track",
+      }),
+    ).rejects.toThrow(/access denied/i);
+
+    expect(db.goalUpdate.create).not.toHaveBeenCalled();
+    expect(db.goal.update).not.toHaveBeenCalled();
   });
 });

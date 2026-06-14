@@ -25,7 +25,7 @@ import { filterAgentInstructions } from "~/server/services/agent-routing/agentIn
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
-import { createGoalComment } from "~/server/services/goalService";
+import { createGoalComment, createGoalUpdate } from "~/server/services/goalService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -3478,6 +3478,27 @@ export const mastraRouter = createTRPCRouter({
         ctx,
         goalId: input.goalId,
         content: input.content,
+      });
+    }),
+
+  // Agent-facing proxy: post a health-bearing Objective update (GoalUpdate) on
+  // the user's behalf. Thin wrapper over goalService.createGoalUpdate, which
+  // authorizes via verifyGoalAccess, authors as the JWT user, and syncs the
+  // Objective's auto health (Goal.health) in one transaction — never the manual
+  // healthOverride (ADR-0004). Same access shape as the human Update tab; does
+  // NOT copy the legacy OKR endpoints' inline creator-only check. See ADR-0016.
+  addGoalUpdate: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      content: z.string().min(1).max(10000),
+      health: z.enum(["on-track", "at-risk", "off-track"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return createGoalUpdate({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+        health: input.health,
       });
     }),
 
