@@ -32,10 +32,14 @@ single-workspace one.
 2. **Subject is Z-scoped and cross-workspace.** It covers events the user
    *acted on* **and** items *assigned to / owned by* them that moved, unioned
    across every workspace they are a member of (direct or team), for the ISO week.
-3. **Four sources, unioned at read** by a deterministic gatherer: enriched
+3. **Sources, unioned at read** by a deterministic gatherer: enriched
    activity events (joined to live entities for real titles), the user's
-   assigned/owned entities that changed, **meetings attended** (one-line blurb
-   from the meeting summary, title fallback), and **the user's commits**.
+   assigned/owned entities that changed, and **meetings attended** (one-line
+   blurb from the meeting summary, title fallback). **A fourth source — the
+   user's commits — was planned but is deferred from v1** ([ADR-0019](0019-persist-polled-commits.md)
+   is Deferred: the repo-list / identity-claim primitives it needs don't exist
+   yet). So v1 ships **three sources**; commits slot in later behind the same
+   gatherer interface.
 4. **Deterministic gather → one LLM call → cached.** The gatherer assembles a
    structured bundle in code; a single `gpt-4o-mini` call returns the digest
    narrative **and** the **content angles** (≈3 post-idea hooks) in one
@@ -72,9 +76,9 @@ single-workspace one.
 ## Consequences
 
 - A new cached table (`(userId, isoYear, isoWeek)` → narrative + highlights +
-  angles) and a `weeklyWorkDigest` read procedure that performs the four-source
-  gather. The digest and Week-in-Review now share gather/cache/regenerate
-  machinery but stay separate rows.
+  angles) and a `weeklyWorkDigest` read procedure that performs the (v1)
+  three-source gather. The digest and Week-in-Review now share
+  gather/cache/regenerate machinery but stay separate rows.
 - Digest quality is bounded by the gatherer's richness — correct behaviour (no
   invented accomplishments), and the reason Q4–Q5 invested in real sources.
 - The meeting + commit enrichment pays off twice: it also enriches the
