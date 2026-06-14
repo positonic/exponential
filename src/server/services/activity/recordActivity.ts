@@ -26,7 +26,8 @@ export type ActivityEntityType =
   | "goal"
   | "weekly_review"
   | "workspace_member"
-  | "deal";
+  | "deal"
+  | "meeting";
 
 export interface RecordActivityInput {
   workspaceId: string;

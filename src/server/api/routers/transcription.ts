@@ -29,6 +29,7 @@ import {
   hasProjectAccess,
   requireProjectAccess,
 } from "~/server/services/access";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -207,6 +208,24 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
+
+      // Record a workspace activity event when a device-initiated meeting starts
+      // (ADR-0017). Skipped for personal (no-workspace) sessions since
+      // recordActivity requires a workspaceId. The title rides in metadata so
+      // describeEntityRef renders the title (when present), not a CUID.
+      // Fire-and-forget: recordActivity never throws.
+      if (session.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: session.workspaceId,
+          userId,
+          entityType: "meeting",
+          entityId: session.id,
+          action: "created",
+          metadata: { title: session.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return {
         id: session.id,
@@ -637,6 +656,26 @@ export const transcriptionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Record a workspace activity event when a meeting lands (ADR-0017): one
+      // write surfaces it in the workspace feed, the aggregated /activity feed,
+      // and the weekly work digest. Skipped for personal (no-workspace) meetings
+      // since recordActivity requires a workspaceId. The title rides in metadata
+      // so describeEntityRef renders the title, not a CUID. Fire-and-forget:
+      // recordActivity never throws, but the .catch keeps instrumentation
+      // failures non-fatal.
+      if (session.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: session.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "meeting",
+          entityId: session.id,
+          action: "created",
+          metadata: { title: session.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return session;
     }),

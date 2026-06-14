@@ -53,6 +53,18 @@ describe("resolveFeedHint", () => {
     expect(hint.iconKind).not.toBe("milestone");
   });
 
+  it("renders a created meeting as a readable sentence with the title", () => {
+    const hint = resolveFeedHint("meeting", "created");
+    expect(hint.template).toBe("{actor} had a meeting {entityRef}");
+    // Must NOT fall back — a missing registry entry would render the neutral
+    // "touched" sentence instead, hiding the meeting's title.
+    expect(hint.iconKind).toBe("created");
+    expect(hint.iconKind).not.toBe("fallback");
+    expect(hint.template).toContain("{entityRef}");
+    // The same hint drives both the per-workspace feed and the aggregated
+    // /activity feed (both call resolveFeedHint), so this one entry covers both.
+  });
+
   it("falls back to a neutral hint for unknown pairs", () => {
     const hint = resolveFeedHint("nonsense", "nonsense");
     expect(hint.iconKind).toBe("fallback");
