@@ -164,7 +164,7 @@ export function AggregatedActivityFeed() {
             Activity
           </Title>
           <Text size="sm" className="text-text-secondary" mt={6}>
-            Every event across all of your workspaces, newest first.
+            Every event across the workspaces you belong to, newest first.
           </Text>
         </div>
 
@@ -172,7 +172,7 @@ export function AggregatedActivityFeed() {
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconClipboardList size={14} stroke={1.8} />
-              Your activity
+              Workspace activity
               {data ? (
                 <span className="wsa-card__count">
                   {display.length}

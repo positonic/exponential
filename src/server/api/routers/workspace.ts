@@ -1806,10 +1806,15 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Aggregated cross-workspace activity feed for the top-level `/activity`
-  // page. Resolves every workspace the user can see (direct, team-based, and
-  // project-only "guest" access) via the same visibility helper the switcher
-  // uses, then reads events across all of them with the originating workspace
+  // page. Resolves every workspace the user is a member of — directly or via
+  // team — then reads events across all of them with the originating workspace
   // joined in for per-row badging. No workspaceId input — scope is the user.
+  //
+  // Uses the STRICT `buildWorkspaceAccessWhere` (not the guest-inclusive
+  // `buildWorkspaceVisibilityWhere`) to match the per-workspace
+  // `getActivityFeed` guard, which throws FORBIDDEN for project-only guests.
+  // A guest must not see a workspace's full activity stream here when they're
+  // denied it on `/w/<slug>/activity`.
   getMyActivityFeed: protectedProcedure
     .input(
       z.object({
@@ -1819,7 +1824,7 @@ export const workspaceRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const workspaces = await ctx.db.workspace.findMany({
-        where: buildWorkspaceVisibilityWhere(ctx.session.user.id),
+        where: buildWorkspaceAccessWhere(ctx.session.user.id),
         select: { id: true },
       });
 
