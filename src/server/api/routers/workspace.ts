@@ -26,6 +26,10 @@ import {
   getAggregatedActivityFeed,
   FEED_PAGE_SIZE,
 } from "~/server/services/activity/feed";
+import {
+  getOrGenerateWeeklyWorkDigest,
+  DigestRateLimitError,
+} from "~/server/services/activity/weeklyWorkDigest/digest";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   getOrGenerateWeeklyNarrative,
@@ -1833,5 +1837,41 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
       });
+    }),
+
+  // Personal Weekly work digest (ADR-0018): a private, cross-workspace,
+  // per-ISO-week synthesis of what *you* worked on, plus content angles.
+  // Owner-scoped — only ever the authenticated user's data. `isoYear`/`isoWeek`
+  // page back to a prior week; `force` regenerates the active week (rate-limited).
+  getMyWeeklyWorkDigest: protectedProcedure
+    .input(
+      z
+        .object({
+          isoYear: z.number().int().optional(),
+          isoWeek: z.number().int().min(1).max(53).optional(),
+          force: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const target =
+        input?.isoYear != null && input?.isoWeek != null
+          ? { isoYear: input.isoYear, isoWeek: input.isoWeek }
+          : undefined;
+      try {
+        return await getOrGenerateWeeklyWorkDigest(ctx.db, {
+          userId: ctx.session.user.id,
+          target,
+          force: input?.force,
+        });
+      } catch (err) {
+        if (err instanceof DigestRateLimitError) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Digest was regenerated recently — try again shortly.",
+          });
+        }
+        throw err;
+      }
     }),
 });
