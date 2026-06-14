@@ -21,7 +21,11 @@ import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeS
 import { getWorkspaceFocusSummary } from "~/server/services/activity/workspaceFocusSummary";
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
-import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
+import {
+  getActivityFeed,
+  getAggregatedActivityFeed,
+  FEED_PAGE_SIZE,
+} from "~/server/services/activity/feed";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   getOrGenerateWeeklyNarrative,
@@ -1796,6 +1800,31 @@ export const workspaceRouter = createTRPCRouter({
 
       return getActivityFeed(ctx.db, {
         workspaceId: input.workspaceId,
+        cursor: input.cursor,
+        limit: input.limit ?? FEED_PAGE_SIZE,
+      });
+    }),
+
+  // Aggregated cross-workspace activity feed for the top-level `/activity`
+  // page. Resolves every workspace the user can see (direct, team-based, and
+  // project-only "guest" access) via the same visibility helper the switcher
+  // uses, then reads events across all of them with the originating workspace
+  // joined in for per-row badging. No workspaceId input — scope is the user.
+  getMyActivityFeed: protectedProcedure
+    .input(
+      z.object({
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const workspaces = await ctx.db.workspace.findMany({
+        where: buildWorkspaceVisibilityWhere(ctx.session.user.id),
+        select: { id: true },
+      });
+
+      return getAggregatedActivityFeed(ctx.db, {
+        workspaceIds: workspaces.map((w) => w.id),
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
       });

@@ -26,6 +26,16 @@ export interface ActivityFeedEvent {
     name: string | null;
     image: string | null;
   } | null;
+  /**
+   * Originating workspace. Only populated by the aggregated cross-workspace
+   * reader (`getAggregatedActivityFeed`); the single-workspace reader leaves
+   * this `null` since the surface already knows its workspace.
+   */
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
 }
 
 export interface ActivityFeedPage {
@@ -149,6 +159,101 @@ export async function getActivityFeed(
     hint: resolveFeedHint(row.entityType, row.action),
     entityRef: describeEntityRef(row.entityId, row.metadata),
     actor: row.user,
+    workspace: null,
+  }));
+
+  const last = page[page.length - 1];
+  const nextCursor =
+    hasMore && last
+      ? encodeCursor({
+          createdAt: last.createdAt.toISOString(),
+          id: last.id,
+        })
+      : null;
+
+  return { events, nextCursor };
+}
+
+/**
+ * Cross-workspace reader for the top-level `/activity` page. Same compound
+ * `(createdAt desc, id desc)` ordering and opaque cursor as
+ * {@link getActivityFeed}, but scoped to a *set* of workspace ids and with
+ * each event's originating workspace joined in so the UI can badge the row.
+ *
+ * Access is NOT enforced here — the caller is responsible for passing only
+ * workspace ids the user is allowed to see (the tRPC procedure resolves these
+ * via `buildWorkspaceVisibilityWhere`). Passing an empty array short-circuits
+ * to an empty page without touching the DB.
+ */
+export async function getAggregatedActivityFeed(
+  db: PrismaClient,
+  args: {
+    workspaceIds: string[];
+    cursor?: string;
+    limit?: number;
+  },
+): Promise<ActivityFeedPage> {
+  if (args.workspaceIds.length === 0) {
+    return { events: [], nextCursor: null };
+  }
+
+  const limit = Math.max(
+    1,
+    Math.min(MAX_PAGE_SIZE, args.limit ?? FEED_PAGE_SIZE),
+  );
+
+  const decoded = args.cursor ? decodeCursor(args.cursor) : null;
+
+  const where: Prisma.WorkspaceActivityEventWhereInput = {
+    workspaceId: { in: args.workspaceIds },
+    ...(decoded
+      ? {
+          OR: [
+            { createdAt: { lt: new Date(decoded.createdAt) } },
+            {
+              AND: [
+                { createdAt: new Date(decoded.createdAt) },
+                { id: { lt: decoded.id } },
+              ],
+            },
+          ],
+        }
+      : {}),
+  };
+
+  const rows = await db.workspaceActivityEvent.findMany({
+    where,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: limit + 1,
+    select: {
+      id: true,
+      createdAt: true,
+      entityType: true,
+      entityId: true,
+      action: true,
+      metadata: true,
+      user: {
+        select: { id: true, name: true, image: true },
+      },
+      workspace: {
+        select: { id: true, name: true, slug: true },
+      },
+    },
+  });
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+
+  const events: ActivityFeedEvent[] = page.map((row) => ({
+    id: row.id,
+    createdAt: row.createdAt,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    action: row.action,
+    hint: resolveFeedHint(row.entityType, row.action),
+    entityRef: describeEntityRef(row.entityId, row.metadata),
+    actor: row.user,
+    workspace: row.workspace,
   }));
 
   const last = page[page.length - 1];
