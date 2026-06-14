@@ -1072,6 +1072,207 @@
 }
 
 /* --------------------------------------------------------------------------
+   WEEKLY WORK DIGEST — personal, cross-workspace panel atop /activity
+
+   Deliberately distinct from the team Week-in-Review (.wsa-week, brand-blue):
+   this is the viewer's *own* story of the week, so it leans on a violet accent
+   and a left rail to read as a private artifact, not the shared workspace card.
+   All colors via var(); the violet accent is self-scoped here so the panel is
+   correct even outside the .activity-layout token scope.
+   -------------------------------------------------------------------------- */
+.wsa-digest {
+  --wsa-digest-accent: var(--accent-meetings);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border-primary);
+  border-left: 3px solid var(--wsa-digest-accent);
+  background:
+    radial-gradient(140% 200% at -6% -30%, var(--color-brand-subtle), transparent 50%),
+    var(--color-surface-secondary);
+  border-radius: 14px;
+  padding: 24px 26px;
+}
+
+.wsa-digest__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.wsa-digest__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--wsa-digest-accent);
+}
+
+.wsa-digest__sub {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ---- week pager ---- */
+.wsa-digest__pager {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wsa-digest__pager-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 92px;
+  text-align: center;
+}
+
+.wsa-digest__cached {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+/* ---- narrative ---- */
+.wsa-digest__narrative {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.62;
+  text-wrap: pretty;
+  margin: 0 0 18px;
+}
+
+.wsa-digest__narrative b,
+.wsa-digest__narrative strong {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+/* ---- highlights ---- */
+.wsa-digest__section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+}
+
+.wsa-digest__highlights {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wsa-digest__highlight {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px 2px;
+  font-size: 13.5px;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+.wsa-digest__highlight + .wsa-digest__highlight {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.wsa-digest__highlight-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--wsa-digest-accent);
+  box-shadow: 0 0 0 3px var(--color-brand-glow);
+}
+
+/* ---- content angles ---- */
+.wsa-digest__angles {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 18px;
+}
+
+.wsa-digest__angles-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.wsa-digest__angle-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.wsa-digest__angle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 9px;
+  background: var(--color-surface-muted);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.wsa-digest__angle-idx {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--wsa-digest-accent);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.wsa-digest__angles-empty {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ---- states ---- */
+.wsa-digest__error {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.wsa-digest__loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0 18px;
+  font-style: italic;
+}
+
+@media (max-width: 720px) {
+  .wsa-digest__pager {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* --------------------------------------------------------------------------
    Reduced motion
    -------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
