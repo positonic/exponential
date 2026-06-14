@@ -35,6 +35,16 @@ describe("keyResultProgress", () => {
     // overshoot clamps to 100, regression clamps to 0 -> mean 50
     expect(keyResultProgress([kr(0, 200, 100), kr(0, -50, 100)])).toBe(50);
   });
+
+  it("measures reduction KRs where target < start", () => {
+    // "Cut cost 100 -> 80": at 90 the goal is half done. The negative range is
+    // not zero, so it is measured (unlike the old OKR calc, which gated on
+    // range > 0 and reported 0% for every reduction KR). This matches the
+    // canonical goalProgress() helper in workspaceFocusSummary.ts.
+    expect(keyResultProgress([kr(100, 90, 80)])).toBe(50);
+    expect(keyResultProgress([kr(100, 80, 80)])).toBe(100);
+    expect(keyResultProgress([kr(100, 100, 80)])).toBe(0);
+  });
 });
 
 describe("resolveGoalProgress", () => {
