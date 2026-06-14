@@ -25,6 +25,7 @@ import { filterAgentInstructions } from "~/server/services/agent-routing/agentIn
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { createGoalComment } from "~/server/services/goalService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -3459,6 +3460,25 @@ export const mastraRouter = createTRPCRouter({
           status: updatedKR.status,
         },
       };
+    }),
+
+  // Agent-facing proxy: post an Objective comment (GoalComment) on the user's
+  // behalf. Thin wrapper over the shared goalService.createGoalComment, which
+  // authorizes via verifyGoalAccess (the centralized 5-path resolver) and
+  // authors the record as the JWT user — mirroring the human path exactly.
+  // Deliberately does NOT copy the legacy OKR endpoints' inline { id, userId }
+  // creator-only check or duplicate logic. See ADR-0016.
+  addGoalComment: protectedProcedure
+    .input(z.object({
+      goalId: z.number(),
+      content: z.string().min(1).max(10000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return createGoalComment({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+      });
     }),
 
   getOkrStats: protectedProcedure
