@@ -1,7 +1,7 @@
 /**
  * remark plugin that turns the app's `@[Name](id)` mention syntax into mention
  * spans, so the canonical Markdown renderer can show mentions as badges
- * (ADR-0016).
+ * (ADR-0017).
  *
  * The stored mention syntax (`@[Name](userId)`, written by
  * `useMentionAutocomplete`) collides with Markdown link syntax: Markdown parses

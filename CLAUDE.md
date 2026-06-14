@@ -479,7 +479,7 @@ Always ensure code follows the project's ESLint rules and TypeScript configurati
 
 ## Content Rendering (Markdown)
 
-**Markdown is the single canonical format for authored prose** (descriptions, updates, comments, chat, notes, bodies). Decision: [ADR-0016](docs/adr/0016-markdown-canonical-content-format.md).
+**Markdown is the single canonical format for authored prose** (descriptions, updates, comments, chat, notes, bodies). Decision: [ADR-0017](docs/adr/0017-markdown-canonical-content-format.md).
 
 - **Display** prose with `<MarkdownRenderer content variant="prose|compact" />` (`~/app/_components/shared/MarkdownRenderer`). It tolerates legacy HTML on read.
 - **Accept** prose with `<MarkdownInput />` (or `CommentInput` for comments) — never a bare `<Textarea>` for prose.

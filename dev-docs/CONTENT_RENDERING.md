@@ -1,6 +1,6 @@
 # Content rendering — the single Markdown stack
 
-**Markdown is the one canonical format for authored prose in this app.** Decision: [ADR-0016](../docs/adr/0016-markdown-canonical-content-format.md).
+**Markdown is the one canonical format for authored prose in this app.** Decision: [ADR-0017](../docs/adr/0017-markdown-canonical-content-format.md).
 
 If you are about to render or accept user/agent-authored text (a description, an update, a comment, a chat message, notes, a body), use the two canonical components below. Do **not** reach for `react-markdown`, `dangerouslySetInnerHTML`, Tiptap, or a bare `<Textarea>` for prose.
 
@@ -61,7 +61,7 @@ For comments use `CommentInput`, which composes `MarkdownInput` and adds @mentio
 
 ## Migration note (HTML → Markdown)
 
-New writes are always Markdown. Existing HTML (legacy Tiptap fields) renders via the tolerant read path and is converted to Markdown lazily **on edit** (`htmlToMarkdown`). There is no bulk data migration — see ADR-0016.
+New writes are always Markdown. Existing HTML (legacy Tiptap fields) renders via the tolerant read path and is converted to Markdown lazily **on edit** (`htmlToMarkdown`). There is no bulk data migration — see ADR-0017.
 
 ## Reviewer / agent checklist
 

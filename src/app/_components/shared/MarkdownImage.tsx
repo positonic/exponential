@@ -15,7 +15,7 @@ interface MarkdownImageProps {
  * Inline image for the compact Markdown variant: a thumbnail that opens a
  * lightbox, with an optional owner-only delete affordance. Mirrors the
  * behaviour of the legacy InlineImageRenderer so switching comments to the
- * canonical Markdown renderer is not a regression (ADR-0016).
+ * canonical Markdown renderer is not a regression (ADR-0017).
  */
 export function MarkdownImage({ src, alt, onDelete }: MarkdownImageProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);

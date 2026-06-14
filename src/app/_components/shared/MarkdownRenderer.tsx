@@ -15,7 +15,7 @@ import { detectContentType } from "~/lib/content/contentFormat";
 import { MarkdownImage } from "~/app/_components/shared/MarkdownImage";
 
 /**
- * The canonical renderer for authored prose (ADR-0016). Markdown is the
+ * The canonical renderer for authored prose (ADR-0017). Markdown is the
  * canonical stored format; legacy HTML is tolerated on read (sanitised). Use
  * `variant="prose"` for long-form surfaces (docs, blog, descriptions) and
  * `variant="compact"` for dense surfaces (activity feed, comments, chat).

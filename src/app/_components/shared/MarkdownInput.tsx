@@ -37,7 +37,7 @@ interface MarkdownInputProps {
 type ToolbarAction = "bold" | "italic" | "list" | "link";
 
 /**
- * Canonical Markdown input (ADR-0016): an autosizing textarea with a small
+ * Canonical Markdown input (ADR-0017): an autosizing textarea with a small
  * formatting toolbar and a Write|Preview toggle. Always emits Markdown — never
  * HTML. Preview renders through the canonical MarkdownRenderer (compact), so
  * what you preview is exactly what the feed will show.

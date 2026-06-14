@@ -1,6 +1,6 @@
 /**
  * Content-format module — the canonical, framework-free helpers for the app's
- * single Markdown content stack (ADR-0016).
+ * single Markdown content stack (ADR-0017).
  *
  * Markdown is the canonical stored format for authored prose. Legacy HTML
  * (produced by the old Tiptap editors) is tolerated on read and lazily

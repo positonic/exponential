@@ -22,7 +22,7 @@ interface CommentInputProps {
 
 /**
  * Input for adding comments — the canonical Markdown input (toolbar +
- * Write/Preview) plus @mention autocomplete and image paste (ADR-0016).
+ * Write/Preview) plus @mention autocomplete and image paste (ADR-0017).
  * Always emits Markdown.
  */
 export function CommentInput({

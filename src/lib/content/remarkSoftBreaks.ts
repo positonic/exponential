@@ -1,7 +1,7 @@
 /**
  * remark plugin that turns single ("soft") line breaks into hard breaks, so
  * content typed into a textarea keeps its line breaks when rendered as Markdown
- * (ADR-0016). This matches the GitHub-comment convention and preserves the
+ * (ADR-0017). This matches the GitHub-comment convention and preserves the
  * behaviour of the legacy whitespace-pre-wrap renderers on compact surfaces
  * (activity feed, comments).
  *
