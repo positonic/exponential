@@ -24,7 +24,7 @@ vi.hoisted(() => {
   process.env.GOOGLE_CLIENT_SECRET ??= "test";
 });
 
-import { createGoalComment, createGoalUpdate, setGoalParent } from "../goalService";
+import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "../goalService";
 import type { Context } from "~/server/auth/types";
 
 const USER_ID = "user-1";
@@ -265,5 +265,63 @@ describe("goalService.setGoalParent", () => {
     ).rejects.toThrow(/access denied/i);
 
     expect(db.goal.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cycle (parent is a descendant of the goal), and writes nothing", async () => {
+    // Goal 42 (GOAL_ID); proposed parent 70 whose parent is 42 → cycle.
+    db.goal.findUnique.mockImplementation((args: unknown) => {
+      const id = (args as { where: { id: number } }).where.id;
+      return Promise.resolve(
+        id === 70
+          ? { id: 70, userId: USER_ID, driUserId: null, workspaceId: null, parentGoalId: GOAL_ID }
+          : { id, userId: USER_ID, driUserId: null, workspaceId: null, parentGoalId: null },
+      ) as never;
+    });
+
+    await expect(
+      setGoalParent({ ctx: makeCtx(), goalId: GOAL_ID, parentGoalId: 70 }),
+    ).rejects.toThrow(/cycle/i);
+
+    expect(db.goal.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("goalService.createGoal — parent access (IDOR guard)", () => {
+  beforeEach(() => {
+    mockReset(db);
+  });
+
+  it("rejects a parentGoalId the caller cannot access, and creates nothing", async () => {
+    // Parent goal owned by someone else, no workspace → verifyGoalAccess denies.
+    db.goal.findUnique.mockResolvedValue({
+      id: 999,
+      userId: "someone-else",
+      driUserId: null,
+      workspaceId: null,
+      parentGoalId: null,
+    } as never);
+
+    await expect(
+      createGoal({ ctx: makeCtx(), input: { title: "Sneaky child", parentGoalId: 999 } }),
+    ).rejects.toThrow(/access denied/i);
+
+    expect(db.goal.create).not.toHaveBeenCalled();
+  });
+
+  it("creates a sub-goal when the parent is accessible", async () => {
+    db.goal.findUnique.mockResolvedValue({
+      id: 19,
+      userId: USER_ID,
+      driUserId: null,
+      workspaceId: null,
+      parentGoalId: null,
+    } as never);
+    db.goal.create.mockResolvedValue({ id: 100, parentGoalId: 19 } as never);
+
+    await createGoal({ ctx: makeCtx(), input: { title: "Phase 0", parentGoalId: 19 } });
+
+    expect(db.goal.create).toHaveBeenCalledTimes(1);
+    const createArg = db.goal.create.mock.calls[0]![0]!;
+    expect(createArg.data.parentGoalId).toBe(19);
   });
 });

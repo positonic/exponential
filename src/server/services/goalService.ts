@@ -176,22 +176,13 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
     throw new Error("User not authenticated");
   }
 
-  // Enforce max nesting depth of 5 levels for sub-goals
+  // A sub-goal's parent must be ACCESSIBLE to the caller — never nest under
+  // another user's goal (that would inject a child into their tree and pollute
+  // their health roll-up) — and the chain must stay within the depth cap.
+  // Shared validation with updateGoal/setGoalParent.
   if (input.parentGoalId) {
-    let depth = 1;
-    let currentParentId: number | null = input.parentGoalId;
-    while (currentParentId) {
-      const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
-        where: { id: currentParentId },
-        select: { parentGoalId: true },
-      });
-      if (!parentGoal) break;
-      currentParentId = parentGoal.parentGoalId;
-      depth++;
-      if (depth > 5) {
-        throw new Error("Maximum nesting depth of 5 levels exceeded");
-      }
-    }
+    await verifyGoalAccess({ ctx, goalId: input.parentGoalId });
+    await validateParentAssignment({ ctx, parentGoalId: input.parentGoalId });
   }
 
   return await ctx.db.goal.create({
