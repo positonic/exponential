@@ -8,12 +8,12 @@ import { TRPCError } from "@trpc/server";
 //import { getSetups } from "~/server/services/videoService";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
-import {
-  FirefliesService,
-  type FirefliesTranscript,
-} from "~/server/services/FirefliesService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
+import {
+  extractReadableTranscript,
+  MAX_SUMMARY_TRANSCRIPT_CHARS,
+} from "~/server/services/meetings/extractReadableTranscript";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   TranscriptSummarizerService,
@@ -140,37 +140,6 @@ async function ensureTranscriptionAccess(
   });
 }
 
-/** Cap the transcript fed to the summarizer to bound LLM cost/latency. */
-const MAX_SUMMARY_TRANSCRIPT_CHARS = 200_000;
-
-/**
- * Normalize a stored `transcription` field into readable plain text for the
- * summarizer. Fireflies sessions store a JSON `{ sentences: [...] }` blob;
- * device sessions store plain text. Returns "" when there's nothing to summarize.
- */
-function extractReadableTranscript(raw: string | null): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return "";
-
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      const sentences =
-        parsed && typeof parsed === "object" && "sentences" in parsed
-          ? (parsed as { sentences?: FirefliesTranscript["sentences"] })
-              .sentences
-          : undefined;
-      if (sentences?.length) {
-        return FirefliesService.formatTranscriptText(sentences);
-      }
-    } catch {
-      // Not JSON — fall through and treat the raw string as plain text.
-    }
-  }
-
-  return trimmed;
-}
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware

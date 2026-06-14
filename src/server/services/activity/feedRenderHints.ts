@@ -131,6 +131,14 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} had a meeting {entityRef}",
     iconKind: "created",
   },
+  // A meeting's transcript was auto-summarized by the cron sweep (ADR-0018,
+  // royal.raven). Emitted once when the summary lands; the meeting title rides
+  // in metadata so {entityRef} renders the title, not a CUID. Reuses the
+  // "updated" icon kind since summarizing enriches an existing meeting.
+  [key("meeting", "summarized")]: {
+    template: "{actor} summarized a meeting {entityRef}",
+    iconKind: "updated",
+  },
 };
 
 /** Default hint used when no entry exists for the (entityType, action) pair. */

@@ -11,7 +11,8 @@ export type ActivityAction =
   | "updated"
   | "status_changed"
   | "completed"
-  | "commented";
+  | "commented"
+  | "summarized";
 
 /**
  * Entity types we currently log activity for. New writers append new values
