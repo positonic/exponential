@@ -25,6 +25,7 @@ import {
 } from "~/utils/avatarColors";
 import { CommentThread } from "~/app/_components/shared/CommentThread";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { Comment } from "~/app/_components/shared/CommentThread";
 import type {
   ActivityItem,
@@ -95,6 +96,7 @@ export function ActivityFeed({
             onDeleteReply={onDeleteReply}
             onEditReply={onEditReply}
             statusOptions={statusOptions}
+            mentionNames={mentionNames}
           />
         ) : (
           <Card
@@ -214,6 +216,7 @@ function UpdateThread({
   onDeleteReply,
   onEditReply,
   statusOptions,
+  mentionNames,
 }: {
   item: ActivityUpdate;
   currentUserId?: string;
@@ -222,6 +225,7 @@ function UpdateThread({
   onDeleteReply?: (id: string) => void;
   onEditReply?: (id: string, content: string) => Promise<void>;
   statusOptions?: StatusOption[];
+  mentionNames?: string[];
 }) {
   const [showReply, setShowReply] = useState(false);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
@@ -299,9 +303,7 @@ function UpdateThread({
           )}
         </Group>
 
-        <Text size="sm" className="text-text-primary" fw={500}>
-          {item.content}
-        </Text>
+        <MarkdownRenderer content={item.content} variant="compact" mentionNames={mentionNames} />
 
         {/* Action icons */}
         <Group gap="sm" mt="xs">
@@ -334,6 +336,7 @@ function UpdateThread({
             onDeleteComment={onDeleteReply}
             onEditComment={onEditReply}
             currentUserId={currentUserId}
+            mentionNames={mentionNames}
           />
         </div>
       )}
