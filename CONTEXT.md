@@ -75,6 +75,18 @@ _Avoid_: Activity log, event log, stream.
 Distinct from the workspace **Activity feed** above — this is the per-item timeline inside the OKR detail drawer's "Activity" tab. For a Key result it merges that KR's comments (`KeyResultComment`) and check-ins (`KeyResultCheckIn`). For an Objective it is a **roll-up**: the objective's own comments/updates (`GoalComment`, `GoalUpdate`) merged with the comments and check-ins of *all its child Key results*, time-sorted into one feed, each rolled-up item tagged with a source chip naming its KR. Built read-side by a single `okr.getObjectiveActivity` procedure (same merge-in-app-code pattern as [ADR-0001](docs/adr/0001-activity-feed-storage.md)), never stored. The objective composer always writes an objective-level `GoalComment`; rolled-up KR items are read-only context.
 _Avoid_: Comments (the tab is a mixed feed of comments **and** check-ins, not comments alone), Discussion.
 
+**Aggregated activity feed**:
+The cross-workspace activity list at the top-level `/activity` route — every `WorkspaceActivityEvent` across *all workspaces the current user is a member of* (direct or team; **not** project-only guests — same guard as the per-workspace feed), newest first, each row badged with its originating workspace. Distinct from the workspace **Activity feed** (single workspace, `/w/[slug]/home`). Read by `workspace.getMyActivityFeed`. It shows *all members'* events in those workspaces, not only the viewer's.
+_Avoid_: My activity, personal feed (it is not filtered to the viewer's own events — that's the **Weekly work digest**).
+
+**Weekly work digest**:
+A **personal, cross-workspace, per-ISO-week** synthesis of what *you* worked on — the AI-summarised story of your week, rendered as a panel at the top of the `/activity` page above the **Aggregated activity feed**. Subject is **Z-scoped**: events you acted on **and** items assigned to / owned by you that moved, unioned at read across four sources — enriched activity events, your assigned/owned entities, **Meetings** you attended (one-line blurb from the meeting summary, or title fallback), and your GitHub commits/PRs. Cached per `(userId, isoYear, isoWeek)`, regenerable, TTL on the active week — the personal sibling of the workspace **Week-in-Review** (`WorkspaceWeeklyNarrative`). Strictly distinct: Week-in-Review is one workspace, team-shared, a `narrative`; the work digest is all your workspaces, private to you, and additionally emits **Content angles**.
+_Avoid_: Weekly narrative / Week-in-Review (that's the team, single-workspace artifact), My Week, weekly summary.
+
+**Content angle**:
+An AI-suggested content starting point — a hook or framing for a social post, derived from the **Weekly work digest** (e.g. "what I learned shipping a cross-workspace feed"). Raw material for the user's own writing, not a finished draft. Surfaced as a labelled sub-section of the digest.
+_Avoid_: Content idea, post draft (an angle is a prompt, not a written post), suggestion.
+
 ## Relationships (activity)
 
 - A **Workspace** has many **Workspace repositories**.
@@ -128,6 +140,14 @@ The measurable arm of an Objective, stored as `KeyResult`. Has `currentValue`, `
 **OKR**:
 Shorthand for the *pair* (Objective + its Key results). Never use "OKR" to mean a single Objective or a single Key result on its own — be specific.
 _Avoid_: Using "OKR" as a singular noun for one of the parts.
+
+**Objective update**:
+A **health-bearing check-in** on an Objective, stored as `GoalUpdate` (a `content` note plus a `health` of `on-track | at-risk | off-track`). Posting one rewrites the Objective's **auto** health column (`Goal.health` + `healthUpdatedAt`) — so an update *moves the status badge* (subject to `healthOverride ?? health`; see **Effective status** / [ADR-0004](docs/adr/0004-okr-manual-status-override.md)). It never writes the manual `healthOverride` — that stays the "Set status" CTA's job. Authored by hand via the **Update** tab of the goals-page composer, or by **Zoe** via her objective-activity tool (she infers health, defaulting to the current value, and confirms a draft before posting — see [ADR-0016](docs/adr/0016-agent-activity-writes-reuse-human-path.md)). Strictly distinct from an **Objective comment**: an update is a status statement with a note; a comment is pure narrative.
+_Avoid_: Progress note, status update (use "Objective update"); conflating it with a comment.
+
+**Objective comment**:
+A **narrative note** on an Objective with **no** health — stored as `GoalComment`, never moves the status badge. May be a top-level note or a reply to an **Objective update** (`parentUpdateId`). Posted by hand via the **Comment** tab of the goals-page composer, or by **Zoe** (draft-and-confirm, [ADR-0016](docs/adr/0016-agent-activity-writes-reuse-human-path.md)). Both updates and comments are multi-author and surface together in the **OKR activity** feed.
+_Avoid_: Discussion, note (use "Objective comment"); conflating it with an update.
 
 **Effective status**:
 What an Objective's or Key result's status badge actually shows. Each entity stores **two separate values**: an **auto** value — `Goal.health` (the "computed health cache aggregated from KRs", rewritten by `recomputeHealth`) / `KeyResult.status` (rewritten by check-ins) — and a nullable **manual override** — `Goal.healthOverride` / `KeyResult.statusOverride`. The effective status displayed everywhere is `override ?? auto`. Setting status via the drawer writes the *override* column only; choosing "Auto" sets the override back to `null` and the derived value reappears. The auto column is never overwritten by the manual path. See [ADR-0004](docs/adr/0004-okr-manual-status-override.md).

@@ -29,6 +29,44 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
   throw new Error("Access denied");
 }
 
+/**
+ * Creates an **Objective comment** (`GoalComment`) — a narrative note with no
+ * health that never moves the status badge. Authored by the calling user.
+ *
+ * This is the single place the comment-write rule lives: both the human router
+ * (`goalComment.addComment`) and the agent-facing proxy (`mastra.addGoalComment`)
+ * call it, so access control and behaviour cannot drift between surfaces.
+ * Access mirrors the human path exactly via `verifyGoalAccess`. See ADR-0016.
+ */
+export async function createGoalComment({
+  ctx,
+  goalId,
+  content,
+  parentUpdateId,
+}: {
+  ctx: Context;
+  goalId: number;
+  content: string;
+  parentUpdateId?: string | null;
+}) {
+  await verifyGoalAccess({ ctx, goalId });
+
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  return ctx.db.goalComment.create({
+    data: {
+      goalId,
+      authorId: userId,
+      content,
+      parentUpdateId: parentUpdateId ?? null,
+    },
+    include: {
+      author: { select: { id: true, name: true, image: true } },
+    },
+  });
+}
+
 export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
   const userId = ctx.session?.user?.id;
   return await ctx.db.goal.findMany({
