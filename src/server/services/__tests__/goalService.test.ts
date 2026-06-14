@@ -24,7 +24,7 @@ vi.hoisted(() => {
   process.env.GOOGLE_CLIENT_SECRET ??= "test";
 });
 
-import { createGoalComment, createGoalUpdate } from "../goalService";
+import { createGoalComment, createGoalUpdate, setGoalParent } from "../goalService";
 import type { Context } from "~/server/auth/types";
 
 const USER_ID = "user-1";
@@ -197,6 +197,73 @@ describe("goalService.createGoalUpdate", () => {
     ).rejects.toThrow(/access denied/i);
 
     expect(db.goalUpdate.create).not.toHaveBeenCalled();
+    expect(db.goal.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("goalService.setGoalParent", () => {
+  beforeEach(() => {
+    mockReset(db);
+  });
+
+  // Owner access for every findUnique, and a parent chain that terminates (no
+  // cycle, depth 2). One value serves the access checks AND the chain walk.
+  function grantAccessAndShallowChain() {
+    db.goal.findUnique.mockResolvedValue({
+      id: GOAL_ID,
+      userId: USER_ID,
+      driUserId: null,
+      workspaceId: null,
+      parentGoalId: null,
+    } as never);
+  }
+
+  it("writes ONLY parentGoalId — never clobbers projects/period/workspace (unlike updateGoal)", async () => {
+    grantAccessAndShallowChain();
+    db.goal.update.mockResolvedValue({ id: GOAL_ID, parentGoalId: 19, parentGoal: null } as never);
+
+    await setGoalParent({ ctx: makeCtx(), goalId: GOAL_ID, parentGoalId: 19 });
+
+    expect(db.goal.update).toHaveBeenCalledTimes(1);
+    const updateArg = db.goal.update.mock.calls[0]![0]!;
+    expect(updateArg.where).toEqual({ id: GOAL_ID });
+    // The whole point of setGoalParent: a minimal, non-destructive write.
+    expect(updateArg.data).toEqual({ parentGoalId: 19 });
+  });
+
+  it("detaches (parentGoalId = null) without validating or touching other fields", async () => {
+    grantAccessAndShallowChain();
+    db.goal.update.mockResolvedValue({ id: GOAL_ID, parentGoalId: null, parentGoal: null } as never);
+
+    await setGoalParent({ ctx: makeCtx(), goalId: GOAL_ID, parentGoalId: null });
+
+    const updateArg = db.goal.update.mock.calls[0]![0]!;
+    expect(updateArg.data).toEqual({ parentGoalId: null });
+  });
+
+  it("rejects making a goal its own parent, and writes nothing", async () => {
+    grantAccessAndShallowChain();
+
+    await expect(
+      setGoalParent({ ctx: makeCtx(), goalId: GOAL_ID, parentGoalId: GOAL_ID }),
+    ).rejects.toThrow(/own parent/i);
+
+    expect(db.goal.update).not.toHaveBeenCalled();
+  });
+
+  it("throws when the caller lacks access, and writes nothing", async () => {
+    db.goal.findUnique.mockResolvedValue({
+      id: GOAL_ID,
+      userId: "someone-else",
+      driUserId: null,
+      workspaceId: null,
+      parentGoalId: null,
+    } as never);
+
+    await expect(
+      setGoalParent({ ctx: makeCtx(), goalId: GOAL_ID, parentGoalId: 19 }),
+    ).rejects.toThrow(/access denied/i);
+
     expect(db.goal.update).not.toHaveBeenCalled();
   });
 });
