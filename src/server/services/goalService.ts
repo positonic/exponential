@@ -176,22 +176,13 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
     throw new Error("User not authenticated");
   }
 
-  // Enforce max nesting depth of 5 levels for sub-goals
+  // A sub-goal's parent must be ACCESSIBLE to the caller — never nest under
+  // another user's goal (that would inject a child into their tree and pollute
+  // their health roll-up) — and the chain must stay within the depth cap.
+  // Shared validation with updateGoal/setGoalParent.
   if (input.parentGoalId) {
-    let depth = 1;
-    let currentParentId: number | null = input.parentGoalId;
-    while (currentParentId) {
-      const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
-        where: { id: currentParentId },
-        select: { parentGoalId: true },
-      });
-      if (!parentGoal) break;
-      currentParentId = parentGoal.parentGoalId;
-      depth++;
-      if (depth > 5) {
-        throw new Error("Maximum nesting depth of 5 levels exceeded");
-      }
-    }
+    await verifyGoalAccess({ ctx, goalId: input.parentGoalId });
+    await validateParentAssignment({ ctx, parentGoalId: input.parentGoalId });
   }
 
   return await ctx.db.goal.create({
@@ -225,6 +216,43 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
   });
 }
 
+/**
+ * Validate a proposed parentGoalId: no self-parent, no cycle, and the resulting
+ * chain stays within the 5-level nesting cap. Shared by updateGoal and
+ * setGoalParent. Pass `goalId` for an existing goal being re-parented; omit it for
+ * a brand-new goal (createGoal) where self/cycle checks don't apply.
+ */
+async function validateParentAssignment({
+  ctx,
+  goalId,
+  parentGoalId,
+}: {
+  ctx: Context;
+  goalId?: number;
+  parentGoalId: number;
+}) {
+  if (goalId !== undefined && parentGoalId === goalId) {
+    throw new Error("A goal cannot be its own parent");
+  }
+  let depth = 1;
+  let currentParentId: number | null = parentGoalId;
+  while (currentParentId) {
+    const parent: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
+      where: { id: currentParentId },
+      select: { parentGoalId: true },
+    });
+    if (!parent) break;
+    if (goalId !== undefined && parent.parentGoalId === goalId) {
+      throw new Error("Cannot set a descendant goal as parent (would create a cycle)");
+    }
+    currentParentId = parent.parentGoalId;
+    depth++;
+    if (depth > 5) {
+      throw new Error("Maximum nesting depth of 5 levels exceeded");
+    }
+  }
+}
+
 interface UpdateGoalInput extends GoalInput {
   id: number;
   displayOrder?: number;
@@ -241,33 +269,13 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     where: { id: input.id },
   });
 
-  // Enforce max nesting depth of 5 levels when changing parent
-  if (input.parentGoalId !== undefined && input.parentGoalId !== existingGoal.parentGoalId) {
-    // Prevent setting self as parent
-    if (input.parentGoalId === input.id) {
-      throw new Error("A goal cannot be its own parent");
-    }
-
-    if (input.parentGoalId) {
-      // Check that the new parent isn't a descendant (would create a cycle)
-      let depth = 1;
-      let currentParentId: number | null = input.parentGoalId;
-      while (currentParentId) {
-        const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
-          where: { id: currentParentId },
-          select: { parentGoalId: true },
-        });
-        if (!parentGoal) break;
-        if (parentGoal.parentGoalId === input.id) {
-          throw new Error("Cannot set a descendant goal as parent (would create a cycle)");
-        }
-        currentParentId = parentGoal.parentGoalId;
-        depth++;
-        if (depth > 5) {
-          throw new Error("Maximum nesting depth of 5 levels exceeded");
-        }
-      }
-    }
+  // Validate parent change (no self/cycle, within depth cap). Shared with setGoalParent.
+  if (
+    input.parentGoalId !== undefined &&
+    input.parentGoalId !== existingGoal.parentGoalId &&
+    input.parentGoalId
+  ) {
+    await validateParentAssignment({ ctx, goalId: input.id, parentGoalId: input.parentGoalId });
   }
 
   return await ctx.db.goal.update({
@@ -304,6 +312,37 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       projects: true,
       outcomes: true,
     },
+  });
+}
+
+/**
+ * Re-parent a goal (or detach it with parentGoalId = null) WITHOUT touching any
+ * of its other fields. Unlike updateGoal (a full overwrite that clears projects,
+ * period, workspace, etc.), this only writes parentGoalId — safe for nesting an
+ * existing goal under another. Validates access to both goal and parent, and the
+ * no-self/no-cycle/depth rules.
+ */
+export async function setGoalParent({
+  ctx,
+  goalId,
+  parentGoalId,
+}: {
+  ctx: Context;
+  goalId: number;
+  parentGoalId: number | null;
+}) {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+  await verifyGoalAccess({ ctx, goalId });
+  if (parentGoalId !== null) {
+    await verifyGoalAccess({ ctx, goalId: parentGoalId });
+    await validateParentAssignment({ ctx, goalId, parentGoalId });
+  }
+  return await ctx.db.goal.update({
+    where: { id: goalId },
+    data: { parentGoalId },
+    include: { parentGoal: { select: { id: true, title: true } } },
   });
 }
 

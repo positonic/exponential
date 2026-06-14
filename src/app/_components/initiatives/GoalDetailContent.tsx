@@ -258,6 +258,14 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                 </div>
               </IconPicker>
               <div>
+                {goal.parentGoal && (
+                  <Link
+                    href={`/w/${workspaceSlug}/goals/${goal.parentGoal.id}`}
+                    className="text-text-muted text-xs hover:text-text-secondary transition-colors"
+                  >
+                    ↑ {goal.parentGoal.title}
+                  </Link>
+                )}
                 <Group gap="xs" align="center">
                   <Title order={3} className="text-text-primary">
                     {goal.title}
@@ -314,6 +322,35 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
           {/* Overview Tab */}
           <Tabs.Panel value="overview" pt="lg">
             <Stack gap="xl">
+              {/* Sub-goals (children in the goal hierarchy) */}
+              {goal.childGoals && goal.childGoals.length > 0 && (
+                <div>
+                  <Text size="sm" className="text-text-muted mb-2">
+                    Sub-goals
+                  </Text>
+                  <Stack gap="xs">
+                    {goal.childGoals.map((child) => (
+                      <Link
+                        key={child.id}
+                        href={`/w/${workspaceSlug}/goals/${child.id}`}
+                        className="flex items-center gap-2 rounded-md border border-border-primary px-3 py-2 hover:bg-surface-hover transition-colors"
+                      >
+                        <Text size="sm" className="text-text-primary">
+                          {child.title}
+                        </Text>
+                        <Badge
+                          color={getStatusColor(child.status)}
+                          variant="dot"
+                          size="xs"
+                          className="ml-auto"
+                        >
+                          {formatStatus(child.status)}
+                        </Badge>
+                      </Link>
+                    ))}
+                  </Stack>
+                </div>
+              )}
               {/* Properties */}
               <Group gap="xl">
                 <Group gap="xs">
