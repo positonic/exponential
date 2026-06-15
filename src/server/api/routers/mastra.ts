@@ -3037,6 +3037,29 @@ export const mastraRouter = createTRPCRouter({
       return notion.search(userId, input.workspaceId, input.query, input.filter);
     }),
 
+  notionQueryDatabase: protectedProcedure
+    .input(z.object({
+      databaseId: z.string().min(1),
+      filter: z.any().optional(),
+      sorts: z
+        .array(z.object({
+          property: z.string(),
+          direction: z.enum(["ascending", "descending"]),
+        }))
+        .optional(),
+      startCursor: z.string().optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.queryDatabase(userId, input.workspaceId, input.databaseId, {
+        filter: input.filter,
+        sorts: input.sorts,
+        startCursor: input.startCursor,
+      });
+    }),
+
   getOkrObjectives: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),

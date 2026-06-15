@@ -28,7 +28,10 @@ vi.hoisted(() => {
   process.env.DATABASE_ENCRYPTION_KEY ??= "0".repeat(64);
 });
 
-const { notionSearchMock } = vi.hoisted(() => ({ notionSearchMock: vi.fn() }));
+const { notionSearchMock, notionQueryMock } = vi.hoisted(() => ({
+  notionSearchMock: vi.fn(),
+  notionQueryMock: vi.fn(),
+}));
 
 vi.mock("openai", () => ({
   default: class MockOpenAI {
@@ -58,6 +61,16 @@ vi.mock("~/server/auth", () => ({
 vi.mock("~/server/services/NotionService", () => ({
   NotionService: class {
     search = notionSearchMock;
+    queryDatabase = notionQueryMock;
+    // Static helper used by notionAgentService.queryDatabase for the row title.
+    static extractTitleFromProperties(properties: Record<string, any>): string {
+      for (const value of Object.values(properties)) {
+        if (value && typeof value === "object" && value.type === "title") {
+          return value.title?.map((t: any) => t.plain_text).join("") || "Untitled";
+        }
+      }
+      return "Untitled";
+    }
   },
 }));
 
@@ -159,5 +172,64 @@ describe("mastra.notionSearch (mocked)", () => {
 
     expect(result).toEqual({ connected: false });
     expect(notionSearchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("mastra.notionQueryDatabase (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    notionQueryMock.mockReset();
+  });
+
+  it("rejects unauthenticated callers", async () => {
+    const caller = createCaller({ db: dbMock, session: null, headers: new Headers() });
+    await expect(
+      caller.mastra.notionQueryDatabase({ databaseId: "db-1" }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(notionQueryMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the projected, capped result through the service", async () => {
+    mockNotionIntegration(dbMock, null);
+    notionQueryMock.mockResolvedValue({
+      results: [
+        {
+          id: "r1",
+          url: "https://notion.so/r1",
+          properties: {
+            Name: { type: "title", title: [{ plain_text: "Rent" }] },
+            Amount: { type: "number", number: 1200 },
+          },
+        },
+      ],
+      hasMore: true,
+      nextCursor: "cur-2",
+    });
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    const result = await caller.mastra.notionQueryDatabase({ databaseId: "db-1" });
+
+    expect(result).toEqual({
+      connected: true,
+      total: 1,
+      hasMore: true,
+      nextCursor: "cur-2",
+      rows: [
+        { id: "r1", title: "Rent", url: "https://notion.so/r1", props: { Amount: 1200 } },
+      ],
+    });
+  });
+
+  it("returns {connected:false} when the user has no Notion integration", async () => {
+    dbMock.integration.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    expect(await caller.mastra.notionQueryDatabase({ databaseId: "db-1" })).toEqual({
+      connected: false,
+    });
+    expect(notionQueryMock).not.toHaveBeenCalled();
   });
 });
