@@ -28,6 +28,13 @@ export interface NotionPage {
   properties: Record<string, any>;
 }
 
+export interface NotionSearchHit {
+  id: string;
+  type: 'page' | 'database';
+  title: string;
+  url: string;
+}
+
 export interface CreatePageParams {
   databaseId: string;
   title: string;
@@ -118,6 +125,46 @@ export class NotionService {
       console.error('Failed to fetch Notion databases:', error);
       throw new Error('Failed to fetch databases from Notion');
     }
+  }
+
+  /**
+   * Search pages and databases by title/content, returning a lean shape
+   * (id/type/title/url only) suitable for pouring into an agent context.
+   * Used by the agent callback path (notionAgentService); not the sync flow.
+   */
+  async search(params: {
+    query: string;
+    filter?: 'page' | 'database';
+  }): Promise<{ results: NotionSearchHit[]; hasMore: boolean }> {
+    const body: Record<string, any> = { query: params.query };
+    if (params.filter) {
+      body.filter = { value: params.filter, property: 'object' };
+    }
+
+    const response = await this.client.search(body as any);
+
+    const results: NotionSearchHit[] = response.results.map((r: any) => ({
+      id: r.id,
+      type: r.object === 'database' ? 'database' : 'page',
+      title:
+        r.object === 'database'
+          ? r.title?.[0]?.plain_text || 'Untitled'
+          : NotionService.extractTitleFromProperties(r.properties ?? {}),
+      url: r.url ?? '',
+    }));
+
+    return { results, hasMore: response.has_more ?? false };
+  }
+
+  /** Pull the title text out of a page's property bag (the `title`-typed property). */
+  static extractTitleFromProperties(properties: Record<string, any>): string {
+    for (const value of Object.values(properties)) {
+      if (value && typeof value === 'object' && value.type === 'title') {
+        const text = value.title?.map((t: any) => t.plain_text).join('') ?? '';
+        return text || 'Untitled';
+      }
+    }
+    return 'Untitled';
   }
 
   async getDatabaseById(databaseId: string): Promise<NotionDatabase> {
