@@ -7,7 +7,6 @@ import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components
 import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
 import { WorkspaceHomeCoaching } from '~/app/_components/home/WorkspaceHomeCoaching';
 import { GithubConnectCta } from '~/app/_components/home/GithubConnectCta';
-import { GithubTrackedRepos } from '~/app/_components/home/GithubTrackedRepos';
 import { validateHomeLayout } from '~/app/_components/home/HomeLayoutPicker';
 
 function WorkspaceHomeContent() {
@@ -47,7 +46,6 @@ function WorkspaceHomeContent() {
   return (
     <>
       <GithubConnectCta />
-      <GithubTrackedRepos />
       {layoutContent}
     </>
   );

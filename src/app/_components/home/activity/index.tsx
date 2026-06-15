@@ -2,6 +2,7 @@
 
 import { ActiveProjects } from './ActiveProjects';
 import { ActivityFeed } from './ActivityFeed';
+import { GithubReposPanel } from './GithubReposPanel';
 import { Heatmap } from './Heatmap';
 import { Hero } from './Hero';
 import { ProjectsPanel } from './ProjectsPanel';
@@ -34,6 +35,7 @@ export function WorkspaceHomeActivityLayout() {
         <div className="wsa__rail">
           <ActiveProjects />
           <ProjectsPanel />
+          <GithubReposPanel />
         </div>
       </div>
     </div>
