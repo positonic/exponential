@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import * as githubService from "~/server/services/githubService";
-import { requireWorkspaceMembership } from "~/server/services/access";
+import { TRPCError } from "@trpc/server";
+import {
+  getWorkspaceMembership,
+  hasMinimumWorkspaceRole,
+  requireWorkspaceMembership,
+} from "~/server/services/access";
 import {
   GITHUB_INSTALLATION_PROVIDER,
   GITHUB_INSTALLATION_TYPE,
@@ -9,6 +14,7 @@ import {
   resolveGithubConnectionState,
 } from "~/server/services/github/connectionState";
 import { normalizeAccessibleRepos } from "~/server/services/github/accessibleRepos";
+import { reconcileWorkspaceRepositories } from "~/server/services/github/reconcileRepositories";
 
 export const githubRouter = createTRPCRouter({
   listCommits: publicProcedure
@@ -266,6 +272,132 @@ export const githubRouter = createTRPCRouter({
         accessibleRepos?: unknown;
       } | null;
       return normalizeAccessibleRepos(config?.accessibleRepos);
+    }),
+
+  /**
+   * Set which repos a workspace tracks (ADR-0020, slice #3, L3). Reconciles
+   * `WorkspaceRepository` rows against the desired selection idempotently —
+   * re-saving the same set is a no-op. **Owner/admin only**, enforced via the
+   * centralized workspace-access resolvers. Removing a repo deletes only its
+   * `WorkspaceRepository` row; any `GitHubActivity` is left untouched.
+   */
+  setWorkspaceRepositories: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        fullNames: z.array(z.string()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Owner/admin gate via the centralized resolvers (not a duplicated check).
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        userId,
+        input.workspaceId,
+      );
+      if (!membership || !hasMinimumWorkspaceRole(membership.role, "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Only workspace owners and admins can manage GitHub repositories",
+        });
+      }
+
+      const installation = await ctx.db.integration.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          provider: GITHUB_INSTALLATION_PROVIDER,
+          type: GITHUB_INSTALLATION_TYPE,
+          status: "ACTIVE",
+        },
+        select: { id: true, providerConfig: true },
+      });
+
+      const desired = [...new Set(input.fullNames)];
+
+      if (!installation) {
+        if (desired.length > 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "GitHub App is not installed for this workspace",
+          });
+        }
+        // Nothing installed and nothing desired — ensure no stale rows remain.
+        await ctx.db.workspaceRepository.deleteMany({
+          where: { workspaceId: input.workspaceId },
+        });
+        return { tracked: [] };
+      }
+
+      // Only repos actually accessible to the installation may be tracked.
+      const cfg = installation.providerConfig as {
+        accessibleRepos?: unknown;
+        installationId?: unknown;
+      } | null;
+      const accessibleByFullName = new Map(
+        normalizeAccessibleRepos(cfg?.accessibleRepos).map((r) => [
+          r.fullName,
+          r,
+        ]),
+      );
+      const unknownRepos = desired.filter(
+        (fullName) => !accessibleByFullName.has(fullName),
+      );
+      if (unknownRepos.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Not accessible to this installation: ${unknownRepos.join(", ")}`,
+        });
+      }
+
+      const current = await ctx.db.workspaceRepository.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: { fullName: true },
+      });
+      const { toCreate, toDelete } = reconcileWorkspaceRepositories(
+        current.map((r) => r.fullName),
+        desired,
+      );
+
+      const installationIdStr =
+        typeof cfg?.installationId === "number" ||
+        typeof cfg?.installationId === "string"
+          ? String(cfg.installationId)
+          : null;
+
+      if (toDelete.length > 0) {
+        await ctx.db.workspaceRepository.deleteMany({
+          where: {
+            workspaceId: input.workspaceId,
+            fullName: { in: toDelete },
+          },
+        });
+      }
+      if (toCreate.length > 0) {
+        await ctx.db.workspaceRepository.createMany({
+          data: toCreate.map((fullName) => {
+            const repo = accessibleByFullName.get(fullName)!;
+            return {
+              workspaceId: input.workspaceId,
+              integrationId: installation.id,
+              owner: repo.owner,
+              name: repo.name,
+              fullName,
+              installationId: installationIdStr,
+              addedById: userId,
+            };
+          }),
+          skipDuplicates: true,
+        });
+      }
+
+      const tracked = await ctx.db.workspaceRepository.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { createdAt: "asc" },
+      });
+      return { tracked };
     }),
 
 //   createQFIntegrationProject: protectedProcedure
