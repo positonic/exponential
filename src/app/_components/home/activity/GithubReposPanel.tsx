@@ -26,11 +26,15 @@ export function GithubReposPanel() {
   );
 
   const repos = useMemo(() => data?.repos ?? [], [data?.repos]);
+  const showSearch = repos.length > 5;
   const filtered = useMemo(() => {
+    // Only filter while the search box is visible — otherwise a stale query
+    // could leave the list filtered with no input to clear it.
+    if (!showSearch) return repos;
     const needle = query.trim().toLowerCase();
     if (!needle) return repos;
     return repos.filter((repo) => repo.fullName.toLowerCase().includes(needle));
-  }, [repos, query]);
+  }, [repos, query, showSearch]);
 
   if (isLoading) {
     return (
@@ -87,7 +91,7 @@ export function GithubReposPanel() {
           </p>
           <Button
             component={Link}
-            href="/settings/integrations"
+            href="/integrations"
             variant="filled"
             color="brand"
             size="xs"
@@ -98,7 +102,7 @@ export function GithubReposPanel() {
         </>
       ) : (
         <>
-          {repos.length > 5 ? (
+          {showSearch ? (
             <TextInput
               size="xs"
               placeholder="Search repositories"
@@ -138,7 +142,7 @@ export function GithubReposPanel() {
           )}
 
           <Link
-            href="/settings/integrations"
+            href="/integrations"
             className="wsa-card__caption"
             style={{ marginTop: 10, display: 'inline-block' }}
           >
