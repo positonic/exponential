@@ -35,6 +35,12 @@ export interface NotionSearchHit {
   url: string;
 }
 
+export interface NotionQueryPage {
+  results: any[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
 export interface CreatePageParams {
   databaseId: string;
   title: string;
@@ -165,6 +171,35 @@ export class NotionService {
       }
     }
     return 'Untitled';
+  }
+
+  /**
+   * Query a database with optional filter/sort, returning one capped page of
+   * raw result pages plus Notion's pagination cursor. Thin SDK wrapper — the
+   * lean/scalar projection + cap policy live in `notionAgentService`.
+   */
+  async queryDatabase(params: {
+    databaseId: string;
+    filter?: unknown;
+    sorts?: Array<{ property: string; direction: 'ascending' | 'descending' }>;
+    pageSize?: number;
+    startCursor?: string;
+  }): Promise<NotionQueryPage> {
+    const query: Record<string, any> = {
+      database_id: params.databaseId,
+      page_size: params.pageSize ?? 25,
+    };
+    if (params.filter) query.filter = params.filter;
+    if (params.sorts) query.sorts = params.sorts;
+    if (params.startCursor) query.start_cursor = params.startCursor;
+
+    const response = await this.client.databases.query(query as any);
+
+    return {
+      results: response.results,
+      hasMore: response.has_more ?? false,
+      nextCursor: response.next_cursor ?? null,
+    };
   }
 
   async getDatabaseById(databaseId: string): Promise<NotionDatabase> {

@@ -198,3 +198,96 @@ describe("NotionAgentService — search", () => {
     expect(search).not.toHaveBeenCalled();
   });
 });
+
+describe("NotionAgentService — queryDatabase", () => {
+  beforeEach(() => mockReset(db));
+
+  /** Build a fake NotionService whose `queryDatabase` returns the given raw pages. */
+  function fakeQueryService(
+    page: { results: any[]; hasMore?: boolean; nextCursor?: string | null },
+    spy?: ReturnType<typeof vi.fn>,
+  ) {
+    const queryDatabase = (spy ?? vi.fn()).mockResolvedValue({
+      results: page.results,
+      hasMore: page.hasMore ?? false,
+      nextCursor: page.nextCursor ?? null,
+    });
+    return { queryDatabase } as unknown as NotionService;
+  }
+
+  /** A raw Notion page with a title, a scalar prop, and a rich-text blob. */
+  function rawPage(id: string) {
+    return {
+      id,
+      url: `https://notion.so/${id}`,
+      properties: {
+        Name: { type: "title", title: [{ plain_text: `Row ${id}` }] },
+        Amount: { type: "number", number: 1200 },
+        Status: { type: "select", select: { name: "Due" } },
+        Notes: { type: "rich_text", rich_text: [{ plain_text: "a very long blob".repeat(50) }] },
+      },
+    };
+  }
+
+  it("requests a 25-row page (the cap) and reports total = rows returned", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+    const spy = vi.fn();
+    const pages = Array.from({ length: 25 }, (_, i) => rawPage(`p${i}`));
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => fakeQueryService({ results: pages, hasMore: true, nextCursor: "cur" }, spy),
+    });
+
+    const result = await svc.queryDatabase(USER_ID, null, "db-1");
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 25, databaseId: "db-1" }));
+    expect(result).toMatchObject({ connected: true, total: 25, hasMore: true, nextCursor: "cur" });
+  });
+
+  it("projects scalar properties only — title surfaced separately, rich-text blob dropped", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => fakeQueryService({ results: [rawPage("p1")] }),
+    });
+
+    const result = await svc.queryDatabase(USER_ID, null, "db-1");
+    if (!result.connected) throw new Error("expected connected");
+    const row = result.rows[0]!;
+    expect(row.title).toBe("Row p1");
+    expect(row.props).toEqual({ Amount: 1200, Status: "Due" }); // no Name (title), no Notes (rich_text)
+    expect(row.props).not.toHaveProperty("Notes");
+    expect(row.props).not.toHaveProperty("Name");
+  });
+
+  it("returns {connected:true, total:0} when the database has zero matching rows", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => fakeQueryService({ results: [] }),
+    });
+
+    expect(await svc.queryDatabase(USER_ID, null, "db-1")).toEqual({
+      connected: true,
+      total: 0,
+      hasMore: false,
+      nextCursor: null,
+      rows: [],
+    });
+  });
+
+  it("returns {connected:false} (no query attempted) when Notion is not connected", async () => {
+    db.integration.findFirst.mockResolvedValue(null as any);
+    const queryDatabase = vi.fn();
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => ({ queryDatabase } as unknown as NotionService),
+    });
+
+    expect(await svc.queryDatabase(USER_ID, null, "db-1")).toEqual({ connected: false });
+    expect(queryDatabase).not.toHaveBeenCalled();
+  });
+});
