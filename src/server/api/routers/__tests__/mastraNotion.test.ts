@@ -28,9 +28,10 @@ vi.hoisted(() => {
   process.env.DATABASE_ENCRYPTION_KEY ??= "0".repeat(64);
 });
 
-const { notionSearchMock, notionQueryMock } = vi.hoisted(() => ({
+const { notionSearchMock, notionQueryMock, notionGetPageMock } = vi.hoisted(() => ({
   notionSearchMock: vi.fn(),
   notionQueryMock: vi.fn(),
+  notionGetPageMock: vi.fn(),
 }));
 
 vi.mock("openai", () => ({
@@ -62,7 +63,8 @@ vi.mock("~/server/services/NotionService", () => ({
   NotionService: class {
     search = notionSearchMock;
     queryDatabase = notionQueryMock;
-    // Static helper used by notionAgentService.queryDatabase for the row title.
+    getPageWithBlocks = notionGetPageMock;
+    // Static helper used by notionAgentService for the row/page title.
     static extractTitleFromProperties(properties: Record<string, any>): string {
       for (const value of Object.values(properties)) {
         if (value && typeof value === "object" && value.type === "title") {
@@ -231,5 +233,57 @@ describe("mastra.notionQueryDatabase (mocked)", () => {
       connected: false,
     });
     expect(notionQueryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("mastra.notionGetPage (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    notionGetPageMock.mockReset();
+  });
+
+  it("rejects unauthenticated callers", async () => {
+    const caller = createCaller({ db: dbMock, session: null, headers: new Headers() });
+    await expect(
+      caller.mastra.notionGetPage({ pageId: "pg-1" }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(notionGetPageMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the lean page result (title + flattened text) through the service", async () => {
+    mockNotionIntegration(dbMock, null);
+    notionGetPageMock.mockResolvedValue({
+      page: {
+        id: "pg-1",
+        url: "https://notion.so/pg-1",
+        properties: { Name: { type: "title", title: [{ plain_text: "Notes" }] } },
+      },
+      blocks: [{ type: "paragraph", paragraph: { rich_text: [{ plain_text: "hello world" }] } }],
+    });
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    const result = await caller.mastra.notionGetPage({ pageId: "pg-1" });
+
+    expect(result).toEqual({
+      connected: true,
+      id: "pg-1",
+      title: "Notes",
+      url: "https://notion.so/pg-1",
+      text: "hello world",
+      truncated: false,
+    });
+  });
+
+  it("returns {connected:false} when the user has no Notion integration", async () => {
+    dbMock.integration.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    expect(await caller.mastra.notionGetPage({ pageId: "pg-1" })).toEqual({
+      connected: false,
+    });
+    expect(notionGetPageMock).not.toHaveBeenCalled();
   });
 });

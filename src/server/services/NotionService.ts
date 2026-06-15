@@ -162,6 +162,34 @@ export class NotionService {
     return { results, hasMore: response.has_more ?? false };
   }
 
+  /**
+   * Fetch a page's properties plus all its content blocks (auto-paginating the
+   * block children). Thin SDK wrapper — flattening/truncation lives in
+   * `notionAgentService.getPage`.
+   */
+  async getPageWithBlocks(pageId: string): Promise<{ page: any; blocks: any[] }> {
+    const [page, blocks] = await Promise.all([
+      this.client.pages.retrieve({ page_id: pageId }),
+      this.getAllBlocks(pageId),
+    ]);
+    return { page, blocks };
+  }
+
+  private async getAllBlocks(blockId: string): Promise<any[]> {
+    const blocks: any[] = [];
+    let cursor: string | undefined;
+    do {
+      const response = await this.client.blocks.children.list({
+        block_id: blockId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
+      blocks.push(...response.results);
+      cursor = response.has_more ? (response.next_cursor ?? undefined) : undefined;
+    } while (cursor);
+    return blocks;
+  }
+
   /** Pull the title text out of a page's property bag (the `title`-typed property). */
   static extractTitleFromProperties(properties: Record<string, any>): string {
     for (const value of Object.values(properties)) {
