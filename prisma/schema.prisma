@@ -284,6 +284,10 @@ model Workspace {
   name        String
   slug        String   @unique
   description String?
+  // Per-scope AI guidance ("Instructions" in the UI). Injected as DEMOTED
+  // <user_data> context in the chat route, never as an authoritative system
+  // prompt (demoted scope-instructions ADR). Distinct from the human-facing `description`.
+  aiInstructions String? @db.Text
   logoUrl     String?
   type        String   @default("personal") // "personal" | "team" | "organization"
   homeLayout  String   @default("command") // "command" | "activity"

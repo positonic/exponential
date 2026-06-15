@@ -31,6 +31,7 @@ interface Workspace {
   name: string;
   slug: string;
   description: string | null;
+  aiInstructions: string | null;
   logoUrl: string | null;
   type: string;
   homeLayout: HomeLayout;
