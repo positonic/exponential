@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "~/server/auth";
+import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";
+import { isGithubAppConfigured } from "~/server/services/github/connectionState";
 import { App } from "octokit";
 import { z } from "zod";
 
@@ -55,6 +57,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // L1 prerequisite: without the GitHub App env the SDK can't mint an
+    // installation token. Degrade gracefully instead of throwing a 500.
+    if (!isGithubAppConfigured()) {
+      return NextResponse.redirect(
+        `${BASE_URL}/integrations?error=github_not_configured`,
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const params = Object.fromEntries(searchParams);
 
@@ -103,13 +113,15 @@ export async function GET(request: NextRequest) {
     // Mark this installation as being processed
     processedInstallations.add(installation_id);
 
-    // Parse state to get project ID if provided
+    // Parse state to get project / workspace context if provided
     let projectId: string | undefined = undefined;
+    let workspaceId: string | undefined = undefined;
     let userId: string | null = null;
     if (state) {
       try {
         const stateData = JSON.parse(Buffer.from(state, "base64").toString());
-        projectId = stateData.projectId || null;
+        projectId = stateData.projectId || undefined;
+        workspaceId = stateData.workspaceId || undefined;
         userId = stateData.userId || null;
       } catch (error) {
         console.error("Failed to parse state:", error);
@@ -153,6 +165,48 @@ export async function GET(request: NextRequest) {
 
     const { token: access_token } = tokenResponse.data;
 
+    const scopes = installationData.permissions
+      ? Object.keys(installationData.permissions)
+      : [];
+
+    // ── New workspace connect flow (ADR-0020) ──────────────────────────────
+    // When the install was started from a workspace, upsert the ONE
+    // workspace-scoped installation Integration and round-trip back to the
+    // workspace so repos can be associated (slice #3). This replaces the
+    // legacy one-Integration-per-repo shape for the workspace flow.
+    if (workspaceId) {
+      const membership = await db.workspaceUser.findFirst({
+        where: { workspaceId, userId: session.user.id },
+        select: { id: true },
+      });
+      if (!membership) {
+        return NextResponse.redirect(
+          `${BASE_URL}/integrations?error=${encodeURIComponent(
+            "Not a member of the target workspace",
+          )}`,
+        );
+      }
+
+      await githubIntegrationService.upsertWorkspaceInstallation({
+        workspaceId,
+        addedById: session.user.id,
+        installationId: parseInt(installation_id),
+        accessToken: access_token,
+        scopes,
+        githubUser,
+        accessibleRepos: reposResponse.data,
+      });
+
+      setTimeout(() => {
+        processedInstallations.delete(installation_id);
+      }, 60000);
+
+      return NextResponse.redirect(
+        `${BASE_URL}/integrations?github_connected=true`,
+      );
+    }
+
+    // ── Legacy project connect flow (unchanged) ────────────────────────────
     // Create GitHub integration using the service
     const integration = await githubIntegrationService.createGitHubIntegration(
       session.user.id,

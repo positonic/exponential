@@ -8,6 +8,7 @@ import {
   isGithubAppConfigured,
   resolveGithubConnectionState,
 } from "~/server/services/github/connectionState";
+import { normalizeAccessibleRepos } from "~/server/services/github/accessibleRepos";
 
 export const githubRouter = createTRPCRouter({
   listCommits: publicProcedure
@@ -236,6 +237,35 @@ export const githubRouter = createTRPCRouter({
         }),
         repos,
       };
+    }),
+
+  /**
+   * List the GitHub repos accessible to a workspace's installation (ADR-0020,
+   * slice #2), normalized to `RepoOption[]` for the associate UI. Reads the
+   * accessible-repo payload stashed on the installation `Integration` at install
+   * time, so it needs no live GitHub call and works when L1 env is absent.
+   * Returns `[]` when the workspace has no installation.
+   */
+  listAccessibleRepos: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const installation = await ctx.db.integration.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          provider: GITHUB_INSTALLATION_PROVIDER,
+          type: GITHUB_INSTALLATION_TYPE,
+          status: "ACTIVE",
+        },
+        select: { providerConfig: true },
+      });
+
+      if (!installation) return [];
+
+      const config = installation.providerConfig as {
+        accessibleRepos?: unknown;
+      } | null;
+      return normalizeAccessibleRepos(config?.accessibleRepos);
     }),
 
 //   createQFIntegrationProject: protectedProcedure
