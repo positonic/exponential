@@ -787,6 +787,11 @@ model Project {
   createdById           String
   slug                  String                     @unique
   description           String?
+  // Per-scope AI guidance ("Instructions" in the UI). Layered on top of the
+  // workspace's aiInstructions as DEMOTED <user_data> context in the chat
+  // route (project wins on conflict), never an authoritative system prompt
+  // (demoted scope-instructions ADR). Distinct from the human-facing `description`.
+  aiInstructions        String?                    @db.Text
   teamId                String?
   workspaceId           String?
   taskManagementConfig  Json?
