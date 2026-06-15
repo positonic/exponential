@@ -201,8 +201,9 @@ class GitHubIntegrationService {
    * GitHub and refresh the cached `providerConfig.accessibleRepos` (ADR-0020,
    * slice #3 follow-up). Paginates so installations with >100 repos are fully
    * listed. Lets a user who just granted the App access to more repos on GitHub
-   * see them without re-installing. Returns `[]` (and writes nothing) when L1
-   * is absent or the workspace isn't installed, so it never throws on config.
+   * see them without re-installing. Never throws on config: returns `[]` when
+   * the workspace isn't installed, and falls back to the cached list (writing
+   * nothing) when L1 env is absent or the installation id is unusable.
    */
   async refreshWorkspaceAccessibleRepos(
     workspaceId: string,
