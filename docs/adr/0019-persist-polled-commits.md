@@ -2,7 +2,17 @@
 
 ## Status
 
-**Deferred — 2026-06-14.** Records the intended design, but **not implemented**:
+**Deferred — 2026-06-14.** **Declaration premise superseded by
+[ADR-0020](0020-github-repo-association-via-app-installation.md) (2026-06-15):**
+repos are now associated via a **GitHub App installation** (per-install token),
+not "paste-a-URL, no App required, shared PAT." The repo-declaration primitive it
+was blocked on now exists (`WorkspaceRepository` + connect/associate UI). The
+**ingestion** decision (cron-poll-via-PAT vs webhook-push vs App-token poll vs
+live-fetch) is re-opened by ADR-0020 and not yet settled — decision #1 (poll via
+PAT) and the "no App install" framing no longer hold; the persist-per-commit /
+render-grouped / attribute-by-claim intent (#2–#4) still stands.
+
+Records the intended design, but **not implemented**:
 it rests on primitives that turned out not to exist. A code audit (schema,
 `develop`, all of `src/`) found **no `WorkspaceRepository` model, no
 `User.githubLogin`, no GitHub OAuth provider, and no GitHub union in the

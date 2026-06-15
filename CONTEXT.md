@@ -60,12 +60,12 @@ The origin of an activity event. Two sources exist today: `internal` (things tha
 _Avoid_: Type, kind, channel.
 
 **GitHub identity claim**:
-An Exponential user's claim to a GitHub login, stored as `User.githubLogin: String?`. The column can only be set via an OAuth-verified flow on `/settings/profile` — never by free-text input — so that one user cannot claim another user's commits. The activity feed joins GitHub events to `User` via `User.githubLogin = githubEvent.author`; unmatched events render with the raw GitHub login and a generic icon. Separate from `IntegrationUserMapping`, which scopes external identities to specific integration installations and is meant for Slack-style "users discovered through this integration."
+An Exponential user's claim to a GitHub login, stored as `User.githubLogin: String?`. Set only via an **OAuth-verified flow** on `/settings/profile` — the **NextAuth GitHub provider** (user signs in with GitHub; we capture the verified login) — **never** free-text, so one user cannot claim another's commits. It **cannot** be derived from the installer login captured at connect (`Integration.providerConfig.githubLogin`) — that's the installing *account/org*, not each member's personal identity. The activity feed joins GitHub events to `User` via `User.githubLogin = githubEvent.author`; unmatched events render with the raw GitHub login and a generic icon. Separate from `IntegrationUserMapping`, which scopes external identities to specific integration installations and is meant for Slack-style "users discovered through this integration." **Deferred** (not built): only needed for "mine" attribution — it gates commits-in-the-**Weekly work digest**, nothing earlier (the feed and PR-merge promotion don't need it).
 _Avoid_: GitHub user mapping, GitHub link (use "GitHub identity claim" or just "claim" in conversation).
 
 **Workspace repository**:
-A GitHub repo a workspace has declared interest in, stored in `WorkspaceRepository { workspaceId, owner, name, friendlyName?, isPrimary?, syncStatus, lastSyncedAt }`. Added by pasting a `https://github.com/owner/repo` URL in the workspace settings → Integrations → GitHub Repositories card. The declaration is independent of whether anyone has installed the GitHub App on the repo — the source of truth for "which repos belong to this workspace's activity panel" is `WorkspaceRepository`, not `Integration`. A repo can be present in multiple workspaces (one row per workspace × repo pair).
-_Avoid_: Connected repo, tracked repo, linked repo (use "workspace repository" or just "repo" in conversation).
+A GitHub repo a workspace tracks, stored in `WorkspaceRepository { workspaceId, integrationId, owner, name, fullName, installationId?, addedById?, syncStatus, lastSyncedAt }` ([ADR-0020](docs/adr/0020-github-repo-association-via-app-installation.md)). **Selected from** the repos the workspace's **GitHub App installation** can access — not pasted as a free URL — and carries a required FK (`integrationId`) to that single installation `Integration`. So a repo can only be tracked if the App is installed on it with access granted: the `WorkspaceRepository` row is the source of truth for *which* repos a workspace tracks, but it is **not** independent of the install — it is created by selecting from the installation's accessible repos on the workspace settings → Integrations → GitHub Repositories card. A repo can be present in multiple workspaces (one row per workspace × repo pair; `@@unique([workspaceId, fullName])`). Activity for the repo is read via that installation's **per-install App token**, never a shared PAT.
+_Avoid_: Connected repo, linked repo (use "workspace repository", "tracked repo", or just "repo" in conversation). Don't say repos are "added by URL" or "independent of the App install" — that was the pre-ADR-0020 design.
 
 **Activity feed**:
 The chronological list shown in the activity panel on `/w/[slug]/home`. A union over the workspace's activity events from all enabled sources, paginated by cursor on `createdAt`. The feed is a **read-side projection** — it merges the two underlying tables (`WorkspaceActivityEvent` and `GitHubActivity`) in app code; the tables are kept separate at rest because they have genuinely different shapes and serve other consumers (Sprint Analytics queries `GitHubActivity` columns directly).
@@ -91,24 +91,38 @@ _Avoid_: Content idea, post draft (an angle is a prompt, not a written post), su
 The intended design — git commits **polled and persisted** per **Workspace repository** by a cron (PAT-based, no GitHub App required), upserted by `commitSha`. Stored **per-commit** but **rendered grouped** in feeds ("pushed 7 commits to `exponential`"), and summarised in prose by the **Weekly work digest**. "Mine" is resolved by matching `commitAuthor` to the viewer's **GitHub identity claim** (`User.githubLogin`). This persists commits for the **Aggregated activity feed** and the digest — an explicit amendment of [ADR-0001](docs/adr/0001-activity-feed-storage.md)'s "GitHub events are not persisted for the panel" stance (the change ADR-0001 anticipated "later if latency/rate-limits bite").
 _Avoid_: Commits feed, GitHub feed (use "commit activity"); conflating with the webhook-fed `GitHubActivity` analytics path.
 
+**Ticket promotion on merge** _([ADR-0021](docs/adr/0021-pr-merge-promotes-ticket-via-app-webhook.md))_:
+When a tracked repo's PR **merges**, the GitHub-App `pull_request` webhook
+(`closed` + `merged === true`) looks up the `Ticket` by **exact `prUrl`** and, if
+it is in `QA`, transitions it to `DONE` — the in-app, central replacement for the
+per-repo `/setup-merge-hook` Action. `QA`-only guard (never clobbers/​reopens);
+exact-PR-URL match (no base-branch gate); `DEPLOYED` is reserved for a later
+production-deploy signal. This is **write-back to Exponential** (GitHub → ticket
+state), distinct from surfacing GitHub activity in a feed.
+_Avoid_: Auto-close, auto-merge (it promotes a ticket on *someone else's* merge, it doesn't merge anything).
+
 ## Relationships (activity)
 
-> ⚠️ **Accuracy caveat (2026-06-14):** the GitHub-source items below (Workspace
-> repositories, the live-fetch union, activity sources / source switcher) are
-> **aspirational — never implemented**. A code audit found no `WorkspaceRepository`,
-> no `User.githubLogin`, no GitHub OAuth provider, and no GitHub handling in
-> `feed.ts` (the feed reads only `WorkspaceActivityEvent`). `GitHubActivity` is
-> webhook-fed and read only by Sprint Analytics. See [ADR-0001](docs/adr/0001-activity-feed-storage.md)'s
-> accuracy caveat. The terms are retained as the design's vocabulary, not as a
-> description of shipped behaviour.
+> ⚠️ **Status (2026-06-15):** **Connect + associate is now shipped** — the
+> `WorkspaceRepository` model, the GitHub-App connect flow, and the
+> `/integrations` + workspace-home repo-tracking UI all exist, built
+> **App-installation-based** per [ADR-0020](docs/adr/0020-github-repo-association-via-app-installation.md)
+> (which supersedes the earlier "paste-a-URL, App-independent, PAT-based" design
+> and ADR-0019's "no GitHub App required" framing). **Decided but not yet built:**
+> the ingestion mechanism — webhook + poll, persisted to `GitHubActivity` via the
+> per-install App token ([ADR-0022](docs/adr/0022-github-activity-ingestion-webhook-poll-persisted.md))
+> — and PR-merge → ticket promotion ([ADR-0021](docs/adr/0021-pr-merge-promotes-ticket-via-app-webhook.md)).
+> **Still undecided / not built:** the **GitHub identity claim** (`User.githubLogin`)
+> and the feed/digest render of the persisted rows. The bullets below reflect the
+> ADR-0022 ingestion model, not the retired live-fetch/shared-PAT one.
 
 - A **Workspace** has many **Workspace repositories**.
 - A **Workspace** has many **Activity events** from zero or more **Activity sources**.
-- The **Activity feed** is the read-side union of `WorkspaceActivityEvent` rows (internal) and GitHub commits + PRs fetched live from each `WorkspaceRepository` at query time.
-- GitHub events shown in the activity feed are **not persisted** for the panel's purposes. They are fetched on page load via a shared `GITHUB_API_TOKEN` PAT (impactful-events style), with a ~5min server-side cache per repo to absorb refreshes.
-- The existing webhook path (`/api/webhooks/github`) and `GitHubActivity` table remain — they continue to feed `SprintSnapshot` analytics, **independent** of the activity panel. The two paths can coexist for the same repo; the activity feed only uses live-fetch.
+- The **Activity feed** is the read-side union of `WorkspaceActivityEvent` rows (internal) and **persisted** `GitHubActivity` rows scoped to the workspace's tracked repos (`repoFullName ∈ WorkspaceRepository`) — [ADR-0022](docs/adr/0022-github-activity-ingestion-webhook-poll-persisted.md).
+- GitHub events **are persisted** (one store, `GitHubActivity`), ingested by **both** the App `pull_request`/`push` webhook (real-time) **and** a per-install App-token poll (backfill + reconciliation), upserted with dedup key `(workspaceId, externalId)`. This amends [ADR-0001](docs/adr/0001-activity-feed-storage.md) #3 ("not persisted for the panel") and retires the shared-`GITHUB_API_TOKEN` live-fetch path.
+- `GitHubActivity` now has **two read consumers** of the same rows: the activity feed/digest **and** `SprintSnapshot` analytics. (Pre-ADR-0022 these were independent — analytics-only, live-fetch panel.)
 - **Meetings** now emit `WorkspaceActivityEvent` rows via `recordActivity` (entityType `meeting`: `created`, then `summarized` once the auto-summary lands) — the internal-data write-path of ADR-0001, so a meeting appears in the workspace feed, the **Aggregated activity feed**, and the **Weekly work digest** from one write.
-- **Commit activity** _(planned, not built — [ADR-0019](docs/adr/0019-persist-polled-commits.md) Deferred)_ would be **polled and persisted** (cron, PAT-based) so commits reach the **Aggregated activity feed** and the digest. Blocked on the missing repo-declaration + identity-claim primitives; commits are deferred from **Weekly work digest** v1.
+- **Commit activity** _(decided, not yet built — [ADR-0022](docs/adr/0022-github-activity-ingestion-webhook-poll-persisted.md))_: commits are **persisted** to `GitHubActivity` via the webhook `push` event + the per-install App-token poll (not the retired PAT cron of ADR-0019), per-commit stored but **rendered grouped**, reaching the **Aggregated activity feed** and the digest. Attributing a commit to *you* still needs the **GitHub identity claim** (`User.githubLogin`), which remains unbuilt — so "mine" filtering is the gating dependency for commits in the **Weekly work digest**.
 
 ### Weekly planning
 
