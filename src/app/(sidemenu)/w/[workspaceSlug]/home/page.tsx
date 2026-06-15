@@ -6,6 +6,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components/home/WorkspaceHomeConceptD';
 import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
 import { WorkspaceHomeCoaching } from '~/app/_components/home/WorkspaceHomeCoaching';
+import { GithubConnectCta } from '~/app/_components/home/GithubConnectCta';
 import { validateHomeLayout } from '~/app/_components/home/HomeLayoutPicker';
 
 function WorkspaceHomeContent() {
@@ -33,9 +34,21 @@ function WorkspaceHomeContent() {
 
   const layout = validateHomeLayout(workspace.homeLayout);
 
-  if (layout === 'activity') return <WorkspaceHomeActivity />;
-  if (layout === 'coaching') return <WorkspaceHomeCoaching />;
-  return <WorkspaceHomeCommand />;
+  const layoutContent =
+    layout === 'activity' ? (
+      <WorkspaceHomeActivity />
+    ) : layout === 'coaching' ? (
+      <WorkspaceHomeCoaching />
+    ) : (
+      <WorkspaceHomeCommand />
+    );
+
+  return (
+    <>
+      <GithubConnectCta />
+      {layoutContent}
+    </>
+  );
 }
 
 export default function WorkspaceHomePage() {
