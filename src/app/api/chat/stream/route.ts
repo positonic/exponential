@@ -22,6 +22,7 @@ import {
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
+import { buildProjectAccessWhere } from "~/server/services/access";
 import {
   pickModelTier,
   isHaikuTier,
@@ -235,8 +236,18 @@ export async function POST(req: Request) {
         entries.push(["workspaceType", workspaceAccess.workspace.type]);
       }
     }
+    let projectAiInstructions: string | null = null;
     if (projectId) {
       entries.push(["projectId", projectId]);
+
+      // Fetch the in-scope project's `aiInstructions` server-side by ID for the
+      // demoted scope-instruction block. Scoped by buildProjectAccessWhere so a
+      // spoofed projectId can't leak another project's instruction text.
+      const projectScope = await db.project.findFirst({
+        where: { id: projectId, ...buildProjectAccessWhere(session.user.id) },
+        select: { aiInstructions: true },
+      });
+      projectAiInstructions = projectScope?.aiInstructions ?? null;
 
       // Look up project's configured Slack channel so agent knows where to search
       const projectSlackConfig = await db.slackChannelConfig.findUnique({
@@ -320,10 +331,13 @@ export async function POST(req: Request) {
     // was fetched server-side by scope ID above; the assembler wraps it in a
     // `<user_data>` block so it reads as supplementary guidance, never as
     // authoritative commands. Runs on BOTH the default-agent and custom-
-    // assistant paths (this is outside the assistantId block). Slice 1 layers
-    // only the workspace scope; Slice 2 adds the in-scope project on top.
+    // assistant paths (this is outside the assistantId block). Layered general
+    // → specific: workspace first, then the in-scope project last so it wins on
+    // conflict. With no project in scope (global drawer, /agent), only the
+    // workspace applies. Empty scopes are skipped by the assembler.
     const scopeInstructionsBlock = assembleScopeInstructions([
       { scope: 'workspace', label: 'Workspace', instructions: workspaceAiInstructions },
+      { scope: 'project', label: 'Project', instructions: projectAiInstructions },
     ]);
     if (scopeInstructionsBlock) {
       promptSizeChars.scopeInstructions = scopeInstructionsBlock.length;

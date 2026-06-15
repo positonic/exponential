@@ -46,6 +46,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
   const [notionProjectId] = useState(prefillNotionProjectId);
   const [description, setDescription] = useState(project?.description ?? "");
+  const [aiInstructions, setAiInstructions] = useState(project?.aiInstructions ?? "");
   const [status, setStatus] = useState<ProjectStatus>(project?.status as ProjectStatus ?? "ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>(project?.priority as ProjectPriority ?? "NONE");
   const [selectedGoals, setSelectedGoals] = useState<string[]>(
@@ -256,6 +257,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     if (!project) {
       setProjectName(prefillName ?? "");
       setDescription("");
+      setAiInstructions("");
       setStatus("ACTIVE");
       setPriority("NONE");
       setSelectedGoals([]);
@@ -357,6 +359,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 id: project.id,
                 name: projectName,
                 description,
+                aiInstructions,
                 status: status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
                 priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
                 goalIds: selectedGoals,
@@ -374,6 +377,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               createMutation.mutate({
                 name: projectName,
                 description,
+                aiInstructions,
                 status,
                 priority,
                 goalIds: selectedGoals,
@@ -421,6 +425,25 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 color: 'var(--color-text-primary)',
                 borderColor: 'var(--color-border-primary)',
               },
+            }}
+          />
+
+          <Textarea
+            label="Instructions"
+            description="Guidance the AI assistant receives when chatting in this project. Layered on top of the workspace's instructions (project wins on conflict). Treated as helpful context, not enforced rules."
+            placeholder="e.g. This project tracks the Q3 launch. Prefer action items grouped by owner."
+            value={aiInstructions}
+            onChange={(e) => setAiInstructions(e.target.value)}
+            autosize
+            minRows={3}
+            mt="md"
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              description: { color: 'var(--color-text-secondary)' },
             }}
           />
 
