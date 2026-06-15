@@ -87,6 +87,24 @@ function projectScalarProps(
   return out;
 }
 
+/** Max characters of flattened page text returned before truncation (ADR-0020 §5). */
+export const MAX_PAGE_TEXT_CHARS = 3000;
+
+/** Flatten a single Notion block to readable text, or null if it has none. */
+function extractBlockText(block: any): string | null {
+  const richText = block?.[block?.type]?.rich_text;
+  if (richText?.length) {
+    return richText.map((t: any) => t.plain_text).join("");
+  }
+  if (block?.type === "code") {
+    const code = block.code?.rich_text?.map((t: any) => t.plain_text).join("");
+    return code ? `\`\`\`${block.code?.language ?? ""}\n${code}\n\`\`\`` : null;
+  }
+  if (block?.type === "equation") return block.equation?.expression ?? null;
+  if (block?.type === "divider") return "---";
+  return null;
+}
+
 export type NotionConnection =
   | { connected: false }
   | { connected: true; service: NotionService };
@@ -115,6 +133,17 @@ export type NotionQueryResult =
       hasMore: boolean;
       nextCursor: string | null;
       rows: NotionRow[];
+    };
+
+export type NotionPageResult =
+  | { connected: false }
+  | {
+      connected: true;
+      id: string;
+      title: string;
+      url: string;
+      text: string;
+      truncated: boolean;
     };
 
 type NotionServiceFactory = (accessToken: string) => NotionService;
@@ -236,5 +265,38 @@ export class NotionAgentService {
     }));
 
     return { connected: true, total: rows.length, hasMore, nextCursor, rows };
+  }
+
+  /**
+   * Fetch a specific page's title + flattened block text, truncated to
+   * {@link MAX_PAGE_TEXT_CHARS} (with `truncated:true` when cut) so a long page
+   * doesn't blow up the agent's thread. Same `{connected}` discrimination.
+   */
+  async getPage(
+    userId: string,
+    workspaceId: string | null | undefined,
+    pageId: string,
+  ): Promise<NotionPageResult> {
+    const connection = await this.resolveService(userId, workspaceId);
+    if (!connection.connected) return { connected: false };
+
+    const { page, blocks } = await connection.service.getPageWithBlocks(pageId);
+
+    const fullText = blocks
+      .map(extractBlockText)
+      .filter((t): t is string => Boolean(t))
+      .join("\n");
+
+    const truncated = fullText.length > MAX_PAGE_TEXT_CHARS;
+    const text = truncated ? fullText.slice(0, MAX_PAGE_TEXT_CHARS) : fullText;
+
+    return {
+      connected: true,
+      id: page.id,
+      title: NotionService.extractTitleFromProperties(page.properties ?? {}),
+      url: page.url ?? "",
+      text,
+      truncated,
+    };
   }
 }

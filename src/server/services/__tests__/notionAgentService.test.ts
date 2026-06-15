@@ -291,3 +291,70 @@ describe("NotionAgentService — queryDatabase", () => {
     expect(queryDatabase).not.toHaveBeenCalled();
   });
 });
+
+describe("NotionAgentService — getPage", () => {
+  beforeEach(() => mockReset(db));
+
+  /** Fake NotionService.getPageWithBlocks returning a page + paragraph blocks. */
+  function fakePageService(page: any, blocks: any[]) {
+    const getPageWithBlocks = vi.fn().mockResolvedValue({ page, blocks });
+    return { getPageWithBlocks } as unknown as NotionService;
+  }
+
+  function paragraph(text: string) {
+    return { type: "paragraph", paragraph: { rich_text: [{ plain_text: text }] } };
+  }
+
+  const PAGE = {
+    id: "pg-1",
+    url: "https://notion.so/pg-1",
+    properties: { Name: { type: "title", title: [{ plain_text: "Meeting notes" }] } },
+  };
+
+  it("returns title + flattened block text, untruncated for short pages", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => fakePageService(PAGE, [paragraph("line one"), paragraph("line two")]),
+    });
+
+    const result = await svc.getPage(USER_ID, null, "pg-1");
+    expect(result).toEqual({
+      connected: true,
+      id: "pg-1",
+      title: "Meeting notes",
+      url: "https://notion.so/pg-1",
+      text: "line one\nline two",
+      truncated: false,
+    });
+  });
+
+  it("truncates long content to ~3k chars and sets truncated:true", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+    const longBlock = paragraph("x".repeat(5000));
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => fakePageService(PAGE, [longBlock]),
+    });
+
+    const result = await svc.getPage(USER_ID, null, "pg-1");
+    if (!result.connected) throw new Error("expected connected");
+    expect(result.truncated).toBe(true);
+    expect(result.text.length).toBe(3000);
+  });
+
+  it("returns {connected:false} (no fetch attempted) when Notion is not connected", async () => {
+    db.integration.findFirst.mockResolvedValue(null as any);
+    const getPageWithBlocks = vi.fn();
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => ({ getPageWithBlocks } as unknown as NotionService),
+    });
+
+    expect(await svc.getPage(USER_ID, null, "pg-1")).toEqual({ connected: false });
+    expect(getPageWithBlocks).not.toHaveBeenCalled();
+  });
+});

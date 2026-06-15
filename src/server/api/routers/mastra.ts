@@ -3060,6 +3060,17 @@ export const mastraRouter = createTRPCRouter({
       });
     }),
 
+  notionGetPage: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.getPage(userId, input.workspaceId, input.pageId);
+    }),
+
   getOkrObjectives: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
