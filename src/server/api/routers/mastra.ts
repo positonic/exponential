@@ -26,6 +26,7 @@ import { loadProductWithAccess } from "~/plugins/product/server/routers/product"
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "~/server/services/goalService";
+import { NotionAgentService } from "~/server/services/notionAgentService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -3020,6 +3021,21 @@ export const mastraRouter = createTRPCRouter({
   // ============================================
   // OKR Tools - Objectives & Key Results CRUD
   // ============================================
+
+  // ───────────────────────── Notion (agent callback, ADR-0020) ─────────────────────────
+  // The Notion credential is resolved server-side from the user's Integration and
+  // never enters the LLM context. Zoe's Notion tools carry only the agent JWT.
+  notionSearch: protectedProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      filter: z.enum(["page", "database"]).optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.search(userId, input.workspaceId, input.query, input.filter);
+    }),
 
   getOkrObjectives: protectedProcedure
     .input(z.object({
