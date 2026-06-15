@@ -104,6 +104,7 @@ model User {
   feedback                    Feedback[]
   goals                       Goal[]
   integrations                Integration[]
+  workspaceRepositoriesAdded  WorkspaceRepository[]       @relation("WorkspaceRepositoryAddedBy")
   permissionsGrantedBy        IntegrationPermission[]     @relation("PermissionGrantedBy")
   permissionsGrantedTo        IntegrationPermission[]     @relation("PermissionGrantedTo")
   permissionsRevokedBy        IntegrationPermission[]     @relation("PermissionRevokedBy")
@@ -360,6 +361,8 @@ model Workspace {
   deals                   Deal[]
   // Integration relations
   integrations            Integration[]
+  // GitHub repo connection (ADR-0020): repos this workspace tracks
+  workspaceRepositories   WorkspaceRepository[]
   // Notification override relations
   notificationOverrides   WorkspaceNotificationOverride[]
   // Slack channel config relation
@@ -1255,6 +1258,8 @@ model Integration {
   workflows               Workflow[]
   // PM Agent GitHub tracking
   githubActivities        GitHubActivity[]
+  // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
+  workspaceRepositories   WorkspaceRepository[]
 
   @@index([userId])
   @@index([teamId])
@@ -4253,4 +4258,31 @@ model ActionParticipantAssignee {
   @@index([actionId])
   @@index([participantId])
   @@index([workspaceId])
+}
+
+/// A GitHub repo a workspace has declared interest in (ADR-0020). Source of
+/// truth for which repos a workspace tracks — independent of who installed the
+/// GitHub App. The same repo can be tracked by multiple workspaces (one row per
+/// workspace × repo pair). `integrationId` points at the workspace's single
+/// GitHub App installation Integration.
+model WorkspaceRepository {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  integrationId  String
+  owner          String
+  name           String
+  fullName       String
+  installationId String?
+  addedById      String?
+  syncStatus     String    @default("pending")
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  addedBy     User?       @relation("WorkspaceRepositoryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, fullName])
+  @@index([workspaceId])
+  @@index([integrationId])
 }

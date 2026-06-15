@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
 import * as githubService from "~/server/services/githubService";
+import { requireWorkspaceMembership } from "~/server/services/access";
+import {
+  GITHUB_INSTALLATION_PROVIDER,
+  GITHUB_INSTALLATION_TYPE,
+  isGithubAppConfigured,
+  resolveGithubConnectionState,
+} from "~/server/services/github/connectionState";
 
 export const githubRouter = createTRPCRouter({
   listCommits: publicProcedure
@@ -176,6 +183,59 @@ export const githubRouter = createTRPCRouter({
           
         throw new Error(`Failed to create GitHub epic: ${errorMessage}`);
       }
+    }),
+
+  /**
+   * Read a workspace's GitHub connection state and the repos it tracks
+   * (ADR-0020). Composes the three layers: L1 env check
+   * (`isGithubAppConfigured`) → L2 installation `Integration` lookup → L3
+   * `WorkspaceRepository` count, mapped by `resolveGithubConnectionState`.
+   *
+   * Read-only; any workspace member may call it. Degrades to `NOT_CONFIGURED`
+   * with an empty repo list (never 500s) when the GitHub App env is absent —
+   * no DB work happens in that case.
+   */
+  getGithubConnectionState: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const appConfigured = isGithubAppConfigured();
+
+      if (!appConfigured) {
+        return {
+          state: resolveGithubConnectionState({
+            appConfigured,
+            installation: null,
+            repoCount: 0,
+          }),
+          repos: [],
+        };
+      }
+
+      const [installation, repos] = await Promise.all([
+        ctx.db.integration.findFirst({
+          where: {
+            workspaceId: input.workspaceId,
+            provider: GITHUB_INSTALLATION_PROVIDER,
+            type: GITHUB_INSTALLATION_TYPE,
+            status: "ACTIVE",
+          },
+          select: { id: true },
+        }),
+        ctx.db.workspaceRepository.findMany({
+          where: { workspaceId: input.workspaceId },
+          orderBy: { createdAt: "asc" },
+        }),
+      ]);
+
+      return {
+        state: resolveGithubConnectionState({
+          appConfigured,
+          installation,
+          repoCount: repos.length,
+        }),
+        repos,
+      };
     }),
 
 //   createQFIntegrationProject: protectedProcedure
