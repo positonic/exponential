@@ -358,3 +358,91 @@ describe("NotionAgentService — getPage", () => {
     expect(getPageWithBlocks).not.toHaveBeenCalled();
   });
 });
+
+describe("NotionAgentService — createPage / updatePage", () => {
+  beforeEach(() => mockReset(db));
+
+  it("createPage performs the write and returns a lean confirmation", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+    const createPage = vi.fn().mockResolvedValue({
+      id: "new-1",
+      title: "Groceries",
+      url: "https://notion.so/new-1",
+      properties: {},
+    });
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => ({ createPage } as unknown as NotionService),
+    });
+
+    const result = await svc.createPage(USER_ID, null, {
+      databaseId: "db-1",
+      title: "Groceries",
+      properties: { Amount: { number: 50 } },
+    });
+
+    expect(createPage).toHaveBeenCalledWith({
+      databaseId: "db-1",
+      title: "Groceries",
+      properties: { Amount: { number: 50 } },
+    });
+    expect(result).toEqual({
+      connected: true,
+      id: "new-1",
+      url: "https://notion.so/new-1",
+      title: "Groceries",
+    });
+  });
+
+  it("createPage returns {connected:false} (no write) when Notion is not connected", async () => {
+    db.integration.findFirst.mockResolvedValue(null as any);
+    const createPage = vi.fn();
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => ({ createPage } as unknown as NotionService),
+    });
+
+    expect(
+      await svc.createPage(USER_ID, null, { databaseId: "db-1", title: "x" }),
+    ).toEqual({ connected: false });
+    expect(createPage).not.toHaveBeenCalled();
+  });
+
+  it("updatePage performs the write and returns the page id", async () => {
+    db.integration.findFirst.mockResolvedValue(integrationRow("t", null) as any);
+    const updatePage = vi.fn().mockResolvedValue(undefined);
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => ({ updatePage } as unknown as NotionService),
+    });
+
+    const result = await svc.updatePage(USER_ID, null, {
+      pageId: "pg-1",
+      properties: { Status: { status: { name: "Done" } } },
+    });
+
+    expect(updatePage).toHaveBeenCalledWith({
+      pageId: "pg-1",
+      properties: { Status: { status: { name: "Done" } } },
+    });
+    expect(result).toEqual({ connected: true, id: "pg-1" });
+  });
+
+  it("updatePage returns {connected:false} (no write) when Notion is not connected", async () => {
+    db.integration.findFirst.mockResolvedValue(null as any);
+    const updatePage = vi.fn();
+
+    const svc = new NotionAgentService({
+      db,
+      makeNotionService: () => ({ updatePage } as unknown as NotionService),
+    });
+
+    expect(
+      await svc.updatePage(USER_ID, null, { pageId: "pg-1", properties: {} }),
+    ).toEqual({ connected: false });
+    expect(updatePage).not.toHaveBeenCalled();
+  });
+});
