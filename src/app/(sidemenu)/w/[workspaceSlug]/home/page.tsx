@@ -45,7 +45,9 @@ function WorkspaceHomeContent() {
 
   return (
     <>
-      <GithubConnectCta />
+      {/* Activity layout shows GitHub in the rail widget; other layouts have no
+          rail, so they keep the top Connect banner. */}
+      {layout !== 'activity' && <GithubConnectCta />}
       {layoutContent}
     </>
   );
