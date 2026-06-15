@@ -8,11 +8,12 @@ import {
   Stack,
   Group,
   Button,
-  Checkbox,
+  MultiSelect,
+  Anchor,
   Badge,
   Skeleton,
 } from "@mantine/core";
-import { IconBrandGithub } from "@tabler/icons-react";
+import { IconBrandGithub, IconRefresh } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -72,14 +73,23 @@ export function GithubRepositoriesCard() {
     },
   });
 
-  function toggle(fullName: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(fullName)) next.delete(fullName);
-      else next.add(fullName);
-      return next;
-    });
-  }
+  const refreshRepos = api.github.refreshAccessibleRepos.useMutation({
+    onSuccess: async (repos) => {
+      notifications.show({
+        title: "Refreshed",
+        message: `Found ${repos.length} accessible ${repos.length === 1 ? "repository" : "repositories"}.`,
+        color: "green",
+      });
+      await utils.github.listAccessibleRepos.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Couldn't refresh",
+        message: error.message,
+        color: "red",
+      });
+    },
+  });
 
   const header = (
     <Group gap="sm">
@@ -157,36 +167,74 @@ export function GithubRepositoriesCard() {
     }
 
     const repos = accessibleRepos ?? [];
+    const repoByFullName = new Map(repos.map((r) => [r.fullName, r]));
+
     return (
       <Stack gap="md">
-        <Text size="sm" className="text-text-secondary">
-          Select the repositories this workspace should track.
-        </Text>
-        {repos.length === 0 ? (
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
           <Text size="sm" className="text-text-secondary">
-            No accessible repositories found for this installation.
+            Search and select the repositories this workspace should track.
           </Text>
-        ) : (
-          <Stack gap="xs">
-            {repos.map((repo) => (
-              <Checkbox
-                key={repo.fullName}
-                checked={selected.has(repo.fullName)}
-                onChange={() => toggle(repo.fullName)}
-                label={
-                  <Group gap="xs" wrap="nowrap">
-                    <Text size="sm" className="text-text-primary">
-                      {repo.fullName}
-                    </Text>
-                    <Badge size="xs" variant="light" color={repo.private ? "gray" : "brand"}>
-                      {repo.private ? "Private" : "Public"}
-                    </Badge>
-                  </Group>
-                }
-              />
-            ))}
-          </Stack>
-        )}
+          <Button
+            variant="subtle"
+            color="gray"
+            size="compact-sm"
+            leftSection={<IconRefresh size={14} />}
+            loading={refreshRepos.isPending}
+            disabled={!workspaceId}
+            onClick={() =>
+              refreshRepos.mutate({ workspaceId: workspaceId ?? "" })
+            }
+          >
+            Refresh
+          </Button>
+        </Group>
+
+        <MultiSelect
+          data={repos.map((repo) => ({
+            value: repo.fullName,
+            label: repo.fullName,
+          }))}
+          value={[...selected]}
+          onChange={(values) => setSelected(new Set(values))}
+          searchable
+          clearable
+          hidePickedOptions
+          placeholder={selected.size > 0 ? undefined : "Search repositories…"}
+          nothingFoundMessage="No matching repositories"
+          maxDropdownHeight={280}
+          renderOption={({ option }) => {
+            const repo = repoByFullName.get(option.value);
+            return (
+              <Group gap="xs" justify="space-between" wrap="nowrap" w="100%">
+                <Text size="sm" className="text-text-primary">
+                  {option.label}
+                </Text>
+                {repo ? (
+                  <Badge
+                    size="xs"
+                    variant="light"
+                    color={repo.private ? "gray" : "brand"}
+                  >
+                    {repo.private ? "Private" : "Public"}
+                  </Badge>
+                ) : null}
+              </Group>
+            );
+          }}
+        />
+
+        <Text size="xs" className="text-text-muted">
+          Don&apos;t see a repository? Grant the GitHub App access to it, then{" "}
+          <Anchor
+            href={`/api/auth/github/authorize?workspaceId=${workspaceId ?? ""}`}
+            className="text-text-secondary"
+          >
+            manage repository access on GitHub
+          </Anchor>{" "}
+          or hit Refresh.
+        </Text>
+
         <Group>
           <Button
             variant="filled"

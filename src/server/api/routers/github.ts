@@ -15,6 +15,7 @@ import {
 } from "~/server/services/github/connectionState";
 import { normalizeAccessibleRepos } from "~/server/services/github/accessibleRepos";
 import { reconcileWorkspaceRepositories } from "~/server/services/github/reconcileRepositories";
+import { githubIntegrationService } from "~/server/services/github-integration";
 
 export const githubRouter = createTRPCRouter({
   listCommits: publicProcedure
@@ -272,6 +273,33 @@ export const githubRouter = createTRPCRouter({
         accessibleRepos?: unknown;
       } | null;
       return normalizeAccessibleRepos(config?.accessibleRepos);
+    }),
+
+  /**
+   * Re-sync a workspace's accessible repos from GitHub and return the refreshed
+   * list (ADR-0020, slice #3 follow-up). Owner/admin only. Use after granting
+   * the GitHub App access to more repos so they appear in the picker without a
+   * re-install. Paginates past 100 repos. No-ops gracefully when L1 is absent.
+   */
+  refreshAccessibleRepos: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+      if (!membership || !hasMinimumWorkspaceRole(membership.role, "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Only workspace owners and admins can refresh GitHub repositories",
+        });
+      }
+
+      return githubIntegrationService.refreshWorkspaceAccessibleRepos(
+        input.workspaceId,
+      );
     }),
 
   /**

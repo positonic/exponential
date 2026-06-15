@@ -1,4 +1,5 @@
 import { db } from "~/server/db";
+import { App } from "octokit";
 import type {
   Integration,
   IntegrationCredential,
@@ -9,7 +10,12 @@ import { encryptCredential } from "~/server/utils/credentialHelper";
 import {
   GITHUB_INSTALLATION_PROVIDER,
   GITHUB_INSTALLATION_TYPE,
+  isGithubAppConfigured,
 } from "~/server/services/github/connectionState";
+import {
+  normalizeAccessibleRepos,
+  type RepoOption,
+} from "~/server/services/github/accessibleRepos";
 
 /** Minimal GitHub account shape captured at install time (account = user or org). */
 interface GitHubAccount {
@@ -188,6 +194,58 @@ class GitHubIntegrationService {
     });
 
     return integration;
+  }
+
+  /**
+   * Re-fetch the repos accessible to a workspace's installation directly from
+   * GitHub and refresh the cached `providerConfig.accessibleRepos` (ADR-0020,
+   * slice #3 follow-up). Paginates so installations with >100 repos are fully
+   * listed. Lets a user who just granted the App access to more repos on GitHub
+   * see them without re-installing. Returns `[]` (and writes nothing) when L1
+   * is absent or the workspace isn't installed, so it never throws on config.
+   */
+  async refreshWorkspaceAccessibleRepos(
+    workspaceId: string,
+  ): Promise<RepoOption[]> {
+    const installation = await db.integration.findFirst({
+      where: {
+        workspaceId,
+        provider: GITHUB_INSTALLATION_PROVIDER,
+        type: GITHUB_INSTALLATION_TYPE,
+        status: "ACTIVE",
+      },
+      select: { id: true, providerConfig: true },
+    });
+    if (!installation) return [];
+
+    const cfg = (installation.providerConfig ?? {}) as Record<string, unknown>;
+    const installationId = Number(cfg.installationId);
+    if (!isGithubAppConfigured() || !Number.isFinite(installationId)) {
+      return normalizeAccessibleRepos(cfg.accessibleRepos);
+    }
+
+    const app = new App({
+      appId: process.env.GITHUB_APP_ID!,
+      privateKey: process.env.GITHUB_PRIVATE_KEY!,
+    });
+    const octokit = await app.getInstallationOctokit(installationId);
+    const repositories = await octokit.paginate(
+      octokit.rest.apps.listReposAccessibleToInstallation,
+      { per_page: 100 },
+    );
+
+    const accessibleRepos = { repositories };
+    await db.integration.update({
+      where: { id: installation.id },
+      data: {
+        providerConfig: {
+          ...cfg,
+          accessibleRepos,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return normalizeAccessibleRepos(accessibleRepos);
   }
 
   async createGitHubIntegration(

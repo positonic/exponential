@@ -238,3 +238,34 @@ describe("github.setWorkspaceRepositories (mocked)", () => {
     });
   });
 });
+
+describe("github.refreshAccessibleRepos (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  it.each(["member", "viewer"] as const)("forbids %s", async (role) => {
+    mockRole(dbMock, role);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.github.refreshAccessibleRepos({ workspaceId: WORKSPACE_ID }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // Gate fails before any installation lookup.
+    expect(dbMock.integration.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("allows admin and returns [] gracefully when not installed", async () => {
+    mockRole(dbMock, "admin");
+    dbMock.integration.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.github.refreshAccessibleRepos({ workspaceId: WORKSPACE_ID }),
+    ).resolves.toEqual([]);
+  });
+});
