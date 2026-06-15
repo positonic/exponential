@@ -337,6 +337,9 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: z.string(),
         name: z.string().min(1).optional(),
         description: z.string().optional(),
+        // Per-scope AI guidance shown as "Instructions" in settings. Demoted
+        // context only (demoted scope-instructions ADR); owner/admin-gated like other workspace edits.
+        aiInstructions: z.string().optional(),
         effortUnit: z.enum(["STORY_POINTS", "T_SHIRT", "HOURS"]).optional(),
         enableAdvancedActions: z.boolean().optional(),
         enableDetailedActions: z.boolean().optional(),
@@ -370,6 +373,7 @@ export const workspaceRouter = createTRPCRouter({
         data: {
           name: input.name,
           description: input.description,
+          aiInstructions: input.aiInstructions,
           effortUnit: input.effortUnit,
           enableAdvancedActions: input.enableAdvancedActions,
           enableDetailedActions: input.enableDetailedActions,

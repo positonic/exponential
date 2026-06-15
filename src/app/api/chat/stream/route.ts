@@ -21,6 +21,7 @@ import {
 } from "~/server/utils/redactToolArgs";
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
+import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
 import {
   pickModelTier,
   isHaikuTier,
@@ -160,6 +161,7 @@ export async function POST(req: Request) {
       conversationHistory: finalMessages.reduce((sum, m) => sum + m.content.length, 0),
       clientStripped: clientSystemContent.length,
       assistantPersonality: 0,
+      scopeInstructions: 0,
       workspaceContext: 0,
       pinnedResources: 0,
       pinnedResourcesOriginal: 0,
@@ -197,15 +199,18 @@ export async function POST(req: Request) {
       ],
     ];
     
-    // Verify workspace access and fetch workspace details for agent context
+    // Verify workspace access and fetch workspace details for agent context.
+    // `aiInstructions` is fetched here, server-side by workspace ID (demoted
+    // scope-instructions ADR) — never trusted from the client — for the block.
     let workspaceInfo: { slug: string; name: string; type: string; description: string | null } | null = null;
+    let workspaceAiInstructions: string | null = null;
     if (workspaceId) {
       const workspaceAccess = await db.workspaceUser.findFirst({
         where: {
           workspaceId,
           userId: session.user.id,
         },
-        include: { workspace: { select: { slug: true, name: true, type: true, description: true } } },
+        include: { workspace: { select: { slug: true, name: true, type: true, description: true, aiInstructions: true } } },
       });
 
       if (!workspaceAccess) {
@@ -222,7 +227,9 @@ export async function POST(req: Request) {
 
       entries.push(["workspaceId", workspaceId]);
       if (workspaceAccess.workspace) {
-        workspaceInfo = workspaceAccess.workspace;
+        const { aiInstructions, ...navInfo } = workspaceAccess.workspace;
+        workspaceInfo = navInfo;
+        workspaceAiInstructions = aiInstructions;
         entries.push(["workspaceSlug", workspaceAccess.workspace.slug]);
         entries.push(["workspaceName", workspaceAccess.workspace.name]);
         entries.push(["workspaceType", workspaceAccess.workspace.type]);
@@ -307,6 +314,23 @@ export async function POST(req: Request) {
           ...finalMessages,
         ];
       }
+    }
+
+    // Inject per-scope AI Instructions as demoted context. The text
+    // was fetched server-side by scope ID above; the assembler wraps it in a
+    // `<user_data>` block so it reads as supplementary guidance, never as
+    // authoritative commands. Runs on BOTH the default-agent and custom-
+    // assistant paths (this is outside the assistantId block). Slice 1 layers
+    // only the workspace scope; Slice 2 adds the in-scope project on top.
+    const scopeInstructionsBlock = assembleScopeInstructions([
+      { scope: 'workspace', label: 'Workspace', instructions: workspaceAiInstructions },
+    ]);
+    if (scopeInstructionsBlock) {
+      promptSizeChars.scopeInstructions = scopeInstructionsBlock.length;
+      finalMessages = [
+        { role: 'system' as const, content: scopeInstructionsBlock },
+        ...finalMessages,
+      ];
     }
 
     // Inject workspace navigation context so agents can build links to product pages
@@ -417,6 +441,7 @@ export async function POST(req: Request) {
     const totalCharsRouteSide =
       promptSizeChars.conversationHistory +
       promptSizeChars.assistantPersonality +
+      promptSizeChars.scopeInstructions +
       promptSizeChars.workspaceContext +
       promptSizeChars.pinnedResources +
       promptSizeChars.clientContext;
