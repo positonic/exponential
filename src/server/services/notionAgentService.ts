@@ -146,6 +146,10 @@ export type NotionPageResult =
       truncated: boolean;
     };
 
+export type NotionWriteResult =
+  | { connected: false }
+  | { connected: true; id: string; url?: string; title?: string };
+
 type NotionServiceFactory = (accessToken: string) => NotionService;
 
 export class NotionAgentService {
@@ -298,5 +302,47 @@ export class NotionAgentService {
       text,
       truncated,
     };
+  }
+
+  /**
+   * Create a page in one of the user's Notion databases. The agent is
+   * responsible for draft-and-confirm (ADR-0016) BEFORE calling — this method
+   * just performs the confirmed write and returns a lean confirmation.
+   */
+  async createPage(
+    userId: string,
+    workspaceId: string | null | undefined,
+    params: { databaseId: string; title: string; properties?: Record<string, any> },
+  ): Promise<NotionWriteResult> {
+    const connection = await this.resolveService(userId, workspaceId);
+    if (!connection.connected) return { connected: false };
+
+    const page = await connection.service.createPage({
+      databaseId: params.databaseId,
+      title: params.title,
+      properties: params.properties ?? {},
+    });
+
+    return { connected: true, id: page.id, url: page.url, title: page.title };
+  }
+
+  /**
+   * Update properties of an existing Notion page. Like {@link createPage}, the
+   * agent must draft-and-confirm before calling; this performs the confirmed write.
+   */
+  async updatePage(
+    userId: string,
+    workspaceId: string | null | undefined,
+    params: { pageId: string; properties: Record<string, any> },
+  ): Promise<NotionWriteResult> {
+    const connection = await this.resolveService(userId, workspaceId);
+    if (!connection.connected) return { connected: false };
+
+    await connection.service.updatePage({
+      pageId: params.pageId,
+      properties: params.properties,
+    });
+
+    return { connected: true, id: params.pageId };
   }
 }

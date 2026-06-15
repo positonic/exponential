@@ -3071,6 +3071,40 @@ export const mastraRouter = createTRPCRouter({
       return notion.getPage(userId, input.workspaceId, input.pageId);
     }),
 
+  // Writes follow ADR-0016 draft-and-confirm — the agent surfaces the exact
+  // change and gets an explicit "yes" before these endpoints are ever called.
+  notionCreatePage: protectedProcedure
+    .input(z.object({
+      databaseId: z.string().min(1),
+      title: z.string().min(1),
+      properties: z.record(z.any()).optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.createPage(userId, input.workspaceId, {
+        databaseId: input.databaseId,
+        title: input.title,
+        properties: input.properties,
+      });
+    }),
+
+  notionUpdatePage: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1),
+      properties: z.record(z.any()),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.updatePage(userId, input.workspaceId, {
+        pageId: input.pageId,
+        properties: input.properties,
+      });
+    }),
+
   getOkrObjectives: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
