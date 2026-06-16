@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
-import { toolTriggersGoalActivityRefresh } from "./manyChatToolRefresh";
+import { entitiesToRefresh } from "./manyChatToolRefresh";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1332,21 +1332,33 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       clearIdleTimer();
       setIsStreaming(false);
 
-      // When Zoe posts to a goal's activity feed from chat (objective comment /
-      // update), that feed renders in a sibling component with its own React
-      // Query cache, so it stays stale until reload. Invalidate the same key set
-      // useGoalActivity.invalidate() uses (feed + count + the goal for the health
-      // badge). Procedure-wide (no args) avoids goalId source/coercion fragility;
-      // only one goal feed is mounted, so the cost is one refetch.
-      if (pageContext?.pageType === 'goal') {
-        const postedToGoalActivity = Array.from(toolCallsById.values()).some(
-          (tc) => tc.status === 'success' && toolTriggersGoalActivityRefresh(tc.name),
-        );
-        if (postedToGoalActivity) {
-          void utils.goalActivity.getFeed.invalidate();
-          void utils.goalActivity.getCount.invalidate();
-          void utils.goal.getById.invalidate();
-        }
+      // Agent writes leave sibling views (each with its own React Query cache)
+      // stale until reload. The rule registry maps the tools that just ran to the
+      // entities whose mounted views need invalidating (see manyChatToolRefresh /
+      // ADR-0023). Procedure-wide (no args) invalidation keeps it robust against
+      // arg source/coercion drift and only refetches mounted observers.
+      const executedToolNames = Array.from(toolCallsById.values())
+        .filter((tc) => tc.status === 'success')
+        .map((tc) => tc.name);
+      const toRefresh = entitiesToRefresh(executedToolNames, pageContext?.pageType);
+
+      if (toRefresh.has('goalActivity')) {
+        // Goal feed + count + the goal itself (for the health badge).
+        void utils.goalActivity.getFeed.invalidate();
+        void utils.goalActivity.getCount.invalidate();
+        void utils.goal.getById.invalidate();
+      }
+      if (toRefresh.has('action')) {
+        // Full canonical Action set, mirroring the hand-written create/update/bulk
+        // invalidation sets so create, update, move, and delete refresh every
+        // surface (today list, project board, calendar, score widgets).
+        void utils.action.getAll.invalidate();
+        void utils.action.getToday.invalidate();
+        void utils.action.getScheduledByDate.invalidate();
+        void utils.action.getScheduledByDateRange.invalidate();
+        void utils.action.getProjectActions.invalidate();
+        void utils.scoring.getTodayScore.invalidate();
+        void utils.scoring.getProductivityStats.invalidate();
       }
 
       const responseTime = Date.now() - startTime;
