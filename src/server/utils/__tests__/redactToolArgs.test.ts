@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   capToolCallsForTurn,
+  formatUserFacingStreamError,
   maskTokenLike,
   redactToolArgs,
+  USER_FACING_STREAM_ERROR,
   type LoggedToolCall,
 } from "../redactToolArgs";
 
@@ -68,6 +70,31 @@ describe("maskTokenLike", () => {
     expect(out).not.toContain(key);
     expect(out).toContain("Invalid API key");
     expect(out).toContain("check your dashboard");
+  });
+});
+
+describe("formatUserFacingStreamError", () => {
+  it("returns the calm generic copy as the user message, never the raw error", () => {
+    const raw =
+      'Type validation failed: {"received":"foo","expected":"bar","path":["x"]}';
+    const { userMessage } = formatUserFacingStreamError(raw);
+    expect(userMessage).toBe(USER_FACING_STREAM_ERROR);
+    expect(userMessage).not.toContain("Type validation failed");
+    expect(userMessage).not.toContain(raw);
+  });
+
+  it("masks credential echoes in the logged (server-side) message", () => {
+    const key = "ff_live_" + "a1B2c3D4".repeat(6);
+    const { userMessage, loggedMessage } = formatUserFacingStreamError(
+      `Invalid API key ${key} during validation`,
+    );
+    // The real error is preserved for diagnostics, with secrets masked.
+    expect(loggedMessage).toContain("Invalid API key");
+    expect(loggedMessage).toContain("during validation");
+    expect(loggedMessage).not.toContain(key);
+    // The user never sees the raw error nor the secret.
+    expect(userMessage).not.toContain(key);
+    expect(userMessage).not.toContain("Invalid API key");
   });
 });
 

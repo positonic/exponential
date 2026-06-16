@@ -65,6 +65,31 @@ export function maskTokenLike(text: string): string {
   return text.replace(TOKEN_LIKE, REDACTED);
 }
 
+/**
+ * Calm, generic, plain-language line shown to the user when the agent
+ * stream emits a top-level `error` chunk. Never embeds the raw error —
+ * internal error text (e.g. a Zod "Type validation failed" blob) must
+ * never reach the end user and may also leak credentials.
+ */
+export const USER_FACING_STREAM_ERROR =
+  "⚠️ Something went wrong on my end — please try that again.";
+
+/**
+ * Build the masked, server-side-safe rendering of a raw agent-stream error
+ * for logging/diagnostics. Token-like runs are masked so credentials never
+ * land in logs; this is NOT what gets streamed to the user (see
+ * USER_FACING_STREAM_ERROR for that).
+ */
+export function formatUserFacingStreamError(rawMessage: string): {
+  userMessage: string;
+  loggedMessage: string;
+} {
+  return {
+    userMessage: USER_FACING_STREAM_ERROR,
+    loggedMessage: maskTokenLike(rawMessage),
+  };
+}
+
 /** Redact secrets from tool args and serialize, capped per call. */
 export function redactToolArgs(args: unknown): string {
   let serialized: string;
