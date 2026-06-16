@@ -5,6 +5,7 @@ import {
   IconCheck,
   IconCirclePlus,
   IconClipboardList,
+  IconClock,
   IconEdit,
   IconMessageCircle,
   IconRefresh,
@@ -27,6 +28,7 @@ const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
   completed: IconCheck,
   commented: IconMessageCircle,
   milestone: IconTrophy,
+  tracked: IconClock,
   fallback: IconRefresh,
 };
 

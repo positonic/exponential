@@ -28,7 +28,8 @@ export type ActivityEntityType =
   | "weekly_review"
   | "workspace_member"
   | "deal"
-  | "meeting";
+  | "meeting"
+  | "time_entry";
 
 export interface RecordActivityInput {
   workspaceId: string;

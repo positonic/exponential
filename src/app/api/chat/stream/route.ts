@@ -15,6 +15,7 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
   capToolCallsForTurn,
+  formatUserFacingStreamError,
   maskTokenLike,
   redactToolArgs,
   type LoggedToolCall,
@@ -520,6 +521,10 @@ export async function POST(req: Request) {
     let lastStepFinishReason: string | undefined;
     let hadToolError = false;
     let hadAgentError = false;
+    // The masked top-level agent error, captured for the durable interaction
+    // record (the user only ever sees the generic line). Tool errors flow via
+    // firstToolErrorMessages; this is the agent-error equivalent.
+    let agentErrorMessage: string | undefined;
     const firstToolErrorMessages: string[] = [];
     const textStream = new ReadableStream({
       async start(controller) {
@@ -727,10 +732,18 @@ export async function POST(req: Request) {
                 }
                 toolFrame({ phase: 'error', id, name, msg });
               } else if (chunk.type === "error") {
-                const msg = readString(chunk.payload, 'message')
+                // The raw error (often a Zod "Type validation failed" blob, and
+                // capable of echoing credentials) must never reach the user.
+                // Stream a calm generic line; log the masked real error so it
+                // stays diagnosable server-side.
+                const rawMsg = readString(chunk.payload, 'message')
                   ?? formatErr(readUnknown(chunk.payload, 'error'));
+                const { userMessage, loggedMessage } =
+                  formatUserFacingStreamError(rawMsg);
                 hadAgentError = true;
-                emit(`\n\n⚠️ **Agent error:** ${msg}\n`);
+                agentErrorMessage = loggedMessage;
+                console.error('❌ [chat/stream] Agent error chunk', { error: loggedMessage });
+                emit(`\n\n${userMessage}\n`);
               } else if (chunk.type === "step-finish") {
                 const fr = readString(chunk.payload, 'finishReason');
                 // [DIAGNOSTIC] Per-step timing — revert after Zoe hang investigation.
@@ -809,6 +822,7 @@ export async function POST(req: Request) {
                 lastStepFinishReason = undefined;
                 hadToolError = false;
                 hadAgentError = false;
+                agentErrorMessage = undefined;
                 finishUsage = undefined;
                 responseModelId = undefined;
                 activeAgentId = sonnetId;
@@ -937,6 +951,7 @@ export async function POST(req: Request) {
                 ? JSON.stringify({
                     finishReason: lastStepFinishReason ?? 'unknown',
                     toolErrors: firstToolErrorMessages,
+                    agentError: agentErrorMessage,
                     emptyResponse,
                     nonTextChunkTypes: [...nonTextChunkTypes],
                     tierRetried,
