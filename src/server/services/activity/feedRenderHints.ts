@@ -20,6 +20,7 @@ export type IconKind =
   | "completed"
   | "commented"
   | "milestone"
+  | "tracked"
   | "fallback";
 
 export interface FeedRenderHint {
@@ -138,6 +139,17 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("meeting", "summarized")]: {
     template: "{actor} summarized a meeting {entityRef}",
     iconKind: "updated",
+  },
+
+  // Time recordings — one event per stopped timer (TimeEntryService, incl. the
+  // silent auto-stop when a new timer starts). The tracked Action's name rides
+  // in metadata so {entityRef} renders the task, not the action CUID; the
+  // recorded duration rides in metadata.durationMins for future enrichment.
+  // Dedicated "tracked" icon kind (clock) so time logging reads distinctly from
+  // task creation/edits.
+  [key("time_entry", "created")]: {
+    template: "{actor} tracked time on {entityRef}",
+    iconKind: "tracked",
   },
 };
 

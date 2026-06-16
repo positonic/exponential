@@ -1017,6 +1017,7 @@
 .wsa-feed__icon[data-kind='status_changed'] { color: var(--activity-accent-okr); }
 .wsa-feed__icon[data-kind='completed']      { color: var(--activity-accent-crm); }
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
+.wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
 
 /* Milestone (completed project) — a filled gold chip instead of a tinted glyph,
    so it reads as a celebration rather than another status change. */

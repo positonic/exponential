@@ -65,6 +65,16 @@ describe("resolveFeedHint", () => {
     // /activity feed (both call resolveFeedHint), so this one entry covers both.
   });
 
+  it("renders a tracked time entry with the action name and a clock icon", () => {
+    const hint = resolveFeedHint("time_entry", "created");
+    expect(hint.template).toBe("{actor} tracked time on {entityRef}");
+    // Must NOT fall back — a missing registry entry would hide the action name
+    // behind the neutral "touched" sentence.
+    expect(hint.iconKind).toBe("tracked");
+    expect(hint.iconKind).not.toBe("fallback");
+    expect(hint.template).toContain("{entityRef}");
+  });
+
   it("falls back to a neutral hint for unknown pairs", () => {
     const hint = resolveFeedHint("nonsense", "nonsense");
     expect(hint.iconKind).toBe("fallback");
