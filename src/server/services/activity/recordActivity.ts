@@ -29,11 +29,17 @@ export type ActivityEntityType =
   | "workspace_member"
   | "deal"
   | "meeting"
-  | "time_entry";
+  | "time_entry"
+  | "channel_summary";
 
 export interface RecordActivityInput {
   workspaceId: string;
-  userId: string;
+  /**
+   * Acting user. Normally a real user id; `null` is permitted for system-actor
+   * events whose `ChannelLink.createdById` was cleared (the column is nullable,
+   * SET NULL on user delete). See ADR-0023 channel summaries.
+   */
+  userId: string | null;
   entityType: ActivityEntityType;
   entityId: string;
   action: ActivityAction;

@@ -25,6 +25,7 @@ import { filterAgentInstructions } from "~/server/services/agent-routing/agentIn
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { ingestChannelSummary } from "~/server/services/activity/ingestChannelSummary";
 import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "~/server/services/goalService";
 import { NotionAgentService } from "~/server/services/notionAgentService";
 
@@ -3112,6 +3113,26 @@ export const mastraRouter = createTRPCRouter({
         pageId: input.pageId,
         properties: input.properties,
       });
+    }),
+
+  // ADR-0023: the gateway pushes ONE finished channel summary tagged only with
+  // (provider, externalId). Authenticated by the agent JWT (resolves to a user
+  // in the tRPC context) so only the trusted gateway can write summaries. The
+  // routing (workspace/project), drop-if-unlinked, and dedup-by-window logic
+  // all live in ingestChannelSummary — this endpoint is a thin shell. The
+  // event's owner is the link's creator, not the JWT user.
+  recordChannelSummary: protectedProcedure
+    .input(z.object({
+      provider: z.string().min(1),
+      externalId: z.string().min(1),
+      summary: z.string().min(1),
+      displayName: z.string().optional(),
+      windowStart: z.string().datetime(),
+      windowEnd: z.string().datetime(),
+      messageCount: z.number().int().nonnegative(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ingestChannelSummary(ctx.db, input);
     }),
 
   getOkrObjectives: protectedProcedure
