@@ -191,6 +191,8 @@ model User {
   projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
   // Workspace home activity feed
   workspaceActivityEvents     WorkspaceActivityEvent[]
+  // Inbound channel links created by this user
+  channelLinksCreated         ChannelLink[]               @relation("ChannelLinkCreatedBy")
   // Per-user favourites (polymorphic pins)
   favorites                   Favorite[]
 
@@ -281,20 +283,20 @@ model VerificationToken {
 // ============================================
 
 model Workspace {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  description    String?
   // Per-scope AI guidance ("Instructions" in the UI). Injected as DEMOTED
   // <user_data> context in the chat route, never as an authoritative system
   // prompt (demoted scope-instructions ADR). Distinct from the human-facing `description`.
-  aiInstructions String? @db.Text
-  logoUrl     String?
-  type        String   @default("personal") // "personal" | "team" | "organization"
-  homeLayout  String   @default("command") // "command" | "activity"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  ownerId     String
+  aiInstructions String?  @db.Text
+  logoUrl        String?
+  type           String   @default("personal") // "personal" | "team" | "organization"
+  homeLayout     String   @default("command") // "command" | "activity"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ownerId        String
 
   effortUnit               EffortUnit @default(STORY_POINTS)
   enableAdvancedActions    Boolean    @default(false)
@@ -384,6 +386,8 @@ model Workspace {
   activityEvents   WorkspaceActivityEvent[]
   // Cached AI-generated Week-in-Review narratives (one row per ISO week).
   weeklyNarratives WorkspaceWeeklyNarrative[]
+  // Inbound channel links routed to this workspace (ADR-0023)
+  channelLinks     ChannelLink[]
 
   @@index([slug])
   @@index([ownerId])
@@ -413,6 +417,35 @@ model WorkspaceActivityEvent {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, userId, createdAt])
+}
+
+// Generic, inbound, provider-agnostic link routing a watched external
+// conversation to an Exponential destination (ADR-0023). The *routing*
+// authority: where a conversation's summary lands (required workspace,
+// optional project). `provider` is a string ("whatsapp" first); `externalId`
+// is that provider's conversation id (WhatsApp Baileys group JID "…@g.us",
+// Slack channel id, …). Deliberately distinct from the OUTBOUND,
+// Integration-FK-bound SlackChannelConfig — this is inbound and integration-free.
+model ChannelLink {
+  id          String   @id @default(cuid())
+  provider    String // "whatsapp" | "slack" | "telegram" | …
+  externalId  String // provider conversation id (e.g. WhatsApp group JID)
+  displayName String?
+  workspaceId String
+  projectId   String?
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalId])
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdById])
 }
 
 // Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
@@ -816,6 +849,7 @@ model Project {
   product               Product?                   @relation(fields: [productId], references: [id], onDelete: SetNull)
   projectMembers        ProjectMember[]
   slackConfig           SlackChannelConfig?
+  channelLinks          ChannelLink[]
   transcriptionSessions TranscriptionSession[]
   workflows             Workflow[]
   goals                 Goal[]                     @relation("GoalProjects")
