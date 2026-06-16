@@ -12,6 +12,7 @@ import { lifeDomainRouter } from "./routers/lifeDomain";
 import { workflowRouter } from "./routers/workflow";
 import { transcriptionRouter } from "./routers/transcription";
 import { githubRouter } from "./routers/github";
+import { channelLinkRouter } from "./routers/channelLink";
 import { noteRouter } from "./routers/note";
 import { exerciseRouter } from "./routers/exercise";
 import { mastraRouter } from "./routers/mastra";
@@ -96,6 +97,7 @@ export const appRouter = createTRPCRouter({
   workflow: workflowRouter,
   transcription: transcriptionRouter,
   github: githubRouter,
+  channelLink: channelLinkRouter,
   note: noteRouter,
   exercise: exerciseRouter,
   mastra: mastraRouter,
