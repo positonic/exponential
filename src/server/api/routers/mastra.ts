@@ -1116,11 +1116,14 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       text: z.string().min(1),
       projectId: z.string().optional(),
+      // Canonical priority enum. Optional and backward-compatible: when omitted,
+      // the action falls back to "Quick" (the historical hardcoded value).
+      priority: z.enum(PRIORITY_VALUES).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
@@ -1128,10 +1131,16 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, scheduledStart=${String(parsed.scheduledStart ?? "none")}, dueDate=${String(parsed.dueDate ?? "none")}`);
 
-      // Use context projectId as fallback if text parsing didn't match a project
-      if (!parsed.projectId && input.projectId) {
+      // An explicitly-passed projectId is a deliberately-resolved target — the
+      // agent resolves the user-named project via get-all-projects and passes the
+      // intended id — so it takes precedence over any project the text parser
+      // inferred. When no explicit id is passed, the parsed match stands (so calls
+      // that pass neither are unchanged).
+      if (input.projectId) {
+        if (parsed.projectId && parsed.projectId !== input.projectId) {
+          console.log(`🎯 [tRPC quickCreateAction] PRECEDENCE: explicit projectId=${input.projectId} overrides parsed=${parsed.projectId}`);
+        }
         parsed.projectId = input.projectId;
-        console.log(`🎯 [tRPC quickCreateAction] FALLBACK: using context projectId=${input.projectId}`);
       }
 
       // Get kanban order if project specified
@@ -1159,7 +1168,7 @@ export const mastraRouter = createTRPCRouter({
         data: {
           name: parsed.name,
           projectId: parsed.projectId,
-          priority: "Quick",
+          priority: input.priority ?? "Quick",
           status: "ACTIVE",
           createdById: userId,
           scheduledStart: parsed.scheduledStart,
