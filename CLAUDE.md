@@ -477,6 +477,16 @@ The application uses a comprehensive styling system with light/dark mode support
 
 Always ensure code follows the project's ESLint rules and TypeScript configuration. Run `npm run check` before committing changes to maintain code quality.
 
+## Content Rendering (Markdown)
+
+**Markdown is the single canonical format for authored prose** (descriptions, updates, comments, chat, notes, bodies). Decision: [ADR-0017](docs/adr/0017-markdown-canonical-content-format.md).
+
+- **Display** prose with `<MarkdownRenderer content variant="prose|compact" />` (`~/app/_components/shared/MarkdownRenderer`). It tolerates legacy HTML on read.
+- **Accept** prose with `<MarkdownInput />` (or `CommentInput` for comments) — never a bare `<Textarea>` for prose.
+- **Never** import `react-markdown` directly, use `dangerouslySetInnerHTML`, or add a Tiptap editor for prose. New content is stored as Markdown; legacy HTML converts to Markdown lazily on edit.
+
+**Read `/dev-docs/CONTENT_RENDERING.md` before any content input/display work** — it has the full component API, the internals, and the reviewer checklist.
+
 ## Debugging & Logs
 
 ### Application Logs
@@ -531,10 +541,6 @@ The project includes reusable system prompts for specialized Claude agents in `.
 
 ### Usage
 Copy the prompt content into a new Claude session, then provide your inputs. See `.claude/prompts/README.md` for detailed instructions and a template for creating new agent prompts.
-
-## Task Master AI Instructions
-**Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
-@./.taskmaster/CLAUDE.md
 
 ## Rule Improvement Triggers
 
@@ -608,55 +614,30 @@ Copy the prompt content into a new Claude session, then provide your inputs. See
 - Maintain links between related rules
 - Document breaking changes
 
-## Beads Workflow (Task Tracking)
+## Task Tracking
 
-**All task tracking in this project uses [beads](https://github.com/beads-project/beads) (`bd` CLI). This is mandatory.**
+**Exponential is the single source of truth for work items** (features, bugs, PRDs, tickets) —
+workspace `syntrofi` / product `exponential`, via the `exponential` CLI and the `/to-expo`,
+`/start-ticket`, `/ship-ticket` skills. See the **Issue tracker** section below.
 
-### Rules
-- **Use `bd` for ALL task tracking** — never use `TodoWrite`, `TaskCreate`, or markdown task lists
-- **Create a beads issue BEFORE writing code**: `bd create --title="..." --type=task|bug|feature --priority=2`
-- **Claim work** before starting: `bd update <id> --status=in_progress`
-- **Close issues on completion**: `bd close <id>` (or `bd close <id1> <id2> ...` for batch)
-- **Sync at session end**: `bd sync`
+### Tracking inside a session
 
-### Session Close Protocol
-Before saying "done" or "complete", run this checklist:
-```
-1. git status              (check what changed)
-2. git add <files>         (stage code changes)
-3. bd sync                 (commit beads changes)
-4. git commit -m "..."     (commit code)
-5. bd sync                 (commit any new beads changes)
-6. git push                (push to remote)
-```
+- **Quick / small / single-step work** (a bugfix, a rename, a one-file change): no tracker needed,
+  or an ephemeral `TodoWrite` list. Don't manufacture a ticket for a 5-minute change.
+- **Multi-step or multi-session implementation work**: track it where it belongs in Exponential.
+- **There is no longer a mandate to file everything in `bd` before writing code.**
 
-### Essential Commands
-```bash
-# Finding work
-bd ready                              # Show issues ready to work (no blockers)
-bd list --status=open                 # All open issues
-bd list --status=in_progress          # Active work
-bd show <id>                          # Detailed issue view
+### Beads (`bd`) — being wound down
 
-# Creating & updating
-bd create --title="..." --type=task --priority=2   # New issue
-bd update <id> --status=in_progress                # Claim work
-bd close <id>                                      # Mark complete
-bd close <id> --reason="explanation"               # Close with reason
+beads still holds a historical backlog with live dependency chains (notably the bounty/payment
+epic). It is **not the default tracker anymore** and we are migrating its open issues into
+Exponential. Until that's done:
 
-# Dependencies
-bd dep add <issue> <depends-on>       # Add dependency
-bd blocked                            # Show blocked issues
-
-# Sync
-bd sync                               # Sync with git remote
-```
-
-### Priority Values
-Use numeric priorities: 0-4 or P0-P4 (0=critical, 2=medium, 4=backlog). Do NOT use "high"/"medium"/"low".
-
-### Warning
-Do NOT use `bd edit` — it opens `$EDITOR` (vim/nano) which blocks agents. Use `bd update` instead.
+- It's fine to **read** beads for context: `bd ready`, `bd blocked`, `bd show <id>`,
+  `bd list --status=in_progress`. The `blocked-by` / `blocks` graph is the main thing worth keeping.
+- Don't **create** new beads issues — file new work in Exponential instead.
+- Don't use `bd edit` (it opens `$EDITOR` and blocks agents); use `bd update` if you must edit.
+- `bd` priorities are numeric (0–4 / P0–P4, 0=critical), never "high"/"medium"/"low".
 
 ## Agent skills
 
@@ -664,7 +645,7 @@ Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-iss
 
 ### Issue tracker
 
-Product-facing work items (features, PRDs, cross-commit bugs) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Implementation-scope tracking inside a session stays in **beads** (`bd`). See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 
 ### Triage labels
 

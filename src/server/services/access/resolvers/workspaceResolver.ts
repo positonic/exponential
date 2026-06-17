@@ -10,7 +10,6 @@
  */
 
 import type { PrismaClient } from "@prisma/client";
-import { db } from "~/server/db";
 import type { WorkspaceMembership, WorkspaceRole } from "../types";
 
 export async function getWorkspaceMembership(
@@ -156,6 +155,9 @@ export async function findUserByEmailInWorkspace(
   email: string,
   workspaceId: string,
 ): Promise<{ id: string; email: string; name: string | null } | null> {
+  // Lazy import: keeps this module free of the global Prisma client at
+  // import time, so unit tests can import the other resolvers without a DB.
+  const { db } = await import("~/server/db");
   const user = await db.user.findUnique({
     where: { email },
     select: { id: true, email: true, name: true },

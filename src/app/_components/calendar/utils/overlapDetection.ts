@@ -1,5 +1,5 @@
 import { parseISO, isSameDay } from "date-fns";
-import type { CalendarEvent } from "~/server/services/GoogleCalendarService";
+import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction, CalendarTimeEntry } from "../types";
 import { HOUR_HEIGHT, VISIBLE_START_HOUR } from "../types";
 
@@ -14,7 +14,7 @@ export interface CalendarItem {
   startMinutes: number;
   endMinutes: number;
   // Preserve original items for rendering
-  originalEvent?: CalendarEvent;
+  originalEvent?: CalendarEventWithSource;
   originalAction?: ScheduledAction;
   originalTimeEntry?: CalendarTimeEntry;
 }
@@ -191,7 +191,7 @@ export function calculateOverlappingPositions(
  * @returns CalendarItem or null if event doesn't match the selected date
  */
 export function convertEventToCalendarItem(
-  event: CalendarEvent,
+  event: CalendarEventWithSource,
   selectedDate: Date
 ): CalendarItem | null {
   // Check if event is on the selected date

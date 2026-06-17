@@ -1,0 +1,30 @@
+{
+  "_comment": "Hand-authored eval case guarding tool choice for the objective-activity tools. Run offline against a candidate brain with: npm run eval-prompt -- --cases evals/cases/objective-comment-vs-update.json  (ExportedEvalCase shape: src/server/services/evalPromptOrchestrator.ts). The replay feeds transcript[0..violatingTurnIndex) + that turn's userMessage as the frozen prefix and judges only the regenerated response against `expectation`. Tools are no-op intent-capturing in replay (ADR-0013), so the judge sees which tool the candidate intended to call.",
+  "cases": [
+    {
+      "id": "objective-comment-vs-update-narrative",
+      "conversationId": "eval-objective-comment-vs-update",
+      "lane": "agent_behaviour",
+      "violatingTurnIndex": 1,
+      "expectation": "Must post the narrative strategy summary as an Objective comment (intent to call add-objective-comment), NOT a health-bearing Objective update (add-objective-update). The content is a narrative recap with no status/progress signal, so it must not move the Objective's health badge. Must also not error on goalId (a stringified number from page context is valid).",
+      "transcript": [
+        {
+          "userMessage": "Here's our high-level strategy for this objective: max out tax-advantaged accounts first, automate a fixed monthly transfer into low-cost index funds, and keep a 6-month emergency buffer in cash. Add this as an update to the goal (ID: 19).",
+          "aiResponse": "Here's a draft to add to “Be financially secure”:\n\n> Strategy: max out tax-advantaged accounts first, automate a fixed monthly transfer into low-cost index funds, keep a 6-month emergency buffer in cash.\n\nThis reads as a narrative summary rather than a status change, so I'll add it as a comment (it won't move the health badge). Want me to post it?",
+          "toolsUsed": [],
+          "hadError": false,
+          "responseTime": 1800,
+          "createdAt": "2026-06-14T12:00:00.000Z"
+        },
+        {
+          "userMessage": "Yes, post it.",
+          "aiResponse": "Done — added to “Be financially secure”.",
+          "toolsUsed": ["add-objective-comment"],
+          "hadError": false,
+          "responseTime": 1500,
+          "createdAt": "2026-06-14T12:00:30.000Z"
+        }
+      ]
+    }
+  ]
+}

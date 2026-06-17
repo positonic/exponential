@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { verifyGoalAccess } from "~/server/services/goalService";
+import { verifyGoalAccess, createGoalComment } from "~/server/services/goalService";
 
 export const goalCommentRouter = createTRPCRouter({
   getComments: protectedProcedure
@@ -27,18 +27,11 @@ export const goalCommentRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await verifyGoalAccess({ ctx, goalId: input.goalId });
-
-      return ctx.db.goalComment.create({
-        data: {
-          goalId: input.goalId,
-          authorId: ctx.session.user.id,
-          content: input.content,
-          parentUpdateId: input.parentUpdateId ?? null,
-        },
-        include: {
-          author: { select: { id: true, name: true, image: true } },
-        },
+      return createGoalComment({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+        parentUpdateId: input.parentUpdateId,
       });
     }),
 

@@ -8,24 +8,28 @@ import { TRPCError } from "@trpc/server";
 //import { getSetups } from "~/server/services/videoService";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
-import {
-  FirefliesService,
-  type FirefliesTranscript,
-} from "~/server/services/FirefliesService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
+import {
+  extractReadableTranscript,
+  MAX_SUMMARY_TRANSCRIPT_CHARS,
+} from "~/server/services/meetings/extractReadableTranscript";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   TranscriptSummarizerService,
   SummarizationNotConfiguredError,
 } from "~/server/services/TranscriptSummarizerService";
 import {
-  buildProjectAccessWhere,
+  buildTranscriptionAccessWhere,
   canEditProject,
+  canEditTranscription,
+  canViewTranscription,
   getProjectAccess,
+  getTranscriptionAccess,
   hasProjectAccess,
   requireProjectAccess,
 } from "~/server/services/access";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -103,41 +107,29 @@ function tokenizeTitle(title: string): string[] {
 }
 
 /**
- * Centralized access check for a transcription session.
- *
- * Rules (in order):
- * 1. The session owner always has access.
- * 2. If the session is tied to a project, project access is authoritative —
- *    a workspace member without project access (e.g. on a restricted project)
- *    is denied even if they could otherwise see the workspace.
- * 3. Otherwise, fall back to direct workspace membership (the legacy
- *    "owner OR workspace member" behavior for project-less transcriptions).
+ * Throwing wrapper around the centralized transcription access resolver
+ * (`src/server/services/access/resolvers/transcriptionResolver.ts`). See
+ * CONTEXT.md "Meeting visibility" for the rules. All meeting access checks —
+ * per-row and bulk (`buildTranscriptionAccessWhere`) — live in the access
+ * service; do not add inline permission logic here.
  */
 async function ensureTranscriptionAccess(
   db: PrismaClient,
   userId: string,
   session: {
+    id: string;
     userId: string | null;
     projectId: string | null;
     workspaceId: string | null;
   },
   permission: "view" | "edit",
 ): Promise<void> {
-  if (session.userId && session.userId === userId) return;
-
-  if (session.projectId) {
-    const access = await getProjectAccess(db, userId, session.projectId);
-    const allowed =
-      permission === "view" ? hasProjectAccess(access) : canEditProject(access);
-    if (allowed) return;
-  } else if (session.workspaceId) {
-    const membership = await db.workspaceUser.findUnique({
-      where: {
-        userId_workspaceId: { userId, workspaceId: session.workspaceId },
-      },
-    });
-    if (membership) return;
-  }
+  const access = await getTranscriptionAccess(db, userId, session);
+  const allowed =
+    permission === "view"
+      ? canViewTranscription(access)
+      : canEditTranscription(access);
+  if (allowed) return;
 
   throw new TRPCError({
     code: "FORBIDDEN",
@@ -148,37 +140,6 @@ async function ensureTranscriptionAccess(
   });
 }
 
-/** Cap the transcript fed to the summarizer to bound LLM cost/latency. */
-const MAX_SUMMARY_TRANSCRIPT_CHARS = 200_000;
-
-/**
- * Normalize a stored `transcription` field into readable plain text for the
- * summarizer. Fireflies sessions store a JSON `{ sentences: [...] }` blob;
- * device sessions store plain text. Returns "" when there's nothing to summarize.
- */
-function extractReadableTranscript(raw: string | null): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return "";
-
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      const sentences =
-        parsed && typeof parsed === "object" && "sentences" in parsed
-          ? (parsed as { sentences?: FirefliesTranscript["sentences"] })
-              .sentences
-          : undefined;
-      if (sentences?.length) {
-        return FirefliesService.formatTranscriptText(sentences);
-      }
-    } catch {
-      // Not JSON — fall through and treat the raw string as plain text.
-    }
-  }
-
-  return trimmed;
-}
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
@@ -216,6 +177,13 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
+
+      // NOTE: no activity event here. A device session is created empty (no
+      // transcript, title usually null) and may be abandoned, so emitting at
+      // start would render "had a meeting <CUID>" and log non-meetings. Device
+      // meetings should be instrumented at a "landed + titled" hook in a
+      // follow-up (coordinating with the auto-summarize work). The manual path
+      // (createManualTranscription) emits on completion with a required title.
 
       return {
         id: session.id,
@@ -647,6 +615,26 @@ export const transcriptionRouter = createTRPCRouter({
         },
       });
 
+      // Record a workspace activity event when a meeting lands (ADR-0018): one
+      // write surfaces it in the workspace feed, the aggregated /activity feed,
+      // and the weekly work digest. Skipped for personal (no-workspace) meetings
+      // since recordActivity requires a workspaceId. The title rides in metadata
+      // so describeEntityRef renders the title, not a CUID. Fire-and-forget:
+      // recordActivity never throws, but the .catch keeps instrumentation
+      // failures non-fatal.
+      if (session.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: session.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "meeting",
+          entityId: session.id,
+          action: "created",
+          metadata: { title: session.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       return session;
     }),
 
@@ -716,20 +704,10 @@ export const transcriptionRouter = createTRPCRouter({
         return [];
       }
 
-      // Visibility: own transcriptions, OR transcriptions tied to a project
-      // the user can access, OR transcriptions the caller is a linked
-      // Participant on (calendar invitee — users get to see Meetings they
-      // attended even if someone else uploaded the transcript).
-      const accessFilter = {
-        OR: [
-          { userId },
-          { project: buildProjectAccessWhere(userId) },
-          { participants: { some: { userId } } },
-        ],
-      };
-
+      // Visibility: the centralized Meeting access rule (owner, Participant,
+      // project access, or workspace membership for project-less sessions).
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const filters: any[] = [accessFilter];
+      const filters: any[] = [buildTranscriptionAccessWhere(userId)];
 
       if (!input?.includeArchived) {
         filters.push({ archivedAt: null });
@@ -838,7 +816,7 @@ export const transcriptionRouter = createTRPCRouter({
       // Verify the user can edit the source transcription.
       const existing = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.transcriptionId },
-        select: { userId: true, projectId: true, workspaceId: true },
+        select: { id: true, userId: true, projectId: true, workspaceId: true },
       });
       if (!existing) {
         throw new TRPCError({
@@ -1835,6 +1813,9 @@ export const transcriptionRouter = createTRPCRouter({
             workspaceId: input.workspaceId,
             meetingDate: { gte: cutoff },
             title: { not: null },
+            // Never surface titles/summaries of Meetings the caller can't
+            // open (e.g. restricted-project meetings).
+            AND: [buildTranscriptionAccessWhere(callerId)],
           },
           select: {
             id: true,
@@ -1898,6 +1879,8 @@ export const transcriptionRouter = createTRPCRouter({
               email: { in: lowercaseInputEmails, mode: "insensitive" },
               transcriptionSession: {
                 meetingDate: { gte: cutoff },
+                // Same access rule as the title bucket above.
+                AND: [buildTranscriptionAccessWhere(callerId)],
               },
             },
             include: {

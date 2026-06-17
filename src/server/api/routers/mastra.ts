@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
+import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -24,6 +25,9 @@ import { filterAgentInstructions } from "~/server/services/agent-routing/agentIn
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { ingestChannelSummary } from "~/server/services/activity/ingestChannelSummary";
+import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "~/server/services/goalService";
+import { NotionAgentService } from "~/server/services/notionAgentService";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -539,9 +543,31 @@ export const mastraRouter = createTRPCRouter({
           : undefined;
 
         const lastUserMessage = [...input.messages].reverse().find(m => m.role === 'user')?.content ?? '';
-        const toolsUsed = ((responseData.toolCalls ?? []) as Array<{ toolName?: string; name?: string }>)
-          .map(tc => tc.toolName ?? tc.name)
+        // Tool calls arrive either flat ({toolName, args}) or wrapped in
+        // Mastra's chunk envelope ({type: 'tool-call', payload: {...}}).
+        const flatToolCalls = ((responseData.toolCalls ?? []) as Array<Record<string, unknown>>)
+          .map(tc =>
+            tc.payload && typeof tc.payload === 'object'
+              ? (tc.payload as Record<string, unknown>)
+              : tc,
+          );
+        const toolsUsed = flatToolCalls
+          .map(tc => {
+            const n = tc.toolName ?? tc.name;
+            return typeof n === 'string' ? n : undefined;
+          })
           .filter((n): n is string => !!n);
+        const loggedToolCalls = capToolCallsForTurn(
+          flatToolCalls.flatMap(tc => {
+            const n = tc.toolName ?? tc.name;
+            if (typeof n !== 'string') return [];
+            return [{
+              name: n,
+              args: redactToolArgs(tc.args ?? tc.input),
+              ...(tc.providerExecuted === true ? { providerExecuted: true } : {}),
+            }];
+          }),
+        );
 
         void getAiInteractionLogger(ctx.db).logInteraction({
           platform: 'direct',
@@ -558,6 +584,7 @@ export const mastraRouter = createTRPCRouter({
           responseTime: Date.now() - startTime,
           tokenUsage,
           toolsUsed,
+          toolCalls: loggedToolCalls.length > 0 ? loggedToolCalls : undefined,
         });
 
         return {
@@ -1090,11 +1117,14 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       text: z.string().min(1),
       projectId: z.string().optional(),
+      // Canonical priority enum. Optional and backward-compatible: when omitted,
+      // the action falls back to "Quick" (the historical hardcoded value).
+      priority: z.enum(PRIORITY_VALUES).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
@@ -1102,10 +1132,16 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, scheduledStart=${String(parsed.scheduledStart ?? "none")}, dueDate=${String(parsed.dueDate ?? "none")}`);
 
-      // Use context projectId as fallback if text parsing didn't match a project
-      if (!parsed.projectId && input.projectId) {
+      // An explicitly-passed projectId is a deliberately-resolved target — the
+      // agent resolves the user-named project via get-all-projects and passes the
+      // intended id — so it takes precedence over any project the text parser
+      // inferred. When no explicit id is passed, the parsed match stands (so calls
+      // that pass neither are unchanged).
+      if (input.projectId) {
+        if (parsed.projectId && parsed.projectId !== input.projectId) {
+          console.log(`🎯 [tRPC quickCreateAction] PRECEDENCE: explicit projectId=${input.projectId} overrides parsed=${parsed.projectId}`);
+        }
         parsed.projectId = input.projectId;
-        console.log(`🎯 [tRPC quickCreateAction] FALLBACK: using context projectId=${input.projectId}`);
       }
 
       // Get kanban order if project specified
@@ -1133,7 +1169,7 @@ export const mastraRouter = createTRPCRouter({
         data: {
           name: parsed.name,
           projectId: parsed.projectId,
-          priority: "Quick",
+          priority: input.priority ?? "Quick",
           status: "ACTIVE",
           createdById: userId,
           scheduledStart: parsed.scheduledStart,
@@ -2996,6 +3032,109 @@ export const mastraRouter = createTRPCRouter({
   // OKR Tools - Objectives & Key Results CRUD
   // ============================================
 
+  // ───────────────────────── Notion (agent callback, ADR-0020) ─────────────────────────
+  // The Notion credential is resolved server-side from the user's Integration and
+  // never enters the LLM context. Zoe's Notion tools carry only the agent JWT.
+  notionSearch: protectedProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      filter: z.enum(["page", "database"]).optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.search(userId, input.workspaceId, input.query, input.filter);
+    }),
+
+  notionQueryDatabase: protectedProcedure
+    .input(z.object({
+      databaseId: z.string().min(1),
+      filter: z.any().optional(),
+      sorts: z
+        .array(z.object({
+          property: z.string(),
+          direction: z.enum(["ascending", "descending"]),
+        }))
+        .optional(),
+      startCursor: z.string().optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.queryDatabase(userId, input.workspaceId, input.databaseId, {
+        filter: input.filter,
+        sorts: input.sorts,
+        startCursor: input.startCursor,
+      });
+    }),
+
+  notionGetPage: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.getPage(userId, input.workspaceId, input.pageId);
+    }),
+
+  // Writes follow ADR-0016 draft-and-confirm — the agent surfaces the exact
+  // change and gets an explicit "yes" before these endpoints are ever called.
+  notionCreatePage: protectedProcedure
+    .input(z.object({
+      databaseId: z.string().min(1),
+      title: z.string().min(1),
+      properties: z.record(z.any()).optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.createPage(userId, input.workspaceId, {
+        databaseId: input.databaseId,
+        title: input.title,
+        properties: input.properties,
+      });
+    }),
+
+  notionUpdatePage: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1),
+      properties: z.record(z.any()),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.updatePage(userId, input.workspaceId, {
+        pageId: input.pageId,
+        properties: input.properties,
+      });
+    }),
+
+  // ADR-0023: the gateway pushes ONE finished channel summary tagged only with
+  // (provider, externalId). Authenticated by the agent JWT (resolves to a user
+  // in the tRPC context) so only the trusted gateway can write summaries. The
+  // routing (workspace/project), drop-if-unlinked, and dedup-by-window logic
+  // all live in ingestChannelSummary — this endpoint is a thin shell. The
+  // event's owner is the link's creator, not the JWT user.
+  recordChannelSummary: protectedProcedure
+    .input(z.object({
+      provider: z.string().min(1),
+      externalId: z.string().min(1),
+      summary: z.string().min(1),
+      displayName: z.string().optional(),
+      windowStart: z.string().datetime(),
+      windowEnd: z.string().datetime(),
+      messageCount: z.number().int().nonnegative(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ingestChannelSummary(ctx.db, input);
+    }),
+
   getOkrObjectives: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
@@ -3118,25 +3257,25 @@ export const mastraRouter = createTRPCRouter({
       description: z.string().optional(),
       whyThisGoal: z.string().optional(),
       period: z.string().optional(),
-      lifeDomainId: z.number().optional(),
+      // Agent-facing numerics: coerce stringified scalars (see
+      // dev-docs/AGENT_TOOL_INPUT_VALIDATION.md).
+      lifeDomainId: z.coerce.number().optional(),
+      parentGoalId: z.coerce.number().optional(),
       workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
-      const goal = await ctx.db.goal.create({
-        data: {
+      // Route through the shared service so the depth/cycle parent guard runs
+      // (do not inline ctx.db.goal.create — it bypasses validation). See ADR-0016.
+      const goal = await createGoal({
+        ctx,
+        input: {
           title: input.title,
           description: input.description,
           whyThisGoal: input.whyThisGoal,
-          period: input.period ?? null,
-          lifeDomainId: input.lifeDomainId ?? null,
-          userId,
-          driUserId: userId,
-          workspaceId: input.workspaceId ?? null,
-        },
-        include: {
-          lifeDomain: true,
+          period: input.period,
+          lifeDomainId: input.lifeDomainId,
+          parentGoalId: input.parentGoalId,
+          workspaceId: input.workspaceId,
         },
       });
 
@@ -3146,10 +3285,38 @@ export const mastraRouter = createTRPCRouter({
           title: goal.title,
           description: goal.description,
           period: goal.period,
+          parentGoalId: goal.parentGoalId,
           lifeDomain: goal.lifeDomain
             ? { id: goal.lifeDomain.id, title: goal.lifeDomain.title }
             : null,
           workspaceId: goal.workspaceId,
+        },
+      };
+    }),
+
+  // Agent-facing: nest an existing Objective under a parent (or detach with
+  // parentGoalId = null). Delegates to goalService.setGoalParent, which writes
+  // ONLY parentGoalId (never clobbers projects/period/workspace like updateGoal
+  // would) and enforces access + no-self/no-cycle/depth.
+  setObjectiveParent: protectedProcedure
+    .input(z.object({
+      goalId: z.coerce.number(),
+      parentGoalId: z.coerce.number().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const goal = await setGoalParent({
+        ctx,
+        goalId: input.goalId,
+        parentGoalId: input.parentGoalId,
+      });
+      return {
+        objective: {
+          id: goal.id,
+          title: goal.title,
+          parentGoalId: goal.parentGoalId,
+          parentGoal: goal.parentGoal
+            ? { id: goal.parentGoal.id, title: goal.parentGoal.title }
+            : null,
         },
       };
     }),
@@ -3437,6 +3604,50 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
+  // Agent-facing proxy: post an Objective comment (GoalComment) on the user's
+  // behalf. Thin wrapper over the shared goalService.createGoalComment, which
+  // authorizes via verifyGoalAccess (the centralized 5-path resolver) and
+  // authors the record as the JWT user — mirroring the human path exactly.
+  // Deliberately does NOT copy the legacy OKR endpoints' inline { id, userId }
+  // creator-only check or duplicate logic. See ADR-0016.
+  addGoalComment: protectedProcedure
+    .input(z.object({
+      // Agent-facing: the model often passes goalId as a string lifted from the
+      // prompt's page context, so coerce. The tool coerces too (defense in depth).
+      goalId: z.coerce.number(),
+      content: z.string().min(1).max(10000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return createGoalComment({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+      });
+    }),
+
+  // Agent-facing proxy: post a health-bearing Objective update (GoalUpdate) on
+  // the user's behalf. Thin wrapper over goalService.createGoalUpdate, which
+  // authorizes via verifyGoalAccess, authors as the JWT user, and syncs the
+  // Objective's auto health (Goal.health) in one transaction — never the manual
+  // healthOverride (ADR-0004). Same access shape as the human Update tab; does
+  // NOT copy the legacy OKR endpoints' inline creator-only check. See ADR-0016.
+  addGoalUpdate: protectedProcedure
+    .input(z.object({
+      // Agent-facing: the model often passes goalId as a string lifted from the
+      // prompt's page context, so coerce. The tool coerces too (defense in depth).
+      goalId: z.coerce.number(),
+      content: z.string().min(1).max(10000),
+      health: z.enum(["on-track", "at-risk", "off-track"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return createGoalUpdate({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+        health: input.health,
+      });
+    }),
+
   getOkrStats: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
@@ -3529,9 +3740,14 @@ export const mastraRouter = createTRPCRouter({
   bulkCreateStructure: protectedProcedure
     .input(z.object({
       workspaceId: z.string(),
+      // Batch-level parent: nest every created goal under this Objective unless a
+      // goal supplies its own parentGoalId. Use the page-context goalId here when
+      // the user says "build this under this goal". Coerced per AGENT_TOOL doc.
+      parentGoalId: z.coerce.number().optional(),
       goals: z.array(z.object({
         title: z.string().min(1),
         description: z.string().optional(),
+        parentGoalId: z.coerce.number().optional(),
         projects: z.array(z.object({
           name: z.string().min(1),
           description: z.string().optional(),
@@ -3559,13 +3775,14 @@ export const mastraRouter = createTRPCRouter({
       for (const goalInput of input.goals) {
         let goalId: number | null = null;
         try {
-          const goal = await ctx.db.goal.create({
-            data: {
+          // Route through the shared service so parent depth/cycle validation runs.
+          const goal = await createGoal({
+            ctx,
+            input: {
               title: goalInput.title,
-              description: goalInput.description ?? null,
-              userId,
-              driUserId: userId,
+              description: goalInput.description,
               workspaceId: input.workspaceId,
+              parentGoalId: goalInput.parentGoalId ?? input.parentGoalId,
             },
           });
           goalId = goal.id;

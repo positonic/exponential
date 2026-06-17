@@ -12,9 +12,18 @@ import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
-import { trimByTokenBudget } from "~/lib/trim-conversation";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
+import {
+  capToolCallsForTurn,
+  formatUserFacingStreamError,
+  maskTokenLike,
+  redactToolArgs,
+  type LoggedToolCall,
+} from "~/server/utils/redactToolArgs";
+import { composePromptVersion } from "~/server/services/promptVersion";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
+import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
+import { buildProjectAccessWhere } from "~/server/services/access";
 import {
   pickModelTier,
   isHaikuTier,
@@ -113,24 +122,36 @@ export async function POST(req: Request) {
       .filter(m => m.role === 'system')
       .map(m => m.content)
       .join('\n');
-    let finalMessages: CoreMessage[] = messages.filter(m => m.role !== 'system');
 
-    // Defensive token-budget trim: don't trust the client to keep history
-    // bounded. Anything older than the budget is dropped here; Mastra memory
-    // (resource+thread) is expected to surface relevant older turns via
-    // semanticRecall / lastMessages when the agent needs them.
-    const HISTORY_TOKEN_BUDGET = Number(
-      process.env.CHAT_HISTORY_TOKEN_BUDGET ?? "20000",
-    );
-    const trimmed = trimByTokenBudget(finalMessages, HISTORY_TOKEN_BUDGET);
-    if (trimmed.droppedCount > 0) {
-      console.log('✂️ [chat/stream] Trimmed conversation history', {
-        droppedCount: trimmed.droppedCount,
-        estimatedTokens: trimmed.estimatedTokens,
-        budgetTokens: HISTORY_TOKEN_BUDGET,
-      });
+    // Send ONLY the latest user message to the agent — do NOT re-send the
+    // prior transcript. Mastra already persists prior turns in its thread
+    // store (see `memory: { resource, thread }` on agent.stream() below), so
+    // passing the full client history alongside thread memory double-feeds
+    // it: every turn re-inflates the unobserved-token count (tripping
+    // observational-memory consolidation more often than it should) and
+    // re-bills prompt tokens for history Mastra already holds. Mastra's docs
+    // warn against this explicitly. Prior turns are supplied by thread memory's
+    // `lastMessages` window (configured in ../mastra/src/mastra/memory/index.ts;
+    // bumped to 40 to cover a multi-turn session). semanticRecall is NOT enabled
+    // (no vector store/embedder configured), so there is no semantic fallback for
+    // turns older than that window — keep `lastMessages` wide enough to match the
+    // working set. The server-injected system/context messages prepended below
+    // are NOT conversational history and still flow.
+    const conversationMessages = messages.filter(m => m.role !== 'system');
+    const latestUserMessage = [...conversationMessages]
+      .reverse()
+      .find(m => m.role === 'user');
+    // No user message means there is nothing to act on — bail before the agent
+    // call rather than streaming a turn built from system/context only (which
+    // yields an empty/confused response). Normal web callers always end on a
+    // user turn; this guards programmatic/regeneration payloads.
+    if (!latestUserMessage) {
+      return new Response(
+        JSON.stringify({ error: "No user message in request" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
     }
-    finalMessages = trimmed.messages;
+    let finalMessages: CoreMessage[] = [latestUserMessage];
 
     // Track per-source contribution to the prompt so we can see WHERE the
     // input tokens are actually going. The total observed in Anthropic
@@ -142,6 +163,7 @@ export async function POST(req: Request) {
       conversationHistory: finalMessages.reduce((sum, m) => sum + m.content.length, 0),
       clientStripped: clientSystemContent.length,
       assistantPersonality: 0,
+      scopeInstructions: 0,
       workspaceContext: 0,
       pinnedResources: 0,
       pinnedResourcesOriginal: 0,
@@ -179,15 +201,18 @@ export async function POST(req: Request) {
       ],
     ];
     
-    // Verify workspace access and fetch workspace details for agent context
+    // Verify workspace access and fetch workspace details for agent context.
+    // `aiInstructions` is fetched here, server-side by workspace ID (demoted
+    // scope-instructions ADR) — never trusted from the client — for the block.
     let workspaceInfo: { slug: string; name: string; type: string; description: string | null } | null = null;
+    let workspaceAiInstructions: string | null = null;
     if (workspaceId) {
       const workspaceAccess = await db.workspaceUser.findFirst({
         where: {
           workspaceId,
           userId: session.user.id,
         },
-        include: { workspace: { select: { slug: true, name: true, type: true, description: true } } },
+        include: { workspace: { select: { slug: true, name: true, type: true, description: true, aiInstructions: true } } },
       });
 
       if (!workspaceAccess) {
@@ -204,14 +229,26 @@ export async function POST(req: Request) {
 
       entries.push(["workspaceId", workspaceId]);
       if (workspaceAccess.workspace) {
-        workspaceInfo = workspaceAccess.workspace;
+        const { aiInstructions, ...navInfo } = workspaceAccess.workspace;
+        workspaceInfo = navInfo;
+        workspaceAiInstructions = aiInstructions;
         entries.push(["workspaceSlug", workspaceAccess.workspace.slug]);
         entries.push(["workspaceName", workspaceAccess.workspace.name]);
         entries.push(["workspaceType", workspaceAccess.workspace.type]);
       }
     }
+    let projectAiInstructions: string | null = null;
     if (projectId) {
       entries.push(["projectId", projectId]);
+
+      // Fetch the in-scope project's `aiInstructions` server-side by ID for the
+      // demoted scope-instruction block. Scoped by buildProjectAccessWhere so a
+      // spoofed projectId can't leak another project's instruction text.
+      const projectScope = await db.project.findFirst({
+        where: { id: projectId, ...buildProjectAccessWhere(session.user.id) },
+        select: { aiInstructions: true },
+      });
+      projectAiInstructions = projectScope?.aiInstructions ?? null;
 
       // Look up project's configured Slack channel so agent knows where to search
       const projectSlackConfig = await db.slackChannelConfig.findUnique({
@@ -289,6 +326,26 @@ export async function POST(req: Request) {
           ...finalMessages,
         ];
       }
+    }
+
+    // Inject per-scope AI Instructions as demoted context. The text
+    // was fetched server-side by scope ID above; the assembler wraps it in a
+    // `<user_data>` block so it reads as supplementary guidance, never as
+    // authoritative commands. Runs on BOTH the default-agent and custom-
+    // assistant paths (this is outside the assistantId block). Layered general
+    // → specific: workspace first, then the in-scope project last so it wins on
+    // conflict. With no project in scope (global drawer, /agent), only the
+    // workspace applies. Empty scopes are skipped by the assembler.
+    const scopeInstructionsBlock = assembleScopeInstructions([
+      { scope: 'workspace', label: 'Workspace', instructions: workspaceAiInstructions },
+      { scope: 'project', label: 'Project', instructions: projectAiInstructions },
+    ]);
+    if (scopeInstructionsBlock) {
+      promptSizeChars.scopeInstructions = scopeInstructionsBlock.length;
+      finalMessages = [
+        { role: 'system' as const, content: scopeInstructionsBlock },
+        ...finalMessages,
+      ];
     }
 
     // Inject workspace navigation context so agents can build links to product pages
@@ -399,6 +456,7 @@ export async function POST(req: Request) {
     const totalCharsRouteSide =
       promptSizeChars.conversationHistory +
       promptSizeChars.assistantPersonality +
+      promptSizeChars.scopeInstructions +
       promptSizeChars.workspaceContext +
       promptSizeChars.pinnedResources +
       promptSizeChars.clientContext;
@@ -455,9 +513,18 @@ export async function POST(req: Request) {
     let textChunkCount = 0;
     const nonTextChunkTypes = new Set<string>();
     const toolCallNames: string[] = [];
+    // Per-call detail persisted on AiInteractionHistory.toolCalls: redacted
+    // args + error codes. toolsUsed (names only) starves the ADR-0012 judge
+    // axes and made the 2026-06-12 web_fetch incident undiagnosable.
+    const loggedToolCalls: LoggedToolCall[] = [];
+    const loggedToolCallIndexById = new Map<string, number>();
     let lastStepFinishReason: string | undefined;
     let hadToolError = false;
     let hadAgentError = false;
+    // The masked top-level agent error, captured for the durable interaction
+    // record (the user only ever sees the generic line). Tool errors flow via
+    // firstToolErrorMessages; this is the agent-error equivalent.
+    let agentErrorMessage: string | undefined;
     const firstToolErrorMessages: string[] = [];
     const textStream = new ReadableStream({
       async start(controller) {
@@ -615,23 +682,68 @@ export async function POST(req: Request) {
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${toolCallNames.length}`;
                 const args = truncateArgs(readUnknown(chunk.payload, 'args'));
                 toolCallNames.push(name);
+                loggedToolCallIndexById.set(id, loggedToolCalls.length);
+                loggedToolCalls.push({
+                  name,
+                  args: redactToolArgs(readUnknown(chunk.payload, 'args')),
+                  ...(readUnknown(chunk.payload, 'providerExecuted') === true
+                    ? { providerExecuted: true }
+                    : {}),
+                });
                 toolFrame({ phase: 'call', id, name, args });
               } else if (chunk.type === "tool-result") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
+                // Provider-executed tools (webSearch/webFetch) report failures
+                // as tool-result + isError, not tool-error — without this branch
+                // a refused web_fetch is invisible in the log row.
+                if (readUnknown(chunk.payload, 'isError') === true) {
+                  const result = readUnknown(chunk.payload, 'result');
+                  const errorCode =
+                    readString(result, 'errorCode') ?? readString(result, 'error');
+                  const idx = loggedToolCallIndexById.get(id);
+                  const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
+                  if (logged) {
+                    logged.isError = true;
+                    if (errorCode) logged.errorCode = maskTokenLike(errorCode).slice(0, 200);
+                  }
+                  if (firstToolErrorMessages.length < 3) {
+                    firstToolErrorMessages.push(
+                      `${name}: ${errorCode ? maskTokenLike(errorCode) : 'provider tool error'}`,
+                    );
+                  }
+                  hadToolError = true;
+                }
                 toolFrame({ phase: 'result', id, name });
               } else if (chunk.type === "tool-error") {
                 const name = readString(chunk.payload, 'toolName') ?? 'tool';
                 const id = readString(chunk.payload, 'toolCallId') ?? `${name}-${Math.max(0, toolCallNames.length - 1)}`;
-                const msg = formatErr(readUnknown(chunk.payload, 'error'));
+                // Error text routinely echoes inputs (e.g. "Invalid API key
+                // ff_live_…"), so mask token-like runs before anything is
+                // persisted via errorMessage or toolCalls.
+                const msg = maskTokenLike(formatErr(readUnknown(chunk.payload, 'error')));
                 if (firstToolErrorMessages.length < 3) firstToolErrorMessages.push(`${name}: ${msg}`);
                 hadToolError = true;
+                const idx = loggedToolCallIndexById.get(id);
+                const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
+                if (logged) {
+                  logged.isError = true;
+                  logged.errorCode = msg.slice(0, 200);
+                }
                 toolFrame({ phase: 'error', id, name, msg });
               } else if (chunk.type === "error") {
-                const msg = readString(chunk.payload, 'message')
+                // The raw error (often a Zod "Type validation failed" blob, and
+                // capable of echoing credentials) must never reach the user.
+                // Stream a calm generic line; log the masked real error so it
+                // stays diagnosable server-side.
+                const rawMsg = readString(chunk.payload, 'message')
                   ?? formatErr(readUnknown(chunk.payload, 'error'));
+                const { userMessage, loggedMessage } =
+                  formatUserFacingStreamError(rawMsg);
                 hadAgentError = true;
-                emit(`\n\n⚠️ **Agent error:** ${msg}\n`);
+                agentErrorMessage = loggedMessage;
+                console.error('❌ [chat/stream] Agent error chunk', { error: loggedMessage });
+                emit(`\n\n${userMessage}\n`);
               } else if (chunk.type === "step-finish") {
                 const fr = readString(chunk.payload, 'finishReason');
                 // [DIAGNOSTIC] Per-step timing — revert after Zoe hang investigation.
@@ -648,6 +760,15 @@ export async function POST(req: Request) {
                 const response = readUnknown(chunk.payload, 'response');
                 const modelId = readString(response, 'modelId');
                 if (modelId) responseModelId = modelId;
+              } else if (chunk.type === "text-start") {
+                // Model text blocks stream as raw markdown deltas; blocks
+                // separated by tool calls (or step boundaries) would
+                // otherwise concatenate with no separator — "…right
+                // people.⚠️ Tool Error…", "…tool format:✅ Done!". Start
+                // each new block after prior output on its own paragraph.
+                if (modelTextChars > 0 && !fullText.endsWith("\n")) {
+                  emit("\n\n");
+                }
               } else {
                 nonTextChunkTypes.add(chunk.type);
                 // Emit a zero-width-space keepalive byte. The client's idle
@@ -695,10 +816,13 @@ export async function POST(req: Request) {
                 textChunkCount = 0;
                 nonTextChunkTypes.clear();
                 toolCallNames.length = 0;
+                loggedToolCalls.length = 0;
+                loggedToolCallIndexById.clear();
                 firstToolErrorMessages.length = 0;
                 lastStepFinishReason = undefined;
                 hadToolError = false;
                 hadAgentError = false;
+                agentErrorMessage = undefined;
                 finishUsage = undefined;
                 responseModelId = undefined;
                 activeAgentId = sonnetId;
@@ -790,6 +914,8 @@ export async function POST(req: Request) {
             response.headers.get("x-request-id") ??
             response.headers.get("x-anthropic-request-id") ??
             undefined;
+          // brain@<hash> reported by ../mastra (ADR-0013); absent on older deploys.
+          const brainVersion = response.headers.get("x-brain-version");
           const lastUserMsg =
             [...messages].reverse().find(m => m.role === "user")?.content ?? "";
           const logPromise: Promise<string | undefined> = getAiInteractionLogger(db)
@@ -800,6 +926,13 @@ export async function POST(req: Request) {
               conversationId: threadId,
               userMessage: lastUserMsg.slice(0, 2000),
               aiResponse: fullText.slice(0, 5000),
+              // Without this the Thread judge sees "TOOLS INVOKED: (none)" on
+              // every turn and reads grounded responses as fabrication
+              // (ADR-0012 GROUNDED axis). Kept in call order, repeats included.
+              toolsUsed: toolCallNames,
+              toolCalls: loggedToolCalls.length > 0
+                ? capToolCallsForTurn(loggedToolCalls)
+                : undefined,
               tokenUsage: finishUsage
                 ? {
                     prompt: finishUsage.inputTokens,
@@ -818,6 +951,7 @@ export async function POST(req: Request) {
                 ? JSON.stringify({
                     finishReason: lastStepFinishReason ?? 'unknown',
                     toolErrors: firstToolErrorMessages,
+                    agentError: agentErrorMessage,
                     emptyResponse,
                     nonTextChunkTypes: [...nonTextChunkTypes],
                     tierRetried,
@@ -827,6 +961,7 @@ export async function POST(req: Request) {
               workspaceId: workspaceId ?? undefined,
               model: responseModelId ?? "mastra-agents",
               messageType: "question",
+              promptVersion: composePromptVersion(brainVersion),
             })
             // If the DB write fails AFTER the race below times out, the
             // rejection would otherwise be unhandled. Swallow + log here.

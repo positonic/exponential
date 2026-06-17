@@ -190,6 +190,7 @@ export const projectRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1),
         description: z.string().optional(),
+        aiInstructions: z.string().optional(),
         status: z.string(),
         priority: z.string(),
         progress: z.number().min(0).max(100).optional().default(0),
@@ -235,6 +236,7 @@ export const projectRouter = createTRPCRouter({
         data: {
           name: input.name,
           description: input.description,
+          aiInstructions: input.aiInstructions,
           status: input.status,
           priority: input.priority,
           progress: input.progress ?? 0,
@@ -365,6 +367,10 @@ export const projectRouter = createTRPCRouter({
         id: z.string(),
         name: z.string().min(1),
         description: z.string().optional(),
+        // Per-scope AI guidance; demoted context only. Flows through
+        // `...updateData` into the prisma update below; access is gated by
+        // canEditProject (the existing project-update access path).
+        aiInstructions: z.string().optional(),
         status: z.enum(["ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]),
         priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]),
         taskManagementTool: z.enum(["internal", "monday", "notion"]).optional(),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Textarea, ActionIcon, Group } from "@mantine/core";
+import { ActionIcon } from "@mantine/core";
 import { IconSend } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import {
@@ -10,6 +10,7 @@ import {
 } from "~/hooks/useMentionAutocomplete";
 import { MentionDropdown } from "~/app/_components/MentionDropdown";
 import { useImagePaste } from "~/hooks/useImagePaste";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 
 interface CommentInputProps {
   onSubmit: (content: string) => Promise<void>;
@@ -20,8 +21,9 @@ interface CommentInputProps {
 }
 
 /**
- * Input component for adding comments with a send button.
- * Optionally supports @mention autocomplete when mentionCandidates is provided.
+ * Input for adding comments — the canonical Markdown input (toolbar +
+ * Write/Preview) plus @mention autocomplete and image paste (ADR-0017).
+ * Always emits Markdown.
  */
 export function CommentInput({
   onSubmit,
@@ -32,7 +34,7 @@ export function CommentInput({
 }: CommentInputProps) {
   const hasMentions = mentionCandidates && mentionCandidates.length > 0;
   const [plainContent, setPlainContent] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const mention = useMentionAutocomplete({
@@ -42,6 +44,8 @@ export function CommentInput({
   // The active content: use mention-managed text when mentions are enabled
   const content = hasMentions ? mention.text : plainContent;
   const setContent = hasMentions ? mention.setText : setPlainContent;
+
+  const mentionNames = mentionCandidates?.map((c) => c.name);
 
   // Image paste handling
   const { handlePaste: handleImagePaste, isUploading } = useImagePaste({
@@ -68,10 +72,8 @@ export function CommentInput({
   }, [content, onSubmit, setContent]);
 
   const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const value = e.currentTarget.value;
+    (value: string, cursorPos: number) => {
       if (hasMentions) {
-        const cursorPos = e.currentTarget.selectionStart ?? 0;
         mention.handleInputChange(value, cursorPos);
       } else {
         setPlainContent(value);
@@ -128,34 +130,18 @@ export function CommentInput({
 
   return (
     <div className="mt-2">
-      <div className="relative">
-        <Group gap="xs" align="flex-end">
-          <Textarea
-            ref={textareaRef}
-            value={content}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onPaste={actionId ? handleImagePaste : undefined}
-            placeholder={placeholder}
-            minRows={2}
-            maxRows={4}
-            autosize
-            disabled={isSubmitting || isUploading}
-            className="flex-1"
-            styles={{
-              input: {
-                backgroundColor: "var(--surface-secondary)",
-                borderColor: "var(--border-primary)",
-                color: "var(--text-primary)",
-                "&::placeholder": {
-                  color: "var(--text-muted)",
-                },
-                "&:focus": {
-                  borderColor: "var(--border-focus)",
-                },
-              },
-            }}
-          />
+      <MarkdownInput
+        value={content}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onPaste={actionId ? handleImagePaste : undefined}
+        placeholder={placeholder}
+        minRows={2}
+        maxRows={6}
+        disabled={isSubmitting || isUploading}
+        mentionNames={mentionNames}
+        textareaRef={(el) => (textareaRef.current = el)}
+        rightSection={
           <ActionIcon
             variant="filled"
             color="brand"
@@ -167,25 +153,28 @@ export function CommentInput({
           >
             <IconSend size={18} />
           </ActionIcon>
-        </Group>
-
-        {hasMentions && mention.showDropdown && (
-          <MentionDropdown
-            ref={dropdownRef}
-            candidates={mention.filteredCandidates}
-            selectedIndex={mention.selectedIndex}
-            onSelect={mention.selectCandidate}
-            onHoverIndex={(index) => {
-              mention.setSelectedIndex(index);
-            }}
-          />
-        )}
-      </div>
-      <p className="text-xs text-text-muted mt-1">
-        Press Cmd+Enter to send{hasMentions ? " | @ to mention" : ""}
-        {actionId ? " | Paste images" : ""}
-        {isUploading ? " | Uploading image..." : ""}
-      </p>
+        }
+        overlay={
+          hasMentions && mention.showDropdown ? (
+            <MentionDropdown
+              ref={dropdownRef}
+              candidates={mention.filteredCandidates}
+              selectedIndex={mention.selectedIndex}
+              onSelect={mention.selectCandidate}
+              onHoverIndex={(index) => {
+                mention.setSelectedIndex(index);
+              }}
+            />
+          ) : null
+        }
+        hint={
+          <>
+            Press Cmd+Enter to send{hasMentions ? " | @ to mention" : ""}
+            {actionId ? " | Paste images" : ""}
+            {isUploading ? " | Uploading image..." : ""}
+          </>
+        }
+      />
     </div>
   );
 }

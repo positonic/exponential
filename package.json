@@ -34,12 +34,16 @@
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",
     "electron:build:linux": "npm run electron:build -- --linux",
+    "score-threads": "tsx scripts/score-threads.ts",
+    "eval-prompt": "tsx scripts/eval-prompt.ts",
+    "file-failures": "tsx scripts/file-failures.ts",
     "okr": "npx tsx scripts/okr-cli.ts",
     "okr:list": "npx tsx scripts/okr-cli.ts list",
     "okr:stats": "npx tsx scripts/okr-cli.ts stats",
     "okr:workspaces": "npx tsx scripts/okr-cli.ts workspaces"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
     "@auth/prisma-adapter": "^2.7.2",
     "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/s3-request-presigner": "^3.1045.0",

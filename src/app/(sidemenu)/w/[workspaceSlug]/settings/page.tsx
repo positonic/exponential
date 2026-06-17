@@ -89,9 +89,10 @@ export default function WorkspaceSettingsPage() {
   const router = useRouter();
   const { workspace, workspaceId, isLoading, userRole, refetchWorkspace } = useWorkspace();
   const [section, setSection] = useState<SectionId>('general');
-  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
+  const [editingField, setEditingField] = useState<'name' | 'description' | 'aiInstructions' | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [aiInstructions, setAiInstructions] = useState('');
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deleteModalOpened, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
@@ -421,10 +422,11 @@ export default function WorkspaceSettingsPage() {
     removeEmailMutation.mutate({ workspaceId });
   };
 
-  const handleStartEdit = (field: 'name' | 'description') => {
+  const handleStartEdit = (field: 'name' | 'description' | 'aiInstructions') => {
     if (!workspace) return;
     if (field === 'name') setName(workspace.name);
     if (field === 'description') setDescription(workspace.description ?? '');
+    if (field === 'aiInstructions') setAiInstructions(workspace.aiInstructions ?? '');
     setEditingField(field);
   };
 
@@ -434,6 +436,9 @@ export default function WorkspaceSettingsPage() {
       workspaceId,
       name: editingField === 'name' ? (name || undefined) : undefined,
       description: editingField === 'description' ? (description || undefined) : undefined,
+      // Empty string clears the field (send "" not undefined) so users can
+      // remove instructions; undefined leaves it untouched.
+      aiInstructions: editingField === 'aiInstructions' ? aiInstructions : undefined,
     });
   };
 
@@ -674,6 +679,45 @@ export default function WorkspaceSettingsPage() {
               ) : (
                 <span className="text-text-secondary">
                   {workspace.description ?? <span className="text-text-muted">—</span>}
+                </span>
+              )}
+            </SettingsField>
+
+            <SettingsField
+              label="Instructions"
+              sublabel="Guidance the AI assistant receives when chatting in this workspace (e.g. preferences, where your data lives). Treated as helpful context, not as enforced rules."
+              action={
+                canEdit ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (editingField === 'aiInstructions') {
+                        handleSave();
+                      } else {
+                        handleStartEdit('aiInstructions');
+                      }
+                    }}
+                  >
+                    {editingField === 'aiInstructions' ? 'Save' : 'Edit'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {editingField === 'aiInstructions' ? (
+                <Textarea
+                  value={aiInstructions}
+                  onChange={(e) => setAiInstructions(e.currentTarget.value)}
+                  autoFocus
+                  size="xs"
+                  autosize
+                  minRows={3}
+                  placeholder="e.g. Prefer concise answers. My finances live in the FinanceDB Notion database."
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary text-text-primary',
+                  }}
+                />
+              ) : (
+                <span className="text-text-secondary whitespace-pre-wrap">
+                  {workspace.aiInstructions ?? <span className="text-text-muted">—</span>}
                 </span>
               )}
             </SettingsField>

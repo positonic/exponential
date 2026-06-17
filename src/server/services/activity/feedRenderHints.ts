@@ -20,6 +20,7 @@ export type IconKind =
   | "completed"
   | "commented"
   | "milestone"
+  | "tracked"
   | "fallback";
 
 export interface FeedRenderHint {
@@ -121,6 +122,34 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("deal", "completed")]: {
     template: "{actor} closed deal {entityRef}",
     iconKind: "completed",
+  },
+
+  // Meetings — a recorded/ingested meeting (TranscriptionSession) surfaces in the
+  // feed via the internal write-path (ADR-0018). The meeting title rides in
+  // metadata so {entityRef} renders the title, not a raw CUID. Reuses the
+  // generic "created" icon kind.
+  [key("meeting", "created")]: {
+    template: "{actor} had a meeting {entityRef}",
+    iconKind: "created",
+  },
+  // A meeting's transcript was auto-summarized by the cron sweep (ADR-0018,
+  // royal.raven). Emitted once when the summary lands; the meeting title rides
+  // in metadata so {entityRef} renders the title, not a CUID. Reuses the
+  // "updated" icon kind since summarizing enriches an existing meeting.
+  [key("meeting", "summarized")]: {
+    template: "{actor} summarized a meeting {entityRef}",
+    iconKind: "updated",
+  },
+
+  // Time recordings — one event per stopped timer (TimeEntryService, incl. the
+  // silent auto-stop when a new timer starts). The tracked Action's name rides
+  // in metadata so {entityRef} renders the task, not the action CUID; the
+  // recorded duration rides in metadata.durationMins for future enrichment.
+  // Dedicated "tracked" icon kind (clock) so time logging reads distinctly from
+  // task creation/edits.
+  [key("time_entry", "created")]: {
+    template: "{actor} tracked time on {entityRef}",
+    iconKind: "tracked",
   },
 };
 
