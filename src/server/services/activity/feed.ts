@@ -4,6 +4,22 @@ import {
   resolveFeedHint,
   type FeedRenderHint,
 } from "./feedRenderHints";
+import { deriveActivitySource } from "./deriveActivitySource";
+
+/**
+ * Channel-summary detail (ADR-0023) attached to `channel_summary` rows so the
+ * feed can render the channel as the actor (provider icon + name), the summary
+ * as the body, and deep-link to the routed project when present. `null` on
+ * every other event type.
+ */
+export interface ChannelSummaryRef {
+  provider: string;
+  displayName: string | null;
+  summary: string;
+  projectId: string | null;
+  projectSlug: string | null;
+  projectName: string | null;
+}
 
 /**
  * One event in the workspace activity feed, joined with the actor user and
@@ -36,6 +52,10 @@ export interface ActivityFeedEvent {
     name: string;
     slug: string;
   } | null;
+  /** Derived read-side source: `internal` | `github` | a provider string. */
+  source: string;
+  /** Channel-summary detail; `null` unless `entityType === "channel_summary"`. */
+  channel: ChannelSummaryRef | null;
 }
 
 export interface ActivityFeedPage {
@@ -78,6 +98,102 @@ function decodeCursor(raw: string): CursorShape | null {
   return null;
 }
 
+/** Read a string field off a Json metadata blob, or null. */
+function readMetaString(metadata: unknown, key: string): string | null {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * Translate a `source` filter into a Prisma `where` fragment. `undefined`/`all`
+ * → no constraint; `internal` → everything except channel summaries; any other
+ * value is treated as a provider → that provider's `channel_summary` rows.
+ */
+function sourceWhere(
+  source?: string,
+): Prisma.WorkspaceActivityEventWhereInput {
+  if (!source || source === "all") return {};
+  if (source === "internal") {
+    return { entityType: { not: "channel_summary" } };
+  }
+  return {
+    entityType: "channel_summary",
+    metadata: { path: ["provider"], equals: source },
+  };
+}
+
+/** Row shape selected by both readers (workspace optional). */
+interface FeedRow {
+  id: string;
+  createdAt: Date;
+  entityType: string;
+  entityId: string;
+  action: string;
+  metadata: Prisma.JsonValue | null;
+  user: { id: string; name: string | null; image: string | null } | null;
+  workspace?: { id: string; name: string; slug: string } | null;
+}
+
+/**
+ * Map raw rows to `ActivityFeedEvent`s, resolving the derived source and — for
+ * `channel_summary` rows — a `ChannelSummaryRef` (with the routed project's
+ * slug/name batch-fetched in a single query for deep-linking).
+ */
+async function toFeedEvents(
+  db: PrismaClient,
+  rows: FeedRow[],
+): Promise<ActivityFeedEvent[]> {
+  const projectIds = new Set<string>();
+  for (const row of rows) {
+    if (row.entityType === "channel_summary") {
+      const pid = readMetaString(row.metadata, "projectId");
+      if (pid) projectIds.add(pid);
+    }
+  }
+
+  const projects =
+    projectIds.size > 0
+      ? await db.project.findMany({
+          where: { id: { in: [...projectIds] } },
+          select: { id: true, slug: true, name: true },
+        })
+      : [];
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+
+  return rows.map((row) => {
+    const source = deriveActivitySource(row);
+    let channel: ChannelSummaryRef | null = null;
+    if (row.entityType === "channel_summary") {
+      const projectId = readMetaString(row.metadata, "projectId");
+      const project = projectId ? projectById.get(projectId) : undefined;
+      channel = {
+        provider: source,
+        displayName: readMetaString(row.metadata, "displayName"),
+        summary: readMetaString(row.metadata, "summary") ?? "",
+        projectId: projectId ?? null,
+        projectSlug: project?.slug ?? null,
+        projectName: project?.name ?? null,
+      };
+    }
+    return {
+      id: row.id,
+      createdAt: row.createdAt,
+      entityType: row.entityType,
+      entityId: row.entityId,
+      action: row.action,
+      hint: resolveFeedHint(row.entityType, row.action),
+      entityRef: describeEntityRef(row.entityId, row.metadata),
+      actor: row.user,
+      workspace: row.workspace ?? null,
+      source,
+      channel,
+    };
+  });
+}
+
 /**
  * Reader for the workspace home activity feed. Returns the most recent
  * events for the workspace ordered by `(createdAt desc, id desc)`, with
@@ -98,6 +214,8 @@ export async function getActivityFeed(
     workspaceId: string;
     cursor?: string;
     limit?: number;
+    /** Filter by derived source: `all` (default) | `internal` | a provider. */
+    source?: string;
   },
 ): Promise<ActivityFeedPage> {
   const limit = Math.max(
@@ -113,6 +231,7 @@ export async function getActivityFeed(
   //   OR (createdAt = cursor.createdAt AND id < cursor.id)  -- tiebreaker
   const where: Prisma.WorkspaceActivityEventWhereInput = {
     workspaceId: args.workspaceId,
+    ...sourceWhere(args.source),
     ...(decoded
       ? {
           OR: [
@@ -150,17 +269,7 @@ export async function getActivityFeed(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
-  const events: ActivityFeedEvent[] = page.map((row) => ({
-    id: row.id,
-    createdAt: row.createdAt,
-    entityType: row.entityType,
-    entityId: row.entityId,
-    action: row.action,
-    hint: resolveFeedHint(row.entityType, row.action),
-    entityRef: describeEntityRef(row.entityId, row.metadata),
-    actor: row.user,
-    workspace: null,
-  }));
+  const events = await toFeedEvents(db, page);
 
   const last = page[page.length - 1];
   const nextCursor =
@@ -191,6 +300,8 @@ export async function getAggregatedActivityFeed(
     workspaceIds: string[];
     cursor?: string;
     limit?: number;
+    /** Filter by derived source: `all` (default) | `internal` | a provider. */
+    source?: string;
   },
 ): Promise<ActivityFeedPage> {
   if (args.workspaceIds.length === 0) {
@@ -206,6 +317,7 @@ export async function getAggregatedActivityFeed(
 
   const where: Prisma.WorkspaceActivityEventWhereInput = {
     workspaceId: { in: args.workspaceIds },
+    ...sourceWhere(args.source),
     ...(decoded
       ? {
           OR: [
@@ -244,17 +356,7 @@ export async function getAggregatedActivityFeed(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
-  const events: ActivityFeedEvent[] = page.map((row) => ({
-    id: row.id,
-    createdAt: row.createdAt,
-    entityType: row.entityType,
-    entityId: row.entityId,
-    action: row.action,
-    hint: resolveFeedHint(row.entityType, row.action),
-    entityRef: describeEntityRef(row.entityId, row.metadata),
-    actor: row.user,
-    workspace: row.workspace,
-  }));
+  const events = await toFeedEvents(db, page);
 
   const last = page[page.length - 1];
   const nextCursor =

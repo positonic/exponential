@@ -1779,6 +1779,7 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: z.string(),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
+        source: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -1810,7 +1811,61 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
+        source: input.source,
       });
+    }),
+
+  // Which Activity sources actually have events in a workspace, so the source
+  // switcher only renders a chip for a source that exists (ADR-0023). Returns
+  // `hasInternal` and the distinct list of channel providers present.
+  getActivitySources: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
+      }
+
+      const [distinctTypes, channelRows] = await Promise.all([
+        ctx.db.workspaceActivityEvent.findMany({
+          where: { workspaceId: input.workspaceId },
+          select: { entityType: true },
+          distinct: ["entityType"],
+        }),
+        ctx.db.workspaceActivityEvent.findMany({
+          where: {
+            workspaceId: input.workspaceId,
+            entityType: "channel_summary",
+          },
+          select: { metadata: true },
+        }),
+      ]);
+
+      const hasInternal = distinctTypes.some(
+        (t) => t.entityType !== "channel_summary",
+      );
+      const providers = Array.from(
+        new Set(
+          channelRows
+            .map((r) =>
+              r.metadata &&
+              typeof r.metadata === "object" &&
+              !Array.isArray(r.metadata)
+                ? (r.metadata as Record<string, unknown>).provider
+                : null,
+            )
+            .filter((p): p is string => typeof p === "string" && p.length > 0),
+        ),
+      );
+
+      return { hasInternal, providers };
     }),
 
   // Aggregated cross-workspace activity feed for the top-level `/activity`
@@ -1828,6 +1883,7 @@ export const workspaceRouter = createTRPCRouter({
       z.object({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
+        source: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -1840,6 +1896,7 @@ export const workspaceRouter = createTRPCRouter({
         workspaceIds: workspaces.map((w) => w.id),
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
+        source: input.source,
       });
     }),
 
