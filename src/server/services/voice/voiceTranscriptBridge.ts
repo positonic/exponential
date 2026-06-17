@@ -94,7 +94,7 @@ export function voiceTurnId(threadKey: string, role: VoiceTurnRole, text: string
 
 /** Mastra's saveMessages rejects writes to a nonexistent thread with this. */
 function isThreadNotFound(err: unknown): boolean {
-  return err instanceof Error && /thread .* not found/i.test(err.message);
+  return err instanceof Error && /thread.*not found/i.test(err.message);
 }
 
 /**

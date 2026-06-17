@@ -107,6 +107,23 @@ describe("voiceTranscriptBridge.persistVoiceTurn", () => {
     expect(result.threadKey).toBe("conv_123");
   });
 
+  // Mastra may surface the not-found error without the thread id (e.g. "Thread
+  // not found"); the create-and-retry must still trigger on that form.
+  it("creates the missing thread when the error omits the thread id", async () => {
+    const { client, saveMessageToMemory, createMemoryThread } = mockClient();
+    saveMessageToMemory
+      .mockRejectedValueOnce(new Error("Thread not found"))
+      .mockResolvedValueOnce({});
+
+    await persistVoiceTurn(
+      { userId: "u1", role: "user", text: "id-less error", threadKey: "conv_123" },
+      { client },
+    );
+
+    expect(createMemoryThread).toHaveBeenCalledTimes(1);
+    expect(saveMessageToMemory).toHaveBeenCalledTimes(2);
+  });
+
   it("propagates non-thread-not-found save errors without creating a thread", async () => {
     const { client, saveMessageToMemory, createMemoryThread } = mockClient();
     saveMessageToMemory.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
