@@ -124,6 +124,27 @@ describe("voiceTranscriptBridge.persistVoiceTurn", () => {
     expect(saveMessageToMemory).toHaveBeenCalledTimes(2);
   });
 
+  // The real MastraClient wraps server errors as `HTTP error! status: N -
+  // <body>`, and Mastra phrases the failure several ways. The matcher must
+  // catch the wrapped form and the "Thread not found: <id>" variant (mastra
+  // harness), not just the bare "Thread <id> not found" production emits today.
+  it.each([
+    "Thread not found: conv_123",
+    "Thread with id conv_123 not found",
+    'HTTP error! status: 500 - {"message":"Thread not found: conv_123"}',
+  ])("recovers from the wrapped/aliased not-found phrasing %j", async (message) => {
+    const { client, saveMessageToMemory, createMemoryThread } = mockClient();
+    saveMessageToMemory.mockRejectedValueOnce(new Error(message)).mockResolvedValueOnce({});
+
+    await persistVoiceTurn(
+      { userId: "u1", role: "user", text: "voice-first turn", threadKey: "conv_123" },
+      { client },
+    );
+
+    expect(createMemoryThread).toHaveBeenCalledTimes(1);
+    expect(saveMessageToMemory).toHaveBeenCalledTimes(2);
+  });
+
   it("propagates non-thread-not-found save errors without creating a thread", async () => {
     const { client, saveMessageToMemory, createMemoryThread } = mockClient();
     saveMessageToMemory.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));

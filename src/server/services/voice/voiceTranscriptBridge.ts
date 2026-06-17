@@ -92,9 +92,16 @@ export function voiceTurnId(threadKey: string, role: VoiceTurnRole, text: string
   return `voice-${hash}`;
 }
 
-/** Mastra's saveMessages rejects writes to a nonexistent thread with this. */
+/**
+ * Mastra's saveMessages rejects writes to a nonexistent thread with this.
+ * Mastra emits several phrasings — "Thread <id> not found", "Thread not found:
+ * <id>", "Thread with id <id> not found" — and MastraClient wraps them as
+ * `HTTP error! status: N - <body>`, so match loosely: "thread" … "not found"
+ * with no mandatory text between (a bare "Thread not found" must still match).
+ * The \b stops "Threaded …" from matching.
+ */
 function isThreadNotFound(err: unknown): boolean {
-  return err instanceof Error && /thread.*not found/i.test(err.message);
+  return err instanceof Error && /thread\b.*not found/i.test(err.message);
 }
 
 /**
