@@ -1,6 +1,6 @@
 import { Modal, TextInput, Textarea, Button, Group, Select, MultiSelect, Tooltip, Stack, Title, Text, Alert, Loader, Switch, Input } from '@mantine/core';
 import { UnifiedDatePicker } from '~/app/_components/UnifiedDatePicker';
-import { IconAlertCircle, IconBrandNotion, IconCheck, IconPlus } from '@tabler/icons-react';
+import { IconAlertCircle, IconBrandNotion, IconCheck, IconInfoCircle, IconPlus } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useDisclosure } from '@mantine/hooks';
 import type { Project } from '@prisma/client';
@@ -46,6 +46,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const [projectName, setProjectName] = useState(project?.name ?? prefillName ?? "");
   const [notionProjectId] = useState(prefillNotionProjectId);
   const [description, setDescription] = useState(project?.description ?? "");
+  const [aiInstructions, setAiInstructions] = useState(project?.aiInstructions ?? "");
   const [status, setStatus] = useState<ProjectStatus>(project?.status as ProjectStatus ?? "ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>(project?.priority as ProjectPriority ?? "NONE");
   const [selectedGoals, setSelectedGoals] = useState<string[]>(
@@ -256,6 +257,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     if (!project) {
       setProjectName(prefillName ?? "");
       setDescription("");
+      setAiInstructions("");
       setStatus("ACTIVE");
       setPriority("NONE");
       setSelectedGoals([]);
@@ -357,6 +359,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 id: project.id,
                 name: projectName,
                 description,
+                aiInstructions,
                 status: status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED",
                 priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
                 goalIds: selectedGoals,
@@ -374,6 +377,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               createMutation.mutate({
                 name: projectName,
                 description,
+                aiInstructions,
                 status,
                 priority,
                 goalIds: selectedGoals,
@@ -421,6 +425,25 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 color: 'var(--color-text-primary)',
                 borderColor: 'var(--color-border-primary)',
               },
+            }}
+          />
+
+          <Textarea
+            label="Instructions"
+            description="Guidance the AI assistant receives when chatting in this project. Layered on top of the workspace's instructions (project wins on conflict). Treated as helpful context, not enforced rules."
+            placeholder="e.g. This project tracks the Q3 launch. Prefer action items grouped by owner."
+            value={aiInstructions}
+            onChange={(e) => setAiInstructions(e.target.value)}
+            autosize
+            minRows={3}
+            mt="md"
+            styles={{
+              input: {
+                backgroundColor: 'var(--color-surface-secondary)',
+                color: 'var(--color-text-primary)',
+                borderColor: 'var(--color-border-primary)',
+              },
+              description: { color: 'var(--color-text-secondary)' },
             }}
           />
 
@@ -752,7 +775,24 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           >
             <div>
               <Switch
-                label="Restricted project"
+                label={
+                  <Group gap={6} wrap="nowrap" component="span">
+                    <span>Restricted project</span>
+                    <Tooltip
+                      multiline
+                      w={320}
+                      withArrow
+                      position="top"
+                      label="Restricted = explicit allowlist. Only the project creator, people added as project members, and workspace owners/admins keep access. Workspace members/viewers and members of the owning team do NOT — add teammates as project members. Meetings keep one exception: people who attended a meeting can still view that meeting."
+                    >
+                      <IconInfoCircle
+                        size={15}
+                        className="text-text-muted"
+                        aria-label="How restricted projects work"
+                      />
+                    </Tooltip>
+                  </Group>
+                }
                 description="Only project members and workspace admins can access this project"
                 checked={isRestricted}
                 onChange={(event) => setIsRestricted(event.currentTarget.checked)}
@@ -765,6 +805,23 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               />
             </div>
           </Tooltip>
+
+          {isRestricted && (
+            <Alert
+              color="blue"
+              variant="light"
+              icon={<IconInfoCircle size={14} />}
+              mt={8}
+            >
+              <Text size="xs" className="text-text-secondary">
+                Who keeps access: the project creator, explicit project
+                members, and workspace owners/admins. Everyone else in the
+                workspace — including members of the owning team — loses the
+                project and its meetings. Exception: meeting attendees can
+                still view meetings they were part of.
+              </Text>
+            </Alert>
+          )}
 
           {isPublic && isRestricted && (
             <Text size="xs" c="dimmed" mt={4}>

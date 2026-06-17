@@ -7,6 +7,7 @@ import {
   canEditProject,
 } from "~/server/services/access/resolvers/projectResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
+import { resolveGoalProgress } from "~/server/services/goalProgress";
 import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
@@ -266,20 +267,12 @@ export const keyResultRouter = createTRPCRouter({
         orderBy: { title: "asc" },
       });
 
-      // Calculate progress for each objective
+      // Calculate progress for each objective. A manual progressOverride wins
+      // over the KR-derived mean (see goalProgress.ts); falls back to 0 when a
+      // goal has neither an override nor measurable key results.
       return goals.map((goal) => {
         const keyResults = goal.keyResults;
-        const avgProgress =
-          keyResults.length > 0
-            ? keyResults.reduce((acc, kr) => {
-                const range = kr.targetValue - kr.startValue;
-                const progress =
-                  range > 0
-                    ? ((kr.currentValue - kr.startValue) / range) * 100
-                    : 0;
-                return acc + Math.min(100, Math.max(0, progress));
-              }, 0) / keyResults.length
-            : 0;
+        const resolved = resolveGoalProgress(goal) ?? 0;
 
         const statusCounts = {
           "on-track": keyResults.filter((kr) => kr.status === "on-track")
@@ -292,7 +285,7 @@ export const keyResultRouter = createTRPCRouter({
 
         return {
           ...goal,
-          progress: Math.round(avgProgress),
+          progress: resolved,
           statusCounts,
         };
       });

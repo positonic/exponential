@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "~/server/auth";
+import { isGithubAppConfigured } from "~/server/services/github/connectionState";
 import { z } from "zod";
 
 const authorizeSchema = z.object({
   projectId: z.string().optional(),
+  workspaceId: z.string().optional(),
   redirectUrl: z.string().url().optional(),
 });
+
+const BASE_URL = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
 // GitHub App credentials (currently unused)
 // const GITHUB_APP_ID = process.env.GITHUB_APP_ID!;
@@ -21,32 +25,41 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // L1 prerequisite: can't start an install without the GitHub App
+    // registered. Degrade gracefully instead of sending the user to a broken
+    // github.com/apps/your-app-name URL.
+    if (!isGithubAppConfigured()) {
+      return NextResponse.redirect(
+        `${BASE_URL}/integrations?error=github_not_configured`,
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const params = Object.fromEntries(searchParams);
 
-    const { projectId, redirectUrl } = authorizeSchema.parse(params);
+    const { projectId, workspaceId, redirectUrl } =
+      authorizeSchema.parse(params);
 
-    // Create state parameter to maintain context
+    // Create state parameter to maintain context. `workspaceId` is what makes
+    // the install round-trip back to the originating workspace (ADR-0020).
     const state = Buffer.from(
       JSON.stringify({
         userId: session.user.id,
         projectId,
+        workspaceId,
         redirectUrl,
         timestamp: Date.now(),
       }),
     ).toString("base64");
 
-    // For GitHub App, we need to determine if the user has already installed the app
-    // If not, redirect to installation. If yes, redirect to repository selection.
-    
-    // GitHub App installation URL - replace YOUR_APP_SLUG with your actual app slug
-    const appSlug = process.env.GITHUB_APP_SLUG || "your-app-name";
-    
-    // First, redirect to GitHub App installation with state
-    const installUrl = new URL(`https://github.com/apps/${appSlug}/installations/new`);
+    // Redirect to GitHub App installation, carrying state through the install.
+    const appSlug = process.env.GITHUB_APP_SLUG!;
+    const installUrl = new URL(
+      `https://github.com/apps/${appSlug}/installations/new`,
+    );
     installUrl.searchParams.set("state", state);
-    
-    // The installation process will redirect back to our setup-url configured in the GitHub App
+
+    // The install round-trips back to our setup-url (the callback route).
     return NextResponse.redirect(installUrl.toString());
   } catch (error) {
     console.error("GitHub OAuth authorization error:", error);

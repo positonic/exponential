@@ -1115,7 +1115,9 @@ function AccessTabPanel({ projectId }: { projectId: string }) {
               <Text size="xs" className="text-text-muted">
                 Only the creator, project members, and workspace owners/admins
                 can see this project. Workspace members and team members lose
-                visibility.
+                visibility — add teammates as project members to keep them.
+                Meetings keep one exception: attendees can still view meetings
+                they were part of.
               </Text>
             </Stack>
             <Tooltip

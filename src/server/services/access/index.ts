@@ -87,3 +87,10 @@ export {
   checkActionPermission,
   buildActionAccessWhere,
 } from "./resolvers/actionResolver";
+export {
+  getTranscriptionAccess,
+  canViewTranscription,
+  canEditTranscription,
+  buildTranscriptionAccessWhere,
+} from "./resolvers/transcriptionResolver";
+export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";

@@ -10,7 +10,7 @@ import {
   getColorSeed,
   getTextColor,
 } from "~/utils/avatarColors";
-import { InlineImageRenderer } from "~/app/_components/shared/InlineImageRenderer";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 export interface CommentAuthor {
   id: string;
@@ -198,8 +198,9 @@ export function CommentThread({
                     </div>
                   ) : (
                     <div className="text-sm text-text-secondary">
-                      <InlineImageRenderer
+                      <MarkdownRenderer
                         content={comment.content}
+                        variant="compact"
                         mentionNames={mentionNames}
                         onDeleteImage={
                           isOwnComment && onDeleteImage

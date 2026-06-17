@@ -2,7 +2,15 @@
 
 ## Status
 
-Accepted — 2026-05-14
+Accepted — 2026-05-14.
+
+⚠️ **Accuracy caveat (2026-06-14):** the GitHub half of this ADR (decisions #3–#5
+— live-fetch union, `WorkspaceRepository` as source of truth, the PAT path) was
+**never implemented**. A code audit found no `WorkspaceRepository`, no GitHub
+union in `feed.ts`, and no source switcher; `GitHubActivity` is webhook-fed and
+read only by Sprint Analytics, never by the activity feed. Treat those decisions
+as **proposed, not shipped**. [ADR-0019](0019-persist-polled-commits.md) would
+have amended #3/#4 but is itself **Deferred** pending the missing primitives.
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
+import { entitiesToRefresh } from "./manyChatToolRefresh";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -307,7 +308,14 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   {isStreaming &&
                     index === visibleMessages.length - 1 &&
                     message.content === '' && (
-                      <ThinkingStatus toolCalls={message.toolCalls} />
+                      <ThinkingStatus
+                        toolCalls={message.toolCalls}
+                        requestText={
+                          [...visibleMessages]
+                            .reverse()
+                            .find((m) => m.type === 'human')?.content
+                        }
+                      />
                     )}
                   <div className="text-text-primary text-sm leading-relaxed">
                     {message.marker === 'voice' && (
@@ -367,6 +375,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, pendingContext, consumePendingPrompt } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const workspaceId = workspaceIdProp ?? urlWorkspaceId;
+  const utils = api.useUtils();
 
   // Fetch the user's custom assistant (if configured)
   const { data: customAssistant } = api.assistant.getDefault.useQuery(
@@ -456,6 +465,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     const goalDescription = typeof pageContext?.data?.goalDescription === 'string' ? pageContext.data.goalDescription : '';
     const goalWhy = typeof pageContext?.data?.goalWhy === 'string' ? pageContext.data.goalWhy : '';
     const goalStatus = typeof pageContext?.data?.goalStatus === 'string' ? pageContext.data.goalStatus : '';
+    const goalHealth = typeof pageContext?.data?.goalHealth === 'string' ? pageContext.data.goalHealth : '';
     const goalContext = pageContext?.pageType === 'goal' ? `
 
       🎯 CURRENT GOAL CONTEXT:
@@ -463,9 +473,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Description: ${goalDescription || 'No description'}
       - Why: ${goalWhy || 'Not specified'}
       - Status: ${goalStatus || 'Unknown'}
+      - Current health: ${goalHealth || 'no-update'}
       🎯 ACTIONS:
       - When creating actions or outcomes, link to this goal where appropriate
       - When asked about progress, refer to this goal's description and why
+      - When posting an Objective update whose health is unclear, default to this Current health so the status badge does not silently change
     ` : '';
 
     // Extract workspace info from page context for the system prompt
@@ -1319,6 +1331,36 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
       clearIdleTimer();
       setIsStreaming(false);
+
+      // Agent writes leave sibling views (each with its own React Query cache)
+      // stale until reload. The rule registry maps the tools that just ran to the
+      // entities whose mounted views need invalidating (see manyChatToolRefresh /
+      // ADR-0023). Procedure-wide (no args) invalidation keeps it robust against
+      // arg source/coercion drift and only refetches mounted observers.
+      const executedToolNames = Array.from(toolCallsById.values())
+        .filter((tc) => tc.status === 'success')
+        .map((tc) => tc.name);
+      const toRefresh = entitiesToRefresh(executedToolNames, pageContext?.pageType);
+
+      if (toRefresh.has('goalActivity')) {
+        // Goal feed + count + the goal itself (for the health badge).
+        void utils.goalActivity.getFeed.invalidate();
+        void utils.goalActivity.getCount.invalidate();
+        void utils.goal.getById.invalidate();
+      }
+      if (toRefresh.has('action')) {
+        // Full canonical Action set, mirroring the hand-written create/update/bulk
+        // invalidation sets so create, update, move, and delete refresh every
+        // surface (today list, project board, calendar, score widgets).
+        void utils.action.getAll.invalidate();
+        void utils.action.getToday.invalidate();
+        void utils.action.getScheduledByDate.invalidate();
+        void utils.action.getScheduledByDateRange.invalidate();
+        void utils.action.getProjectActions.invalidate();
+        void utils.scoring.getTodayScore.invalidate();
+        void utils.scoring.getProductivityStats.invalidate();
+      }
+
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —
       // the user sees those calls in the ToolActivity row.

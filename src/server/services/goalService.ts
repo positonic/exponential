@@ -1,5 +1,6 @@
 import { type Context } from "~/server/auth/types";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 
 /**
  * Verifies the current user has access to the given goal.
@@ -26,6 +27,102 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
   }
 
   throw new Error("Access denied");
+}
+
+/** The health a check-in can set. Mirrors the auto `Goal.health` values an
+ * Objective update writes — never the manual `healthOverride` (ADR-0004). */
+export type GoalUpdateHealth = "on-track" | "at-risk" | "off-track";
+
+/**
+ * Creates an **Objective update** (`GoalUpdate`) — a health-bearing check-in
+ * (content + health). Authored by the calling user. In the same transaction it
+ * syncs the Objective's **auto** health cache (`Goal.health` + `healthUpdatedAt`)
+ * so the status badge moves — but it NEVER writes the manual `healthOverride`,
+ * which stays the "Set status" CTA's job (ADR-0004). A set override is left
+ * intact, so the effective badge stays `healthOverride ?? health`.
+ *
+ * This is the single place the update-write rule lives: both the human router
+ * (`goalUpdate.addUpdate`) and the agent-facing proxy (`mastra.addGoalUpdate`)
+ * call it, so the health-sync behaviour cannot drift between surfaces. Access
+ * mirrors the human path exactly via `verifyGoalAccess`. See ADR-0016.
+ */
+export async function createGoalUpdate({
+  ctx,
+  goalId,
+  content,
+  health,
+}: {
+  ctx: Context;
+  goalId: number;
+  content: string;
+  health: GoalUpdateHealth;
+}) {
+  await verifyGoalAccess({ ctx, goalId });
+
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const [update] = await ctx.db.$transaction([
+    ctx.db.goalUpdate.create({
+      data: {
+        goalId,
+        authorId: userId,
+        content,
+        health,
+      },
+      include: {
+        author: { select: { id: true, name: true, image: true } },
+      },
+    }),
+    // Sync the goal's cached (auto) health status. Never touches healthOverride.
+    ctx.db.goal.update({
+      where: { id: goalId },
+      data: {
+        health,
+        healthUpdatedAt: new Date(),
+      },
+    }),
+  ]);
+
+  return update;
+}
+
+/**
+ * Creates an **Objective comment** (`GoalComment`) — a narrative note with no
+ * health that never moves the status badge. Authored by the calling user.
+ *
+ * This is the single place the comment-write rule lives: both the human router
+ * (`goalComment.addComment`) and the agent-facing proxy (`mastra.addGoalComment`)
+ * call it, so access control and behaviour cannot drift between surfaces.
+ * Access mirrors the human path exactly via `verifyGoalAccess`. See ADR-0016.
+ */
+export async function createGoalComment({
+  ctx,
+  goalId,
+  content,
+  parentUpdateId,
+}: {
+  ctx: Context;
+  goalId: number;
+  content: string;
+  parentUpdateId?: string | null;
+}) {
+  await verifyGoalAccess({ ctx, goalId });
+
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  return ctx.db.goalComment.create({
+    data: {
+      goalId,
+      authorId: userId,
+      content,
+      parentUpdateId: parentUpdateId ?? null,
+    },
+    include: {
+      author: { select: { id: true, name: true, image: true } },
+    },
+  });
 }
 
 export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
@@ -79,22 +176,13 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
     throw new Error("User not authenticated");
   }
 
-  // Enforce max nesting depth of 5 levels for sub-goals
+  // A sub-goal's parent must be ACCESSIBLE to the caller — never nest under
+  // another user's goal (that would inject a child into their tree and pollute
+  // their health roll-up) — and the chain must stay within the depth cap.
+  // Shared validation with updateGoal/setGoalParent.
   if (input.parentGoalId) {
-    let depth = 1;
-    let currentParentId: number | null = input.parentGoalId;
-    while (currentParentId) {
-      const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
-        where: { id: currentParentId },
-        select: { parentGoalId: true },
-      });
-      if (!parentGoal) break;
-      currentParentId = parentGoal.parentGoalId;
-      depth++;
-      if (depth > 5) {
-        throw new Error("Maximum nesting depth of 5 levels exceeded");
-      }
-    }
+    await verifyGoalAccess({ ctx, goalId: input.parentGoalId });
+    await validateParentAssignment({ ctx, parentGoalId: input.parentGoalId });
   }
 
   return await ctx.db.goal.create({
@@ -128,6 +216,43 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
   });
 }
 
+/**
+ * Validate a proposed parentGoalId: no self-parent, no cycle, and the resulting
+ * chain stays within the 5-level nesting cap. Shared by updateGoal and
+ * setGoalParent. Pass `goalId` for an existing goal being re-parented; omit it for
+ * a brand-new goal (createGoal) where self/cycle checks don't apply.
+ */
+async function validateParentAssignment({
+  ctx,
+  goalId,
+  parentGoalId,
+}: {
+  ctx: Context;
+  goalId?: number;
+  parentGoalId: number;
+}) {
+  if (goalId !== undefined && parentGoalId === goalId) {
+    throw new Error("A goal cannot be its own parent");
+  }
+  let depth = 1;
+  let currentParentId: number | null = parentGoalId;
+  while (currentParentId) {
+    const parent: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
+      where: { id: currentParentId },
+      select: { parentGoalId: true },
+    });
+    if (!parent) break;
+    if (goalId !== undefined && parent.parentGoalId === goalId) {
+      throw new Error("Cannot set a descendant goal as parent (would create a cycle)");
+    }
+    currentParentId = parent.parentGoalId;
+    depth++;
+    if (depth > 5) {
+      throw new Error("Maximum nesting depth of 5 levels exceeded");
+    }
+  }
+}
+
 interface UpdateGoalInput extends GoalInput {
   id: number;
   displayOrder?: number;
@@ -144,33 +269,13 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     where: { id: input.id },
   });
 
-  // Enforce max nesting depth of 5 levels when changing parent
-  if (input.parentGoalId !== undefined && input.parentGoalId !== existingGoal.parentGoalId) {
-    // Prevent setting self as parent
-    if (input.parentGoalId === input.id) {
-      throw new Error("A goal cannot be its own parent");
-    }
-
-    if (input.parentGoalId) {
-      // Check that the new parent isn't a descendant (would create a cycle)
-      let depth = 1;
-      let currentParentId: number | null = input.parentGoalId;
-      while (currentParentId) {
-        const parentGoal: { parentGoalId: number | null } | null = await ctx.db.goal.findUnique({
-          where: { id: currentParentId },
-          select: { parentGoalId: true },
-        });
-        if (!parentGoal) break;
-        if (parentGoal.parentGoalId === input.id) {
-          throw new Error("Cannot set a descendant goal as parent (would create a cycle)");
-        }
-        currentParentId = parentGoal.parentGoalId;
-        depth++;
-        if (depth > 5) {
-          throw new Error("Maximum nesting depth of 5 levels exceeded");
-        }
-      }
-    }
+  // Validate parent change (no self/cycle, within depth cap). Shared with setGoalParent.
+  if (
+    input.parentGoalId !== undefined &&
+    input.parentGoalId !== existingGoal.parentGoalId &&
+    input.parentGoalId
+  ) {
+    await validateParentAssignment({ ctx, goalId: input.id, parentGoalId: input.parentGoalId });
   }
 
   return await ctx.db.goal.update({
@@ -207,6 +312,37 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       projects: true,
       outcomes: true,
     },
+  });
+}
+
+/**
+ * Re-parent a goal (or detach it with parentGoalId = null) WITHOUT touching any
+ * of its other fields. Unlike updateGoal (a full overwrite that clears projects,
+ * period, workspace, etc.), this only writes parentGoalId — safe for nesting an
+ * existing goal under another. Validates access to both goal and parent, and the
+ * no-self/no-cycle/depth rules.
+ */
+export async function setGoalParent({
+  ctx,
+  goalId,
+  parentGoalId,
+}: {
+  ctx: Context;
+  goalId: number;
+  parentGoalId: number | null;
+}) {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+  await verifyGoalAccess({ ctx, goalId });
+  if (parentGoalId !== null) {
+    await verifyGoalAccess({ ctx, goalId: parentGoalId });
+    await validateParentAssignment({ ctx, goalId, parentGoalId });
+  }
+  return await ctx.db.goal.update({
+    where: { id: goalId },
+    data: { parentGoalId },
+    include: { parentGoal: { select: { id: true, title: true } } },
   });
 }
 
@@ -341,10 +477,10 @@ export async function computeGoalHealth({ ctx, goalId }: { ctx: Context, goalId:
     }
   }
 
-  // 2. Projects: use progress field (0-1 float)
+  // 2. Projects: use progress field (already stored 0-100)
   for (const project of goal.projects) {
     if (project.progress !== null && project.progress !== undefined) {
-      healthScores.push(Number(project.progress) * 100);
+      healthScores.push(Math.max(0, Math.min(100, Number(project.progress))));
     }
     if (project.createdAt && (!latestUpdate || project.createdAt > latestUpdate)) {
       latestUpdate = project.createdAt;
@@ -450,7 +586,15 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
     },
   });
 
-  return goal;
+  if (!goal) return goal;
+
+  // Attach the resolved progress (manual override > KR mean > null) so every
+  // consumer reads one number instead of recomputing. See goalProgress.ts.
+  return {
+    ...goal,
+    resolvedProgress: resolveGoalProgress(goal),
+    isProgressManual: isManualProgress(goal),
+  };
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {

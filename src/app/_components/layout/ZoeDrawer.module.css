@@ -218,37 +218,76 @@
   overflow: hidden;
 }
 
-/* ---- Floating action button ---- */
+/* ---- Floating action button (Spark · Brand Blue) ---- */
 .zoeFab {
   position: fixed;
   right: 24px;
   bottom: calc(24px + env(safe-area-inset-bottom));
-  width: 48px; height: 48px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, var(--accent-meetings), var(--brand-600));
-  color: var(--color-text-inverse);
-  border: 0;
-  display: grid; place-items: center;
-  box-shadow:
-    0 10px 40px -10px color-mix(in srgb, var(--brand-400) 60%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
   z-index: 60;
+
+  width: 52px; height: 52px;
+  display: grid; place-items: center;
+  border: 0;
+  border-radius: 16px; /* softened squircle */
   cursor: pointer;
-  transition: transform 160ms, box-shadow 160ms;
+  isolation: isolate;
+
+  color: var(--color-text-inverse);
+  background: linear-gradient(150deg, var(--brand-400), var(--brand-600));
+  box-shadow:
+    0 12px 34px -10px color-mix(in srgb, var(--brand-400) 60%, transparent),
+    0 2px 6px color-mix(in srgb, black 35%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 18%, transparent);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.18s;
 }
 .zoeFab:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   box-shadow:
-    0 14px 50px -8px color-mix(in srgb, var(--brand-400) 80%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, white 8%, transparent);
+    0 18px 46px -10px color-mix(in srgb, var(--brand-400) 70%, transparent),
+    0 2px 6px color-mix(in srgb, black 40%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
 }
+.zoeFab:focus-visible {
+  outline: 2px solid var(--brand-200);
+  outline-offset: 3px;
+}
+
+.zoeFabIcon {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+}
+
+/* live "online" dot */
 .zoeFabPulse {
   position: absolute;
-  top: 8px; right: 8px;
-  width: 8px; height: 8px;
+  top: 3px; right: 3px;
+  z-index: 2;
+  width: 11px; height: 11px;
   border-radius: 50%;
   background: var(--accent-crm);
-  box-shadow: 0 0 0 2px var(--color-bg-primary);
+  border: 2.5px solid var(--color-bg-primary);
+}
+
+/* slow breathing halo */
+.zoeFabHalo {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  animation: zoeFabHalo 3.2s ease-out infinite;
+}
+
+@keyframes zoeFabHalo {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-400) 55%, transparent); opacity: 0.9; }
+  70%  { box-shadow: 0 0 0 16px color-mix(in srgb, var(--brand-400) 0%, transparent); opacity: 0; }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand-400) 0%, transparent); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zoeFabHalo { animation: none; }
+  .zoeFab { transition: none; }
 }
 .zoeFabKbd {
   position: absolute;

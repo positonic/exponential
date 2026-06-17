@@ -11,7 +11,8 @@ export type ActivityAction =
   | "updated"
   | "status_changed"
   | "completed"
-  | "commented";
+  | "commented"
+  | "summarized";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -26,11 +27,19 @@ export type ActivityEntityType =
   | "goal"
   | "weekly_review"
   | "workspace_member"
-  | "deal";
+  | "deal"
+  | "meeting"
+  | "time_entry"
+  | "channel_summary";
 
 export interface RecordActivityInput {
   workspaceId: string;
-  userId: string;
+  /**
+   * Acting user. Normally a real user id; `null` is permitted for system-actor
+   * events whose `ChannelLink.createdById` was cleared (the column is nullable,
+   * SET NULL on user delete). See ADR-0023 channel summaries.
+   */
+  userId: string | null;
   entityType: ActivityEntityType;
   entityId: string;
   action: ActivityAction;

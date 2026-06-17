@@ -104,6 +104,7 @@ model User {
   feedback                    Feedback[]
   goals                       Goal[]
   integrations                Integration[]
+  workspaceRepositoriesAdded  WorkspaceRepository[]       @relation("WorkspaceRepositoryAddedBy")
   permissionsGrantedBy        IntegrationPermission[]     @relation("PermissionGrantedBy")
   permissionsGrantedTo        IntegrationPermission[]     @relation("PermissionGrantedTo")
   permissionsRevokedBy        IntegrationPermission[]     @relation("PermissionRevokedBy")
@@ -133,6 +134,7 @@ model User {
   teamCapacities              TeamMemberWeeklyCapacity[]  @relation("TeamMemberCapacity")
   weeklyReviewSharing         WeeklyReviewSharing[]
   weeklyReviewCompletions     WeeklyReviewCompletion[]
+  weeklyWorkDigests           WeeklyWorkDigest[]
   portfolioReviewCompletions  PortfolioReviewCompletion[]
   workspaceWeeklyFocuses      WorkspaceWeeklyFocus[]
   wheelOfLifeAssessments      WheelOfLifeAssessment[]
@@ -189,6 +191,8 @@ model User {
   projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
   // Workspace home activity feed
   workspaceActivityEvents     WorkspaceActivityEvent[]
+  // Inbound channel links created by this user
+  channelLinksCreated         ChannelLink[]               @relation("ChannelLinkCreatedBy")
   // Per-user favourites (polymorphic pins)
   favorites                   Favorite[]
 
@@ -279,16 +283,20 @@ model VerificationToken {
 // ============================================
 
 model Workspace {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
-  logoUrl     String?
-  type        String   @default("personal") // "personal" | "team" | "organization"
-  homeLayout  String   @default("command") // "command" | "activity"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  ownerId     String
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  description    String?
+  // Per-scope AI guidance ("Instructions" in the UI). Injected as DEMOTED
+  // <user_data> context in the chat route, never as an authoritative system
+  // prompt (demoted scope-instructions ADR). Distinct from the human-facing `description`.
+  aiInstructions String?  @db.Text
+  logoUrl        String?
+  type           String   @default("personal") // "personal" | "team" | "organization"
+  homeLayout     String   @default("command") // "command" | "activity"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ownerId        String
 
   effortUnit               EffortUnit @default(STORY_POINTS)
   enableAdvancedActions    Boolean    @default(false)
@@ -355,6 +363,8 @@ model Workspace {
   deals                   Deal[]
   // Integration relations
   integrations            Integration[]
+  // GitHub repo connection (ADR-0020): repos this workspace tracks
+  workspaceRepositories   WorkspaceRepository[]
   // Notification override relations
   notificationOverrides   WorkspaceNotificationOverride[]
   // Slack channel config relation
@@ -376,6 +386,8 @@ model Workspace {
   activityEvents   WorkspaceActivityEvent[]
   // Cached AI-generated Week-in-Review narratives (one row per ISO week).
   weeklyNarratives WorkspaceWeeklyNarrative[]
+  // Inbound channel links routed to this workspace (ADR-0023)
+  channelLinks     ChannelLink[]
 
   @@index([slug])
   @@index([ownerId])
@@ -407,6 +419,35 @@ model WorkspaceActivityEvent {
   @@index([workspaceId, userId, createdAt])
 }
 
+// Generic, inbound, provider-agnostic link routing a watched external
+// conversation to an Exponential destination (ADR-0023). The *routing*
+// authority: where a conversation's summary lands (required workspace,
+// optional project). `provider` is a string ("whatsapp" first); `externalId`
+// is that provider's conversation id (WhatsApp Baileys group JID "…@g.us",
+// Slack channel id, …). Deliberately distinct from the OUTBOUND,
+// Integration-FK-bound SlackChannelConfig — this is inbound and integration-free.
+model ChannelLink {
+  id          String   @id @default(cuid())
+  provider    String // "whatsapp" | "slack" | "telegram" | …
+  externalId  String // provider conversation id (e.g. WhatsApp group JID)
+  displayName String?
+  workspaceId String
+  projectId   String?
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalId])
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdById])
+}
+
 // Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
 // Regenerated on demand if missing, stale (>6h old AND week still in progress),
 // or explicitly via `regenerateWeeklyNarrative`. See
@@ -427,6 +468,31 @@ model WorkspaceWeeklyNarrative {
 
   @@unique([workspaceId, isoYear, isoWeek])
   @@index([workspaceId, generatedAt])
+}
+
+// Cached AI-generated personal Weekly work digest. One row per (user, ISO week).
+// The personal, cross-workspace sibling of WorkspaceWeeklyNarrative: scoped to a
+// single user across all their workspaces, private to them, and additionally
+// carries content angles. Regenerated lazily on read; TTL on the active week.
+// See ADR-0018. v1 gathers three sources (activity events, assigned/owned items,
+// meetings attended); commits are deferred (ADR-0019).
+model WeeklyWorkDigest {
+  id          String   @id @default(cuid())
+  userId      String
+  isoYear     Int
+  isoWeek     Int // 1–53
+  narrative   String   @db.Text
+  highlights  Json // string[]
+  angles      Json // string[] — AI-suggested content angles
+  model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, isoYear, isoWeek])
+  @@index([userId, generatedAt])
 }
 
 model WorkspaceUser {
@@ -757,6 +823,11 @@ model Project {
   createdById           String
   slug                  String                     @unique
   description           String?
+  // Per-scope AI guidance ("Instructions" in the UI). Layered on top of the
+  // workspace's aiInstructions as DEMOTED <user_data> context in the chat
+  // route (project wins on conflict), never an authoritative system prompt
+  // (demoted scope-instructions ADR). Distinct from the human-facing `description`.
+  aiInstructions        String?                    @db.Text
   teamId                String?
   workspaceId           String?
   taskManagementConfig  Json?
@@ -778,6 +849,7 @@ model Project {
   product               Product?                   @relation(fields: [productId], references: [id], onDelete: SetNull)
   projectMembers        ProjectMember[]
   slackConfig           SlackChannelConfig?
+  channelLinks          ChannelLink[]
   transcriptionSessions TranscriptionSession[]
   workflows             Workflow[]
   goals                 Goal[]                     @relation("GoalProjects")
@@ -892,6 +964,13 @@ model Goal {
   healthOverride     String? // "on-track" | "at-risk" | "off-track"
   healthOverrideAt   DateTime? // when the override was last set
   healthOverrideById String? // user id who set it (audit; no FK)
+
+  // Manual progress override (0–100). When set, it wins over the KR-derived
+  // progress for any goal. null = no override (fall back to KR mean, else none).
+  // Mirrors the healthOverride audit pattern above.
+  progressOverride     Float? // 0–100 percentage
+  progressOverrideAt   DateTime? // when the override was last set
+  progressOverrideById String? // user id who set it (audit; no FK)
 
   // Display ordering within parent or at root level
   displayOrder Int @default(0)
@@ -1213,6 +1292,8 @@ model Integration {
   workflows               Workflow[]
   // PM Agent GitHub tracking
   githubActivities        GitHubActivity[]
+  // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
+  workspaceRepositories   WorkspaceRepository[]
 
   @@index([userId])
   @@index([teamId])
@@ -1448,9 +1529,15 @@ model AiInteractionHistory {
   workspaceId        String?
   actionsTaken       Json?
   toolsUsed          String[]
+  // Per-call detail for the agent-quality loop (ADR-0012 judges, ADR-0013
+  // replay baselines) and incident diagnosis: [{name, args, isError,
+  // errorCode?, providerExecuted?}]. Args are redacted+truncated at capture
+  // (see redactToolArgs) — never store raw secrets here.
+  toolCalls          Json?
   userAgent          String?
   ipAddress          String?
   anthropicRequestId String?
+  promptVersion      String?
   createdAt          DateTime   @default(now())
   project            Project?   @relation(fields: [projectId], references: [id])
   user               User?      @relation(fields: [systemUserId], references: [id])
@@ -1489,6 +1576,60 @@ model Feedback {
   @@index([createdAt])
   @@index([feature, rating])
   @@index([aiInteractionId])
+}
+
+// Agent-quality Thread scoring (ADR-0012). One row per judged Thread — a
+// conversationId-scoped exchange with Zoe-the-brain, judged as a whole by an
+// LLM judge against Zoe's contract. Different grain from per-turn Feedback:
+// Feedback is a human ground-truth rating on one turn; ThreadScore is the
+// judge's apparent-quality verdict on the whole Thread.
+model ThreadScore {
+  id              String    @id @default(cuid())
+  conversationId  String    @unique
+  userId          String?
+  agentId         String?
+  // Judged axes (Zoe's contract, ADR-0012 decision 2). Latency is computed, never judged.
+  resolved        Boolean
+  grounded        Boolean
+  toolSuccess     Boolean
+  noDeflection    Boolean
+  overallScore    Int // 0-100, judge's holistic score across the four axes
+  // code_bug | agent_behaviour | capability_gap — null when the Thread passes (decision 4)
+  failureLane     String?
+  judgeModel      String
+  judgeVersion    String // versioned judge prompt (decision 9)
+  reasoning       String // judge's explanation
+  turnCount       Int
+  firstTurnAt     DateTime
+  lastTurnAt      DateTime
+  avgResponseTime Int? // computed mean of AiInteractionHistory.responseTime (ms), not judged
+  // Level B auto-filing idempotency (ADR-0012 decision 4): set once this
+  // failure has been filed into its lane's tracker; never filed twice.
+  filedAt         DateTime?
+  filedRef        String? // destination ref, e.g. "beads:exponential-x12", "ticket:<cuid>"
+  createdAt       DateTime  @default(now())
+  evalCase        EvalCase?
+
+  @@index([failureLane])
+  @@index([createdAt])
+}
+
+// Frozen, replayable eval case distilled from a scored-bad Thread (ADR-0012
+// decision 8). Candidate fixes are scored offline against these before deploy.
+model EvalCase {
+  id                 String      @id @default(cuid())
+  threadScoreId      String      @unique
+  conversationId     String
+  transcript         Json // ordered user/assistant turns needed to replay the Thread
+  violatingTurnIndex Int // 0-based index into transcript; replay feeds transcript[0..index) + that turn's user message as the frozen prefix (ADR-0013)
+  expectation        String // the contract expectation violated, e.g. "must not deflect"
+  lane               String // code_bug | agent_behaviour | capability_gap
+  active             Boolean     @default(true) // retired manually when the product changes underneath the case (ADR-0013)
+  createdAt          DateTime    @default(now())
+  threadScore        ThreadScore @relation(fields: [threadScoreId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([lane])
 }
 
 model FeatureRequest {
@@ -4151,4 +4292,31 @@ model ActionParticipantAssignee {
   @@index([actionId])
   @@index([participantId])
   @@index([workspaceId])
+}
+
+/// A GitHub repo a workspace has declared interest in (ADR-0020). Source of
+/// truth for which repos a workspace tracks — independent of who installed the
+/// GitHub App. The same repo can be tracked by multiple workspaces (one row per
+/// workspace × repo pair). `integrationId` points at the workspace's single
+/// GitHub App installation Integration.
+model WorkspaceRepository {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  integrationId  String
+  owner          String
+  name           String
+  fullName       String
+  installationId String?
+  addedById      String?
+  syncStatus     String    @default("pending")
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  addedBy     User?       @relation("WorkspaceRepositoryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, fullName])
+  @@index([workspaceId])
+  @@index([integrationId])
 }
