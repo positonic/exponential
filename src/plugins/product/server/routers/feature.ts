@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { checkStaleWrite } from "~/lib/prd/stale-write";
 
 /** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -222,6 +223,14 @@ export const featureRouter = createTRPCRouter({
         effort: z.number().optional(),
         priority: z.number().int().min(0).max(4).optional(),
         goalId: z.number().int().nullable().optional(),
+        // PRD body save (ADR-0024). `descriptionDoc` is the canonical document;
+        // `description` rides along as its derived Markdown projection (the
+        // client serialises it, since the projection needs the editor schema —
+        // a deviation from ADR-0024's "server derives", forced by there being no
+        // server-side DOM; the JSON-canonical, write-once-Markdown invariant
+        // still holds). `baseVersion` is the optimistic-concurrency check.
+        descriptionDoc: prosemirrorDoc.optional(),
+        baseVersion: z.number().int().min(0).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -240,11 +249,58 @@ export const featureRouter = createTRPCRouter({
         }
       }
 
-      const { id, ...data } = input;
-      return ctx.db.feature.update({
+      const { id, descriptionDoc, baseVersion, ...rest } = input;
+
+      // PRD body autosave path: optimistic-concurrency guard + version bump.
+      if (descriptionDoc !== undefined) {
+        if (baseVersion === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "baseVersion is required when saving the PRD body",
+          });
+        }
+        const current = await ctx.db.feature.findUnique({
+          where: { id },
+          select: { docVersion: true },
+        });
+        const decision = checkStaleWrite({
+          storedVersion: current?.docVersion ?? 0,
+          baseVersion,
+        });
+        if (!decision.accept) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              decision.reason === "stale"
+                ? "This PRD was updated in another tab or by another member. Reload to get the latest version."
+                : "Stale document version — reload and try again.",
+          });
+        }
+        // Atomic compare-and-set: the WHERE on docVersion closes the read→write
+        // race so two concurrent saves can't both bump from the same base.
+        const res = await ctx.db.feature.updateMany({
+          where: { id, docVersion: baseVersion },
+          data: {
+            ...rest,
+            descriptionDoc: descriptionDoc as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          },
+        });
+        if (res.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This PRD was updated concurrently. Reload to get the latest version.",
+          });
+        }
+        return { id, docVersion: decision.nextVersion };
+      }
+
+      const updated = await ctx.db.feature.update({
         where: { id },
-        data,
+        data: rest,
       });
+      return updated;
     }),
 
   /**
