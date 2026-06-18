@@ -3707,7 +3707,14 @@ model Feature {
   id          String        @id @default(cuid())
   productId   String
   name        String
+  // PRD body — the scoped ADR-0017 exception (ADR-0024). `descriptionDoc` is the
+  // canonical ProseMirror document the editor reads/writes; `description` is a
+  // derived, write-only Markdown projection for off-island readers (CLI, agents,
+  // card previews) and never read back into the editor. `docVersion` powers the
+  // optimistic-concurrency stale-write guard for single-writer editing.
   description String?
+  descriptionDoc Json?
+  docVersion  Int           @default(0)
   vision      String?
   status      FeatureStatus @default(IDEA)
   effort      Float?
