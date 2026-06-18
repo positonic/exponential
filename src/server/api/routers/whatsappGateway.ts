@@ -6,6 +6,14 @@ import { generateJWT } from "~/server/utils/jwt";
 // Environment variable for gateway URL
 const WHATSAPP_GATEWAY_URL = process.env.WHATSAPP_GATEWAY_URL;
 
+// One WhatsApp group as returned by the gateway's
+// `GET /sessions/{sessionId}/groups` endpoint.
+interface WhatsAppGroup {
+  jid: string;
+  subject: string;
+  participants: number;
+}
+
 export const whatsappGatewayRouter = createTRPCRouter({
   // Check if gateway is configured
   isConfigured: protectedProcedure.query(() => {
@@ -217,6 +225,54 @@ export const whatsappGatewayRouter = createTRPCRouter({
         status: data.connected ? "CONNECTED" : "PENDING",
       };
     }),
+
+  // List the WhatsApp groups the caller's connected session belongs to, for the
+  // workspace "WhatsApp Groups" settings card (ADR-0023). Resolves the user's
+  // connected gateway session, then proxies the gateway's
+  // `GET /sessions/{sessionId}/groups`. Degrades gracefully: returns an empty
+  // list (never throws) when the gateway is unconfigured, no session is
+  // connected, or the gateway call fails — the card renders a connect hint.
+  getGroups: protectedProcedure.query(async ({ ctx }) => {
+    if (!WHATSAPP_GATEWAY_URL) {
+      return { configured: false, connected: false, groups: [] as WhatsAppGroup[] };
+    }
+
+    const session = await ctx.db.whatsAppGatewaySession.findFirst({
+      where: { userId: ctx.session.user.id, status: "CONNECTED" },
+      orderBy: { connectedAt: "desc" },
+    });
+
+    if (!session) {
+      return { configured: true, connected: false, groups: [] as WhatsAppGroup[] };
+    }
+
+    const authToken = generateJWT(ctx.session.user, {
+      tokenType: "whatsapp-gateway",
+    });
+
+    try {
+      const response = await fetch(
+        `${WHATSAPP_GATEWAY_URL}/sessions/${session.sessionId}/groups`,
+        { headers: { Authorization: `Bearer ${authToken}` } },
+      );
+
+      if (!response.ok) {
+        // 503 = session not connected to WhatsApp; treat as "not connected".
+        console.error("[whatsappGateway] getGroups failed:", response.status);
+        return { configured: true, connected: false, groups: [] as WhatsAppGroup[] };
+      }
+
+      const data = (await response.json()) as { groups?: WhatsAppGroup[] };
+      return {
+        configured: true,
+        connected: true,
+        groups: data.groups ?? [],
+      };
+    } catch (error) {
+      console.error("[whatsappGateway] getGroups error:", error);
+      return { configured: true, connected: false, groups: [] as WhatsAppGroup[] };
+    }
+  }),
 
   // List user's sessions
   listSessions: protectedProcedure.query(async ({ ctx }) => {
