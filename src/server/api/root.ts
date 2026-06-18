@@ -44,6 +44,7 @@ import { knowledgeChunkRouter } from "./routers/knowledgeChunk";
 import { transcriptionSessionParticipantRouter } from "./routers/transcriptionSessionParticipant";
 import { crmContactRouter } from "./routers/crmContact";
 import { crmOrganizationRouter } from "./routers/crmOrganization";
+import { crmAutomationRouter } from "./routers/crmAutomation";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
 import { taskScheduleRouter } from "./routers/taskSchedule";
@@ -129,6 +130,7 @@ export const appRouter = createTRPCRouter({
   transcriptionSessionParticipant: transcriptionSessionParticipantRouter,
   crmContact: crmContactRouter,
   crmOrganization: crmOrganizationRouter,
+  crmAutomation: crmAutomationRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
   taskSchedule: taskScheduleRouter,

@@ -6,6 +6,7 @@ import type { Prisma, CrmContact } from "@prisma/client";
 import { ContactSyncService } from "~/server/services/ContactSyncService";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
+import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
 
 // Type for decrypted contact - replaces Bytes fields with string | null
 type DecryptedContact<T extends CrmContact> = Omit<
@@ -359,6 +360,24 @@ export const crmContactRouter = createTRPCRouter({
         },
       });
 
+      // Fire CRM onboarding Automations if this contact was created with a
+      // target Customer type. Never let automation failures break creation.
+      try {
+        await dispatchContactTypeAutomations(ctx.db, {
+          contactId: contact.id,
+          workspaceId,
+          oldProfileType: null,
+          newProfileType: contactData.profileType ?? null,
+          triggeredById: ctx.session.user.id,
+        });
+      } catch (e) {
+        console.error(
+          "CRM automation dispatch failed after create for contact",
+          contact.id,
+          e,
+        );
+      }
+
       // Decrypt fields for the response
       try {
         return decryptContactPII(contact);
@@ -390,7 +409,7 @@ export const crmContactRouter = createTRPCRouter({
       // Get the contact and verify access
       const existingContact = await ctx.db.crmContact.findUnique({
         where: { id },
-        select: { workspaceId: true },
+        select: { workspaceId: true, profileType: true },
       });
 
       if (!existingContact) {
@@ -475,6 +494,24 @@ export const crmContactRouter = createTRPCRouter({
           },
         },
       });
+
+      // Fire CRM onboarding Automations if this update set a target Customer
+      // type (later tagging). Idempotent + isolated from the update result.
+      try {
+        await dispatchContactTypeAutomations(ctx.db, {
+          contactId: contact.id,
+          workspaceId: existingContact.workspaceId,
+          oldProfileType: existingContact.profileType ?? null,
+          newProfileType: updateData.profileType ?? null,
+          triggeredById: ctx.session.user.id,
+        });
+      } catch (e) {
+        console.error(
+          "CRM automation dispatch failed after update for contact",
+          contact.id,
+          e,
+        );
+      }
 
       // Decrypt for response
       try {
