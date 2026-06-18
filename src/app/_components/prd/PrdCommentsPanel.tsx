@@ -33,6 +33,8 @@ interface PrdCommentsPanelProps {
   onSubmit: (threadId: string, body: string) => Promise<void>;
   onResolve: (threadId: string) => Promise<void>;
   onUnresolve: (threadId: string) => Promise<void>;
+  /** Whether the list owns the composer (false while the anchored popover does). */
+  composerActive?: boolean;
   currentUserId?: string;
   isSubmitting?: boolean;
 }
@@ -61,6 +63,7 @@ export function PrdCommentsPanel({
   onSubmit,
   onResolve,
   onUnresolve,
+  composerActive = true,
   currentUserId,
   isSubmitting = false,
 }: PrdCommentsPanelProps) {
@@ -152,7 +155,7 @@ export function PrdCommentsPanel({
           </div>
         )}
 
-        {isActive && !isResolved && (
+        {isActive && !isResolved && composerActive && (
           <div className="mt-2" onClick={(e) => e.stopPropagation()}>
             <CommentInput
               placeholder={rootRows.length === 0 ? "Comment…" : "Reply…"}
