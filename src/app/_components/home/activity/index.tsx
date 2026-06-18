@@ -6,6 +6,7 @@ import { GithubReposPanel } from './GithubReposPanel';
 import { Heatmap } from './Heatmap';
 import { Hero } from './Hero';
 import { WeekInReview } from './WeekInReview';
+import { WhatsAppGroupsPanel } from './WhatsAppGroupsPanel';
 import './activity-home.css';
 
 /**
@@ -15,7 +16,7 @@ import './activity-home.css';
  *   `hero` — `Hero` (this-week / streak / active projects)
  *   `week` — `WeekInReview` (sparkline + multi-week stats)
  *   `main` — `Heatmap` + `ActivityFeed`
- *   `rail` — `ActiveProjects` + `GithubReposPanel`
+ *   `rail` — `ActiveProjects` + `GithubReposPanel` + `WhatsAppGroupsPanel`
  */
 export function WorkspaceHomeActivityLayout() {
   return (
@@ -34,6 +35,7 @@ export function WorkspaceHomeActivityLayout() {
         <div className="wsa__rail">
           <ActiveProjects />
           <GithubReposPanel />
+          <WhatsAppGroupsPanel />
         </div>
       </div>
     </div>
