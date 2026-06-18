@@ -13,6 +13,37 @@ import {
 } from "@mantine/core";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import type { MoveLossSummary } from "~/plugins/product/server/services/featureMove";
+
+/** Pluralize a count: `count(2, "ticket")` → "2 tickets". */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * Enumerate the lossy consequences of a move from its loss summary. Only
+ * non-empty categories are listed; an otherwise-clean move says so.
+ */
+function consequenceLines(loss: MoveLossSummary): string[] {
+  const lines: string[] = [];
+  if (loss.ticketsRenumbered > 0)
+    lines.push(`${count(loss.ticketsRenumbered, "ticket")} renumbered into the destination product`);
+  if (loss.cyclesDropped > 0)
+    lines.push(`${count(loss.cyclesDropped, "ticket")} unlinked from their cycle`);
+  if (loss.dependenciesDropped > 0)
+    lines.push(`${count(loss.dependenciesDropped, "ticket dependency")} dropped (crosses the move boundary)`);
+  if (loss.assigneesCleared > 0)
+    lines.push(`${count(loss.assigneesCleared, "assignee")} cleared (not in the destination workspace)`);
+  if (loss.childActionsUnlinked > 0)
+    lines.push(`${count(loss.childActionsUnlinked, "child action")} unlinked (left in the source workspace)`);
+  if (loss.insightLinksDropped > 0)
+    lines.push(`${count(loss.insightLinksDropped, "insight link")} dropped`);
+  if (loss.tagsDropped > 0)
+    lines.push(`${count(loss.tagsDropped, "workspace tag")} dropped`);
+  if (loss.goalAlignmentRemoved) lines.push("Goal alignment removed");
+  if (lines.length === 0) lines.push("No workspace- or product-scoped links to sever.");
+  return lines;
+}
 
 /**
  * Two-step "move this Feature to another workspace" confirm modal (ADR-0027).
@@ -76,6 +107,14 @@ export function MoveFeatureModal({
     .filter((p) => p.id !== currentProductId)
     .map((p) => ({ value: p.id, label: p.name }));
 
+  // Loss preview — same planFeatureMove the move runs, so the dialog can never
+  // disagree with what actually happens (ADR-0027).
+  const { data: preview, isFetching: previewLoading } =
+    api.product.feature.getMovePreview.useQuery(
+      { featureId, destinationProductId: productId ?? "" },
+      { enabled: opened && !!productId },
+    );
+
   const move = api.product.feature.move.useMutation({
     onSuccess: async (res) => {
       await utils.product.feature.getById.invalidate({ id: featureId });
@@ -124,17 +163,31 @@ export function MoveFeatureModal({
           comboboxProps={{ withinPortal: true }}
         />
 
-        <Alert
-          variant="light"
-          color="yellow"
-          icon={<IconAlertTriangle size={16} />}
-        >
-          <Text size="xs">
-            Crossing a workspace boundary severs workspace- and product-scoped
-            links (goal alignment, insights, workspace tags, and more). This
-            can&apos;t be undone by moving the feature back.
-          </Text>
-        </Alert>
+        {productId && (
+          <Alert
+            variant="light"
+            color="yellow"
+            icon={<IconAlertTriangle size={16} />}
+            title="This move is lossy and can't be undone"
+          >
+            {previewLoading || !preview ? (
+              <Text size="xs" className="text-text-muted">
+                Calculating consequences…
+              </Text>
+            ) : (
+              <Stack gap={2}>
+                {consequenceLines(preview).map((line) => (
+                  <Text key={line} size="xs">
+                    {line}
+                  </Text>
+                ))}
+                <Text size="xs" className="text-text-muted">
+                  PRD body, scopes, user stories, and comments move unchanged.
+                </Text>
+              </Stack>
+            )}
+          </Alert>
+        )}
 
         {move.isError && (
           <Text size="sm" className="text-brand-error">
@@ -149,10 +202,14 @@ export function MoveFeatureModal({
           <Button
             onClick={() =>
               productId &&
-              move.mutate({ featureId, destinationProductId: productId })
+              move.mutate({
+                featureId,
+                destinationProductId: productId,
+                expectedSourceProductId: currentProductId,
+              })
             }
             loading={move.isPending}
-            disabled={!productId}
+            disabled={!productId || previewLoading}
           >
             Move feature
           </Button>

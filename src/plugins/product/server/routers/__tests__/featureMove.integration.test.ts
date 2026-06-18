@@ -270,6 +270,82 @@ describe("feature.move (integration)", () => {
     expect(t.productId).toBe(srcProduct.id);
     expect(t.number).toBe(5);
   });
+
+  it("getMovePreview returns the loss summary without mutating anything", async () => {
+    const mover = await createUser(db);
+    const srcWs = await createWorkspace(db, { ownerId: mover.id });
+    const srcProduct = await createProduct(db, {
+      workspaceId: srcWs.id,
+      createdById: mover.id,
+    });
+    const destWs = await createWorkspace(db, { ownerId: mover.id });
+    const destProduct = await createProduct(db, {
+      workspaceId: destWs.id,
+      createdById: mover.id,
+    });
+
+    const goal = await createGoal(db, {
+      userId: mover.id,
+      workspaceId: srcWs.id,
+      title: "g",
+    });
+    const feature = await createFeature(db, {
+      productId: srcProduct.id,
+      createdById: mover.id,
+    });
+    await db.feature.update({ where: { id: feature.id }, data: { goalId: goal.id } });
+    await createTicket(db, {
+      productId: srcProduct.id,
+      createdById: mover.id,
+      featureId: feature.id,
+      number: 3,
+    });
+
+    const caller = createTestCaller(mover.id);
+    const preview = await caller.product.feature.getMovePreview({
+      featureId: feature.id,
+      destinationProductId: destProduct.id,
+    });
+
+    expect(preview.ticketsRenumbered).toBe(1);
+    expect(preview.goalAlignmentRemoved).toBe(true);
+
+    // Side-effect free: feature and ticket are unchanged.
+    const f = await db.feature.findUniqueOrThrow({ where: { id: feature.id } });
+    expect(f.productId).toBe(srcProduct.id);
+    expect(f.goalId).toBe(goal.id);
+  });
+
+  it("rejects a stale move when the expected source product no longer matches", async () => {
+    const mover = await createUser(db);
+    const srcWs = await createWorkspace(db, { ownerId: mover.id });
+    const srcProduct = await createProduct(db, {
+      workspaceId: srcWs.id,
+      createdById: mover.id,
+    });
+    const destWs = await createWorkspace(db, { ownerId: mover.id });
+    const destProduct = await createProduct(db, {
+      workspaceId: destWs.id,
+      createdById: mover.id,
+    });
+    const feature = await createFeature(db, {
+      productId: srcProduct.id,
+      createdById: mover.id,
+    });
+
+    const caller = createTestCaller(mover.id);
+    await expect(
+      caller.product.feature.move({
+        featureId: feature.id,
+        destinationProductId: destProduct.id,
+        expectedSourceProductId: "some-other-product-id",
+      }),
+    ).rejects.toThrow(TRPCError);
+
+    // Unchanged.
+    const f = await db.feature.findUniqueOrThrow({ where: { id: feature.id } });
+    expect(f.productId).toBe(srcProduct.id);
+  });
 });
 
 /**

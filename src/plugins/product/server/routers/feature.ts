@@ -37,6 +37,129 @@ async function assertWorkspaceWriteRole(
   return membership;
 }
 
+/**
+ * Load everything a Feature move needs, run both-ends access checks, and shape
+ * the {@link FeatureMoveGraph} + {@link FeatureMoveDestination} the pure
+ * planner consumes. Shared by the read-only `getMovePreview` and the executing
+ * `move` mutation so the dialog preview and the actual move are computed from
+ * identical inputs (ADR-0027 — preview must never disagree with execution).
+ */
+async function loadFeatureMoveContext(
+  db: PrismaClient,
+  userId: string,
+  featureId: string,
+  destinationProductId: string,
+) {
+  // Source: feature graph + workspace, require write role.
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: {
+      id: true,
+      productId: true,
+      goalId: true,
+      product: { select: { workspaceId: true } },
+      tags: { select: { tagId: true, tag: { select: { workspaceId: true } } } },
+      insights: { select: { insightId: true } },
+    },
+  });
+  if (!feature) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+  }
+  await assertWorkspaceWriteRole(db, userId, feature.product.workspaceId);
+
+  // Destination Product (and its workspace), require write role.
+  const destProduct = await db.product.findUnique({
+    where: { id: destinationProductId },
+    select: {
+      id: true,
+      slug: true,
+      workspaceId: true,
+      ticketCounter: true,
+      funTicketIds: true,
+    },
+  });
+  if (!destProduct) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Destination product not found",
+    });
+  }
+  if (destProduct.id === feature.productId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The feature is already in this product",
+    });
+  }
+  await assertWorkspaceWriteRole(db, userId, destProduct.workspaceId);
+
+  // The rest of the graph the planner needs.
+  const tickets = await db.ticket.findMany({
+    where: { featureId: feature.id },
+    select: {
+      id: true,
+      number: true,
+      shortId: true,
+      cycleId: true,
+      assigneeId: true,
+      actions: { select: { id: true } },
+    },
+  });
+  const movingIds = tickets.map((t) => t.id);
+  const dependencies =
+    movingIds.length > 0
+      ? await db.ticketDependency.findMany({
+          where: {
+            OR: [
+              { ticketId: { in: movingIds } },
+              { dependsOnId: { in: movingIds } },
+            ],
+          },
+          select: { id: true, ticketId: true, dependsOnId: true },
+        })
+      : [];
+  const [destUsed, destMembers] = await Promise.all([
+    db.ticket.findMany({
+      where: { productId: destProduct.id },
+      select: { number: true, shortId: true },
+    }),
+    db.workspaceUser.findMany({
+      where: { workspaceId: destProduct.workspaceId },
+      select: { userId: true },
+    }),
+  ]);
+
+  const graph: FeatureMoveGraph = {
+    featureId: feature.id,
+    goalId: feature.goalId,
+    tags: feature.tags.map((t) => ({
+      tagId: t.tagId,
+      tagWorkspaceId: t.tag.workspaceId,
+    })),
+    insightIds: feature.insights.map((i) => i.insightId),
+    tickets: tickets.map((t) => ({
+      id: t.id,
+      number: t.number,
+      shortId: t.shortId,
+      cycleId: t.cycleId,
+      assigneeId: t.assigneeId,
+      childActionIds: t.actions.map((a) => a.id),
+    })),
+    dependencies,
+  };
+  const destination: FeatureMoveDestination = {
+    productId: destProduct.id,
+    ticketCounter: destProduct.ticketCounter,
+    funTicketIds: destProduct.funTicketIds,
+    usedNumbers: destUsed.map((t) => t.number),
+    usedShortIds: destUsed
+      .map((t) => t.shortId)
+      .filter((s): s is string => s !== null),
+    memberUserIds: destMembers.map((m) => m.userId),
+  };
+
+  return { feature, destProduct, graph, destination };
+}
+
 /** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
 
@@ -419,132 +542,69 @@ export const featureRouter = createTRPCRouter({
    * Access: the caller must be a non-viewer member of *both* the source and the
    * destination workspaces.
    */
-  move: protectedProcedure
+  /**
+   * Read-only preview of a move's loss summary (ADR-0027). Runs the exact same
+   * fetch + {@link planFeatureMove} as `move`, but applies nothing — so the
+   * confirm dialog can enumerate every consequence before the user commits,
+   * and can never disagree with what `move` will do. Same both-ends access
+   * checks as the move itself.
+   */
+  getMovePreview: protectedProcedure
     .input(
       z.object({
         featureId: z.string(),
         destinationProductId: z.string(),
       }),
     )
+    .query(async ({ ctx, input }) => {
+      const { graph, destination } = await loadFeatureMoveContext(
+        ctx.db,
+        ctx.session.user.id,
+        input.featureId,
+        input.destinationProductId,
+      );
+      return planFeatureMove(graph, destination).loss;
+    }),
+
+  move: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        destinationProductId: z.string(),
+        /**
+         * Stale-state guard: the source Product the modal saw when it computed
+         * the preview. If the Feature has since moved (its `productId` no longer
+         * matches), the cached plan is stale and we refuse rather than apply it.
+         */
+        expectedSourceProductId: z.string().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // 1. Source: load the feature graph + source workspace, require write role.
-      const feature = await ctx.db.feature.findUnique({
-        where: { id: input.featureId },
-        select: {
-          id: true,
-          productId: true,
-          goalId: true,
-          product: { select: { workspaceId: true } },
-          tags: {
-            select: { tagId: true, tag: { select: { workspaceId: true } } },
-          },
-          insights: { select: { insightId: true } },
-        },
-      });
-      if (!feature) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
-      }
-      await assertWorkspaceWriteRole(
-        ctx.db,
-        userId,
-        feature.product.workspaceId,
-      );
+      const { feature, destProduct, graph, destination } =
+        await loadFeatureMoveContext(
+          ctx.db,
+          userId,
+          input.featureId,
+          input.destinationProductId,
+        );
 
-      // 2. Destination Product (and its workspace), require write role.
-      const destProduct = await ctx.db.product.findUnique({
-        where: { id: input.destinationProductId },
-        select: {
-          id: true,
-          slug: true,
-          workspaceId: true,
-          ticketCounter: true,
-          funTicketIds: true,
-        },
-      });
-      if (!destProduct) {
+      // Stale-state guard: the Feature moved out from under the open modal.
+      if (
+        input.expectedSourceProductId !== undefined &&
+        input.expectedSourceProductId !== feature.productId
+      ) {
         throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Destination product not found",
+          code: "CONFLICT",
+          message:
+            "This feature changed since you opened the move dialog. Reload and try again.",
         });
       }
-      if (destProduct.id === feature.productId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "The feature is already in this product",
-        });
-      }
-      await assertWorkspaceWriteRole(ctx.db, userId, destProduct.workspaceId);
-
-      // 3. Fetch the rest of the graph the planner needs.
-      const tickets = await ctx.db.ticket.findMany({
-        where: { featureId: feature.id },
-        select: {
-          id: true,
-          number: true,
-          shortId: true,
-          cycleId: true,
-          assigneeId: true,
-          actions: { select: { id: true } },
-        },
-      });
-      const movingIds = tickets.map((t) => t.id);
-      const dependencies =
-        movingIds.length > 0
-          ? await ctx.db.ticketDependency.findMany({
-              where: {
-                OR: [
-                  { ticketId: { in: movingIds } },
-                  { dependsOnId: { in: movingIds } },
-                ],
-              },
-              select: { id: true, ticketId: true, dependsOnId: true },
-            })
-          : [];
-      const [destUsed, destMembers] = await Promise.all([
-        ctx.db.ticket.findMany({
-          where: { productId: destProduct.id },
-          select: { number: true, shortId: true },
-        }),
-        ctx.db.workspaceUser.findMany({
-          where: { workspaceId: destProduct.workspaceId },
-          select: { userId: true },
-        }),
-      ]);
-
-      const graph: FeatureMoveGraph = {
-        featureId: feature.id,
-        goalId: feature.goalId,
-        tags: feature.tags.map((t) => ({
-          tagId: t.tagId,
-          tagWorkspaceId: t.tag.workspaceId,
-        })),
-        insightIds: feature.insights.map((i) => i.insightId),
-        tickets: tickets.map((t) => ({
-          id: t.id,
-          number: t.number,
-          shortId: t.shortId,
-          cycleId: t.cycleId,
-          assigneeId: t.assigneeId,
-          childActionIds: t.actions.map((a) => a.id),
-        })),
-        dependencies,
-      };
-      const destination: FeatureMoveDestination = {
-        productId: destProduct.id,
-        ticketCounter: destProduct.ticketCounter,
-        funTicketIds: destProduct.funTicketIds,
-        usedNumbers: destUsed.map((t) => t.number),
-        usedShortIds: destUsed
-          .map((t) => t.shortId)
-          .filter((s): s is string => s !== null),
-        memberUserIds: destMembers.map((m) => m.userId),
-      };
 
       const { mutations } = planFeatureMove(graph, destination);
 
-      // 4. Apply the whole plan in one transaction (driven by the plan only).
+      // Apply the whole plan in one transaction (driven by the plan only).
       await ctx.db.$transaction(async (tx) => {
         // Per-ticket: re-point to the destination Product, renumber, and clear
         // the source-scoped cycle / assignee links the plan flagged.
