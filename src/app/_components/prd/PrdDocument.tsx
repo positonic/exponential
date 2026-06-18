@@ -9,6 +9,7 @@ import { Stack, Text } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { IconMessagePlus } from "@tabler/icons-react";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand } from "~/lib/prd/slash-command";
@@ -119,9 +120,13 @@ export function PrdDocument({
   const updateFeature = api.product.feature.update.useMutation();
   const createComment = api.product.featureComment.create.useMutation();
   const replyComment = api.product.featureComment.reply.useMutation();
+  const updateComment = api.product.featureComment.update.useMutation();
+  const deleteComment = api.product.featureComment.delete.useMutation();
   const resolveThread = api.product.featureComment.resolve.useMutation();
   const unresolveThread = api.product.featureComment.unresolve.useMutation();
   const imageHandlers = usePrdImageUpload(featureId);
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
 
   const commentsQuery = api.product.featureComment.list.useQuery(
     { featureId },
@@ -383,6 +388,22 @@ export function PrdDocument({
     await utils.product.featureComment.list.invalidate({ featureId });
   };
 
+  const handleEditComment = async (commentId: string, body: string) => {
+    await updateComment.mutateAsync({ commentId, body });
+    await utils.product.featureComment.list.invalidate({ featureId });
+  };
+
+  const handleDeleteComment = (commentId: string) => {
+    deleteComment.mutate(
+      { commentId },
+      {
+        onSuccess: () => {
+          void utils.product.featureComment.list.invalidate({ featureId });
+        },
+      },
+    );
+  };
+
   const commentsPanel = enableComments ? (
     <PrdCommentsPanel
       threads={panelThreads}
@@ -392,6 +413,7 @@ export function PrdDocument({
       onSubmit={submitComment}
       onResolve={handleResolve}
       onUnresolve={handleUnresolve}
+      currentUserId={currentUserId}
       // When the anchored popover is open it owns the composer; the list shows
       // its inline composer only for orphaned/list-opened threads.
       composerActive={anchorPos === null}
@@ -408,14 +430,13 @@ export function PrdDocument({
     enableComments && activeThreadId && anchorPos ? (
       <PrdThreadPopover
         threadId={activeThreadId}
-        quotedText={
-          activeThread?.quotedText ??
-          (pending?.threadId === activeThreadId ? pending.quotedText : null)
-        }
         comments={activeThread?.comments ?? []}
         status={activeThread?.status ?? "pending"}
         position={anchorPos}
+        currentUserId={currentUserId}
         onSubmit={(body) => submitComment(activeThreadId, body)}
+        onEdit={handleEditComment}
+        onDelete={handleDeleteComment}
         onResolve={() => void handleResolve(activeThreadId)}
         onUnresolve={() => void handleUnresolve(activeThreadId)}
         onClose={closeThread}

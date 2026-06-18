@@ -87,6 +87,49 @@ export const featureCommentRouter = createTRPCRouter({
       });
     }),
 
+  update: protectedProcedure
+    .input(
+      z.object({
+        commentId: z.string(),
+        body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.featureComment.findFirst({
+        where: { id: input.commentId, createdById: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found or not yours",
+        });
+      }
+      return ctx.db.featureComment.update({
+        where: { id: input.commentId },
+        data: { body: input.body },
+        include: { createdBy: { select: authorSelect } },
+      });
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ commentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.featureComment.findFirst({
+        where: { id: input.commentId, createdById: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Comment not found or not yours",
+        });
+      }
+      // Replies cascade via the parentId self-relation FK.
+      await ctx.db.featureComment.delete({ where: { id: input.commentId } });
+      return { success: true };
+    }),
+
   resolve: protectedProcedure
     .input(z.object({ featureId: z.string(), threadId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
