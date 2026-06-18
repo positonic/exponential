@@ -151,6 +151,24 @@ describe("reconcileThreads", () => {
     expect(thread?.status).toBe("resolved");
   });
 
+  it("treats a resolved thread as resolved even when its anchor was deleted", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "gone" }] }],
+    };
+    const comments = [
+      comment({
+        id: "root",
+        threadId: "t1",
+        quotedText: "deleted span",
+        resolvedAt: new Date("2026-06-18T00:00:00Z"),
+      }),
+    ];
+    const [thread] = reconcileThreads(doc, comments);
+    expect(thread?.status).toBe("resolved");
+    expect(thread?.anchored).toBe(false);
+  });
+
   it("ignores doc-level (null threadId) comments", () => {
     const threads = reconcileThreads(docWithThread("t1"), [
       comment({ id: "c1", threadId: null }),
