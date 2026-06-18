@@ -50,6 +50,11 @@ import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSe
 import { EpicsList } from "~/app/_components/product/EpicsList";
 import { TagBadge } from "~/app/_components/TagBadge";
 import {
+  groupTickets,
+  GROUP_BY_OPTIONS,
+  type GroupByField,
+} from "./ticketGrouping";
+import {
   STATUS_LABELS,
   STATUS_COLORS,
   STATUS_ORDER,
@@ -94,43 +99,6 @@ function sortValue(t: Record<string, unknown>, field: SortField): string | numbe
     case "epic": return ((t.epic as { name?: string } | null)?.name ?? "zzz").toLowerCase();
     case "cycle": return ((t.cycle as { name?: string } | null)?.name ?? "zzz").toLowerCase();
   }
-}
-
-// ---------------------------------------------------------------------------
-// Group by
-// ---------------------------------------------------------------------------
-
-type GroupByField = "none" | "status" | "priority" | "cycle" | "epic" | "type" | "assignee";
-
-const GROUP_BY_OPTIONS = [
-  { value: "none", label: "No grouping" },
-  { value: "status", label: "Status" },
-  { value: "priority", label: "Priority" },
-  { value: "cycle", label: "Cycle" },
-  { value: "epic", label: "Epic" },
-  { value: "type", label: "Type" },
-  { value: "assignee", label: "DRI" },
-];
-
-function groupKey(t: Record<string, unknown>, field: GroupByField): string {
-  switch (field) {
-    case "status": return (t.status as string) ?? "UNKNOWN";
-    case "priority": return t.priority != null ? String(t.priority as number) : "unset";
-    case "cycle": return (t.cycle as { name?: string } | null)?.name ?? "No cycle";
-    case "epic": return (t.epic as { name?: string } | null)?.name ?? "No epic";
-    case "type": return (t.type as string) ?? "UNKNOWN";
-    case "assignee": return (t.assignee as { name?: string } | null)?.name ?? "Unassigned";
-    default: return "all";
-  }
-}
-
-function groupLabel(key: string, field: GroupByField): string {
-  if (field === "status") return STATUS_LABELS[key] ?? key;
-  if (field === "priority") {
-    if (key === "unset") return "No priority";
-    return PRIORITY_LABELS[Number(key)] ?? key;
-  }
-  return key;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,43 +397,11 @@ export default function TicketsBacklogPage() {
     return { active, completed };
   }, [sorted]);
 
-  // Group active tickets
-  const groups = useMemo(() => {
-    if (groupBy === "none") return [{ key: "all", label: "", items: activeTickets }];
-    const map = new Map<string, typeof activeTickets>();
-    for (const t of activeTickets) {
-      const k = groupKey(t as unknown as Record<string, unknown>, groupBy);
-      const arr = map.get(k);
-      if (arr) arr.push(t);
-      else map.set(k, [t]);
-    }
-    const result = Array.from(map.entries()).map(([key, items]) => ({
-      key,
-      label: groupLabel(key, groupBy),
-      items,
-    }));
-
-    // Smart cycle ordering: ACTIVE first, then PLANNED by startDate, then "No cycle"
-    if (groupBy === "cycle") {
-      const cycleStatusOrder: Record<string, number> = { ACTIVE: 0, PLANNED: 1, COMPLETED: 2, ARCHIVED: 3 };
-      result.sort((a, b) => {
-        if (a.key === "No cycle") return 1;
-        if (b.key === "No cycle") return -1;
-        // Find cycle data from any ticket in the group
-        const aCycle = a.items[0]?.cycle;
-        const bCycle = b.items[0]?.cycle;
-        const aStatus = cycleStatusOrder[aCycle?.status ?? ""] ?? 99;
-        const bStatus = cycleStatusOrder[bCycle?.status ?? ""] ?? 99;
-        if (aStatus !== bStatus) return aStatus - bStatus;
-        // Same status: sort by startDate ascending
-        const aStart = aCycle?.startDate ? new Date(aCycle.startDate).getTime() : Infinity;
-        const bStart = bCycle?.startDate ? new Date(bCycle.startDate).getTime() : Infinity;
-        return aStart - bStart;
-      });
-    }
-
-    return result;
-  }, [activeTickets, groupBy]);
+  // Group active tickets (pure grouping core lives in ./ticketGrouping)
+  const groups = useMemo(
+    () => groupTickets(activeTickets, groupBy),
+    [activeTickets, groupBy],
+  );
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
