@@ -216,11 +216,14 @@ export default function FeatureDetailPage() {
             </Group>
           </div>
 
-          {/* PRD body — rich document (ADR-0024), replaces MarkdownRenderer here only */}
+          {/* PRD body — rich document (ADR-0024), replaces MarkdownRenderer here only.
+              Editable for any workspace member (getById already gates membership). */}
           <PrdDocument
             featureId={featureId}
             descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
             description={feature.description ?? null}
+            docVersion={feature.docVersion}
+            editable
           />
 
           {/* Vision */}
