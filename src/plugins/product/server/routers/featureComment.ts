@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadFeatureWithAccess } from "./feature";
@@ -16,8 +17,8 @@ const authorSelect = {
  * same `loadFeatureWithAccess` workspace-member gate that `feature.update` uses —
  * editing the body and commenting share one access path.
  *
- * This slice ships `list` + `create`; threaded `reply`, `resolve`, and
- * `unresolve` arrive in the polish slice.
+ * Procedures: `list`, `create` (root comment), `reply` (threaded), and
+ * `resolve`/`unresolve` (toggle the root's `resolvedAt`).
  */
 export const featureCommentRouter = createTRPCRouter({
   list: protectedProcedure
@@ -54,5 +55,57 @@ export const featureCommentRouter = createTRPCRouter({
         },
         include: { createdBy: { select: authorSelect } },
       });
+    }),
+
+  reply: protectedProcedure
+    .input(
+      z.object({
+        parentId: z.string(),
+        body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parent = await ctx.db.featureComment.findUnique({
+        where: { id: input.parentId },
+        select: { featureId: true, threadId: true, parentId: true },
+      });
+      if (!parent) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, parent.featureId);
+
+      return ctx.db.featureComment.create({
+        data: {
+          featureId: parent.featureId,
+          threadId: parent.threadId,
+          // Keep threads one level deep: a reply to a reply still hangs off the root.
+          parentId: parent.parentId ?? input.parentId,
+          body: input.body,
+          createdById: ctx.session.user.id,
+        },
+        include: { createdBy: { select: authorSelect } },
+      });
+    }),
+
+  resolve: protectedProcedure
+    .input(z.object({ featureId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await ctx.db.featureComment.updateMany({
+        where: { featureId: input.featureId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  unresolve: protectedProcedure
+    .input(z.object({ featureId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await ctx.db.featureComment.updateMany({
+        where: { featureId: input.featureId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: null },
+      });
+      return { success: true };
     }),
 });

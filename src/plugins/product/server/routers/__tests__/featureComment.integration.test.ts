@@ -85,6 +85,60 @@ describe("featureComment router", () => {
     expect(inThread).toHaveLength(2);
   });
 
+  it("threads a reply under its parent's thread", async () => {
+    const { user, feature } = await setupFeature();
+    const caller = createTestCaller(user.id);
+
+    const root = await caller.product.featureComment.create({
+      featureId: feature.id,
+      threadId: "t-reply",
+      body: "root question",
+      quotedText: "span",
+    });
+    const reply = await caller.product.featureComment.reply({
+      parentId: root.id,
+      body: "an answer",
+    });
+
+    expect(reply.parentId).toBe(root.id);
+    expect(reply.threadId).toBe("t-reply");
+    expect(reply.featureId).toBe(feature.id);
+
+    // A reply to a reply still hangs off the root (one level deep).
+    const nested = await caller.product.featureComment.reply({
+      parentId: reply.id,
+      body: "follow-up",
+    });
+    expect(nested.parentId).toBe(root.id);
+  });
+
+  it("resolves and unresolves a thread (root resolvedAt toggles, never deletes)", async () => {
+    const { user, feature } = await setupFeature();
+    const caller = createTestCaller(user.id);
+
+    const root = await caller.product.featureComment.create({
+      featureId: feature.id,
+      threadId: "t-resolve",
+      body: "discuss this",
+      quotedText: "span",
+    });
+
+    await caller.product.featureComment.resolve({
+      featureId: feature.id,
+      threadId: "t-resolve",
+    });
+    let list = await caller.product.featureComment.list({ featureId: feature.id });
+    expect(list.find((c) => c.id === root.id)?.resolvedAt).not.toBeNull();
+    expect(list).toHaveLength(1); // still present, not deleted
+
+    await caller.product.featureComment.unresolve({
+      featureId: feature.id,
+      threadId: "t-resolve",
+    });
+    list = await caller.product.featureComment.list({ featureId: feature.id });
+    expect(list.find((c) => c.id === root.id)?.resolvedAt).toBeNull();
+  });
+
   it("denies a non-member from commenting or listing", async () => {
     const { db, feature } = await setupFeature();
     const outsider = await createUser(db);

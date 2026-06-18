@@ -2170,6 +2170,13 @@
 .prd-comment-highlight:hover {
   background-color: color-mix(in srgb, var(--color-brand-warning) 38%, transparent);
 }
+/* Resolved threads keep their mark but hide the highlight (ADR-0024 §Resolve).
+   The decoration may wrap the mark span or land on it directly — cover both. */
+.prd-comment-resolved.prd-comment-highlight,
+.prd-comment-resolved .prd-comment-highlight {
+  background-color: transparent;
+  border-bottom: none;
+}
 .prd-document img.prd-image {
   margin: 0.5rem 0;
 }

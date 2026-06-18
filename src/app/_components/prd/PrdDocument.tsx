@@ -13,6 +13,10 @@ import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand } from "~/lib/prd/slash-command";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { reconcileThreads } from "~/lib/prd/thread-reconciliation";
+import {
+  CommentResolution,
+  setResolvedThreadIds,
+} from "~/lib/prd/comment-resolution";
 import { usePrdImageUpload } from "~/hooks/usePrdImageUpload";
 import {
   PrdCommentsPanel,
@@ -79,13 +83,19 @@ export function PrdDocument({
   const initDescriptionDoc = api.product.feature.initDescriptionDoc.useMutation();
   const updateFeature = api.product.feature.update.useMutation();
   const createComment = api.product.featureComment.create.useMutation();
+  const replyComment = api.product.featureComment.reply.useMutation();
+  const resolveThread = api.product.featureComment.resolve.useMutation();
+  const unresolveThread = api.product.featureComment.unresolve.useMutation();
   const imageHandlers = usePrdImageUpload(featureId);
 
   const commentsQuery = api.product.featureComment.list.useQuery(
     { featureId },
     { enabled: enableComments },
   );
-  const comments = (commentsQuery.data ?? []) as FeatureCommentRow[];
+  const comments = useMemo(
+    () => (commentsQuery.data ?? []) as FeatureCommentRow[],
+    [commentsQuery.data],
+  );
 
   // Resolve the document to render, migrating legacy Markdown once.
   useEffect(() => {
@@ -152,9 +162,11 @@ export function PrdDocument({
 
   const editor = useEditor({
     editable,
-    extensions: editable
-      ? [...buildPrdExtensions(), SlashCommand]
-      : buildPrdExtensions(),
+    extensions: [
+      ...buildPrdExtensions(),
+      ...(enableComments ? [CommentResolution] : []),
+      ...(editable ? [SlashCommand] : []),
+    ],
     content: doc ?? "",
     immediatelyRender: false,
     onUpdate: ({ editor: e }) => {
@@ -201,6 +213,18 @@ export function PrdDocument({
       editor.commands.setContent(doc);
     }
   }, [editor, doc]);
+
+  // Push the set of resolved threads to the editor so their highlights hide.
+  useEffect(() => {
+    if (!editor || !enableComments) return;
+    const resolved = new Set(
+      comments
+        .filter((c) => !c.parentId && c.resolvedAt != null)
+        .map((c) => c.threadId)
+        .filter((t): t is string => !!t),
+    );
+    setResolvedThreadIds(editor, resolved);
+  }, [editor, comments, enableComments]);
 
   // Reconcile threads against the live document; include a pending (just-created,
   // not-yet-saved) thread so its composer shows immediately.
@@ -250,11 +274,36 @@ export function PrdDocument({
   };
 
   const submitComment = async (threadId: string, body: string) => {
-    const quotedText =
-      pending?.threadId === threadId ? pending.quotedText : undefined;
-    await createComment.mutateAsync({ featureId, threadId, body, quotedText });
-    setPending((p) => (p?.threadId === threadId ? null : p));
+    if (pending?.threadId === threadId) {
+      // First comment on a brand-new thread → create the root (carries quotedText).
+      await createComment.mutateAsync({
+        featureId,
+        threadId,
+        body,
+        quotedText: pending.quotedText,
+      });
+      setPending((p) => (p?.threadId === threadId ? null : p));
+    } else {
+      // Existing thread → threaded reply hanging off its root.
+      const thread = panelThreads.find((t) => t.threadId === threadId);
+      const root = thread?.comments.find((c) => !c.parentId) ?? thread?.comments[0];
+      if (root) {
+        await replyComment.mutateAsync({ parentId: root.id, body });
+      } else {
+        await createComment.mutateAsync({ featureId, threadId, body });
+      }
+    }
     setActiveThreadId(threadId);
+    await utils.product.featureComment.list.invalidate({ featureId });
+  };
+
+  const handleResolve = async (threadId: string) => {
+    await resolveThread.mutateAsync({ featureId, threadId });
+    await utils.product.featureComment.list.invalidate({ featureId });
+  };
+
+  const handleUnresolve = async (threadId: string) => {
+    await unresolveThread.mutateAsync({ featureId, threadId });
     await utils.product.featureComment.list.invalidate({ featureId });
   };
 
@@ -265,7 +314,11 @@ export function PrdDocument({
       pendingThreadId={pending?.threadId ?? null}
       onSelect={setActiveThreadId}
       onSubmit={submitComment}
-      isSubmitting={createComment.isPending}
+      onResolve={handleResolve}
+      onUnresolve={handleUnresolve}
+      isSubmitting={
+        createComment.isPending || replyComment.isPending
+      }
     />
   ) : null;
 
