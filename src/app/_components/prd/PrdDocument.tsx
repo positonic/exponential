@@ -10,6 +10,7 @@ import { api } from "~/trpc/react";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand } from "~/lib/prd/slash-command";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
+import { usePrdImageUpload } from "~/hooks/usePrdImageUpload";
 import "@mantine/tiptap/styles.css";
 
 interface PrdDocumentProps {
@@ -56,6 +57,7 @@ export function PrdDocument({
 
   const initDescriptionDoc = api.product.feature.initDescriptionDoc.useMutation();
   const updateFeature = api.product.feature.update.useMutation();
+  const imageHandlers = usePrdImageUpload(featureId);
 
   // Resolve the document to render, migrating legacy Markdown once.
   useEffect(() => {
@@ -141,6 +143,12 @@ export function PrdDocument({
       attributes: {
         class: "prose prose-invert max-w-none focus:outline-none",
       },
+      ...(editable
+        ? {
+            handlePaste: imageHandlers.handlePaste,
+            handleDrop: imageHandlers.handleDrop,
+          }
+        : {}),
     },
   });
 

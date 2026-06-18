@@ -60,6 +60,22 @@ describe("PRD document codec", () => {
       expect(roundTrip(md)).toBe(md);
     });
 
+    it("images round-trip as a Markdown image link", () => {
+      const md = "![a mockup](https://blob.example/img.png)";
+      expect(roundTrip(md)).toBe(md);
+      // And a doc-authored image node serialises to the same link.
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "image",
+            attrs: { src: "https://blob.example/shot.png", alt: "shot" },
+          },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe("![shot](https://blob.example/shot.png)");
+    });
+
     it("nested lists survive and serialise stably", () => {
       const md = ["- Parent", "  - Child", "  - Child 2", "- Sibling"].join("\n");
       const out = roundTrip(md);

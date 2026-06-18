@@ -5,6 +5,7 @@ import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { uploadToBlob } from "~/lib/blob";
 
 /** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -332,6 +333,38 @@ export const featureRouter = createTRPCRouter({
         select: { descriptionDoc: true },
       });
       return { migrated: true, descriptionDoc: updated.descriptionDoc };
+    }),
+
+  /**
+   * Upload an image pasted/dropped into the PRD body (ADR-0024 Tier B), mirroring
+   * `action.uploadImage`: base64 in, public URL out, reusing the Vercel Blob
+   * backend. Gated by the same workspace-member check as editing. The returned
+   * URL is inserted as an inline image node in `descriptionDoc` and survives the
+   * Markdown projection as an image link.
+   */
+  uploadImage: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        base64Data: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      // Same 5MB cap as action.uploadImage (base64 is ~4/3 the byte size).
+      const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
+      if (approxBytes > 5 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Image too large. Please use an image under 5MB.",
+        });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/features/${input.id}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+      return { url: blob.url };
     }),
 
   delete: protectedProcedure
