@@ -20,6 +20,8 @@
  *     the corresponding `*TicketIds` / `dropDependencyIds` fields.
  */
 
+import { allocateTicketNumbers } from "./ticketRenumber";
+
 // ── Input: the fetched Feature graph ────────────────────────────────────────
 
 /** A `FeatureTag` join row, carrying its tag's workspace scope. */
@@ -137,18 +139,35 @@ export interface MovePlan {
  *   - PRD body, scopes, user stories, and comments are carried unchanged (they
  *     hang off the Feature row, which is not deleted — nothing to do here).
  *
- * Ticket migration (renumbering) and per-ticket severances are layered in by
- * later slices; for a ticket-less Feature the ticket-related outputs are empty.
+ * Ticket migration (renumbering) is applied here; per-ticket severances
+ * (cycles / dependencies / assignees / actions) are layered in by a later
+ * slice. For a ticket-less Feature the ticket-related outputs are empty.
+ *
+ * `generateShortId` is forwarded to the renumber allocator so callers (and
+ * tests) can supply a deterministic shortId generator; it defaults to the
+ * random one.
  */
 export function planFeatureMove(
   graph: FeatureMoveGraph,
   destination: FeatureMoveDestination,
+  generateShortId?: (taken: Set<string>) => string,
 ): MovePlan {
   const dropTagIds = graph.tags
     .filter((t) => t.tagWorkspaceId !== null)
     .map((t) => t.tagId);
 
   const ticketIds = graph.tickets.map((t) => t.id);
+
+  // Tickets travel with the Feature, renumbered into the destination sequence
+  // (per-product numbering forbids carrying their source numbers across).
+  const { assignments, nextTicketCounter } = allocateTicketNumbers({
+    ticketIds,
+    ticketCounter: destination.ticketCounter,
+    usedNumbers: destination.usedNumbers,
+    funTicketIds: destination.funTicketIds,
+    usedShortIds: destination.usedShortIds,
+    generateShortId,
+  });
 
   const mutations: MovePlanMutations = {
     featureId: graph.featureId,
@@ -157,17 +176,17 @@ export function planFeatureMove(
     dropInsightIds: [...graph.insightIds],
     dropTagIds,
     ticketIds,
-    ticketRenumber: [],
+    ticketRenumber: assignments,
     clearCycleTicketIds: [],
     clearAssigneeTicketIds: [],
     dropDependencyIds: [],
     unlinkActionTicketIds: [],
-    nextTicketCounter: destination.ticketCounter,
+    nextTicketCounter,
   };
 
   const loss: MoveLossSummary = {
     ticketsMoved: ticketIds.length,
-    ticketsRenumbered: 0,
+    ticketsRenumbered: assignments.length,
     cyclesDropped: 0,
     dependenciesPreserved: 0,
     dependenciesDropped: 0,

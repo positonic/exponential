@@ -78,6 +78,23 @@ describe("planFeatureMove — feature-level rules", () => {
     expect(loss.tagsDropped).toBe(2);
   });
 
+  it("renumbers moving tickets into the destination sequence", () => {
+    const { mutations, loss } = planFeatureMove(
+      graph({
+        tickets: [
+          { id: "tk-1", number: 7, shortId: null, cycleId: null, assigneeId: null, childActionIds: [] },
+          { id: "tk-2", number: 8, shortId: null, cycleId: null, assigneeId: null, childActionIds: [] },
+        ],
+      }),
+      { ...DEST, ticketCounter: 40, usedNumbers: [40] },
+    );
+    expect(mutations.ticketIds).toEqual(["tk-1", "tk-2"]);
+    expect(mutations.ticketRenumber.map((r) => r.number)).toEqual([41, 42]);
+    expect(mutations.nextTicketCounter).toBe(42);
+    expect(loss.ticketsMoved).toBe(2);
+    expect(loss.ticketsRenumbered).toBe(2);
+  });
+
   it("reports an empty loss summary for a clean ticket-less move", () => {
     const { mutations, loss } = planFeatureMove(graph(), DEST);
     expect(mutations.ticketIds).toEqual([]);
