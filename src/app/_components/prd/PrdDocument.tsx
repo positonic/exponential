@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, BubbleMenu, useEditor } from "@tiptap/react";
 import { RichTextEditor } from "@mantine/tiptap";
 import type { Editor, JSONContent } from "@tiptap/core";
+import type { EditorView } from "@tiptap/pm/view";
 import { Stack, Text } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
@@ -23,7 +24,14 @@ import {
   type FeatureCommentRow,
   type PanelThread,
 } from "~/app/_components/prd/PrdCommentsPanel";
+import { PrdThreadPopover } from "~/app/_components/prd/PrdThreadPopover";
 import "@mantine/tiptap/styles.css";
+
+interface AnchorPos {
+  top: number;
+  left: number;
+}
+const POPOVER_WIDTH = 360;
 
 interface PrdDocumentProps {
   featureId: string;
@@ -78,6 +86,33 @@ export function PrdDocument({
   const [docTick, setDocTick] = useState(0);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ threadId: string; quotedText: string } | null>(null);
+  // When set, the active thread shows as a popover anchored under its highlight;
+  // when null, the active thread's composer lives in the bottom Discussion list.
+  const [anchorPos, setAnchorPos] = useState<AnchorPos | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Position (relative to the editor wrapper) just below a doc range, so a
+  // thread popover sits directly under the highlighted text (Linear-style).
+  const computeAnchor = (
+    view: EditorView,
+    fromPos: number,
+    toPos: number,
+  ): AnchorPos | null => {
+    const wrap = wrapperRef.current;
+    if (!wrap) return null;
+    const start = view.coordsAtPos(fromPos);
+    const end = view.coordsAtPos(toPos);
+    const rect = wrap.getBoundingClientRect();
+    const maxLeft = Math.max(0, wrap.clientWidth - POPOVER_WIDTH);
+    const left = Math.min(Math.max(0, start.left - rect.left), maxLeft);
+    const top = Math.max(start.bottom, end.bottom) - rect.top + 6;
+    return { top, left };
+  };
+
+  const closeThread = () => {
+    setActiveThreadId(null);
+    setAnchorPos(null);
+  };
 
   const utils = api.useUtils();
   const initDescriptionDoc = api.product.feature.initDescriptionDoc.useMutation();
@@ -198,7 +233,12 @@ export function PrdDocument({
                 .marks()
                 .find((m) => m.type.name === "comment");
               const threadId = mark?.attrs.threadId as string | undefined;
-              if (threadId) setActiveThreadId(threadId);
+              if (threadId) {
+                setActiveThreadId(threadId);
+                setAnchorPos(computeAnchor(view, pos, pos));
+              } else {
+                closeThread();
+              }
               return false;
             },
           }
@@ -262,6 +302,7 @@ export function PrdDocument({
     }
     const quotedText = editor.state.doc.textBetween(from, to, " ").slice(0, 1000);
     const threadId = newThreadId();
+    const anchor = computeAnchor(editor.view, from, to);
     editor.chain().focus().setMark("comment", { threadId }).run();
     // setMark's onUpdate scheduled a debounced autosave; cancel it so we don't
     // fire two concurrent saves with the same baseVersion (which can race into a
@@ -271,6 +312,41 @@ export function PrdDocument({
     saveRef.current(editor);
     setPending({ threadId, quotedText });
     setActiveThreadId(threadId);
+    setAnchorPos(anchor);
+  };
+
+  // Find the document position of a thread's comment mark (for anchoring the
+  // popover when a thread is opened from the bottom list).
+  const findThreadPos = (threadId: string): number | null => {
+    if (!editor) return null;
+    let found: number | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (found != null) return false;
+      if (
+        node.isText &&
+        node.marks.some(
+          (m) => m.type.name === "comment" && m.attrs.threadId === threadId,
+        )
+      ) {
+        found = pos;
+        return false;
+      }
+      return undefined;
+    });
+    return found;
+  };
+
+  // Opening a thread from the bottom list: anchor the popover at its highlight if
+  // the anchor still exists; orphaned threads (no mark) fall back to the list's
+  // own inline composer.
+  const openThreadFromList = (threadId: string) => {
+    setActiveThreadId(threadId);
+    const pos = findThreadPos(threadId);
+    if (pos != null && editor) {
+      setAnchorPos(computeAnchor(editor.view, pos, pos));
+    } else {
+      setAnchorPos(null);
+    }
   };
 
   const submitComment = async (threadId: string, body: string) => {
@@ -312,15 +388,40 @@ export function PrdDocument({
       threads={panelThreads}
       activeThreadId={activeThreadId}
       pendingThreadId={pending?.threadId ?? null}
-      onSelect={setActiveThreadId}
+      onSelect={openThreadFromList}
       onSubmit={submitComment}
       onResolve={handleResolve}
       onUnresolve={handleUnresolve}
-      isSubmitting={
-        createComment.isPending || replyComment.isPending
-      }
+      // When the anchored popover is open it owns the composer; the list shows
+      // its inline composer only for orphaned/list-opened threads.
+      composerActive={anchorPos === null}
+      isSubmitting={createComment.isPending || replyComment.isPending}
     />
   ) : null;
+
+  const activeThread =
+    activeThreadId != null
+      ? panelThreads.find((t) => t.threadId === activeThreadId) ?? null
+      : null;
+
+  const threadPopover =
+    enableComments && activeThreadId && anchorPos ? (
+      <PrdThreadPopover
+        threadId={activeThreadId}
+        quotedText={
+          activeThread?.quotedText ??
+          (pending?.threadId === activeThreadId ? pending.quotedText : null)
+        }
+        comments={activeThread?.comments ?? []}
+        status={activeThread?.status ?? "pending"}
+        position={anchorPos}
+        onSubmit={(body) => submitComment(activeThreadId, body)}
+        onResolve={() => void handleResolve(activeThreadId)}
+        onUnresolve={() => void handleUnresolve(activeThreadId)}
+        onClose={closeThread}
+        isSubmitting={createComment.isPending || replyComment.isPending}
+      />
+    ) : null;
 
   let body: React.ReactNode;
   if (!editable && doc && isDocEmpty(doc)) {
@@ -372,7 +473,10 @@ export function PrdDocument({
 
   return (
     <Stack gap="lg">
-      {body}
+      <div ref={wrapperRef} className="relative">
+        {body}
+        {threadPopover}
+      </div>
       {commentsPanel}
     </Stack>
   );
