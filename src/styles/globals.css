@@ -2180,3 +2180,38 @@
 .prd-document img.prd-image {
   margin: 0.5rem 0;
 }
+
+/* PRD body lists — visible markers + Linear-style spacing.
+   The editor sets `prose prose-invert`, but @tailwindcss/typography isn't
+   installed, so those classes are inert and Tailwind Preflight strips list
+   markers/padding. Restore them explicitly here. Task lists (checkbox lists)
+   keep their own layout and are excluded. */
+.prd-document ol,
+.prd-document ul:not([data-type="taskList"]) {
+  margin: 0.5rem 0;
+  padding-left: 1.625rem;
+}
+.prd-document ol {
+  list-style: decimal;
+}
+.prd-document ul:not([data-type="taskList"]) {
+  list-style: disc;
+}
+.prd-document ul:not([data-type="taskList"]) ul {
+  list-style: circle;
+}
+.prd-document ul:not([data-type="taskList"]) ul ul {
+  list-style: square;
+}
+.prd-document li {
+  margin: 0.25rem 0;
+  padding-left: 0.25rem;
+}
+.prd-document li::marker {
+  color: var(--color-text-muted);
+}
+/* Loose lists wrap each item's content in a <p>; drop its default gap so
+   numbered/bulleted items stay tight against their markers. */
+.prd-document li > p {
+  margin: 0;
+}
