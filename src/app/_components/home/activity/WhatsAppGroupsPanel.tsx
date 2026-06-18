@@ -164,7 +164,21 @@ export function WhatsAppGroupsPanel() {
         </div>
       ) : null}
 
-      {connected ? (
+      {!connected ? (
+        <p className="wsa-card__caption" style={{ marginTop: 4 }}>
+          {groupsLoading
+            ? 'Checking WhatsApp connection…'
+            : 'Connect WhatsApp to link groups to this workspace.'}
+        </p>
+      ) : gateway?.groupsError ? (
+        // Connected, but the gateway couldn't return the group list. Show why
+        // rather than implying you're disconnected.
+        <p className="wsa-card__caption" style={{ marginTop: 4 }}>
+          Connected{gateway.phoneNumber ? ` as ${gateway.phoneNumber}` : ''}, but
+          couldn&apos;t load groups ({gateway.groupsError}). The WhatsApp gateway
+          may need redeploying.
+        </p>
+      ) : (
         <Select
           size="xs"
           placeholder="Search WhatsApp groups…"
@@ -179,12 +193,6 @@ export function WhatsAppGroupsPanel() {
             groupsLoading ? 'Loading groups…' : 'No more groups to link'
           }
         />
-      ) : (
-        <p className="wsa-card__caption" style={{ marginTop: 4 }}>
-          {groupsLoading
-            ? 'Checking WhatsApp connection…'
-            : 'Connect WhatsApp to link groups to this workspace.'}
-        </p>
       )}
     </section>
   );
