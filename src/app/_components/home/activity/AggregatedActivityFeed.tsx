@@ -1,129 +1,17 @@
 'use client';
 
 import { Button, Container, Skeleton, Stack, Text, Title } from '@mantine/core';
-import {
-  IconCheck,
-  IconCirclePlus,
-  IconClipboardList,
-  IconClock,
-  IconEdit,
-  IconMessageCircle,
-  IconRefresh,
-  IconStatusChange,
-  IconTrophy,
-  type Icon as TablerIcon,
-} from '@tabler/icons-react';
-import Link from 'next/link';
-import { useState } from 'react';
+import { IconClipboardList } from '@tabler/icons-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { api } from '~/trpc/react';
-import type { IconKind } from '~/server/services/activity/feedRenderHints';
+import { ActivityRow, type FeedRowEvent } from './activityRow';
+import { SourceSwitcher } from './SourceSwitcher';
 import { WeeklyWorkDigestPanel } from './WeeklyWorkDigestPanel';
 
 import './activity-home.css';
 
-const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
-  created: IconCirclePlus,
-  updated: IconEdit,
-  status_changed: IconStatusChange,
-  completed: IconCheck,
-  commented: IconMessageCircle,
-  milestone: IconTrophy,
-  tracked: IconClock,
-  fallback: IconRefresh,
-};
-
 const PAGE_SIZE = 50;
-
-const RTF =
-  typeof Intl !== 'undefined' && 'RelativeTimeFormat' in Intl
-    ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-    : null;
-
-const TIME_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ['year', 60 * 60 * 24 * 365],
-  ['month', 60 * 60 * 24 * 30],
-  ['week', 60 * 60 * 24 * 7],
-  ['day', 60 * 60 * 24],
-  ['hour', 60 * 60],
-  ['minute', 60],
-];
-
-function relativeTime(date: Date, now: Date = new Date()): string {
-  const deltaSec = (date.getTime() - now.getTime()) / 1000;
-  const absSec = Math.abs(deltaSec);
-  if (absSec < 30) return 'just now';
-  if (!RTF) return date.toISOString().slice(0, 10);
-  for (const [unit, secs] of TIME_UNITS) {
-    if (absSec >= secs) {
-      const value = Math.round(deltaSec / secs);
-      return RTF.format(value, unit);
-    }
-  }
-  return RTF.format(Math.round(deltaSec / 60), 'minute');
-}
-
-function initialsOf(name: string | null): string {
-  if (!name) return '?';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase();
-}
-
-interface SentenceProps {
-  template: string;
-  actor: string;
-  entityRef: string;
-}
-
-function Sentence({ template, actor, entityRef }: SentenceProps) {
-  const parts: Array<{ kind: 'text' | 'actor' | 'entity'; value: string }> = [];
-  const regex = /\{(actor|entityRef)\}/g;
-  let cursor = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(template)) !== null) {
-    if (match.index > cursor) {
-      parts.push({ kind: 'text', value: template.slice(cursor, match.index) });
-    }
-    parts.push({
-      kind: match[1] === 'actor' ? 'actor' : 'entity',
-      value: match[1] === 'actor' ? actor : entityRef,
-    });
-    cursor = match.index + match[0].length;
-  }
-  if (cursor < template.length) {
-    parts.push({ kind: 'text', value: template.slice(cursor) });
-  }
-  return (
-    <span className="wsa-feed__sentence">
-      {parts.map((part, i) => {
-        if (part.kind === 'actor') {
-          return (
-            <span key={i} className="wsa-feed__actor">
-              {part.value}
-            </span>
-          );
-        }
-        if (part.kind === 'entity') {
-          return (
-            <span key={i} className="wsa-feed__entity">
-              {part.value}
-            </span>
-          );
-        }
-        return <span key={i}>{part.value}</span>;
-      })}
-    </span>
-  );
-}
-
-interface AccumulatedEvent {
-  id: string;
-  createdAt: Date;
-  hint: { template: string; iconKind: IconKind };
-  entityRef: string;
-  actor: { id: string; name: string | null; image: string | null } | null;
-  workspace: { id: string; name: string; slug: string } | null;
-}
 
 /**
  * Top-level `/activity` feed aggregated across every workspace the user can
@@ -131,17 +19,41 @@ interface AccumulatedEvent {
  * reads `workspace.getMyActivityFeed` (no workspaceId) and badges each row
  * with its originating workspace, linking through to that workspace's own
  * activity page.
+ *
+ * The source switcher (ADR-0023) filters by derived source, persisted in
+ * `?source=`. Cross-workspace source availability is derived client-side from
+ * loaded rows (there's no single workspace to count against), so a provider
+ * chip appears once any of its rows have loaded.
  */
 export function AggregatedActivityFeed() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const source = searchParams.get('source') ?? 'all';
+
   const [cursor, setCursor] = useState<string | null>(null);
-  const [accumulated, setAccumulated] = useState<AccumulatedEvent[]>([]);
+  const [accumulated, setAccumulated] = useState<FeedRowEvent[]>([]);
+
+  useEffect(() => {
+    setCursor(null);
+    setAccumulated([]);
+  }, [source]);
 
   const { data, isLoading } = api.workspace.getMyActivityFeed.useQuery({
     cursor: cursor ?? undefined,
     limit: PAGE_SIZE,
+    source,
   });
 
-  const fresh = (data?.events ?? []).map((e) => ({
+  function setSource(next: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === 'all') params.delete('source');
+    else params.set('source', next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }
+
+  const fresh: FeedRowEvent[] = (data?.events ?? []).map((e) => ({
     ...e,
     createdAt: new Date(e.createdAt),
   }));
@@ -152,6 +64,12 @@ export function AggregatedActivityFeed() {
     seen.add(event.id);
     return true;
   });
+
+  // Derive available sources from loaded rows (no single workspace to query).
+  const providers = Array.from(
+    new Set(display.filter((e) => e.channel).map((e) => e.channel!.provider)),
+  );
+  const hasInternal = display.some((e) => !e.channel);
 
   const hasMore = data?.nextCursor != null;
   const isEmpty = !isLoading && display.length === 0;
@@ -187,6 +105,13 @@ export function AggregatedActivityFeed() {
             </h2>
           </div>
 
+          <SourceSwitcher
+            value={source}
+            onChange={setSource}
+            hasInternal={hasInternal}
+            providers={providers}
+          />
+
           {isLoading && display.length === 0 ? (
             <Stack gap="sm">
               {[0, 1, 2, 3, 4].map((row) => (
@@ -216,56 +141,9 @@ export function AggregatedActivityFeed() {
             </p>
           ) : (
             <>
-              {display.map((event) => {
-                const Icon = ICON_BY_KIND[event.hint.iconKind] ?? IconRefresh;
-                const actorName = event.actor?.name ?? 'Someone';
-                return (
-                  <div
-                    key={event.id}
-                    className="wsa-feed__row"
-                    data-kind={event.hint.iconKind}
-                  >
-                    <div
-                      className={`wsa-feed__avatar${event.actor ? '' : ' wsa-feed__avatar--anonymous'}`}
-                      aria-hidden="true"
-                    >
-                      {event.actor?.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={event.actor.image} alt="" />
-                      ) : (
-                        initialsOf(event.actor?.name ?? null)
-                      )}
-                    </div>
-                    <div className="wsa-feed__body">
-                      <Sentence
-                        template={event.hint.template}
-                        actor={actorName}
-                        entityRef={event.entityRef}
-                      />
-                      <span className="wsa-feed__meta">
-                        {event.workspace ? (
-                          <Link
-                            href={`/w/${event.workspace.slug}/activity`}
-                            className="wsa-feed__workspace"
-                          >
-                            {event.workspace.name}
-                          </Link>
-                        ) : null}
-                        <span className="wsa-feed__time">
-                          {relativeTime(event.createdAt)}
-                        </span>
-                      </span>
-                    </div>
-                    <span
-                      className="wsa-feed__icon"
-                      data-kind={event.hint.iconKind}
-                      aria-hidden="true"
-                    >
-                      <Icon size={14} stroke={1.8} />
-                    </span>
-                  </div>
-                );
-              })}
+              {display.map((event) => (
+                <ActivityRow key={event.id} event={event} showWorkspaceBadge />
+              ))}
 
               {hasMore ? (
                 <div className="wsa-feed__footer">

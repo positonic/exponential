@@ -946,6 +946,17 @@
   color: var(--color-text-muted);
 }
 
+/* Channel summary (ADR-0023): the avatar is the provider glyph, never a person.
+   Squared-off tile to read as a channel/source rather than a user. */
+.wsa-feed__avatar--channel {
+  border-radius: 8px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+.wsa-feed__avatar--channel[data-provider='whatsapp'] {
+  color: var(--color-brand-success);
+}
+
 .wsa-feed__body {
   min-width: 0;
   display: flex;
@@ -971,6 +982,13 @@
   font-size: 11.5px;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Channel summary body: the AI summary text, the substance of the row. */
+.wsa-feed__summary {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
 }
 
 /* Per-row workspace badge, only rendered by the aggregated cross-workspace
@@ -1018,6 +1036,7 @@
 .wsa-feed__icon[data-kind='completed']      { color: var(--activity-accent-crm); }
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
 .wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
+.wsa-feed__icon[data-kind='channel_summary'] { color: var(--color-brand-success); }
 
 /* Milestone (completed project) — a filled gold chip instead of a tinted glyph,
    so it reads as a celebration rather than another status change. */

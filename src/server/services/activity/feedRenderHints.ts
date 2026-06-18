@@ -21,6 +21,7 @@ export type IconKind =
   | "commented"
   | "milestone"
   | "tracked"
+  | "channel_summary"
   | "fallback";
 
 export interface FeedRenderHint {
@@ -151,6 +152,15 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} tracked time on {entityRef}",
     iconKind: "tracked",
   },
+
+  // Channel activity summaries (ADR-0023). The feed renders these rows with a
+  // bespoke layout (provider icon + channel name as the actor, summary as the
+  // body) rather than this template, but the hint still drives the icon kind
+  // and is the fallback if a summary is ever rendered generically.
+  [key("channel_summary", "summarized")]: {
+    template: "{actor} summarized {entityRef}",
+    iconKind: "channel_summary",
+  },
 };
 
 /** Default hint used when no entry exists for the (entityType, action) pair. */
@@ -184,6 +194,9 @@ export function describeEntityRef(
     const m = metadata as Record<string, unknown>;
     if (typeof m.name === "string" && m.name.trim().length > 0) return m.name;
     if (typeof m.title === "string" && m.title.trim().length > 0) return m.title;
+    if (typeof m.displayName === "string" && m.displayName.trim().length > 0) {
+      return m.displayName;
+    }
     if (typeof m.snippet === "string" && m.snippet.trim().length > 0) {
       return m.snippet;
     }
