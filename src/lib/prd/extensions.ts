@@ -4,6 +4,7 @@ import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
+import Image from "@tiptap/extension-image";
 import { Markdown } from "tiptap-markdown";
 import { CommentMark } from "./comment-mark";
 
@@ -47,6 +48,11 @@ export function buildPrdExtensions(
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    Image.configure({
+      inline: false,
+      allowBase64: false,
+      HTMLAttributes: { class: "prd-image rounded-md max-w-full" },
+    }),
     CommentMark,
     Placeholder.configure({
       placeholder: options.placeholder ?? PRD_DEFAULT_PLACEHOLDER,
