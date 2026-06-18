@@ -114,3 +114,94 @@ describe("planFeatureMove — feature-level rules", () => {
     });
   });
 });
+
+function ticket(over: Partial<import("../featureMove").MoveTicket> & { id: string }) {
+  return {
+    number: 1,
+    shortId: null,
+    cycleId: null,
+    assigneeId: null,
+    childActionIds: [],
+    ...over,
+  };
+}
+
+describe("planFeatureMove — per-ticket severances", () => {
+  it("nulls cycleId on tickets that have a cycle", () => {
+    const { mutations, loss } = planFeatureMove(
+      graph({
+        tickets: [
+          ticket({ id: "a", cycleId: "cyc-1" }),
+          ticket({ id: "b", cycleId: null }),
+        ],
+      }),
+      DEST,
+    );
+    expect(mutations.clearCycleTicketIds).toEqual(["a"]);
+    expect(loss.cyclesDropped).toBe(1);
+  });
+
+  it("keeps an assignee who is a destination member, clears one who is not", () => {
+    const { mutations, loss } = planFeatureMove(
+      graph({
+        tickets: [
+          ticket({ id: "keep", assigneeId: "u-member" }),
+          ticket({ id: "clear", assigneeId: "u-stranger" }),
+          ticket({ id: "none", assigneeId: null }),
+        ],
+      }),
+      { ...DEST, memberUserIds: ["u-member"] },
+    );
+    expect(mutations.clearAssigneeTicketIds).toEqual(["clear"]);
+    expect(loss.assigneesCleared).toBe(1);
+  });
+
+  it("preserves intra-set dependencies and drops cross-boundary ones", () => {
+    const { mutations, loss } = planFeatureMove(
+      graph({
+        tickets: [ticket({ id: "a" }), ticket({ id: "b" })],
+        dependencies: [
+          // both endpoints move → preserved
+          { id: "d-keep", ticketId: "a", dependsOnId: "b" },
+          // crosses to a ticket left behind → dropped
+          { id: "d-out", ticketId: "a", dependsOnId: "outside-1" },
+          { id: "d-in", ticketId: "outside-2", dependsOnId: "b" },
+        ],
+      }),
+      DEST,
+    );
+    expect(loss.dependenciesPreserved).toBe(1);
+    expect(mutations.dropDependencyIds.sort()).toEqual(["d-in", "d-out"]);
+    expect(loss.dependenciesDropped).toBe(2);
+  });
+
+  it("does not double-count a preserved dependency seen from both endpoints", () => {
+    const { loss } = planFeatureMove(
+      graph({
+        tickets: [ticket({ id: "a" }), ticket({ id: "b" })],
+        dependencies: [
+          { id: "d1", ticketId: "a", dependsOnId: "b" },
+          { id: "d1", ticketId: "a", dependsOnId: "b" }, // duplicate row
+        ],
+      }),
+      DEST,
+    );
+    expect(loss.dependenciesPreserved).toBe(1);
+    expect(loss.dependenciesDropped).toBe(0);
+  });
+
+  it("unlinks child actions and surfaces the total count", () => {
+    const { mutations, loss } = planFeatureMove(
+      graph({
+        tickets: [
+          ticket({ id: "a", childActionIds: ["act-1", "act-2"] }),
+          ticket({ id: "b", childActionIds: ["act-3"] }),
+          ticket({ id: "c", childActionIds: [] }),
+        ],
+      }),
+      DEST,
+    );
+    expect(mutations.unlinkActionTicketIds.sort()).toEqual(["a", "b"]);
+    expect(loss.childActionsUnlinked).toBe(3);
+  });
+});

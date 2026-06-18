@@ -157,6 +157,7 @@ export function planFeatureMove(
     .map((t) => t.tagId);
 
   const ticketIds = graph.tickets.map((t) => t.id);
+  const movingSet = new Set(ticketIds);
 
   // Tickets travel with the Feature, renumbered into the destination sequence
   // (per-product numbering forbids carrying their source numbers across).
@@ -169,6 +170,43 @@ export function planFeatureMove(
     generateShortId,
   });
 
+  // Per-ticket severances (the lossy cross-boundary contract):
+  const destMembers = new Set(destination.memberUserIds);
+  // Cycle: source-Product cycles don't exist in the destination Product.
+  const clearCycleTicketIds = graph.tickets
+    .filter((t) => t.cycleId !== null)
+    .map((t) => t.id);
+  // Assignee: kept only when the assignee is a destination-workspace member.
+  const clearAssigneeTicketIds = graph.tickets
+    .filter((t) => t.assigneeId !== null && !destMembers.has(t.assigneeId))
+    .map((t) => t.id);
+  // Child Actions: stay in the source workspace/Project, ticketId nulled. We
+  // record which tickets *have* actions (the mutation nulls them by ticketId).
+  const ticketsWithActions = graph.tickets.filter(
+    (t) => t.childActionIds.length > 0,
+  );
+  const unlinkActionTicketIds = ticketsWithActions.map((t) => t.id);
+  const childActionsUnlinked = ticketsWithActions.reduce(
+    (sum, t) => sum + t.childActionIds.length,
+    0,
+  );
+  // Dependencies: keep an edge only when BOTH endpoints move (still same-Product
+  // after the move); drop edges that cross to tickets left behind. De-dupe by
+  // id so an edge counted from either endpoint isn't double-counted.
+  const seenDeps = new Set<string>();
+  let dependenciesPreserved = 0;
+  const dropDependencyIds: string[] = [];
+  for (const dep of graph.dependencies) {
+    if (seenDeps.has(dep.id)) continue;
+    seenDeps.add(dep.id);
+    const bothMove = movingSet.has(dep.ticketId) && movingSet.has(dep.dependsOnId);
+    if (bothMove) {
+      dependenciesPreserved += 1;
+    } else {
+      dropDependencyIds.push(dep.id);
+    }
+  }
+
   const mutations: MovePlanMutations = {
     featureId: graph.featureId,
     destinationProductId: destination.productId,
@@ -177,21 +215,21 @@ export function planFeatureMove(
     dropTagIds,
     ticketIds,
     ticketRenumber: assignments,
-    clearCycleTicketIds: [],
-    clearAssigneeTicketIds: [],
-    dropDependencyIds: [],
-    unlinkActionTicketIds: [],
+    clearCycleTicketIds,
+    clearAssigneeTicketIds,
+    dropDependencyIds,
+    unlinkActionTicketIds,
     nextTicketCounter,
   };
 
   const loss: MoveLossSummary = {
     ticketsMoved: ticketIds.length,
     ticketsRenumbered: assignments.length,
-    cyclesDropped: 0,
-    dependenciesPreserved: 0,
-    dependenciesDropped: 0,
-    assigneesCleared: 0,
-    childActionsUnlinked: 0,
+    cyclesDropped: clearCycleTicketIds.length,
+    dependenciesPreserved,
+    dependenciesDropped: dropDependencyIds.length,
+    assigneesCleared: clearAssigneeTicketIds.length,
+    childActionsUnlinked,
     goalAlignmentRemoved: mutations.nullGoal,
     insightLinksDropped: mutations.dropInsightIds.length,
     tagsDropped: dropTagIds.length,
