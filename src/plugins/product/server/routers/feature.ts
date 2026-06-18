@@ -6,6 +6,159 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { hasMinimumWorkspaceRole } from "~/server/services/access";
+import {
+  planFeatureMove,
+  type FeatureMoveGraph,
+  type FeatureMoveDestination,
+} from "../services/featureMove";
+
+/**
+ * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
+ * A cross-workspace Feature move is a lossy cascade, so — per ADR-0027 — the
+ * mover must be able to *write* to both the source and destination workspaces,
+ * not merely read them. This is stricter than {@link assertWorkspaceMember},
+ * which admits viewers.
+ */
+async function assertWorkspaceWriteRole(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+) {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!membership || !hasMinimumWorkspaceRole(membership.role, "member")) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "You need owner, admin, or member access to this workspace to move a feature here",
+    });
+  }
+  return membership;
+}
+
+/**
+ * Load everything a Feature move needs, run both-ends access checks, and shape
+ * the {@link FeatureMoveGraph} + {@link FeatureMoveDestination} the pure
+ * planner consumes. Shared by the read-only `getMovePreview` and the executing
+ * `move` mutation so the dialog preview and the actual move are computed from
+ * identical inputs (ADR-0027 — preview must never disagree with execution).
+ */
+async function loadFeatureMoveContext(
+  db: PrismaClient,
+  userId: string,
+  featureId: string,
+  destinationProductId: string,
+) {
+  // Source: feature graph + workspace, require write role.
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: {
+      id: true,
+      productId: true,
+      goalId: true,
+      product: { select: { workspaceId: true } },
+      tags: { select: { tagId: true, tag: { select: { workspaceId: true } } } },
+      insights: { select: { insightId: true } },
+    },
+  });
+  if (!feature) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+  }
+  await assertWorkspaceWriteRole(db, userId, feature.product.workspaceId);
+
+  // Destination Product (and its workspace), require write role.
+  const destProduct = await db.product.findUnique({
+    where: { id: destinationProductId },
+    select: {
+      id: true,
+      slug: true,
+      workspaceId: true,
+      ticketCounter: true,
+      funTicketIds: true,
+    },
+  });
+  if (!destProduct) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Destination product not found",
+    });
+  }
+  if (destProduct.id === feature.productId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The feature is already in this product",
+    });
+  }
+  await assertWorkspaceWriteRole(db, userId, destProduct.workspaceId);
+
+  // The rest of the graph the planner needs.
+  const tickets = await db.ticket.findMany({
+    where: { featureId: feature.id },
+    select: {
+      id: true,
+      number: true,
+      shortId: true,
+      cycleId: true,
+      assigneeId: true,
+      actions: { select: { id: true } },
+    },
+  });
+  const movingIds = tickets.map((t) => t.id);
+  const dependencies =
+    movingIds.length > 0
+      ? await db.ticketDependency.findMany({
+          where: {
+            OR: [
+              { ticketId: { in: movingIds } },
+              { dependsOnId: { in: movingIds } },
+            ],
+          },
+          select: { id: true, ticketId: true, dependsOnId: true },
+        })
+      : [];
+  const [destUsed, destMembers] = await Promise.all([
+    db.ticket.findMany({
+      where: { productId: destProduct.id },
+      select: { number: true, shortId: true },
+    }),
+    db.workspaceUser.findMany({
+      where: { workspaceId: destProduct.workspaceId },
+      select: { userId: true },
+    }),
+  ]);
+
+  const graph: FeatureMoveGraph = {
+    featureId: feature.id,
+    goalId: feature.goalId,
+    tags: feature.tags.map((t) => ({
+      tagId: t.tagId,
+      tagWorkspaceId: t.tag.workspaceId,
+    })),
+    insightIds: feature.insights.map((i) => i.insightId),
+    tickets: tickets.map((t) => ({
+      id: t.id,
+      number: t.number,
+      shortId: t.shortId,
+      cycleId: t.cycleId,
+      assigneeId: t.assigneeId,
+      childActionIds: t.actions.map((a) => a.id),
+    })),
+    dependencies,
+  };
+  const destination: FeatureMoveDestination = {
+    productId: destProduct.id,
+    ticketCounter: destProduct.ticketCounter,
+    funTicketIds: destProduct.funTicketIds,
+    usedNumbers: destUsed.map((t) => t.number),
+    usedShortIds: destUsed
+      .map((t) => t.shortId)
+      .filter((s): s is string => s !== null),
+    memberUserIds: destMembers.map((m) => m.userId),
+  };
+
+  return { feature, destProduct, graph, destination };
+}
 
 /** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -374,6 +527,156 @@ export const featureRouter = createTRPCRouter({
       await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.feature.delete({ where: { id: input.id } });
       return { success: true };
+    }),
+
+  /**
+   * Move a Feature to a Product in another workspace (ADR-0027).
+   *
+   * A Feature has no workspace of its own — its only container link is
+   * `productId` — so "move to a workspace" is re-pointing `productId` at a
+   * Product in the destination workspace. The move is a single-transaction
+   * lossy cascade whose rules (and the loss counts shown in the confirm dialog)
+   * are computed by the pure {@link planFeatureMove}, so preview and execution
+   * can never diverge.
+   *
+   * Access: the caller must be a non-viewer member of *both* the source and the
+   * destination workspaces.
+   */
+  /**
+   * Read-only preview of a move's loss summary (ADR-0027). Runs the exact same
+   * fetch + {@link planFeatureMove} as `move`, but applies nothing — so the
+   * confirm dialog can enumerate every consequence before the user commits,
+   * and can never disagree with what `move` will do. Same both-ends access
+   * checks as the move itself.
+   */
+  getMovePreview: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        destinationProductId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { graph, destination } = await loadFeatureMoveContext(
+        ctx.db,
+        ctx.session.user.id,
+        input.featureId,
+        input.destinationProductId,
+      );
+      return planFeatureMove(graph, destination).loss;
+    }),
+
+  move: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        destinationProductId: z.string(),
+        /**
+         * Stale-state guard: the source Product the modal saw when it computed
+         * the preview. If the Feature has since moved (its `productId` no longer
+         * matches), the cached plan is stale and we refuse rather than apply it.
+         */
+        expectedSourceProductId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const { feature, destProduct, graph, destination } =
+        await loadFeatureMoveContext(
+          ctx.db,
+          userId,
+          input.featureId,
+          input.destinationProductId,
+        );
+
+      // Stale-state guard: the Feature moved out from under the open modal.
+      if (
+        input.expectedSourceProductId !== undefined &&
+        input.expectedSourceProductId !== feature.productId
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "This feature changed since you opened the move dialog. Reload and try again.",
+        });
+      }
+
+      const { mutations } = planFeatureMove(graph, destination);
+
+      // Apply the whole plan in one transaction (driven by the plan only).
+      await ctx.db.$transaction(async (tx) => {
+        // Per-ticket: re-point to the destination Product, renumber, and clear
+        // the source-scoped cycle / assignee links the plan flagged.
+        for (const r of mutations.ticketRenumber) {
+          await tx.ticket.update({
+            where: { id: r.ticketId },
+            data: {
+              productId: mutations.destinationProductId,
+              number: r.number,
+              shortId: r.shortId,
+              ...(mutations.clearCycleTicketIds.includes(r.ticketId)
+                ? { cycleId: null }
+                : {}),
+              ...(mutations.clearAssigneeTicketIds.includes(r.ticketId)
+                ? { assigneeId: null }
+                : {}),
+            },
+          });
+        }
+        if (mutations.dropDependencyIds.length > 0) {
+          await tx.ticketDependency.deleteMany({
+            where: { id: { in: mutations.dropDependencyIds } },
+          });
+        }
+        if (mutations.unlinkActionTicketIds.length > 0) {
+          await tx.action.updateMany({
+            where: { ticketId: { in: mutations.unlinkActionTicketIds } },
+            data: { ticketId: null },
+          });
+        }
+        // Feature-level: re-point + sever goal / insights / workspace tags.
+        await tx.feature.update({
+          where: { id: mutations.featureId },
+          data: {
+            productId: mutations.destinationProductId,
+            ...(mutations.nullGoal ? { goalId: null } : {}),
+          },
+        });
+        if (mutations.dropInsightIds.length > 0) {
+          await tx.featureInsight.deleteMany({
+            where: {
+              featureId: mutations.featureId,
+              insightId: { in: mutations.dropInsightIds },
+            },
+          });
+        }
+        if (mutations.dropTagIds.length > 0) {
+          await tx.featureTag.deleteMany({
+            where: {
+              featureId: mutations.featureId,
+              tagId: { in: mutations.dropTagIds },
+            },
+          });
+        }
+        if (mutations.nextTicketCounter !== destProduct.ticketCounter) {
+          await tx.product.update({
+            where: { id: destProduct.id },
+            data: { ticketCounter: mutations.nextTicketCounter },
+          });
+        }
+      });
+
+      // 5. Navigation target: the feature in its new Product/workspace.
+      const destWorkspace = await ctx.db.workspace.findUnique({
+        where: { id: destProduct.workspaceId },
+        select: { slug: true },
+      });
+      return {
+        featureId: feature.id,
+        productSlug: destProduct.slug,
+        workspaceSlug: destWorkspace?.slug ?? null,
+      };
     }),
 
   // ────────────────── Feature Scopes ──────────────────

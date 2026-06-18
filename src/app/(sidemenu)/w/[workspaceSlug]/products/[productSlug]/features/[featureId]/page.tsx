@@ -19,6 +19,7 @@ import {
 import { modals } from "@mantine/modals";
 import {
   IconArrowLeft,
+  IconArrowRight,
   IconCalendar,
   IconCategory,
   IconCircleDot,
@@ -35,6 +36,7 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { MoveFeatureModal } from "~/app/_components/product/MoveFeatureModal";
 import {
   PropertiesSidebar,
   PropertyRow,
@@ -97,6 +99,8 @@ export default function FeatureDetailPage() {
     { id: featureId },
     { enabled: !!featureId },
   );
+
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
 
   // Scope form
   const [scopeVersion, setScopeVersion] = useState("");
@@ -198,6 +202,9 @@ export default function FeatureDetailPage() {
                 <Menu.Dropdown>
                   <Menu.Item leftSection={<IconCopy size={14} />} onClick={() => { void navigator.clipboard.writeText(window.location.href); }}>
                     Copy link
+                  </Menu.Item>
+                  <Menu.Item leftSection={<IconArrowRight size={14} />} onClick={() => setMoveModalOpen(true)}>
+                    Move to another workspace…
                   </Menu.Item>
                   <Menu.Divider />
                   <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => {
@@ -426,6 +433,14 @@ export default function FeatureDetailPage() {
           </Text>
         </PropertyRow>
       </PropertiesSidebar>
+
+      <MoveFeatureModal
+        opened={moveModalOpen}
+        onClose={() => setMoveModalOpen(false)}
+        featureId={featureId}
+        currentProductId={feature.product.id}
+        currentWorkspaceId={feature.product.workspaceId}
+      />
     </div>
   );
 }
