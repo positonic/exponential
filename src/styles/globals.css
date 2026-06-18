@@ -2157,3 +2157,19 @@
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
+
+/* PRD body anchored comments (ADR-0024) — highlight glued to the marked words */
+.prd-comment-highlight {
+  background-color: color-mix(in srgb, var(--color-brand-warning) 22%, transparent);
+  border-bottom: 2px solid
+    color-mix(in srgb, var(--color-brand-warning) 55%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+.prd-comment-highlight:hover {
+  background-color: color-mix(in srgb, var(--color-brand-warning) 38%, transparent);
+}
+.prd-document img.prd-image {
+  margin: 0.5rem 0;
+}
