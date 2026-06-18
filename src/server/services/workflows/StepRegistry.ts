@@ -12,6 +12,8 @@ import { FetchPlannedActionsStep } from "./steps/FetchPlannedActionsStep";
 import { FetchProjectHealthStep } from "./steps/FetchProjectHealthStep";
 import { FetchBlockersStep } from "./steps/FetchBlockersStep";
 import { AiGenerateStandupStep } from "./steps/AiGenerateStandupStep";
+// CRM automation steps
+import { GenerateDocumentStep } from "../crm/automation/steps/GenerateDocumentStep";
 
 export class StepRegistry {
   private executors = new Map<string, IStepExecutor>();
@@ -49,6 +51,9 @@ export function createStepRegistry(db: PrismaClient): StepRegistry {
   registry.register(new FetchProjectHealthStep());
   registry.register(new FetchBlockersStep());
   registry.register(new AiGenerateStandupStep());
-  
+
+  // CRM automation steps
+  registry.register(new GenerateDocumentStep(db));
+
   return registry;
 }

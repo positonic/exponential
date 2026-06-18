@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Channel Partner Agreement</title>
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #1a1a1a;
+        line-height: 1.5;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 40px;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      .meta {
+        color: #555;
+        font-size: 13px;
+        margin-bottom: 24px;
+      }
+      .signature {
+        margin-top: 48px;
+        border-top: 1px solid #ccc;
+        padding-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Channel Partner Agreement</h1>
+    <p class="meta">Dated {{date}}</p>
+
+    <p>This Channel Partner Agreement is entered into between the Company and:</p>
+
+    <p>
+      <strong>{{fullName}}</strong><br />
+      {{companyName}}
+    </p>
+
+    <p>
+      By signing below, {{fullName}} agrees to act as a Channel Partner under the
+      terms set out by the Company, including the obligations of referral,
+      representation, and confidentiality applicable to the Channel Partner
+      relationship.
+    </p>
+
+    <p>
+      This document was generated automatically as part of the partner
+      onboarding process. Please review and sign electronically.
+    </p>
+
+    <div class="signature">
+      <p>Signed by: {{fullName}}</p>
+      <p>Customer type: {{customerType}}</p>
+      <p>[DIGITAL SIGNATURE FIELD]</p>
+    </div>
+  </body>
+</html>
