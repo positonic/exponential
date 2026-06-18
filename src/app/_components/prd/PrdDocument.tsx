@@ -239,7 +239,11 @@ export function PrdDocument({
     const quotedText = editor.state.doc.textBetween(from, to, " ").slice(0, 1000);
     const threadId = newThreadId();
     editor.chain().focus().setMark("comment", { threadId }).run();
-    // Persist the mark right away so the thread is anchored on reload.
+    // setMark's onUpdate scheduled a debounced autosave; cancel it so we don't
+    // fire two concurrent saves with the same baseVersion (which can race into a
+    // spurious stale-write conflict). Persist the mark right away instead so the
+    // thread is anchored on reload.
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     saveRef.current(editor);
     setPending({ threadId, quotedText });
     setActiveThreadId(threadId);
