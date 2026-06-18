@@ -10,6 +10,7 @@ import {
   Button,
   Group,
   Menu,
+  NumberInput,
   Select,
   Skeleton,
   Stack,
@@ -102,6 +103,11 @@ export default function FeatureDetailPage() {
 
   const { data: tags } = api.tag.list.useQuery(
     { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
     { enabled: !!workspaceId },
   );
 
@@ -397,17 +403,35 @@ export default function FeatureDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconFlame size={14} />} label="Effort">
-          <Text size="xs" className="text-text-primary">
-            {feature.effort != null ? String(feature.effort) : "None"}
-          </Text>
+          <NumberInput
+            value={feature.effort ?? ""}
+            onChange={(val) => handleFieldUpdate("effort", val === "" ? null : Number(val))}
+            size="xs"
+            variant="unstyled"
+            min={0}
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24, width: 80 } }}
+          />
         </PropertyRow>
 
         <PropertyDivider />
 
         <PropertyRow icon={<IconTarget size={14} />} label="Goal">
-          <Text size="xs" className={feature.goal ? "text-text-primary" : "text-text-muted"}>
-            {feature.goal?.title ?? "None"}
-          </Text>
+          <Select
+            value={feature.goalId != null ? String(feature.goalId) : null}
+            onChange={(val) => handleFieldUpdate("goalId", val != null ? Number(val) : null)}
+            data={(goals ?? []).map((g) => ({ value: String(g.id), label: g.title }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            searchable
+            placeholder="None"
+            nothingFoundMessage="No goals"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
         </PropertyRow>
 
         <PropertyRow icon={<IconTicket size={14} />} label="Tickets">
