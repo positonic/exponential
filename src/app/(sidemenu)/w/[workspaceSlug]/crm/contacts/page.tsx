@@ -179,6 +179,8 @@ function ContactForm({
           label="Profile Type"
           placeholder="Select type"
           data={[
+            { value: 'Channel Partner', label: 'Channel Partner' },
+            { value: 'Advisor', label: 'Advisor' },
             { value: 'Developer', label: 'Developer' },
             { value: 'Designer', label: 'Designer' },
             { value: 'Founder', label: 'Founder' },
