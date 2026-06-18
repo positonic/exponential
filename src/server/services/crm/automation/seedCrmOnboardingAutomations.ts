@@ -6,7 +6,7 @@ import { CRM_CONTACT_TYPE_TRIGGER } from "./triggerResolver";
  * Seeds the PoC onboarding **Automations** for a workspace (see CONTEXT.md →
  * CRM & Automations, ADR-0025). Each is a `WorkflowDefinition` with the CRM
  * contact-type trigger and an ordered list of steps that grows as slices land:
- * `generate_document` → `send_email` (welcome) → `send_for_signature`.
+ * `send_email` (welcome) → `generate_document` → `send_for_signature`.
  *
  * Idempotent: one onboarding automation per (workspace, Customer type).
  * Re-running reconciles the steps to the current canonical list (replacing
@@ -34,6 +34,11 @@ const ONBOARDING_AUTOMATIONS: OnboardingAutomationSpec[] = [
 /** Canonical ordered steps for an onboarding automation. */
 function onboardingSteps(customerType: string): StepSpec[] {
   return [
+    {
+      type: "send_email",
+      label: `Welcome ${customerType}`,
+      config: {},
+    },
     {
       type: "generate_document",
       label: `Generate ${customerType} agreement`,

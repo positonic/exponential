@@ -13,6 +13,7 @@ import { FetchProjectHealthStep } from "./steps/FetchProjectHealthStep";
 import { FetchBlockersStep } from "./steps/FetchBlockersStep";
 import { AiGenerateStandupStep } from "./steps/AiGenerateStandupStep";
 // CRM automation steps
+import { SendEmailStep } from "../crm/automation/steps/SendEmailStep";
 import { GenerateDocumentStep } from "../crm/automation/steps/GenerateDocumentStep";
 
 export class StepRegistry {
@@ -53,6 +54,7 @@ export function createStepRegistry(db: PrismaClient): StepRegistry {
   registry.register(new AiGenerateStandupStep());
 
   // CRM automation steps
+  registry.register(new SendEmailStep(db));
   registry.register(new GenerateDocumentStep(db));
 
   return registry;

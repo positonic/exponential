@@ -869,6 +869,48 @@ ${footer.text}
   });
 }
 
+/**
+ * Welcome email for a new CRM Customer (Channel Partner / Advisor) onboarded by
+ * a CRM Automation. Deliberately distinct from Adobe Sign's own "review & sign"
+ * email — this is the branded "you're signed up" note (CONTEXT.md → Recipient
+ * email experience). Returns the composed content so the caller can log it as a
+ * CrmCommunication.
+ */
+export async function sendCrmOnboardingWelcomeEmail(params: {
+  to: string;
+  name?: string | null;
+  customerType: string;
+}): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const { to, name, customerType } = params;
+  const appName = PRODUCT_NAME;
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  const subject = `Welcome — you're signed up as a ${customerType}`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; line-height: 1.6; padding: 24px;">
+    <p>${greeting}</p>
+    <p>Welcome to ${appName}! You've been signed up as a <strong>${customerType}</strong>.</p>
+    <p>We're preparing your ${customerType} agreement now. You'll receive a separate
+       email shortly with a secure link to review and sign it electronically.</p>
+    <p style="color: ${EMAIL_BRAND_COLOR};">Thanks,<br />The ${appName} team</p>
+  </body>
+</html>`;
+
+  const textBody = `${greeting}
+
+Welcome to ${appName}! You've been signed up as a ${customerType}.
+
+We're preparing your ${customerType} agreement now. You'll receive a separate email shortly with a secure link to review and sign it electronically.
+
+Thanks,
+The ${appName} team`;
+
+  await sendEmail({ to, subject, htmlBody, textBody });
+  return { subject, htmlBody, textBody };
+}
+
 export const EmailService = {
   sendMagicLinkEmail,
   sendWelcomeEmail,
@@ -877,4 +919,5 @@ export const EmailService = {
   sendWorkspaceMemberAddedEmail,
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
+  sendCrmOnboardingWelcomeEmail,
 };
