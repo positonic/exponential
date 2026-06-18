@@ -26,9 +26,10 @@ const scopeStatusEnum = z.enum([
 ]);
 
 /**
- * Load a feature and verify workspace membership via its product.
+ * Load a feature and verify workspace membership via its product. Shared with
+ * the featureComment router so comments reuse the exact same access gate.
  */
-async function loadFeatureWithAccess(
+export async function loadFeatureWithAccess(
   db: PrismaClient,
   userId: string,
   featureId: string,

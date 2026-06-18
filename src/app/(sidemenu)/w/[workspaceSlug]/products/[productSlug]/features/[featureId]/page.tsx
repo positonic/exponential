@@ -224,6 +224,7 @@ export default function FeatureDetailPage() {
             description={feature.description ?? null}
             docVersion={feature.docVersion}
             editable
+            enableComments
           />
 
           {/* Vision */}
