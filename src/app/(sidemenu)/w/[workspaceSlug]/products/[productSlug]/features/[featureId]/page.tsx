@@ -43,7 +43,7 @@ import {
   PropertyDivider,
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
-import { TagBadge } from "~/app/_components/TagBadge";
+import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PrdDocument } from "~/app/_components/prd/PrdDocument";
 import type { JSONContent } from "@tiptap/core";
@@ -92,13 +92,33 @@ export default function FeatureDetailPage() {
   const params = useParams();
   const featureId = params.featureId as string;
   const productSlug = params.productSlug as string;
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
   const { data: feature, isLoading } = api.product.feature.getById.useQuery(
     { id: featureId },
     { enabled: !!featureId },
   );
+
+  const { data: tags } = api.tag.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+
+  const setFeatureTags = api.tag.setFeatureTags.useMutation({
+    onSuccess: async () => {
+      await utils.product.feature.getById.invalidate({ id: featureId });
+    },
+  });
+
+  const createTag = api.tag.create.useMutation({
+    onSuccess: async (newTag) => {
+      await utils.tag.list.invalidate();
+      // Auto-add the newly created tag to this feature
+      const currentIds = feature?.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? [];
+      setFeatureTags.mutate({ featureId, tagIds: [...currentIds, newTag.id] });
+    },
+  });
 
   const [moveModalOpen, setMoveModalOpen] = useState(false);
 
@@ -403,15 +423,15 @@ export default function FeatureDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconTag size={14} />} label="Labels">
-          {feature.tags && feature.tags.length > 0 ? (
-            <Group gap={4}>
-              {feature.tags.map((t: { tag: { id: string; name: string; color: string } }) => (
-                <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-              ))}
-            </Group>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <LabelsCombobox
+            selectedIds={feature.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
+            allTags={tags?.allTags ?? []}
+            entityTags={feature.tags ?? []}
+            onChange={(tagIds) => setFeatureTags.mutate({ featureId, tagIds })}
+            onCreate={(name) => {
+              if (workspaceId) createTag.mutate({ name, color: "avatar-blue", workspaceId });
+            }}
+          />
         </PropertyRow>
 
         <PropertyDivider />
