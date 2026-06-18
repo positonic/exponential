@@ -139,6 +139,43 @@ describe("featureComment router", () => {
     expect(list.find((c) => c.id === root.id)?.resolvedAt).toBeNull();
   });
 
+  it("edits and deletes only the author's own comment", async () => {
+    const { db, user, feature, ws } = await setupFeature();
+    const author = createTestCaller(user.id);
+
+    const root = await author.product.featureComment.create({
+      featureId: feature.id,
+      threadId: "t-edit",
+      body: "original",
+    });
+
+    const edited = await author.product.featureComment.update({
+      commentId: root.id,
+      body: "edited body",
+    });
+    expect(edited.body).toBe("edited body");
+
+    // A different member cannot edit or delete someone else's comment.
+    const other = await createUser(db);
+    await db.workspaceUser.create({
+      data: { workspaceId: ws.id, userId: other.id, role: "member" },
+    });
+    const otherCaller = createTestCaller(other.id);
+    await expect(
+      otherCaller.product.featureComment.update({
+        commentId: root.id,
+        body: "hijacked",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      otherCaller.product.featureComment.delete({ commentId: root.id }),
+    ).rejects.toThrow();
+
+    await author.product.featureComment.delete({ commentId: root.id });
+    const list = await author.product.featureComment.list({ featureId: feature.id });
+    expect(list).toHaveLength(0);
+  });
+
   it("denies a non-member from commenting or listing", async () => {
     const { db, feature } = await setupFeature();
     const outsider = await createUser(db);
