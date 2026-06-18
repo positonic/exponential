@@ -78,6 +78,8 @@
     "@tiptap/extension-placeholder": "^2.11.5",
     "@tiptap/extension-subscript": "^2.11.5",
     "@tiptap/extension-superscript": "^2.11.5",
+    "@tiptap/extension-task-item": "^2.27.2",
+    "@tiptap/extension-task-list": "^2.27.2",
     "@tiptap/extension-text-align": "^2.11.5",
     "@tiptap/extension-underline": "^2.11.5",
     "@tiptap/react": "^2.11.5",
@@ -123,6 +125,7 @@
     "server-only": "^0.0.1",
     "simli-client": "^1.2.8",
     "superjson": "^2.2.1",
+    "tiptap-markdown": "^0.9.0",
     "web-push": "^3.6.7",
     "zod": "^3.23.3"
   },

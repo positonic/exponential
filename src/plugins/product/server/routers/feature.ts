@@ -2,8 +2,11 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+
+/** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
+const prosemirrorDoc = z.record(z.string(), z.unknown());
 
 const featureStatusEnum = z.enum([
   "IDEA",
@@ -242,6 +245,37 @@ export const featureRouter = createTRPCRouter({
         where: { id },
         data,
       });
+    }),
+
+  /**
+   * Persist the one-time lazy migration of a legacy Markdown `description` into
+   * the canonical `descriptionDoc` (ADR-0024). The client converts Markdown →
+   * ProseMirror JSON via the codec on first open and calls this to store it.
+   *
+   * Idempotent and write-once: if `descriptionDoc` is already set, the existing
+   * doc wins and nothing is written — so a second tab (or a real edit that has
+   * already happened) is never clobbered by a migration. `description` is left
+   * untouched (it is the source of this migration), as is `docVersion`.
+   */
+  initDescriptionDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      const existing = await ctx.db.feature.findUnique({
+        where: { id: input.id },
+        select: { descriptionDoc: true },
+      });
+      if (existing?.descriptionDoc != null) {
+        return { migrated: false, descriptionDoc: existing.descriptionDoc };
+      }
+
+      const updated = await ctx.db.feature.update({
+        where: { id: input.id },
+        data: { descriptionDoc: input.doc as Prisma.InputJsonValue },
+        select: { descriptionDoc: true },
+      });
+      return { migrated: true, descriptionDoc: updated.descriptionDoc };
     }),
 
   delete: protectedProcedure

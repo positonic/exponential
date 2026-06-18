@@ -43,6 +43,8 @@ import {
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { PrdDocument } from "~/app/_components/prd/PrdDocument";
+import type { JSONContent } from "@tiptap/core";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -214,12 +216,12 @@ export default function FeatureDetailPage() {
             </Group>
           </div>
 
-          {/* Description */}
-          {feature.description ? (
-            <MarkdownRenderer content={feature.description} />
-          ) : (
-            <Text size="sm" className="text-text-muted">No description provided.</Text>
-          )}
+          {/* PRD body — rich document (ADR-0024), replaces MarkdownRenderer here only */}
+          <PrdDocument
+            featureId={featureId}
+            descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
+            description={feature.description ?? null}
+          />
 
           {/* Vision */}
           {feature.vision && (
