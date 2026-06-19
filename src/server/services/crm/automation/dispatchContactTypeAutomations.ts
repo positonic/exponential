@@ -65,10 +65,15 @@ export async function dispatchContactTypeAutomations(
 
   // Idempotency: which of these definitions already produced a run for this
   // contact? Runs carry `{ contactId }` in their input JSON, so no extra column.
+  // Exclude FAILED runs — a failed onboarding (e.g. a transient email/Adobe
+  // error, or a missing template) must be retryable on the next save. Only a
+  // SUCCESS or in-flight RUNNING run counts as "already fired", so a genuine
+  // re-tag never re-onboards a contact that was already successfully handled.
   const priorRuns = await db.workflowPipelineRun.findMany({
     where: {
       definitionId: { in: definitions.map((d) => d.id) },
       input: { path: ["contactId"], equals: input.contactId },
+      status: { not: "FAILED" },
     },
     select: { definitionId: true },
   });
