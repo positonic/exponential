@@ -3,8 +3,8 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { createTicketWithNumber } from "../services/createTicket";
 import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
@@ -289,65 +289,30 @@ export const ticketRouter = createTRPCRouter({
         }
       }
 
-      // Increment product ticket counter atomically and generate IDs
-      const updated = await ctx.db.product.update({
-        where: { id: input.productId },
-        data: { ticketCounter: { increment: 1 } },
-        select: { ticketCounter: true, funTicketIds: true },
-      });
-      const ticketNumber = updated.ticketCounter;
-
-      // Generate fun ID if enabled
-      let shortId: string | null = null;
-      if (updated.funTicketIds) {
-        const existing = await ctx.db.ticket.findMany({
-          where: { productId: input.productId },
-          select: { shortId: true },
-        });
-        const existingIds = new Set(existing.map((t) => t.shortId).filter(Boolean) as string[]);
-        shortId = generateFunId(existingIds);
-      }
-
-      const createdTicket = await ctx.db.ticket.create({
-        data: {
-          productId: input.productId,
-          number: ticketNumber,
-          shortId,
-          title: input.title,
-          body,
-          type: input.type ?? "FEATURE",
-          status: input.status ?? "BACKLOG",
-          priority: input.priority,
-          points: input.points,
-          branchName: input.branchName,
-          prUrl: input.prUrl,
-          designUrl: input.designUrl,
-          specUrl: input.specUrl,
-          links: input.links ?? undefined,
-          epicId: input.epicId,
-          featureId: input.featureId,
-          cycleId: input.cycleId,
-          scopeId: input.scopeId,
-          assigneeId: input.assigneeId,
-          createdById: ctx.session.user.id,
-        },
-      });
-
-      // T7: workspace activity feed instrumentation. workspaceId comes from
-      // the product loaded above; loadProductWithAccess already verified
-      // membership so we know it's authoritative.
-      await recordActivity(ctx.db, {
+      // Counter increment, shortId, create, and activity-feed write all live
+      // in the shared service (ADR-0016). Access was already verified by
+      // loadProductWithAccess above; the service trusts the caller.
+      return createTicketWithNumber(ctx.db, {
+        productId: input.productId,
         workspaceId: product.workspaceId,
-        userId: ctx.session.user.id,
-        entityType: "ticket",
-        entityId: createdTicket.id,
-        action: "created",
-        metadata: { title: input.title },
-      }).catch(() => {
-        /* instrumentation failure is non-fatal */
+        createdById: ctx.session.user.id,
+        title: input.title,
+        body,
+        type: input.type,
+        status: input.status,
+        priority: input.priority,
+        points: input.points,
+        branchName: input.branchName,
+        prUrl: input.prUrl,
+        designUrl: input.designUrl,
+        specUrl: input.specUrl,
+        links: input.links,
+        epicId: input.epicId,
+        featureId: input.featureId,
+        cycleId: input.cycleId,
+        scopeId: input.scopeId,
+        assigneeId: input.assigneeId,
       });
-
-      return createdTicket;
     }),
 
   update: protectedProcedure

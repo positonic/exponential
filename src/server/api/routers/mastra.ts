@@ -23,6 +23,7 @@ import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
+import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { ingestChannelSummary } from "~/server/services/activity/ingestChannelSummary";
@@ -4158,53 +4159,19 @@ export const mastraRouter = createTRPCRouter({
       // Verifies the product exists and the user is a member of its workspace.
       const product = await loadProductWithAccess(ctx.db, userId, input.productId);
 
-      // Atomically increment the product's ticket counter to get the number.
-      const updated = await ctx.db.product.update({
-        where: { id: input.productId },
-        data: { ticketCounter: { increment: 1 } },
-        select: { ticketCounter: true, funTicketIds: true },
-      });
-      const ticketNumber = updated.ticketCounter;
-
-      // Generate a fun short ID if the product has them enabled.
-      let shortId: string | null = null;
-      if (updated.funTicketIds) {
-        const existing = await ctx.db.ticket.findMany({
-          where: { productId: input.productId },
-          select: { shortId: true },
-        });
-        const existingIds = new Set(
-          existing.map((t) => t.shortId).filter(Boolean) as string[],
-        );
-        shortId = generateFunId(existingIds);
-      }
-
-      const ticket = await ctx.db.ticket.create({
-        data: {
-          productId: input.productId,
-          number: ticketNumber,
-          shortId,
-          title: input.title,
-          body: input.body,
-          type: input.type ?? "FEATURE",
-          status: input.status ?? "BACKLOG",
-          priority: input.priority,
-          points: input.points,
-          assigneeId: input.assigneeId,
-          createdById: userId,
-        },
-      });
-
-      // Workspace activity feed (non-fatal if it fails).
-      await recordActivity(ctx.db, {
+      // Counter increment, shortId, create, and activity-feed write live in the
+      // shared service (ADR-0016). Access was already verified above.
+      const ticket = await createTicketWithNumber(ctx.db, {
+        productId: input.productId,
         workspaceId: product.workspaceId,
-        userId,
-        entityType: "ticket",
-        entityId: ticket.id,
-        action: "created",
-        metadata: { title: input.title },
-      }).catch(() => {
-        /* instrumentation failure is non-fatal */
+        createdById: userId,
+        title: input.title,
+        body: input.body,
+        type: input.type,
+        status: input.status,
+        priority: input.priority,
+        points: input.points,
+        assigneeId: input.assigneeId,
       });
 
       console.log(`✅ [tRPC createTicket] CREATED: id=${ticket.id}, number=${ticket.number}, shortId=${ticket.shortId ?? 'none'}`);
