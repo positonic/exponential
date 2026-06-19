@@ -9,9 +9,13 @@ import { SummaryTab } from "./SummaryTab";
 import { TranscriptTab } from "./TranscriptTab";
 import { ScreenshotsTab } from "./ScreenshotsTab";
 import { ContextRail } from "./ContextRail";
+import {
+  ParticipantPicker,
+  type PendingParticipant,
+} from "./ParticipantPicker";
 import { buildMeetingViewModel } from "~/lib/meeting-view-model";
 import type { MeetingSession } from "~/lib/meeting-view-model";
-import type { RouterOutputs } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
 type Tab = "summary" | "transcript" | "screenshots";
@@ -60,7 +64,54 @@ export function MeetingDetail({
   onArchive,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>("summary");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const vm = useMemo(() => buildMeetingViewModel(session), [session]);
+
+  const utils = api.useUtils();
+  // Identity keys already on the meeting so the picker hides existing people.
+  const existingParticipants = useMemo(() => {
+    const keys = new Set<string>();
+    for (const p of session.participants) {
+      if (p.contactId) keys.add(`contact:${p.contactId}`);
+      if (p.email?.includes("@")) keys.add(`email:${p.email.toLowerCase()}`);
+    }
+    return keys;
+  }, [session.participants]);
+
+  const addParticipant = api.transcription.addParticipant.useMutation({
+    onSuccess: () => {
+      void utils.transcription.getById.invalidate({ id: session.id });
+    },
+    onError: (error) =>
+      notifications.show({
+        title: "Couldn't add participant",
+        message: error.message,
+        color: "red",
+      }),
+  });
+
+  const removeParticipant = api.transcription.removeParticipant.useMutation({
+    onSuccess: () => {
+      void utils.transcription.getById.invalidate({ id: session.id });
+    },
+    onError: (error) =>
+      notifications.show({
+        title: "Couldn't remove participant",
+        message: error.message,
+        color: "red",
+      }),
+  });
+
+  function handleAddPerson(person: PendingParticipant) {
+    addParticipant.mutate({
+      transcriptionSessionId: session.id,
+      ...person.payload,
+    });
+  }
+
+  function handleRemoveParticipant(id: string) {
+    removeParticipant.mutate({ id });
+  }
 
   const meetingDateObj = session.meetingDate ? new Date(session.meetingDate) : null;
   const displayDate = meetingDateObj ?? new Date(session.createdAt);
@@ -109,10 +160,7 @@ export function MeetingDetail({
   }
 
   function handleAddParticipant() {
-    notifications.show({
-      message: "Editing participants is coming soon",
-      color: "blue",
-    });
+    setPickerOpen(true);
   }
 
   return (
@@ -216,9 +264,24 @@ export function MeetingDetail({
             canExport={Boolean(session.transcription)}
             onArchive={onArchive}
             onAddParticipant={handleAddParticipant}
+            onRemoveParticipant={handleRemoveParticipant}
+            removingParticipantId={
+              removeParticipant.isPending
+                ? removeParticipant.variables?.id ?? null
+                : null
+            }
           />
         </div>
       </div>
+
+      <ParticipantPicker
+        opened={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        workspaceId={session.workspaceId ?? null}
+        existing={existingParticipants}
+        onAdd={handleAddPerson}
+        busy={addParticipant.isPending}
+      />
     </div>
   );
 }
