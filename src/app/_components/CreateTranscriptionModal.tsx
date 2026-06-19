@@ -8,13 +8,19 @@ import {
   Textarea,
   Stack,
   Input,
+  Pill,
+  Text,
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { useDisclosure } from "@mantine/hooks";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
-import { IconPlus } from "@tabler/icons-react";
+import { IconPlus, IconUserPlus } from "@tabler/icons-react";
+import {
+  ParticipantPicker,
+  type PendingParticipant,
+} from "~/app/_components/meeting/ParticipantPicker";
 
 interface CreateTranscriptionModalProps {
   projectId?: string;
@@ -33,6 +39,10 @@ export function CreateTranscriptionModal({
   const [transcription, setTranscription] = useState("");
   const [notes, setNotes] = useState("");
   const [meetingDate, setMeetingDate] = useState<Date | null>(null);
+  const [pendingParticipants, setPendingParticipants] = useState<
+    PendingParticipant[]
+  >([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const utils = api.useUtils();
 
@@ -52,6 +62,7 @@ export function CreateTranscriptionModal({
         setTranscription("");
         setNotes("");
         setMeetingDate(null);
+        setPendingParticipants([]);
 
         close();
 
@@ -70,6 +81,22 @@ export function CreateTranscriptionModal({
       },
     });
 
+  function handleAddPending(person: PendingParticipant) {
+    setPendingParticipants((prev) =>
+      prev.some((p) => p.key === person.key) ? prev : [...prev, person],
+    );
+  }
+
+  function handleRemovePending(key: string) {
+    setPendingParticipants((prev) => prev.filter((p) => p.key !== key));
+  }
+
+  function handleClose() {
+    setPickerOpen(false);
+    setPendingParticipants([]);
+    close();
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !transcription.trim()) return;
@@ -82,10 +109,15 @@ export function CreateTranscriptionModal({
       meetingDate: meetingDate ?? undefined,
       projectId,
       workspaceId,
+      participants:
+        pendingParticipants.length > 0
+          ? pendingParticipants.map((p) => p.payload)
+          : undefined,
     });
   };
 
   const isValid = title.trim() && transcription.trim();
+  const existingParticipants = new Set(pendingParticipants.map((p) => p.key));
 
   return (
     <>
@@ -104,7 +136,7 @@ export function CreateTranscriptionModal({
 
       <Modal
         opened={opened}
-        onClose={close}
+        onClose={handleClose}
         size="lg"
         radius="md"
         padding="lg"
@@ -138,6 +170,43 @@ export function CreateTranscriptionModal({
               </div>
             </Input.Wrapper>
 
+            <Input.Wrapper
+              label="Participants"
+              description="Link CRM contacts or add new people by name and email."
+            >
+              <Stack gap="xs" mt={4}>
+                {pendingParticipants.length > 0 && (
+                  <Pill.Group>
+                    {pendingParticipants.map((p) => (
+                      <Pill
+                        key={p.key}
+                        withRemoveButton
+                        onRemove={() => handleRemovePending(p.key)}
+                        title={p.email}
+                      >
+                        {p.name}
+                      </Pill>
+                    ))}
+                  </Pill.Group>
+                )}
+                <Button
+                  variant="light"
+                  size="xs"
+                  leftSection={<IconUserPlus size={14} />}
+                  onClick={() => setPickerOpen(true)}
+                  disabled={!workspaceId}
+                  style={{ alignSelf: "flex-start" }}
+                >
+                  Add participant
+                </Button>
+                {!workspaceId && (
+                  <Text size="xs" c="dimmed">
+                    Select a workspace to add participants.
+                  </Text>
+                )}
+              </Stack>
+            </Input.Wrapper>
+
             <Textarea
               label="Transcript"
               placeholder="Paste or type the meeting transcript..."
@@ -160,7 +229,7 @@ export function CreateTranscriptionModal({
             />
 
             <Group justify="flex-end" mt="md">
-              <Button variant="subtle" color="gray" onClick={close}>
+              <Button variant="subtle" color="gray" onClick={handleClose}>
                 Cancel
               </Button>
               <Button
@@ -174,6 +243,14 @@ export function CreateTranscriptionModal({
           </Stack>
         </form>
       </Modal>
+
+      <ParticipantPicker
+        opened={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        workspaceId={workspaceId ?? null}
+        existing={existingParticipants}
+        onAdd={handleAddPending}
+      />
     </>
   );
 }

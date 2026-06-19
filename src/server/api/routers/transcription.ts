@@ -159,6 +159,193 @@ async function syncParticipantCount(
   });
 }
 
+// Shared shape for "a person to attach to a meeting": a workspace member
+// (userId), an existing CRM contact (contactId), or a free-text name/email.
+// Used by both addParticipant (one at a time) and createManualTranscription
+// (a batch attached at create time).
+const participantPersonSchema = z
+  .object({
+    userId: z.string().optional(),
+    contactId: z.string().optional(),
+    email: z.string().email().optional(),
+    name: z.string().trim().min(1).optional(),
+  })
+  .refine((v) => v.userId ?? v.contactId ?? v.email ?? v.name, {
+    message: "Provide a member, a contact, or a name/email",
+  });
+
+type ParticipantPerson = z.infer<typeof participantPersonSchema>;
+
+// Resolve one person into a meeting participant row and upsert it inside the
+// caller's transaction. Single source of truth for "turn a member / contact /
+// free-text person into a participant" — used by both addParticipant (detail
+// page, one at a time) and createManualTranscription (a batch on manual
+// create). Resolution covers workspace-member lookup, existing-contact linking
+// with email write-back for no-email contacts, and free-text emailHash
+// find-or-create (workspace-boundary safe). Does NOT recount participantCount —
+// the caller runs syncParticipantCount once after all participants resolve.
+async function upsertMeetingParticipant(
+  tx: Prisma.TransactionClient,
+  args: {
+    transcriptionSessionId: string;
+    workspaceId: string;
+    actorId: string;
+    person: ParticipantPerson;
+  },
+) {
+  const { transcriptionSessionId, workspaceId, actorId, person } = args;
+
+  // Denormalized fields stored on the participant row.
+  let userId: string | null = null;
+  let contactId: string | null = null;
+  let email: string | null = null;
+  let name: string | null = null;
+
+  if (person.userId) {
+    // Workspace member: verify membership in this Meeting's workspace.
+    const membership = await tx.workspaceUser.findFirst({
+      where: { userId: person.userId, workspaceId },
+    });
+    if (!membership) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "User is not a member of this workspace",
+      });
+    }
+    const user = await tx.user.findUnique({
+      where: { id: person.userId },
+      select: { id: true, name: true, email: true },
+    });
+    if (!user) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+    }
+    userId = user.id;
+    email = user.email ?? null;
+    name = user.name ?? null;
+  } else if (person.contactId) {
+    // Existing CRM contact in this workspace.
+    const contact = await tx.crmContact.findUnique({
+      where: { id: person.contactId },
+      select: {
+        id: true,
+        workspaceId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+    });
+    if (!contact || contact.workspaceId !== workspaceId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Contact must belong to this workspace",
+      });
+    }
+    contactId = contact.id;
+    name =
+      [contact.firstName, contact.lastName].filter(Boolean).join(" ") || null;
+
+    const existingEmail = decryptBuffer(contact.email);
+    if (existingEmail) {
+      email = existingEmail;
+    } else if (person.email) {
+      // The contact has no email on file: capture the one supplied at link
+      // time and write it back onto the CrmContact, so the contact record
+      // improves everywhere — not just this participant row.
+      const emailHash = createHash("sha256")
+        .update(person.email.toLowerCase().trim())
+        .digest("hex");
+      // emailHash is globally unique. If another contact already owns this
+      // email, don't collide on update — surface a clear error instead.
+      const owner = await tx.crmContact.findUnique({
+        where: { emailHash },
+        select: { id: true },
+      });
+      if (owner && owner.id !== contact.id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That email already belongs to another contact",
+        });
+      }
+      await tx.crmContact.update({
+        where: { id: contact.id },
+        data: { email: encryptString(person.email), emailHash },
+      });
+      email = person.email;
+    }
+  } else {
+    // Free-text. If we have an email, link (or create) a CRM contact so the
+    // person lands in the CRM.
+    name = person.name ?? null;
+    email = person.email ?? null;
+
+    if (person.email) {
+      const emailHash = createHash("sha256")
+        .update(person.email.toLowerCase().trim())
+        .digest("hex");
+      // emailHash is globally unique, so look it up globally — a workspace-
+      // scoped lookup would miss a contact owned by another workspace and then
+      // throw P2002 on create. Only create when no contact exists.
+      let contact = await tx.crmContact.findUnique({
+        where: { emailHash },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          workspaceId: true,
+        },
+      });
+      if (!contact) {
+        const [firstName, ...rest] = (person.name ?? "").trim().split(/\s+/);
+        contact = await tx.crmContact.create({
+          data: {
+            workspaceId,
+            createdById: actorId,
+            firstName: firstName || null,
+            lastName: rest.length > 0 ? rest.join(" ") : null,
+            email: encryptString(person.email),
+            emailHash,
+            importSource: "MANUAL",
+          },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            workspaceId: true,
+          },
+        });
+      }
+      // Only link the participant to a contact that lives in this Meeting's
+      // workspace; a contact owned by another workspace stays unlinked (the
+      // participant keeps its free-text email/name) rather than leaking across
+      // the workspace boundary.
+      if (contact.workspaceId === workspaceId) {
+        contactId = contact.id;
+        if (!name) {
+          name =
+            [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+            null;
+        }
+      }
+    }
+  }
+
+  // The unique key is [transcriptionSessionId, email]. Real people have an
+  // email; name-only entries fall back to a stable `name:<lowercased>` sentinel
+  // so repeated adds dedupe instead of colliding on "".
+  const dedupeKey = email ?? `name:${(name ?? "").toLowerCase()}`;
+  const baseData = { workspaceId, userId, contactId, name };
+  return tx.transcriptionSessionParticipant.upsert({
+    where: {
+      transcriptionSessionId_email: {
+        transcriptionSessionId,
+        email: dedupeKey,
+      },
+    },
+    create: { transcriptionSessionId, email: dedupeKey, ...baseData },
+    update: baseData,
+  });
+}
+
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
@@ -598,41 +785,79 @@ export const transcriptionRouter = createTRPCRouter({
         notes: z.string().optional(),
         projectId: z.string().optional(),
         workspaceId: z.string().optional(),
+        // Participants to attach atomically with the meeting (linked CRM
+        // contacts and/or new name+email people). Resolved via the same
+        // helper as addParticipant.
+        participants: z.array(participantPersonSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const session = await ctx.db.transcriptionSession.create({
-        data: {
-          sessionId: `manual_${Date.now()}`,
-          title: input.title,
-          description: input.description ?? null,
-          transcription: input.transcription,
-          meetingDate: input.meetingDate ?? null,
-          notes: input.notes ?? null,
-          projectId: input.projectId ?? null,
-          workspaceId: input.workspaceId ?? null,
-          userId: ctx.session.user.id,
-        },
-        include: {
-          sourceIntegration: {
-            select: {
-              id: true,
-              provider: true,
-              name: true,
+      const participants = input.participants ?? [];
+      // Participants are workspace-scoped (members + CRM), so a meeting with no
+      // workspace can't carry them. Reject rather than silently dropping them.
+      if (participants.length > 0 && !input.workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot add participants to a meeting with no workspace",
+        });
+      }
+      const workspaceId = input.workspaceId ?? null;
+
+      // Create the meeting and resolve every participant in ONE transaction: a
+      // meeting is never created with participants silently failing to attach,
+      // and there's no N+1 round-trip from the client. Any participant that
+      // fails to resolve rolls the whole thing back.
+      const session = await ctx.db.$transaction(
+        async (tx) => {
+          const created = await tx.transcriptionSession.create({
+            data: {
+              sessionId: `manual_${Date.now()}`,
+              title: input.title,
+              description: input.description ?? null,
+              transcription: input.transcription,
+              meetingDate: input.meetingDate ?? null,
+              notes: input.notes ?? null,
+              projectId: input.projectId ?? null,
+              workspaceId,
+              userId: ctx.session.user.id,
             },
-          },
-          actions: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              status: true,
-              priority: true,
-              dueDate: true,
+            include: {
+              sourceIntegration: {
+                select: {
+                  id: true,
+                  provider: true,
+                  name: true,
+                },
+              },
+              actions: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  status: true,
+                  priority: true,
+                  dueDate: true,
+                },
+              },
             },
-          },
+          });
+
+          if (participants.length > 0 && workspaceId) {
+            for (const person of participants) {
+              await upsertMeetingParticipant(tx, {
+                transcriptionSessionId: created.id,
+                workspaceId,
+                actorId: ctx.session.user.id,
+                person,
+              });
+            }
+            await syncParticipantCount(tx, created.id);
+          }
+
+          return created;
         },
-      });
+        { timeout: 20000 },
+      );
 
       // Record a workspace activity event when a meeting lands (ADR-0018): one
       // write surfaces it in the workspace feed, the aggregated /activity feed,
@@ -700,169 +925,16 @@ export const transcriptionRouter = createTRPCRouter({
       }
       const workspaceId = session.workspaceId;
 
-      // Resolve the target person into the denormalized fields stored on the
-      // participant row (userId / contactId / email / name).
-      let userId: string | null = null;
-      let contactId: string | null = null;
-      let email: string | null = null;
-      let name: string | null = null;
-
-      if (input.userId) {
-        // Workspace member: verify membership in this Meeting's workspace.
-        const membership = await ctx.db.workspaceUser.findFirst({
-          where: { userId: input.userId, workspaceId },
-        });
-        if (!membership) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "User is not a member of this workspace",
-          });
-        }
-        const user = await ctx.db.user.findUnique({
-          where: { id: input.userId },
-          select: { id: true, name: true, email: true },
-        });
-        if (!user) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-        }
-        userId = user.id;
-        email = user.email ?? null;
-        name = user.name ?? null;
-      } else if (input.contactId) {
-        // Existing CRM contact in this workspace.
-        const contact = await ctx.db.crmContact.findUnique({
-          where: { id: input.contactId },
-          select: {
-            id: true,
-            workspaceId: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        });
-        if (!contact || contact.workspaceId !== workspaceId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Contact must belong to this workspace",
-          });
-        }
-        contactId = contact.id;
-        name =
-          [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
-          null;
-
-        const existingEmail = decryptBuffer(contact.email);
-        if (existingEmail) {
-          email = existingEmail;
-        } else if (input.email) {
-          // The contact has no email on file: capture the one supplied at link
-          // time and write it back onto the CrmContact, so the contact record
-          // improves everywhere — not just this participant row.
-          const emailHash = createHash("sha256")
-            .update(input.email.toLowerCase().trim())
-            .digest("hex");
-          // emailHash is globally unique. If another contact already owns this
-          // email, don't collide on update — surface a clear error instead.
-          const owner = await ctx.db.crmContact.findUnique({
-            where: { emailHash },
-            select: { id: true },
-          });
-          if (owner && owner.id !== contact.id) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "That email already belongs to another contact",
-            });
-          }
-          await ctx.db.crmContact.update({
-            where: { id: contact.id },
-            data: { email: encryptString(input.email), emailHash },
-          });
-          email = input.email;
-        }
-      } else {
-        // Free-text. If we have an email, link (or create) a CRM contact so
-        // the person lands in the CRM. Requires a workspace to attach to.
-        name = input.name ?? null;
-        email = input.email ?? null;
-
-        if (input.email) {
-          const emailHash = createHash("sha256")
-            .update(input.email.toLowerCase().trim())
-            .digest("hex");
-          // emailHash is globally unique, so look it up globally — a workspace-
-          // scoped lookup would miss a contact owned by another workspace and
-          // then throw P2002 on create. Only create when no contact exists.
-          let contact = await ctx.db.crmContact.findUnique({
-            where: { emailHash },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              workspaceId: true,
-            },
-          });
-          if (!contact) {
-            const [firstName, ...rest] = (input.name ?? "").trim().split(/\s+/);
-            contact = await ctx.db.crmContact.create({
-              data: {
-                workspaceId,
-                createdById: ctx.session.user.id,
-                firstName: firstName || null,
-                lastName: rest.length > 0 ? rest.join(" ") : null,
-                email: encryptString(input.email),
-                emailHash,
-                importSource: "MANUAL",
-              },
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                workspaceId: true,
-              },
-            });
-          }
-          // Only link the participant to a contact that lives in this Meeting's
-          // workspace; a contact owned by another workspace stays unlinked (the
-          // participant keeps its free-text email/name) rather than leaking
-          // across the workspace boundary.
-          if (contact.workspaceId === workspaceId) {
-            contactId = contact.id;
-            if (!name) {
-              name =
-                [contact.firstName, contact.lastName]
-                  .filter(Boolean)
-                  .join(" ") || null;
-            }
-          }
-        }
-      }
-
-      // The unique key is [transcriptionSessionId, email]. Real people have an
-      // email; name-only entries fall back to a stable `name:<lowercased>`
-      // sentinel so repeated adds dedupe instead of colliding on "".
-      const dedupeKey = email ?? `name:${(name ?? "").toLowerCase()}`;
-      const baseData = {
-        workspaceId,
-        userId,
-        contactId,
-        name,
-      };
-      // Upsert the participant and recount in one transaction so the
+      // Resolve + upsert the participant and recount in one transaction so the
       // denormalized `participantCount` can't drift under concurrent edits.
+      // Resolution (member / contact / free-text) is shared with
+      // createManualTranscription via upsertMeetingParticipant.
       const participant = await ctx.db.$transaction(async (tx) => {
-        const row = await tx.transcriptionSessionParticipant.upsert({
-          where: {
-            transcriptionSessionId_email: {
-              transcriptionSessionId: session.id,
-              email: dedupeKey,
-            },
-          },
-          create: {
-            transcriptionSessionId: session.id,
-            email: dedupeKey,
-            ...baseData,
-          },
-          update: baseData,
+        const row = await upsertMeetingParticipant(tx, {
+          transcriptionSessionId: session.id,
+          workspaceId,
+          actorId: ctx.session.user.id,
+          person: input,
         });
         await syncParticipantCount(tx, session.id);
         return row;
