@@ -28,10 +28,10 @@ import {
   Switch,
   Menu,
   ActionIcon,
-  Paper,
   Anchor,
   Drawer,
   Textarea,
+  useComputedColorScheme,
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -94,7 +94,10 @@ function isStepCustomized(config: Record<string, unknown>): boolean {
 function TriggerNodeComponent({ data }: NodeProps) {
   const d = data as unknown as TriggerNodeData;
   return (
-    <Paper withBorder p="sm" radius="md" style={{ width: 280 }}>
+    <div
+      className="rounded-md border border-border-primary bg-surface-secondary"
+      style={{ width: 280, padding: 12 }}
+    >
       <Group gap={6} mb={4}>
         <IconBolt size={16} />
         <Text size="xs" c="dimmed" fw={600} tt="uppercase">
@@ -108,14 +111,17 @@ function TriggerNodeComponent({ data }: NodeProps) {
         {d.targetType ?? 'no type set'}
       </Badge>
       <Handle type="source" position={Position.Bottom} />
-    </Paper>
+    </div>
   );
 }
 
 function StepNodeComponent({ data }: NodeProps) {
   const d = data as unknown as StepNodeData;
   return (
-    <Paper withBorder p="sm" radius="md" style={{ width: 280 }}>
+    <div
+      className="rounded-md border border-border-primary bg-surface-secondary"
+      style={{ width: 280, padding: 12 }}
+    >
       <Handle type="target" position={Position.Top} />
       <Group justify="space-between" wrap="nowrap">
         <Group gap={6} wrap="nowrap">
@@ -167,7 +173,7 @@ function StepNodeComponent({ data }: NodeProps) {
         </Group>
       </Group>
       <Handle type="source" position={Position.Bottom} />
-    </Paper>
+    </div>
   );
 }
 
@@ -178,6 +184,7 @@ export default function CrmAutomationBuilderPage() {
   const pathname = usePathname();
   const overviewHref = pathname.split('/').slice(0, -1).join('/');
   const utils = api.useUtils();
+  const colorScheme = useComputedColorScheme('dark');
 
   const query = api.crmAutomation.get.useQuery({ id }, { enabled: !!id });
 
@@ -437,6 +444,7 @@ export default function CrmAutomationBuilderPage() {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          colorMode={colorScheme}
           nodesDraggable={false}
           nodesConnectable={false}
           fitView
