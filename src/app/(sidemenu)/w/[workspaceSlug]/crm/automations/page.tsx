@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   Title,
   Text,
@@ -12,11 +14,16 @@ import {
   Box,
   ThemeIcon,
   Divider,
+  Select,
+  Modal,
+  TextInput,
 } from '@mantine/core';
-import { IconBolt, IconRefresh } from '@tabler/icons-react';
+import { useDisclosure } from '@mantine/hooks';
+import { IconBolt, IconPlus } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { CRM_CUSTOMER_TYPE_OPTIONS } from '~/lib/crm/automationCatalog';
 
 function statusColor(status: string): string {
   switch (status) {
@@ -41,6 +48,8 @@ function targetTypeOf(config: unknown): string {
 
 export default function CrmAutomationsPage() {
   const { workspaceId, isLoading: wsLoading } = useWorkspace();
+  const router = useRouter();
+  const pathname = usePathname();
   const utils = api.useUtils();
 
   const enabled = !!workspaceId;
@@ -53,24 +62,36 @@ export default function CrmAutomationsPage() {
     { enabled },
   );
 
-  const seed = api.crmAutomation.seedDefaults.useMutation({
-    onSuccess: () => {
-      notifications.show({
-        title: 'Automations seeded',
-        message:
-          'Channel Partner and Advisor onboarding automations are ready.',
-        color: 'green',
-      });
-      void utils.crmAutomation.list.invalidate();
-      void utils.crmAutomation.listRuns.invalidate();
+  // Seed the two starter automations once if the workspace has none yet.
+  const ensureDefaults = api.crmAutomation.ensureDefaults.useMutation({
+    onSuccess: () => void utils.crmAutomation.list.invalidate(),
+  });
+  const ensuredRef = useRef(false);
+  useEffect(() => {
+    if (!workspaceId || ensuredRef.current) return;
+    ensuredRef.current = true;
+    ensureDefaults.mutate({ workspaceId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
+  const [createOpened, { open: openCreate, close: closeCreate }] =
+    useDisclosure(false);
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState<string | null>(null);
+
+  const create = api.crmAutomation.create.useMutation({
+    onSuccess: ({ id }) => {
+      closeCreate();
+      setNewName('');
+      setNewType(null);
+      router.push(`${pathname}/${id}`);
     },
-    onError: (error) => {
+    onError: (error) =>
       notifications.show({
-        title: 'Seeding failed',
+        title: 'Could not create automation',
         message: error.message,
         color: 'red',
-      });
-    },
+      }),
   });
 
   if (wsLoading || !workspaceId) {
@@ -86,19 +107,24 @@ export default function CrmAutomationsPage() {
         <Box>
           <Title order={2}>Automations</Title>
           <Text c="dimmed" size="sm">
-            Onboarding automations run when a contact&apos;s Customer type is set
-            to Channel Partner or Advisor.
+            Onboarding automations run when a contact&apos;s Customer type is set.
           </Text>
         </Box>
-        <Button
-          leftSection={<IconRefresh size={16} />}
-          onClick={() => seed.mutate({ workspaceId })}
-          loading={seed.isPending}
-        >
-          {automations.length > 0
-            ? 'Re-seed automations'
-            : 'Seed onboarding automations'}
-        </Button>
+        <Group gap="sm">
+          <Select
+            placeholder="Open an automation…"
+            searchable
+            w={240}
+            data={automations.map((a) => ({ value: a.id, label: a.name }))}
+            value={null}
+            onChange={(id) => {
+              if (id) router.push(`${pathname}/${id}`);
+            }}
+          />
+          <Button leftSection={<IconPlus size={16} />} onClick={openCreate}>
+            Create new automation
+          </Button>
+        </Group>
       </Group>
 
       {automationsQuery.isLoading ? (
@@ -111,15 +137,21 @@ export default function CrmAutomationsPage() {
             </ThemeIcon>
             <Text fw={600}>No automations yet</Text>
             <Text c="dimmed" size="sm" ta="center">
-              Seed the onboarding automations, then add a contact with a Channel
-              Partner or Advisor Customer type to trigger one.
+              Create an automation, then add a contact with that Customer type to
+              trigger one.
             </Text>
           </Stack>
         </Card>
       ) : (
         <Stack gap="sm">
           {automations.map((automation) => (
-            <Card key={automation.id} withBorder padding="md">
+            <Card
+              key={automation.id}
+              withBorder
+              padding="md"
+              style={{ cursor: 'pointer' }}
+              onClick={() => router.push(`${pathname}/${automation.id}`)}
+            >
               <Group justify="space-between" align="flex-start">
                 <Box>
                   <Group gap="xs">
@@ -127,14 +159,17 @@ export default function CrmAutomationsPage() {
                     <Badge variant="light">
                       {targetTypeOf(automation.config)}
                     </Badge>
-                    {!automation.isActive && (
-                      <Badge color="gray" variant="light">
-                        inactive
-                      </Badge>
-                    )}
+                    <Badge
+                      color={automation.isActive ? 'green' : 'gray'}
+                      variant="light"
+                    >
+                      {automation.isActive ? 'active' : 'inactive'}
+                    </Badge>
                   </Group>
                   <Text c="dimmed" size="sm" mt={4}>
-                    {automation.steps.map((step) => step.label).join('  →  ')}
+                    {automation.steps.length > 0
+                      ? automation.steps.map((step) => step.label).join('  →  ')
+                      : 'No steps yet'}
                   </Text>
                 </Box>
                 <Badge variant="outline">
@@ -153,8 +188,7 @@ export default function CrmAutomationsPage() {
         <Loader />
       ) : runs.length === 0 ? (
         <Text c="dimmed" size="sm">
-          No runs yet. Add a contact with a Channel Partner or Advisor Customer
-          type to trigger one.
+          No runs yet. Add a contact with a matching Customer type to trigger one.
         </Text>
       ) : (
         <Stack gap="xs">
@@ -200,6 +234,51 @@ export default function CrmAutomationsPage() {
           ))}
         </Stack>
       )}
+
+      <Modal
+        opened={createOpened}
+        onClose={closeCreate}
+        title="Create new automation"
+      >
+        <Stack gap="sm">
+          <TextInput
+            label="Name"
+            placeholder="e.g. Investor onboarding"
+            value={newName}
+            onChange={(e) => setNewName(e.currentTarget.value)}
+          />
+          <Select
+            label="Trigger — when Customer type is set to"
+            placeholder="Select a Customer type"
+            searchable
+            data={CRM_CUSTOMER_TYPE_OPTIONS}
+            value={newType}
+            onChange={setNewType}
+          />
+          <Text c="dimmed" size="xs">
+            The automation opens in the builder and starts inactive until you add
+            steps and activate it.
+          </Text>
+          <Group justify="flex-end" mt="xs">
+            <Button variant="default" onClick={closeCreate}>
+              Cancel
+            </Button>
+            <Button
+              loading={create.isPending}
+              disabled={!newName.trim() || !newType}
+              onClick={() =>
+                create.mutate({
+                  workspaceId,
+                  name: newName.trim(),
+                  targetCustomerType: newType ?? '',
+                })
+              }
+            >
+              Create
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

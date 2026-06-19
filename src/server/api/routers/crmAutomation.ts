@@ -1,32 +1,88 @@
 import { z } from "zod";
+import { type PrismaClient, type Prisma } from "@prisma/client";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { seedCrmOnboardingAutomations } from "~/server/services/crm/automation/seedCrmOnboardingAutomations";
 import { CRM_CONTACT_TYPE_TRIGGER } from "~/server/services/crm/automation/triggerResolver";
+import {
+  CRM_AUTOMATION_STEP_CATALOG,
+  stepLabelForType,
+} from "~/lib/crm/automationCatalog";
 
 /**
- * CRM **Automations** — the user-facing surface over the internal Workflow
- * engine (CONTEXT.md → CRM & Automations, ADR-0025). For the PoC the onboarding
- * automations are seeded in code; this router exposes seeding, listing, and run
- * history. A drag-and-drop builder is deferred.
+ * CRM **Automations** — user-facing surface over the internal Workflow engine
+ * (CONTEXT.md → CRM & Automations / Automation builder, ADR-0025/0028). Lists
+ * and runs feed the overview; get/create/saveDefinition/setActive/remove back
+ * the visual builder. Starter automations are seeded-if-absent and
+ * deactivate-only (`isDefault`).
  */
+
+const VALID_STEP_TYPES = new Set(
+  CRM_AUTOMATION_STEP_CATALOG.map((s) => s.type),
+);
+
+function configObject(config: Prisma.JsonValue | null): Record<string, unknown> {
+  return config && typeof config === "object" && !Array.isArray(config)
+    ? (config as Record<string, unknown>)
+    : {};
+}
+
+function isDefaultConfig(config: Prisma.JsonValue | null): boolean {
+  return configObject(config).isDefault === true;
+}
+
+function targetCustomerTypeOf(config: Prisma.JsonValue | null): string | null {
+  const value = configObject(config).targetCustomerType;
+  return typeof value === "string" ? value : null;
+}
+
+async function assertMember(
+  db: PrismaClient,
+  workspaceId: string,
+  userId: string,
+) {
+  const membership = await db.workspaceUser.findFirst({
+    where: { workspaceId, userId },
+  });
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to this workspace",
+    });
+  }
+}
+
+async function loadDefinitionForUser(
+  db: PrismaClient,
+  id: string,
+  userId: string,
+) {
+  const definition = await db.workflowDefinition.findFirst({
+    where: { id, triggerType: CRM_CONTACT_TYPE_TRIGGER },
+    include: { steps: { orderBy: { order: "asc" } } },
+  });
+  if (!definition) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Automation not found" });
+  }
+  await assertMember(db, definition.workspaceId, userId);
+  return definition;
+}
+
 const workspaceInput = z.object({ workspaceId: z.string() });
 
+const stepInput = z.object({
+  type: z.string(),
+  label: z.string().optional(),
+  config: z.record(z.unknown()).optional(),
+});
+
 export const crmAutomationRouter = createTRPCRouter({
-  /** Seed the PoC onboarding automations for a workspace (idempotent). */
-  seedDefaults: protectedProcedure
+  /** Seed the starter automations for a workspace if absent (never clobbers). */
+  ensureDefaults: protectedProcedure
     .input(workspaceInput)
     .mutation(async ({ ctx, input }) => {
-      const membership = await ctx.db.workspaceUser.findFirst({
-        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
-      });
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      await assertMember(ctx.db, input.workspaceId, ctx.session.user.id);
       return seedCrmOnboardingAutomations(
         ctx.db,
         input.workspaceId,
@@ -36,15 +92,7 @@ export const crmAutomationRouter = createTRPCRouter({
 
   /** List the workspace's CRM automations with their steps and run counts. */
   list: protectedProcedure.input(workspaceInput).query(async ({ ctx, input }) => {
-    const membership = await ctx.db.workspaceUser.findFirst({
-      where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
-    });
-    if (!membership) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "You do not have access to this workspace",
-      });
-    }
+    await assertMember(ctx.db, input.workspaceId, ctx.session.user.id);
     return ctx.db.workflowDefinition.findMany({
       where: {
         workspaceId: input.workspaceId,
@@ -58,6 +106,160 @@ export const crmAutomationRouter = createTRPCRouter({
     });
   }),
 
+  /** A single automation with its steps (for the builder). */
+  get: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const definition = await loadDefinitionForUser(
+        ctx.db,
+        input.id,
+        ctx.session.user.id,
+      );
+      return {
+        ...definition,
+        isDefault: isDefaultConfig(definition.config),
+        targetCustomerType: targetCustomerTypeOf(definition.config),
+      };
+    }),
+
+  /** Create a new, inactive (draft) automation; returns its id. */
+  create: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        name: z.string().min(1).max(200),
+        targetCustomerType: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertMember(ctx.db, input.workspaceId, ctx.session.user.id);
+      const definition = await ctx.db.workflowDefinition.create({
+        data: {
+          workspaceId: input.workspaceId,
+          createdById: ctx.session.user.id,
+          templateId: null,
+          name: input.name,
+          config: {
+            targetCustomerType: input.targetCustomerType,
+            isDefault: false,
+          } as Prisma.InputJsonValue,
+          triggerType: CRM_CONTACT_TYPE_TRIGGER,
+          isActive: false,
+        },
+      });
+      return { id: definition.id };
+    }),
+
+  /** Save name, trigger target, and the ordered step list (replaces steps). */
+  saveDefinition: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).max(200),
+        targetCustomerType: z.string().min(1),
+        steps: z.array(stepInput),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const definition = await loadDefinitionForUser(
+        ctx.db,
+        input.id,
+        ctx.session.user.id,
+      );
+
+      for (const step of input.steps) {
+        if (!VALID_STEP_TYPES.has(step.type)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Unknown step type: ${step.type}`,
+          });
+        }
+      }
+
+      const nextConfig = {
+        ...configObject(definition.config),
+        targetCustomerType: input.targetCustomerType,
+      };
+
+      await ctx.db.$transaction([
+        ctx.db.workflowDefinition.update({
+          where: { id: definition.id },
+          data: {
+            name: input.name,
+            config: nextConfig as Prisma.InputJsonValue,
+          },
+        }),
+        ctx.db.workflowStep.deleteMany({
+          where: { definitionId: definition.id },
+        }),
+        ...input.steps.map((step, i) =>
+          ctx.db.workflowStep.create({
+            data: {
+              definitionId: definition.id,
+              order: i,
+              type: step.type,
+              label: step.label ?? stepLabelForType(step.type),
+              config: (step.config ?? {}) as Prisma.InputJsonValue,
+            },
+          }),
+        ),
+      ]);
+
+      return { id: definition.id };
+    }),
+
+  /** Activate / deactivate an automation. Activating requires a valid config. */
+  setActive: protectedProcedure
+    .input(z.object({ id: z.string(), isActive: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const definition = await loadDefinitionForUser(
+        ctx.db,
+        input.id,
+        ctx.session.user.id,
+      );
+
+      if (input.isActive) {
+        if (!targetCustomerTypeOf(definition.config)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Set a trigger Customer type before activating.",
+          });
+        }
+        if (definition.steps.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Add at least one step before activating.",
+          });
+        }
+      }
+
+      await ctx.db.workflowDefinition.update({
+        where: { id: definition.id },
+        data: { isActive: input.isActive },
+      });
+      return { id: definition.id, isActive: input.isActive };
+    }),
+
+  /** Delete a user-created automation. Starter (`isDefault`) automations refuse. */
+  remove: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const definition = await loadDefinitionForUser(
+        ctx.db,
+        input.id,
+        ctx.session.user.id,
+      );
+      if (isDefaultConfig(definition.config)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Starter automations can't be deleted — deactivate them instead.",
+        });
+      }
+      await ctx.db.workflowDefinition.delete({ where: { id: definition.id } });
+      return { id: definition.id };
+    }),
+
   /** Recent automation runs for the workspace (newest first). */
   listRuns: protectedProcedure
     .input(
@@ -67,15 +269,7 @@ export const crmAutomationRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const membership = await ctx.db.workspaceUser.findFirst({
-        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
-      });
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      await assertMember(ctx.db, input.workspaceId, ctx.session.user.id);
       return ctx.db.workflowPipelineRun.findMany({
         where: {
           definition: {

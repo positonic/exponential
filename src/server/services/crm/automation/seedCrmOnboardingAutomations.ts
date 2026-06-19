@@ -3,16 +3,16 @@ import { type PrismaClient, type Prisma } from "@prisma/client";
 import { CRM_CONTACT_TYPE_TRIGGER } from "./triggerResolver";
 
 /**
- * Seeds the PoC onboarding **Automations** for a workspace (see CONTEXT.md →
- * CRM & Automations, ADR-0025). Each is a `WorkflowDefinition` with the CRM
- * contact-type trigger and an ordered list of steps that grows as slices land:
- * `send_email` (welcome) → `generate_document` → `send_for_signature`.
+ * Seeds the two **starter** CRM onboarding Automations for a workspace
+ * (CONTEXT.md → CRM & Automations, ADR-0025/0028). Each is a `WorkflowDefinition`
+ * with the CRM contact-type trigger and the canonical onboarding steps.
  *
- * Idempotent: one onboarding automation per (workspace, Customer type).
- * Re-running reconciles the steps to the current canonical list (replacing
- * steps cascades their step-runs — acceptable for a dev/demo seed action;
- * `WorkflowPipelineRun` history is preserved). PoC automations are seeded in
- * code — the drag-and-drop builder is deferred.
+ * **Seed-if-absent, never clobber.** If a starter for a Customer type already
+ * exists it is left untouched — its steps are now user-editable via the
+ * Automation builder, so re-seeding must not overwrite edits. Starters are
+ * marked `isDefault: true` in `config` and are deactivate-only (the router
+ * refuses to hard-delete them), so a deleted default can never resurrect because
+ * defaults are never deleted.
  */
 
 interface StepSpec {
@@ -31,40 +31,16 @@ const ONBOARDING_AUTOMATIONS: OnboardingAutomationSpec[] = [
   { name: "Advisor onboarding", targetCustomerType: "Advisor" },
 ];
 
-/** Canonical ordered steps for an onboarding automation. */
+/** Canonical ordered steps for a starter onboarding automation. */
 function onboardingSteps(customerType: string): StepSpec[] {
   return [
-    {
-      type: "send_email",
-      label: `Welcome ${customerType}`,
-      config: {},
-    },
+    { type: "send_email", label: `Welcome ${customerType}`, config: {} },
     {
       type: "generate_document",
       label: `Generate ${customerType} agreement`,
       config: {},
     },
   ];
-}
-
-async function reconcileSteps(
-  db: PrismaClient,
-  definitionId: string,
-  steps: StepSpec[],
-) {
-  await db.workflowStep.deleteMany({ where: { definitionId } });
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i]!;
-    await db.workflowStep.create({
-      data: {
-        definitionId,
-        order: i,
-        type: step.type,
-        label: step.label,
-        config: (step.config ?? {}) as Prisma.InputJsonValue,
-      },
-    });
-  }
 }
 
 export async function seedCrmOnboardingAutomations(
@@ -75,7 +51,7 @@ export async function seedCrmOnboardingAutomations(
   const definitions = [];
 
   for (const spec of ONBOARDING_AUTOMATIONS) {
-    let definition = await db.workflowDefinition.findFirst({
+    const existing = await db.workflowDefinition.findFirst({
       where: {
         workspaceId,
         triggerType: CRM_CONTACT_TYPE_TRIGGER,
@@ -86,28 +62,36 @@ export async function seedCrmOnboardingAutomations(
       },
     });
 
-    if (!definition) {
-      definition = await db.workflowDefinition.create({
-        data: {
-          workspaceId,
-          createdById,
-          templateId: null,
-          name: spec.name,
-          description: `Onboarding automation for ${spec.targetCustomerType} contacts.`,
-          config: {
-            targetCustomerType: spec.targetCustomerType,
-          } as Prisma.InputJsonValue,
-          triggerType: CRM_CONTACT_TYPE_TRIGGER,
-          isActive: true,
-        },
-      });
+    if (existing) {
+      // Seed-if-absent: never overwrite an existing automation's steps.
+      definitions.push(existing);
+      continue;
     }
 
-    await reconcileSteps(
-      db,
-      definition.id,
-      onboardingSteps(spec.targetCustomerType),
-    );
+    const definition = await db.workflowDefinition.create({
+      data: {
+        workspaceId,
+        createdById,
+        templateId: null,
+        name: spec.name,
+        description: `Onboarding automation for ${spec.targetCustomerType} contacts.`,
+        config: {
+          targetCustomerType: spec.targetCustomerType,
+          isDefault: true,
+        } as Prisma.InputJsonValue,
+        triggerType: CRM_CONTACT_TYPE_TRIGGER,
+        isActive: true,
+        steps: {
+          create: onboardingSteps(spec.targetCustomerType).map((step, i) => ({
+            order: i,
+            type: step.type,
+            label: step.label,
+            config: (step.config ?? {}) as Prisma.InputJsonValue,
+          })),
+        },
+      },
+    });
+
     definitions.push(definition);
   }
 
