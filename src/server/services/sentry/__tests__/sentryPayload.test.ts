@@ -92,6 +92,47 @@ describe("normalizeSentryPayload", () => {
     expect(normalizeSentryPayload("installation", { action: "created" })).toBeNull();
   });
 
+  it("normalizes an event_alert/triggered event keyed on issue_id, link from web_url", () => {
+    const bug = normalizeSentryPayload("event_alert", {
+      action: "triggered",
+      data: {
+        event: {
+          issue_id: 99,
+          title: "RangeError: invalid array length",
+          level: "fatal",
+          culprit: "lib/parse.ts",
+          web_url: "https://sentry.io/issues/99/events/abc",
+        },
+      },
+    });
+    expect(bug).toEqual({
+      issueId: "99",
+      title: "RangeError: invalid array length",
+      level: "fatal",
+      culprit: "lib/parse.ts",
+      url: "https://sentry.io/issues/99/events/abc",
+      shortId: null,
+    });
+  });
+
+  it("returns null for event_alert/triggered without an issue_id", () => {
+    expect(
+      normalizeSentryPayload("event_alert", {
+        action: "triggered",
+        data: { event: { title: "no id" } },
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores non-triggered event_alert actions (200 no-op)", () => {
+    expect(
+      normalizeSentryPayload("event_alert", {
+        action: "resolved",
+        data: { event: { issue_id: "99" } },
+      }),
+    ).toBeNull();
+  });
+
   it("does not throw on null/garbage bodies", () => {
     expect(normalizeSentryPayload("issue", null)).toBeNull();
     expect(normalizeSentryPayload("issue", "not-an-object")).toBeNull();
