@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader, Modal, ScrollArea, TextInput } from "@mantine/core";
+import { useDebouncedValue } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconPlus, IconSearch, IconUserPlus } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
@@ -51,17 +52,31 @@ export function ParticipantPicker({
   onAdded,
 }: ParticipantPickerProps) {
   const { workspace } = useWorkspace();
+  const utils = api.useUtils();
   const [query, setQuery] = useState("");
+  // Debounce the term sent to the server so we don't refetch on every keystroke.
+  const [debouncedQuery] = useDebouncedValue(query.trim(), 200);
 
+  // Search server-side (by name) so contacts beyond the first page are findable
+  // — getAll defaults to 50 ordered by recency, which would otherwise hide the
+  // long tail. Client-side filtering below still narrows the loaded rows further
+  // and is the only filter for members (which come from the workspace context).
   const { data: contactsData, isLoading: contactsLoading } =
     api.crmContact.getAll.useQuery(
-      { workspaceId: workspaceId ?? "" },
+      {
+        workspaceId: workspaceId ?? "",
+        search: debouncedQuery || undefined,
+        limit: 100,
+      },
       { enabled: opened && !!workspaceId },
     );
 
   const addMutation = api.transcription.addParticipant.useMutation({
     onSuccess: () => {
       onAdded();
+      // A free-text email may have inline-created a CRM contact; refresh the
+      // contact list so it reflects reality for subsequent adds this session.
+      void utils.crmContact.getAll.invalidate();
       setQuery("");
     },
     onError: (error) => {
@@ -74,7 +89,10 @@ export function ParticipantPicker({
   });
 
   const members = useMemo<PickerItem[]>(() => {
-    const rows = workspace?.members ?? [];
+    // Members come from the active workspace context. Only show them when that
+    // matches the meeting's workspace — otherwise addParticipant would reject
+    // them as non-members, so listing them would be misleading.
+    const rows = workspace?.id === workspaceId ? (workspace?.members ?? []) : [];
     return rows
       .filter(
         (m) =>
@@ -88,7 +106,7 @@ export function ParticipantPicker({
         sub: m.role,
         payload: { userId: m.user.id },
       }));
-  }, [workspace?.members, existing]);
+  }, [workspace?.members, workspace?.id, workspaceId, existing]);
 
   const contacts = useMemo<PickerItem[]>(() => {
     const rows = contactsData?.contacts ?? [];
