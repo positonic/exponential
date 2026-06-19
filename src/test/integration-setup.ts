@@ -9,6 +9,9 @@ process.env.OPENAI_API_KEY = "sk-test-dummy-key-for-integration-tests";
 process.env.GOOGLE_CLIENT_ID = "test";
 process.env.GOOGLE_CLIENT_SECRET = "test";
 process.env.MASTRA_API_URL = "http://localhost:4111";
+// Dummy 32-byte (base64) key so encryptString works for PII-writing paths
+// (e.g. CRM contacts). Read at import time by src/server/utils/encryption.ts.
+process.env.DATABASE_ENCRYPTION_KEY = "MMeRcJFimqp98NsQ5i2cawtF4LbcftnfiCNJWLhO/YQ=";
 
 // Mock next-auth and related modules that depend on Next.js runtime
 vi.mock("next-auth", () => ({
