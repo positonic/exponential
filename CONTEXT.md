@@ -164,6 +164,14 @@ _Avoid_: Orphan project (only in conversation/code, never UI copy).
 A unit of engineering work inside a Product, stored as `Ticket`. Has its own status enum (`BACKLOG`, `NEEDS_REFINEMENT`, … `DEPLOYED`, `ARCHIVED`), type (`BUG`, `FEATURE`, `CHORE`, …), optional `assignee`, optional `cycle`. Strictly **distinct from Action** — Tickets are product-management artefacts; Actions are meeting-extracted tasks. A Ticket may have many child Actions (`Ticket.actions`), but they are not the same entity. User-facing word is always "ticket" inside the product surface.
 _Avoid_: Task, story, item, issue.
 
+**Sentry bug**:
+An error captured by Sentry, filed into Exponential as a **Ticket** with `type: BUG` in the **Exponential** Product, landing in `BACKLOG` for human triage. Created by a signed inbound Sentry webhook (`/api/webhooks/sentry`) — **one Ticket per Sentry _issue_**, deduped on the Sentry issue id stored in `Ticket.links`, authored by the **Errol** system user. An *engineering* Ticket — strictly distinct from a **Problem** (the product-strategy artefact the glossary keeps bug-free). The write-in sibling of **Ticket promotion on merge** ([ADR-0021](docs/adr/0021-pr-merge-promotes-ticket-via-app-webhook.md)): both are external webhooks that write back to a `Ticket`. See [ADR-0027](docs/adr/0027-sentry-errors-as-bug-tickets.md).
+_Avoid_: Filing Sentry errors as **Actions** (rejected — a bug is a Ticket, not a meeting-extracted task), Problem, alert.
+
+**Errol**:
+The synthetic system **User** that authors **Sentry bug** Tickets (and any future external-source writes with no human actor). A real `User` row that never signs in and is **not** a `WorkspaceUser` member — so its `created` activity events do not surface in the member **Activity feed** (accepted: Sentry noise stays out of the feed). Deliberately deviates from [ADR-0016](docs/adr/0016-agent-activity-writes-reuse-human-path.md)'s "automated writes attribute as the *acting user*" — Sentry has no user session to act as. See [ADR-0027](docs/adr/0027-sentry-errors-as-bug-tickets.md).
+_Avoid_: Bot, service account (use "Errol" or "the Errol system user").
+
 **Feature**:
 A coherent slice of product capability inside a Product, stored as `Feature`. Has `status` (`IDEA`, `DEFINED`, `IN_PROGRESS`, `SHIPPED`, `ARCHIVED`), optional `vision`, optional alignment to a Goal (`Feature.goalId`). Groups Tickets (`Ticket.featureId`).
 _Avoid_: Task, story, item, issue.
