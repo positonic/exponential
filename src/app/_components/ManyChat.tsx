@@ -1506,6 +1506,14 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         void utils.okr.getCountsByYear.invalidate();
         void utils.okr.getAvailableGoals.invalidate();
       }
+      if (toRefresh.has('crmContact')) {
+        // Contact list + the dashboard stat cards + per-contact interaction feed,
+        // so agent-created/updated contacts and logged interactions appear without
+        // a reload.
+        void utils.crmContact.getAll.invalidate();
+        void utils.crmContact.getStats.invalidate();
+        void utils.crmContact.getInteractions.invalidate();
+      }
 
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —

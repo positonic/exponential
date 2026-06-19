@@ -17,7 +17,7 @@
  */
 
 /** Entities whose mounted views ManyChat knows how to refresh after an agent write. */
-export type RefreshEntity = "goalActivity" | "action" | "okr";
+export type RefreshEntity = "goalActivity" | "action" | "okr" | "crmContact";
 
 /** Lowercase, letters-only — collapses registration-key / createTool-id / humanized forms. */
 function normalize(toolName: string): string {
@@ -80,6 +80,27 @@ export function toolTriggersOkrRefresh(toolName: string): boolean {
   );
 }
 
+/**
+ * Whether a tool name mutates the CRM contacts the contacts list renders.
+ * Recognises the contact writes (create-crm-contact, create-full-crm-contact,
+ * update-crm-contact, delete-crm-contact — all carry the `crmContact` noun + a
+ * mutating verb) and add-crm-interaction, which reorders the "recently contacted"
+ * list and bumps the contact stat cards. Read tools (search-crm-contacts,
+ * get-crm-contact) carry the noun but no verb, and create-crm-organization lacks
+ * the contact noun, so neither matches.
+ */
+export function toolTriggersCrmContactRefresh(toolName: string): boolean {
+  const normalized = normalize(toolName);
+  if (normalized.includes("crmcontact")) {
+    return (
+      normalized.includes("create") ||
+      normalized.includes("update") ||
+      normalized.includes("delete")
+    );
+  }
+  return normalized.includes("crminteraction") && normalized.includes("add");
+}
+
 interface RefreshRule {
   entity: RefreshEntity;
   matches: (toolName: string) => boolean;
@@ -110,6 +131,13 @@ const RULES: RefreshRule[] = [
     // single page-context slot.
     entity: "okr",
     matches: toolTriggersOkrRefresh,
+  },
+  {
+    // No page guard — crmContact queries are only observed by the CRM contacts
+    // page (and the dashboard stat cards), so invalidating them elsewhere is a
+    // no-op (same rationale as action / okr).
+    entity: "crmContact",
+    matches: toolTriggersCrmContactRefresh,
   },
 ];
 
