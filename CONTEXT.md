@@ -26,7 +26,7 @@ A task extracted from a meeting by Zoe and persisted in the `Action` table. The 
 _Avoid_: Task, todo, item.
 
 **Participant**:
-A person on the meeting invite, stored in `TranscriptionSessionParticipant` with email, optional name, optional linked `User` or `CrmContact`. Authoritative source for "who was in this meeting". Silent attendees count.
+A person on the meeting invite, stored in `TranscriptionSessionParticipant` with email, optional name, optional linked `User` or `CrmContact`. Authoritative source for "who was in this meeting". Silent attendees count. **Email is required and unique per meeting** (`@@unique([transcriptionSessionId, email])`), so every Participant carries an email even when it must be captured at link time. Participants are **user-managed from the meeting side** — both the manual-add modal and the `/recording/[id]` detail page let a user search workspace **CrmContacts** by name and link one, or add a name+email that **inline-creates a CrmContact** (emailHash dedup, `importSource: "MANUAL"`). Linking a contact that has no email captures one and writes it back to the contact. This is the *write* side of the Meeting↔CRM link; the contact-detail Meetings tab is the (separate) *read* side.
 _Avoid_: Attendee (only as a count word — "4 attendees"), invitee.
 
 **Speaker**:
