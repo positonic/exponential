@@ -3,6 +3,7 @@ import {
   toolTriggersGoalActivityRefresh,
   toolTriggersActionRefresh,
   toolTriggersOkrRefresh,
+  toolTriggersCrmContactRefresh,
   entitiesToRefresh,
 } from "./manyChatToolRefresh";
 
@@ -80,6 +81,34 @@ describe("toolTriggersOkrRefresh", () => {
   });
 });
 
+describe("toolTriggersCrmContactRefresh", () => {
+  it("matches the contact-mutating tools across name forms", () => {
+    // createTool ids
+    expect(toolTriggersCrmContactRefresh("create-crm-contact")).toBe(true);
+    expect(toolTriggersCrmContactRefresh("create-full-crm-contact")).toBe(true);
+    expect(toolTriggersCrmContactRefresh("update-crm-contact")).toBe(true);
+    expect(toolTriggersCrmContactRefresh("delete-crm-contact")).toBe(true);
+    // Registration key + humanized label normalize the same.
+    expect(toolTriggersCrmContactRefresh("createFullCrmContactTool")).toBe(true);
+    expect(toolTriggersCrmContactRefresh("Create full crm contact")).toBe(true);
+  });
+
+  it("matches logging an interaction (reorders + restats the list)", () => {
+    expect(toolTriggersCrmContactRefresh("add-crm-interaction")).toBe(true);
+    expect(toolTriggersCrmContactRefresh("addCrmInteractionTool")).toBe(true);
+  });
+
+  it("does not match read-only contact tools or unrelated CRM tools", () => {
+    // Carry the noun but no mutating verb.
+    expect(toolTriggersCrmContactRefresh("search-crm-contacts")).toBe(false);
+    expect(toolTriggersCrmContactRefresh("get-crm-contact")).toBe(false);
+    // Organization writes aren't rendered by the contacts list.
+    expect(toolTriggersCrmContactRefresh("create-crm-organization")).toBe(false);
+    expect(toolTriggersCrmContactRefresh("createActionTool")).toBe(false);
+    expect(toolTriggersCrmContactRefresh("")).toBe(false);
+  });
+});
+
 describe("entitiesToRefresh", () => {
   it("returns 'action' for each action tool-name variant, regardless of page", () => {
     for (const name of [
@@ -108,6 +137,22 @@ describe("entitiesToRefresh", () => {
       // OKR queries only mount on the dashboard, so firing anywhere is near-free.
       expect(entitiesToRefresh([name], undefined).has("okr")).toBe(true);
       expect(entitiesToRefresh([name], "workspace").has("okr")).toBe(true);
+    }
+  });
+
+  it("returns 'crmContact' for contact mutations on any page (no page guard)", () => {
+    for (const name of [
+      "create-crm-contact",
+      "create-full-crm-contact",
+      "update-crm-contact",
+      "delete-crm-contact",
+      "add-crm-interaction",
+    ]) {
+      // crmContact queries only mount on the CRM contacts page, so firing
+      // anywhere is near-free.
+      expect(entitiesToRefresh([name], "contacts").has("crmContact")).toBe(true);
+      expect(entitiesToRefresh([name], undefined).has("crmContact")).toBe(true);
+      expect(entitiesToRefresh([name], "workspace").has("crmContact")).toBe(true);
     }
   });
 
