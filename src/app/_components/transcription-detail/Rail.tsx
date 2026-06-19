@@ -5,6 +5,7 @@ import {
   IconArrowUpRight,
   IconPlayerPlayFilled,
   IconPlus,
+  IconX,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -22,6 +23,8 @@ interface RailParticipant {
   email: string;
   isHost: boolean;
   isMe: boolean;
+  /** True for stored participant rows; false for transcript-derived placeholders. */
+  isPersisted: boolean;
 }
 
 type RailTone = "blue" | "amber" | "purple" | "green";
@@ -66,6 +69,7 @@ interface RailProps {
   details: RailDetail[];
   actions: RailAction[];
   onAddParticipant?: () => void;
+  onRemoveParticipant?: (id: string) => void;
 }
 
 export function Rail({
@@ -76,6 +80,7 @@ export function Rail({
   details,
   actions,
   onAddParticipant,
+  onRemoveParticipant,
 }: RailProps) {
   const talkShares = extractTalkShares(analyticsJson);
   const getShare = (p: RailParticipant): string | null => {
@@ -129,6 +134,17 @@ export function Rail({
                     <span className="mdm-person__talk" title="Talk-time share">
                       {share}
                     </span>
+                  )}
+                  {p.isPersisted && onRemoveParticipant && (
+                    <button
+                      type="button"
+                      className="mdm-person__remove"
+                      onClick={() => onRemoveParticipant(p.id)}
+                      aria-label={`Remove ${display}`}
+                      title="Remove participant"
+                    >
+                      <IconX size={13} />
+                    </button>
                   )}
                 </div>
               );

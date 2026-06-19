@@ -25,6 +25,7 @@ import { api } from "~/trpc/react";
 import { ActionsPane } from "./transcription-detail/ActionsPane";
 import { MeetingHeader } from "./transcription-detail/MeetingHeader";
 import { NotesPane } from "./transcription-detail/NotesPane";
+import { ParticipantPicker } from "./transcription-detail/ParticipantPicker";
 import { Rail } from "./transcription-detail/Rail";
 import { ScreenshotsPane } from "./transcription-detail/ScreenshotsPane";
 import { SummaryPane } from "./transcription-detail/SummaryPane";
@@ -57,7 +58,7 @@ export function TranscriptionDetailsModal({
   transcription,
   onTranscriptionUpdate,
 }: TranscriptionDetailsModalProps) {
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId, userRole } = useWorkspace();
   const { data: authSession } = useSession();
 
   // Refetch full data (with participants + actions) once the modal opens.
@@ -84,6 +85,7 @@ export function TranscriptionDetailsModal({
   const [editedTranscript, setEditedTranscript] = useState("");
   const [editingNotes, setEditingNotes] = useState(false);
   const [editedNotes, setEditedNotes] = useState("");
+  const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!opened) {
@@ -92,11 +94,26 @@ export function TranscriptionDetailsModal({
       setEditingTitle(false);
       setEditingTranscript(false);
       setEditingNotes(false);
+      setParticipantPickerOpen(false);
     }
   }, [opened]);
 
   // ---------- mutations ----------
   const utils = api.useUtils();
+
+  const removeParticipantMutation =
+    api.transcription.removeParticipant.useMutation({
+      onSuccess: () => {
+        void refetch();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Couldn't remove participant",
+          message: error.message,
+          color: "red",
+        });
+      },
+    });
 
   const updateTitleMutation = api.transcription.updateTitle.useMutation({
     onSuccess: (updated) => {
@@ -271,6 +288,7 @@ export function TranscriptionDetailsModal({
       email: string;
       isHost: boolean;
       userId: string | null;
+      contactId: string | null;
     }> | undefined) ?? [];
     if (raw.length > 0) {
       return raw.map((p) => ({
@@ -279,6 +297,7 @@ export function TranscriptionDetailsModal({
         email: p.email,
         isHost: p.isHost,
         isMe: p.email?.toLowerCase() === meEmail,
+        isPersisted: true,
       }));
     }
     // Derive from turns
@@ -299,8 +318,33 @@ export function TranscriptionDetailsModal({
       isHost: false,
       isMe:
         !!meName && p.name.toLowerCase().includes(meName.toLowerCase().split(" ")[0]!),
+      isPersisted: false,
     }));
   }, [data?.participants, turns, meEmail, meName]);
+
+  // Participants are workspace-scoped (members + CRM), so editing needs a
+  // workspace and a non-viewer role. The server enforces the real edit rule.
+  const participantWorkspaceId =
+    (data?.workspace?.id as string | undefined) ?? workspaceId ?? null;
+  const canEditParticipants =
+    !!participantWorkspaceId &&
+    (userRole === "owner" || userRole === "admin" || userRole === "member");
+
+  // Identity keys already on the meeting, so the picker can hide them.
+  const existingParticipantKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const raw = (data?.participants as Array<{
+      email: string;
+      userId: string | null;
+      contactId: string | null;
+    }> | undefined) ?? [];
+    for (const p of raw) {
+      if (p.userId) keys.add(`user:${p.userId}`);
+      if (p.contactId) keys.add(`contact:${p.contactId}`);
+      if (p.email) keys.add(`email:${p.email.toLowerCase()}`);
+    }
+    return keys;
+  }, [data?.participants]);
 
   // Type pill: from Fireflies meeting_type, capitalized. Fallback "Meeting".
   const meetingTypeLabel = useMemo(() => {
@@ -602,6 +646,16 @@ export function TranscriptionDetailsModal({
 
           <Rail
             participants={participants}
+            onAddParticipant={
+              canEditParticipants
+                ? () => setParticipantPickerOpen(true)
+                : undefined
+            }
+            onRemoveParticipant={
+              canEditParticipants
+                ? (id) => removeParticipantMutation.mutate({ id })
+                : undefined
+            }
             analyticsJson={data?.analyticsJson}
             links={links}
             source={{
@@ -669,6 +723,17 @@ export function TranscriptionDetailsModal({
             ]}
           />
         </div>
+
+        {participantWorkspaceId && (
+          <ParticipantPicker
+            opened={participantPickerOpen}
+            onClose={() => setParticipantPickerOpen(false)}
+            sessionId={data?.id ?? ""}
+            workspaceId={participantWorkspaceId}
+            existing={existingParticipantKeys}
+            onAdded={() => void refetch()}
+          />
+        )}
 
         <LoadingOverlay
           visible={
