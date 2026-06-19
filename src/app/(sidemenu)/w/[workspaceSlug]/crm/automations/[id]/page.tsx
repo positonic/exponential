@@ -30,6 +30,8 @@ import {
   ActionIcon,
   Paper,
   Anchor,
+  Drawer,
+  Textarea,
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -38,6 +40,7 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconBolt,
+  IconSettings,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
@@ -52,6 +55,7 @@ interface BuilderStep {
   key: string;
   type: string;
   label: string;
+  config: Record<string, unknown>;
 }
 
 interface TriggerNodeData {
@@ -62,8 +66,29 @@ interface StepNodeData {
   label: string;
   index: number;
   count: number;
+  customized: boolean;
+  onConfigure: (index: number) => void;
   onRemove: (index: number) => void;
   onMove: (index: number, direction: -1 | 1) => void;
+}
+
+function asConfig(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function cfgString(config: Record<string, unknown>, key: string): string {
+  const value = config[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function isStepCustomized(config: Record<string, unknown>): boolean {
+  return (
+    cfgString(config, 'body').trim().length > 0 ||
+    cfgString(config, 'subject').trim().length > 0 ||
+    cfgString(config, 'title').trim().length > 0
+  );
 }
 
 function TriggerNodeComponent({ data }: NodeProps) {
@@ -93,10 +118,25 @@ function StepNodeComponent({ data }: NodeProps) {
     <Paper withBorder p="sm" radius="md" style={{ width: 280 }}>
       <Handle type="target" position={Position.Top} />
       <Group justify="space-between" wrap="nowrap">
-        <Text fw={600} size="sm">
-          {d.label}
-        </Text>
+        <Group gap={6} wrap="nowrap">
+          <Text fw={600} size="sm">
+            {d.label}
+          </Text>
+          {d.customized && (
+            <Badge size="xs" variant="light" color="blue">
+              edited
+            </Badge>
+          )}
+        </Group>
         <Group gap={2} wrap="nowrap">
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            onClick={() => d.onConfigure(d.index)}
+            aria-label="Edit step content"
+          >
+            <IconSettings size={14} />
+          </ActionIcon>
           <ActionIcon
             variant="subtle"
             size="sm"
@@ -147,6 +187,7 @@ export default function CrmAutomationBuilderPage() {
   const [isActive, setIsActive] = useState(false);
   const [isDefault, setIsDefault] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [configuringIndex, setConfiguringIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const data = query.data;
@@ -160,6 +201,7 @@ export default function CrmAutomationBuilderPage() {
         key: `${s.id ?? 'step'}-${i}`,
         type: s.type,
         label: s.label,
+        config: asConfig(s.config),
       })),
     );
     setDirty(false);
@@ -198,8 +240,22 @@ export default function CrmAutomationBuilderPage() {
   const addStep = (type: string) => {
     setSteps((prev) => [
       ...prev,
-      { key: `new-${type}-${prev.length}-${Date.now()}`, type, label: stepLabelForType(type) },
+      {
+        key: `new-${type}-${prev.length}-${Date.now()}`,
+        type,
+        label: stepLabelForType(type),
+        config: {},
+      },
     ]);
+    setDirty(true);
+  };
+
+  const updateStepConfig = (index: number, patch: Record<string, unknown>) => {
+    setSteps((prev) =>
+      prev.map((s, i) =>
+        i === index ? { ...s, config: { ...s.config, ...patch } } : s,
+      ),
+    );
     setDirty(true);
   };
 
@@ -241,6 +297,8 @@ export default function CrmAutomationBuilderPage() {
         label: step.label,
         index: i,
         count: steps.length,
+        customized: isStepCustomized(step.config),
+        onConfigure: setConfiguringIndex,
         onRemove: removeStep,
         onMove: moveStep,
       } as unknown as Record<string, unknown>,
@@ -267,6 +325,10 @@ export default function CrmAutomationBuilderPage() {
   if (query.isLoading || !query.data) {
     return <Loader />;
   }
+
+  const editing =
+    configuringIndex !== null ? (steps[configuringIndex] ?? null) : null;
+  const editingIndex = configuringIndex;
 
   return (
     <Stack gap="md" p="md" h="calc(100vh - 120px)">
@@ -314,7 +376,11 @@ export default function CrmAutomationBuilderPage() {
                 id,
                 name: name.trim() || 'Untitled automation',
                 targetCustomerType: targetType ?? '',
-                steps: steps.map((s) => ({ type: s.type, label: s.label })),
+                steps: steps.map((s) => ({
+                  type: s.type,
+                  label: s.label,
+                  config: s.config,
+                })),
               })
             }
           >
@@ -380,6 +446,81 @@ export default function CrmAutomationBuilderPage() {
           <Controls showInteractive={false} />
         </ReactFlow>
       </Box>
+
+      <Drawer
+        opened={editing !== null}
+        onClose={() => setConfiguringIndex(null)}
+        position="right"
+        size="md"
+        title={editing ? stepLabelForType(editing.type) : ''}
+      >
+        {editing && editingIndex !== null && (
+          <Stack gap="sm">
+            <Text size="xs" c="dimmed">
+              Leave a field blank to use the built-in default. Variables:{' '}
+              {'{{firstName}} {{fullName}} {{customerType}} {{companyName}} {{date}}'}
+            </Text>
+
+            {editing.type === 'send_email' && (
+              <>
+                <TextInput
+                  label="Subject"
+                  placeholder="Welcome — you're signed up as a {{customerType}}"
+                  value={cfgString(editing.config, 'subject')}
+                  onChange={(e) =>
+                    updateStepConfig(editingIndex, {
+                      subject: e.currentTarget.value,
+                    })
+                  }
+                />
+                <Textarea
+                  label="Email body"
+                  placeholder="Hi {{firstName}},&#10;&#10;Welcome aboard as a {{customerType}}…"
+                  autosize
+                  minRows={8}
+                  value={cfgString(editing.config, 'body')}
+                  onChange={(e) =>
+                    updateStepConfig(editingIndex, {
+                      body: e.currentTarget.value,
+                    })
+                  }
+                />
+              </>
+            )}
+
+            {editing.type === 'generate_document' && (
+              <>
+                <TextInput
+                  label="Agreement title"
+                  placeholder="{{customerType}} Agreement"
+                  value={cfgString(editing.config, 'title')}
+                  onChange={(e) =>
+                    updateStepConfig(editingIndex, {
+                      title: e.currentTarget.value,
+                    })
+                  }
+                />
+                <Textarea
+                  label="Agreement body"
+                  placeholder="This agreement is entered into between the Company and {{fullName}}…"
+                  autosize
+                  minRows={10}
+                  value={cfgString(editing.config, 'body')}
+                  onChange={(e) =>
+                    updateStepConfig(editingIndex, {
+                      body: e.currentTarget.value,
+                    })
+                  }
+                />
+              </>
+            )}
+
+            <Group justify="flex-end">
+              <Button onClick={() => setConfiguringIndex(null)}>Done</Button>
+            </Group>
+          </Stack>
+        )}
+      </Drawer>
     </Stack>
   );
 }

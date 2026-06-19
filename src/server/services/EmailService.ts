@@ -911,6 +911,37 @@ The ${appName} team`;
   return { subject, htmlBody, textBody };
 }
 
+/**
+ * Send a CRM Automation email with **user-authored** content (subject + body)
+ * from the Automation builder. The body HTML is already rendered + escaped by
+ * the caller (`contentRendering`); here we only wrap it in the branded shell.
+ * Returns the composed content so the caller can log it as a CrmCommunication.
+ */
+export async function sendCrmAutomationEmail(params: {
+  to: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+}): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const appName = PRODUCT_NAME;
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; line-height: 1.6; padding: 24px;">
+    ${params.bodyHtml}
+    <p style="color: ${EMAIL_BRAND_COLOR}; margin-top: 24px;">— The ${appName} team</p>
+  </body>
+</html>`;
+
+  await sendEmail({
+    to: params.to,
+    subject: params.subject,
+    htmlBody,
+    textBody: params.bodyText,
+  });
+  return { subject: params.subject, htmlBody, textBody: params.bodyText };
+}
+
 export const EmailService = {
   sendMagicLinkEmail,
   sendWelcomeEmail,
@@ -920,4 +951,5 @@ export const EmailService = {
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
   sendCrmOnboardingWelcomeEmail,
+  sendCrmAutomationEmail,
 };
