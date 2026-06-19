@@ -2960,8 +2960,10 @@ model Favorite {
   id          String   @id @default(cuid())
   userId      String
   workspaceId String?
-  entityType  String // "objective" | "keyResult"
-  entityId    String // Goal id (as string) or KeyResult cuid
+  entityType  String // "objective" | "keyResult" | "page"
+  entityId    String // Goal id (as string), KeyResult cuid, or workspace-relative path (page)
+  label       String? // Snapshot display label for "page" favourites (entity rows resolve titles live)
+  icon        String? // Optional icon-name snapshot for "page" favourites
   createdAt   DateTime @default(now())
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)

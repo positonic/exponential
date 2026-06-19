@@ -30,6 +30,8 @@ import { getTagMantineColor } from "~/utils/tagColors";
 import type { TagColor } from "~/types/tag";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { buildProductFavoriteTarget } from "../favoriteTarget";
 import {
   SettingsShell,
   SettingsHero,
@@ -548,7 +550,7 @@ export default function ProductSettingsPage() {
 
   return (
     <SettingsShell>
-      <div className="px-6 md:px-10 pt-6">
+      <div className="px-6 md:px-10 pt-6 flex items-center justify-between">
         <Link
           href={backPath}
           className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors"
@@ -556,6 +558,18 @@ export default function ProductSettingsPage() {
           <IconArrowLeft size={16} />
           Back to {product.name}
         </Link>
+        {workspaceId && (
+          <FavoriteButton
+            entityType="page"
+            {...buildProductFavoriteTarget({
+              pathname: `${backPath}/settings`,
+              workspaceSlug: workspace.slug,
+              productSlug,
+              productName: product.name,
+            })}
+            workspaceId={workspaceId}
+          />
+        )}
       </div>
 
       <SettingsHero
