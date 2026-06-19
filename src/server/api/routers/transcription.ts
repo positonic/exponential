@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -144,8 +144,10 @@ async function ensureTranscriptionAccess(
 
 // Keep the denormalized `participantCount` in sync with the persisted
 // participant rows after an add/remove so the Meeting header stays honest.
+// Accepts a transaction client so the recount can run atomically with the
+// add/remove that triggered it.
 async function syncParticipantCount(
-  db: PrismaClient,
+  db: Prisma.TransactionClient,
   transcriptionSessionId: string,
 ): Promise<void> {
   const count = await db.transcriptionSessionParticipant.count({
@@ -759,9 +761,17 @@ export const transcriptionRouter = createTRPCRouter({
           const emailHash = createHash("sha256")
             .update(input.email.toLowerCase().trim())
             .digest("hex");
-          let contact = await ctx.db.crmContact.findFirst({
-            where: { workspaceId, emailHash },
-            select: { id: true, firstName: true, lastName: true },
+          // emailHash is globally unique, so look it up globally — a workspace-
+          // scoped lookup would miss a contact owned by another workspace and
+          // then throw P2002 on create. Only create when no contact exists.
+          let contact = await ctx.db.crmContact.findUnique({
+            where: { emailHash },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              workspaceId: true,
+            },
           });
           if (!contact) {
             const [firstName, ...rest] = (input.name ?? "").trim().split(/\s+/);
@@ -775,14 +785,26 @@ export const transcriptionRouter = createTRPCRouter({
                 emailHash,
                 importSource: "MANUAL",
               },
-              select: { id: true, firstName: true, lastName: true },
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                workspaceId: true,
+              },
             });
           }
-          contactId = contact.id;
-          if (!name) {
-            name =
-              [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
-              null;
+          // Only link the participant to a contact that lives in this Meeting's
+          // workspace; a contact owned by another workspace stays unlinked (the
+          // participant keeps its free-text email/name) rather than leaking
+          // across the workspace boundary.
+          if (contact.workspaceId === workspaceId) {
+            contactId = contact.id;
+            if (!name) {
+              name =
+                [contact.firstName, contact.lastName]
+                  .filter(Boolean)
+                  .join(" ") || null;
+            }
           }
         }
       }
@@ -797,22 +819,26 @@ export const transcriptionRouter = createTRPCRouter({
         contactId,
         name,
       };
-      const participant = await ctx.db.transcriptionSessionParticipant.upsert({
-        where: {
-          transcriptionSessionId_email: {
+      // Upsert the participant and recount in one transaction so the
+      // denormalized `participantCount` can't drift under concurrent edits.
+      const participant = await ctx.db.$transaction(async (tx) => {
+        const row = await tx.transcriptionSessionParticipant.upsert({
+          where: {
+            transcriptionSessionId_email: {
+              transcriptionSessionId: session.id,
+              email: dedupeKey,
+            },
+          },
+          create: {
             transcriptionSessionId: session.id,
             email: dedupeKey,
+            ...baseData,
           },
-        },
-        create: {
-          transcriptionSessionId: session.id,
-          email: dedupeKey,
-          ...baseData,
-        },
-        update: baseData,
+          update: baseData,
+        });
+        await syncParticipantCount(tx, session.id);
+        return row;
       });
-
-      await syncParticipantCount(ctx.db, session.id);
       return participant;
     }),
 
@@ -849,10 +875,14 @@ export const transcriptionRouter = createTRPCRouter({
         participant.transcriptionSession,
         "edit",
       );
-      await ctx.db.transcriptionSessionParticipant.delete({
-        where: { id: participant.id },
+      // Delete the row and recount atomically so `participantCount` stays
+      // consistent with the surviving rows.
+      await ctx.db.$transaction(async (tx) => {
+        await tx.transcriptionSessionParticipant.delete({
+          where: { id: participant.id },
+        });
+        await syncParticipantCount(tx, participant.transcriptionSessionId);
       });
-      await syncParticipantCount(ctx.db, participant.transcriptionSessionId);
       return { success: true };
     }),
 
