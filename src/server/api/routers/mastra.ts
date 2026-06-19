@@ -2325,16 +2325,34 @@ export const mastraRouter = createTRPCRouter({
       phone: z.string(),
       firstName: z.string().optional(),
       lastName: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Get user's first workspace
-      const workspace = await ctx.db.workspaceUser.findFirst({
-        where: { userId: ctx.session.user.id },
-        select: { workspaceId: true },
-      });
+      // Resolve the target workspace. When the caller forwards the active chat
+      // workspace, honor it after verifying membership; otherwise fall back to
+      // the user's first workspace for backward compatibility with callers that
+      // don't yet send it.
+      let workspaceId: string;
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          return { created: false, updated: false, error: "Workspace not found or access denied" };
+        }
+        workspaceId = membership.workspaceId;
+      } else {
+        const workspace = await ctx.db.workspaceUser.findFirst({
+          where: { userId: ctx.session.user.id },
+          select: { workspaceId: true },
+        });
 
-      if (!workspace) {
-        return { created: false, updated: false, error: "No workspace found" };
+        if (!workspace) {
+          return { created: false, updated: false, error: "No workspace found" };
+        }
+        workspaceId = workspace.workspaceId;
       }
 
       // Generate emailHash for deduplication
@@ -2346,7 +2364,7 @@ export const mastraRouter = createTRPCRouter({
       // Check if contact already exists
       const existing = await ctx.db.crmContact.findFirst({
         where: {
-          workspaceId: workspace.workspaceId,
+          workspaceId,
           emailHash,
         },
       });
@@ -2366,7 +2384,7 @@ export const mastraRouter = createTRPCRouter({
       // Create new contact
       const contact = await ctx.db.crmContact.create({
         data: {
-          workspaceId: workspace.workspaceId,
+          workspaceId,
           createdById: ctx.session.user.id,
           firstName: input.firstName,
           lastName: input.lastName,
@@ -2684,18 +2702,35 @@ export const mastraRouter = createTRPCRouter({
       skills: z.array(z.string()).optional(),
       tags: z.array(z.string()).optional(),
       organizationId: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const workspaceUser = await ctx.db.workspaceUser.findFirst({
-        where: { userId: ctx.session.user.id },
-        select: { workspaceId: true },
-      });
+      // Resolve the target workspace. When the caller forwards the active chat
+      // workspace, honor it after verifying membership; otherwise fall back to
+      // the user's first workspace for backward compatibility with callers that
+      // don't yet send it.
+      let workspaceId: string;
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found or access denied" });
+        }
+        workspaceId = membership.workspaceId;
+      } else {
+        const workspaceUser = await ctx.db.workspaceUser.findFirst({
+          where: { userId: ctx.session.user.id },
+          select: { workspaceId: true },
+        });
 
-      if (!workspaceUser) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+        if (!workspaceUser) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+        }
+        workspaceId = workspaceUser.workspaceId;
       }
-
-      const workspaceId = workspaceUser.workspaceId;
 
       // Validate organizationId belongs to same workspace
       if (input.organizationId) {

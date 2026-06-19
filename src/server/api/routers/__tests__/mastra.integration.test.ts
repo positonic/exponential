@@ -193,3 +193,148 @@ describe("mastra.addGoalUpdate", () => {
     expect(after?.health ?? null).toBeNull();
   });
 });
+
+describe("mastra.createFullCrmContact workspace resolution", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("creates the contact in the supplied workspace the caller is a member of", async () => {
+    const user = await createUser(db);
+    // The user belongs to two workspaces; without an explicit workspaceId the
+    // endpoint's findFirst fallback could pick either. The explicit id must win.
+    const wsA = await createWorkspace(db, { ownerId: user.id, slug: "crm-ws-a" });
+    const wsB = await createWorkspace(db, { ownerId: user.id, slug: "crm-ws-b" });
+
+    const caller = createTestCaller(user.id);
+    const contact = await caller.mastra.createFullCrmContact({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      workspaceId: wsB.id,
+    });
+
+    const persisted = await db.crmContact.findUnique({ where: { id: contact.id } });
+    expect(persisted?.workspaceId).toBe(wsB.id);
+    expect(persisted?.workspaceId).not.toBe(wsA.id);
+    expect(persisted?.createdById).toBe(user.id);
+  });
+
+  it("rejects a workspaceId the caller is not a member of", async () => {
+    const owner = await createUser(db);
+    const stranger = await createUser(db);
+    const ownedWs = await createWorkspace(db, { ownerId: owner.id, slug: "crm-private-ws" });
+    // The stranger has their own workspace so the findFirst fallback would
+    // succeed — proving the rejection is about the explicit id, not "no workspace".
+    await createWorkspace(db, { ownerId: stranger.id, slug: "crm-stranger-ws" });
+
+    const strangerCaller = createTestCaller(stranger.id);
+    await expect(
+      strangerCaller.mastra.createFullCrmContact({
+        firstName: "Mallory",
+        workspaceId: ownedWs.id,
+      }),
+    ).rejects.toThrow(/not found or access denied/i);
+
+    const count = await db.crmContact.count({ where: { workspaceId: ownedWs.id } });
+    expect(count).toBe(0);
+  });
+
+  it("honors workspace access granted via team membership", async () => {
+    const owner = await createUser(db);
+    const teammate = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: owner.id, slug: "crm-team-ws" });
+    // Grant the teammate workspace access via a team link (the resolver's
+    // second access path), without a direct WorkspaceUser row.
+    await db.team.create({
+      data: {
+        name: "CRM Team",
+        slug: `crm-team-${ws.id}`,
+        workspaceId: ws.id,
+        members: { create: { userId: teammate.id, role: "member" } },
+      },
+    });
+
+    const caller = createTestCaller(teammate.id);
+    const contact = await caller.mastra.createFullCrmContact({
+      firstName: "Grace",
+      workspaceId: ws.id,
+    });
+
+    const persisted = await db.crmContact.findUnique({ where: { id: contact.id } });
+    expect(persisted?.workspaceId).toBe(ws.id);
+  });
+
+  it("falls back to the user's first workspace when no workspaceId is supplied", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id, slug: "crm-fallback-ws" });
+
+    const caller = createTestCaller(user.id);
+    const contact = await caller.mastra.createFullCrmContact({ firstName: "Edsger" });
+
+    const persisted = await db.crmContact.findUnique({ where: { id: contact.id } });
+    expect(persisted?.workspaceId).toBe(ws.id);
+  });
+});
+
+describe("mastra.createCrmContact (legacy) workspace resolution", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("creates the contact in the supplied workspace the caller is a member of", async () => {
+    const user = await createUser(db);
+    const wsA = await createWorkspace(db, { ownerId: user.id, slug: "legacy-ws-a" });
+    const wsB = await createWorkspace(db, { ownerId: user.id, slug: "legacy-ws-b" });
+
+    const caller = createTestCaller(user.id);
+    const result = await caller.mastra.createCrmContact({
+      email: "ada@example.com",
+      phone: "+15551230000",
+      firstName: "Ada",
+      workspaceId: wsB.id,
+    });
+
+    expect(result.created).toBe(true);
+    const persisted = await db.crmContact.findUnique({ where: { id: result.contactId! } });
+    expect(persisted?.workspaceId).toBe(wsB.id);
+    expect(persisted?.workspaceId).not.toBe(wsA.id);
+  });
+
+  it("rejects a workspaceId the caller is not a member of", async () => {
+    const owner = await createUser(db);
+    const stranger = await createUser(db);
+    const ownedWs = await createWorkspace(db, { ownerId: owner.id, slug: "legacy-private-ws" });
+    await createWorkspace(db, { ownerId: stranger.id, slug: "legacy-stranger-ws" });
+
+    const strangerCaller = createTestCaller(stranger.id);
+    const result = await strangerCaller.mastra.createCrmContact({
+      email: "mallory@example.com",
+      phone: "+15559990000",
+      workspaceId: ownedWs.id,
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toMatch(/not found or access denied/i);
+    const count = await db.crmContact.count({ where: { workspaceId: ownedWs.id } });
+    expect(count).toBe(0);
+  });
+
+  it("falls back to the user's first workspace when no workspaceId is supplied", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id, slug: "legacy-fallback-ws" });
+
+    const caller = createTestCaller(user.id);
+    const result = await caller.mastra.createCrmContact({
+      email: "edsger@example.com",
+      phone: "+15550001111",
+    });
+
+    expect(result.created).toBe(true);
+    const persisted = await db.crmContact.findUnique({ where: { id: result.contactId! } });
+    expect(persisted?.workspaceId).toBe(ws.id);
+  });
+});
