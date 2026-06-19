@@ -23,7 +23,10 @@ interface RailParticipant {
   email: string;
   isHost: boolean;
   isMe: boolean;
-  /** True for stored participant rows; false for transcript-derived placeholders. */
+  /**
+   * Always true now — the panel only renders managed Participant rows. Kept so
+   * the remove affordance stays explicit about acting on persisted rows.
+   */
   isPersisted: boolean;
 }
 
@@ -95,21 +98,27 @@ export function Rail({
 
   return (
     <aside className="mdm-rail">
-      {participants.length > 0 && (
-        <div className="mdm-rail__section">
-          <div className="mdm-rail__label">
-            <span>Participants</span>
-            {onAddParticipant && (
-              <button
-                type="button"
-                className="mdm-rail__add"
-                onClick={onAddParticipant}
-                aria-label="Add participant"
-              >
-                <IconPlus size={14} />
-              </button>
-            )}
+      <div className="mdm-rail__section">
+        <div className="mdm-rail__label">
+          <span>Participants</span>
+          {onAddParticipant && (
+            <button
+              type="button"
+              className="mdm-rail__add"
+              onClick={onAddParticipant}
+              aria-label="Add participant"
+            >
+              <IconPlus size={14} />
+            </button>
+          )}
+        </div>
+        {participants.length === 0 ? (
+          // Only managed Participant rows populate this panel — never derived
+          // transcript Speakers (CONTEXT.md → Speaker). Empty state, not fakes.
+          <div className="mdm-people__empty">
+            {onAddParticipant ? "No participants yet — add one" : "No participants yet"}
           </div>
+        ) : (
           <div className="mdm-people">
             {participants.map((p) => {
               const share = getShare(p);
@@ -150,8 +159,8 @@ export function Rail({
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {links.length > 0 && (
         <div className="mdm-rail__section">
