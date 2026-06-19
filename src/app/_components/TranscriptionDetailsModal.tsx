@@ -373,8 +373,12 @@ export function TranscriptionDetailsModal({
       value: formatMeetingDate(meetingDate).fullLabel,
     });
     rows.push({
+      // Show the meeting's OWN workspace, never the browsing-context workspace
+      // from the URL — falling back to `workspace?.name` masked meetings that
+      // were wrongly saved with no workspace. A meeting with no workspace is
+      // genuinely "Personal".
       label: "Workspace",
-      value: data?.workspace?.name ?? workspace?.name ?? "—",
+      value: data?.workspace?.name ?? "Personal",
     });
     if (data?.createdAt) {
       rows.push({ label: "Created", value: formatTimestamp(data.createdAt) });
@@ -392,7 +396,6 @@ export function TranscriptionDetailsModal({
     data?.createdAt,
     data?.sessionId,
     data?.workspace?.name,
-    workspace?.name,
   ]);
 
   const hasScreenshots =
@@ -450,7 +453,7 @@ export function TranscriptionDetailsModal({
           durationSeconds={data?.durationSeconds ?? null}
           participantCount={participants.length}
           projectName={data?.project?.name ?? null}
-          workspaceName={data?.workspace?.name ?? workspace?.name ?? null}
+          workspaceName={data?.workspace?.name ?? null}
           editingTitle={editingTitle}
           editedTitle={editedTitle}
           onEditedTitleChange={setEditedTitle}

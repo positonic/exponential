@@ -793,15 +793,45 @@ export const transcriptionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const participants = input.participants ?? [];
+
+      // A project-linked Meeting always inherits its Project's Workspace
+      // (CONTEXT.md → Meeting↔Workspace): a meeting with a Project but no
+      // Workspace is an incoherent state that breaks participant management
+      // (TranscriptionSessionParticipant.workspaceId is non-null). Enforce the
+      // invariant server-side so it holds regardless of caller — when a project
+      // is supplied the project's workspace is authoritative, never the caller's
+      // workspaceId. A caller-supplied workspaceId that disagrees with the
+      // project is a coherence bug, so reject it rather than silently override.
+      let workspaceId = input.workspaceId ?? null;
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        if (
+          input.workspaceId &&
+          project?.workspaceId &&
+          input.workspaceId !== project.workspaceId
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "workspaceId does not match the project's workspace; a project-linked meeting inherits its project's workspace.",
+          });
+        }
+        workspaceId = project?.workspaceId ?? null;
+      }
+
       // Participants are workspace-scoped (members + CRM), so a meeting with no
       // workspace can't carry them. Reject rather than silently dropping them.
-      if (participants.length > 0 && !input.workspaceId) {
+      // Use the resolved workspaceId so a project-linked meeting can carry
+      // participants via the project's workspace even without an explicit one.
+      if (participants.length > 0 && !workspaceId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Cannot add participants to a meeting with no workspace",
         });
       }
-      const workspaceId = input.workspaceId ?? null;
 
       // Create the meeting and resolve every participant in ONE transaction: a
       // meeting is never created with participants silently failing to attach,
