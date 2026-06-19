@@ -9,6 +9,7 @@ import {
   IconLayoutDashboard,
   IconLayoutKanban,
   IconMail,
+  IconBolt,
 } from '@tabler/icons-react';
 
 const crmNavigation = [
@@ -19,6 +20,7 @@ const crmNavigation = [
       { title: 'Pipeline', href: '/pipeline', icon: IconLayoutKanban },
       { title: 'Contacts', href: '/contacts', icon: IconUsers },
       { title: 'Organizations', href: '/organizations', icon: IconBuilding },
+      { title: 'Automations', href: '/automations', icon: IconBolt },
     ],
   },
   {
