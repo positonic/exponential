@@ -32,6 +32,13 @@ interface SentryWebhookBody {
       permalink?: string;
       shortId?: string;
     };
+    event?: {
+      issue_id?: string | number;
+      title?: string;
+      level?: string;
+      culprit?: string;
+      web_url?: string;
+    };
   };
 }
 
@@ -64,8 +71,12 @@ export function verifySentrySignature(
  * Turn a Sentry webhook body into a normalized {@link SentryBug}, or `null` if
  * the event isn't one we file as a bug.
  *
- * Slice 2 files on the `issue` resource, action `created` (a brand-new issue).
- * The `event_alert` resource is handled in a later slice; every other
+ * We file on:
+ *  - `issue` resource, action `created` (a brand-new issue) — preferred.
+ *  - `event_alert` resource, action `triggered` (a Sentry alert rule fired).
+ *
+ * Both key on the Sentry issue id, so dedup collapses an alert and an
+ * `issue/created` for the same underlying issue onto one ticket. Every other
  * resource/action returns `null` (the route answers `200` with no ticket).
  *
  * Accepts `unknown` because the body comes straight from `JSON.parse` — it is
@@ -87,6 +98,20 @@ export function normalizeSentryPayload(
       culprit: issue.culprit ?? null,
       url: issue.permalink ?? null,
       shortId: issue.shortId ?? null,
+    };
+  }
+
+  if (resource === "event_alert" && payload.action === "triggered") {
+    const event = payload.data?.event;
+    if (!event?.issue_id) return null;
+    return {
+      issueId: String(event.issue_id),
+      title: event.title ?? "Untitled Sentry issue",
+      level: event.level ?? null,
+      culprit: event.culprit ?? null,
+      url: event.web_url ?? null,
+      // `event_alert` payloads don't carry a short id.
+      shortId: null,
     };
   }
 
