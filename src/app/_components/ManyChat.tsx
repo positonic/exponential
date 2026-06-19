@@ -1376,6 +1376,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         void utils.scoring.getTodayScore.invalidate();
         void utils.scoring.getProductivityStats.invalidate();
       }
+      if (toRefresh.has('okr')) {
+        // Objective cards, hero stats, the year/period counts, and the
+        // create-KR objective picker — the full set the OKR dashboard mounts,
+        // so agent-created objectives/KRs and (un)links appear without reload.
+        void utils.okr.getByObjective.invalidate();
+        void utils.okr.getStats.invalidate();
+        void utils.okr.getCountsByYear.invalidate();
+        void utils.okr.getAvailableGoals.invalidate();
+      }
 
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —

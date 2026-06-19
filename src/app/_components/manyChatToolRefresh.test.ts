@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   toolTriggersGoalActivityRefresh,
   toolTriggersActionRefresh,
+  toolTriggersOkrRefresh,
   entitiesToRefresh,
 } from "./manyChatToolRefresh";
 
@@ -49,6 +50,36 @@ describe("toolTriggersActionRefresh", () => {
   });
 });
 
+describe("toolTriggersOkrRefresh", () => {
+  it("matches the objective + key-result mutations across name forms", () => {
+    // createTool ids
+    expect(toolTriggersOkrRefresh("create-okr-objective")).toBe(true);
+    expect(toolTriggersOkrRefresh("update-okr-objective")).toBe(true);
+    expect(toolTriggersOkrRefresh("delete-okr-objective")).toBe(true);
+    expect(toolTriggersOkrRefresh("create-okr-key-result")).toBe(true);
+    expect(toolTriggersOkrRefresh("update-okr-key-result")).toBe(true);
+    expect(toolTriggersOkrRefresh("delete-okr-key-result")).toBe(true);
+    expect(toolTriggersOkrRefresh("checkin-okr-key-result")).toBe(true);
+    // Registration key + humanized label normalize the same.
+    expect(toolTriggersOkrRefresh("createOkrKeyResultTool")).toBe(true);
+    expect(toolTriggersOkrRefresh("Update okr objective")).toBe(true);
+  });
+
+  it("matches the (un)link / nest tools that restructure the OKR tree", () => {
+    expect(toolTriggersOkrRefresh("link-project-to-goal")).toBe(true);
+    expect(toolTriggersOkrRefresh("unlink-project-from-goal")).toBe(true);
+    expect(toolTriggersOkrRefresh("link-objective-to-parent")).toBe(true);
+  });
+
+  it("does not match read-only OKR tools or unrelated tools", () => {
+    // Carry the noun but no mutating verb.
+    expect(toolTriggersOkrRefresh("get-okr-objectives")).toBe(false);
+    expect(toolTriggersOkrRefresh("get-okr-stats")).toBe(false);
+    expect(toolTriggersOkrRefresh("createActionTool")).toBe(false);
+    expect(toolTriggersOkrRefresh("")).toBe(false);
+  });
+});
+
 describe("entitiesToRefresh", () => {
   it("returns 'action' for each action tool-name variant, regardless of page", () => {
     for (const name of [
@@ -62,6 +93,21 @@ describe("entitiesToRefresh", () => {
       // Action surfaces on many pages, so no page guard.
       expect(entitiesToRefresh([name], "goal").has("action")).toBe(true);
       expect(entitiesToRefresh([name], "workspace").has("action")).toBe(true);
+    }
+  });
+
+  it("returns 'okr' for OKR mutations on any page (no page guard)", () => {
+    for (const name of [
+      "create-okr-objective",
+      "update-okr-objective",
+      "create-okr-key-result",
+      "checkin-okr-key-result",
+      "link-project-to-goal",
+    ]) {
+      expect(entitiesToRefresh([name], "okrs").has("okr")).toBe(true);
+      // OKR queries only mount on the dashboard, so firing anywhere is near-free.
+      expect(entitiesToRefresh([name], undefined).has("okr")).toBe(true);
+      expect(entitiesToRefresh([name], "workspace").has("okr")).toBe(true);
     }
   });
 

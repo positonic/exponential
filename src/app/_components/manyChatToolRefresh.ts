@@ -17,7 +17,7 @@
  */
 
 /** Entities whose mounted views ManyChat knows how to refresh after an agent write. */
-export type RefreshEntity = "goalActivity" | "action";
+export type RefreshEntity = "goalActivity" | "action" | "okr";
 
 /** Lowercase, letters-only — collapses registration-key / createTool-id / humanized forms. */
 function normalize(toolName: string): string {
@@ -55,6 +55,31 @@ export function toolTriggersActionRefresh(toolName: string): boolean {
   );
 }
 
+/**
+ * Whether a tool name mutates OKR data the dashboard renders. Recognises the
+ * objective and key-result writes (create / update / delete / checkin — all
+ * carry the `okrObjective` or `okrKeyResult` noun) and the (un)link / nest tools
+ * that restructure the OKR tree and the projects shown on KR cards. Read tools
+ * (`get-okr-objectives`, `get-okr-stats`) carry the noun but no mutating verb, so
+ * they don't match — mirroring the action matcher's read/write split.
+ */
+export function toolTriggersOkrRefresh(toolName: string): boolean {
+  const normalized = normalize(toolName);
+  const isOkrEntity =
+    normalized.includes("okrobjective") || normalized.includes("okrkeyresult");
+  const hasMutatingVerb =
+    normalized.includes("create") ||
+    normalized.includes("update") ||
+    normalized.includes("delete") ||
+    normalized.includes("checkin");
+  if (isOkrEntity && hasMutatingVerb) return true;
+  // link-project-to-goal, unlink-project-from-goal, link-objective-to-parent.
+  return (
+    normalized.includes("link") &&
+    (normalized.includes("goal") || normalized.includes("objective"))
+  );
+}
+
 interface RefreshRule {
   entity: RefreshEntity;
   matches: (toolName: string) => boolean;
@@ -77,6 +102,14 @@ const RULES: RefreshRule[] = [
   {
     entity: "action",
     matches: toolTriggersActionRefresh,
+  },
+  {
+    // No page guard — OKR queries are only observed by the OKR dashboard, so
+    // invalidating them off the OKRs page is a no-op (same rationale as action),
+    // and it sidesteps the goals page's three sibling panels racing for the
+    // single page-context slot.
+    entity: "okr",
+    matches: toolTriggersOkrRefresh,
   },
 ];
 
