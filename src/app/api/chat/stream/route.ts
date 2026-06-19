@@ -1001,6 +1001,56 @@ export async function POST(req: Request) {
             finishReason: lastStepFinishReason ?? 'unknown',
             error: err instanceof Error ? err.message : (typeof err === 'string' ? err : 'unknown error'),
           });
+          // Persist the failed turn so stream failures are queryable in the DB,
+          // not just the server console. hadError=true keeps these rows out of
+          // success analytics (the onFinish path above uses the same flag). No
+          // tokenUsage — the turn never reached a finish event. Awaited with a
+          // 2s cap so it actually lands before we error the stream, but never
+          // blocks teardown. `response` headers are intentionally not read here:
+          // the failure may have happened before that binding was established.
+          try {
+            const lastUserMsg =
+              [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+            await Promise.race([
+              getAiInteractionLogger(db)
+                .logInteraction({
+                  platform,
+                  systemUserId: session.user.id,
+                  agentId: activeAgentId,
+                  conversationId: threadId,
+                  userMessage: lastUserMsg.slice(0, 2000),
+                  aiResponse: fullText.slice(0, 5000),
+                  toolsUsed: toolCallNames,
+                  toolCalls:
+                    loggedToolCalls.length > 0
+                      ? capToolCallsForTurn(loggedToolCalls)
+                      : undefined,
+                  responseTime: Date.now() - startTime,
+                  hadError: true,
+                  errorMessage: JSON.stringify({
+                    streamFailed: true,
+                    error: err instanceof Error ? err.message : String(err),
+                    finishReason: lastStepFinishReason ?? "unknown",
+                    partialChars: fullText.length,
+                    toolErrors: firstToolErrorMessages,
+                    nonTextChunkTypes: [...nonTextChunkTypes],
+                  }).slice(0, 2000),
+                  projectId: projectId ?? undefined,
+                  workspaceId: workspaceId ?? undefined,
+                  model: responseModelId ?? "mastra-agents",
+                  messageType: "question",
+                })
+                .catch((logErr: unknown) => {
+                  console.error("Failed to save failed-turn AI history:", logErr);
+                  return undefined;
+                }),
+              new Promise<undefined>((resolve) =>
+                setTimeout(() => resolve(undefined), 2000),
+              ),
+            ]);
+          } catch (logErr) {
+            console.error("Failed-turn logging threw:", logErr);
+          }
           controller.error(err);
         } finally {
           clearInterval(heartbeat);

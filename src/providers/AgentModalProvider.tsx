@@ -40,6 +40,23 @@ export interface ChatMessage {
    * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007).
    */
   card?: { kind: 'draft-actions'; transcriptionId: string };
+  /**
+   * Set on an assistant turn that failed or ended early, to drive the Retry UI.
+   * `severity: 'error'`      — nothing usable streamed; render the red error bubble.
+   * `severity: 'incomplete'` — an answer DID stream but the connection was cut
+   *                            before clean completion; render the partial text
+   *                            normally with a subtle "ended early" + Retry hint,
+   *                            NOT a scary error.
+   * `retryText` is the original user message, re-sent verbatim when the user taps
+   * Retry (no duplicate human bubble — see ManyChat `retryTurn`). `kind` lets the
+   * UI tailor copy (transport drop vs auth vs model error).
+   */
+  failure?: {
+    severity: 'error' | 'incomplete';
+    kind: 'transport' | 'idle-timeout' | 'auth' | 'model' | 'unknown';
+    canRetry: boolean;
+    retryText?: string;
+  };
 }
 
 export type ChatDisplayMode = 'panel' | 'modal';
