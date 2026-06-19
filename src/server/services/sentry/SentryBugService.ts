@@ -55,6 +55,21 @@ export async function ingestSentryBug(
     throw new Error(`Sentry bug product not found: ${productId}`);
   }
 
+  // Dedup: one Ticket per Sentry issue. Look for an existing ticket in this
+  // product whose `links` JSON carries the incoming issue id (the same
+  // JSON-path filter the activity feed uses on `metadata.provider`). A
+  // recurring error collapses onto the existing ticket instead of duplicating.
+  const existing = await db.ticket.findFirst({
+    where: {
+      productId: product.id,
+      links: { path: ["sentryIssueId"], equals: bug.issueId },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return { created: false, ticketId: existing.id };
+  }
+
   const errol = await findOrCreateErrol(db);
 
   const ticket = await createTicketWithNumber(db, {

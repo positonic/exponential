@@ -42,6 +42,8 @@ beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { id: "prod-1", workspaceId: "ws-1" } as any,
   );
+  // No existing ticket by default — each test opts into a dedup hit.
+  dbMock.ticket.findFirst.mockResolvedValue(null);
   dbMock.user.upsert.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { id: "errol-id" } as any,
@@ -96,5 +98,41 @@ describe("ingestSentryBug", () => {
       /Sentry bug product not found/,
     );
     expect(createTicketWithNumber).not.toHaveBeenCalled();
+  });
+
+  describe("dedup", () => {
+    it("creates no new ticket for an already-seen issue id and returns the existing one", async () => {
+      dbMock.ticket.findFirst.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "existing-ticket" } as any,
+      );
+
+      const result = await ingestSentryBug(dbMock, bug);
+
+      expect(createTicketWithNumber).not.toHaveBeenCalled();
+      expect(result).toEqual({ created: false, ticketId: "existing-ticket" });
+    });
+
+    it("scopes the dedup lookup to the product and the Sentry issue id", async () => {
+      await ingestSentryBug(dbMock, bug);
+
+      expect(dbMock.ticket.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            productId: "prod-1",
+            links: { path: ["sentryIssueId"], equals: "42" },
+          },
+        }),
+      );
+    });
+
+    it("creates exactly one ticket for a previously-unseen issue id", async () => {
+      dbMock.ticket.findFirst.mockResolvedValue(null);
+
+      const result = await ingestSentryBug(dbMock, bug);
+
+      expect(createTicketWithNumber).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ created: true, ticketId: "ticket-1" });
+    });
   });
 });
