@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { buildBugBody, type SentryBug } from "./sentryPayload";
+import { notifyZulipOfSentryBug } from "./sentryZulip";
 
 /**
  * Ingests a normalized {@link SentryBug} as a Bug Ticket in Exponential.
@@ -49,7 +50,12 @@ export async function ingestSentryBug(
   const productId = process.env.SENTRY_BUG_PRODUCT_ID ?? DEFAULT_BUG_PRODUCT_ID;
   const product = await db.product.findUnique({
     where: { id: productId },
-    select: { id: true, workspaceId: true },
+    select: {
+      id: true,
+      workspaceId: true,
+      slug: true,
+      workspace: { select: { slug: true } },
+    },
   });
   if (!product) {
     throw new Error(`Sentry bug product not found: ${productId}`);
@@ -82,6 +88,18 @@ export async function ingestSentryBug(
     status: "BACKLOG",
     // Priority is left unset — a human assigns it during triage.
     links: { sentryIssueId: bug.issueId, sentryUrl: bug.url },
+  });
+
+  // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
+  // Only on creation — recurring errors that dedup above do not re-notify.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+  const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticket.id}`;
+  await notifyZulipOfSentryBug(db, {
+    workspaceId: product.workspaceId,
+    authorId: errol.id,
+    title: bug.title,
+    ticketUrl,
+    sentryUrl: bug.url,
   });
 
   return { created: true, ticketId: ticket.id };
