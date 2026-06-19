@@ -20,7 +20,7 @@ import {
   Button,
   Anchor,
 } from '@mantine/core';
-import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { IconSend, IconMicrophone, IconMicrophoneOff, IconRefresh } from '@tabler/icons-react';
 import { useVoiceSession } from '~/lib/voice/useVoiceSession';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
@@ -143,6 +143,73 @@ const TEXT_INPUT_STYLES = {
 
 // Use ChatMessage from provider for consistency
 type Message = ChatMessage;
+
+/**
+ * How many times a turn is silently re-attempted after a *transport* drop that
+ * produced no usable content, before the user is shown anything. Turns that had
+ * already streamed content are never auto-retried (re-running re-does tool work
+ * and re-spends tokens) — they finalize as `incomplete` with a Retry button.
+ */
+const MAX_AUTO_RETRIES = 2;
+
+type StreamFailureKind = 'transport' | 'idle-timeout' | 'auth' | 'model' | 'unknown';
+
+/**
+ * Bucket a thrown stream error into an actionable class. The decisive split is
+ * `transport` (the HTTP body was cut mid-flight — a `TypeError`/network drop,
+ * the dominant mobile failure) which is safe to auto-retry, vs. everything else
+ * (idle stall, auth, model/agent error) which is not. Previously ManyChat
+ * lumped every `TypeError` into one scary "check your API keys" message; this
+ * keeps the copy honest and gates the retry logic.
+ */
+function classifyStreamError(error: unknown): { kind: StreamFailureKind; retryable: boolean } {
+  if (!(error instanceof Error)) return { kind: 'unknown', retryable: false };
+  const text = error.message.toLowerCase();
+  if (error.name === 'AbortError' || text.includes('stream-idle-timeout')) {
+    return { kind: 'idle-timeout', retryable: true };
+  }
+  if (text.includes('unauthorized') || text.includes('401') || text.includes('forbidden') || text.includes('403')) {
+    return { kind: 'auth', retryable: false };
+  }
+  if (
+    error.name === 'TypeError' ||
+    text.includes('network') ||
+    text.includes('failed to fetch') ||
+    text.includes('load failed') ||
+    text.includes('timeout') ||
+    text.includes('stream request failed') ||
+    text.includes('connection')
+  ) {
+    return { kind: 'transport', retryable: true };
+  }
+  if (text.includes('mastra') || text.includes('agent')) {
+    return { kind: 'model', retryable: false };
+  }
+  return { kind: 'unknown', retryable: false };
+}
+
+/**
+ * User-facing copy for a *terminal* failure (auto-retries already exhausted).
+ * Deliberately calm and free of alarming/irrelevant advice (the old text told
+ * users to go check API keys on every network blip). A Retry button is rendered
+ * alongside, so the copy stays short.
+ */
+function failureCopy(kind: StreamFailureKind, severity: 'error' | 'incomplete'): string {
+  if (severity === 'incomplete') {
+    return `The connection dropped before this finished.`;
+  }
+  switch (kind) {
+    case 'transport':
+    case 'idle-timeout':
+      return `The connection to the assistant dropped before it could respond.`;
+    case 'auth':
+      return `Your session looks expired — try refreshing the page, or re-check /settings/api-keys.`;
+    case 'model':
+      return `The assistant hit a snag handling that request.`;
+    default:
+      return `Something went wrong handling that request.`;
+  }
+}
 
 function formatPageContextData(context: PageContext): string {
   const str = (val: unknown, fallback = 'None'): string => {
@@ -290,9 +357,10 @@ interface MessageListProps {
   messages: ChatMessage[];
   conversationId: string;
   isStreaming: boolean;
+  onRetry: (text: string) => void;
 }
 
-const MessageList = memo(function MessageList({ messages, conversationId, isStreaming }: MessageListProps) {
+const MessageList = memo(function MessageList({ messages, conversationId, isStreaming, onRetry }: MessageListProps) {
   const viewport = useRef<HTMLDivElement>(null);
 
   const visibleMessages = useMemo(
@@ -333,12 +401,38 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                         }
                       />
                     )}
-                  <div className="text-text-primary text-sm leading-relaxed">
-                    {message.marker === 'voice' && (
-                      <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
-                    )}
-                    {renderMessageContent(message.content, message.type)}
-                  </div>
+                  {/* A clean error (severity 'error') has no usable content —
+                      render only the failure footer. Otherwise show the streamed
+                      text (full answer, or a partial one for 'incomplete'). */}
+                  {!(message.failure?.severity === 'error' && message.content === '') && (
+                    <div className="text-text-primary text-sm leading-relaxed">
+                      {message.marker === 'voice' && (
+                        <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
+                      )}
+                      {renderMessageContent(message.content, message.type)}
+                    </div>
+                  )}
+                  {message.failure && (
+                    <div className="mt-1.5 flex items-center gap-2 text-text-muted text-xs">
+                      {/* Show the failure note when the main block above isn't
+                          already showing it: always for 'incomplete' (the block
+                          shows the partial answer), and for a contentless error. */}
+                      {(message.failure.severity === 'incomplete' || message.content === '') && (
+                        <span>{failureCopy(message.failure.kind, message.failure.severity)}</span>
+                      )}
+                      {message.failure.canRetry && message.failure.retryText && (
+                        <Button
+                          size="compact-xs"
+                          variant="subtle"
+                          color="gray"
+                          leftSection={<IconRefresh size={13} />}
+                          onClick={() => onRetry(message.failure!.retryText!)}
+                        >
+                          Try again
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   {message.card?.kind === 'draft-actions' && (
                     <DraftActionsReviewCard transcriptionId={message.card.transcriptionId} />
                   )}
@@ -1041,16 +1135,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string, extraContext?: string) => {
+  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string, extraContext?: string, attempt = 0) => {
     e?.preventDefault();
     const text = overrideText ?? input;
+    // attempt > 0 means this is a retry (auto after a transport drop, or a
+    // manual Retry-button tap). A retry must NOT re-echo the user's question
+    // and must reuse the existing trailing assistant bubble rather than adding
+    // a fresh placeholder, so the thread doesn't grow a duplicate pair.
+    const isRetry = attempt > 0;
     // Voice mode and typed streaming are mutually exclusive on this surface: the
     // typed stream mutates the last AI message in place, which would race with
     // voice transcripts being appended to the same thread. End voice mode to type.
     if (!text.trim() || voiceActive) return;
 
-    const userMessage: Message = { type: 'human', content: text };
-    setMessages(prev => [...prev, userMessage]);
+    if (!isRetry) {
+      const userMessage: Message = { type: 'human', content: text };
+      setMessages(prev => [...prev, userMessage]);
+    }
 
     // Parse for agent mentions
     const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(text);
@@ -1060,6 +1161,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     setShowAgentDropdown(false);
 
     let targetAgentId: string | undefined;
+    // Bytes of model text seen this attempt. Declared in the function scope (not
+    // the try) so the catch can read it to decide auto-retry vs. finalizing a
+    // partial answer as `incomplete`.
+    let streamedChars = 0;
 
     try {
 
@@ -1109,8 +1214,21 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         ? customAssistant.name
         : mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
 
-      // Add empty AI message that will be filled by streaming
-      setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
+      // First attempt: append a fresh empty AI bubble to stream into.
+      // Retry: reuse the trailing (failed/incomplete) AI bubble — reset its text
+      // and clear the failure/tool markers so the re-stream renders cleanly.
+      if (!isRetry) {
+        setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
+      } else {
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.type === 'ai') {
+            updated[updated.length - 1] = { ...last, agentName, content: '', failure: undefined, toolCalls: undefined };
+          }
+          return updated;
+        });
+      }
       setIsStreaming(true);
 
       // Build full conversation history so the agent has context from prior messages
@@ -1125,7 +1243,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       for (const msg of messages) {
         if (msg.type === 'human') {
           coreMessages.push({ role: 'user', content: msg.content });
-        } else if (msg.type === 'ai' && msg.content) {
+        } else if (msg.type === 'ai' && msg.content && !msg.failure) {
+          // Skip failed/incomplete assistant bubbles — on a retry the trailing
+          // one is still in state, but its partial text isn't a real prior turn.
           coreMessages.push({ role: 'assistant', content: msg.content });
         }
       }
@@ -1238,6 +1358,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
           const chunk = decoder.decode(value, { stream: true });
           fullResponse += chunk;
+          streamedChars = fullResponse.length;
 
           // If the meta frame has arrived (possibly mid-chunk), peel it off
           // before rendering so the user never briefly sees the sentinel.
@@ -1409,7 +1530,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           agentId: targetAgentId,
           responseTime,
         });
-        const emptyMessage = `⚠️ **No response from the assistant.**\n\nThe agent started but produced no output — this usually means a tool failed silently or the step budget was exhausted. Try rephrasing, or ask again in smaller pieces. Server logs (search \`[chat/stream]\`) have the details.`;
+        const emptyMessage = `The assistant started but didn't produce a reply — a tool may have failed or the step budget ran out.`;
         setMessages(prev => {
           const updated = [...prev];
           const lastMessage = updated[updated.length - 1];
@@ -1417,6 +1538,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             updated[updated.length - 1] = {
               ...lastMessage,
               content: emptyMessage,
+              failure: { severity: 'error', kind: 'model', canRetry: true, retryText: text },
             };
           }
           return updated;
@@ -1442,61 +1564,80 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       }
 
     } catch (error) {
-      setIsStreaming(false);
       console.error('Chat error:', error);
+      const { kind, retryable } = classifyStreamError(error);
+      const hadContent = streamedChars > 0;
 
-      // Enhanced error detection and reporting
-      let errorMessage = 'Sorry, I encountered an error processing your request.';
-      let errorType = 'Unknown';
-      
-      if (error instanceof Error) {
-        const errorText = error.message.toLowerCase();
-
-        // Detect specific error types
-        if (error.name === 'AbortError' || errorText.includes('stream-idle-timeout')) {
-          errorType = 'Idle Timeout';
-          errorMessage = `⏱ **Connection stalled**: The assistant sent no data for 60 seconds and the stream was aborted. The agent is likely stuck on a tool call. Please try again — smaller requests tend to succeed.`;
-        } else if (errorText.includes('unauthorized') || errorText.includes('401')) {
-          errorType = 'Authentication';
-          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /settings/api-keys page. Working with available context only.`;
-        } else if (errorText.includes('forbidden') || errorText.includes('403')) {
-          errorType = 'Authorization';
-          errorMessage = `🚫 **Authorization Error**: Agent doesn't have permission to access the requested data. This might be a security issue. Working with available context only.`;
-        } else if (errorText.includes('not found') || errorText.includes('404')) {
-          errorType = 'Resource Not Found';
-          errorMessage = `📂 **Resource Error**: The requested project or data was not found. This might be a security restriction or the data may not exist. Working with available context only.`;
-        } else if (errorText.includes('timeout') || errorText.includes('network') || errorText.includes('failed to fetch') || error.name === 'TypeError') {
-          errorType = 'Network';
-          errorMessage = `🌐 **Network Error**: The connection to the AI service was interrupted (possibly a timeout). Please try again. Working with available context only.`;
-        } else if (errorText.includes('mastra') || errorText.includes('agent')) {
-          errorType = 'Agent Communication';
-          errorMessage = `🤖 **Agent Error**: Failed to communicate with the AI agent system. The agent service might be unavailable. Working with available context only.`;
-        } else {
-          errorMessage = `⚠️ **System Error**: ${error.message}. Working with available context only.`;
-        }
-        
-        // Log detailed error info for debugging
-        console.error(`[ManyChat] ${errorType} Error:`, {
-          message: error.message,
-          projectId,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent
+      // Auto-retry: a transport drop that produced NO usable content is almost
+      // always a transient connection blip (the dominant mobile failure mode).
+      // Re-attempt silently with linear backoff before the user ever sees an
+      // error. We do NOT auto-retry once content has streamed (re-running re-does
+      // tool work and re-spends tokens — finalize it as `incomplete` instead),
+      // nor non-transport errors (auth/model won't self-heal on a blind retry).
+      if (retryable && !hadContent && attempt < MAX_AUTO_RETRIES) {
+        console.warn(`[ManyChat] Transport drop, no content — auto-retry ${attempt + 1}/${MAX_AUTO_RETRIES}`, {
+          kind,
+          conversationId,
+          message: error instanceof Error ? error.message : String(error),
         });
-
-        // Note: stream errors are not persisted to aiInteractionHistory.
-        // The server's catch block at /api/chat/stream logs them to console;
-        // operationally we rely on Sentry/server logs for stream failures.
-        // (Client-side log was removed to fix the double-logging bug — it
-        // was writing rows without tokenUsage that polluted aggregate stats.)
+        await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+        void handleSubmit(null, text, extraContext, attempt + 1);
+        return;
       }
-      
-      setMessages(prev => [...prev, { 
-        type: 'ai', 
-        agentName: 'System Error',
-        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /settings/api-keys page for authentication issues\n• Report persistent issues to support` 
-      }]);
+
+      setIsStreaming(false);
+      console.error(`[ManyChat] Stream failed (${kind}) after ${attempt} retr${attempt === 1 ? 'y' : 'ies'}`, {
+        message: error instanceof Error ? error.message : String(error),
+        hadContent,
+        projectId,
+        conversationId,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Two terminal shapes, neither of which is the old red "System Error":
+      //  • hadContent → the answer DID stream but the socket cut before a clean
+      //    close. Keep the partial text and mark it `incomplete` so the UI shows
+      //    it as a normal answer with a subtle "ended early" + Retry footer.
+      //  • !hadContent → nothing usable arrived. Convert the empty placeholder
+      //    into a calm, single-line error with a Retry button.
+      const severity: 'error' | 'incomplete' = hadContent ? 'incomplete' : 'error';
+      const failure: NonNullable<Message['failure']> = {
+        severity,
+        kind,
+        canRetry: kind !== 'auth',
+        retryText: text,
+      };
+
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last && last.type === 'ai') {
+          updated[updated.length - 1] = {
+            ...last,
+            // Clean error: drop the empty placeholder agent name to a neutral
+            // label and render copy from `failure`. Incomplete: keep everything.
+            agentName: severity === 'error' ? (last.agentName ?? 'Assistant') : last.agentName,
+            content: severity === 'error' ? '' : last.content,
+            failure,
+          };
+        } else {
+          updated.push({ type: 'ai', agentName: 'Assistant', content: '', failure });
+        }
+        return updated;
+      });
     }
   };
+
+  /**
+   * Re-run a turn from a failed/incomplete bubble without re-echoing the
+   * question (attempt=1 reuses the trailing bubble). Kept stable via a ref so it
+   * doesn't bust MessageList's memo (which isolates rendering from input typing).
+   */
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+  const retryTurn = useCallback((retryText: string) => {
+    void handleSubmitRef.current(null, retryText, undefined, 1);
+  }, []);
 
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
@@ -1514,7 +1655,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       )}
 
       {/* Messages Area */}
-      <MessageList messages={messages} conversationId={conversationId} isStreaming={isStreaming} />
+      <MessageList messages={messages} conversationId={conversationId} isStreaming={isStreaming} onRetry={retryTurn} />
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">
