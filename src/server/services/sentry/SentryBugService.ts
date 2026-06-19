@@ -38,41 +38,51 @@ async function findOrCreateErrol(db: PrismaClient): Promise<{ id: string }> {
   });
 }
 
-// Workspace label applied to every Sentry-filed ticket. `avatar-plum` ≈ Sentry's purple.
-const SENTRY_TAG = { name: "Sentry", slug: "sentry", color: "avatar-plum" } as const;
+// Workspace labels applied to every Sentry-filed ticket. `avatar-plum` ≈ Sentry's
+// purple; `avatar-red` for the bug label.
+const TICKET_LABELS = [
+  { name: "Sentry", slug: "sentry", color: "avatar-plum" },
+  { name: "bug", slug: "bug", color: "avatar-red" },
+] as const;
 
 /**
- * Find-or-create the workspace's "Sentry" label and attach it to the ticket.
- * Idempotent (both upserts) and best-effort — a tagging failure is logged but
- * never breaks ingestion, since the ticket itself is already created.
+ * Find-or-create each workspace label and attach it to the ticket. Idempotent
+ * (both upserts) and best-effort — a tagging failure is logged but never breaks
+ * ingestion, since the ticket itself is already created. An existing tag keeps
+ * its current colour (the create branch only runs on first use).
  */
-async function tagTicketAsSentry(
+async function labelTicket(
   db: PrismaClient,
   ticketId: string,
   workspaceId: string,
   authorId: string,
 ): Promise<void> {
-  try {
-    const tag = await db.tag.upsert({
-      where: { slug_workspaceId: { slug: SENTRY_TAG.slug, workspaceId } },
-      create: {
-        name: SENTRY_TAG.name,
-        slug: SENTRY_TAG.slug,
-        color: SENTRY_TAG.color,
-        category: "label",
-        workspaceId,
-        createdById: authorId,
-      },
-      update: {},
-      select: { id: true },
-    });
-    await db.ticketTag.upsert({
-      where: { ticketId_tagId: { ticketId, tagId: tag.id } },
-      create: { ticketId, tagId: tag.id },
-      update: {},
-    });
-  } catch (error) {
-    console.error("[sentry webhook] failed to attach Sentry label:", error);
+  for (const label of TICKET_LABELS) {
+    try {
+      const tag = await db.tag.upsert({
+        where: { slug_workspaceId: { slug: label.slug, workspaceId } },
+        create: {
+          name: label.name,
+          slug: label.slug,
+          color: label.color,
+          category: "label",
+          workspaceId,
+          createdById: authorId,
+        },
+        update: {},
+        select: { id: true },
+      });
+      await db.ticketTag.upsert({
+        where: { ticketId_tagId: { ticketId, tagId: tag.id } },
+        create: { ticketId, tagId: tag.id },
+        update: {},
+      });
+    } catch (error) {
+      console.error(
+        `[sentry webhook] failed to attach ${label.name} label:`,
+        error,
+      );
+    }
   }
 }
 
@@ -128,8 +138,8 @@ export async function ingestSentryBug(
     links: { sentryIssueId: bug.issueId, sentryUrl: bug.url },
   });
 
-  // Tag it with the workspace's "Sentry" label so these are filterable.
-  await tagTicketAsSentry(db, ticket.id, product.workspaceId, errol.id);
+  // Tag it with the workspace's "Sentry" and "bug" labels so these are filterable.
+  await labelTicket(db, ticket.id, product.workspaceId, errol.id);
 
   // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
   // Only on creation — recurring errors that dedup above do not re-notify.
