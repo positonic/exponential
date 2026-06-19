@@ -2314,3 +2314,25 @@
 .prd-document li > p {
   margin: 0;
 }
+
+/* React Flow (CRM Automation builder) — theme the canvas chrome to the app's
+   navy surfaces instead of React Flow's default light styling. Colors come from
+   semantic tokens so this follows light/dark like the rest of the app. */
+.react-flow__controls {
+  box-shadow: none;
+}
+.react-flow__controls-button {
+  background-color: var(--color-surface-secondary);
+  border-bottom-color: var(--color-border-primary);
+  color: var(--color-text-primary);
+}
+.react-flow__controls-button:hover {
+  background-color: var(--color-surface-hover);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+.react-flow__attribution {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}

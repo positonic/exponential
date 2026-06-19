@@ -6,6 +6,12 @@ import {
 } from "~/server/services/workflows/steps/IStepExecutor";
 import { loadAgreementTemplate } from "../agreementTemplates";
 import { renderTemplate } from "../templateRenderer";
+import {
+  buildContactTemplateData,
+  renderInline,
+  renderTextBodyToHtml,
+  wrapAgreementHtml,
+} from "../contentRendering";
 
 /**
  * `generate_document` step — renders the per-Customer-type **Agreement** HTML
@@ -45,32 +51,36 @@ export class GenerateDocumentStep implements IStepExecutor {
       throw new Error(`generate_document: contact ${contactId} not found`);
     }
 
-    const fullName =
-      [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim() ||
-      "there";
+    const data = buildContactTemplateData(contact, customerType, new Date());
 
-    const data: Record<string, string> = {
-      firstName: contact.firstName ?? "",
-      lastName: contact.lastName ?? "",
-      fullName,
-      customerType,
-      companyName: contact.organization?.name ?? "",
-      date: new Date().toISOString().slice(0, 10),
-    };
+    // User-authored agreement body from the builder (config) overrides the
+    // built-in per-type HTML template; an empty body falls back to the default.
+    const customBody =
+      typeof config.body === "string" && config.body.trim()
+        ? config.body
+        : null;
 
-    const template = loadAgreementTemplate(customerType);
-    const { html, missingVariables } = renderTemplate(template, data);
-
-    if (missingVariables.length > 0) {
-      console.warn(
-        `[generate_document] contact ${contactId}: missing template variables: ${missingVariables.join(", ")}`,
-      );
+    let html: string;
+    if (customBody) {
+      const title =
+        typeof config.title === "string" && config.title.trim()
+          ? renderInline(config.title, data)
+          : `${customerType} Agreement`;
+      html = wrapAgreementHtml(title, renderTextBodyToHtml(customBody, data));
+    } else {
+      const template = loadAgreementTemplate(customerType);
+      const rendered = renderTemplate(template, data);
+      html = rendered.html;
+      if (rendered.missingVariables.length > 0) {
+        console.warn(
+          `[generate_document] contact ${contactId}: missing template variables: ${rendered.missingVariables.join(", ")}`,
+        );
+      }
     }
 
     return {
       agreementHtml: html,
       agreementCustomerType: customerType,
-      agreementMissingVariables: missingVariables,
     };
   }
 }

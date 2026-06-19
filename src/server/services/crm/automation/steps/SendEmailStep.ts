@@ -6,6 +6,12 @@ import {
 } from "~/server/services/workflows/steps/IStepExecutor";
 import { EmailService } from "~/server/services/EmailService";
 import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import {
+  buildContactTemplateData,
+  renderInline,
+  renderTextBodyToHtml,
+  renderTextBodyToPlain,
+} from "../contentRendering";
 
 /**
  * `send_email` step — sends the branded onboarding **welcome** email to the
@@ -39,6 +45,7 @@ export class SendEmailStep implements IStepExecutor {
 
     const contact = await this.db.crmContact.findUnique({
       where: { id: contactId },
+      include: { organization: { select: { name: true } } },
     });
     if (!contact) {
       throw new Error(`send_email: contact ${contactId} not found`);
@@ -55,12 +62,44 @@ export class SendEmailStep implements IStepExecutor {
       [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim() ||
       null;
 
-    const { subject, htmlBody, textBody } =
-      await EmailService.sendCrmOnboardingWelcomeEmail({
+    // User-authored content from the builder (config) overrides the built-in
+    // welcome template; an empty body falls back to the default.
+    const customBody =
+      typeof config.body === "string" && config.body.trim()
+        ? config.body
+        : null;
+    const customSubject =
+      typeof config.subject === "string" && config.subject.trim()
+        ? config.subject
+        : null;
+
+    let subject: string;
+    let htmlBody: string;
+    let textBody: string;
+
+    if (customBody) {
+      const data = buildContactTemplateData(contact, customerType, new Date());
+      const rendered = await EmailService.sendCrmAutomationEmail({
+        to: toEmail,
+        subject: customSubject
+          ? renderInline(customSubject, data)
+          : `Welcome — you're signed up as a ${customerType}`,
+        bodyHtml: renderTextBodyToHtml(customBody, data),
+        bodyText: renderTextBodyToPlain(customBody, data),
+      });
+      subject = rendered.subject;
+      htmlBody = rendered.htmlBody;
+      textBody = rendered.textBody;
+    } else {
+      const rendered = await EmailService.sendCrmOnboardingWelcomeEmail({
         to: toEmail,
         name,
         customerType,
       });
+      subject = rendered.subject;
+      htmlBody = rendered.htmlBody;
+      textBody = rendered.textBody;
+    }
 
     await this.db.crmCommunication.create({
       data: {
