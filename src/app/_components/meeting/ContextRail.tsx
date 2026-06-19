@@ -11,7 +11,9 @@ import {
   IconExternalLink,
   IconArchive,
   IconPlus,
+  IconX,
 } from "@tabler/icons-react";
+import { Loader } from "@mantine/core";
 import { MpAvatar } from "./MpAvatar";
 import type { MeetingParticipant } from "~/lib/meeting-view-model";
 
@@ -36,6 +38,9 @@ interface ContextRailProps {
   canExport: boolean;
   onArchive: () => void;
   onAddParticipant?: () => void;
+  onRemoveParticipant?: (id: string) => void;
+  /** Id of the participant currently being removed, for a per-row spinner. */
+  removingParticipantId?: string | null;
 }
 
 export function ContextRail({
@@ -59,10 +64,12 @@ export function ContextRail({
   canExport,
   onArchive,
   onAddParticipant,
+  onRemoveParticipant,
+  removingParticipantId,
 }: ContextRailProps) {
   return (
     <aside className="mp-rail">
-      {participants.length > 0 && (
+      {(participants.length > 0 || onAddParticipant) && (
         <div className="mp-rail__section">
           <div className="mp-rail__label">
             <span>Participants</span>
@@ -77,18 +84,37 @@ export function ContextRail({
               </button>
             )}
           </div>
-          <div className="mp-people">
-            {participants.map((p) => (
-              <div key={p.id} className="mp-person">
-                <MpAvatar initial={p.initial} flavor={p.flavor} />
-                <div style={{ minWidth: 0 }}>
-                  <div className="mp-person__name">{p.name}</div>
-                  {p.role && <div className="mp-person__role">{p.role}</div>}
-                </div>
-                {p.talk && <span className="mp-person__talk" title="Talk-time">{p.talk}</span>}
-              </div>
-            ))}
-          </div>
+          {participants.length > 0 ? (
+            <div className="mp-people">
+              {participants.map((p) => {
+                const removing = removingParticipantId === p.id;
+                return (
+                  <div key={p.id} className="mp-person">
+                    <MpAvatar initial={p.initial} flavor={p.flavor} />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="mp-person__name">{p.name}</div>
+                      {p.role && <div className="mp-person__role">{p.role}</div>}
+                    </div>
+                    {p.talk && <span className="mp-person__talk" title="Talk-time">{p.talk}</span>}
+                    {onRemoveParticipant && (
+                      <button
+                        type="button"
+                        className="mp-person__remove"
+                        onClick={() => onRemoveParticipant(p.id)}
+                        disabled={removing}
+                        aria-label={`Remove ${p.name}`}
+                        title={`Remove ${p.name}`}
+                      >
+                        {removing ? <Loader size={12} /> : <IconX size={13} />}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mp-rail__empty">No participants yet.</div>
+          )}
         </div>
       )}
 
