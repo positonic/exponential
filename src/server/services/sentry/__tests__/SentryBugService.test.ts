@@ -62,6 +62,14 @@ beforeEach(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { id: "errol-id" } as any,
   );
+  dbMock.tag.upsert.mockResolvedValue(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: "tag-1" } as any,
+  );
+  dbMock.ticketTag.upsert.mockResolvedValue(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    { id: "tt-1" } as any,
+  );
 });
 
 describe("ingestSentryBug", () => {
@@ -106,6 +114,28 @@ describe("ingestSentryBug", () => {
     expect(arg.priority).toBeUndefined();
   });
 
+  it("find-or-creates a workspace 'Sentry' label and attaches it to the ticket", async () => {
+    await ingestSentryBug(dbMock, bug);
+
+    expect(dbMock.tag.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { slug_workspaceId: { slug: "sentry", workspaceId: "ws-1" } },
+        create: expect.objectContaining({
+          name: "Sentry",
+          slug: "sentry",
+          category: "label",
+          workspaceId: "ws-1",
+        }),
+      }),
+    );
+    expect(dbMock.ticketTag.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { ticketId_tagId: { ticketId: "ticket-1", tagId: "tag-1" } },
+        create: { ticketId: "ticket-1", tagId: "tag-1" },
+      }),
+    );
+  });
+
   it("notifies Zulip on creation with a deep link to the new ticket", async () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://app.example";
 
@@ -143,7 +173,8 @@ describe("ingestSentryBug", () => {
       const result = await ingestSentryBug(dbMock, bug);
 
       expect(createTicketWithNumber).not.toHaveBeenCalled();
-      // Recurring errors that dedup onto an existing ticket do not re-notify.
+      // Recurring errors that dedup onto an existing ticket do not re-tag or re-notify.
+      expect(dbMock.tag.upsert).not.toHaveBeenCalled();
       expect(notifyZulipOfSentryBug).not.toHaveBeenCalled();
       expect(result).toEqual({ created: false, ticketId: "existing-ticket" });
     });
