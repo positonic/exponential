@@ -146,6 +146,7 @@ model User {
   // CRM relations
   crmContactsCreated          CrmContact[]                @relation("CrmContactCreatedBy")
   crmOrganizationsCreated     CrmOrganization[]           @relation("CrmOrganizationCreatedBy")
+  formsCreated                Form[]                      @relation("FormCreatedBy")
   crmInteractions             CrmContactInteraction[]     @relation("CrmInteractionUser")
   crmCommunicationsCreated    CrmCommunication[]          @relation("CrmCommunicationCreatedBy")
   crmTemplatesCreated         CrmCommunicationTemplate[]  @relation("CrmTemplateCreatedBy")
@@ -330,6 +331,8 @@ model Workspace {
   crmCommunications       CrmCommunication[]
   crmTemplates            CrmCommunicationTemplate[]
   crmImportBatches        ContactImportBatch[]
+  // Forms relations
+  forms                   Form[]
   // Plugin and OKR relations
   pluginConfigs           PluginConfig[]
   keyResults              KeyResult[]
@@ -2675,6 +2678,53 @@ model ContactImportBatch {
   @@index([workspaceId])
   @@index([createdById])
   @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================
+// Forms (generic public intake) Models
+// ============================================
+
+model Form {
+  id                  String   @id @default(cuid())
+  workspaceId         String
+  name                String
+  slug                String
+  description         String?  @db.Text
+  // FormField[]: [{ key, label, type, required, options?, placeholder? }]
+  fields              Json     @default("[]")
+  // FormDestination[]: [{ type, config }] — run synchronously on submit
+  destinations        Json     @default("[]")
+  isActive            Boolean  @default(false)
+  confirmationMessage String?  @db.Text
+  createdById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User?            @relation("FormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  submissions FormSubmission[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([slug])
+}
+
+model FormSubmission {
+  id               String   @id @default(cuid())
+  formId           String
+  // Validated submission payload keyed by field.key.
+  data             Json
+  // { ip, userAgent, honeypotTripped, emailHash? } — diagnostics & anti-abuse.
+  metadata         Json     @default("{}")
+  // Per-destination outcome: [{ type, ok, detail|error }].
+  result           Json?
+  createdContactId String?
+  createdAt        DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
   @@index([createdAt])
 }
 

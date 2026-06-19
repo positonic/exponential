@@ -387,6 +387,30 @@ _Avoid_: Contract, document (too generic), DocuSign (the provider is Adobe Sign)
 **Recipient email experience**:
 Two emails, each with one job: **(1)** a branded "Welcome — you're signed up as a {Customer type}" email we send and log as a `CrmCommunication`; **(2)** Adobe Sign's own secure "review & sign" email, where signing happens on Adobe's hosted page. We deliberately do **not** attach the unsigned agreement to our email or self-host the signing link in the PoC.
 
+### Forms
+
+A **generic** public-intake subsystem (a mini-Typeform), deliberately **decoupled from the CRM** — the CRM is just one **destination** a form can be wired to ([ADR-0029](docs/adr/0029-generic-forms-subsystem.md)). First use case: a public job-application form whose submission creates a contact and fires the existing automation.
+
+**Form**:
+A workspace-owned public intake definition — `Form { workspaceId, name, slug, fields Json, destinations Json, isActive, confirmationMessage? }`. Rendered unauthenticated at **`/f/[slug]`**; authored in a minimal in-app admin under CRM (`/crm/forms`). Knows nothing about the CRM itself.
+_Avoid_: Survey, lead form (it's generic; CRM is one destination), CrmForm (it is **not** CRM-coupled — don't name it that).
+
+**Form field**:
+One entry in `Form.fields` — `{ key, label, type, required, options? }`, type ∈ `text | email | textarea | select | checkbox | url`. Stored as JSON (no per-field table) and validated at submit time by the pure `validateSubmission` (`src/server/services/forms/formSchema.ts`).
+_Avoid_: Question, input (use "field").
+
+**Form submission**:
+An immutable `FormSubmission { formId, data Json, metadata Json, result Json?, createdContactId? }` — captures the validated payload plus anti-abuse `metadata` (ip, honeypotTripped, emailHash). **Always stored**, even for repeats and honeypot hits (audit). `data` holds plaintext while `CrmContact.email` stays encrypted — an accepted v1 posture difference (ADR-0029).
+_Avoid_: Response, entry.
+
+**Form destination**:
+A `{ type, config }` entry in `Form.destinations` run **synchronously** on submit via the **`FormDestinationRegistry`** — the exact mirror of the automation `StepRegistry`. v1 ships one: **`create_crm_contact`** `{ customerType, fieldMap }`, which maps fields → a contact, stamps the Customer type, and (via the shared `createCrmContact`) fires the CRM **Automation trigger**. New destinations (notify, webhook, create deal) register with no core change.
+_Avoid_: Action, hook (use "destination"); coupling the Form model to any one destination.
+
+**Intake**:
+The public `POST /api/forms/[slug]/submit` route: rate-limit → honeypot check → load active form → `validateSubmission` → store **Form submission** → run **Form destinations**. Unauthenticated; protected by a hidden honeypot field + per-IP/per-email **in-memory** rate limiting (a documented stopgap — [ADR-0030](docs/adr/0030-form-automation-execution-sync-then-qstash.md)). The chain end-to-end: **Intake → `create_crm_contact` → `createCrmContact` (emailHash dedup) → `dispatchContactTypeAutomations` → CRM Automation (`send_email`)**.
+_Avoid_: Webhook (that's inbound-from-a-provider), submit endpoint.
+
 ## Flagged ambiguities
 
 - **"Meeting type" is not yet stored.** The Meetings v2 redesign surfaces `All / 1:1s / Rituals` tabs, but no `meetingType` column exists on `TranscriptionSession`. v1 ships with: All = full list, 1:1s = derived live from `participantCount = 2`, Rituals = empty state until a recurrence classifier exists. When Rituals gets real, the resolution will be either calendar recurrence data or a `meetingType` enum field with mutually exclusive values `one_on_one | ritual | other`.
