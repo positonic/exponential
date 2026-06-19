@@ -114,9 +114,10 @@ describe("ingestSentryBug", () => {
     expect(arg.priority).toBeUndefined();
   });
 
-  it("find-or-creates a workspace 'Sentry' label and attaches it to the ticket", async () => {
+  it("find-or-creates the 'Sentry' and 'bug' workspace labels and attaches them", async () => {
     await ingestSentryBug(dbMock, bug);
 
+    expect(dbMock.tag.upsert).toHaveBeenCalledTimes(2);
     expect(dbMock.tag.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { slug_workspaceId: { slug: "sentry", workspaceId: "ws-1" } },
@@ -128,6 +129,18 @@ describe("ingestSentryBug", () => {
         }),
       }),
     );
+    expect(dbMock.tag.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { slug_workspaceId: { slug: "bug", workspaceId: "ws-1" } },
+        create: expect.objectContaining({
+          name: "bug",
+          slug: "bug",
+          category: "label",
+          workspaceId: "ws-1",
+        }),
+      }),
+    );
+    expect(dbMock.ticketTag.upsert).toHaveBeenCalledTimes(2);
     expect(dbMock.ticketTag.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { ticketId_tagId: { ticketId: "ticket-1", tagId: "tag-1" } },
