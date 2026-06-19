@@ -63,6 +63,20 @@ reusing what's already built.
 - **Edge case**: a form submission whose email matches a *manually*-created
   contact (which has no `emailHash`) won't dedupe → a duplicate contact. Imports
   and form contacts do have `emailHash`. Accepted for v1.
+- **Globally-unique slug**: the public `/f/[slug]` URL carries no workspace, so
+  `Form.slug` is globally unique (not `@@unique([workspaceId, slug])`) and
+  `uniqueFormSlug` dedupes across all workspaces — otherwise two workspaces could
+  share a slug and a public submission would route to the wrong tenant.
+- **Cross-workspace email**: `CrmContact.emailHash` is globally unique by
+  existing design. If a submission's email already belongs to a contact in
+  *another* workspace, `createCrmContact` refuses (it neither links the foreign
+  contact nor creates a colliding one) and the destination is recorded as failed
+  — matching how `transcription` handles the same boundary. The submission is
+  still stored; only the CRM destination no-ops.
+- **`create_crm_contact` requires a mapped Email field** (validated on save, and
+  enforced again at submit): the email is the dedup key, so without it every
+  submission would create a fresh, never-deduped contact and fire an automation
+  with no recipient.
 - `company` is stored as a contact tag in v1 (no auto-`CrmOrganization`).
 - **Deferred**: drag-drop form builder, file/résumé upload (S3 exists; a `url`
   field stands in), multiple destination types, slug rename.

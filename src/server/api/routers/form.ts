@@ -7,6 +7,7 @@ import { uniqueFormSlug } from "~/server/services/forms/formSlug";
 import {
   formFieldSchema,
   formDestinationSchema,
+  parseFormFields,
 } from "~/server/services/forms/formSchema";
 import { createFormDestinationRegistry } from "~/server/services/forms/FormDestinationRegistry";
 
@@ -65,7 +66,7 @@ export const formRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       await assertMember(ctx.db, input.workspaceId, ctx.session.user.id);
-      const slug = await uniqueFormSlug(ctx.db, input.workspaceId, input.name);
+      const slug = await uniqueFormSlug(ctx.db, input.name);
       const form = await ctx.db.form.create({
         data: {
           workspaceId: input.workspaceId,
@@ -93,6 +94,10 @@ export const formRouter = createTRPCRouter({
       const form = await loadFormForUser(ctx.db, input.id, ctx.session.user.id);
 
       if (input.destinations) {
+        // Validate destination config against the form's effective fields (the
+        // ones being saved, or the stored ones if fields aren't part of this
+        // update).
+        const effectiveFields = input.fields ?? parseFormFields(form.fields);
         const registry = createFormDestinationRegistry(ctx.db);
         for (const dest of input.destinations) {
           if (!registry.has(dest.type)) {
@@ -101,17 +106,35 @@ export const formRouter = createTRPCRouter({
               message: `Unknown destination type: ${dest.type}`,
             });
           }
-          if (
-            dest.type === "create_crm_contact" &&
-            !(
-              typeof dest.config.customerType === "string" &&
-              dest.config.customerType.trim()
-            )
-          ) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Create CRM contact requires a Customer type.",
-            });
+          if (dest.type === "create_crm_contact") {
+            if (
+              !(
+                typeof dest.config.customerType === "string" &&
+                dest.config.customerType.trim()
+              )
+            ) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Create CRM contact requires a Customer type.",
+              });
+            }
+            // The email is the dedup key: without an Email field mapped, every
+            // submission would create a fresh, never-deduped contact and fire an
+            // automation with no recipient. Require a mapping to an email field.
+            const fieldMap =
+              dest.config.fieldMap && typeof dest.config.fieldMap === "object"
+                ? (dest.config.fieldMap as Record<string, unknown>)
+                : {};
+            const emailKey =
+              typeof fieldMap.email === "string" ? fieldMap.email : "";
+            const emailField = effectiveFields.find((f) => f.key === emailKey);
+            if (!emailField || emailField.type !== "email") {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Create CRM contact requires an Email field mapped to the contact's email.",
+              });
+            }
           }
         }
       }

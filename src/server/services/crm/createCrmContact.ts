@@ -54,9 +54,18 @@ export async function createCrmContact(
   if (emailHash) {
     const existing = await db.crmContact.findUnique({
       where: { emailHash },
-      select: { id: true },
+      select: { id: true, workspaceId: true },
     });
     if (existing) {
+      // emailHash is globally unique. A contact owned by ANOTHER workspace must
+      // not be linked into this one — returning its id would leak a cross-tenant
+      // reference, and the create below would throw P2002 anyway. Surface a
+      // clear error (recorded by runFormDestinations; intake still 200s).
+      if (existing.workspaceId !== input.workspaceId) {
+        throw new Error(
+          "A contact with this email already exists in another workspace",
+        );
+      }
       return { contactId: existing.id, created: false, fired: false };
     }
   }

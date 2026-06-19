@@ -2689,7 +2689,10 @@ model Form {
   id                  String   @id @default(cuid())
   workspaceId         String
   name                String
-  slug                String
+  // Globally unique — the public renderer/intake resolve a form by slug alone
+  // (`/f/[slug]`), with no workspace in the URL, so the slug must be unique
+  // across all workspaces or submissions could route to the wrong tenant.
+  slug                String   @unique
   description         String?  @db.Text
   // FormField[]: [{ key, label, type, required, options?, placeholder? }]
   fields              Json     @default("[]")
@@ -2705,9 +2708,7 @@ model Form {
   createdBy   User?            @relation("FormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   submissions FormSubmission[]
 
-  @@unique([workspaceId, slug])
   @@index([workspaceId])
-  @@index([slug])
 }
 
 model FormSubmission {

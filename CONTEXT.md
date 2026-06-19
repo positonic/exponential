@@ -392,7 +392,7 @@ Two emails, each with one job: **(1)** a branded "Welcome — you're signed up a
 A **generic** public-intake subsystem (a mini-Typeform), deliberately **decoupled from the CRM** — the CRM is just one **destination** a form can be wired to ([ADR-0029](docs/adr/0029-generic-forms-subsystem.md)). First use case: a public job-application form whose submission creates a contact and fires the existing automation.
 
 **Form**:
-A workspace-owned public intake definition — `Form { workspaceId, name, slug, fields Json, destinations Json, isActive, confirmationMessage? }`. Rendered unauthenticated at **`/f/[slug]`**; authored in a minimal in-app admin under CRM (`/crm/forms`). Knows nothing about the CRM itself.
+A workspace-owned public intake definition — `Form { workspaceId, name, slug, fields Json, destinations Json, isActive, confirmationMessage? }`. Rendered unauthenticated at **`/f/[slug]`**; authored in a minimal in-app admin under CRM (`/crm/forms`). Knows nothing about the CRM itself. The `slug` is **globally unique** (not per-workspace) — the public URL carries no workspace, so the lookup must be unambiguous; `uniqueFormSlug` dedupes across all workspaces.
 _Avoid_: Survey, lead form (it's generic; CRM is one destination), CrmForm (it is **not** CRM-coupled — don't name it that).
 
 **Form field**:

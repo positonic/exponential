@@ -43,9 +43,17 @@ export class CreateCrmContactDestination implements IFormDestination {
       return typeof value === "string" && value.trim() ? value.trim() : null;
     };
 
+    // Email is the dedup key. Without it every submission would create a fresh,
+    // never-deduped contact and fire an automation with no recipient — refuse
+    // rather than create a useless contact (recorded by runFormDestinations).
+    const email = pick(fieldMap.email);
+    if (!email) {
+      throw new Error("create_crm_contact: submission has no email to dedupe on");
+    }
+
     const result = await createCrmContact(this.db, {
       workspaceId: context.workspaceId,
-      email: pick(fieldMap.email),
+      email,
       firstName: pick(fieldMap.firstName),
       lastName: pick(fieldMap.lastName),
       company: pick(fieldMap.company),
