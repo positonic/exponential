@@ -427,7 +427,13 @@ export const ticketRouter = createTRPCRouter({
     }),
 
   uploadImage: protectedProcedure
-    .input(z.object({ id: z.string(), base64Data: z.string().min(1) }))
+    .input(
+      z.object({
+        id: z.string(),
+        base64Data: z.string().min(1),
+        mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]).default("image/png"),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
       const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
@@ -437,9 +443,11 @@ export const ticketRouter = createTRPCRouter({
           message: "Image too large. Please use an image under 5MB.",
         });
       }
+      const extMap: Record<string, string> = { "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+      const ext = extMap[input.mimeType] ?? "png";
       const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
-      const filename = `screenshots/tickets/${input.id}/${timestamp}.png`;
-      const blob = await uploadToBlob(input.base64Data, filename);
+      const filename = `screenshots/tickets/${input.id}/${timestamp}.${ext}`;
+      const blob = await uploadToBlob(input.base64Data, filename, input.mimeType);
       return { url: blob.url };
     }),
 

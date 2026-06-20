@@ -495,7 +495,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
       <Modal
         opened={opened}
-        onClose={close}
+        onClose={() => { close(); onExternalClose?.(); }}
         size="lg"
         radius="md"
         padding="lg"

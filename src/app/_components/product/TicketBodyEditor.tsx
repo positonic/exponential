@@ -20,7 +20,13 @@ interface TicketBodyEditorProps {
 export function TicketBodyEditor({ ticketId, initialContent }: TicketBodyEditorProps) {
   const utils = api.useUtils();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contentLoaded = useRef(false);
+  const loadedForTicketId = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const updateTicket = api.product.ticket.update.useMutation({
     onSuccess: async () => {
@@ -59,7 +65,7 @@ export function TicketBodyEditor({ ticketId, initialContent }: TicketBodyEditorP
         const base64 = result.split(",")[1];
         if (!base64) return;
         uploadImage
-          .mutateAsync({ id: ticketId, base64Data: base64 })
+          .mutateAsync({ id: ticketId, base64Data: base64, mimeType: file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif" })
           .then((res) => {
             const { state } = view;
             const node = state.schema.nodes.image?.create({ src: res.url });
@@ -122,16 +128,13 @@ export function TicketBodyEditor({ ticketId, initialContent }: TicketBodyEditorP
     },
   });
 
-  // Load content exactly once - convert markdown to ProseMirror JSON first so
-  // markdown-it is never called during editor initialisation (avoids an isSpace
-  // Turbopack bundling bug when parsing markdown inline).
   useEffect(() => {
-    if (editor && !contentLoaded.current) {
-      contentLoaded.current = true;
+    if (editor && loadedForTicketId.current !== ticketId) {
+      loadedForTicketId.current = ticketId;
       const doc = initialContent?.trim() ? markdownToDoc(initialContent) : EMPTY_DOC;
       editor.commands.setContent(doc);
     }
-  }, [editor, initialContent]);
+  }, [editor, ticketId, initialContent]);
 
   return (
     <RichTextEditor

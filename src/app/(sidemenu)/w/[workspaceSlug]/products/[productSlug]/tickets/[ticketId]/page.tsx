@@ -215,7 +215,7 @@ function EpicCombobox({
 // Linked Actions Section
 // ---------------------------------------------------------------------------
 
-type LinkedAction = {
+interface LinkedAction {
   id: string;
   name: string;
   description: string | null;
@@ -226,7 +226,7 @@ type LinkedAction = {
   projectId: string | null;
   workspaceId?: string | null;
   assignees: Array<{ user: { id: string; name: string | null; image: string | null } }>;
-};
+}
 
 function getActionPriorityBorderColor(priority: string | null): string {
   switch (priority) {
