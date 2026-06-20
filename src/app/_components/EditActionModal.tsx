@@ -16,7 +16,7 @@ type Action = {
   description: string | null;
   status: string;
   priority: string | null;
-  dueDate: Date | null;
+  dueDate: Date | string | null;
   projectId: string | null;
   workspaceId?: string | null;
   project?: { workspaceId?: string | null } | null;
@@ -154,7 +154,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       setProjectId(currentAction.projectId ?? "");
       const validPriorities: string[] = PRIORITY_OPTIONS;
       setPriority(
-        validPriorities.includes(currentAction.priority)
+        currentAction.priority !== null && validPriorities.includes(currentAction.priority)
           ? (currentAction.priority as ActionPriority)
           : "Scheduled",
       );
