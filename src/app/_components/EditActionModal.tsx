@@ -15,7 +15,7 @@ type Action = {
   name: string;
   description: string | null;
   status: string;
-  priority: string;
+  priority: string | null;
   dueDate: Date | null;
   projectId: string | null;
   workspaceId?: string | null;
@@ -339,7 +339,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     // Capture new screenshots before resetting
     pendingScreenshotsRef.current = [...pastedScreenshots];
 
-    // Snapshot mutation payload before onClose() — parent may null out
+    // Snapshot mutation payload before onClose() - parent may null out
     // selectedAction synchronously, which would clear currentAction.id.
     const updateData = {
       id: currentAction.id,
