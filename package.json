@@ -43,7 +43,7 @@
     "okr:workspaces": "npx tsx scripts/okr-cli.ts workspaces"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
+    "@anthropic-ai/sdk": "^0.104.2",
     "@auth/prisma-adapter": "^2.7.2",
     "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/s3-request-presigner": "^3.1045.0",

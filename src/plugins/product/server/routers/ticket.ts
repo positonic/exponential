@@ -10,6 +10,7 @@ import {
   IN_FLIGHT_TICKET_STATUSES,
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { uploadToBlob } from "~/lib/blob";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -205,9 +206,19 @@ export const ticketRouter = createTRPCRouter({
             select: {
               id: true,
               name: true,
+              description: true,
               status: true,
               completedAt: true,
               kanbanStatus: true,
+              priority: true,
+              dueDate: true,
+              projectId: true,
+              workspaceId: true,
+              assignees: {
+                include: {
+                  user: { select: { id: true, name: true, image: true } },
+                },
+              },
             },
           },
           comments: {
@@ -387,7 +398,7 @@ export const ticketRouter = createTRPCRouter({
           if (incoming === undefined) return false;
           if (!(key in previousRecord)) return true;
           const existing = previousRecord[key];
-          // links is a Json object — JSON-stringify for a coarse equality check.
+          // links is a Json object - JSON-stringify for a coarse equality check.
           if (
             existing !== null &&
             typeof existing === "object" &&
@@ -413,6 +424,23 @@ export const ticketRouter = createTRPCRouter({
       }
 
       return updatedTicket;
+    }),
+
+  uploadImage: protectedProcedure
+    .input(z.object({ id: z.string(), base64Data: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
+      if (approxBytes > 5 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Image too large. Please use an image under 5MB.",
+        });
+      }
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/tickets/${input.id}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+      return { url: blob.url };
     }),
 
   delete: protectedProcedure

@@ -3,12 +3,16 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useDisclosure } from "@mantine/hooks";
+import { CreateActionModal } from "~/app/_components/CreateActionModal";
+import { EditActionModal } from "~/app/_components/EditActionModal";
 import {
   ActionIcon,
   Anchor,
   Avatar,
   Badge,
   Button,
+  Checkbox,
   CheckIcon,
   Combobox,
   Group,
@@ -28,6 +32,8 @@ import {
   IconBug,
   IconCalendar,
   IconCategory,
+  IconChevronDown,
+  IconChevronRight,
   IconCircleDot,
   IconClock,
   IconCopy,
@@ -37,11 +43,13 @@ import {
   IconFolder,
   IconGitBranch,
   IconLink,
+  IconPlus,
   IconRocket,
   IconTag,
   IconTool,
   IconTrash,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -61,6 +69,7 @@ import {
 } from "~/lib/ticket-statuses";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -203,6 +212,319 @@ function EpicCombobox({
 }
 
 // ---------------------------------------------------------------------------
+// Linked Actions Section
+// ---------------------------------------------------------------------------
+
+type LinkedAction = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  kanbanStatus: string | null;
+  priority: string | null;
+  dueDate: Date | string | null;
+  projectId: string | null;
+  workspaceId?: string | null;
+  assignees: Array<{ user: { id: string; name: string | null; image: string | null } }>;
+};
+
+function getActionPriorityBorderColor(priority: string | null): string {
+  switch (priority) {
+    case "1st Priority": return "var(--mantine-color-red-filled)";
+    case "2nd Priority": return "var(--mantine-color-orange-filled)";
+    case "3rd Priority": return "var(--mantine-color-yellow-filled)";
+    case "4th Priority": return "var(--mantine-color-green-filled)";
+    case "5th Priority": return "var(--mantine-color-blue-filled)";
+    case "Quick": return "var(--mantine-color-violet-filled)";
+    case "Scheduled": return "var(--mantine-color-pink-filled)";
+    case "Errand": return "var(--mantine-color-cyan-filled)";
+    case "Remember": return "var(--mantine-color-indigo-filled)";
+    case "Watch": return "var(--mantine-color-grape-filled)";
+    default: return "var(--color-border-primary)";
+  }
+}
+
+function ActionRow({
+  action,
+  isDone,
+  onToggle,
+  onUnlink,
+  onOpen,
+  unlinkPending,
+}: {
+  action: LinkedAction;
+  isDone: boolean;
+  onToggle: (action: LinkedAction, checked: boolean) => void;
+  onUnlink: (id: string) => void;
+  onOpen: (action: LinkedAction) => void;
+  unlinkPending: boolean;
+}) {
+  return (
+    <div
+      className="border border-border-primary rounded-lg px-3 py-2 flex items-center gap-2 group cursor-pointer hover:bg-surface-hover transition-colors"
+      onClick={() => onOpen(action)}
+    >
+      {/* Circular checkbox */}
+      <div
+        className="shrink-0"
+        onClick={(e) => { e.stopPropagation(); onToggle(action, !isDone); }}
+      >
+        <Checkbox
+          size="xs"
+          radius="xl"
+          checked={isDone}
+          readOnly
+          styles={{
+            input: {
+              borderColor: isDone ? "var(--mantine-color-green-filled)" : getActionPriorityBorderColor(action.priority),
+              backgroundColor: isDone ? "var(--mantine-color-green-filled)" : "transparent",
+              cursor: "pointer",
+            },
+          }}
+        />
+      </div>
+
+      {/* Name */}
+      <Text
+        size="sm"
+        className={`flex-1 min-w-0 truncate ${isDone ? "line-through opacity-30" : "text-text-primary"}`}
+      >
+        {action.name}
+      </Text>
+
+      {/* Assignees */}
+      {action.assignees.length > 0 && (
+        <Avatar.Group spacing="xs">
+          {action.assignees.slice(0, 2).map((a) => (
+            <Avatar key={a.user.id} src={a.user.image} size={18} radius="xl" title={a.user.name ?? ""}>
+              {(a.user.name ?? "?")[0]?.toUpperCase()}
+            </Avatar>
+          ))}
+        </Avatar.Group>
+      )}
+
+      {/* Due date */}
+      {action.dueDate && (
+        <Text size="xs" className="text-text-muted shrink-0">
+          {new Date(action.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+        </Text>
+      )}
+
+      {/* Unlink */}
+      <ActionIcon
+        variant="subtle"
+        size="xs"
+        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 transition-opacity shrink-0"
+        onClick={(e) => { e.stopPropagation(); onUnlink(action.id); }}
+        loading={unlinkPending}
+      >
+        <IconX size={12} />
+      </ActionIcon>
+    </div>
+  );
+}
+
+function LinkedActionsSection({
+  ticketId,
+  actions,
+  workspaceId,
+  onChanged,
+}: {
+  ticketId: string;
+  actions: LinkedAction[];
+  workspaceId: string | null;
+  onChanged: () => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [search, setSearch] = useState("");
+  const [pendingName, setPendingName] = useState("");
+  const [createModalOpen, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
+  const [editingAction, setEditingAction] = useState<LinkedAction | null>(null);
+  const combobox = useCombobox({
+    onDropdownClose: () => { combobox.resetSelectedOption(); },
+  });
+
+  const { data: searchResults } = api.action.searchForDependencies.useQuery(
+    { query: search, workspaceId: workspaceId ?? undefined, limit: 8 },
+    { enabled: search.trim().length > 0 },
+  );
+
+  const linkAction = api.product.ticket.linkAction.useMutation({
+    onSuccess: () => { setSearch(""); onChanged(); },
+  });
+  const unlinkAction = api.product.ticket.unlinkAction.useMutation({ onSuccess: onChanged });
+  const updateActionStatus = api.action.update.useMutation({ onSuccess: onChanged });
+
+  const linkedIds = new Set(actions.map((a) => a.id));
+  const suggestions = (searchResults ?? []).filter((r) => !linkedIds.has(r.id));
+  const trimmed = search.trim();
+  const hasExactMatch = suggestions.some(
+    (r) => r.name.toLowerCase() === trimmed.toLowerCase(),
+  );
+
+  const isDone = (a: LinkedAction) =>
+    a.kanbanStatus === "DONE" || a.status === "COMPLETED";
+
+  const activeActions = actions.filter((a) => !isDone(a));
+  const doneActions = actions.filter((a) => isDone(a));
+
+  const handleToggle = (action: LinkedAction, checked: boolean) => {
+    updateActionStatus.mutate({
+      id: action.id,
+      status: checked ? "COMPLETED" : "ACTIVE",
+      kanbanStatus: checked ? "DONE" : "TODO",
+    });
+  };
+
+  const handleSelect = (value: string) => {
+    if (value === "__create") {
+      setPendingName(trimmed);
+      setSearch("");
+      combobox.closeDropdown();
+      openCreateModal();
+    } else {
+      linkAction.mutate({ ticketId, actionId: value });
+      setSearch("");
+      combobox.closeDropdown();
+    }
+  };
+
+  return (
+    <div className="mt-4">
+      {/* Header - matches Activity style */}
+      <button
+        className="flex items-center gap-1.5 mb-3"
+        onClick={() => setCollapsed((v) => !v)}
+      >
+        {collapsed
+          ? <IconChevronRight size={13} className="text-text-muted" />
+          : <IconChevronDown size={13} className="text-text-muted" />}
+        <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
+          Actions{actions.length > 0 ? ` (${actions.length})` : ""}
+        </Text>
+      </button>
+
+      {!collapsed && (
+        <div>
+          {/* Active action rows */}
+          {activeActions.length > 0 && (
+            <Stack gap="xs" mb="xs">
+              {activeActions.map((action) => (
+                <ActionRow
+                  key={action.id}
+                  action={action}
+                  isDone={false}
+                  onToggle={handleToggle}
+                  onOpen={setEditingAction}
+                  onUnlink={(id) => unlinkAction.mutate({ actionId: id })}
+                  unlinkPending={unlinkAction.isPending}
+                />
+              ))}
+            </Stack>
+          )}
+
+          {/* Completed actions */}
+          {doneActions.length > 0 && (
+            <div className="mt-2 mb-2">
+              <Text size="xs" className="text-text-muted opacity-50 mb-1.5 pl-1" style={{ fontSize: "0.65rem", letterSpacing: "0.04em" }}>
+                Completed
+              </Text>
+              <Stack gap="xs">
+                {doneActions.map((action) => (
+                  <ActionRow
+                    key={action.id}
+                    action={action}
+                    isDone={true}
+                    onToggle={handleToggle}
+                    onOpen={setEditingAction}
+                    onUnlink={(id) => unlinkAction.mutate({ actionId: id })}
+                    unlinkPending={unlinkAction.isPending}
+                  />
+                ))}
+              </Stack>
+            </div>
+          )}
+
+          {/* Notion-style combobox - always visible */}
+          <Combobox store={combobox} onOptionSubmit={handleSelect}>
+            <Combobox.Target>
+              <TextInput
+                placeholder="Link or create an action..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.currentTarget.value);
+                  combobox.openDropdown();
+                  combobox.updateSelectedOptionIndex();
+                }}
+                onFocus={() => { if (search.trim()) combobox.openDropdown(); }}
+                onBlur={() => combobox.closeDropdown()}
+                size="xs"
+                leftSection={<IconPlus size={13} className="text-text-muted" />}
+                styles={{
+                  input: {
+                    backgroundColor: "transparent",
+                    border: "1px solid var(--color-border-primary)",
+                    fontSize: "0.8rem",
+                    color: "var(--color-text-secondary)",
+                  },
+                }}
+              />
+            </Combobox.Target>
+
+            {(suggestions.length > 0 || (trimmed && !hasExactMatch)) && (
+              <Combobox.Dropdown>
+                <Combobox.Options>
+                  {suggestions.map((r) => (
+                    <Combobox.Option key={r.id} value={r.id}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.kanbanStatus === "DONE" ? "bg-green-500" : "bg-border-primary"}`}
+                        />
+                        <Text size="xs" className="flex-1">{r.name}</Text>
+                        {r.project && (
+                          <Text size="xs" className="text-text-muted">{r.project.name}</Text>
+                        )}
+                      </div>
+                    </Combobox.Option>
+                  ))}
+                  {trimmed && !hasExactMatch && (
+                    <Combobox.Option value="__create">
+                      <div className="flex items-center gap-2">
+                        <IconPlus size={12} className="text-text-muted" />
+                        <Text size="xs">
+                          Create <span className="font-medium">&quot;{trimmed}&quot;</span>
+                        </Text>
+                      </div>
+                    </Combobox.Option>
+                  )}
+                </Combobox.Options>
+              </Combobox.Dropdown>
+            )}
+          </Combobox>
+
+          {/* Create action modal - opened when user picks "Create xyz" */}
+          <CreateActionModal
+            viewName="ticket"
+            initialName={pendingName}
+            externalOpened={createModalOpen}
+            onExternalClose={closeCreateModal}
+            onActionCreated={(actionId) => { linkAction.mutate({ ticketId, actionId }); setPendingName(""); }}
+          />
+        </div>
+      )}
+
+      {/* Edit action modal - opened when clicking a row */}
+      <EditActionModal
+        action={editingAction}
+        opened={editingAction !== null}
+        onClose={() => setEditingAction(null)}
+        onSuccess={() => { setEditingAction(null); onChanged(); }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -259,9 +581,14 @@ export default function TicketDetailPage() {
 
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<TicketStatus | null>(null);
+  const [titleValue, setTitleValue] = useState(ticket?.title ?? "");
+  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   useEffect(() => {
-    if (ticket) setStatus(ticket.status);
+    if (ticket) {
+      setStatus(ticket.status);
+      setTitleValue(ticket.title);
+    }
   }, [ticket]);
 
   const updateTicket = api.product.ticket.update.useMutation({
@@ -374,13 +701,28 @@ export default function TicketDetailPage() {
             </Group>
 
             <Group justify="space-between" align="flex-start">
-              <Text
-                size="xl"
-                fw={700}
-                className="text-text-primary flex-1"
-              >
-                {ticket.title}
-              </Text>
+              <Textarea
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.currentTarget.value)}
+                autosize
+                minRows={1}
+                maxRows={3}
+                variant="unstyled"
+                classNames={{ input: "text-text-primary font-bold text-xl p-0 leading-tight resize-none" }}
+                styles={{ root: { flex: 1 }, input: { fontWeight: 700, fontSize: "1.25rem" } }}
+                onBlur={() => {
+                  const trimmed = titleValue.trim();
+                  if (trimmed && trimmed !== ticket.title) {
+                    handleFieldUpdate("title", trimmed);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
               <Menu position="bottom-end" withinPortal>
                 <Menu.Target>
                   <ActionIcon variant="subtle" className="text-text-muted">
@@ -430,43 +772,34 @@ export default function TicketDetailPage() {
           )}
 
           {/* Body */}
-          {ticket.body ? (
-            <MarkdownRenderer content={ticket.body} />
-          ) : (
-            <Text size="sm" className="text-text-muted">
-              No description provided.
-            </Text>
-          )}
+          <TicketBodyEditor
+            ticketId={ticketId}
+            initialContent={ticket.body ?? null}
+          />
 
-          {/* Sub-actions linked to this ticket */}
-          {ticket.actions && ticket.actions.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Sub-tasks
-              </Text>
-              <div className="rounded-lg border border-border-primary overflow-hidden">
-                {ticket.actions.map((action: { id: string; name: string; status: string; kanbanStatus: string | null }, i: number) => (
-                  <div
-                    key={action.id}
-                    className={`flex items-center gap-3 px-3 py-2 ${i < ticket.actions.length - 1 ? "border-b border-border-primary" : ""}`}
-                  >
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${action.kanbanStatus === "DONE" || action.status === "completed" ? "bg-green-500" : "bg-border-primary"}`} />
-                    <Text size="sm" className={`text-text-primary ${action.kanbanStatus === "DONE" || action.status === "completed" ? "line-through opacity-60" : ""}`}>
-                      {action.name}
-                    </Text>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Linked Actions */}
+          <LinkedActionsSection
+            ticketId={ticketId}
+            actions={ticket.actions ?? []}
+            workspaceId={workspaceId}
+            onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
+          />
 
           {/* Activity / Comments */}
           <div className="mt-4">
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-3">
-              Activity
-            </Text>
+            <button
+              className="flex items-center gap-1.5 mb-3"
+              onClick={() => setActivityCollapsed((v) => !v)}
+            >
+              {activityCollapsed
+                ? <IconChevronRight size={13} className="text-text-muted" />
+                : <IconChevronDown size={13} className="text-text-muted" />}
+              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
+                Activity
+              </Text>
+            </button>
 
-            {ticket.comments.length > 0 && (
+            {!activityCollapsed && ticket.comments.length > 0 && (
               <Stack gap="sm" mb="md">
                 {ticket.comments.map((c) => (
                   <div key={c.id} className="border border-border-primary rounded-lg p-3">
@@ -496,33 +829,35 @@ export default function TicketDetailPage() {
               </Stack>
             )}
 
-            <div className="flex gap-3">
-              <Textarea
-                placeholder="Leave a comment..."
-                value={comment}
-                onChange={(e) => setComment(e.currentTarget.value)}
-                autosize
-                minRows={1}
-                maxRows={4}
-                className="flex-1"
-                styles={{
-                  input: {
-                    backgroundColor: "transparent",
-                    border: "1px solid var(--color-border-primary)",
-                    fontSize: "0.85rem",
-                  },
-                }}
-              />
-              <Button
-                size="xs"
-                onClick={() => addComment.mutate({ ticketId, content: comment })}
-                loading={addComment.isPending}
-                disabled={!comment.trim()}
-                className="self-end"
-              >
-                Post
-              </Button>
-            </div>
+            {!activityCollapsed && (
+              <div className="flex gap-3">
+                <Textarea
+                  placeholder="Leave a comment..."
+                  value={comment}
+                  onChange={(e) => setComment(e.currentTarget.value)}
+                  autosize
+                  minRows={1}
+                  maxRows={4}
+                  className="flex-1"
+                  styles={{
+                    input: {
+                      backgroundColor: "transparent",
+                      border: "1px solid var(--color-border-primary)",
+                      fontSize: "0.85rem",
+                    },
+                  }}
+                />
+                <Button
+                  size="xs"
+                  onClick={() => addComment.mutate({ ticketId, content: comment })}
+                  loading={addComment.isPending}
+                  disabled={!comment.trim()}
+                  className="self-end"
+                >
+                  Post
+                </Button>
+              </div>
+            )}
           </div>
         </Stack>
       </div>

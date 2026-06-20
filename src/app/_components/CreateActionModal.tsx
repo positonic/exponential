@@ -1,7 +1,7 @@
 import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useViewportSize } from '@mantine/hooks';
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
@@ -13,7 +13,7 @@ import { useSession } from 'next-auth/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
 
-export function CreateActionModal({ viewName, projectId: propProjectId, children }: { viewName: string; projectId?: string; children?: React.ReactNode }) {
+export function CreateActionModal({ viewName, projectId: propProjectId, children, initialName, onActionCreated, externalOpened, onExternalClose }: { viewName: string; projectId?: string; children?: React.ReactNode; initialName?: string; onActionCreated?: (actionId: string) => void; externalOpened?: boolean; onExternalClose?: () => void }) {
   const { data: session } = useSession();
   const { width } = useViewportSize();
   // Use propProjectId if provided, otherwise try to extract from viewName
@@ -290,7 +290,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
       const invalidatePromises: Promise<unknown>[] = [];
 
-      // Mark project actions stale (for next mount) but don't refetch — we
+      // Mark project actions stale (for next mount) but don't refetch - we
       // already have authoritative data from the create response above.
       if (projectId) {
         invalidatePromises.push(
@@ -324,7 +324,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
       // Run all post-create attachments concurrently. Each mutation has its own
       // onError handler that surfaces failures independently, so we don't need
-      // to gate the modal flow or a success toast on these completing — the
+      // to gate the modal flow or a success toast on these completing - the
       // optimistic row is already visible.
       const pendingAssignees = pendingAssigneesRef.current;
       const pendingScreenshots = pendingScreenshotsRef.current;
@@ -362,6 +362,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
       // Fire-and-forget; per-mutation onError handlers already log failures.
       void Promise.allSettled(postCreatePromises);
+
+      onActionCreated?.(data.id);
+      onExternalClose?.();
     },
   });
 
@@ -462,18 +465,32 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     open();
   };
 
+  // Controlled mode: open/close driven by parent
+  useEffect(() => {
+    if (externalOpened) {
+      setCreatedActionId(null);
+      if (initialName) setName(initialName);
+      open();
+    } else {
+      close();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalOpened]);
+
   return (
     <>
-      {children ? (
-        <div onClick={handleOpen}>{children}</div>
-      ) : (
-        <button
-          onClick={handleOpen}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
-        >
-          <IconPlus size={16} />
-          <span>Add task</span>
-        </button>
+      {externalOpened === undefined && (
+        children ? (
+          <div onClick={handleOpen}>{children}</div>
+        ) : (
+          <button
+            onClick={handleOpen}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-gray-400 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+          >
+            <IconPlus size={16} />
+            <span>Add task</span>
+          </button>
+        )
       )}
 
       <Modal
