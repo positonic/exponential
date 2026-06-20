@@ -515,7 +515,7 @@ function LinkedActionsSection({
 
       {/* Edit action modal - opened when clicking a row */}
       <EditActionModal
-        action={editingAction}
+        action={editingAction as unknown as Parameters<typeof EditActionModal>[0]["action"]}
         opened={editingAction !== null}
         onClose={() => setEditingAction(null)}
         onSuccess={() => { setEditingAction(null); onChanged(); }}
