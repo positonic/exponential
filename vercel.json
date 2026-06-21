@@ -13,6 +13,10 @@
     {
       "path": "/api/cron/auto-summarize-meetings",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/run-scheduled-automations",
+      "schedule": "0 * * * *"
     }
   ]
 }

@@ -163,6 +163,7 @@ model User {
   viewsCreated                View[]                      @relation("ViewsCreated")
   // List relations
   listsCreated                List[]                      @relation("ListsCreated")
+  collectionsCreated          Collection[]                @relation("CollectionCreatedBy")
   // Epic relations
   epicsOwned                  Epic[]                      @relation("EpicOwner")
   // OKR Check-in relations
@@ -324,6 +325,7 @@ model Workspace {
   invitations             WorkspaceInvitation[]
   views                   View[]
   lists                   List[]
+  collections             Collection[]
   // CRM relations
   crmContacts             CrmContact[]
   crmOrganizations        CrmOrganization[]
@@ -599,6 +601,44 @@ model List {
   @@index([workspaceId])
   @@index([createdById])
   @@index([status])
+}
+
+/// Generic, user-facing "List" primitive (ADR-0030). A curated membership set,
+/// polymorphic *by convention* and homogeneous per collection (one memberType).
+/// Distinct from the sprint `List` model above. v1 member type: "crm_contact".
+model Collection {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  /// Discriminator for the kind of member this list holds, e.g. "crm_contact".
+  memberType  String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?              @relation("CollectionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  members   CollectionMember[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, memberType])
+}
+
+/// One member of a Collection. `memberId` references an entity of the parent's
+/// `memberType` *by convention* (no DB FK — that is what lets a new member type
+/// be added with no migration); cleanup of orphaned members is app-level.
+model CollectionMember {
+  id           String   @id @default(cuid())
+  collectionId String
+  memberType   String
+  memberId     String
+  createdAt    DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, memberId])
+  @@index([collectionId])
+  @@index([memberType, memberId])
 }
 
 model Action {
@@ -2510,6 +2550,8 @@ model CrmContact {
   tags                String[]
   lastInteractionAt   DateTime?
   lastInteractionType String?
+  // Email consent: set when the contact unsubscribes; honored by every Broadcast send.
+  emailOptedOutAt     DateTime?
   organizationId      String?
   createdById         String?
   createdAt           DateTime  @default(now())

@@ -942,6 +942,90 @@ export async function sendCrmAutomationEmail(params: {
   return { subject: params.subject, htmlBody, textBody: params.bodyText };
 }
 
+function escapeDigestHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Renders + sends a "What Shipped Today" Broadcast digest email. The body leads
+ * with the AI prose summary, then the structured per-category list; the footer
+ * carries the mandatory one-click unsubscribe link (CONTEXT.md → Broadcast).
+ */
+export async function sendBroadcastDigestEmail(params: {
+  to: string;
+  subject: string;
+  summary: string;
+  sections: { category: string; items: string[] }[];
+  unsubscribeUrl: string;
+  greetingName?: string | null;
+}): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const appName = PRODUCT_NAME;
+  const greeting = params.greetingName
+    ? `Hi ${escapeDigestHtml(params.greetingName)},`
+    : "Hi,";
+
+  const summaryHtml = params.summary
+    ? `<div style="white-space: pre-wrap; color: #1a1a1a; margin: 16px 0;">${escapeDigestHtml(
+        params.summary,
+      )}</div>`
+    : "";
+
+  const sectionsHtml = params.sections
+    .map(
+      (s) => `
+    <h3 style="margin: 24px 0 8px; color: #1a1a1a;">${escapeDigestHtml(s.category)}</h3>
+    <ul style="margin: 0; padding-left: 20px; color: #1a1a1a;">
+      ${s.items.map((i) => `<li style="margin: 4px 0;">${escapeDigestHtml(i)}</li>`).join("")}
+    </ul>`,
+    )
+    .join("");
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; line-height: 1.6; background-color: #f9fafb;">
+    <h2 style="color: ${EMAIL_BRAND_COLOR}; margin: 0 0 8px;">${escapeDigestHtml(
+      params.subject,
+    )}</h2>
+    <p style="margin: 0 0 8px;">${greeting}</p>
+    ${summaryHtml}
+    ${sectionsHtml}
+    <p style="color: ${EMAIL_BRAND_COLOR}; margin-top: 24px;">— The ${appName} team</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+    <p style="font-size: 12px; color: #6b7280;">
+      You received this because you're on a list in our CRM.
+      <a href="${params.unsubscribeUrl}" style="color: #6b7280;">Unsubscribe</a>.
+    </p>
+  </body>
+</html>`;
+
+  const textBody = `${params.subject}
+
+${params.greetingName ? `Hi ${params.greetingName},` : "Hi,"}
+
+${params.summary}
+
+${params.sections
+  .map((s) => `${s.category}\n${s.items.map((i) => `- ${i}`).join("\n")}`)
+  .join("\n\n")}
+
+— The ${appName} team
+
+Unsubscribe: ${params.unsubscribeUrl}`;
+
+  await sendEmail({
+    to: params.to,
+    subject: params.subject,
+    htmlBody,
+    textBody,
+  });
+
+  return { subject: params.subject, htmlBody, textBody };
+}
+
 export const EmailService = {
   sendMagicLinkEmail,
   sendWelcomeEmail,
@@ -952,4 +1036,5 @@ export const EmailService = {
   sendMentionNotificationEmail,
   sendCrmOnboardingWelcomeEmail,
   sendCrmAutomationEmail,
+  sendBroadcastDigestEmail,
 };

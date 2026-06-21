@@ -11,6 +11,8 @@ import {
   IconMail,
   IconBolt,
   IconForms,
+  IconListDetails,
+  IconBroadcast,
 } from '@tabler/icons-react';
 
 const crmNavigation = [
@@ -22,6 +24,8 @@ const crmNavigation = [
       { title: 'Contacts', href: '/contacts', icon: IconUsers },
       { title: 'Organizations', href: '/organizations', icon: IconBuilding },
       { title: 'Automations', href: '/automations', icon: IconBolt },
+      { title: 'Lists', href: '/lists', icon: IconListDetails },
+      { title: 'Broadcasts', href: '/broadcasts', icon: IconBroadcast },
       { title: 'Forms', href: '/forms', icon: IconForms },
     ],
   },

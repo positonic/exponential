@@ -4,6 +4,7 @@ import { type IStepExecutor } from "./steps/IStepExecutor";
 import { FetchGitHubCommitsStep } from "./steps/FetchGitHubCommitsStep";
 import { AiAnalyzeStep } from "./steps/AiAnalyzeStep";
 import { AiGenerateContentStep } from "./steps/AiGenerateContentStep";
+import { GenerateAiDigestStep } from "./steps/GenerateAiDigestStep";
 import { StoreContentDraftStep } from "./steps/StoreContentDraftStep";
 import { SendNotificationStep } from "./steps/SendNotificationStep";
 // PM steps
@@ -14,6 +15,7 @@ import { FetchBlockersStep } from "./steps/FetchBlockersStep";
 import { AiGenerateStandupStep } from "./steps/AiGenerateStandupStep";
 // CRM automation steps
 import { SendEmailStep } from "../crm/automation/steps/SendEmailStep";
+import { SendEmailToListStep } from "../crm/automation/steps/SendEmailToListStep";
 import { GenerateDocumentStep } from "../crm/automation/steps/GenerateDocumentStep";
 
 export class StepRegistry {
@@ -40,9 +42,10 @@ export function createStepRegistry(db: PrismaClient): StepRegistry {
   const registry = new StepRegistry();
   
   // Content steps
-  registry.register(new FetchGitHubCommitsStep());
+  registry.register(new FetchGitHubCommitsStep(db));
   registry.register(new AiAnalyzeStep());
   registry.register(new AiGenerateContentStep());
+  registry.register(new GenerateAiDigestStep());
   registry.register(new StoreContentDraftStep(db));
   registry.register(new SendNotificationStep());
   
@@ -55,6 +58,7 @@ export function createStepRegistry(db: PrismaClient): StepRegistry {
 
   // CRM automation steps
   registry.register(new SendEmailStep(db));
+  registry.register(new SendEmailToListStep(db));
   registry.register(new GenerateDocumentStep(db));
 
   return registry;
