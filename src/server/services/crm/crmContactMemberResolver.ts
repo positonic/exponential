@@ -14,8 +14,9 @@ import {
  * ([ADR-0030](../../../../docs/adr/0030-generic-collection-list-primitive.md)).
  *
  * Returns decrypted email + merge variables. Contacts without a decryptable
- * email are dropped (they cannot receive a Broadcast). Consent filtering
- * (`emailOptedOutAt`) is layered on by the consent ticket (T2).
+ * email are dropped (they cannot receive a Broadcast), and opted-out contacts
+ * (`emailOptedOutAt` set) are excluded — consent is enforced here so every
+ * caller (incl. the send step) honors it by construction.
  */
 export class CrmContactMemberResolver implements MemberTypeResolver {
   memberType = CRM_CONTACT_MEMBER_TYPE;
@@ -29,7 +30,12 @@ export class CrmContactMemberResolver implements MemberTypeResolver {
     if (memberIds.length === 0) return [];
 
     const contacts = await this.db.crmContact.findMany({
-      where: { id: { in: memberIds }, workspaceId: ctx.workspaceId },
+      // Consent: exclude opted-out contacts so Broadcasts never email them (T2).
+      where: {
+        id: { in: memberIds },
+        workspaceId: ctx.workspaceId,
+        emailOptedOutAt: null,
+      },
       select: {
         id: true,
         firstName: true,
