@@ -97,13 +97,19 @@ jobs:
 
       - name: Select one candidate
         id: select
+        # ONLY_TICKET comes via env (never inlined into the script) so a crafted
+        # workflow_dispatch input can't inject shell.
+        env:
+          ONLY_TICKET: ${{ inputs.ticket_id }}
         run: |
-          node scripts/ai-bug-fixer/select-candidate.mjs \
-            --candidates candidates.json \
-            --exclude security.json \
-            --open-prs "${{ steps.prs.outputs.open }}" \
-            --max-open-prs "${{ vars.AI_BUG_FIXER_MAX_OPEN_PRS || '3' }}" \
-            ${{ inputs.ticket_id && format('--only-ticket {0}', inputs.ticket_id) || '' }}
+          args=(
+            --candidates candidates.json
+            --exclude security.json
+            --open-prs "${{ steps.prs.outputs.open }}"
+            --max-open-prs "${{ vars.AI_BUG_FIXER_MAX_OPEN_PRS || '3' }}"
+          )
+          if [ -n "$ONLY_TICKET" ]; then args+=(--only-ticket "$ONLY_TICKET"); fi
+          node scripts/ai-bug-fixer/select-candidate.mjs "${args[@]}"
 
   # ---------------------------------------------------------------------------
   # Heavyweight fix: claim -> agent -> validate -> PR -> link back.
@@ -141,11 +147,15 @@ jobs:
           exponential auth login --token "$EXPONENTIAL_TOKEN" --api-url "$EXPONENTIAL_API_URL"
 
       - name: Claim ticket (soft lock)
+        id: claim
         run: |
+          # The status flip is the claim and must succeed for claim.outcome to be
+          # 'success'. The comment is best-effort — a flaky comment call must not
+          # fail the step, or the ticket would be claimed yet never released.
           exponential tickets update --id "$TICKET_ID" \
             --status IN_PROGRESS --add-label ai-in-progress --json
           exponential tickets comment add --id "$TICKET_ID" \
-            -m "🤖 The AI bug-fixer picked this up. Working on it — [run log]($RUN_URL)."
+            -m "🤖 The AI bug-fixer picked this up. Working on it — [run log]($RUN_URL)." || true
 
       - name: Render fix brief
         run: |
@@ -175,6 +185,11 @@ jobs:
           npx next lint
 
       - name: Finalize — open PR or release the ticket
+        # Always run once the ticket has actually been claimed, even if an
+        # intervening step (render brief, branch checkout, agent, validate) hard-
+        # failed — otherwise the ticket would be stranded in IN_PROGRESS. Gated on
+        # claim success so we never comment on a ticket we never moved.
+        if: ${{ always() && steps.claim.outcome == 'success' }}
         env:
           GIT_AUTHOR_NAME: exponential-ai-bot
           GIT_AUTHOR_EMAIL: ai-bot@bots.exponential.im
