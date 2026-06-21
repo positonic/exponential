@@ -34,6 +34,9 @@ permissions:
 env:
   EXPONENTIAL_API_URL: ${{ vars.EXPONENTIAL_API_URL }}
   EXPONENTIAL_PRODUCT: ${{ vars.EXPONENTIAL_PRODUCT }}
+  # Required: the CLI resolves `--label` slugs against the workspace, so label
+  # filtering fails without it even when --product is a CUID.
+  EXPONENTIAL_WORKSPACE: ${{ vars.EXPONENTIAL_WORKSPACE }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -59,6 +62,7 @@ jobs:
         run: |
           : "${EXPONENTIAL_API_URL:?Set the EXPONENTIAL_API_URL repo variable}"
           : "${EXPONENTIAL_PRODUCT:?Set the EXPONENTIAL_PRODUCT repo variable (product slug or CUID)}"
+          : "${EXPONENTIAL_WORKSPACE:?Set the EXPONENTIAL_WORKSPACE repo variable (needed to resolve label slugs)}"
           if [ -z "${EXPONENTIAL_TOKEN}" ]; then
             echo "::error::Missing EXPONENTIAL_TOKEN secret"; exit 1
           fi
@@ -74,18 +78,19 @@ jobs:
 
       - name: List candidates and exclusions
         run: |
-          # A missing label (e.g. nobody has tagged anything `ai-fixable` yet) is
-          # "no candidates", not a failed run — fall back to an empty list.
+          # --workspace is REQUIRED: the CLI resolves `--label` slugs against the
+          # workspace. We do NOT swallow errors here — a CLI failure (bad token,
+          # wrong workspace, missing label) must fail the scan loudly rather than
+          # leave the worker silently idle. An unused-but-existing label resolves
+          # cleanly to {tickets:[]}; only a genuine misconfig errors out.
           # Eligible: ai-fixable bugs that are fully specified (READY_TO_PLAN).
           exponential tickets list \
-            --product "$EXPONENTIAL_PRODUCT" \
-            --type BUG --status READY_TO_PLAN --label ai-fixable --json > candidates.json \
-            || echo '[]' > candidates.json
+            --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
+            --type BUG --status READY_TO_PLAN --label ai-fixable --json > candidates.json
           # Safety exclusion set: anything also tagged `security`.
           exponential tickets list \
-            --product "$EXPONENTIAL_PRODUCT" \
-            --type BUG --status READY_TO_PLAN --label security --json > security.json \
-            || echo '[]' > security.json
+            --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
+            --type BUG --status READY_TO_PLAN --label security --json > security.json
 
       - name: Count open AI PRs (cap guard)
         id: prs
