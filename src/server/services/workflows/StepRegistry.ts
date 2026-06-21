@@ -15,6 +15,7 @@ import { FetchBlockersStep } from "./steps/FetchBlockersStep";
 import { AiGenerateStandupStep } from "./steps/AiGenerateStandupStep";
 // CRM automation steps
 import { SendEmailStep } from "../crm/automation/steps/SendEmailStep";
+import { SendEmailToListStep } from "../crm/automation/steps/SendEmailToListStep";
 import { GenerateDocumentStep } from "../crm/automation/steps/GenerateDocumentStep";
 
 export class StepRegistry {
@@ -57,6 +58,7 @@ export function createStepRegistry(db: PrismaClient): StepRegistry {
 
   // CRM automation steps
   registry.register(new SendEmailStep(db));
+  registry.register(new SendEmailToListStep(db));
   registry.register(new GenerateDocumentStep(db));
 
   return registry;
