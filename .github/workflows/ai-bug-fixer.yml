@@ -1,0 +1,269 @@
+name: AI Bug Fixer
+
+# Autonomous bug-fixing worker. Polls Exponential for bugs that a human has
+# explicitly marked `ai-fixable`, attempts a narrow fix, runs validation, and
+# opens a PR for HUMAN REVIEW. It never merges and never deploys. Ticket
+# close-out happens via the existing PR-merge webhook (ADR-0021).
+#
+# See docs/agents/ai-bug-fixer.md for setup, required secrets, and the marker
+# convention; docs/adr/0029-ai-bug-fixer-workflow.md for the design rationale.
+
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly; polling is the trigger (no event-driven path exists today)
+  workflow_dispatch:
+    inputs:
+      ticket_id:
+        description: "Specific ticket CUID to attempt (optional; otherwise picks the oldest eligible)"
+        required: false
+      model:
+        description: "Override the coding-agent model (default: the AI_BUG_FIXER_MODEL repo var or claude-haiku-4-5)"
+        required: false
+
+# One run at a time. The status flip READY_TO_PLAN -> IN_PROGRESS is the soft
+# lock; this guarantees runs queue rather than overlap, so two workers can't
+# grab the same ticket.
+concurrency:
+  group: ai-bug-fixer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  EXPONENTIAL_API_URL: ${{ vars.EXPONENTIAL_API_URL }}
+  EXPONENTIAL_PRODUCT: ${{ vars.EXPONENTIAL_PRODUCT }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Cheap scan: just the CLI. Decides whether there's anything worth the
+  # heavyweight fix job (which does npm ci + runs a coding agent).
+  # ---------------------------------------------------------------------------
+  scan:
+    name: Scan for eligible bugs
+    runs-on: ubuntu-latest
+    outputs:
+      found: ${{ steps.select.outputs.found }}
+      ticket_id: ${{ steps.select.outputs.ticket_id }}
+      ticket_number: ${{ steps.select.outputs.ticket_number }}
+      ticket_title: ${{ steps.select.outputs.ticket_title }}
+      branch_slug: ${{ steps.select.outputs.branch_slug }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Preflight (required config)
+        run: |
+          : "${EXPONENTIAL_API_URL:?Set the EXPONENTIAL_API_URL repo variable}"
+          : "${EXPONENTIAL_PRODUCT:?Set the EXPONENTIAL_PRODUCT repo variable (product slug or CUID)}"
+          if [ -z "${EXPONENTIAL_TOKEN}" ]; then
+            echo "::error::Missing EXPONENTIAL_TOKEN secret"; exit 1
+          fi
+        env:
+          EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+
+      - name: Install + auth Exponential CLI
+        run: |
+          npm i -g exponential-cli
+          exponential auth login --token "$EXPONENTIAL_TOKEN" --api-url "$EXPONENTIAL_API_URL"
+        env:
+          EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+
+      - name: List candidates and exclusions
+        run: |
+          # A missing label (e.g. nobody has tagged anything `ai-fixable` yet) is
+          # "no candidates", not a failed run — fall back to an empty list.
+          # Eligible: ai-fixable bugs that are fully specified (READY_TO_PLAN).
+          exponential tickets list \
+            --product "$EXPONENTIAL_PRODUCT" \
+            --type BUG --status READY_TO_PLAN --label ai-fixable --json > candidates.json \
+            || echo '[]' > candidates.json
+          # Safety exclusion set: anything also tagged `security`.
+          exponential tickets list \
+            --product "$EXPONENTIAL_PRODUCT" \
+            --type BUG --status READY_TO_PLAN --label security --json > security.json \
+            || echo '[]' > security.json
+
+      - name: Count open AI PRs (cap guard)
+        id: prs
+        run: |
+          COUNT=$(gh pr list --state open --label ai-bug-fixer --json number --jq 'length' 2>/dev/null || echo 0)
+          echo "open=$COUNT" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Select one candidate
+        id: select
+        # ONLY_TICKET comes via env (never inlined into the script) so a crafted
+        # workflow_dispatch input can't inject shell.
+        env:
+          ONLY_TICKET: ${{ inputs.ticket_id }}
+        run: |
+          args=(
+            --candidates candidates.json
+            --exclude security.json
+            --open-prs "${{ steps.prs.outputs.open }}"
+            --max-open-prs "${{ vars.AI_BUG_FIXER_MAX_OPEN_PRS || '3' }}"
+          )
+          if [ -n "$ONLY_TICKET" ]; then args+=(--only-ticket "$ONLY_TICKET"); fi
+          node scripts/ai-bug-fixer/select-candidate.mjs "${args[@]}"
+
+  # ---------------------------------------------------------------------------
+  # Heavyweight fix: claim -> agent -> validate -> PR -> link back.
+  # ---------------------------------------------------------------------------
+  fix:
+    name: Fix bug #${{ needs.scan.outputs.ticket_number }}
+    needs: scan
+    if: needs.scan.outputs.found == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TICKET_ID: ${{ needs.scan.outputs.ticket_id }}
+      TICKET_NUMBER: ${{ needs.scan.outputs.ticket_number }}
+      TICKET_TITLE: ${{ needs.scan.outputs.ticket_title }}
+      BRANCH: ai/bug-${{ needs.scan.outputs.ticket_number }}-${{ needs.scan.outputs.branch_slug }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      MODEL: ${{ inputs.model || vars.AI_BUG_FIXER_MODEL || 'claude-haiku-4-5' }}
+      EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+      # Prefer a PAT so the PR triggers CI; fall back to the default token.
+      GH_TOKEN: ${{ secrets.AI_BUG_FIXER_GH_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AI_BUG_FIXER_GH_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install deps + CLI
+        run: |
+          npm ci
+          npm i -g exponential-cli
+          exponential auth login --token "$EXPONENTIAL_TOKEN" --api-url "$EXPONENTIAL_API_URL"
+
+      - name: Claim ticket (soft lock)
+        id: claim
+        run: |
+          # The status flip is the claim and must succeed for claim.outcome to be
+          # 'success'. The comment is best-effort — a flaky comment call must not
+          # fail the step, or the ticket would be claimed yet never released.
+          exponential tickets update --id "$TICKET_ID" \
+            --status IN_PROGRESS --add-label ai-in-progress --json
+          exponential tickets comment add --id "$TICKET_ID" \
+            -m "🤖 The AI bug-fixer picked this up. Working on it — [run log]($RUN_URL)." || true
+
+      - name: Render fix brief
+        run: |
+          exponential tickets get "$TICKET_ID" --json > ticket.json
+          node scripts/ai-bug-fixer/render-prompt.mjs --ticket ticket.json --out .ai-bug-fixer/prompt.md
+          git checkout -b "$BRANCH"
+
+      - name: Run coding agent
+        id: agent
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: "Read .ai-bug-fixer/prompt.md and implement the narrow fix it describes. Edit the working tree only — do NOT run git, commit, push, or open a PR."
+          claude_args: "--model ${{ inputs.model || vars.AI_BUG_FIXER_MODEL || 'claude-haiku-4-5' }} --max-turns 30"
+
+      - name: Validate (typecheck + lint)
+        id: validate
+        continue-on-error: true
+        env:
+          SKIP_ENV_VALIDATION: true
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: |
+          # Mirror the CI lint-and-typecheck job. Invoke npx directly so the 8GB
+          # heap applies (the `npm run check` script hardcodes 4GB inline).
+          npx tsc --noEmit
+          npx next lint
+
+      - name: Finalize — open PR or release the ticket
+        # Always run once the ticket has actually been claimed, even if an
+        # intervening step (render brief, branch checkout, agent, validate) hard-
+        # failed — otherwise the ticket would be stranded in IN_PROGRESS. Gated on
+        # claim success so we never comment on a ticket we never moved.
+        if: ${{ always() && steps.claim.outcome == 'success' }}
+        env:
+          GIT_AUTHOR_NAME: exponential-ai-bot
+          GIT_AUTHOR_EMAIL: ai-bot@bots.exponential.im
+          GIT_COMMITTER_NAME: exponential-ai-bot
+          GIT_COMMITTER_EMAIL: ai-bot@bots.exponential.im
+        run: |
+          set -euo pipefail
+
+          # Read the agent's bail-out note (if any) BEFORE deleting the scratch dir.
+          BAILED=""
+          if [ -f .ai-bug-fixer/needs-human.txt ]; then
+            BAILED="$(cat .ai-bug-fixer/needs-human.txt)"
+          fi
+          rm -rf .ai-bug-fixer   # keep the scratch brief out of the commit
+
+          # Detect changes from BOTH possible agent behaviours: uncommitted edits
+          # (stage them) and edits the action already committed to the branch.
+          git add -A
+          HAS_CHANGES=""
+          if ! git diff --cached --quiet; then HAS_CHANGES="yes"; fi
+          if ! git diff --quiet main...HEAD; then HAS_CHANGES="yes"; fi
+
+          # `if` guards (not `[ ] && cmd`) so a false condition can't trip set -e.
+          fail() {
+            reason="$1"
+            echo "::warning::AI fix did not produce a PR: $reason"
+            exponential tickets comment add --id "$TICKET_ID" \
+              -m "🤖 Couldn't open a PR automatically: ${reason}. Releasing the ticket for a human. [Run log]($RUN_URL)." || true
+            exponential tickets update --id "$TICKET_ID" \
+              --status READY_TO_PLAN --remove-label ai-in-progress --json
+            exit 0
+          }
+
+          if [ -n "$BAILED" ]; then fail "the agent flagged this as needing a human — ${BAILED}"; fi
+          if [ "${{ steps.agent.outcome }}" != "success" ]; then fail "the coding agent step failed"; fi
+          if [ -z "$HAS_CHANGES" ]; then fail "the agent made no code changes"; fi
+          if [ "${{ steps.validate.outcome }}" != "success" ]; then fail "validation (tsc/next lint) failed"; fi
+
+          # --- Success path: commit (if needed), push, PR (never merge) ---
+          gh label create ai-bug-fixer --color BFD4F2 --description "Opened by the AI bug-fixer" --force >/dev/null 2>&1 || true
+          # Commit staged edits if the agent left them uncommitted; if the action
+          # already committed to the branch, this is a no-op and we just push.
+          if ! git diff --cached --quiet; then
+            cat > .git-commit-msg <<EOF
+          fix: ${TICKET_TITLE} (bug #${TICKET_NUMBER})
+
+          Autonomous fix for Exponential ticket #${TICKET_NUMBER}.
+          Requires human review before merge.
+          EOF
+            git commit -F .git-commit-msg
+            rm -f .git-commit-msg
+          fi
+          git push origin "$BRANCH"
+
+          cat > .pr-body.md <<EOF
+          ## 🤖 Autonomous bug fix — needs human review
+
+          Fixes Exponential bug ticket **#${TICKET_NUMBER}** — ${TICKET_TITLE}.
+
+          Generated by the AI bug-fixer ([run log]($RUN_URL)) using \`${MODEL}\`.
+          Validation (\`tsc --noEmit\` + \`next lint\`) passed.
+
+          **A human must review and merge this PR.** On merge, the existing PR-merge
+          webhook (ADR-0021) promotes the ticket from QA to DONE.
+          EOF
+
+          PR_URL=$(gh pr create \
+            --base main --head "$BRANCH" \
+            --title "fix: ${TICKET_TITLE} (bug #${TICKET_NUMBER})" \
+            --label ai-bug-fixer \
+            --body-file .pr-body.md)
+          rm -f .pr-body.md
+          echo "Opened: $PR_URL"
+          exponential tickets update --id "$TICKET_ID" \
+            --status QA --branch "$BRANCH" --pr "$PR_URL" --remove-label ai-in-progress --json
+          exponential tickets comment add --id "$TICKET_ID" \
+            -m "🤖 Opened a PR for review: ${PR_URL} — moved to QA pending human review."
