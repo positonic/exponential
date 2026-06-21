@@ -60,6 +60,8 @@ export class GenerateAiDigestStep implements IStepExecutor {
     const model = new ChatOpenAI({
       modelName: (config.modelName as string) ?? "gpt-4o-mini",
       temperature: 0.3,
+      // Bound output cost — a digest is a few short paragraphs, never long.
+      maxTokens: 1500,
     });
 
     const response = await model.invoke([

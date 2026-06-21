@@ -35,6 +35,25 @@ async function assertInWorkspace(
 }
 
 /**
+ * Guard against cross-workspace targeting: the chosen List must live in the same
+ * workspace as the Broadcast. Without this, an edit-member of one workspace could
+ * wire a Broadcast at another workspace's List and email its contacts.
+ */
+async function assertCollectionInWorkspace(
+  db: PrismaClient,
+  collectionId: string,
+  workspaceId: string,
+) {
+  const collection = await db.collection.findUnique({
+    where: { id: collectionId },
+    select: { workspaceId: true },
+  });
+  if (!collection || collection.workspaceId !== workspaceId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "List not found" });
+  }
+}
+
+/**
  * `broadcast` router — scheduled Automations that send to a List (CONTEXT.md →
  * Broadcast). Broadcasts are `WorkflowDefinition`s with triggerType=scheduled.
  */
@@ -56,23 +75,28 @@ export const broadcastRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
-        name: z.string().min(1),
+        name: z.string().min(1).max(255),
         collectionId: z.string(),
         cadence: cadenceSchema,
-        subject: z.string().optional(),
+        subject: z.string().max(255).optional(),
       }),
     )
     .use(requireWorkspaceMembership("edit"))
-    .mutation(({ ctx, input }) =>
-      createBroadcast(ctx.db, {
+    .mutation(async ({ ctx, input }) => {
+      await assertCollectionInWorkspace(
+        ctx.db,
+        input.collectionId,
+        input.workspaceId,
+      );
+      return createBroadcast(ctx.db, {
         workspaceId: input.workspaceId,
         name: input.name,
         collectionId: input.collectionId,
         cadence: input.cadence,
         subject: input.subject,
         createdById: ctx.session.user.id,
-      }),
-    ),
+      });
+    }),
 
   setActive: protectedProcedure
     .input(

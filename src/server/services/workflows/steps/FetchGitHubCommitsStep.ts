@@ -109,8 +109,11 @@ export class FetchGitHubCommitsStep implements IStepExecutor {
     const commits: GitHubCommit[] = [];
     let page = 1;
     const perPage = 100;
+    // Defensive bound: cap pagination so a very active repo (or a wide window)
+    // can't fan out into thousands of API calls / a huge LLM payload downstream.
+    const maxPages = 10;
 
-    while (true) {
+    while (page <= maxPages) {
       const response = await octokit.repos.listCommits({
         owner: repoOwner,
         repo: repoName,
