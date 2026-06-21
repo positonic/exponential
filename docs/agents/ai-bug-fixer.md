@@ -61,6 +61,7 @@ A human reviews and merges the PR. On merge, the ADR-0021 webhook flips the tick
 | --- | --- | --- | --- |
 | `EXPONENTIAL_API_URL` | yes | — | e.g. `https://www.exponential.im` |
 | `EXPONENTIAL_PRODUCT` | yes | — | Product slug or CUID whose bug backlog to scan |
+| `EXPONENTIAL_WORKSPACE` | yes | — | Workspace slug or CUID (e.g. `syntrofi`). Required — the CLI resolves `--label` slugs against the workspace, so label filtering fails without it even with a CUID product. |
 | `AI_BUG_FIXER_MODEL` | no | `claude-haiku-4-5` | Coding-agent model |
 | `AI_BUG_FIXER_MAX_OPEN_PRS` | no | `3` | Skip new fixes while this many AI PRs are open |
 
