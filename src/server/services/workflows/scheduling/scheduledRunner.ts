@@ -1,7 +1,5 @@
 import { type PrismaClient } from "@prisma/client";
 
-import { WorkflowEngine } from "../WorkflowEngine";
-import { createStepRegistry } from "../StepRegistry";
 import { SCHEDULED_TRIGGER } from "../TriggerRegistry";
 import {
   parseCadence,
@@ -29,10 +27,38 @@ export interface RunScheduledResult {
   failed: { id: string; error: string }[];
 }
 
+/**
+ * Runs one Automation definition. Injectable so the runner's orchestration
+ * (due-filtering, atomic claim, error isolation) is unit-testable without the
+ * full engine; defaults to the real `WorkflowEngine`.
+ */
+export type ExecuteDefinition = (
+  definitionId: string,
+  initialInput: Record<string, unknown>,
+) => Promise<unknown>;
+
 export async function runDueScheduledAutomations(
   db: PrismaClient,
   now: Date,
+  execute?: ExecuteDefinition,
 ): Promise<RunScheduledResult> {
+  // Lazy-import the engine (and its step registry, which transitively imports
+  // the Prisma client) only when actually running — so this module stays
+  // importable in unit tests that inject their own `execute`.
+  const run: ExecuteDefinition =
+    execute ??
+    (async (id, input) => {
+      const [{ WorkflowEngine }, { createStepRegistry }] = await Promise.all([
+        import("../WorkflowEngine"),
+        import("../StepRegistry"),
+      ]);
+      return new WorkflowEngine(db, createStepRegistry(db)).execute(
+        id,
+        undefined,
+        input,
+      );
+    });
+
   const rows = await db.workflowDefinition.findMany({
     where: { isActive: true, triggerType: SCHEDULED_TRIGGER },
     select: { id: true, config: true, lastRunAt: true },
@@ -45,8 +71,6 @@ export async function runDueScheduledAutomations(
     skipped: [],
     failed: [],
   };
-
-  const engine = new WorkflowEngine(db, createStepRegistry(db));
 
   for (const row of rows) {
     const cadence = parseCadence(row.config);
@@ -82,9 +106,7 @@ export async function runDueScheduledAutomations(
     }
 
     try {
-      await engine.execute(row.id, undefined, {
-        scheduledFor: instant.toISOString(),
-      });
+      await run(row.id, { scheduledFor: instant.toISOString() });
       result.ran.push(row.id);
     } catch (err) {
       result.failed.push({
