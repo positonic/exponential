@@ -4,6 +4,7 @@ import { type IStepExecutor } from "./steps/IStepExecutor";
 import { FetchGitHubCommitsStep } from "./steps/FetchGitHubCommitsStep";
 import { AiAnalyzeStep } from "./steps/AiAnalyzeStep";
 import { AiGenerateContentStep } from "./steps/AiGenerateContentStep";
+import { GenerateAiDigestStep } from "./steps/GenerateAiDigestStep";
 import { StoreContentDraftStep } from "./steps/StoreContentDraftStep";
 import { SendNotificationStep } from "./steps/SendNotificationStep";
 // PM steps
@@ -40,9 +41,10 @@ export function createStepRegistry(db: PrismaClient): StepRegistry {
   const registry = new StepRegistry();
   
   // Content steps
-  registry.register(new FetchGitHubCommitsStep());
+  registry.register(new FetchGitHubCommitsStep(db));
   registry.register(new AiAnalyzeStep());
   registry.register(new AiGenerateContentStep());
+  registry.register(new GenerateAiDigestStep());
   registry.register(new StoreContentDraftStep(db));
   registry.register(new SendNotificationStep());
   

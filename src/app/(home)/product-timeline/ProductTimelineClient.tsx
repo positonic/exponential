@@ -38,73 +38,49 @@ import type {
 } from "~/server/services/githubService";
 import { ReleaseBody } from "./ReleaseBody";
 import { PRODUCT_NAME } from "~/lib/brand";
+import {
+  parseCommitMessage,
+  summarizeByCategory,
+  COMMIT_CATEGORIES,
+  type CommitCategory,
+} from "~/lib/changelog/commitCategories";
 import classes from "./ProductTimeline.module.css";
 
-const CATEGORY_CONFIG: Record<
-  string,
-  { color: string; label: string; icon: React.ReactNode }
-> = {
-  feat: {
-    color: "blue",
-    label: "Feature",
-    icon: <IconSparkles size={12} />,
-  },
-  fix: { color: "green", label: "Fix", icon: <IconBug size={12} /> },
-  chore: { color: "gray", label: "Chore", icon: <IconTool size={12} /> },
-  docs: {
-    color: "cyan",
-    label: "Docs",
-    icon: <IconFileText size={12} />,
-  },
-  refactor: {
-    color: "violet",
-    label: "Refactor",
-    icon: <IconRefresh size={12} />,
-  },
-  style: { color: "pink", label: "Style", icon: <IconTool size={12} /> },
-  test: { color: "yellow", label: "Test", icon: <IconTool size={12} /> },
-  perf: {
-    color: "orange",
-    label: "Perf",
-    icon: <IconSparkles size={12} />,
-  },
-  ci: { color: "gray", label: "CI", icon: <IconTool size={12} /> },
-  build: { color: "gray", label: "Build", icon: <IconTool size={12} /> },
-  update: {
-    color: "gray",
-    label: "Update",
-    icon: <IconGitCommit size={12} />,
-  },
+// Icons are presentation-only and stay in the client; the category taxonomy,
+// labels, and colors come from the shared categorization helper so the timeline
+// and the "What Shipped Today" digest never drift apart.
+const CATEGORY_ICONS: Record<CommitCategory, React.ReactNode> = {
+  feat: <IconSparkles size={12} />,
+  fix: <IconBug size={12} />,
+  perf: <IconSparkles size={12} />,
+  docs: <IconFileText size={12} />,
+  refactor: <IconRefresh size={12} />,
+  style: <IconTool size={12} />,
+  test: <IconTool size={12} />,
+  chore: <IconTool size={12} />,
+  ci: <IconTool size={12} />,
+  build: <IconTool size={12} />,
+  update: <IconGitCommit size={12} />,
 };
 
-function parseCommitMessage(message: string): {
-  category: string;
-  text: string;
+function categoryConfig(category: string): {
+  color: string;
+  label: string;
+  icon: React.ReactNode;
 } {
-  const match = message.match(
-    /^(feat|fix|chore|docs|refactor|style|test|perf|ci|build)(?:\(.+?\))?:\s*(.+)/i,
-  );
-  if (match) return { category: match[1]!.toLowerCase(), text: match[2]! };
-  return { category: "update", text: message };
-}
-
-function getCategorySummary(
-  commits: GitHubCommit[],
-): { category: string; count: number }[] {
-  const counts = new Map<string, number>();
-  for (const commit of commits) {
-    const { category } = parseCommitMessage(commit.message);
-    counts.set(category, (counts.get(category) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .map(([category, count]) => ({ category, count }))
-    .sort((a, b) => b.count - a.count);
+  const key: CommitCategory =
+    category in COMMIT_CATEGORIES ? (category as CommitCategory) : "update";
+  return {
+    color: COMMIT_CATEGORIES[key].color,
+    label: COMMIT_CATEGORIES[key].label,
+    icon: CATEGORY_ICONS[key],
+  };
 }
 
 function getDominantColor(commits: GitHubCommit[]): string {
-  const summary = getCategorySummary(commits);
+  const summary = summarizeByCategory(commits);
   const dominant = summary[0]?.category ?? "update";
-  return CATEGORY_CONFIG[dominant]?.color ?? "gray";
+  return categoryConfig(dominant).color;
 }
 
 function groupCommitsByDate(
@@ -293,7 +269,7 @@ export function ProductTimelineClient() {
 
           const groupId = entry.date.toISOString();
           const isExpanded = expandedGroups.has(groupId);
-          const summary = getCategorySummary(entry.commits);
+          const summary = summarizeByCategory(entry.commits);
           const dominantColor = getDominantColor(entry.commits);
 
           return (
@@ -330,7 +306,7 @@ export function ProductTimelineClient() {
                   </Text>
                   <Group gap={4}>
                     {summary.map(({ category, count }) => {
-                      const config = CATEGORY_CONFIG[category] ?? CATEGORY_CONFIG.update!;
+                      const config = categoryConfig(category);
                       return (
                         <Badge
                           key={category}
@@ -354,7 +330,7 @@ export function ProductTimelineClient() {
                     const { category, text } = parseCommitMessage(
                       commit.message,
                     );
-                    const config = CATEGORY_CONFIG[category] ?? CATEGORY_CONFIG.update!;
+                    const config = categoryConfig(category);
 
                     return (
                       <Group
