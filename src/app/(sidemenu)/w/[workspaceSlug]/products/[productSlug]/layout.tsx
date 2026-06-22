@@ -24,6 +24,8 @@ import {
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { buildProductFavoriteTarget } from "./favoriteTarget";
 
 const tabs = [
   { value: "overview", href: "", label: "Overview", icon: IconHome },
@@ -165,6 +167,20 @@ export default function ProductLayout({
             )}
           </div>
           <Group gap="xs">
+            {product && workspaceId && (
+              <FavoriteButton
+                entityType="page"
+                {...buildProductFavoriteTarget({
+                  pathname,
+                  workspaceSlug: workspace.slug,
+                  productSlug,
+                  productName: product.name,
+                })}
+                workspaceId={workspaceId}
+                size="lg"
+                variant="default"
+              />
+            )}
             <ActionIcon
               variant="filled"
               size="lg"

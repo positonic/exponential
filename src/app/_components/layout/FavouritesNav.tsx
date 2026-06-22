@@ -1,17 +1,44 @@
 "use client";
 
 import React from "react";
-import { IconTarget, IconTrendingUp } from "@tabler/icons-react";
+import {
+  IconTarget,
+  IconTrendingUp,
+  IconBox,
+  IconTargetArrow,
+  IconLayoutList,
+  IconBulb,
+  IconAffiliate,
+  IconCalendarClock,
+  IconClipboardList,
+  IconSettings,
+  IconFile,
+  type IconProps,
+} from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 
+// Maps a stored page-favourite icon name to a glyph. Names are produced by the
+// products favourite-target helper; unknown names fall back to a generic file.
+const PAGE_ICONS: Record<string, React.ComponentType<IconProps>> = {
+  product: IconBox,
+  problems: IconTargetArrow,
+  backlog: IconLayoutList,
+  features: IconBulb,
+  graph: IconAffiliate,
+  cycles: IconCalendarClock,
+  research: IconBulb,
+  retro: IconClipboardList,
+  settings: IconSettings,
+};
+
 /**
- * "Favourites" sidebar section. Lists the current user's favourited OKR items
- * scoped to the active workspace (per-user dynamic data from a tRPC query, not
- * the plugin manifest). Each row deep-links to the OKRs page and opens that
- * item's drawer via the `?drawer=<type>:<id>` URL state. Renders nothing when
- * there are no favourites for the workspace.
+ * "Favourites" sidebar section. Lists the current user's favourites scoped to
+ * the active workspace (per-user dynamic data from a tRPC query). OKR rows
+ * (objective / keyResult) deep-link to the OKRs page drawer via the
+ * `?drawer=<type>:<id>` URL state; "page" rows link straight to their stored
+ * workspace-relative path. Renders nothing when there are no favourites.
  */
 export function FavouritesNav(): React.JSX.Element | null {
   const { workspaceId, workspaceSlug } = useWorkspace();
@@ -30,15 +57,27 @@ export function FavouritesNav(): React.JSX.Element | null {
       <div className="sb-divider" />
       <div className="sb-section-label">Favourites</div>
       <div className="sb-group sb-group--secondary">
-        {favourites.map((fav) => (
-          <NavLink
-            key={fav.id}
-            href={`/w/${workspaceSlug}/goals?tab=okrs&drawer=${fav.entityType}:${fav.entityId}`}
-            icon={fav.entityType === "objective" ? IconTarget : IconTrendingUp}
-          >
-            {fav.title}
-          </NavLink>
-        ))}
+        {favourites.map((fav) => {
+          const href =
+            fav.entityType === "page"
+              ? `/w/${workspaceSlug}/${fav.entityId}`
+              : `/w/${workspaceSlug}/goals?tab=okrs&drawer=${fav.entityType}:${fav.entityId}`;
+
+          let icon: React.ComponentType<IconProps>;
+          if (fav.entityType === "objective") {
+            icon = IconTarget;
+          } else if (fav.entityType === "keyResult") {
+            icon = IconTrendingUp;
+          } else {
+            icon = (fav.icon ? PAGE_ICONS[fav.icon] : undefined) ?? IconFile;
+          }
+
+          return (
+            <NavLink key={fav.id} href={href} icon={icon}>
+              {fav.title}
+            </NavLink>
+          );
+        })}
       </div>
     </>
   );

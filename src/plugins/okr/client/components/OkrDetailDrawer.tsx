@@ -23,6 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { useFavorite } from "~/app/_components/shared/useFavorite";
 import {
   clamp01,
   effectiveConfidence,
@@ -1493,41 +1494,14 @@ export function OkrDetailDrawer({
   const isSettingStatus =
     setObjectiveOverride.isPending || setKrOverride.isPending;
 
-  // Favourite state for the Star CTA. entityId is stringified so objectives
-  // (numeric id) and key results (cuid) share one polymorphic key.
-  const favoriteKey = {
+  // Favourite state for the Star CTA, via the shared hook. entityId is
+  // stringified so objectives (numeric id) and key results (cuid) share one
+  // polymorphic key. The hook owns the optimistic flip + sidebar invalidation.
+  const { favorited, toggle: handleToggleFavorite } = useFavorite({
     entityType: type,
     entityId: String(itemId ?? ""),
-  };
-  const favoriteQuery = api.favorite.isFavorite.useQuery(favoriteKey, {
     enabled: opened && itemId != null,
   });
-  const favorited = favoriteQuery.data?.favorited ?? false;
-  const toggleFavorite = api.favorite.toggle.useMutation({
-    // Optimistic flip; reconcile on settle.
-    onMutate: async () => {
-      await utils.favorite.isFavorite.cancel(favoriteKey);
-      const prev = utils.favorite.isFavorite.getData(favoriteKey);
-      utils.favorite.isFavorite.setData(favoriteKey, (old) => ({
-        favorited: !(old?.favorited ?? false),
-      }));
-      return { prev };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.prev) {
-        utils.favorite.isFavorite.setData(favoriteKey, context.prev);
-      }
-    },
-    onSettled: () => {
-      void utils.favorite.isFavorite.invalidate(favoriteKey);
-      // Refresh the sidebar Favourites section (warm.wren).
-      void utils.favorite.list.invalidate();
-    },
-  });
-  const handleToggleFavorite = () => {
-    if (itemId == null) return;
-    toggleFavorite.mutate({ entityType: type, entityId: String(itemId) });
-  };
 
   const isObjective = type === "objective";
   const data = isObjective ? objectiveQuery.data : krQuery.data;
