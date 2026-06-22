@@ -18,10 +18,11 @@
 /* ============================================================
    Main content offset - responds to data-sidebar on <html>
    ============================================================ */
-@media (min-width: 640px) {
+@media (width >= 640px) {
   html[data-sidebar="open"] .sidebar-offset {
     margin-left: 220px;
   }
+
   html[data-sidebar="closed"] .sidebar-offset {
     margin-left: 0;
   }

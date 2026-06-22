@@ -29,6 +29,9 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
   // Sync sidebar state to <html> so CSS can offset the main content
   useEffect(() => {
     document.documentElement.setAttribute('data-sidebar', isMenuOpen ? 'open' : 'closed');
+    return () => {
+      document.documentElement.removeAttribute('data-sidebar');
+    };
   }, [isMenuOpen]);
 
   if (!session?.user || pathname.startsWith('/onboarding')) {
