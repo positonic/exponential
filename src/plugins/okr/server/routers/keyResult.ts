@@ -234,8 +234,19 @@ export const keyResultRouter = createTRPCRouter({
           keyResults: {
             where: {
               ...periodFilter,
-              // When workspace-scoped, show all key results; otherwise only user's own
-              ...(isWorkspaceScoped ? {} : { userId: ctx.session.user.id }),
+              // Show every key result only on the workspace-wide OKRs view.
+              // On the "My Goals" view (onlyMine) and outside any workspace,
+              // restrict to key results the user owns or is the DRI for — the
+              // same ownership test applied to goals above. Without this, a
+              // user's own objective would still surface other people's KRs.
+              ...(isWorkspaceScoped && !input.onlyMine
+                ? {}
+                : {
+                    OR: [
+                      { userId: ctx.session.user.id },
+                      { driUserId: ctx.session.user.id },
+                    ],
+                  }),
             },
             include: {
               checkIns: {
@@ -845,9 +856,18 @@ export const keyResultRouter = createTRPCRouter({
         periods.map(async (periodType) => {
           const period = `${periodType}-${input.year}`;
           const where = {
-            ...(isWorkspaceScoped
-              ? { workspaceId: input.workspaceId }
-              : { userId: ctx.session.user.id }),
+            ...(isWorkspaceScoped ? { workspaceId: input.workspaceId } : {}),
+            // Outside a workspace, or on the "My Goals" view, count only the
+            // KRs the user owns or is the DRI for — matching the cards, which
+            // render the same ownership-scoped key results.
+            ...(!isWorkspaceScoped || input.onlyMine
+              ? {
+                  OR: [
+                    { userId: ctx.session.user.id },
+                    { driUserId: ctx.session.user.id },
+                  ],
+                }
+              : {}),
             // Scope counts to KRs under my objectives so period-tab counts
             // match the cards shown in the "My Goals" view.
             ...(isWorkspaceScoped && input.onlyMine
