@@ -20,6 +20,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconTrash,
+  IconPencil,
   IconUserPlus,
   IconPlug,
   IconFolder,
@@ -49,6 +50,7 @@ import { useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
+import { EditMemberRoleModal } from '~/app/_components/EditMemberRoleModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
@@ -96,6 +98,14 @@ export default function WorkspaceSettingsPage() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deleteModalOpened, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
+  const [editRoleModalOpened, { open: openEditRoleModal, close: closeEditRoleModal }] = useDisclosure(false);
+  const [editingMember, setEditingMember] = useState<{
+    userId: string;
+    name: string | null;
+    email: string | null;
+    image: string | null;
+    role: string;
+  } | null>(null);
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
   const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
   const [emailProvider, setEmailProvider] = useState<string>('gmail');
@@ -449,6 +459,21 @@ export default function WorkspaceSettingsPage() {
     }
   };
 
+  const handleEditRole = (member: {
+    userId: string;
+    user: { name: string | null; email: string | null; image: string | null };
+    role: string;
+  }) => {
+    setEditingMember({
+      userId: member.userId,
+      name: member.user.name,
+      email: member.user.email,
+      image: member.user.image,
+      role: member.role,
+    });
+    openEditRoleModal();
+  };
+
   if (isLoading) {
     return (
       <div className="mx-auto max-w-[1200px] p-10">
@@ -781,7 +806,18 @@ export default function WorkspaceSettingsPage() {
                         {member.role}
                       </SettingsPill>
                     </div>
-                    <div className="flex items-center justify-end border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                    <div className="flex items-center justify-end gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                      {userRole === 'owner' && member.role !== 'owner' && (
+                        <Tooltip label="Edit role">
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            onClick={() => handleEditRole(member)}
+                          >
+                            <IconPencil size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
                       {canManageMembers && member.role !== 'owner' && (
                         <Tooltip label="Remove member">
                           <ActionIcon
@@ -1312,6 +1348,16 @@ export default function WorkspaceSettingsPage() {
         workspaceId={workspaceId!}
         opened={inviteModalOpened}
         onClose={closeInviteModal}
+        onSuccess={() => {
+          refetchWorkspace();
+        }}
+      />
+
+      <EditMemberRoleModal
+        workspaceId={workspaceId!}
+        member={editingMember}
+        opened={editRoleModalOpened}
+        onClose={closeEditRoleModal}
         onSuccess={() => {
           refetchWorkspace();
         }}
