@@ -17,12 +17,28 @@ import {
   Select,
   NumberInput,
   Switch,
+  ActionIcon,
+  Menu,
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
-import { IconBroadcast, IconPlus, IconSend } from '@tabler/icons-react';
+import {
+  IconBroadcast,
+  IconPlus,
+  IconSend,
+  IconDots,
+  IconPencil,
+  IconTrash,
+} from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+
+/** Shape of the `config` JSON stored on a Broadcast's WorkflowDefinition. */
+type BroadcastConfig = {
+  schedule?: { kind?: string; hour?: number; weekday?: number };
+  collectionId?: string;
+  subject?: string;
+};
 
 export default function CrmBroadcastsPage() {
   const { workspaceId, isLoading: wsLoading } = useWorkspace();
@@ -37,8 +53,10 @@ export default function CrmBroadcastsPage() {
     { enabled: !!workspaceId },
   );
 
-  const [createOpened, { open: openCreate, close: closeCreate }] =
+  const [formOpened, { open: openForm, close: closeForm }] =
     useDisclosure(false);
+  // null = creating a new broadcast; otherwise the id of the one being edited.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('What Shipped Today');
   const [subject, setSubject] = useState('What Shipped Today');
   const [collectionId, setCollectionId] = useState<string | null>(null);
@@ -47,14 +65,48 @@ export default function CrmBroadcastsPage() {
   const invalidate = () =>
     utils.broadcast.list.invalidate({ workspaceId: workspaceId ?? '' });
 
+  const openCreate = () => {
+    setEditingId(null);
+    setName('What Shipped Today');
+    setSubject('What Shipped Today');
+    setCollectionId(null);
+    setHour(8);
+    openForm();
+  };
+
+  const openEdit = (b: { id: string; name: string; config: unknown }) => {
+    const cfg = (b.config ?? {}) as BroadcastConfig;
+    setEditingId(b.id);
+    setName(b.name);
+    setSubject(cfg.subject ?? 'What Shipped Today');
+    setCollectionId(cfg.collectionId ?? null);
+    setHour(typeof cfg.schedule?.hour === 'number' ? cfg.schedule.hour : 8);
+    openForm();
+  };
+
   const create = api.broadcast.create.useMutation({
     onSuccess: async () => {
-      closeCreate();
+      closeForm();
       setCollectionId(null);
       await invalidate();
     },
     onError: (e) =>
       notifications.show({ title: 'Could not create', message: e.message, color: 'red' }),
+  });
+
+  const update = api.broadcast.update.useMutation({
+    onSuccess: async () => {
+      closeForm();
+      await invalidate();
+    },
+    onError: (e) =>
+      notifications.show({ title: 'Could not update', message: e.message, color: 'red' }),
+  });
+
+  const remove = api.broadcast.remove.useMutation({
+    onSuccess: invalidate,
+    onError: (e) =>
+      notifications.show({ title: 'Could not delete', message: e.message, color: 'red' }),
   });
 
   const setActive = api.broadcast.setActive.useMutation({
@@ -140,17 +192,49 @@ export default function CrmBroadcastsPage() {
                     </Text>
                   )}
                 </Box>
-                <Switch
-                  checked={b.isActive}
-                  label={b.isActive ? 'Active' : 'Draft'}
-                  onChange={(e) =>
-                    setActive.mutate({
-                      workspaceId,
-                      id: b.id,
-                      isActive: e.currentTarget.checked,
-                    })
-                  }
-                />
+                <Group gap="sm">
+                  <Switch
+                    checked={b.isActive}
+                    label={b.isActive ? 'Active' : 'Draft'}
+                    onChange={(e) =>
+                      setActive.mutate({
+                        workspaceId,
+                        id: b.id,
+                        isActive: e.currentTarget.checked,
+                      })
+                    }
+                  />
+                  <Menu position="bottom-end" withinPortal>
+                    <Menu.Target>
+                      <ActionIcon variant="subtle" color="gray" aria-label="Broadcast actions">
+                        <IconDots size={18} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item
+                        leftSection={<IconPencil size={16} />}
+                        onClick={() => openEdit(b)}
+                      >
+                        Edit
+                      </Menu.Item>
+                      <Menu.Item
+                        color="red"
+                        leftSection={<IconTrash size={16} />}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Delete broadcast “${b.name}”? This can't be undone.`,
+                            )
+                          ) {
+                            remove.mutate({ workspaceId, id: b.id });
+                          }
+                        }}
+                      >
+                        Delete
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                </Group>
               </Group>
             </Card>
           ))}
@@ -158,9 +242,9 @@ export default function CrmBroadcastsPage() {
       )}
 
       <Modal
-        opened={createOpened}
-        onClose={closeCreate}
-        title="Create broadcast"
+        opened={formOpened}
+        onClose={closeForm}
+        title={editingId ? 'Edit broadcast' : 'Create broadcast'}
       >
         <Stack gap="sm">
           <TextInput
@@ -189,23 +273,34 @@ export default function CrmBroadcastsPage() {
             onChange={(v) => setHour(typeof v === 'number' ? v : 8)}
           />
           <Group justify="flex-end" mt="xs">
-            <Button variant="default" onClick={closeCreate}>
+            <Button variant="default" onClick={closeForm}>
               Cancel
             </Button>
             <Button
-              loading={create.isPending}
+              loading={create.isPending || update.isPending}
               disabled={!name.trim() || !collectionId}
-              onClick={() =>
-                create.mutate({
-                  workspaceId,
-                  name: name.trim(),
-                  subject: subject.trim() || undefined,
-                  collectionId: collectionId!,
-                  cadence: { kind: 'daily', hour },
-                })
-              }
+              onClick={() => {
+                if (editingId) {
+                  update.mutate({
+                    workspaceId,
+                    id: editingId,
+                    name: name.trim(),
+                    subject: subject.trim() || undefined,
+                    collectionId: collectionId!,
+                    cadence: { kind: 'daily', hour },
+                  });
+                } else {
+                  create.mutate({
+                    workspaceId,
+                    name: name.trim(),
+                    subject: subject.trim() || undefined,
+                    collectionId: collectionId!,
+                    cadence: { kind: 'daily', hour },
+                  });
+                }
+              }}
             >
-              Create draft
+              {editingId ? 'Save changes' : 'Create draft'}
             </Button>
           </Group>
         </Stack>

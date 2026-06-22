@@ -65,6 +65,52 @@ export function createBroadcast(db: PrismaClient, input: CreateBroadcastInput) {
   });
 }
 
+export interface UpdateBroadcastInput {
+  id: string;
+  name: string;
+  /** The contact List that receives it. */
+  collectionId: string;
+  cadence: BroadcastCadence;
+  subject?: string;
+}
+
+/**
+ * Patches an existing Broadcast's user-editable knobs (name, subject, target
+ * List, cadence). These live in two places — the definition's `config` and the
+ * `generate_ai_digest` / `send_email_to_list` step configs — so we mirror exactly
+ * how `createBroadcast` wires them. `isActive` is left untouched (use `setActive`).
+ */
+export async function updateBroadcast(
+  db: PrismaClient,
+  input: UpdateBroadcastInput,
+) {
+  const subject = input.subject ?? "What Shipped Today";
+  return db.$transaction(async (tx) => {
+    const def = await tx.workflowDefinition.update({
+      where: { id: input.id },
+      data: {
+        name: input.name,
+        config: {
+          schedule: input.cadence,
+          collectionId: input.collectionId,
+          subject,
+        } as Prisma.InputJsonValue,
+      },
+    });
+    await tx.workflowStep.updateMany({
+      where: { definitionId: input.id, type: "generate_ai_digest" },
+      data: { config: { subject } as Prisma.InputJsonValue },
+    });
+    await tx.workflowStep.updateMany({
+      where: { definitionId: input.id, type: "send_email_to_list" },
+      data: {
+        config: { collectionId: input.collectionId } as Prisma.InputJsonValue,
+      },
+    });
+    return def;
+  });
+}
+
 export interface TestSendResult {
   skipped: boolean;
   reason?: string;
