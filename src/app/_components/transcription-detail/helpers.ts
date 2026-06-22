@@ -66,6 +66,32 @@ export function extractChapters(summary: FirefliesSummary | null): Chapter[] {
     .sort((a, b) => a.startSeconds - b.startSeconds);
 }
 
+// Header/metadata keys that a manually pasted transcript commonly puts at the
+// top as "Key: value" lines. These look like speaker labels to the plain-text
+// turn parser but are NOT speakers — skip them so the transcript view (and,
+// before the panel was fixed, the derived Participants list) isn't polluted.
+const METADATA_HEADER_KEYS: ReadonlySet<string> = new Set([
+  "meeting title",
+  "title",
+  "date",
+  "time",
+  "meeting participants",
+  "participants",
+  "attendees",
+  "summary",
+  "transcript",
+  "notes",
+  "agenda",
+  "location",
+  "duration",
+]);
+
+/** True when a parsed "Name:" label is actually a metadata header key. */
+function isMetadataHeaderLabel(label: string | undefined): boolean {
+  if (!label) return false;
+  return METADATA_HEADER_KEYS.has(label.trim().toLowerCase());
+}
+
 /**
  * Parse the transcription field into turns. Supports Fireflies JSON (with sentences)
  * or plain-text fallback. Returns an empty array if nothing usable is found.
@@ -123,6 +149,24 @@ export function parseTurns(
       const trimmed = line.trim();
       if (!trimmed) continue;
       const match = speakerPattern.exec(trimmed);
+      // A "Name:" prefix that is actually a metadata header key (e.g.
+      // "Meeting Title:", "Date:") must NOT be read as a speaker — otherwise a
+      // manual paste with a header block pollutes the transcript with bogus
+      // speakers (CONTEXT.md → Speaker). Treat those lines as plain text.
+      if (match && isMetadataHeaderLabel(match[1])) {
+        if (current) {
+          current.text = `${current.text} ${trimmed}`.trim();
+        } else {
+          current = {
+            id: `p-${idx++}`,
+            time: "",
+            startSeconds: 0,
+            speaker: "Transcript",
+            text: trimmed,
+          };
+        }
+        continue;
+      }
       if (match) {
         if (current) turns.push(current);
         current = {

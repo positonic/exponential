@@ -275,9 +275,12 @@ export function TranscriptionDetailsModal({
     setJumpToSeconds(startSeconds);
   }, []);
 
-  // Build participants list. If we have structured participants, use them;
-  // otherwise derive a placeholder list from transcript speaker names so the
-  // rail isn't empty for legacy records.
+  // Build the participants list. The PARTICIPANTS panel shows ONLY managed
+  // Participant rows (DB), never transcript-derived Speakers (CONTEXT.md →
+  // Speaker: "Derived Speakers never populate the Participants panel"). Deriving
+  // placeholders from parsed turns conflated the two concepts and, for manual
+  // pastes, surfaced header lines ("Meeting Title:", "Date:", …) as bogus
+  // "Guest" participants. When there are none, the rail shows an empty state.
   const meEmail = authSession?.user?.email?.toLowerCase();
   const meName = authSession?.user?.name ?? null;
 
@@ -290,37 +293,15 @@ export function TranscriptionDetailsModal({
       userId: string | null;
       contactId: string | null;
     }> | undefined) ?? [];
-    if (raw.length > 0) {
-      return raw.map((p) => ({
-        id: p.id,
-        name: p.name,
-        email: p.email,
-        isHost: p.isHost,
-        isMe: p.email?.toLowerCase() === meEmail,
-        isPersisted: true,
-      }));
-    }
-    // Derive from turns
-    const seen = new Map<string, { id: string; name: string; email: string }>();
-    for (const t of turns) {
-      if (!seen.has(t.speaker)) {
-        seen.set(t.speaker, {
-          id: `derived-${seen.size}`,
-          name: t.speaker,
-          email: "",
-        });
-      }
-    }
-    return [...seen.values()].map((p) => ({
+    return raw.map((p) => ({
       id: p.id,
       name: p.name,
       email: p.email,
-      isHost: false,
-      isMe:
-        !!meName && p.name.toLowerCase().includes(meName.toLowerCase().split(" ")[0]!),
-      isPersisted: false,
+      isHost: p.isHost,
+      isMe: p.email?.toLowerCase() === meEmail,
+      isPersisted: true,
     }));
-  }, [data?.participants, turns, meEmail, meName]);
+  }, [data?.participants, meEmail]);
 
   // Participants are workspace-scoped (members + CRM), so editing needs a
   // workspace and a non-viewer role. The server enforces the real edit rule.
