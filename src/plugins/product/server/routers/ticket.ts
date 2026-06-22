@@ -145,6 +145,9 @@ export const ticketRouter = createTRPCRouter({
         epicId: z.string().optional(),
         cycleId: z.string().optional(),
         assigneeId: z.string().optional(),
+        // Area filter: a Tag CUID (category = "area"). Constrains results to
+        // tickets carrying that Area tag. No-op when omitted.
+        areaTagId: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -159,6 +162,9 @@ export const ticketRouter = createTRPCRouter({
           ...(input.epicId ? { epicId: input.epicId } : {}),
           ...(input.cycleId ? { cycleId: input.cycleId } : {}),
           ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
+          ...(input.areaTagId
+            ? { tags: { some: { tagId: input.areaTagId } } }
+            : {}),
         },
         orderBy: [{ status: "asc" }, { createdAt: "desc" }],
         include: {
