@@ -34,25 +34,6 @@ interface WorkspaceSwitcherProps {
   className?: string;
 }
 
-const pillClasses = {
-  amber: 'bg-brand-warning/15 text-brand-warning',
-  blue: 'bg-brand-primary/15 text-brand-primary',
-  green: 'bg-brand-success/15 text-brand-success',
-  neutral: 'bg-surface-tertiary text-text-secondary',
-} as const;
-
-type PillVariant = keyof typeof pillClasses;
-
-const roleToPill: Record<
-  'owner' | 'admin' | 'member' | 'viewer' | 'guest',
-  { label: string; variant: PillVariant }
-> = {
-  owner: { label: 'Owner', variant: 'amber' },
-  admin: { label: 'Admin', variant: 'blue' },
-  member: { label: 'Member', variant: 'green' },
-  viewer: { label: 'Viewer', variant: 'neutral' },
-  guest: { label: 'Guest', variant: 'neutral' },
-};
 
 export function WorkspaceSwitcher({
   theme,
@@ -114,7 +95,6 @@ export function WorkspaceSwitcher({
     );
   }
 
-  const pill = userRole ? roleToPill[userRole] : null;
   const workspaceName = workspace?.name ?? 'Select Workspace';
   const workspaceLogoUrl = workspace?.logoUrl ?? null;
   const themeLogo = theme?.logo;
@@ -177,7 +157,7 @@ export function WorkspaceSwitcher({
           >
             <span className="relative grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-md border border-border-primary bg-surface-secondary text-text-primary">
               {workspaceLogoUrl ? (
-                // Uploaded workspace logo (Vercel Blob URL) — render as plain img to avoid next/image remotePatterns config
+                // Uploaded workspace logo (Vercel Blob URL) - render as plain img to avoid next/image remotePatterns config
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={workspaceLogoUrl}
@@ -213,17 +193,6 @@ export function WorkspaceSwitcher({
             >
               {workspaceName}
             </span>
-
-            {pill && (
-              <span
-                className={clsx(
-                  'shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-medium leading-normal',
-                  pillClasses[pill.variant],
-                )}
-              >
-                {pill.label}
-              </span>
-            )}
 
             <IconChevronDown
               size={14}
