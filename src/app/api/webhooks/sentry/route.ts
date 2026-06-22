@@ -4,6 +4,7 @@ import { ingestSentryBug } from "~/server/services/sentry/SentryBugService";
 import {
   normalizeSentryPayload,
   verifySentrySignature,
+  verifyWebhookToken,
 } from "~/server/services/sentry/sentryPayload";
 
 /**
@@ -14,15 +15,30 @@ import {
  * `status: BACKLOG`) in the configured product, authored by the Errol system
  * user. Recurring errors are collapsed onto one ticket in a later slice (dedup).
  *
- * Auth: Sentry signs the raw body with HMAC-SHA256 using the integration's
- * Client Secret (set as `SENTRY_WEBHOOK_SECRET`). Verification is one-way, like
- * the GitHub webhook — no token is issued to Sentry.
+ * Auth: two independent gates, each active only when its env var is set.
+ *  - `SENTRY_WEBHOOK_TOKEN`: a shared secret the sender echoes in the
+ *    `X-Webhook-Token` header. For senders that can set headers but can't sign
+ *    the body (e.g. Glitchtip, which has no HMAC signing yet).
+ *  - `SENTRY_WEBHOOK_SECRET`: real Sentry signs the raw body with HMAC-SHA256
+ *    using the integration's Client Secret and sends it in
+ *    `Sentry-Hook-Signature`. Verification is one-way, like the GitHub webhook.
+ * If both are set, both must pass; if neither is set, the endpoint is open
+ * (logged). Configure at least one in any internet-facing deployment.
  */
 export async function POST(request: NextRequest) {
   try {
     const signature = request.headers.get("sentry-hook-signature");
     const resource = request.headers.get("sentry-hook-resource");
     const rawBody = await request.text();
+
+    const token = process.env.SENTRY_WEBHOOK_TOKEN;
+    if (token) {
+      const provided = request.headers.get("x-webhook-token");
+      if (!provided || !verifyWebhookToken(provided, token)) {
+        console.error("[sentry webhook] invalid or missing webhook token");
+        return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+      }
+    }
 
     const secret = process.env.SENTRY_WEBHOOK_SECRET;
     if (secret) {
@@ -33,9 +49,11 @@ export async function POST(request: NextRequest) {
           { status: 401 },
         );
       }
-    } else {
+    }
+
+    if (!token && !secret) {
       console.warn(
-        "[sentry webhook] SENTRY_WEBHOOK_SECRET not set - skipping signature verification",
+        "[sentry webhook] neither SENTRY_WEBHOOK_TOKEN nor SENTRY_WEBHOOK_SECRET set - endpoint is unauthenticated",
       );
     }
 

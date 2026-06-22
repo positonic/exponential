@@ -10,6 +10,7 @@ import {
   buildBugBody,
   normalizeSentryPayload,
   verifySentrySignature,
+  verifyWebhookToken,
   type SentryBug,
 } from "../sentryPayload";
 
@@ -45,6 +46,26 @@ describe("verifySentrySignature", () => {
 
   it("rejects a malformed (wrong-length) signature without throwing", () => {
     expect(verifySentrySignature(body, "deadbeef", SECRET)).toBe(false);
+  });
+});
+
+describe("verifyWebhookToken", () => {
+  const TOKEN = "long-random-shared-secret";
+
+  it("accepts an exact match", () => {
+    expect(verifyWebhookToken(TOKEN, TOKEN)).toBe(true);
+  });
+
+  it("rejects a different value of the same length", () => {
+    expect(verifyWebhookToken("long-random-shared-secrXt", TOKEN)).toBe(false);
+  });
+
+  it("rejects a wrong-length value without throwing", () => {
+    expect(verifyWebhookToken("short", TOKEN)).toBe(false);
+  });
+
+  it("rejects an empty provided token", () => {
+    expect(verifyWebhookToken("", TOKEN)).toBe(false);
   });
 });
 

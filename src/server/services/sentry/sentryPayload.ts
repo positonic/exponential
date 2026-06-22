@@ -68,6 +68,28 @@ export function verifySentrySignature(
 }
 
 /**
+ * Verify a shared-secret webhook token sent in a plain request header.
+ *
+ * An alternative to HMAC for senders that can set custom headers but can't sign
+ * the body (e.g. Glitchtip, which is Sentry-API-compatible but has no HMAC
+ * signing yet). The sender puts the secret verbatim in `X-Webhook-Token`; we
+ * compare it constant-time against `SENTRY_WEBHOOK_TOKEN`. Weaker than HMAC — it
+ * proves the sender knows the secret but not that the body is untampered — yet
+ * far better than an open endpoint.
+ */
+export function verifyWebhookToken(
+  provided: string,
+  expected: string,
+): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+
+  // timingSafeEqual throws on length mismatch, so guard first.
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
  * Turn a Sentry webhook body into a normalized {@link SentryBug}, or `null` if
  * the event isn't one we file as a bug.
  *
