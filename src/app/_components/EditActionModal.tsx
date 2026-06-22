@@ -10,7 +10,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 // Minimal action type needed for the edit modal - supports actions from various query sources
 // Only requires fields that the modal actually reads for initialization
-type Action = {
+export type Action = {
   id: string;
   name: string;
   description: string | null;

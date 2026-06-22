@@ -216,7 +216,7 @@ export const ticketRouter = createTRPCRouter({
               workspaceId: true,
               assignees: {
                 include: {
-                  user: { select: { id: true, name: true, image: true } },
+                  user: { select: { id: true, name: true, email: true, image: true } },
                 },
               },
             },

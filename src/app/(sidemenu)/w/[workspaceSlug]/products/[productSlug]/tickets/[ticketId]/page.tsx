@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useDisclosure } from "@mantine/hooks";
 import { CreateActionModal } from "~/app/_components/CreateActionModal";
-import { EditActionModal } from "~/app/_components/EditActionModal";
+import { EditActionModal, type Action } from "~/app/_components/EditActionModal";
 import {
   ActionIcon,
   Anchor,
@@ -215,17 +215,9 @@ function EpicCombobox({
 // Linked Actions Section
 // ---------------------------------------------------------------------------
 
-interface LinkedAction {
-  id: string;
-  name: string;
-  description: string | null;
-  status: string;
+interface LinkedAction extends Action {
   kanbanStatus: string | null;
-  priority: string | null;
-  dueDate: Date | string | null;
-  projectId: string | null;
-  workspaceId?: string | null;
-  assignees: Array<{ user: { id: string; name: string | null; image: string | null } }>;
+  assignees: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
 }
 
 function getActionPriorityBorderColor(priority: string | null): string {
@@ -515,7 +507,7 @@ function LinkedActionsSection({
 
       {/* Edit action modal - opened when clicking a row */}
       <EditActionModal
-        action={editingAction as unknown as Parameters<typeof EditActionModal>[0]["action"]}
+        action={editingAction}
         opened={editingAction !== null}
         onClose={() => setEditingAction(null)}
         onSuccess={() => { setEditingAction(null); onChanged(); }}

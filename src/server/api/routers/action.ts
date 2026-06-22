@@ -10,7 +10,7 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { findUserByEmailInWorkspace } from "~/server/services/access/resolvers/workspaceResolver";
+import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -2503,9 +2503,21 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // When a workspaceId is provided, search all actions in that workspace
-      // (workspace membership already gates access to the calling page).
+      // When a workspaceId is provided, search all actions in that workspace —
+      // but only after verifying the caller is actually a member. Without this
+      // check any logged-in user could enumerate other workspaces' actions.
       // Without a workspaceId, fall back to only the caller's own actions.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          userId,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+      }
+
       const ownershipFilter = input.workspaceId
         ? {}
         : { createdById: userId };
