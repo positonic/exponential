@@ -8,6 +8,7 @@ import { SCHEDULED_TRIGGER } from "~/server/services/workflows/TriggerRegistry";
 import {
   createBroadcast,
   runBroadcastTestSend,
+  updateBroadcast,
 } from "~/server/services/crm/broadcast/broadcastService";
 
 const cadenceSchema = z.discriminatedUnion("kind", [
@@ -96,6 +97,44 @@ export const broadcastRouter = createTRPCRouter({
         subject: input.subject,
         createdById: ctx.session.user.id,
       });
+    }),
+
+  update: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        id: z.string(),
+        name: z.string().min(1).max(255),
+        collectionId: z.string(),
+        cadence: cadenceSchema,
+        subject: z.string().max(255).optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      await assertInWorkspace(ctx.db, input.id, input.workspaceId);
+      await assertCollectionInWorkspace(
+        ctx.db,
+        input.collectionId,
+        input.workspaceId,
+      );
+      return updateBroadcast(ctx.db, {
+        id: input.id,
+        name: input.name,
+        collectionId: input.collectionId,
+        cadence: input.cadence,
+        subject: input.subject,
+      });
+    }),
+
+  remove: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), id: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      await assertInWorkspace(ctx.db, input.id, input.workspaceId);
+      // steps + runs cascade-delete (schema onDelete: Cascade).
+      await ctx.db.workflowDefinition.delete({ where: { id: input.id } });
+      return { success: true };
     }),
 
   setActive: protectedProcedure
