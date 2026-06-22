@@ -10,13 +10,13 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 // Minimal action type needed for the edit modal - supports actions from various query sources
 // Only requires fields that the modal actually reads for initialization
-type Action = {
+export type Action = {
   id: string;
   name: string;
   description: string | null;
   status: string;
-  priority: string;
-  dueDate: Date | null;
+  priority: string | null;
+  dueDate: Date | string | null;
   projectId: string | null;
   workspaceId?: string | null;
   project?: { workspaceId?: string | null } | null;
@@ -154,7 +154,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       setProjectId(currentAction.projectId ?? "");
       const validPriorities: string[] = PRIORITY_OPTIONS;
       setPriority(
-        validPriorities.includes(currentAction.priority)
+        currentAction.priority !== null && validPriorities.includes(currentAction.priority)
           ? (currentAction.priority as ActionPriority)
           : "Scheduled",
       );
@@ -339,7 +339,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
     // Capture new screenshots before resetting
     pendingScreenshotsRef.current = [...pastedScreenshots];
 
-    // Snapshot mutation payload before onClose() — parent may null out
+    // Snapshot mutation payload before onClose() - parent may null out
     // selectedAction synchronously, which would clear currentAction.id.
     const updateData = {
       id: currentAction.id,

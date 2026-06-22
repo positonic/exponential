@@ -648,4 +648,84 @@ describe("action router (mocked)", () => {
       );
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────
+  // searchForDependencies
+  //
+  // When a workspaceId is passed the caller's ownership scope is dropped so
+  // the search spans the whole workspace — but ONLY after verifying the
+  // caller is actually a member. Without that check any logged-in user could
+  // enumerate another workspace's action titles/statuses/project names.
+  // ────────────────────────────────────────────────────────────────────
+  describe("searchForDependencies", () => {
+    const callerId = "caller-1";
+    const workspaceId = "w1";
+
+    /** getWorkspaceMembership probes workspaceUser.findUnique first, then
+     *  falls back to teamUser.findFirst. Stub both to control membership. */
+    function stubMembership(isMember: boolean) {
+      dbMock.workspaceUser.findUnique.mockResolvedValue(
+        isMember
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ? ({ userId: callerId, workspaceId, role: "member", joinedAt: new Date() } as any)
+          : null,
+      );
+      // No team-based access either when not a member.
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+    }
+
+    it("lets a workspace member search across the whole workspace", async () => {
+      stubMembership(true);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockResolvedValue([{ id: "a1", name: "Found" }] as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.searchForDependencies({
+        query: "Fo",
+        workspaceId,
+      });
+
+      expect(result).toHaveLength(1);
+      // Ownership scope is dropped: no createdById in the where clause, but
+      // the workspace OR filter is applied.
+      const where = dbMock.action.findMany.mock.calls[0]![0]!.where!;
+      expect(where).not.toHaveProperty("createdById");
+      expect(where).toMatchObject({
+        OR: [
+          { workspaceId },
+          { project: { workspaceId } },
+        ],
+      });
+    });
+
+    it("rejects a non-member with FORBIDDEN", async () => {
+      stubMembership(false);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.action.searchForDependencies({ query: "Fo", workspaceId }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      // The query must never run for a non-member.
+      expect(dbMock.action.findMany).not.toHaveBeenCalled();
+    });
+
+    it("scopes to the caller's own actions when no workspaceId is given", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockResolvedValue([{ id: "a1", name: "Mine" }] as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.searchForDependencies({ query: "Mi" });
+
+      expect(result).toHaveLength(1);
+      // No membership probe needed, and the where clause is scoped to the
+      // caller's own actions with no workspace filter.
+      expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
+      const where = dbMock.action.findMany.mock.calls[0]![0]!.where!;
+      expect(where).toMatchObject({ createdById: callerId });
+      expect(where).not.toHaveProperty("OR");
+    });
+  });
 });

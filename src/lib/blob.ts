@@ -2,18 +2,12 @@ import { type PutBlobResult } from '@vercel/blob';
 import { del, put } from '@vercel/blob';
 
 export async function uploadToBlob(
-  base64Data: string, 
-  filename: string
+  base64Data: string,
+  filename: string,
+  contentType = "image/png",
 ): Promise<PutBlobResult> {
-  // Convert base64 to Buffer
-  const buffer = Buffer.from(base64Data, 'base64');
-  
-  // Upload to Vercel Blob
-  const blob = await put(filename, buffer, {
-    access: 'public',
-    contentType: 'image/png'
-  });
-
+  const buffer = Buffer.from(base64Data, "base64");
+  const blob = await put(filename, buffer, { access: "public", contentType });
   return blob;
 }
 
