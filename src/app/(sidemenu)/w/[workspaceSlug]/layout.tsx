@@ -4,7 +4,6 @@ import { useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import { WorkspaceProvider, useWorkspace } from '~/providers/WorkspaceProvider';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
-import { WorkspaceTopNav } from '~/app/_components/layout/WorkspaceTopNav';
 import { WorkspaceTopbar } from '~/app/_components/layout/WorkspaceTopbar';
 import { GuestRouteGuard } from '~/app/_components/layout/GuestRouteGuard';
 import styles from './WorkspaceLayout.module.css';
@@ -36,7 +35,6 @@ function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) 
   return (
     <div className={styles.wrapper}>
       <WorkspaceTopbar />
-      <WorkspaceTopNav />
       <GuestRouteGuard>{children}</GuestRouteGuard>
     </div>
   );

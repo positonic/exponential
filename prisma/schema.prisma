@@ -39,12 +39,12 @@ model Account {
 }
 
 // An external OAuth account (Google/Microsoft) a User has linked for DATA
-// ACCESS — calendar today, Contacts/Gmail later. Deliberately separate from
+// ACCESS - calendar today, Contacts/Gmail later. Deliberately separate from
 // `Account` (the NextAuth sign-in identity), whose global
 // @@unique([provider, providerAccountId]) is load-bearing for auth and cannot
 // hold a second row for the same external account. Keyed by
 // (userId, provider, providerAccountId) so the SAME external account can be
-// connected by many Users independently, and one User can connect many — and
+// connected by many Users independently, and one User can connect many - and
 // linking it never touches that account's own login. See ADR-0009.
 model ConnectedAccount {
   id                 String              @id @default(cuid())
@@ -402,18 +402,18 @@ model Workspace {
 
 // Append-only log of significant workspace events.
 // Powers heatmap, activity feed, and weekly review sparkline. Writes are
-// fire-and-forget from call sites via `recordActivity()` — see
+// fire-and-forget from call sites via `recordActivity()` - see
 // src/server/services/activity/.
 model WorkspaceActivityEvent {
   id          String   @id @default(cuid())
   workspaceId String
-  // Nullable so deleting a user preserves the audit trail — the userId is set
+  // Nullable so deleting a user preserves the audit trail - the userId is set
   // to NULL rather than blocking the delete (RESTRICT) or destroying the event
   // (CASCADE). recordActivity() always inserts a non-null userId; only
   // post-user-deletion rows are NULL. Matches ProjectActivity.changedById.
   userId      String?
   entityType  String // "action" | "action_comment" | "ticket" | "ticket_comment"
-  entityId    String // intentionally not a foreign key — events outlive the entity
+  entityId    String // intentionally not a foreign key - events outlive the entity
   action      String // "created" | "updated" | "status_changed" | "completed" | "commented"
   metadata    Json?
   createdAt   DateTime @default(now())
@@ -431,7 +431,7 @@ model WorkspaceActivityEvent {
 // optional project). `provider` is a string ("whatsapp" first); `externalId`
 // is that provider's conversation id (WhatsApp Baileys group JID "…@g.us",
 // Slack channel id, …). Deliberately distinct from the OUTBOUND,
-// Integration-FK-bound SlackChannelConfig — this is inbound and integration-free.
+// Integration-FK-bound SlackChannelConfig - this is inbound and integration-free.
 model ChannelLink {
   id          String   @id @default(cuid())
   provider    String // "whatsapp" | "slack" | "telegram" | …
@@ -464,7 +464,7 @@ model WorkspaceWeeklyNarrative {
   isoYear     Int
   isoWeek     Int // 1–53
   narrative   String   @db.Text
-  highlights  Json // string[] — length 3 in practice, but stored as JSON for flexibility
+  highlights  Json // string[] - length 3 in practice, but stored as JSON for flexibility
   model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
   tokensIn    Int?
   tokensOut   Int?
@@ -489,7 +489,7 @@ model WeeklyWorkDigest {
   isoWeek     Int // 1–53
   narrative   String   @db.Text
   highlights  Json // string[]
-  angles      Json // string[] — AI-suggested content angles
+  angles      Json // string[] - AI-suggested content angles
   model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
   tokensIn    Int?
   tokensOut   Int?
@@ -625,7 +625,7 @@ model Collection {
 }
 
 /// One member of a Collection. `memberId` references an entity of the parent's
-/// `memberType` *by convention* (no DB FK — that is what lets a new member type
+/// `memberType` *by convention* (no DB FK - that is what lets a new member type
 /// be added with no migration); cleanup of orphaned members is app-level.
 model CollectionMember {
   id           String   @id @default(cuid())
@@ -1576,7 +1576,7 @@ model AiInteractionHistory {
   // Per-call detail for the agent-quality loop (ADR-0012 judges, ADR-0013
   // replay baselines) and incident diagnosis: [{name, args, isError,
   // errorCode?, providerExecuted?}]. Args are redacted+truncated at capture
-  // (see redactToolArgs) — never store raw secrets here.
+  // (see redactToolArgs) - never store raw secrets here.
   toolCalls          Json?
   userAgent          String?
   ipAddress          String?
@@ -1622,7 +1622,7 @@ model Feedback {
   @@index([aiInteractionId])
 }
 
-// Agent-quality Thread scoring (ADR-0012). One row per judged Thread — a
+// Agent-quality Thread scoring (ADR-0012). One row per judged Thread - a
 // conversationId-scoped exchange with Zoe-the-brain, judged as a whole by an
 // LLM judge against Zoe's contract. Different grain from per-turn Feedback:
 // Feedback is a human ground-truth rating on one turn; ThreadScore is the
@@ -1638,7 +1638,7 @@ model ThreadScore {
   toolSuccess     Boolean
   noDeflection    Boolean
   overallScore    Int // 0-100, judge's holistic score across the four axes
-  // code_bug | agent_behaviour | capability_gap — null when the Thread passes (decision 4)
+  // code_bug | agent_behaviour | capability_gap - null when the Thread passes (decision 4)
   failureLane     String?
   judgeModel      String
   judgeVersion    String // versioned judge prompt (decision 9)
@@ -1811,6 +1811,7 @@ model NavigationPreference {
   showSuggestedFocus Boolean  @default(true)
   showGamification   Boolean  @default(false)
   showDailyBriefing  Boolean  @default(false)
+  navLayout          Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -2330,7 +2331,7 @@ model WeeklyReviewCompletion {
 // Portfolio (cross-workspace) Weekly Review
 // ============================================
 
-// One row per user per week — completion of the high-altitude /weekly-review ritual.
+// One row per user per week - completion of the high-altitude /weekly-review ritual.
 // Distinct from WeeklyReviewCompletion (per-workspace) and tracked with its own streak.
 model PortfolioReviewCompletion {
   id                    String   @id @default(cuid())
@@ -2731,14 +2732,14 @@ model Form {
   id                  String   @id @default(cuid())
   workspaceId         String
   name                String
-  // Globally unique — the public renderer/intake resolve a form by slug alone
+  // Globally unique - the public renderer/intake resolve a form by slug alone
   // (`/f/[slug]`), with no workspace in the URL, so the slug must be unique
   // across all workspaces or submissions could route to the wrong tenant.
   slug                String   @unique
   description         String?  @db.Text
   // FormField[]: [{ key, label, type, required, options?, placeholder? }]
   fields              Json     @default("[]")
-  // FormDestination[]: [{ type, config }] — run synchronously on submit
+  // FormDestination[]: [{ type, config }] - run synchronously on submit
   destinations        Json     @default("[]")
   isActive            Boolean  @default(false)
   confirmationMessage String?  @db.Text
@@ -2758,7 +2759,7 @@ model FormSubmission {
   formId           String
   // Validated submission payload keyed by field.key.
   data             Json
-  // { ip, userAgent, honeypotTripped, emailHash? } — diagnostics & anti-abuse.
+  // { ip, userAgent, honeypotTripped, emailHash? } - diagnostics & anti-abuse.
   metadata         Json     @default("{}")
   // Per-destination outcome: [{ type, ok, detail|error }].
   result           Json?
@@ -2996,7 +2997,7 @@ model KeyResultComment {
 
 // Per-user favourite (polymorphic pin of any entity). v1 wires entityType
 // "objective" and "keyResult"; deliberately extensible to projects/meetings.
-// entityId is a stringified id (Goal id or KeyResult cuid) — no FK because the
+// entityId is a stringified id (Goal id or KeyResult cuid) - no FK because the
 // target is polymorphic. workspaceId is captured for workspace-scoped surfaces.
 model Favorite {
   id          String   @id @default(cuid())
@@ -3803,7 +3804,7 @@ model Feature {
   id          String        @id @default(cuid())
   productId   String
   name        String
-  // PRD body — the scoped ADR-0017 exception (ADR-0024). `descriptionDoc` is the
+  // PRD body - the scoped ADR-0017 exception (ADR-0024). `descriptionDoc` is the
   // canonical ProseMirror document the editor reads/writes; `description` is a
   // derived, write-only Markdown projection for off-island readers (CLI, agents,
   // card previews) and never read back into the editor. `docVersion` powers the
@@ -3837,9 +3838,9 @@ model Feature {
   @@index([status])
 }
 
-/// Discussion note on a PRD body (ADR-0024). Either anchored — pinned via a
+/// Discussion note on a PRD body (ADR-0024). Either anchored - pinned via a
 /// `comment` mark in `Feature.descriptionDoc` to a span that stays highlighted
-/// as the text is edited — or doc-level (`threadId` null). Grouped into threads
+/// as the text is edited - or doc-level (`threadId` null). Grouped into threads
 /// (a root plus `parentId` replies) and resolvable (`resolvedAt`). `quotedText`
 /// snapshots the selected text so an orphaned thread still renders. Bodies are
 /// Markdown (ADR-0017 still governs comment prose).
@@ -4215,7 +4216,7 @@ model InsightTag {
 }
 
 // ============================================
-// Pipeline Triage — Problem (see docs/adr/0008-pipeline-triage-model.md)
+// Pipeline Triage - Problem (see docs/adr/0008-pipeline-triage-model.md)
 // ============================================
 
 /// Lifecycle of a Problem as it moves through the triage pipeline.
@@ -4226,10 +4227,10 @@ enum ProblemStage {
   PRIORITISED
 }
 
-/// A validated issue worth solving — "who's hurt and how", scoped to a Product.
+/// A validated issue worth solving - "who's hurt and how", scoped to a Product.
 /// Distinct from an Insight (raw research evidence); a Problem is the committed
 /// issue that enters the strategy pipeline. `impact`/`confidence` are the two
-/// prioritisation axes — ease is deliberately NOT scored here (it lives on the
+/// prioritisation axes - ease is deliberately NOT scored here (it lives on the
 /// Approach later). `parkedAt`/`parkReason` are populated by a later slice but
 /// the columns exist now to avoid a second migration.
 model Problem {
@@ -4257,7 +4258,7 @@ model Problem {
   @@index([createdById])
 }
 
-/// "Approaches" — the many-to-many link between a Problem and the Projects
+/// "Approaches" - the many-to-many link between a Problem and the Projects
 /// that tackle it (ADR-0008: an Approach IS a Project, not a new model). A
 /// Project can address several Problems; a Problem has several Approaches.
 model ProblemApproach {
@@ -4428,7 +4429,7 @@ model ActionParticipantAssignee {
 }
 
 /// A GitHub repo a workspace has declared interest in (ADR-0020). Source of
-/// truth for which repos a workspace tracks — independent of who installed the
+/// truth for which repos a workspace tracks - independent of who installed the
 /// GitHub App. The same repo can be tracked by multiple workspaces (one row per
 /// workspace × repo pair). `integrationId` points at the workspace's single
 /// GitHub App installation Integration.
