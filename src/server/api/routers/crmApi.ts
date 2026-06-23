@@ -5,6 +5,7 @@ import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { encryptString, decryptBuffer } from "~/server/utils/encryption";
 import type { CrmContact, PrismaClient } from "@prisma/client";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { emailHashFor } from "~/server/services/crm/createCrmContact";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -146,6 +147,7 @@ export const crmApiRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string(),
         search: z.string().optional(),
+        email: z.string().email().optional(),
         tags: z.array(z.string()).optional(),
         organizationId: z.string().optional(),
         limit: z.number().min(1).max(100).optional(),
@@ -153,12 +155,17 @@ export const crmApiRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const { workspaceId, search, tags, organizationId, limit = 50, cursor } = input;
+      const { workspaceId, search, email, tags, organizationId, limit = 50, cursor } = input;
       await verifyWorkspaceAccess(ctx.db, workspaceId, ctx.userId);
+
+      // When `email` is supplied, dedupe lookup via the globally-unique emailHash.
+      // Contacts created before emailHash was set on the public API will not match.
+      const emailHash = email ? emailHashFor(email) : undefined;
 
       const contacts = await ctx.db.crmContact.findMany({
         where: {
           workspaceId,
+          ...(emailHash ? { emailHash } : {}),
           ...(search
             ? {
                 OR: [
@@ -256,6 +263,43 @@ export const crmApiRouter = createTRPCRouter({
         }
       }
 
+      const contactInclude = {
+        organization: true,
+        createdBy: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+      } as const;
+
+      // Dedupe by globally-unique emailHash. The create path is the canonical
+      // machine intake; an applicant submitting the same form twice should land
+      // one row, not many. Existing rows are returned untouched (no field
+      // overwrite) so callers can distinguish via `wasExisting`.
+      const trimmedEmail = contactData.email?.trim();
+      const emailHash = trimmedEmail ? emailHashFor(trimmedEmail) : null;
+
+      if (emailHash) {
+        const existing = await ctx.db.crmContact.findUnique({
+          where: { emailHash },
+          select: { id: true, workspaceId: true },
+        });
+        if (existing) {
+          if (existing.workspaceId !== workspaceId) {
+            // emailHash is globally unique. Returning a contact owned by a
+            // different workspace would leak a cross-tenant reference; surface
+            // a clear conflict instead.
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "A contact with this email already exists in another workspace",
+            });
+          }
+          const existingContact = await ctx.db.crmContact.findUniqueOrThrow({
+            where: { id: existing.id },
+            include: contactInclude,
+          });
+          return { ...safeDecryptContact(existingContact), wasExisting: true };
+        }
+      }
+
       const dbData: Record<string, unknown> = {
         workspaceId,
         createdById: ctx.userId,
@@ -266,6 +310,7 @@ export const crmApiRouter = createTRPCRouter({
         about: contactData.about ?? undefined,
         profileType: contactData.profileType ?? undefined,
         organizationId: contactData.organizationId ?? undefined,
+        ...(emailHash ? { emailHash } : {}),
       };
 
       for (const field of piiFields) {
@@ -275,15 +320,10 @@ export const crmApiRouter = createTRPCRouter({
 
       const contact = await ctx.db.crmContact.create({
         data: dbData as Parameters<typeof ctx.db.crmContact.create>[0]["data"],
-        include: {
-          organization: true,
-          createdBy: {
-            select: { id: true, name: true, email: true, image: true },
-          },
-        },
+        include: contactInclude,
       });
 
-      return safeDecryptContact(contact);
+      return { ...safeDecryptContact(contact), wasExisting: false };
     }),
 
   contactUpdate: apiKeyMiddleware
