@@ -212,6 +212,11 @@ export const docsNavigation: DocNavSection[] = [
         href: "/docs/features/crm",
         icon: IconAddressBook,
       },
+      {
+        title: "Lists, Pipelines & Automations",
+        href: "/docs/features/lists-pipelines-automations",
+        icon: IconBolt,
+      },
     ],
   },
 ];

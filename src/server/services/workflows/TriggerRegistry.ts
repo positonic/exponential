@@ -1,4 +1,5 @@
 import { CRM_CONTACT_TYPE_TRIGGER } from "../crm/automation/triggerResolver";
+import { LIST_MEMBER_ADDED_TRIGGER } from "../crm/automation/listMemberTrigger";
 
 /**
  * Registry of **Automation trigger** types — the trigger-side sibling of
@@ -57,7 +58,8 @@ export function createTriggerRegistry(): TriggerRegistry {
   const registry = new TriggerRegistry();
   // Core trigger
   registry.register({ type: SCHEDULED_TRIGGER, kind: "schedule" });
-  // CRM-contributed trigger (registered, not baked into the engine)
+  // CRM-contributed triggers (registered, not baked into the engine)
   registry.register({ type: CRM_CONTACT_TYPE_TRIGGER, kind: "event" });
+  registry.register({ type: LIST_MEMBER_ADDED_TRIGGER, kind: "event" });
   return registry;
 }
