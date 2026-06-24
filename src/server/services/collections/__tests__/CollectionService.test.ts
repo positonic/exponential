@@ -30,11 +30,12 @@ describe("CollectionService.addMembers", () => {
     db.collection.findUniqueOrThrow.mockResolvedValue({
       memberType: "crm_contact",
     } as never);
+    db.collectionMember.findMany.mockResolvedValue([] as never);
     db.collectionMember.createMany.mockResolvedValue({ count: 2 } as never);
     const { registry } = makeRegistry("crm_contact", []);
 
     const svc = new CollectionService(db, registry);
-    await svc.addMembers("col1", ["c1", "c2"]);
+    const res = await svc.addMembers("col1", ["c1", "c2"]);
 
     expect(db.collectionMember.createMany).toHaveBeenCalledWith({
       data: [
@@ -43,6 +44,46 @@ describe("CollectionService.addMembers", () => {
       ],
       skipDuplicates: true,
     });
+    expect(res).toEqual({ count: 2, addedMemberIds: ["c1", "c2"] });
+  });
+
+  it("returns only genuinely-new ids and never re-inserts an existing member", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.collection.findUniqueOrThrow.mockResolvedValue({
+      memberType: "crm_contact",
+    } as never);
+    // c1 is already a member; only c2 is new.
+    db.collectionMember.findMany.mockResolvedValue([
+      { memberId: "c1" },
+    ] as never);
+    db.collectionMember.createMany.mockResolvedValue({ count: 1 } as never);
+    const { registry } = makeRegistry("crm_contact", []);
+
+    const svc = new CollectionService(db, registry);
+    const res = await svc.addMembers("col1", ["c1", "c2"]);
+
+    expect(db.collectionMember.createMany).toHaveBeenCalledWith({
+      data: [{ collectionId: "col1", memberType: "crm_contact", memberId: "c2" }],
+      skipDuplicates: true,
+    });
+    expect(res).toEqual({ count: 1, addedMemberIds: ["c2"] });
+  });
+
+  it("no-ops when every id is already a member (no DB write)", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.collection.findUniqueOrThrow.mockResolvedValue({
+      memberType: "crm_contact",
+    } as never);
+    db.collectionMember.findMany.mockResolvedValue([
+      { memberId: "c1" },
+    ] as never);
+    const { registry } = makeRegistry("crm_contact", []);
+
+    const svc = new CollectionService(db, registry);
+    const res = await svc.addMembers("col1", ["c1"]);
+
+    expect(res).toEqual({ count: 0, addedMemberIds: [] });
+    expect(db.collectionMember.createMany).not.toHaveBeenCalled();
   });
 
   it("no-ops on an empty id list (no DB write)", async () => {
@@ -51,7 +92,7 @@ describe("CollectionService.addMembers", () => {
     const svc = new CollectionService(db, registry);
 
     const res = await svc.addMembers("col1", []);
-    expect(res).toEqual({ count: 0 });
+    expect(res).toEqual({ count: 0, addedMemberIds: [] });
     expect(db.collectionMember.createMany).not.toHaveBeenCalled();
   });
 });

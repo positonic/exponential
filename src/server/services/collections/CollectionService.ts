@@ -62,21 +62,41 @@ export class CollectionService {
    * Add members. The `memberType` is taken from the parent collection (members
    * are homogeneous), so callers pass only ids. Duplicate (collectionId,
    * memberId) pairs are ignored.
+   *
+   * Returns the ids that were *genuinely* inserted (`addedMemberIds`) — already-
+   * present members are excluded. Callers that fire side effects on add (e.g.
+   * the `list_member_added` Automation trigger, ADR-0031) must key off this, not
+   * the input list, so re-adding an existing member never re-triggers.
    */
-  async addMembers(collectionId: string, memberIds: string[]) {
-    if (memberIds.length === 0) return { count: 0 };
+  async addMembers(
+    collectionId: string,
+    memberIds: string[],
+  ): Promise<{ count: number; addedMemberIds: string[] }> {
+    if (memberIds.length === 0) return { count: 0, addedMemberIds: [] };
     const collection = await this.db.collection.findUniqueOrThrow({
       where: { id: collectionId },
       select: { memberType: true },
     });
-    return this.db.collectionMember.createMany({
-      data: memberIds.map((memberId) => ({
+
+    const uniqueIds = [...new Set(memberIds)];
+    const existing = await this.db.collectionMember.findMany({
+      where: { collectionId, memberId: { in: uniqueIds } },
+      select: { memberId: true },
+    });
+    const existingIds = new Set(existing.map((m) => m.memberId));
+    const addedMemberIds = uniqueIds.filter((id) => !existingIds.has(id));
+
+    if (addedMemberIds.length === 0) return { count: 0, addedMemberIds };
+
+    await this.db.collectionMember.createMany({
+      data: addedMemberIds.map((memberId) => ({
         collectionId,
         memberType: collection.memberType,
         memberId,
       })),
       skipDuplicates: true,
     });
+    return { count: addedMemberIds.length, addedMemberIds };
   }
 
   removeMember(collectionId: string, memberId: string) {

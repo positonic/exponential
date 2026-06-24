@@ -57,11 +57,16 @@ export async function dispatchListMemberAddedAutomations(
 
   // Idempotency: a (definition, contact) pair fires once. Runs carry
   // `{ contactId }` in their input JSON, so no extra column. FAILED runs are
-  // excluded so a failed send retries on the next add.
+  // excluded so a failed send retries on the next add. Scoped to just these
+  // candidate contacts so the scan stays bounded as run history grows (rather
+  // than loading every run the definition ever produced).
   const priorRuns = await db.workflowPipelineRun.findMany({
     where: {
       definitionId: { in: definitionIds },
       status: { not: "FAILED" },
+      OR: input.addedMemberIds.map((memberId) => ({
+        input: { path: ["contactId"], equals: memberId },
+      })),
     },
     select: { definitionId: true, input: true },
   });
