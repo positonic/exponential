@@ -2559,7 +2559,7 @@ model CrmContact {
 
   // Gmail/Calendar import fields
   connectionScore Int?      @default(0) // 0-100 calculated score
-  emailHash       String?   @unique // SHA-256 for deduplication
+  emailHash       String? // SHA-256 for deduplication; uniqueness is workspace-scoped via @@unique below
   importSource    String? // "GMAIL", "CALENDAR", "MANUAL"
   googleContactId String? // Google People API ID
   lastSyncedAt    DateTime? // Last import sync time
@@ -2580,6 +2580,7 @@ model CrmContact {
   @@index([emailHash])
   @@index([connectionScore])
   @@index([workspaceId, importSource])
+  @@unique([workspaceId, emailHash])
 }
 
 model CrmOrganization {

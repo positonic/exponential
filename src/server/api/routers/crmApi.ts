@@ -3,8 +3,10 @@ import { createTRPCRouter } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import { emailHashFor } from "~/server/services/crm/createCrmContact";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -146,6 +148,7 @@ export const crmApiRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string(),
         search: z.string().optional(),
+        email: z.string().email().optional(),
         tags: z.array(z.string()).optional(),
         organizationId: z.string().optional(),
         limit: z.number().min(1).max(100).optional(),
@@ -153,12 +156,17 @@ export const crmApiRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const { workspaceId, search, tags, organizationId, limit = 50, cursor } = input;
+      const { workspaceId, search, email, tags, organizationId, limit = 50, cursor } = input;
       await verifyWorkspaceAccess(ctx.db, workspaceId, ctx.userId);
+
+      // When `email` is supplied, dedupe lookup via the globally-unique emailHash.
+      // Contacts created before emailHash was set on the public API will not match.
+      const emailHash = email ? emailHashFor(email) : undefined;
 
       const contacts = await ctx.db.crmContact.findMany({
         where: {
           workspaceId,
+          ...(emailHash ? { emailHash } : {}),
           ...(search
             ? {
                 OR: [
@@ -256,6 +264,31 @@ export const crmApiRouter = createTRPCRouter({
         }
       }
 
+      const contactInclude = {
+        organization: true,
+        createdBy: {
+          select: { id: true, name: true, email: true, image: true },
+        },
+      } as const;
+
+      // Dedupe by (workspaceId, emailHash). Uniqueness is workspace-scoped:
+      // the same person can legitimately be a contact in more than one
+      // workspace, but a single workspace should only ever hold one row per
+      // email. Same-workspace resubmits return the existing row untouched (no
+      // field overwrite) so callers distinguish via `wasExisting`.
+      const trimmedEmail = contactData.email?.trim();
+      const emailHash = trimmedEmail ? emailHashFor(trimmedEmail) : null;
+
+      if (emailHash) {
+        const existing = await ctx.db.crmContact.findUnique({
+          where: { workspaceId_emailHash: { workspaceId, emailHash } },
+          include: contactInclude,
+        });
+        if (existing) {
+          return { ...safeDecryptContact(existing), wasExisting: true };
+        }
+      }
+
       const dbData: Record<string, unknown> = {
         workspaceId,
         createdById: ctx.userId,
@@ -266,6 +299,7 @@ export const crmApiRouter = createTRPCRouter({
         about: contactData.about ?? undefined,
         profileType: contactData.profileType ?? undefined,
         organizationId: contactData.organizationId ?? undefined,
+        ...(emailHash ? { emailHash } : {}),
       };
 
       for (const field of piiFields) {
@@ -273,17 +307,30 @@ export const crmApiRouter = createTRPCRouter({
         if (value) dbData[field] = encryptString(value);
       }
 
-      const contact = await ctx.db.crmContact.create({
-        data: dbData as Parameters<typeof ctx.db.crmContact.create>[0]["data"],
-        include: {
-          organization: true,
-          createdBy: {
-            select: { id: true, name: true, email: true, image: true },
-          },
-        },
-      });
-
-      return safeDecryptContact(contact);
+      try {
+        const contact = await ctx.db.crmContact.create({
+          data: dbData as Parameters<typeof ctx.db.crmContact.create>[0]["data"],
+          include: contactInclude,
+        });
+        return { ...safeDecryptContact(contact), wasExisting: false };
+      } catch (err) {
+        // Concurrent double-submit: between the dedupe lookup above and this
+        // insert, another request landed a row with the same
+        // (workspaceId, emailHash). Re-fetch the winner and return it as a
+        // dedupe hit so the caller still sees idempotent behaviour.
+        if (
+          emailHash &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === "P2002"
+        ) {
+          const winner = await ctx.db.crmContact.findUniqueOrThrow({
+            where: { workspaceId_emailHash: { workspaceId, emailHash } },
+            include: contactInclude,
+          });
+          return { ...safeDecryptContact(winner), wasExisting: true };
+        }
+        throw err;
+      }
     }),
 
   contactUpdate: apiKeyMiddleware
