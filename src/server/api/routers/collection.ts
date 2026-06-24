@@ -7,6 +7,7 @@ import { requireWorkspaceMembership } from "~/server/services/access/middleware"
 import { CollectionService } from "~/server/services/collections/CollectionService";
 import { createMemberTypeRegistry } from "~/server/services/collections/createMemberTypeRegistry";
 import { CRM_CONTACT_MEMBER_TYPE } from "~/server/services/collections/memberTypeRegistry";
+import { dispatchListMemberAddedAutomations } from "~/server/services/crm/automation/dispatchListMemberAddedAutomations";
 
 function service(db: PrismaClient) {
   return new CollectionService(db, createMemberTypeRegistry(db));
@@ -100,7 +101,24 @@ export const collectionRouter = createTRPCRouter({
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       await assertInWorkspace(ctx.db, input.collectionId, input.workspaceId);
-      return service(ctx.db).addMembers(input.collectionId, input.memberIds);
+      const result = await service(ctx.db).addMembers(
+        input.collectionId,
+        input.memberIds,
+      );
+
+      // Fire any `list_member_added` Automations subscribed to this List
+      // (ADR-0031). Only when at least one member was genuinely added; the
+      // dispatcher's per-(definition, contact) idempotency guards the rest.
+      if (result.count > 0) {
+        await dispatchListMemberAddedAutomations(ctx.db, {
+          collectionId: input.collectionId,
+          workspaceId: input.workspaceId,
+          addedMemberIds: input.memberIds,
+          triggeredById: ctx.session.user.id,
+        });
+      }
+
+      return result;
     }),
 
   removeMember: protectedProcedure
