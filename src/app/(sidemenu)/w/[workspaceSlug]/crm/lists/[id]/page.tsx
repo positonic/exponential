@@ -7,6 +7,7 @@ import {
   Text,
   Button,
   Card,
+  Badge,
   Group,
   Stack,
   Loader,
@@ -16,10 +17,23 @@ import {
   ActionIcon,
   Tooltip,
 } from '@mantine/core';
-import { IconUsers, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconUsers, IconPlus, IconTrash, IconBolt } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+
+function runStatusColor(status: string): string {
+  switch (status) {
+    case 'SUCCESS':
+      return 'green';
+    case 'FAILED':
+      return 'red';
+    case 'RUNNING':
+      return 'blue';
+    default:
+      return 'gray';
+  }
+}
 
 export default function CrmListDetailPage() {
   const { workspaceId, isLoading: wsLoading } = useWorkspace();
@@ -39,6 +53,16 @@ export default function CrmListDetailPage() {
     { enabled: !!workspaceId },
   );
 
+  const automationsQuery = api.listAutomation.list.useQuery(
+    { workspaceId: workspaceId ?? '', collectionId },
+    { enabled: !!workspaceId },
+  );
+
+  const runsQuery = api.listAutomation.runs.useQuery(
+    { workspaceId: workspaceId ?? '', collectionId, limit: 10 },
+    { enabled: !!workspaceId },
+  );
+
   const invalidate = () =>
     utils.collection.members.invalidate({
       workspaceId: workspaceId ?? '',
@@ -49,6 +73,12 @@ export default function CrmListDetailPage() {
     onSuccess: async () => {
       setToAdd([]);
       await invalidate();
+      // Adding a member may have fired a list_member_added Automation — refresh
+      // the runs so the user sees it land.
+      await utils.listAutomation.runs.invalidate({
+        workspaceId: workspaceId ?? '',
+        collectionId,
+      });
     },
     onError: (e) =>
       notifications.show({ title: 'Could not add', message: e.message, color: 'red' }),
@@ -74,6 +104,9 @@ export default function CrmListDetailPage() {
         'Unnamed contact',
     }));
 
+  const automations = automationsQuery.data ?? [];
+  const runs = runsQuery.data ?? [];
+
   return (
     <Stack gap="lg" p="md">
       <Box>
@@ -83,6 +116,74 @@ export default function CrmListDetailPage() {
           skipped when a Broadcast sends.
         </Text>
       </Box>
+
+      <Card withBorder padding="md">
+        <Group gap="xs" mb="xs">
+          <ThemeIcon size="sm" variant="light" color="yellow">
+            <IconBolt size={14} />
+          </ThemeIcon>
+          <Text fw={600}>Automations</Text>
+          <Text c="dimmed" size="sm">
+            run when a contact is added to this list
+          </Text>
+        </Group>
+
+        {automationsQuery.isLoading ? (
+          <Loader size="sm" />
+        ) : automations.length === 0 ? (
+          <Text c="dimmed" size="sm">
+            No automations are wired to this list yet.
+          </Text>
+        ) : (
+          <Stack gap="xs">
+            {automations.map((a) => (
+              <Group key={a.id} justify="space-between" align="center" wrap="nowrap">
+                <Box>
+                  <Group gap="xs">
+                    <Text fw={500}>{a.name}</Text>
+                    <Badge
+                      size="sm"
+                      variant="light"
+                      color={a.isActive ? 'green' : 'gray'}
+                    >
+                      {a.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </Group>
+                  <Text c="dimmed" size="sm">
+                    {a.steps.length > 0
+                      ? a.steps.map((s) => s.label).join(' → ')
+                      : 'No steps yet'}
+                  </Text>
+                </Box>
+                <Text c="dimmed" size="sm" style={{ whiteSpace: 'nowrap' }}>
+                  {a._count.runs} {a._count.runs === 1 ? 'run' : 'runs'}
+                </Text>
+              </Group>
+            ))}
+
+            {runs.length > 0 && (
+              <Box mt="xs">
+                <Text c="dimmed" size="xs" tt="uppercase" fw={600} mb={4}>
+                  Recent runs
+                </Text>
+                <Stack gap={4}>
+                  {runs.map((r) => (
+                    <Group key={r.id} gap="xs" wrap="nowrap">
+                      <Badge size="xs" variant="light" color={runStatusColor(r.status)}>
+                        {r.status}
+                      </Badge>
+                      <Text size="sm">{r.definition.name}</Text>
+                      <Text c="dimmed" size="xs">
+                        {new Date(r.startedAt).toLocaleString()}
+                      </Text>
+                    </Group>
+                  ))}
+                </Stack>
+              </Box>
+            )}
+          </Stack>
+        )}
+      </Card>
 
       <Card withBorder padding="md">
         <Group align="flex-end" gap="sm">

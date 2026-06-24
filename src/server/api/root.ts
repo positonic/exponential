@@ -47,6 +47,7 @@ import { crmOrganizationRouter } from "./routers/crmOrganization";
 import { crmAutomationRouter } from "./routers/crmAutomation";
 import { formRouter } from "./routers/form";
 import { collectionRouter } from "./routers/collection";
+import { listAutomationRouter } from "./routers/listAutomation";
 import { broadcastRouter } from "./routers/broadcast";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
@@ -136,6 +137,7 @@ export const appRouter = createTRPCRouter({
   crmAutomation: crmAutomationRouter,
   form: formRouter,
   collection: collectionRouter,
+  listAutomation: listAutomationRouter,
   broadcast: broadcastRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
