@@ -254,10 +254,13 @@ async function upsertMeetingParticipant(
       const emailHash = createHash("sha256")
         .update(person.email.toLowerCase().trim())
         .digest("hex");
-      // emailHash is globally unique. If another contact already owns this
-      // email, don't collide on update — surface a clear error instead.
+      // emailHash uniqueness is workspace-scoped. If another contact in this
+      // workspace already owns this email, don't collide on update — surface a
+      // clear error. Contacts in other workspaces with the same email are fine.
       const owner = await tx.crmContact.findUnique({
-        where: { emailHash },
+        where: {
+          workspaceId_emailHash: { workspaceId, emailHash },
+        },
         select: { id: true },
       });
       if (owner && owner.id !== contact.id) {
@@ -282,16 +285,17 @@ async function upsertMeetingParticipant(
       const emailHash = createHash("sha256")
         .update(person.email.toLowerCase().trim())
         .digest("hex");
-      // emailHash is globally unique, so look it up globally — a workspace-
-      // scoped lookup would miss a contact owned by another workspace and then
-      // throw P2002 on create. Only create when no contact exists.
+      // emailHash uniqueness is workspace-scoped, so look up within this
+      // Meeting's workspace. The same email may exist as a contact in other
+      // workspaces; that's allowed and irrelevant here.
       let contact = await tx.crmContact.findUnique({
-        where: { emailHash },
+        where: {
+          workspaceId_emailHash: { workspaceId, emailHash },
+        },
         select: {
           id: true,
           firstName: true,
           lastName: true,
-          workspaceId: true,
         },
       });
       if (!contact) {
@@ -310,21 +314,16 @@ async function upsertMeetingParticipant(
             id: true,
             firstName: true,
             lastName: true,
-            workspaceId: true,
           },
         });
       }
-      // Only link the participant to a contact that lives in this Meeting's
-      // workspace; a contact owned by another workspace stays unlinked (the
-      // participant keeps its free-text email/name) rather than leaking across
-      // the workspace boundary.
-      if (contact.workspaceId === workspaceId) {
-        contactId = contact.id;
-        if (!name) {
-          name =
-            [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
-            null;
-        }
+      // The lookup/insert above is workspace-scoped, so the returned contact
+      // necessarily belongs to this Meeting's workspace.
+      contactId = contact.id;
+      if (!name) {
+        name =
+          [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+          null;
       }
     }
   }

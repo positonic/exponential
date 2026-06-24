@@ -1,13 +1,13 @@
 import crypto from "crypto";
-import { type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { encryptString } from "~/server/utils/encryption";
 import { dispatchContactTypeAutomations } from "./automation/dispatchContactTypeAutomations";
 
 /**
  * Shared contact-create used by non-session paths (notably the public Forms
- * intake, ADR-0029). Dedupes by the globally-unique `emailHash`, encrypts the
- * email at rest, stamps the Customer type (`profileType`), and fires the CRM
+ * intake, ADR-0029). Dedupes by `(workspaceId, emailHash)`, encrypts the email
+ * at rest, stamps the Customer type (`profileType`), and fires the CRM
  * automation trigger — so a form submission lands as a contact and the existing
  * automation engine takes over.
  *
@@ -50,41 +50,64 @@ export async function createCrmContact(
   const email = input.email?.trim() ? input.email.trim() : null;
   const emailHash = email ? emailHashFor(email) : null;
 
-  // Dedupe by globally-unique emailHash — repeats do not re-create or re-fire.
+  // Dedupe by (workspaceId, emailHash) — uniqueness is workspace-scoped, so
+  // the same person can exist as an independent contact in multiple
+  // workspaces. Within a workspace, repeats do not re-create or re-fire.
   if (emailHash) {
     const existing = await db.crmContact.findUnique({
-      where: { emailHash },
-      select: { id: true, workspaceId: true },
+      where: {
+        workspaceId_emailHash: {
+          workspaceId: input.workspaceId,
+          emailHash,
+        },
+      },
+      select: { id: true },
     });
     if (existing) {
-      // emailHash is globally unique. A contact owned by ANOTHER workspace must
-      // not be linked into this one — returning its id would leak a cross-tenant
-      // reference, and the create below would throw P2002 anyway. Surface a
-      // clear error (recorded by runFormDestinations; intake still 200s).
-      if (existing.workspaceId !== input.workspaceId) {
-        throw new Error(
-          "A contact with this email already exists in another workspace",
-        );
-      }
       return { contactId: existing.id, created: false, fired: false };
     }
   }
 
   const tags = input.company?.trim() ? [input.company.trim()] : [];
 
-  const contact = await db.crmContact.create({
-    data: {
-      workspaceId: input.workspaceId,
-      createdById: input.createdById ?? undefined,
-      firstName: input.firstName?.trim() ?? undefined,
-      lastName: input.lastName?.trim() ?? undefined,
-      profileType: input.profileType ?? undefined,
-      importSource: input.importSource ?? undefined,
-      tags,
-      ...(email ? { email: encryptString(email), emailHash } : {}),
-    },
-    select: { id: true },
-  });
+  let contact: { id: string };
+  try {
+    contact = await db.crmContact.create({
+      data: {
+        workspaceId: input.workspaceId,
+        createdById: input.createdById ?? undefined,
+        firstName: input.firstName?.trim() ?? undefined,
+        lastName: input.lastName?.trim() ?? undefined,
+        profileType: input.profileType ?? undefined,
+        importSource: input.importSource ?? undefined,
+        tags,
+        ...(email ? { email: encryptString(email), emailHash } : {}),
+      },
+      select: { id: true },
+    });
+  } catch (err) {
+    // Concurrent double-submit: between the dedupe lookup above and this
+    // insert, another request landed a row with the same
+    // (workspaceId, emailHash). Treat as a dedupe hit so the caller sees
+    // idempotent behaviour and the automation engine does not fire twice.
+    if (
+      emailHash &&
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
+    ) {
+      const winner = await db.crmContact.findUniqueOrThrow({
+        where: {
+          workspaceId_emailHash: {
+            workspaceId: input.workspaceId,
+            emailHash,
+          },
+        },
+        select: { id: true },
+      });
+      return { contactId: winner.id, created: false, fired: false };
+    }
+    throw err;
+  }
 
   let fired = false;
   if (input.profileType) {

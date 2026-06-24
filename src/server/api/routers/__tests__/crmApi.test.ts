@@ -8,8 +8,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TRPCError } from "@trpc/server";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 
 vi.hoisted(() => {
@@ -173,14 +173,9 @@ describe("crmApi router (mocked)", () => {
 
     it("returns the existing contact with wasExisting=true on emailHash hit (same workspace)", async () => {
       const hash = emailHashFor("ada@example.com");
-      // First lookup: emailHash returns existing contact summary.
-      dbMock.crmContact.findUnique.mockResolvedValueOnce({
-        id: "c-existing",
-        workspaceId,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-      // Second lookup (findUniqueOrThrow): full row for response shape.
-      dbMock.crmContact.findUniqueOrThrow.mockResolvedValue(
+      // Dedupe lookup uses the (workspaceId, emailHash) composite key and
+      // returns the full row directly (no second findUniqueOrThrow round-trip).
+      dbMock.crmContact.findUnique.mockResolvedValue(
         buildContactRow({ id: "c-existing", emailHash: hash }),
       );
 
@@ -195,27 +190,67 @@ describe("crmApi router (mocked)", () => {
       expect(result.id).toBe("c-existing");
       // The existing row was NOT overwritten — no create issued.
       expect(dbMock.crmContact.create).not.toHaveBeenCalled();
+      // The lookup was scoped to (workspaceId, emailHash) — not global emailHash.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const findArgs = dbMock.crmContact.findUnique.mock.calls[0]?.[0] as any;
+      expect(findArgs.where.workspaceId_emailHash).toEqual({
+        workspaceId,
+        emailHash: hash,
+      });
     });
 
-    it("throws CONFLICT when emailHash matches a contact in another workspace", async () => {
-      dbMock.crmContact.findUnique.mockResolvedValueOnce({
-        id: "c-foreign",
-        workspaceId: "ws-other",
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+    it("creates a fresh row when the email exists only in another workspace (workspace-scoped uniqueness)", async () => {
+      // The dedupe lookup is scoped to THIS workspace, so a contact owned by
+      // another workspace doesn't surface and we proceed to create. The
+      // database-level unique is also workspace-scoped, so the insert
+      // succeeds rather than throwing P2002.
+      dbMock.crmContact.findUnique.mockResolvedValue(null);
+      dbMock.crmContact.create.mockResolvedValue(
+        buildContactRow({
+          id: "c-new",
+          emailHash: emailHashFor("ada@example.com"),
+        }),
+      );
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await expect(
-        caller.crmApi.contactCreate({
-          workspaceId,
-          email: "ada@example.com",
-        }),
-      ).rejects.toMatchObject({
-        // tRPC wraps the TRPCError; both `code` and the underlying error are visible.
-        code: "CONFLICT",
-      } satisfies Partial<TRPCError>);
+      const result = await caller.crmApi.contactCreate({
+        workspaceId,
+        email: "ada@example.com",
+      });
 
-      expect(dbMock.crmContact.create).not.toHaveBeenCalled();
+      expect(result.wasExisting).toBe(false);
+      expect(result.id).toBe("c-new");
+      expect(dbMock.crmContact.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("handles a P2002 race by re-fetching the winner and returning wasExisting=true", async () => {
+      const hash = emailHashFor("ada@example.com");
+      // Dedupe lookup misses — a concurrent request hasn't landed its row yet.
+      dbMock.crmContact.findUnique.mockResolvedValue(null);
+      // Between the lookup and the insert, the racing request landed first.
+      // Our create now violates the (workspaceId, emailHash) unique constraint.
+      const p2002 = new Prisma.PrismaClientKnownRequestError(
+        "Unique constraint failed",
+        {
+          code: "P2002",
+          clientVersion: "test",
+          meta: { target: ["workspaceId", "emailHash"] },
+        },
+      );
+      dbMock.crmContact.create.mockRejectedValue(p2002);
+      // Re-fetch returns the winner — the caller should see this as a dedup hit.
+      dbMock.crmContact.findUniqueOrThrow.mockResolvedValue(
+        buildContactRow({ id: "c-winner", emailHash: hash }),
+      );
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.crmApi.contactCreate({
+        workspaceId,
+        email: "ada@example.com",
+      });
+
+      expect(result.wasExisting).toBe(true);
+      expect(result.id).toBe("c-winner");
     });
 
     it("creates without emailHash when no email is supplied", async () => {
