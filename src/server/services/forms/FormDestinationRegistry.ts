@@ -2,6 +2,7 @@ import { type PrismaClient } from "@prisma/client";
 
 import { type IFormDestination } from "./destinations/IFormDestination";
 import { CreateCrmContactDestination } from "./destinations/CreateCrmContactDestination";
+import { CreateDealDestination } from "./destinations/CreateDealDestination";
 
 /**
  * Registry of **Form destinations**, mirroring the automation `StepRegistry`.
@@ -38,5 +39,6 @@ export function createFormDestinationRegistry(
 ): FormDestinationRegistry {
   const registry = new FormDestinationRegistry();
   registry.register(new CreateCrmContactDestination(db));
+  registry.register(new CreateDealDestination(db));
   return registry;
 }

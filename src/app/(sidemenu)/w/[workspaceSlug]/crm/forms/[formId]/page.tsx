@@ -34,6 +34,7 @@ import { api } from '~/trpc/react';
 import { slugify } from '~/utils/slugify';
 import { CRM_CUSTOMER_TYPE_OPTIONS } from '~/lib/crm/automationCatalog';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 type FieldType = 'text' | 'email' | 'textarea' | 'select' | 'checkbox' | 'url';
 
@@ -91,7 +92,24 @@ export default function FormEditorPage() {
     lastName: null,
     company: null,
   });
+  // create_deal destination (ADR-0033): upsert applicant + drop a card on a pipeline.
+  const [dealEnabled, setDealEnabled] = useState(false);
+  const [dealPipelineId, setDealPipelineId] = useState<string | null>(null);
+  const [dealStageId, setDealStageId] = useState<string | null>(null);
+  const [dealCustomerType, setDealCustomerType] = useState<string | null>(null);
+  const [dealTitleTemplate, setDealTitleTemplate] = useState('');
+  const [dealFieldMap, setDealFieldMap] = useState<
+    Record<ContactSlot, string | null>
+  >({ email: null, firstName: null, lastName: null, company: null });
   const [dirty, setDirty] = useState(false);
+
+  const { workspaceId } = useWorkspace();
+  const { data: pipelines } = api.pipeline.list.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId },
+  );
+  const dealStages =
+    pipelines?.find((p) => p.id === dealPipelineId)?.pipelineStages ?? [];
 
   useEffect(() => {
     const data = query.data;
@@ -132,6 +150,42 @@ export default function FormEditorPage() {
       });
     } else {
       setCrmEnabled(false);
+    }
+    const deal = asArray(data.destinations).find(
+      (d) => (d as { type?: string }).type === 'create_deal',
+    ) as { config?: Record<string, unknown> } | undefined;
+    if (deal?.config) {
+      setDealEnabled(true);
+      setDealPipelineId(
+        typeof deal.config.pipelineId === 'string'
+          ? deal.config.pipelineId
+          : null,
+      );
+      setDealStageId(
+        typeof deal.config.stageId === 'string' ? deal.config.stageId : null,
+      );
+      setDealCustomerType(
+        typeof deal.config.customerType === 'string'
+          ? deal.config.customerType
+          : null,
+      );
+      setDealTitleTemplate(
+        typeof deal.config.dealTitleTemplate === 'string'
+          ? deal.config.dealTitleTemplate
+          : '',
+      );
+      const dmap = (deal.config.contactFieldMap ?? {}) as Record<
+        string,
+        unknown
+      >;
+      setDealFieldMap({
+        email: typeof dmap.email === 'string' ? dmap.email : null,
+        firstName: typeof dmap.firstName === 'string' ? dmap.firstName : null,
+        lastName: typeof dmap.lastName === 'string' ? dmap.lastName : null,
+        company: typeof dmap.company === 'string' ? dmap.company : null,
+      });
+    } else {
+      setDealEnabled(false);
     }
     setDirty(false);
   }, [query.data]);
@@ -204,21 +258,39 @@ export default function FormEditorPage() {
       required: f.required,
       ...(f.type === 'select' ? { options: f.options } : {}),
     }));
-    const destinations = crmEnabled
-      ? [
-          {
-            type: 'create_crm_contact',
-            config: {
-              customerType: customerType ?? '',
-              fieldMap: Object.fromEntries(
-                CONTACT_SLOTS.map((s) => [s.key, fieldMap[s.key]]).filter(
-                  ([, v]) => v,
-                ),
-              ),
-            },
-          },
-        ]
-      : [];
+    const destinations: { type: string; config: Record<string, unknown> }[] =
+      [];
+    if (crmEnabled) {
+      destinations.push({
+        type: 'create_crm_contact',
+        config: {
+          customerType: customerType ?? '',
+          fieldMap: Object.fromEntries(
+            CONTACT_SLOTS.map((s) => [s.key, fieldMap[s.key]]).filter(
+              ([, v]) => v,
+            ),
+          ),
+        },
+      });
+    }
+    if (dealEnabled) {
+      destinations.push({
+        type: 'create_deal',
+        config: {
+          pipelineId: dealPipelineId ?? '',
+          stageId: dealStageId ?? '',
+          customerType: dealCustomerType ?? '',
+          contactFieldMap: Object.fromEntries(
+            CONTACT_SLOTS.map((s) => [s.key, dealFieldMap[s.key]]).filter(
+              ([, v]) => v,
+            ),
+          ),
+          ...(dealTitleTemplate.trim()
+            ? { dealTitleTemplate: dealTitleTemplate.trim() }
+            : {}),
+        },
+      });
+    }
     save.mutate({
       id,
       name: name.trim() || 'Untitled form',
@@ -447,6 +519,102 @@ export default function FormEditorPage() {
                   value={fieldMap[slot.key]}
                   onChange={(value) => {
                     setFieldMap((prev) => ({ ...prev, [slot.key]: value }));
+                    touch();
+                  }}
+                  clearable
+                  w={200}
+                />
+              ))}
+            </Group>
+          </Stack>
+        )}
+      </Card>
+
+      <Card withBorder padding="md">
+        <Group justify="space-between" mb="sm">
+          <Box>
+            <Text fw={600}>When submitted → Add to pipeline (create deal)</Text>
+            <Text c="dimmed" size="xs">
+              Upserts the applicant as a contact (firing matching automations)
+              and drops a card on the chosen pipeline stage.
+            </Text>
+          </Box>
+          <Switch
+            checked={dealEnabled}
+            onChange={(e) => {
+              setDealEnabled(e.currentTarget.checked);
+              touch();
+            }}
+          />
+        </Group>
+        {dealEnabled && (
+          <Stack gap="sm">
+            <Group gap="sm" wrap="wrap" align="flex-end">
+              <Select
+                label="Pipeline"
+                placeholder="Select a pipeline"
+                data={(pipelines ?? []).map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                }))}
+                value={dealPipelineId}
+                onChange={(value) => {
+                  setDealPipelineId(value);
+                  // Stage belongs to a pipeline — reset it when the pipeline changes.
+                  setDealStageId(null);
+                  touch();
+                }}
+                w={220}
+              />
+              <Select
+                label="Stage"
+                placeholder={
+                  dealPipelineId ? 'Select a stage' : 'Pick a pipeline first'
+                }
+                data={dealStages.map((s) => ({ value: s.id, label: s.name }))}
+                value={dealStageId}
+                onChange={(value) => {
+                  setDealStageId(value);
+                  touch();
+                }}
+                disabled={!dealPipelineId}
+                w={220}
+              />
+              <Select
+                label="Customer type"
+                placeholder="e.g. Applicant"
+                data={CRM_CUSTOMER_TYPE_OPTIONS}
+                value={dealCustomerType}
+                onChange={(value) => {
+                  setDealCustomerType(value);
+                  touch();
+                }}
+                searchable
+                w={220}
+              />
+            </Group>
+            <TextInput
+              label="Deal title template"
+              description="Optional. Use {fieldKey} tokens; defaults to the applicant's name, then email."
+              placeholder="e.g. {firstName} {lastName} — Frontend role"
+              value={dealTitleTemplate}
+              onChange={(e) => {
+                setDealTitleTemplate(e.currentTarget.value);
+                touch();
+              }}
+              w={420}
+            />
+            <Divider label="Map form fields → applicant" labelPosition="left" />
+            <Group gap="sm" wrap="wrap">
+              {CONTACT_SLOTS.map((slot) => (
+                <Select
+                  key={slot.key}
+                  label={`${slot.label}${slot.required ? ' *' : ''}`}
+                  placeholder="Select a field"
+                  data={fieldKeyOptions}
+                  value={dealFieldMap[slot.key]}
+                  onChange={(value) => {
+                    setDealFieldMap((prev) => ({ ...prev, [slot.key]: value }));
                     touch();
                   }}
                   clearable
