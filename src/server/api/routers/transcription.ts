@@ -12,6 +12,7 @@ import { TranscriptionProcessingService } from "~/server/services/TranscriptionP
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
+import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   TranscriptSummarizerService,
@@ -19,7 +20,6 @@ import {
 } from "~/server/services/TranscriptSummarizerService";
 import {
   buildTranscriptionAccessWhere,
-  canEditProject,
   canEditTranscription,
   canViewTranscription,
   getProjectAccess,
@@ -1188,61 +1188,18 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify the user can edit the source transcription.
-      const existing = await ctx.db.transcriptionSession.findUnique({
+      // Single placement path: resolves the project's workspace, enforces edit
+      // access on the meeting and the target project, and re-homes the meeting
+      // AND its Actions (projectId + workspaceId) together.
+      await assignMeetingPlacement(ctx.db, ctx.session.user.id, {
+        meetingIds: [input.transcriptionId],
+        projectId: input.projectId,
+        scope: "editable",
+      });
+
+      return ctx.db.transcriptionSession.findUniqueOrThrow({
         where: { id: input.transcriptionId },
-        select: { id: true, userId: true, projectId: true, workspaceId: true },
       });
-      if (!existing) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Transcription not found",
-        });
-      }
-      await ensureTranscriptionAccess(
-        ctx.db,
-        ctx.session.user.id,
-        existing,
-        "edit",
-      );
-
-      // Verify the user can edit the target project, and resolve its workspace.
-      let workspaceId: string | null = null;
-      if (input.projectId) {
-        const targetAccess = await getProjectAccess(
-          ctx.db,
-          ctx.session.user.id,
-          input.projectId,
-        );
-        if (!canEditProject(targetAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not have edit access to the target project",
-          });
-        }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        workspaceId = project?.workspaceId ?? null;
-      }
-
-      const session = await ctx.db.transcriptionSession.update({
-        where: { id: input.transcriptionId },
-        data: {
-          projectId: input.projectId,
-          workspaceId,
-          updatedAt: new Date(),
-        },
-      });
-
-      // Also update all associated actions to the same project
-      await ctx.db.action.updateMany({
-        where: { transcriptionSessionId: input.transcriptionId },
-        data: { projectId: input.projectId },
-      });
-
-      return session;
     }),
 
   bulkAssignProject: protectedProcedure
@@ -1253,51 +1210,17 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify the user can edit the target project, and resolve its workspace.
-      let workspaceId: string | null = null;
-      if (input.projectId) {
-        const targetAccess = await getProjectAccess(
-          ctx.db,
-          ctx.session.user.id,
-          input.projectId,
-        );
-        if (!canEditProject(targetAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not have edit access to the target project",
-          });
-        }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        workspaceId = project?.workspaceId ?? null;
-      }
-
-      // Sources are scoped to user-owned transcriptions to keep bulk
-      // semantics narrow — broader source access can be added once the UI
-      // exposes shared transcriptions.
-      const result = await ctx.db.transcriptionSession.updateMany({
-        where: {
-          id: { in: input.transcriptionIds },
-          userId: ctx.session.user.id,
-        },
-        data: {
+      // Bulk placement: narrow "owner" scope (only the caller's own meetings are
+      // touched). Same service re-homes each meeting AND its Actions together.
+      const result = await assignMeetingPlacement(
+        ctx.db,
+        ctx.session.user.id,
+        {
+          meetingIds: input.transcriptionIds,
           projectId: input.projectId,
-          workspaceId,
-          updatedAt: new Date(),
+          scope: "owner",
         },
-      });
-
-      // Also update actions of the transcriptions we just touched. Mirror
-      // the source userId scope so we don't touch other users' actions.
-      await ctx.db.action.updateMany({
-        where: {
-          transcriptionSessionId: { in: input.transcriptionIds },
-          transcriptionSession: { userId: ctx.session.user.id },
-        },
-        data: { projectId: input.projectId },
-      });
+      );
 
       return { count: result.count };
     }),
