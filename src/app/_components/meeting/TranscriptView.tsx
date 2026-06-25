@@ -1,24 +1,65 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { IconSearch, IconUsers } from "@tabler/icons-react";
+import { Badge, Group, Stack, Text } from "@mantine/core";
+import { IconCheck, IconCopy, IconSearch, IconUsers } from "@tabler/icons-react";
 import { MpAvatar } from "./MpAvatar";
 import { getInitial } from "~/utils/avatarColors";
-import { parseTranscript } from "~/lib/transcript";
+import { parseTranscript, turnsToReadableText } from "~/lib/transcript";
 import type { TranscriptTurn } from "~/lib/transcript";
 import type { MeetingChapter, MeetingParticipant } from "~/lib/meeting-view-model";
 
-interface TranscriptTabProps {
+interface TranscriptViewProps {
   transcription: string | null;
-  sentencesJson: unknown;
-  chapters: MeetingChapter[];
-  participants: MeetingParticipant[];
+  sentencesJson?: unknown;
+  provider?: string | null;
+  chapters?: MeetingChapter[];
+  participants?: MeetingParticipant[];
+  /** `full` (default) is the detail-page view with toolbar; `preview` is the
+   *  compact meetings-list card (first N turns + "+N more", no toolbar). */
+  variant?: "full" | "preview";
+  /** Number of turns shown in the `preview` variant before "+N more". */
+  previewCount?: number;
 }
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function useCopyToClipboard() {
+  const [copied, setCopied] = useState(false);
+  const copy = (text: string) => {
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch((err) => console.error("Failed to copy transcript:", err));
+  };
+  return { copied, copy };
+}
+
+/** Mantine badge colour for a speaker, by order of first appearance (parity with
+ *  the previous meetings-list preview). */
+const PREVIEW_COLORS = [
+  "blue",
+  "green",
+  "orange",
+  "grape",
+  "cyan",
+  "pink",
+  "yellow",
+  "red",
+  "indigo",
+  "teal",
+] as const;
+
+function previewColorFor(speaker: string, order: string[]): string {
+  const idx = order.indexOf(speaker);
+  return PREVIEW_COLORS[(idx < 0 ? 0 : idx) % PREVIEW_COLORS.length]!;
 }
 
 function withHighlight(text: string, query: string) {
@@ -41,14 +82,18 @@ function withHighlight(text: string, query: string) {
   return parts;
 }
 
-export function TranscriptTab({
+export function TranscriptView({
   transcription,
   sentencesJson,
-  chapters,
-  participants,
-}: TranscriptTabProps) {
+  provider,
+  chapters = [],
+  participants = [],
+  variant = "full",
+  previewCount = 3,
+}: TranscriptViewProps) {
   const [query, setQuery] = useState("");
   const [onlyMe, setOnlyMe] = useState(false);
+  const { copied, copy } = useCopyToClipboard();
 
   // Normalize via the canonical parser (ADR-0032): flavor and timestamps are
   // resolved in the parser, so this component is purely presentational.
@@ -56,23 +101,73 @@ export function TranscriptTab({
     () =>
       parseTranscript({
         transcription,
-        sentencesJson,
-        participants: participants.map((p) => ({
-          name: p.name,
-          isHost: p.isHost,
-        })),
+        sentencesJson: sentencesJson ?? null,
+        provider,
+        participants: participants.map((p) => ({ name: p.name, isHost: p.isHost })),
       }),
-    [transcription, sentencesJson, participants],
+    [transcription, sentencesJson, provider, participants],
   );
 
-  const hasMe = useMemo(() => turns.some((t) => t.flavor === "me"), [turns]);
+  // ----- Preview variant (meetings-list cards) -----------------------------
+  if (variant === "preview") {
+    if (turns.length === 0) {
+      return (
+        <Text size="sm" c="dimmed" ta="center" py="md">
+          No transcription available
+        </Text>
+      );
+    }
+    const speakerOrder = Array.from(
+      new Set(turns.map((t) => t.speaker).filter((s): s is string => s !== null)),
+    );
+    const shown = turns.slice(0, previewCount);
+    const remaining = turns.length - shown.length;
+    return (
+      <Stack gap="xs">
+        {shown.map((turn, i) =>
+          turn.speaker ? (
+            <Group key={i} gap="xs" wrap="nowrap">
+              <Badge size="xs" variant="light" color={previewColorFor(turn.speaker, speakerOrder)}>
+                {turn.speaker}
+              </Badge>
+              <Text size="sm" c="dimmed" lineClamp={1}>
+                {turn.text}
+              </Text>
+            </Group>
+          ) : (
+            <Text key={i} size="sm" c="dimmed" lineClamp={previewCount}>
+              {turn.text}
+            </Text>
+          ),
+        )}
+        {remaining > 0 && (
+          <Text size="xs" c="dimmed" fs="italic">
+            +{remaining} more messages...
+          </Text>
+        )}
+      </Stack>
+    );
+  }
+
+  // ----- Full variant (detail page) ----------------------------------------
+  const hasMe = turns.some((t) => t.flavor === "me");
 
   if (turns.length === 0) {
     return <div className="mp-empty">No transcript available yet.</div>;
   }
 
+  const copyAllBtn = (
+    <button
+      className="mp-tr__filter"
+      onClick={() => copy(turnsToReadableText(turns))}
+      title="Copy the full transcript"
+    >
+      {copied ? <IconCheck size={12} /> : <IconCopy size={12} />} Copy all
+    </button>
+  );
+
   // Speaker-less fallback: a single unstructured block. Render it plainly (no
-  // avatar/name, newlines preserved) with search, as before.
+  // avatar/name, newlines preserved) with search.
   const isPlainFallback = turns.length === 1 && turns[0]!.speaker === null;
   if (isPlainFallback) {
     return (
@@ -86,6 +181,7 @@ export function TranscriptTab({
               onChange={(e) => setQuery(e.currentTarget.value)}
             />
           </div>
+          {copyAllBtn}
         </div>
         <p className="mp-turn__text" style={{ whiteSpace: "pre-wrap" }}>
           {withHighlight(turns[0]!.text, query)}
@@ -125,6 +221,7 @@ export function TranscriptTab({
             <IconUsers size={12} /> Only me
           </button>
         )}
+        {copyAllBtn}
       </div>
 
       {filtered.length === 0 ? (

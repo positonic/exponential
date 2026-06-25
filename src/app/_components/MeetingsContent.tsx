@@ -52,7 +52,7 @@ import {
   IconArrowRight,
   IconCheckbox,
 } from "@tabler/icons-react";
-import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { TranscriptView } from "./meeting/TranscriptView";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import {
@@ -265,11 +265,11 @@ function PeekTranscript({
       </button>
       {open && (
         <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
-          <TranscriptionRenderer
+          <TranscriptView
+            variant="preview"
             transcription={transcription}
             provider={provider}
-            isPreview={true}
-            maxLines={2}
+            previewCount={2}
           />
         </div>
       )}
@@ -1699,11 +1699,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           {/* Meeting Preview */}
                           {session.transcription && (
                             <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800 opacity-75">
-                              <TranscriptionRenderer
+                              <TranscriptView
+                                variant="preview"
                                 transcription={session.transcription}
                                 provider={session.sourceIntegration?.provider}
-                                isPreview={true}
-                                maxLines={2}
+                                previewCount={2}
                               />
                             </Paper>
                           )}
