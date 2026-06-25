@@ -38,6 +38,11 @@ function decryptContactPII<T extends CrmContact>(
   };
 }
 
+// How close (in ms) a calendar MEETING interaction must be to a transcribed
+// session for the two to be treated as the same real-world meeting in the
+// activity timeline. See the dedupe note in `getActivity`.
+const MEETING_DEDUPE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
 // A transcribed meeting linked to a contact, projected to the fields the CRM uses
 type ContactMeeting = {
   id: string;
@@ -812,54 +817,10 @@ export const crmContactRouter = createTRPCRouter({
       };
     }),
 
-  // Get meetings (transcription sessions) associated with a contact.
-  // A contact is linked to a meeting either explicitly (participant.contactId)
-  // or implicitly by matching the participant's email to the contact's email.
-  getMeetings: protectedProcedure
-    .input(
-      z.object({
-        contactId: z.string(),
-        limit: z.number().min(1).max(100).optional(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      const { contactId, limit = 50 } = input;
-
-      // Get the contact and verify access
-      const contact = await ctx.db.crmContact.findFirst({
-        where: {
-          id: contactId,
-          workspace: { members: { some: { userId: ctx.session.user.id } } },
-        },
-        select: { workspaceId: true, email: true },
-      });
-
-      if (!contact) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Contact not found or inaccessible",
-        });
-      }
-
-      // Decrypt the contact's email so we can match participants captured by email
-      let contactEmail: string | null = null;
-      try {
-        contactEmail = decryptBuffer(contact.email) ?? null;
-      } catch (e) {
-        console.error("PII decryption failed for contact", contactId, e);
-      }
-
-      const meetings = await loadContactMeetings(ctx.db, {
-        workspaceId: contact.workspaceId,
-        contactId,
-        contactEmail,
-      });
-
-      return { meetings: meetings.slice(0, limit) };
-    }),
-
   // Unified activity timeline for a contact: CRM interactions (emails, notes,
   // calls, etc.) and transcribed meetings, merged and sorted newest-first.
+  // Also returns the full meeting list (for a dedicated Meetings tab) so callers
+  // don't need a second round-trip — both views share one meeting load.
   getActivity: protectedProcedure
     .input(
       z.object({
@@ -906,8 +867,29 @@ export const crmContactRouter = createTRPCRouter({
         }),
       ]);
 
+      // Calendar-synced meetings (ContactSyncService writes them as MEETING-type
+      // interactions) and transcribed sessions can describe the same real-world
+      // meeting, but share no id. Drop a MEETING interaction when a transcribed
+      // session falls within a short window of it so the timeline shows it once.
+      // Heuristic: favour leaving a possible duplicate over hiding a real meeting.
+      const meetingTimesMs = meetings.map((m) =>
+        (m.meetingDate ?? m.createdAt).getTime(),
+      );
+      const isCoveredByTranscript = (whenMs: number) =>
+        meetingTimesMs.some(
+          (mt) => Math.abs(mt - whenMs) <= MEETING_DEDUPE_WINDOW_MS,
+        );
+
+      const dedupedInteractions = interactions.filter(
+        (i) =>
+          !(
+            i.type === "MEETING" &&
+            isCoveredByTranscript(i.occurredAt.getTime())
+          ),
+      );
+
       const events = [
-        ...interactions.map((i) => ({
+        ...dedupedInteractions.map((i) => ({
           kind: "interaction" as const,
           id: i.id,
           interactionType: i.type,
@@ -927,7 +909,7 @@ export const crmContactRouter = createTRPCRouter({
         })),
       ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
 
-      return { events: events.slice(0, limit) };
+      return { events: events.slice(0, limit), meetings };
     }),
 
   // Assign contact to organization

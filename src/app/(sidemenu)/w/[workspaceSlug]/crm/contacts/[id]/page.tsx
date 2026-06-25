@@ -596,18 +596,13 @@ export default function ContactDetailPage() {
     { enabled: !!contactId }
   );
 
-  // Get meetings associated with this contact
-  const { data: meetingsData } = api.crmContact.getMeetings.useQuery(
-    { contactId },
-    { enabled: !!contactId }
-  );
-  const meetings = meetingsData?.meetings ?? [];
-
-  // Get the unified activity timeline (interactions + meetings)
+  // Get the unified activity timeline (interactions + meetings); it also returns
+  // the full meeting list for the Meetings tab so we only load meetings once.
   const { data: activityData } = api.crmContact.getActivity.useQuery(
     { contactId },
     { enabled: !!contactId }
   );
+  const meetings = activityData?.meetings ?? [];
 
   // Get all contacts for prev/next navigation
   const { data: allContacts } = api.crmContact.getAll.useQuery(
