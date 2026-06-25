@@ -94,3 +94,10 @@ export {
   buildTranscriptionAccessWhere,
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
+export {
+  getKnowledgePageAccess,
+  canViewKnowledgePage,
+  canEditKnowledgePage,
+  buildKnowledgePageAccessWhere,
+} from "./resolvers/knowledgePageResolver";
+export type { KnowledgePageAccessInfo } from "./resolvers/knowledgePageResolver";

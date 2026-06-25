@@ -83,6 +83,7 @@ import { favoriteRouter } from "~/server/api/routers/favorite";
 import { authRouter } from "./routers/auth";
 import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
+import { pageRouter } from "./routers/page";
 /**
  * This is the primary router for your server.
  *
@@ -168,6 +169,7 @@ export const appRouter = createTRPCRouter({
   auth: authRouter,
   document: documentRouter,
   voice: voiceRouter,
+  page: pageRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,
