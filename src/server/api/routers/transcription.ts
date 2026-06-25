@@ -559,6 +559,14 @@ export const transcriptionRouter = createTRPCRouter({
               contactId: true,
             },
           },
+          // Meeting owner/recorder — the "me" side a device Me:/Them: transcript
+          // is written from. Used to resolve participant identity tone.
+          user: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
           actions: {
             orderBy: { createdAt: "asc" },
           },
