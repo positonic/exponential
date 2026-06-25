@@ -142,6 +142,7 @@ model User {
   ownedWorkspaces             Workspace[]                 @relation("WorkspaceOwner")
   workspaceMemberships        WorkspaceUser[]
   resources                   Resource[]
+  knowledgePages              KnowledgePage[]
   workspaceInvitationsCreated WorkspaceInvitation[]       @relation("InvitationCreator")
   // CRM relations
   crmContactsCreated          CrmContact[]                @relation("CrmContactCreatedBy")
@@ -322,6 +323,7 @@ model Workspace {
   timeEntries             TimeEntry[]
   teams                   Team[]
   resources               Resource[]
+  knowledgePages          KnowledgePage[]
   invitations             WorkspaceInvitation[]
   views                   View[]
   lists                   List[]
@@ -902,6 +904,7 @@ model Project {
   memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
   lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
   resources             Resource[]
+  knowledgePages        KnowledgePage[]
   recurringTasks        RecurringTask[]
   activities            ProjectActivity[]
   keyResults            KeyResultProject[] // Key results this project contributes to
@@ -2526,6 +2529,39 @@ model KnowledgeChunk {
   @@index([userId])
   @@index([projectId])
   @@index([workspaceId])
+}
+
+/// A free-form, human- or Zoe-authored rich document (ADR-0033) — a spec, doc,
+/// or wiki page that stands on its own, not scoped to a Product/Day/Meeting. Its
+/// own top-level area (/w/[slug]/pages). Storage reuses the Feature PRD
+/// dual-format (ADR-0024): `bodyDoc` is the canonical ProseMirror JSON the
+/// editor reads/writes; `body` is a derived, write-only Markdown projection
+/// (greppable, embeddable, agent-readable); `docVersion` powers the
+/// optimistic-concurrency stale-write guard. Workspace-scoped with an optional
+/// Project link (flat — no nesting in v1); visibility mirrors Meetings
+/// (project-linked inherits the Project's rules incl. restriction; project-less
+/// is workspace-visible). When `includeInSearch` is on, the Markdown projection
+/// feeds the shared Knowledge index as `KnowledgeChunk.sourceType = "page"`.
+model KnowledgePage {
+  id              String   @id @default(cuid())
+  title           String   @default("Untitled")
+  bodyDoc         Json?
+  body            String?
+  docVersion      Int      @default(0)
+  includeInSearch Boolean  @default(true)
+  workspaceId     String
+  projectId       String?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User      @relation(fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdById])
 }
 
 // ============================================

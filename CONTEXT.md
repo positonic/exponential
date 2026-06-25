@@ -365,7 +365,7 @@ _Avoid_: Auth middleware (too generic), API-key auth (it's no longer only API ke
 > The CRM's full developer guide is `dev-docs/CRM_ARCHITECTURE.md`. The terms below are the **domain language** — especially the word boundaries this codebase keeps separate: **Pipeline** (deal board), **Workflow** (the internal engine's table names), **Automation** (the platform trigger→steps feature — no longer CRM-only, see [ADR-0029](docs/adr/0029-automation-platform-primitive.md)), **Broadcast** (a scheduled Automation that sends to a **List**), and **List** (the generic `Collection` membership primitive, [ADR-0030](docs/adr/0030-generic-collection-list-primitive.md)). They are not synonyms.
 
 **Pipeline** _(existing)_:
-The CRM deal board — a `Project` with `type: "pipeline"`, holding `Deal`s across configurable `PipelineStage`s (Lead → … → Won/Lost). One per workspace today. A *manual state machine* (a user drags deals between stages), **not** an automation engine. The schema supports many pipelines per workspace (stages and deals are per-Project), but the UI/`pipeline.get` assume one — **multi-pipeline is deferred**.
+The CRM deal board — a `Project` with `type: "pipeline"`, holding `Deal`s across **fully customizable** `PipelineStage`s (rename/recolor/reorder/add/remove via `/crm/pipeline/settings`; new pipelines seed the generic `DEFAULT_STAGES` then the user edits freely — no baked-in domain stages). A *manual state machine* (a user drags deals between stages), **not** an automation engine. The schema has always supported many pipelines per workspace (stages and deals are per-`Project`); the historical limit was that the UI/`pipeline.get`/`pipeline.create` assumed exactly one. **Multi-pipeline is now decided** ([ADR-0033](docs/adr/0033-multi-pipeline-and-form-deal-destination.md)) — a workspace may hold N named pipelines (e.g. a `Sales` and a `Hiring` pipeline) with a board switcher — but **not yet built**. A **`create_deal` Form destination** drops a public submission onto a chosen `(pipeline, stage)` as a `Deal` (the job-application use case; the `Deal` is overloaded as a candidate card, like `profileType`). _Build status: planned, not shipped._
 _Avoid_: Using "pipeline" for the **Workflow** engine or for an **Automation** — they are different concepts. The content/PM engine's `WorkflowPipelineRun` is an unrelated internal name.
 
 **Customer type**:
@@ -443,6 +443,26 @@ _Avoid_: Action, hook (use "destination"); coupling the Form model to any one de
 The public `POST /api/forms/[slug]/submit` route: rate-limit → honeypot check → load active form → `validateSubmission` → store **Form submission** → run **Form destinations**. Unauthenticated; protected by a hidden honeypot field + per-IP/per-email **in-memory** rate limiting (a documented stopgap — [ADR-0030](docs/adr/0030-form-automation-execution-sync-then-qstash.md)). The chain end-to-end: **Intake → `create_crm_contact` → `createCrmContact` (emailHash dedup) → `dispatchContactTypeAutomations` → CRM Automation (`send_email`)**.
 _Avoid_: Webhook (that's inbound-from-a-provider), submit endpoint.
 
+### Knowledge
+
+The workspace's body of reference material — split by **origin**, unified by one search index. Two origins of content, plus the index that makes both findable:
+
+**Page**:
+A free-form, human- (or **Zoe**-) authored rich document that stands on its own — a spec, a doc, a wiki page — *not* scoped to a Product, Day, or Meeting. Its own first-class top-level area (`/w/[slug]/pages`), nav item alongside Goals/Projects/Knowledge. Stored as `KnowledgePage` with a **ProseMirror `bodyDoc` (Json)** canonical document plus a derived **Markdown `body` (String)** projection — the same dual-storage exception Features use ([ADR-0024](docs/adr/0024-prosemirror-json-for-rich-documents.md)), widened to Pages by [ADR-0033](docs/adr/0033-knowledge-pages.md). Workspace-scoped with an optional `projectId`; flat (no nesting in v1); visibility **mirrors Meeting visibility** (project-linked Pages inherit the Project's rules incl. restriction; project-less Pages are workspace-visible). The Markdown projection is embedded into the shared **Knowledge index** by default (per-Page "include in search" toggle), so Pages are RAG/agent context like Resources. _Planned — not yet in the schema._
+_Avoid_: Document (that's the **ingested-file** model — see below), Note (that's the daily-journal entity), Wiki, Doc.
+
+**Resource**:
+A piece of **ingested external content** saved for reference and search — a web page, PDF, bookmark, or pasted note — stored as `Resource` with cleaned `content` (String) + original `rawContent`. The *consumption* side of Knowledge (you save/clip it), as opposed to a **Page** (you author it). Optionally embedded into the Knowledge index on create.
+_Avoid_: Document, Page, attachment.
+
+**Document** (ingested file):
+The narrow ingestion-artefact model `Document` — an uploaded/synced **file** (`s3Key`, `mimeType`, `sourceType: drive_file | upload | url | email_attachment`, `ingestionStatus`). It is a *file record*, **not** authored prose; never use the bare word "Document" for a **Page**.
+_Avoid_: Using "Document" for authored prose (that is a **Page**).
+
+**Knowledge index**:
+The single polymorphic embedding store `KnowledgeChunk` (`sourceType` + `sourceId`, `vector(1536)` via `text-embedding-3-small`, chunked ~500 tokens) that powers semantic search and Zoe's RAG. `sourceType` unions all Knowledge origins: `transcription` (Meetings), `resource`, `document`, and `page` (new). One index, many origins — co-locating authored Pages here is the whole point of embedding them.
+_Avoid_: Vector store, embeddings table (use "Knowledge index" / `KnowledgeChunk`).
+
 ## Flagged ambiguities
 
 - **"Meeting type" is not yet stored.** The Meetings v2 redesign surfaces `All / 1:1s / Rituals` tabs, but no `meetingType` column exists on `TranscriptionSession`. v1 ships with: All = full list, 1:1s = derived live from `participantCount = 2`, Rituals = empty state until a recurrence classifier exists. When Rituals gets real, the resolution will be either calendar recurrence data or a `meetingType` enum field with mutually exclusive values `one_on_one | ritual | other`.
@@ -460,3 +480,5 @@ _Avoid_: Webhook (that's inbound-from-a-provider), submit endpoint.
 - **"Pyro" vs "Zoe" — assistant naming drift.** The canonical in-app assistant agent is **Zoe** (the brain behind the chat drawer and voice). The chat drawer UI currently renders the label "Pyro" for the same assistant. These are the same agent under two names; the divergence is presentation-only — drift to resolve (settle on one user-facing name), not changed here.
 
 - **CRM Automations — PoC scope vs target model.** The target is "both": a typed Contact (**Customer type**) as the relationship spine, with `Deal`s tracked against it. The **PoC deliberately builds only the onboarding Automation** (typed contact → welcome email + **Agreement** for signature) and rides entirely on Contacts + the **Workflow** engine — it does **not** touch the deal board. **Deferred, not designed:** (1) multiple **Pipelines** per workspace / per-Customer-type boards (schema supports it; UI/`pipeline.get` assume one); (2) engine **branching** (the Attio "Switch" node) — the engine is linear today; (3) deals-against-relationship; (4) the builder's deferred surface — non-contact triggers, AI-agent steps, editable message copy, per-node run overlay. **Now built (no longer deferred):** the linear visual **Automation builder** ([ADR-0028](docs/adr/0028-crm-automation-builder-linear.md)) — superseding item (2)'s old "builder deferred, seeded-only" note. Don't model the still-deferred items until the client confirms direction.
+
+- **"Document" was used for two different things — resolved.** The word collided: the `Document` model is an *ingested file* (`s3Key`, ingestion status), but the new free-form authoring surface was also called "Documents". Resolved (2026-06-25): the authored entity is a **Page** (`KnowledgePage`); the file-ingestion model keeps the name **Document**; "Document" never means authored prose. See the **Knowledge** section above and [ADR-0033](docs/adr/0033-knowledge-pages.md).
