@@ -1289,6 +1289,7 @@ model Screenshot {
   createdAt              DateTime              @default(now())
   transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
   actionScreenshots      ActionScreenshot[]
+  crmContactScreenshots  CrmContactScreenshot[]
 }
 
 model ActionScreenshot {
@@ -2571,6 +2572,7 @@ model CrmContact {
   communications              CrmCommunication[]
   deals                       Deal[]
   transcriptionParticipations TranscriptionSessionParticipant[]
+  screenshots                 CrmContactScreenshot[]
 
   @@index([workspaceId])
   @@index([organizationId])
@@ -2581,6 +2583,24 @@ model CrmContact {
   @@index([connectionScore])
   @@index([workspaceId, importSource])
   @@unique([workspaceId, emailHash])
+}
+
+// Join between a CRM contact and an uploaded image/screenshot. Mirrors
+// ActionScreenshot: the binary lives in Vercel Blob (see src/lib/blob.ts) and the
+// shared Screenshot row holds the URL. Pasting/dropping an image on the edit
+// drawer creates one of these on save.
+model CrmContactScreenshot {
+  id           String   @id @default(cuid())
+  contactId    String
+  screenshotId String
+  createdAt    DateTime @default(now())
+
+  contact    CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  screenshot Screenshot @relation(fields: [screenshotId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, screenshotId])
+  @@index([contactId])
+  @@index([screenshotId])
 }
 
 model CrmOrganization {
