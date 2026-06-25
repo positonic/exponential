@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
@@ -192,7 +193,7 @@ export const pageRouter = createTRPCRouter({
         input.projectId,
       );
 
-      return ctx.db.knowledgePage.create({
+      const page = await ctx.db.knowledgePage.create({
         data: {
           workspaceId: input.workspaceId,
           projectId: input.projectId ?? null,
@@ -203,6 +204,12 @@ export const pageRouter = createTRPCRouter({
           createdById: userId,
         },
       });
+
+      // Index any seeded body (e.g. agent-authored pages) — no-op when empty.
+      if (input.body?.trim()) {
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(page.id);
+      }
+      return page;
     }),
 
   /**
@@ -294,13 +301,21 @@ export const pageRouter = createTRPCRouter({
               "This page was updated concurrently. Reload to get the latest version.",
           });
         }
+        // Body changed → re-index after a settle delay (embeds, or clears when
+        // includeInSearch is off / body emptied). Fire-and-forget.
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
         return { id, docVersion: decision.nextVersion };
       }
 
-      return ctx.db.knowledgePage.update({
+      const updated = await ctx.db.knowledgePage.update({
         where: { id },
         data,
       });
+      // Toggling search inclusion re-indexes (embed) or clears the Page.
+      if (input.includeInSearch !== undefined) {
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
+      }
+      return updated;
     }),
 
   delete: protectedProcedure
@@ -309,6 +324,9 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
       await ctx.db.knowledgePage.delete({ where: { id: input.id } });
+      // Drop the Page's chunks from the Knowledge index so search can't return
+      // a deleted page.
+      await getEmbeddingTriggerService(ctx.db).clearPageChunks(input.id);
       return { success: true };
     }),
 });

@@ -103,7 +103,9 @@ export const knowledgeChunkRouter = createTRPCRouter({
       z.object({
         query: z.string().min(1),
         workspaceId: z.string(),
-        sourceType: z.enum(["transcription", "document", "resource"]).optional(),
+        sourceType: z
+          .enum(["transcription", "document", "resource", "page"])
+          .optional(),
         sourceId: z.string().optional(),
         participantEmail: z.string().email().optional(),
         limit: z.number().min(1).max(50).default(10),
