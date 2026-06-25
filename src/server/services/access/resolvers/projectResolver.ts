@@ -198,3 +198,63 @@ export function buildProjectAccessWhere(
     ],
   };
 }
+
+/**
+ * Prisma WHERE clause for projects a user can **edit** (the DB-level mirror of
+ * {@link canEditProject}). Stricter than {@link buildProjectAccessWhere}:
+ * `isPublic` alone grants view but not edit, and a restricted project requires
+ * an editor+ project-member role (not mere viewer membership) or the workspace
+ * owner/admin escape hatch.
+ *
+ * Use for candidate lists where the next action requires edit rights — e.g.
+ * the projects a meeting can be placed onto.
+ */
+export function buildProjectEditWhere(
+  userId: string,
+): Prisma.ProjectWhereInput {
+  return {
+    OR: [
+      { createdById: userId },
+      // Unrestricted: any project/team/workspace membership grants edit.
+      {
+        AND: [
+          { isRestricted: false },
+          {
+            OR: [
+              { projectMembers: { some: { userId } } },
+              { team: { members: { some: { userId } } } },
+              { workspace: { members: { some: { userId } } } },
+              {
+                workspace: {
+                  teams: { some: { members: { some: { userId } } } },
+                },
+              },
+            ],
+          },
+        ],
+      },
+      // Restricted: editor+ project member, or workspace owner/admin escape hatch.
+      {
+        AND: [
+          { isRestricted: true },
+          {
+            OR: [
+              {
+                projectMembers: {
+                  some: { userId, role: { in: ["admin", "editor"] } },
+                },
+              },
+              {
+                workspace: {
+                  members: {
+                    some: { userId, role: { in: ["owner", "admin"] } },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}

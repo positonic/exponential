@@ -53,6 +53,7 @@ import {
   IconCheckbox,
 } from "@tabler/icons-react";
 import { TranscriptView } from "./meeting/TranscriptView";
+import { MeetingProjectPicker } from "./meeting/MeetingProjectPicker";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import {
@@ -531,7 +532,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
-  const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
@@ -565,6 +565,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   useRegisterPageContext(meetingsPageContext, { clearOnUnmount: false });
 
   const { data: projects } = api.project.getAll.useQuery({});
+  // Cross-workspace, edit-scoped candidates for the placement picker (grouped
+  // by workspace). Distinct from `projects` above, which feeds the optimistic
+  // cache update and carries the full project shape.
+  const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: webhookLogsData, isLoading: isLoadingLogs, refetch: refetchLogs } = api.transcription.getWebhookLogs.useQuery(
     { workspaceId, limit: 50 },
@@ -611,7 +615,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   }, [isLoading, transcriptions, ensureMyMeetingSummaries]);
 
 
-  const assignProjectMutation = api.transcription.associateWithProject.useMutation({
+  const assignProjectMutation = api.transcription.assignProject.useMutation({
     onMutate: async ({ transcriptionId, projectId }) => {
       // Cancel outgoing refetches
       await utils.transcription.getAllTranscriptions.cancel();
@@ -700,7 +704,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      setBulkProjectAssignment(null);
       void utils.transcription.getAllTranscriptions.invalidate();
     },
     onError: (error) => {
@@ -838,18 +841,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   };
 
   const handleProjectAssignment = (transcriptionId: string, projectId: string | null) => {
-    if (projectId) {
-      assignProjectMutation.mutate({
-        transcriptionId,
-        projectId,
-        autoProcess: false
-      });
-    }
-  };
-
-  const getProjectsForMeeting = (sessionWorkspaceId: string | null | undefined) => {
-    if (!sessionWorkspaceId) return [];
-    return (projects ?? []).filter(p => p.workspaceId === sessionWorkspaceId);
+    // projectId may be null to clear placement (Personal / no project). The
+    // assignProject endpoint routes through the placement service, so workspace
+    // and the meeting's Actions are re-homed to match.
+    assignProjectMutation.mutate({ transcriptionId, projectId });
   };
 
   const handleSlackSummaryModal = (session: any) => {
@@ -913,12 +908,12 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     setSelectedTranscriptionIds(new Set());
   };
 
-  const handleBulkProjectAssignment = async () => {
-    if (selectedTranscriptionIds.size === 0 || !bulkProjectAssignment) return;
-    
+  const handleBulkProjectAssignment = async (projectId: string | null) => {
+    if (selectedTranscriptionIds.size === 0) return;
+
     await bulkAssignProjectMutation.mutateAsync({
       transcriptionIds: Array.from(selectedTranscriptionIds),
-      projectId: bulkProjectAssignment === "none" ? null : bulkProjectAssignment,
+      projectId,
     });
   };
 
@@ -1219,6 +1214,25 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           Select all
                         </Button>
                       </Group>
+                      <Group gap="sm">
+                        {/* Placement: same searchable, workspace-grouped picker as the rows */}
+                        <MeetingProjectPicker
+                          projects={assignableProjects}
+                          value={null}
+                          onChange={(projectId) => void handleBulkProjectAssignment(projectId)}
+                        >
+                          {({ toggle }) => (
+                            <Button
+                              size="xs"
+                              variant="light"
+                              leftSection={<IconFolder size={14} />}
+                              onClick={toggle}
+                              loading={bulkAssignProjectMutation.isPending}
+                            >
+                              Assign to project
+                            </Button>
+                          )}
+                        </MeetingProjectPicker>
                       <Menu shadow="md">
                         <Menu.Target>
                           <Button size="xs" variant="filled" rightSection={<IconDotsVertical size={14} />}>
@@ -1226,27 +1240,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           </Button>
                         </Menu.Target>
                         <Menu.Dropdown>
-                          <Menu.Label>Project Assignment</Menu.Label>
-                          {projects?.map(project => (
-                            <Menu.Item
-                              key={project.id}
-                              leftSection={<IconFolder size={14} />}
-                              onClick={() => {
-                                setBulkProjectAssignment(project.id);
-                                void handleBulkProjectAssignment();
-                              }}
-                            >
-                              {project.name}
-                            </Menu.Item>
-                          ))}
-                          <Menu.Divider />
-                          <Menu.Item color="gray" onClick={() => {
-                            setBulkProjectAssignment("none");
-                            void handleBulkProjectAssignment();
-                          }}>
-                            Remove from Project
-                          </Menu.Item>
-                          <Menu.Divider />
                           <Menu.Item leftSection={<IconArchive size={14} />} onClick={() => void handleBulkArchive()}>
                             Archive Meetings
                           </Menu.Item>
@@ -1255,6 +1248,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           </Menu.Item>
                         </Menu.Dropdown>
                       </Menu>
+                      </Group>
                     </Group>
                   </Paper>
                 )}
@@ -1296,7 +1290,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                       </div>
                       <div className="flex min-w-0 flex-col gap-3">
                         {group.meetings.map((session) => {
-                      const projectsForWorkspace = getProjectsForMeeting(session.workspaceId);
                       const vmSession: MeetingCardSession = {
                         id: session.id,
                         sessionId: session.sessionId,
@@ -1392,60 +1385,36 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-start gap-3">
-                            {/* Project tag — colored variants by project hash */}
-                            {vm.projectPill && tagClass ? (
-                              <div onClick={stopBubble}>
-                                <Menu shadow="md" width={240}>
-                                  <Menu.Target>
+                            {/* Project placement — searchable, grouped by workspace, across all editable workspaces */}
+                            <div onClick={stopBubble}>
+                              <MeetingProjectPicker
+                                projects={assignableProjects}
+                                value={session.projectId}
+                                onChange={(projectId) => handleProjectAssignment(session.id, projectId)}
+                              >
+                                {({ toggle }) =>
+                                  vm.projectPill && tagClass ? (
                                     <button
                                       type="button"
+                                      onClick={toggle}
                                       className={`inline-flex h-[22px] max-w-[180px] items-center gap-1.5 truncate rounded px-2 text-[11.5px] font-medium ${tagClass.bg} ${tagClass.text}`}
                                     >
                                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tagClass.dot}`} />
                                       <span className="truncate">{vm.projectPill.name}</span>
                                     </button>
-                                  </Menu.Target>
-                                  <Menu.Dropdown>
-                                    <Menu.Label>Reassign project</Menu.Label>
-                                    {projectsForWorkspace.map((p) => (
-                                      <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
-                                        {p.name}
-                                      </Menu.Item>
-                                    ))}
-                                    <Menu.Divider />
-                                    <Menu.Item color="gray" onClick={() => handleProjectAssignment(session.id, null)}>
-                                      Remove project
-                                    </Menu.Item>
-                                  </Menu.Dropdown>
-                                </Menu>
-                              </div>
-                            ) : (
-                              <div onClick={stopBubble}>
-                                <Menu shadow="md" width={240}>
-                                  <Menu.Target>
+                                  ) : (
                                     <button
                                       type="button"
+                                      onClick={toggle}
                                       className="inline-flex h-[22px] items-center gap-1 rounded border border-dashed border-border-strong px-2 text-[11.5px] text-text-muted hover:border-brand-400 hover:text-brand-400"
                                     >
                                       <IconFolder size={11} />
                                       <span>Assign to project</span>
                                     </button>
-                                  </Menu.Target>
-                                  <Menu.Dropdown>
-                                    <Menu.Label>Assign to project</Menu.Label>
-                                    {projectsForWorkspace.length === 0 ? (
-                                      <Menu.Item disabled>No projects in this workspace</Menu.Item>
-                                    ) : (
-                                      projectsForWorkspace.map((p) => (
-                                        <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
-                                          {p.name}
-                                        </Menu.Item>
-                                      ))
-                                    )}
-                                  </Menu.Dropdown>
-                                </Menu>
-                              </div>
-                            )}
+                                  )
+                                }
+                              </MeetingProjectPicker>
+                            </div>
 
                             {/* Avatar stack — Participants (calendar invitees) */}
                             {vm.avatars.length > 0 && (
