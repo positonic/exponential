@@ -28,6 +28,17 @@ describe("parseTicketUrlId", () => {
     expect(parseTicketUrlId("")).toBeNull();
     expect(parseTicketUrlId("abc")).toBeNull();
   });
+
+  it("rejects non-positive numbers (legacy number=0 tickets use their CUID)", () => {
+    expect(parseTicketUrlId("0")).toBeNull();
+    expect(parseTicketUrlId("PLAT-0")).toBeNull();
+    expect(parseTicketUrlId("00")).toBeNull();
+  });
+
+  it("parses large numbers", () => {
+    expect(parseTicketUrlId("999999")).toBe(999999);
+    expect(parseTicketUrlId("PLAT-1000000")).toBe(1000000);
+  });
 });
 
 describe("ticketUrlId", () => {

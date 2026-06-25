@@ -14,7 +14,9 @@ vi.hoisted(() => {
 });
 
 vi.mock("~/plugins/product/server/services/createTicket", () => ({
-  createTicketWithNumber: vi.fn(() => Promise.resolve({ id: "ticket-1" })),
+  createTicketWithNumber: vi.fn(() =>
+    Promise.resolve({ id: "ticket-1", number: 7 }),
+  ),
 }));
 
 // Zulip notify is exercised in its own test; here we just assert it's invoked
@@ -163,7 +165,7 @@ describe("ingestSentryBug", () => {
         title: "Boom",
         sentryUrl: "https://sentry.io/issues/42",
         ticketUrl:
-          "https://app.example/w/syntrofi/products/exponential/tickets/ticket-1",
+          "https://app.example/w/syntrofi/products/exponential/tickets/7",
       }),
     );
   });
