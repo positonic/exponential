@@ -44,6 +44,32 @@ describe("assignParticipantFlavors", () => {
     expect(flavors).toEqual(["me", "them", "alt", "them"]);
   });
 
+  it("marks exactly one me when a userId-linked and an email-duplicate row both match", () => {
+    // A manually-added row and the user-linked row share the owner's email.
+    // The userId match must win and only one participant becomes "me".
+    const flavors = assignParticipantFlavors(
+      [
+        { userId: null, email: "james@x.com", isHost: false },
+        { userId: "u_james", email: "james@x.com", isHost: false },
+      ],
+      { userId: "u_james", email: "james@x.com" },
+    );
+    expect(flavors).toEqual(["them", "me"]);
+    expect(flavors.filter((f) => f === "me")).toHaveLength(1);
+  });
+
+  it("marks at most one me when the owner matches by email only", () => {
+    const flavors = assignParticipantFlavors(
+      [
+        { userId: null, email: "james@x.com", isHost: false },
+        { userId: null, email: "james@x.com", isHost: false },
+      ],
+      { userId: null, email: "james@x.com" },
+    );
+    expect(flavors.filter((f) => f === "me")).toHaveLength(1);
+    expect(flavors).toEqual(["me", "them"]);
+  });
+
   it("ignores a stray isHost flag once the owner is identified", () => {
     const flavors = assignParticipantFlavors(
       [

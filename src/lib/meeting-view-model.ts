@@ -133,27 +133,37 @@ export interface MeetingOwnerIdentity {
  * order — mirroring the transcript parser's rotation so the participants panel
  * and the transcript agree on colour.
  *
- * The owner is matched by `userId` first, then by `email`. Only when no
- * participant matches the owner do we fall back to the DB `isHost` flag (legacy
- * meetings where the owner isn't linked as a participant).
+ * Exactly one participant is ever `"me"`: the owner is matched by `userId`
+ * first, then by `email`, then we fall back to the first DB-flagged host (legacy
+ * meetings where the owner isn't linked as a participant). Resolving to a single
+ * index avoids marking two rows `"me"` when, say, a user-linked participant and
+ * a manually-added participant share an email.
  */
 export function assignParticipantFlavors<
   T extends { userId?: string | null; email?: string | null; isHost?: boolean | null },
 >(participants: T[], owner: MeetingOwnerIdentity): ParticipantFlavor[] {
-  const matchesOwner = (p: T): boolean =>
-    (owner.userId !== null && p.userId != null && p.userId === owner.userId) ||
-    (owner.email !== null &&
-      p.email != null &&
-      p.email.toLowerCase() === owner.email.toLowerCase());
-
-  const ownerIsParticipant = participants.some(matchesOwner);
-  const isMe = (p: T): boolean =>
-    ownerIsParticipant ? matchesOwner(p) : Boolean(p.isHost);
+  const { userId: ownerUserId, email: ownerEmail } = owner;
+  const byUserId =
+    ownerUserId !== null
+      ? participants.findIndex((p) => p.userId != null && p.userId === ownerUserId)
+      : -1;
+  const byEmail =
+    ownerEmail !== null
+      ? participants.findIndex(
+          (p) => p.email != null && p.email.toLowerCase() === ownerEmail.toLowerCase(),
+        )
+      : -1;
+  const meIndex =
+    byUserId >= 0
+      ? byUserId
+      : byEmail >= 0
+        ? byEmail
+        : participants.findIndex((p) => Boolean(p.isHost));
 
   const rotatable: ParticipantFlavor[] = ["them", "alt"];
   let rotation = 0;
-  return participants.map((p) =>
-    isMe(p) ? "me" : rotatable[rotation++ % rotatable.length]!,
+  return participants.map((_p, index) =>
+    index === meIndex ? "me" : rotatable[rotation++ % rotatable.length]!,
   );
 }
 
