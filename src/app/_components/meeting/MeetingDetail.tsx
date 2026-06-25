@@ -6,7 +6,7 @@ import { IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
 import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
 import { SummaryTab } from "./SummaryTab";
-import { TranscriptTab } from "./TranscriptTab";
+import { TranscriptView } from "./TranscriptView";
 import { ScreenshotsTab } from "./ScreenshotsTab";
 import { ContextRail } from "./ContextRail";
 import {
@@ -228,7 +228,8 @@ export function MeetingDetail({
               />
             )}
             {tab === "transcript" && (
-              <TranscriptTab
+              <TranscriptView
+                variant="full"
                 transcription={session.transcription}
                 sentencesJson={session.sentencesJson}
                 chapters={vm.chapters}
