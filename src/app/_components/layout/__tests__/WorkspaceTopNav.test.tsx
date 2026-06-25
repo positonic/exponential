@@ -35,6 +35,7 @@ describe('WorkspaceTopNav', () => {
     expect(screen.getByText('Projects')).toBeInTheDocument();
     expect(screen.getByText('Agent')).toBeInTheDocument();
     expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(screen.getByText('Pages')).toBeInTheDocument();
     expect(screen.getByText('Meetings')).toBeInTheDocument();
     expect(screen.getByText('CRM')).toBeInTheDocument();
     expect(screen.getByText('Goals')).toBeInTheDocument();
@@ -51,6 +52,7 @@ describe('WorkspaceTopNav', () => {
     expect(screen.queryByText('Home')).not.toBeInTheDocument();
     expect(screen.queryByText('Agent')).not.toBeInTheDocument();
     expect(screen.queryByText('Knowledge')).not.toBeInTheDocument();
+    expect(screen.queryByText('Pages')).not.toBeInTheDocument();
     expect(screen.queryByText('Meetings')).not.toBeInTheDocument();
     expect(screen.queryByText('CRM')).not.toBeInTheDocument();
     expect(screen.queryByText('Goals')).not.toBeInTheDocument();
