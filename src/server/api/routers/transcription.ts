@@ -10,10 +10,8 @@ import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
-import {
-  extractReadableTranscript,
-  MAX_SUMMARY_TRANSCRIPT_CHARS,
-} from "~/server/services/meetings/extractReadableTranscript";
+import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
+import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   TranscriptSummarizerService,
@@ -1694,10 +1692,12 @@ export const transcriptionRouter = createTRPCRouter({
         where: { id: input.transcriptionId },
         select: {
           id: true,
+          title: true,
           userId: true,
           projectId: true,
           workspaceId: true,
           transcription: true,
+          summary: true,
         },
       });
 
@@ -1715,42 +1715,40 @@ export const transcriptionRouter = createTRPCRouter({
         "edit",
       );
 
-      const transcriptText = extractReadableTranscript(session.transcription);
-      if (transcriptText.trim().length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "This meeting has no transcript to summarize",
-        });
-      }
+      // Explicit user-triggered generation re-summarizes through the shared
+      // path (overwriteExisting) so the manual button can refresh a summary.
+      const outcome = await summarizeMeetingRow(ctx.db, session, {
+        overwriteExisting: true,
+      });
 
-      try {
-        const summary =
-          await TranscriptSummarizerService.summarizeToFirefliesSummary(
-            transcriptText.slice(0, MAX_SUMMARY_TRANSCRIPT_CHARS),
-          );
-        return ctx.db.transcriptionSession.update({
-          where: { id: session.id },
-          data: {
-            summary: JSON.stringify(summary, null, 2),
-            updatedAt: new Date(),
-          },
-          select: { id: true, summary: true },
-        });
-      } catch (error) {
-        if (error instanceof SummarizationNotConfiguredError) {
+      switch (outcome.status) {
+        case "no-transcript":
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This meeting has no transcript to summarize",
+          });
+        case "not-configured":
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: error.message,
+            message:
+              "Server summarization is not configured (missing OPENAI_API_KEY).",
           });
-        }
-        console.error("[transcription.generateSummary] failed:", error);
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to generate summary",
-          cause: error,
-        });
+        case "created":
+          return { id: session.id, summary: outcome.summary ?? null };
+        default:
+          // already-had / not-found shouldn't occur here (we just loaded the
+          // row and pass overwriteExisting), but fall back to the stored value.
+          return { id: session.id, summary: session.summary };
       }
     }),
+
+  // On-view list trigger: heal the current user's unsummarized meetings on
+  // demand instead of waiting for the hourly cron. Runs the SAME bounded sweep
+  // as the cron (limit 10), scoped to the caller, so a page load fires one
+  // server-side batch rather than a burst of per-card client mutations.
+  ensureMyMeetingSummaries: protectedProcedure.mutation(async ({ ctx }) => {
+    return runMeetingSummarySweep(ctx.db, { userId: ctx.session.user.id });
+  }),
 
   generateDraftActions: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))

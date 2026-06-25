@@ -26,6 +26,8 @@ interface MeetingDetailProps {
   isActionsLoading: boolean;
   workspaces: { id: string; name: string }[];
   isCreatingActions: boolean;
+  /** True while a summary is being auto-generated on view for this meeting. */
+  isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onMeetingDateChange: (value: Date | null) => void;
   onWorkspaceChange: (value: string | null) => void;
@@ -57,6 +59,7 @@ export function MeetingDetail({
   isActionsLoading,
   workspaces,
   isCreatingActions,
+  isGeneratingSummary,
   onSaveSummary,
   onMeetingDateChange,
   onWorkspaceChange,
@@ -219,6 +222,7 @@ export function MeetingDetail({
                 isActionsLoading={isActionsLoading}
                 hasTranscript={Boolean(session.transcription)}
                 isCreatingActions={isCreatingActions}
+                isGeneratingSummary={isGeneratingSummary}
                 onSaveSummary={onSaveSummary}
                 onCreateActions={onCreateActions}
               />

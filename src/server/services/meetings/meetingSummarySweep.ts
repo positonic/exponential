@@ -1,13 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import {
-  TranscriptSummarizerService,
-  SummarizationNotConfiguredError,
-} from "~/server/services/TranscriptSummarizerService";
-import { recordActivity } from "~/server/services/activity/recordActivity";
-import {
-  extractReadableTranscript,
-  MAX_SUMMARY_TRANSCRIPT_CHARS,
-} from "~/server/services/meetings/extractReadableTranscript";
+import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import {
   selectMeetingsToSummarize,
   type SummarizableMeeting,
@@ -45,6 +37,12 @@ interface SweepMeeting extends SummarizableMeeting {
 export interface MeetingSummarySweepOptions {
   /** Max meetings to summarize in one sweep. Defaults to {@link DEFAULT_SWEEP_LIMIT}. */
   limit?: number;
+  /**
+   * Restrict the sweep to one user's meetings. The hourly cron leaves this
+   * unset (sweeps the whole corpus); the on-view list trigger sets it to the
+   * current user so a page load only heals that user's own meetings.
+   */
+  userId?: string;
 }
 
 export interface MeetingSummarySweepResult {
@@ -71,6 +69,7 @@ export async function runMeetingSummarySweep(
   options: MeetingSummarySweepOptions = {},
 ): Promise<MeetingSummarySweepResult> {
   const limit = options.limit ?? DEFAULT_SWEEP_LIMIT;
+  const { userId } = options;
 
   const result: MeetingSummarySweepResult = {
     candidates: 0,
@@ -88,6 +87,7 @@ export async function runMeetingSummarySweep(
       summary: null,
       transcription: { not: null },
       archivedAt: null,
+      ...(userId ? { userId } : {}),
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -107,62 +107,24 @@ export async function runMeetingSummarySweep(
   result.candidates = eligible.length;
 
   for (const meeting of eligible) {
-    const transcriptText = extractReadableTranscript(meeting.transcription);
-    if (transcriptText.trim().length === 0) {
-      result.skipped += 1;
-      continue;
+    // Single shared summarization path (cron, manual mutation, on-view triggers
+    // all funnel through summarizeMeetingRow). Per-meeting failures resolve to a
+    // status rather than throwing, so one bad transcript can't sink the sweep.
+    const outcome = await summarizeMeetingRow(db, meeting);
+
+    if (outcome.status === "not-configured") {
+      // No key configured — abort the whole sweep cleanly; nothing here will
+      // succeed and the next sweep heals once it's configured.
+      result.notConfigured = true;
+      break;
     }
 
-    let summaryJson: string;
-    try {
-      const summary =
-        await TranscriptSummarizerService.summarizeToFirefliesSummary(
-          transcriptText.slice(0, MAX_SUMMARY_TRANSCRIPT_CHARS),
-        );
-      summaryJson = JSON.stringify(summary, null, 2);
-    } catch (error) {
-      if (error instanceof SummarizationNotConfiguredError) {
-        // No key configured — abort the whole sweep cleanly; nothing here will
-        // succeed and the next sweep heals once it's configured.
-        result.notConfigured = true;
-        break;
-      }
-      console.error(
-        "[meetingSummarySweep] failed to summarize meeting",
-        meeting.id,
-        error instanceof Error ? error.message : String(error),
-      );
+    if (outcome.status === "created") {
+      result.summarized += 1;
+      if (outcome.eventEmitted) result.eventsEmitted += 1;
+    } else {
+      // no-transcript / already-had (concurrent writer won the race).
       result.skipped += 1;
-      continue;
-    }
-
-    // Conditional persist guards against a concurrent writer (e.g. the manual
-    // generateSummary mutation) having filled `summary` since we read the row —
-    // `updateMany` with `summary: null` makes the write a no-op in that case, so
-    // we never overwrite a summary or double-emit the activity event.
-    const { count } = await db.transcriptionSession.updateMany({
-      where: { id: meeting.id, summary: null },
-      data: { summary: summaryJson, updatedAt: new Date() },
-    });
-    if (count === 0) {
-      result.skipped += 1;
-      continue;
-    }
-    result.summarized += 1;
-
-    // Emit one activity event per summary that lands. Skipped for personal
-    // (no-workspace) meetings since recordActivity requires a workspaceId; the
-    // title rides in metadata so the feed renders the title, not a CUID.
-    if (meeting.workspaceId && meeting.userId) {
-      const wrote = await recordActivity(db, {
-        workspaceId: meeting.workspaceId,
-        userId: meeting.userId,
-        entityType: "meeting",
-        entityId: meeting.id,
-        action: "summarized",
-        metadata: { title: meeting.title ?? undefined },
-      });
-      if (wrote) result.eventsEmitted += 1;
     }
   }
 
