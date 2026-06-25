@@ -25,7 +25,7 @@ interface Chunk {
 interface SearchResult {
   id: string;
   content: string;
-  sourceType: "transcription" | "resource" | "document";
+  sourceType: "transcription" | "resource" | "document" | "page";
   sourceId: string;
   chunkIndex: number;
   similarity: number;
@@ -50,7 +50,7 @@ export interface KnowledgeSearchOptions {
   workspaceId: string;
   userId?: string;
   projectId?: string;
-  sourceTypes?: ("transcription" | "resource" | "document")[];
+  sourceTypes?: ("transcription" | "resource" | "document" | "page")[];
   participantEmail?: string;
   limit?: number;
   similarityThreshold?: number;
@@ -578,6 +578,7 @@ export class KnowledgeService {
           WHEN kc."sourceType" = 'transcription' THEN ts.title
           WHEN kc."sourceType" = 'resource' THEN r.title
           WHEN kc."sourceType" = 'document' THEN d.title
+          WHEN kc."sourceType" = 'page' THEN kp.title
         END as "sourceTitle",
         ts."meetingDate",
         r.url,
@@ -589,6 +590,8 @@ export class KnowledgeService {
         ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
       LEFT JOIN "Document" d
         ON kc."sourceType" = 'document' AND kc."sourceId" = d.id
+      LEFT JOIN "KnowledgePage" kp
+        ON kc."sourceType" = 'page' AND kc."sourceId" = kp.id
       WHERE kc."workspaceId" = ${workspaceId}
         ${userCondition}
         ${projectCondition}
@@ -601,7 +604,11 @@ export class KnowledgeService {
     return results.map((r) => ({
       id: r.id,
       content: r.content,
-      sourceType: r.sourceType as "transcription" | "resource" | "document",
+      sourceType: r.sourceType as
+        | "transcription"
+        | "resource"
+        | "document"
+        | "page",
       sourceId: r.sourceId,
       chunkIndex: r.chunkIndex,
       similarity: r.similarity,
@@ -665,6 +672,7 @@ export class KnowledgeService {
           WHEN kc."sourceType" = 'transcription' THEN ts.title
           WHEN kc."sourceType" = 'resource' THEN r.title
           WHEN kc."sourceType" = 'document' THEN d.title
+          WHEN kc."sourceType" = 'page' THEN kp.title
         END as "sourceTitle",
         ts."meetingDate",
         r.url,
@@ -676,6 +684,8 @@ export class KnowledgeService {
         ON kc."sourceType" = 'resource' AND kc."sourceId" = r.id
       LEFT JOIN "Document" d
         ON kc."sourceType" = 'document' AND kc."sourceId" = d.id
+      LEFT JOIN "KnowledgePage" kp
+        ON kc."sourceType" = 'page' AND kc."sourceId" = kp.id
       WHERE TRUE
         ${userCondition}
         ${projectCondition}
@@ -687,7 +697,11 @@ export class KnowledgeService {
     return results.map((r) => ({
       id: r.id,
       content: r.content,
-      sourceType: r.sourceType as "transcription" | "resource" | "document",
+      sourceType: r.sourceType as
+        | "transcription"
+        | "resource"
+        | "document"
+        | "page",
       sourceId: r.sourceId,
       chunkIndex: r.chunkIndex,
       similarity: r.similarity,
