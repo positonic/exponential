@@ -2,7 +2,7 @@
 
 import { api } from "~/trpc/react";
 import { Skeleton, Paper, Text } from "@mantine/core";
-import { use, useMemo } from "react";
+import { use, useEffect, useMemo, useRef } from "react";
 import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { useAgentModal, type ChatMessage } from "~/providers/AgentModalProvider";
@@ -41,6 +41,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     },
   });
   const { openModal, setMessages } = useAgentModal();
+
+  // Auto-generate the summary on view when a meeting has a transcript but no
+  // summary yet, instead of waiting for the hourly cron sweep. Routes through
+  // the shared `generateSummary` mutation (one summarization path). Guarded so
+  // it fires at most once per meeting id, even on re-render / failure.
+  const summaryAttemptedRef = useRef<Set<string>>(new Set());
+  const generateSummaryMutation = api.transcription.generateSummary.useMutation({
+    onSuccess: () => {
+      void utils.transcription.getById.invalidate({ id });
+    },
+  });
+  const { mutate: generateSummary } = generateSummaryMutation;
+
+  useEffect(() => {
+    if (!session) return;
+    const hasSummary = Boolean(session.summary?.trim());
+    const hasTranscript = Boolean(session.transcription);
+    if (hasSummary || !hasTranscript) return;
+    if (summaryAttemptedRef.current.has(session.id)) return;
+    summaryAttemptedRef.current.add(session.id);
+    generateSummary({ transcriptionId: session.id });
+  }, [session, generateSummary]);
 
   // Deterministic extraction: Create Actions runs generateDraftActions (not the
   // LLM), then appends an interactive review card to the active drawer thread
@@ -203,6 +225,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       isActionsLoading={isActionsLoading}
       workspaces={(workspaces ?? []).map((ws) => ({ id: ws.id, name: ws.name }))}
       isCreatingActions={generateDraftsMutation.isPending}
+      isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
       onMeetingDateChange={handleMeetingDateChange}
       onWorkspaceChange={handleWorkspaceChange}

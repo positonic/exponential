@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Textarea, Button } from "@mantine/core";
+import { Textarea, Button, Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconSparkles,
@@ -27,6 +27,8 @@ interface SummaryTabProps {
   isActionsLoading: boolean;
   hasTranscript: boolean;
   isCreatingActions: boolean;
+  /** True while a summary is being auto-generated on view for this meeting. */
+  isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onCreateActions: () => void;
 }
@@ -39,6 +41,7 @@ export function SummaryTab({
   isActionsLoading,
   hasTranscript,
   isCreatingActions,
+  isGeneratingSummary,
   onSaveSummary,
   onCreateActions,
 }: SummaryTabProps) {
@@ -108,6 +111,13 @@ export function SummaryTab({
               <div className="mp-tldr__text">
                 <SmartContentRenderer content={vm.plainSummary} />
               </div>
+            ) : isGeneratingSummary ? (
+              <p
+                className="mp-tldr__text"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+              >
+                <Loader size="xs" /> Generating summary…
+              </p>
             ) : (
               <p className="mp-tldr__text">No summary yet for this meeting.</p>
             )}

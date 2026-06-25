@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { SlackSummaryModal } from './SlackSummaryModal';
@@ -586,8 +586,31 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // caller owns the session OR appears as a Participant with this userId.
   const { data: currentUser } = api.user.getCurrentUser.useQuery();
   const utils = api.useUtils();
-  
-  
+
+  // On first load, heal the current user's unsummarized meetings on demand
+  // (one bounded server-side sweep, limit 10) instead of waiting for the hourly
+  // cron. Fires at most once per mount and only when a card is actually missing
+  // a summary; refetches the list when any summary lands.
+  const summariesSweptRef = useRef(false);
+  const { mutate: ensureMyMeetingSummaries } =
+    api.transcription.ensureMyMeetingSummaries.useMutation({
+      onSuccess: (result) => {
+        if (result.summarized > 0) {
+          void utils.transcription.getAllTranscriptions.invalidate();
+        }
+      },
+    });
+  useEffect(() => {
+    if (summariesSweptRef.current || isLoading || !transcriptions) return;
+    const hasUnsummarized = transcriptions.some(
+      (t) => !t.archivedAt && !t.summary?.trim(),
+    );
+    if (!hasUnsummarized) return;
+    summariesSweptRef.current = true;
+    ensureMyMeetingSummaries();
+  }, [isLoading, transcriptions, ensureMyMeetingSummaries]);
+
+
   const assignProjectMutation = api.transcription.associateWithProject.useMutation({
     onMutate: async ({ transcriptionId, projectId }) => {
       // Cancel outgoing refetches
