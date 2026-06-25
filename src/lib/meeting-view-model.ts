@@ -120,6 +120,43 @@ function extractTalkTime(analyticsJson: unknown): Map<string, string> {
   return result;
 }
 
+/** Identity of the meeting owner/recorder — the "me" side of the conversation. */
+export interface MeetingOwnerIdentity {
+  userId: string | null;
+  email: string | null;
+}
+
+/**
+ * Resolve each participant's identity tone (flavor). The participant who is the
+ * meeting **owner** (the recorder, whose perspective a device `Me:`/`Them:`
+ * transcript is written from) is `"me"`; everyone else rotates `them`/`alt` by
+ * order — mirroring the transcript parser's rotation so the participants panel
+ * and the transcript agree on colour.
+ *
+ * The owner is matched by `userId` first, then by `email`. Only when no
+ * participant matches the owner do we fall back to the DB `isHost` flag (legacy
+ * meetings where the owner isn't linked as a participant).
+ */
+export function assignParticipantFlavors<
+  T extends { userId?: string | null; email?: string | null; isHost?: boolean | null },
+>(participants: T[], owner: MeetingOwnerIdentity): ParticipantFlavor[] {
+  const matchesOwner = (p: T): boolean =>
+    (owner.userId !== null && p.userId != null && p.userId === owner.userId) ||
+    (owner.email !== null &&
+      p.email != null &&
+      p.email.toLowerCase() === owner.email.toLowerCase());
+
+  const ownerIsParticipant = participants.some(matchesOwner);
+  const isMe = (p: T): boolean =>
+    ownerIsParticipant ? matchesOwner(p) : Boolean(p.isHost);
+
+  const rotatable: ParticipantFlavor[] = ["them", "alt"];
+  let rotation = 0;
+  return participants.map((p) =>
+    isMe(p) ? "me" : rotatable[rotation++ % rotatable.length]!,
+  );
+}
+
 /**
  * Map a `TranscriptionSession` (+ parsed Fireflies summary/analytics) into the
  * view model the meeting-detail UI consumes. Derives meeting type, summary
@@ -140,23 +177,24 @@ export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel
 
   const talkTime = extractTalkTime(session.analyticsJson);
 
+  const flavors = assignParticipantFlavors(session.participants, {
+    userId: session.userId ?? null,
+    email: session.user?.email ?? null,
+  });
+
   const participants: MeetingParticipant[] = session.participants.map((p, index) => {
     const name = p.name ?? p.email ?? "Unknown";
-    const isHost = Boolean(p.isHost);
-    const flavor: ParticipantFlavor = isHost
-      ? "me"
-      : index % 2 === 0
-        ? "them"
-        : "alt";
+    const flavor = flavors[index]!;
+    const isMe = flavor === "me";
     const speakerKey = p.speakerLabel ?? p.name ?? "";
     return {
       id: p.id,
       name,
       initial: getInitial(p.name, p.email),
-      role: isHost ? "Host" : "",
+      role: isMe ? "Host" : "",
       talk: talkTime.get(speakerKey) ?? talkTime.get(name) ?? null,
       flavor,
-      isHost,
+      isHost: isMe,
     };
   });
 
