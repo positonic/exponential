@@ -15,6 +15,7 @@ import {
   ThemeIcon,
 } from '@mantine/core';
 import { IconCircleCheck } from '@tabler/icons-react';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 
 interface PublicField {
   key: string;
@@ -109,9 +110,7 @@ export function PublicForm({
         <Stack gap="xs" mb="md">
           <Title order={2}>{name}</Title>
           {description && (
-            <Text c="dimmed" size="sm">
-              {description}
-            </Text>
+            <MarkdownRenderer content={description} variant="prose" />
           )}
         </Stack>
         <form onSubmit={handleSubmit}>
