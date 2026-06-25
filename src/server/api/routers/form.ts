@@ -137,6 +137,67 @@ export const formRouter = createTRPCRouter({
               });
             }
           }
+          if (dest.type === "create_deal") {
+            const pipelineId =
+              typeof dest.config.pipelineId === "string"
+                ? dest.config.pipelineId
+                : "";
+            const stageId =
+              typeof dest.config.stageId === "string"
+                ? dest.config.stageId
+                : "";
+            if (!pipelineId || !stageId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Create deal requires a pipeline and a stage.",
+              });
+            }
+            if (
+              !(
+                typeof dest.config.customerType === "string" &&
+                dest.config.customerType.trim()
+              )
+            ) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Create deal requires a Customer type for the applicant.",
+              });
+            }
+            // Same email-dedup requirement as create_crm_contact (the deal is
+            // linked to the upserted contact).
+            const fieldMap =
+              dest.config.contactFieldMap &&
+              typeof dest.config.contactFieldMap === "object"
+                ? (dest.config.contactFieldMap as Record<string, unknown>)
+                : {};
+            const emailKey =
+              typeof fieldMap.email === "string" ? fieldMap.email : "";
+            const emailField = effectiveFields.find((f) => f.key === emailKey);
+            if (!emailField || emailField.type !== "email") {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Create deal requires an Email field mapped to the applicant's email.",
+              });
+            }
+            // The stage must belong to the chosen pipeline, which must be a
+            // pipeline Project in this workspace.
+            const stage = await ctx.db.pipelineStage.findFirst({
+              where: {
+                id: stageId,
+                projectId: pipelineId,
+                project: { workspaceId: form.workspaceId, type: "pipeline" },
+              },
+              select: { id: true },
+            });
+            if (!stage) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Create deal: the selected stage does not belong to the chosen pipeline.",
+              });
+            }
+          }
         }
       }
 
