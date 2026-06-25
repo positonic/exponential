@@ -84,6 +84,7 @@ export const formRouter = createTRPCRouter({
       z.object({
         id: z.string(),
         name: z.string().min(1).max(200).optional(),
+        description: z.string().max(20000).nullable().optional(),
         fields: z.array(formFieldSchema).optional(),
         destinations: z.array(formDestinationSchema).optional(),
         isActive: z.boolean().optional(),
@@ -143,6 +144,8 @@ export const formRouter = createTRPCRouter({
         where: { id: form.id },
         data: {
           name: input.name,
+          description:
+            input.description === undefined ? undefined : input.description,
           fields: input.fields as Prisma.InputJsonValue | undefined,
           destinations: input.destinations as Prisma.InputJsonValue | undefined,
           isActive: input.isActive,

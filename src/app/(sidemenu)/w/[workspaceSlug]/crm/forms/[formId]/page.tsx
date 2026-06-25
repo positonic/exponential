@@ -14,6 +14,7 @@ import {
   Card,
   TextInput,
   Textarea,
+  Input,
   Select,
   Switch,
   ActionIcon,
@@ -32,6 +33,7 @@ import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { slugify } from '~/utils/slugify';
 import { CRM_CUSTOMER_TYPE_OPTIONS } from '~/lib/crm/automationCatalog';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
 type FieldType = 'text' | 'email' | 'textarea' | 'select' | 'checkbox' | 'url';
 
@@ -77,6 +79,7 @@ export default function FormEditorPage() {
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [confirmationMessage, setConfirmationMessage] = useState('');
   const [fields, setFields] = useState<EditorField[]>([]);
@@ -95,6 +98,7 @@ export default function FormEditorPage() {
     if (!data) return;
     setName(data.name);
     setSlug(data.slug);
+    setDescription(data.description ?? '');
     setIsActive(data.isActive);
     setConfirmationMessage(data.confirmationMessage ?? '');
     setFields(
@@ -218,6 +222,7 @@ export default function FormEditorPage() {
     save.mutate({
       id,
       name: name.trim() || 'Untitled form',
+      description: description.trim() || null,
       fields: cleanedFields,
       destinations,
       isActive,
@@ -280,6 +285,24 @@ export default function FormEditorPage() {
           w={300}
         />
       </Group>
+
+      <Input.Wrapper
+        label="Description"
+        description="The job-description body shown above the fields on the public page. Supports Markdown (headings, lists, links, bold)."
+      >
+        <Box mt={4}>
+          <MarkdownInput
+            value={description}
+            onChange={(value) => {
+              setDescription(value);
+              touch();
+            }}
+            placeholder="Describe the role, responsibilities, and how to apply…"
+            minRows={4}
+            maxRows={16}
+          />
+        </Box>
+      </Input.Wrapper>
 
       <Card withBorder padding="md">
         <Group justify="space-between" mb="sm">
