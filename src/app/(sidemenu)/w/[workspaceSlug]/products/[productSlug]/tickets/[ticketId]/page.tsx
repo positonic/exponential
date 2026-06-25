@@ -523,15 +523,29 @@ function LinkedActionsSection({
 export default function TicketDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const ticketId = params.ticketId as string;
+  const routeParam = params.ticketId as string;
   const productSlug = params.productSlug as string;
-  const { workspace, workspaceId } = useWorkspace();
+  const { workspace, workspaceId, isLoading: isWorkspaceLoading } =
+    useWorkspace();
   const utils = api.useUtils();
 
-  const { data: ticket, isLoading } = api.product.ticket.getById.useQuery(
-    { id: ticketId },
-    { enabled: !!ticketId },
-  );
+  // Resolve the URL segment (sequential number, Linear-style `PLAT-29`, CUID,
+  // or fun shortId) to the canonical ticket CUID. Everything below keys off
+  // this CUID, so all mutations/invalidations are unaffected by the URL form.
+  const { data: resolved, isLoading: isResolving } =
+    api.product.ticket.resolveId.useQuery(
+      { workspaceId: workspaceId ?? "", productSlug, identifier: routeParam },
+      { enabled: !!workspaceId && !!routeParam, retry: false },
+    );
+  const ticketId = resolved?.id ?? "";
+
+  const { data: ticket, isLoading: isTicketLoading } =
+    api.product.ticket.getById.useQuery(
+      { id: ticketId },
+      { enabled: !!ticketId },
+    );
+  const isLoading =
+    isWorkspaceLoading || isResolving || (!!ticketId && isTicketLoading);
 
   // Data for selectors
   const members = workspace?.members ?? [];
@@ -582,6 +596,19 @@ export default function TicketDetailPage() {
       setTitleValue(ticket.title);
     }
   }, [ticket]);
+
+  // Canonicalise the address bar to the clean number form (`/tickets/29`) when
+  // the ticket was reached via CUID or a Linear-style id. Legacy tickets with
+  // no number (0) keep their CUID URL.
+  useEffect(() => {
+    if (!ticket || !workspace || ticket.number <= 0) return;
+    const canonical = String(ticket.number);
+    if (routeParam !== canonical) {
+      router.replace(
+        `/w/${workspace.slug}/products/${productSlug}/tickets/${canonical}`,
+      );
+    }
+  }, [ticket, workspace, routeParam, productSlug, router]);
 
   const updateTicket = api.product.ticket.update.useMutation({
     onSuccess: async () => {

@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { ticketUrlId } from "~/lib/fun-ids";
 import { buildBugBody, type SentryBug } from "./sentryPayload";
 import { notifyZulipOfSentryBug } from "./sentryZulip";
 
@@ -144,7 +145,7 @@ export async function ingestSentryBug(
   // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
   // Only on creation — recurring errors that dedup above do not re-notify.
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
-  const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticket.id}`;
+  const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
   await notifyZulipOfSentryBug(db, {
     workspaceId: product.workspaceId,
     authorId: errol.id,
