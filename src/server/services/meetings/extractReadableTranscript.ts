@@ -1,39 +1,24 @@
-import {
-  FirefliesService,
-  type FirefliesTranscript,
-} from "~/server/services/FirefliesService";
+import { parseTranscript, turnsToReadableText } from "~/lib/transcript";
 
 /**
  * Normalize a stored `transcription` field into readable plain text for the
- * summarizer. Fireflies sessions store a JSON `{ sentences: [...] }` blob;
- * device sessions store plain text. Returns "" when there's nothing to
+ * summarizer, via the shared transcript parser (ADR-0032). Fireflies `{ sentences }`
+ * blobs and device plain-text pastes both normalize to canonical turns, then
+ * serialize to speaker-prefixed lines. Returns "" when there's nothing to
  * summarize.
+ *
+ * For Fireflies blobs this is byte-equivalent to the previous
+ * `FirefliesService.formatTranscriptText` output; for `Me:`/`Them:` pastes it is
+ * intentionally cleaner — meeting header lines (`Meeting Title:`, `Date:`, …) and
+ * `[SCREENSHOT]` markers are dropped rather than fed to the summarizer.
  *
  * Shared by the transcription router's `generateSummary` mutation and the
  * auto-summarize cron sweep so both produce summaries from identical input.
  */
 export function extractReadableTranscript(raw: string | null): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return "";
-
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      const sentences =
-        parsed && typeof parsed === "object" && "sentences" in parsed
-          ? (parsed as { sentences?: FirefliesTranscript["sentences"] })
-              .sentences
-          : undefined;
-      if (sentences?.length) {
-        return FirefliesService.formatTranscriptText(sentences);
-      }
-    } catch {
-      // Not JSON — fall through and treat the raw string as plain text.
-    }
-  }
-
-  return trimmed;
+  return turnsToReadableText(
+    parseTranscript({ transcription: raw, sentencesJson: null, participants: [] }),
+  );
 }
 
 /** Max transcript chars fed to the summarizer (cost/latency bound). */

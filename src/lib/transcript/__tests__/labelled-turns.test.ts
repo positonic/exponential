@@ -41,6 +41,14 @@ describe("labelledTurnsParser", () => {
     expect(turns[2]?.text).toBe("Perfect. Here's where it breaks.");
   });
 
+  it("a [SCREENSHOT] at end of line does not merge the next turn", () => {
+    const raw = ["Me: done here. [SCREENSHOT]", "Them: my reply"].join("\n");
+    const turns = labelledTurnsParser.parse(input(raw));
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).toMatchObject({ speaker: "Me", text: "done here." });
+    expect(turns[1]).toMatchObject({ speaker: "Them", text: "my reply" });
+  });
+
   it("rotates them/alt for 3+ distinct speakers, stable by first appearance", () => {
     const raw = [
       "Alice: one",
