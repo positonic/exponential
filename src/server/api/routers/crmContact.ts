@@ -7,6 +7,33 @@ import { ContactSyncService } from "~/server/services/ContactSyncService";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
+import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
+
+// Verify the signed-in user belongs to the workspace that owns `contactId`.
+// Throws NOT_FOUND / FORBIDDEN otherwise.
+async function assertContactAccess(
+  db: PrismaClient,
+  userId: string,
+  contactId: string,
+): Promise<{ workspaceId: string }> {
+  const contact = await db.crmContact.findUnique({
+    where: { id: contactId },
+    select: { workspaceId: true },
+  });
+  if (!contact) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+  }
+  const access = await db.workspaceUser.findFirst({
+    where: { workspaceId: contact.workspaceId, userId },
+  });
+  if (!access) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to this contact",
+    });
+  }
+  return { workspaceId: contact.workspaceId };
+}
 
 // Type for decrypted contact - replaces Bytes fields with string | null
 type DecryptedContact<T extends CrmContact> = Omit<
@@ -1282,5 +1309,95 @@ export const crmContactRouter = createTRPCRouter({
       });
 
       return { success: true, message: "Score recalculation started" };
+    }),
+
+  // ──────────────────────────────────────────────────────────────────
+  // Screenshots / images — Vercel Blob storage + shared Screenshot model,
+  // joined to the contact via CrmContactScreenshot. Mirrors action.uploadImage.
+  // ──────────────────────────────────────────────────────────────────
+
+  // List a contact's uploaded images (already-persisted blob URLs).
+  listScreenshots: protectedProcedure
+    .input(z.object({ contactId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId);
+
+      const rows = await ctx.db.crmContactScreenshot.findMany({
+        where: { contactId: input.contactId },
+        orderBy: { createdAt: "desc" },
+        include: { screenshot: true },
+      });
+
+      return rows.map((row) => ({
+        id: row.screenshotId,
+        url: row.screenshot.url,
+        createdAt: row.createdAt,
+      }));
+    }),
+
+  // Upload an image (base64) and associate it with a contact.
+  uploadImage: protectedProcedure
+    .input(
+      z.object({
+        contactId: z.string(),
+        base64Data: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId);
+
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/contacts/${input.contactId}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+
+      const screenshot = await ctx.db.screenshot.create({
+        data: {
+          url: blob.url,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      await ctx.db.crmContactScreenshot.create({
+        data: {
+          contactId: input.contactId,
+          screenshotId: screenshot.id,
+        },
+      });
+
+      return { id: screenshot.id, url: blob.url };
+    }),
+
+  // Remove an image from a contact: delete the join, the Screenshot row, and the blob.
+  removeScreenshot: protectedProcedure
+    .input(z.object({ contactId: z.string(), screenshotId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId);
+
+      const join = await ctx.db.crmContactScreenshot.findUnique({
+        where: {
+          contactId_screenshotId: {
+            contactId: input.contactId,
+            screenshotId: input.screenshotId,
+          },
+        },
+        include: { screenshot: true },
+      });
+      if (!join) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Image not found" });
+      }
+
+      const blobUrl = join.screenshot.url;
+      await ctx.db.crmContactScreenshot.delete({ where: { id: join.id } });
+      // Best-effort: drop the Screenshot row + blob if nothing else references it.
+      await ctx.db.screenshot
+        .delete({ where: { id: input.screenshotId } })
+        .catch(() => undefined);
+      if (blobUrl) {
+        await deleteFromBlob(blobUrl).catch((e) => {
+          console.error("Failed to delete blob for contact image", input.screenshotId, e);
+        });
+      }
+
+      return { success: true };
     }),
 });

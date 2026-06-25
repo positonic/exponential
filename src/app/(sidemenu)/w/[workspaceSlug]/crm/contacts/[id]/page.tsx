@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Title,
@@ -53,6 +53,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
 import { notifications } from '@mantine/notifications';
+import { EditContactDrawer } from '~/app/_components/crm/EditContactDrawer';
 
 // Helper function to get relative time
 function getRelativeTime(date: Date): string {
@@ -348,228 +349,6 @@ function AddInteractionForm({
           </Button>
           <Button type="submit" loading={addInteraction.isPending}>
             Add Interaction
-          </Button>
-        </div>
-      </Stack>
-    </form>
-  );
-}
-
-interface ContactEditFormProps {
-  contact: {
-    id: string;
-    firstName: string | null;
-    lastName: string | null;
-    email: string | null;
-    phone: string | null;
-    linkedIn: string | null;
-    telegram: string | null;
-    twitter: string | null;
-    github: string | null;
-    bluesky: string | null;
-    about: string | null;
-    profileType: string | null;
-    organizationId: string | null;
-  };
-  workspaceId: string;
-  onSuccess: () => void;
-  onCancel: () => void;
-}
-
-function ContactEditForm({
-  contact,
-  workspaceId,
-  onSuccess,
-  onCancel,
-}: ContactEditFormProps) {
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    linkedIn: '',
-    telegram: '',
-    twitter: '',
-    github: '',
-    bluesky: '',
-    about: '',
-    profileType: '',
-    organizationId: '',
-  });
-
-  const utils = api.useUtils();
-
-  const { data: organizations } = api.crmOrganization.getAll.useQuery(
-    { workspaceId, limit: 100 },
-    { enabled: !!workspaceId },
-  );
-
-  const updateContact = api.crmContact.update.useMutation({
-    onSuccess: () => {
-      void utils.crmContact.getById.invalidate({ id: contact.id });
-      void utils.crmContact.getAll.invalidate();
-      notifications.show({
-        title: 'Success',
-        message: 'Contact updated successfully',
-        color: 'green',
-      });
-      onSuccess();
-    },
-    onError: (error) => {
-      notifications.show({
-        title: 'Error',
-        message: error.message,
-        color: 'red',
-      });
-    },
-  });
-
-  useEffect(() => {
-    setFormData({
-      firstName: contact.firstName ?? '',
-      lastName: contact.lastName ?? '',
-      email: contact.email ?? '',
-      phone: contact.phone ?? '',
-      linkedIn: contact.linkedIn ?? '',
-      telegram: contact.telegram ?? '',
-      twitter: contact.twitter ?? '',
-      github: contact.github ?? '',
-      bluesky: contact.bluesky ?? '',
-      about: contact.about ?? '',
-      profileType: contact.profileType ?? '',
-      organizationId: contact.organizationId ?? '',
-    });
-  }, [contact]);
-
-  const getOptionalValue = (value: string) => value.trim();
-
-  const getNullableEmail = (value: string) => {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  };
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    updateContact.mutate({
-      id: contact.id,
-      firstName: formData.firstName.trim(),
-      lastName: formData.lastName.trim(),
-      email: getNullableEmail(formData.email),
-      phone: getOptionalValue(formData.phone),
-      linkedIn: getOptionalValue(formData.linkedIn),
-      telegram: getOptionalValue(formData.telegram),
-      twitter: getOptionalValue(formData.twitter),
-      github: getOptionalValue(formData.github),
-      bluesky: getOptionalValue(formData.bluesky),
-      about: formData.about.trim(),
-      profileType: formData.profileType.trim() || undefined,
-      organizationId: formData.organizationId.length > 0 ? formData.organizationId : null,
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <Stack gap="md">
-        <div className="grid grid-cols-2 gap-3">
-          <TextInput
-            label="First Name"
-            value={formData.firstName}
-            onChange={(event) =>
-              setFormData({ ...formData, firstName: event.target.value })
-            }
-          />
-          <TextInput
-            label="Last Name"
-            value={formData.lastName}
-            onChange={(event) =>
-              setFormData({ ...formData, lastName: event.target.value })
-            }
-          />
-        </div>
-        <TextInput
-          label="Email"
-          type="email"
-          value={formData.email}
-          onChange={(event) => setFormData({ ...formData, email: event.target.value })}
-        />
-        <TextInput
-          label="Phone"
-          value={formData.phone}
-          onChange={(event) => setFormData({ ...formData, phone: event.target.value })}
-        />
-        <TextInput
-          label="LinkedIn URL"
-          value={formData.linkedIn}
-          onChange={(event) => setFormData({ ...formData, linkedIn: event.target.value })}
-        />
-        <TextInput
-          label="Telegram"
-          placeholder="@username"
-          value={formData.telegram}
-          onChange={(event) => setFormData({ ...formData, telegram: event.target.value })}
-        />
-        <TextInput
-          label="Twitter"
-          placeholder="@handle"
-          value={formData.twitter}
-          onChange={(event) => setFormData({ ...formData, twitter: event.target.value })}
-        />
-        <TextInput
-          label="GitHub"
-          placeholder="username"
-          value={formData.github}
-          onChange={(event) => setFormData({ ...formData, github: event.target.value })}
-        />
-        <TextInput
-          label="BlueSky"
-          placeholder="@handle.bsky.social"
-          value={formData.bluesky}
-          onChange={(event) => setFormData({ ...formData, bluesky: event.target.value })}
-        />
-        <Textarea
-          label="Description"
-          minRows={3}
-          value={formData.about}
-          onChange={(event) => setFormData({ ...formData, about: event.target.value })}
-        />
-        <Select
-          label="Profile Type"
-          placeholder="Select type"
-          data={[
-            { value: 'Developer', label: 'Developer' },
-            { value: 'Designer', label: 'Designer' },
-            { value: 'Founder', label: 'Founder' },
-            { value: 'Product Manager', label: 'Product Manager' },
-            { value: 'Investor', label: 'Investor' },
-            { value: 'Marketing', label: 'Marketing' },
-            { value: 'Sales', label: 'Sales' },
-            { value: 'Other', label: 'Other' },
-          ]}
-          value={formData.profileType}
-          onChange={(value) => setFormData({ ...formData, profileType: value ?? '' })}
-          clearable
-          searchable
-        />
-        <Select
-          label="Company"
-          placeholder="Select organization"
-          data={
-            organizations?.organizations.map((org) => ({
-              value: org.id,
-              label: org.name,
-            })) ?? []
-          }
-          value={formData.organizationId}
-          onChange={(value) => setFormData({ ...formData, organizationId: value ?? '' })}
-          clearable
-          searchable
-        />
-        <div className="flex justify-end gap-2 mt-2">
-          <Button variant="subtle" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={updateContact.isPending}>
-            Save Changes
           </Button>
         </div>
       </Stack>
@@ -1601,16 +1380,15 @@ export default function ContactDetailPage() {
         />
       </Modal>
 
-      <Modal opened={editModalOpened} onClose={closeEditModal} title="Edit Contact" size="lg">
-        {contact && workspaceId ? (
-          <ContactEditForm
-            contact={contact}
-            workspaceId={workspaceId}
-            onSuccess={closeEditModal}
-            onCancel={closeEditModal}
-          />
-        ) : null}
-      </Modal>
+      {contact && workspaceId ? (
+        <EditContactDrawer
+          opened={editModalOpened}
+          onClose={closeEditModal}
+          contact={contact}
+          workspaceId={workspaceId}
+          onSaved={closeEditModal}
+        />
+      ) : null}
     </div>
   );
 }
