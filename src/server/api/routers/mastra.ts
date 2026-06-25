@@ -10,6 +10,7 @@ import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolAr
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
+import { pageRouter } from "./page";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
 import { addDays, startOfDay, endOfDay } from "date-fns";
@@ -3933,6 +3934,79 @@ export const mastraRouter = createTRPCRouter({
           status: project.status,
           priority: project.priority,
           slug: project.slug,
+        },
+      };
+    }),
+
+  // ────────────────── Knowledge Pages (ADR-0033) ──────────────────
+  // Zoe authors Pages by reusing the human write path: these callbacks resolve
+  // the acting user from the agent JWT server-side (protectedProcedure — the
+  // credential never enters the LLM context, ADR-0020) and delegate to the same
+  // `page.*` procedures a human uses (ADR-0016 — no duplicated business logic,
+  // so access checks, project/workspace gating, the Markdown projection, and
+  // Knowledge-index embedding all come for free). Zoe drafts Markdown; the
+  // canonical ProseMirror doc derives lazily on first open (bodyDoc null on
+  // create; reset on a Markdown-source update).
+  createPage: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string().nullish(),
+        title: z.string().min(1),
+        body: z.string().min(1),
+        includeInSearch: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const pages = pageRouter.createCaller(ctx);
+      const page = await pages.create({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId ?? null,
+        title: input.title,
+        body: input.body,
+        includeInSearch: input.includeInSearch,
+      });
+      return {
+        page: {
+          id: page.id,
+          title: page.title,
+          workspaceId: page.workspaceId,
+          projectId: page.projectId,
+          includeInSearch: page.includeInSearch,
+        },
+      };
+    }),
+
+  updatePage: protectedProcedure
+    .input(
+      z.object({
+        pageId: z.string(),
+        title: z.string().min(1).optional(),
+        body: z.string().min(1).optional(),
+        includeInSearch: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const pages = pageRouter.createCaller(ctx);
+      const updated = await pages.update({
+        id: input.pageId,
+        title: input.title,
+        body: input.body,
+        includeInSearch: input.includeInSearch,
+      });
+      // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
+      // the metadata path and returns the full record (not the {id, docVersion}
+      // body-save shape). Narrow on a record-only field to satisfy the union.
+      if (!("title" in updated)) {
+        return { page: { id: updated.id } };
+      }
+      return {
+        page: {
+          id: updated.id,
+          title: updated.title,
+          workspaceId: updated.workspaceId,
+          projectId: updated.projectId,
+          includeInSearch: updated.includeInSearch,
         },
       };
     }),

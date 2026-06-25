@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import {
@@ -242,6 +242,13 @@ export const pageRouter = createTRPCRouter({
         );
       }
 
+      // A Markdown-source write — `body` set without `bodyDoc` — comes from a
+      // non-editor writer (the Zoe agent authors Markdown; the rich editor
+      // always sends both). Treat the Markdown as canonical: null out `bodyDoc`
+      // and bump `docVersion` so the editor re-derives the ProseMirror doc from
+      // the new Markdown on next open (the same lazy migration a null bodyDoc
+      // triggers), instead of rendering a now-stale canonical doc.
+      const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
       const data: Prisma.KnowledgePageUpdateInput = {
         ...rest,
         ...(projectIdProvided
@@ -252,6 +259,9 @@ export const pageRouter = createTRPCRouter({
             }
           : {}),
         ...(body !== undefined ? { body } : {}),
+        ...(markdownSourceWrite
+          ? { bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } }
+          : {}),
       };
 
       // Body autosave path: optimistic-concurrency guard + atomic version bump.
