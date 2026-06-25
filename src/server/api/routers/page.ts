@@ -311,8 +311,10 @@ export const pageRouter = createTRPCRouter({
         where: { id },
         data,
       });
-      // Toggling search inclusion re-indexes (embed) or clears the Page.
-      if (input.includeInSearch !== undefined) {
+      // Re-index when the content or its search inclusion changed. A Markdown
+      // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
+      // doesn't take the bodyDoc save path above, so cover it here too.
+      if (input.body !== undefined || input.includeInSearch !== undefined) {
         getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
       }
       return updated;
