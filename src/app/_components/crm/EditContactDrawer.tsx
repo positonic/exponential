@@ -250,14 +250,8 @@ export function EditContactDrawer({
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Upload any pending images first (mirrors EditActionModal save flow).
-      for (const shot of pastedScreenshots) {
-        await uploadImage.mutateAsync({
-          contactId: contact.id,
-          base64Data: shot.base64,
-        });
-      }
-
+      // Save the contact fields first; if this throws we never upload images,
+      // so there are no orphaned blobs to clean up.
       const trimmedEmail = form.email.trim();
       await updateContact.mutateAsync({
         id: contact.id,
@@ -275,10 +269,39 @@ export function EditContactDrawer({
         organizationId: form.organizationId.length > 0 ? form.organizationId : null,
       });
 
-      setPastedScreenshots([]);
       void utils.crmContact.getById.invalidate({ id: contact.id });
       void utils.crmContact.getAll.invalidate();
-      void utils.crmContact.listScreenshots.invalidate({ contactId: contact.id });
+
+      // Upload pending images in parallel. Drop each one from state as it
+      // succeeds so a retry never re-uploads an already-persisted image.
+      if (pastedScreenshots.length > 0) {
+        const pending = pastedScreenshots;
+        const results = await Promise.allSettled(
+          pending.map((shot) =>
+            uploadImage.mutateAsync({
+              contactId: contact.id,
+              base64Data: shot.base64,
+            }),
+          ),
+        );
+        const failedIds = pending
+          .filter((_, i) => results[i]?.status === 'rejected')
+          .map((s) => s.id);
+        setPastedScreenshots((prev) => prev.filter((s) => failedIds.includes(s.id)));
+        void utils.crmContact.listScreenshots.invalidate({ contactId: contact.id });
+
+        if (failedIds.length > 0) {
+          // Contact saved, but some images didn't upload — keep the drawer open
+          // so the user can retry just the failures.
+          notifications.show({
+            title: 'Some images failed',
+            message: `Contact saved, but ${failedIds.length} image(s) could not be uploaded. Try again.`,
+            color: 'orange',
+          });
+          return;
+        }
+      }
+
       notifications.show({
         title: 'Saved',
         message: 'Contact updated successfully',
@@ -469,7 +492,7 @@ export function EditContactDrawer({
               resetRef={resetFileRef}
               onChange={(files) => {
                 resetFileRef.current?.();
-                if (files.length) void addImageFiles(files);
+                if (files && files.length > 0) void addImageFiles(files);
               }}
             >
               {(btnProps) => (

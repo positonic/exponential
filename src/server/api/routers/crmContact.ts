@@ -1388,14 +1388,31 @@ export const crmContactRouter = createTRPCRouter({
 
       const blobUrl = join.screenshot.url;
       await ctx.db.crmContactScreenshot.delete({ where: { id: join.id } });
-      // Best-effort: drop the Screenshot row + blob if nothing else references it.
-      await ctx.db.screenshot
-        .delete({ where: { id: input.screenshotId } })
-        .catch(() => undefined);
-      if (blobUrl) {
-        await deleteFromBlob(blobUrl).catch((e) => {
-          console.error("Failed to delete blob for contact image", input.screenshotId, e);
-        });
+
+      // Only drop the shared Screenshot row + blob when nothing else references
+      // it (another contact join or an action screenshot). Otherwise we'd orphan
+      // those references or delete a blob that is still in use.
+      const [actionRefs, contactRefs] = await Promise.all([
+        ctx.db.actionScreenshot.count({
+          where: { screenshotId: input.screenshotId },
+        }),
+        ctx.db.crmContactScreenshot.count({
+          where: { screenshotId: input.screenshotId },
+        }),
+      ]);
+      if (actionRefs + contactRefs === 0) {
+        await ctx.db.screenshot
+          .delete({ where: { id: input.screenshotId } })
+          .catch(() => undefined);
+        if (blobUrl) {
+          await deleteFromBlob(blobUrl).catch((e) => {
+            console.error(
+              "Failed to delete blob for contact image",
+              input.screenshotId,
+              e,
+            );
+          });
+        }
       }
 
       return { success: true };
