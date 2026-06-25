@@ -6,15 +6,15 @@ interface StatsSectionProps {
 
 const stats = [
   {
-    value: "50+",
+    value: "11",
     label: "Organizations",
   },
   {
-    value: "10k+",
+    value: "130+",
     label: "AI-Coordinated Actions",
   },
   {
-    value: "95%",
+    value: "44%",
     label: "Outcome Achievement",
   },
   {

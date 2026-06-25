@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBuffer } from "~/server/utils/encryption";
-import type { Prisma, CrmContact } from "@prisma/client";
+import type { Prisma, CrmContact, PrismaClient } from "@prisma/client";
 import { ContactSyncService } from "~/server/services/ContactSyncService";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
@@ -36,6 +36,72 @@ function decryptContactPII<T extends CrmContact>(
     github: decryptBuffer(contact.github) ?? null,
     bluesky: decryptBuffer(contact.bluesky) ?? null,
   };
+}
+
+// How close (in ms) a calendar MEETING interaction must be to a transcribed
+// session for the two to be treated as the same real-world meeting in the
+// activity timeline. See the dedupe note in `getActivity`.
+const MEETING_DEDUPE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+// A transcribed meeting linked to a contact, projected to the fields the CRM uses
+type ContactMeeting = {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  meetingDate: Date | null;
+  createdAt: Date;
+  durationSeconds: number | null;
+  participantCount: number | null;
+};
+
+// Load the transcription sessions a contact took part in. A contact is linked to
+// a session either explicitly (participant.contactId) or implicitly by matching
+// the participant's email to the contact's email. Deduped and sorted newest-first.
+async function loadContactMeetings(
+  db: PrismaClient,
+  params: { workspaceId: string; contactId: string; contactEmail: string | null },
+): Promise<ContactMeeting[]> {
+  const participantOr: Prisma.TranscriptionSessionParticipantWhereInput[] = [
+    { contactId: params.contactId },
+  ];
+  if (params.contactEmail) {
+    participantOr.push({
+      email: { equals: params.contactEmail, mode: "insensitive" },
+    });
+  }
+
+  const participants = await db.transcriptionSessionParticipant.findMany({
+    where: {
+      workspaceId: params.workspaceId,
+      OR: participantOr,
+    },
+    select: {
+      transcriptionSession: {
+        select: {
+          id: true,
+          title: true,
+          summary: true,
+          meetingDate: true,
+          createdAt: true,
+          durationSeconds: true,
+          participantCount: true,
+        },
+      },
+    },
+  });
+
+  const byId = new Map<string, ContactMeeting>();
+  for (const p of participants) {
+    if (p.transcriptionSession) {
+      byId.set(p.transcriptionSession.id, p.transcriptionSession);
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const aDate = (a.meetingDate ?? a.createdAt).getTime();
+    const bDate = (b.meetingDate ?? b.createdAt).getTime();
+    return bDate - aDate;
+  });
 }
 
 // Input schemas
@@ -749,6 +815,101 @@ export const crmContactRouter = createTRPCRouter({
         interactions,
         nextCursor,
       };
+    }),
+
+  // Unified activity timeline for a contact: CRM interactions (emails, notes,
+  // calls, etc.) and transcribed meetings, merged and sorted newest-first.
+  // Also returns the full meeting list (for a dedicated Meetings tab) so callers
+  // don't need a second round-trip — both views share one meeting load.
+  getActivity: protectedProcedure
+    .input(
+      z.object({
+        contactId: z.string(),
+        limit: z.number().min(1).max(200).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { contactId, limit = 100 } = input;
+
+      // Combine existence + access in one query
+      const contact = await ctx.db.crmContact.findFirst({
+        where: {
+          id: contactId,
+          workspace: { members: { some: { userId: ctx.session.user.id } } },
+        },
+        select: { workspaceId: true, email: true },
+      });
+
+      if (!contact) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found or inaccessible",
+        });
+      }
+
+      let contactEmail: string | null = null;
+      try {
+        contactEmail = decryptBuffer(contact.email) ?? null;
+      } catch (e) {
+        console.error("PII decryption failed for contact", contactId, e);
+      }
+
+      const [interactions, meetings] = await Promise.all([
+        ctx.db.crmContactInteraction.findMany({
+          where: { contactId },
+          orderBy: { occurredAt: "desc" },
+          take: limit,
+        }),
+        loadContactMeetings(ctx.db, {
+          workspaceId: contact.workspaceId,
+          contactId,
+          contactEmail,
+        }),
+      ]);
+
+      // Calendar-synced meetings (ContactSyncService writes them as MEETING-type
+      // interactions) and transcribed sessions can describe the same real-world
+      // meeting, but share no id. Drop a MEETING interaction when a transcribed
+      // session falls within a short window of it so the timeline shows it once.
+      // Heuristic: favour leaving a possible duplicate over hiding a real meeting.
+      const meetingTimesMs = meetings.map((m) =>
+        (m.meetingDate ?? m.createdAt).getTime(),
+      );
+      const isCoveredByTranscript = (whenMs: number) =>
+        meetingTimesMs.some(
+          (mt) => Math.abs(mt - whenMs) <= MEETING_DEDUPE_WINDOW_MS,
+        );
+
+      const dedupedInteractions = interactions.filter(
+        (i) =>
+          !(
+            i.type === "MEETING" &&
+            isCoveredByTranscript(i.occurredAt.getTime())
+          ),
+      );
+
+      const events = [
+        ...dedupedInteractions.map((i) => ({
+          kind: "interaction" as const,
+          id: i.id,
+          interactionType: i.type,
+          direction: i.direction,
+          subject: i.subject,
+          notes: i.notes,
+          occurredAt: i.occurredAt,
+        })),
+        ...meetings.map((m) => ({
+          kind: "meeting" as const,
+          id: m.id,
+          title: m.title,
+          summary: m.summary,
+          durationSeconds: m.durationSeconds,
+          participantCount: m.participantCount,
+          occurredAt: m.meetingDate ?? m.createdAt,
+        })),
+      ].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+
+      return { events: events.slice(0, limit), meetings };
     }),
 
   // Assign contact to organization

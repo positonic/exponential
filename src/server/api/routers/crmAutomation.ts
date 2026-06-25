@@ -240,7 +240,7 @@ export const crmAutomationRouter = createTRPCRouter({
       return { id: definition.id, isActive: input.isActive };
     }),
 
-  /** Delete a user-created automation. Starter (`isDefault`) automations refuse. */
+  /** Delete an automation (including starter `isDefault` ones). */
   remove: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -249,13 +249,6 @@ export const crmAutomationRouter = createTRPCRouter({
         input.id,
         ctx.session.user.id,
       );
-      if (isDefaultConfig(definition.config)) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Starter automations can't be deleted — deactivate them instead.",
-        });
-      }
       await ctx.db.workflowDefinition.delete({ where: { id: definition.id } });
       return { id: definition.id };
     }),
