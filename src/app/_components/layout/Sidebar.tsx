@@ -26,6 +26,14 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
     }
   }, []);
 
+  // Sync sidebar state to <html> so CSS can offset the main content
+  useEffect(() => {
+    document.documentElement.setAttribute('data-sidebar', isMenuOpen ? 'open' : 'closed');
+    return () => {
+      document.documentElement.removeAttribute('data-sidebar');
+    };
+  }, [isMenuOpen]);
+
   if (!session?.user || pathname.startsWith('/onboarding')) {
     return null;
   }
@@ -57,9 +65,9 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         app-sidebar
         w-screen sm:w-[220px] flex flex-col
         h-screen
-        fixed sm:static inset-y-0 left-0 z-[95]
+        fixed inset-y-0 left-0 z-[95]
         transform transition-all duration-300 ease-in-out
-        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0 sm:ml-[-220px]'}
+        ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
 
         {/* Header with workspace switcher and collapse button */}

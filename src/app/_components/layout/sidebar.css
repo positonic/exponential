@@ -1,5 +1,5 @@
 /* ============================================================
-   Sidebar (Left Nav) — design tokens live in globals.css under
+   Sidebar (Left Nav) - design tokens live in globals.css under
    .app-sidebar; this file uses only var().
    ============================================================ */
 
@@ -16,7 +16,20 @@
 }
 
 /* ============================================================
-   Create Action — soft tinted CTA
+   Main content offset - responds to data-sidebar on <html>
+   ============================================================ */
+@media (width >= 640px) {
+  html[data-sidebar="open"] .sidebar-offset {
+    margin-left: 220px;
+  }
+
+  html[data-sidebar="closed"] .sidebar-offset {
+    margin-left: 0;
+  }
+}
+
+/* ============================================================
+   Create Action - soft tinted CTA
    ============================================================ */
 .sb-create {
   width: 100%;
