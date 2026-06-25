@@ -40,6 +40,7 @@ import {
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { api } from '~/trpc/react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
 
@@ -65,6 +66,7 @@ interface KnowledgeBaseContentProps {
 }
 
 export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }: KnowledgeBaseContentProps) {
+  const { workspaceSlug } = useWorkspace();
   const [opened, { open, close }] = useDisclosure(false);
   const [activeTab, setActiveTab] = useState<string | null>('resources');
   const [searchQuery, setSearchQuery] = useState('');
@@ -587,7 +589,11 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                   const href =
                     result.sourceType === 'transcription'
                       ? `/recording/${result.sourceId}`
-                      : (result.url ?? null);
+                      : result.sourceType === 'page'
+                        ? (workspaceSlug
+                            ? `/w/${workspaceSlug}/pages/${result.sourceId}`
+                            : null)
+                        : (result.url ?? null);
                   const isExternal = result.sourceType === 'resource' && !!result.url;
 
                   const card = (
@@ -598,8 +604,8 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                     >
                       <Group justify="space-between" mb="xs">
                         <Group gap="xs">
-                          <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : 'green'}>
-                            {result.sourceType === 'transcription' ? 'Meeting' : (contentType ?? 'Resource')}
+                          <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : result.sourceType === 'page' ? 'violet' : 'green'}>
+                            {result.sourceType === 'transcription' ? 'Meeting' : result.sourceType === 'page' ? 'Page' : (contentType ?? 'Resource')}
                           </Badge>
                           {result.sourceTitle && (
                             <Text size="xs" className="text-text-muted">

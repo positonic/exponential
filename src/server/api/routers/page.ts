@@ -4,6 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { uploadToBlob } from "~/lib/blob";
+import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
@@ -168,8 +170,19 @@ export const pageRouter = createTRPCRouter({
       if (!page) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
       }
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
-      return page;
+      const access = await getKnowledgePageAccess(
+        ctx.db,
+        ctx.session.user.id,
+        page,
+      );
+      if (!canViewKnowledgePage(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this page",
+        });
+      }
+      // The editor needs to know whether to render read-only.
+      return { ...page, canEdit: canEditKnowledgePage(access) };
     }),
 
   create: protectedProcedure
@@ -192,7 +205,7 @@ export const pageRouter = createTRPCRouter({
         input.projectId,
       );
 
-      return ctx.db.knowledgePage.create({
+      const page = await ctx.db.knowledgePage.create({
         data: {
           workspaceId: input.workspaceId,
           projectId: input.projectId ?? null,
@@ -203,6 +216,12 @@ export const pageRouter = createTRPCRouter({
           createdById: userId,
         },
       });
+
+      // Index any seeded body (e.g. agent-authored pages) — no-op when empty.
+      if (input.body?.trim()) {
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(page.id);
+      }
+      return page;
     }),
 
   /**
@@ -304,13 +323,78 @@ export const pageRouter = createTRPCRouter({
               "This page was updated concurrently. Reload to get the latest version.",
           });
         }
+        // Body changed → re-index after a settle delay (embeds, or clears when
+        // includeInSearch is off / body emptied). Fire-and-forget.
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
         return { id, docVersion: decision.nextVersion };
       }
 
-      return ctx.db.knowledgePage.update({
+      const updated = await ctx.db.knowledgePage.update({
         where: { id },
         data,
       });
+      // Re-index when the content or its search inclusion changed. A Markdown
+      // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
+      // doesn't take the bodyDoc save path above, so cover it here too.
+      if (input.body !== undefined || input.includeInSearch !== undefined) {
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
+      }
+      return updated;
+    }),
+
+  /**
+   * Persist the one-time lazy migration of a null `bodyDoc` into the canonical
+   * ProseMirror JSON (ADR-0024), mirroring `feature.initDescriptionDoc`. The
+   * client converts the Markdown `body` (or an empty doc) on first open and
+   * calls this once. Idempotent and write-once: if `bodyDoc` is already set, the
+   * existing doc wins and nothing is written.
+   */
+  initBodyDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+
+      const existing = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.id },
+        select: { bodyDoc: true },
+      });
+      if (existing?.bodyDoc != null) {
+        return { migrated: false, bodyDoc: existing.bodyDoc };
+      }
+
+      const updated = await ctx.db.knowledgePage.update({
+        where: { id: input.id },
+        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+        select: { bodyDoc: true },
+      });
+      return { migrated: true, bodyDoc: updated.bodyDoc };
+    }),
+
+  /**
+   * Upload an image pasted/dropped into the page body (ADR-0024 Tier B),
+   * mirroring `feature.uploadImage`: base64 in, public URL out, via Vercel Blob.
+   * Gated by the same edit check as saving.
+   */
+  uploadImage: protectedProcedure
+    .input(z.object({ id: z.string(), base64Data: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+
+      // Same 5MB cap as feature.uploadImage (base64 is ~4/3 the byte size).
+      const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
+      if (approxBytes > 5 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Image too large. Please use an image under 5MB.",
+        });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/pages/${input.id}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+      return { url: blob.url };
     }),
 
   delete: protectedProcedure
@@ -319,6 +403,9 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
       await ctx.db.knowledgePage.delete({ where: { id: input.id } });
+      // Drop the Page's chunks from the Knowledge index so search can't return
+      // a deleted page.
+      await getEmbeddingTriggerService(ctx.db).clearPageChunks(input.id);
       return { success: true };
     }),
 });
