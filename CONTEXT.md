@@ -50,7 +50,7 @@ _Avoid_: Private project (use "restricted"), team project (team ownership ≠ re
 - A **Meeting** has zero or more **Participants** (`TranscriptionSessionParticipant`).
 - A **Meeting** has zero or more **Speakers** (derived from transcript). The Participant and Speaker sets overlap but are not identical.
 - A **Meeting** belongs to at most one **Project** and at most one **Workspace**. A **project-linked Meeting always inherits the project's Workspace** — a meeting with a Project but no Workspace is an incoherent state. Workspace-less ("personal") Meetings are legal **only** when there is also no Project. `createManualTranscription` enforces this server-side (derives `workspaceId` from the project when not supplied), since **Participants require a Workspace** (`TranscriptionSessionParticipant.workspaceId` is non-null).
-- A **Meeting** produces zero or more **Actions** (extracted by Zoe).
+- A **Meeting** produces zero or more **Actions** (extracted by Zoe). An Action extracted from a Meeting **lives where the Meeting lives** — it inherits the Meeting's Project and Workspace at extraction, and **follows the Meeting on reassignment**: moving a Meeting to a new Project (and thus Workspace) re-homes its Actions' `projectId` *and* `workspaceId`. An Action from a Meeting never sits in a different Workspace than its Meeting.
 - A **Ritual** is a *kind of* **Meeting** — not a separate entity.
 
 ### Activity
@@ -424,7 +424,7 @@ _Avoid_: merging List/Pipeline/Automation into one "Collection with stages and a
 A **generic** public-intake subsystem (a mini-Typeform), deliberately **decoupled from the CRM** — the CRM is just one **destination** a form can be wired to ([ADR-0029](docs/adr/0029-generic-forms-subsystem.md)). First use case: a public job-application form whose submission creates a contact and fires the existing automation.
 
 **Form**:
-A workspace-owned public intake definition — `Form { workspaceId, name, slug, fields Json, destinations Json, isActive, confirmationMessage? }`. Rendered unauthenticated at **`/f/[slug]`**; authored in a minimal in-app admin under CRM (`/crm/forms`). Knows nothing about the CRM itself. The `slug` is **globally unique** (not per-workspace) — the public URL carries no workspace, so the lookup must be unambiguous; `uniqueFormSlug` dedupes across all workspaces.
+A workspace-owned public intake definition — `Form { workspaceId, name, slug, description? @db.Text, fields Json, destinations Json, isActive, confirmationMessage? }`. Rendered unauthenticated at **`/f/[slug]`**; authored in a minimal in-app admin under CRM (`/crm/forms`). Knows nothing about the CRM itself. The `slug` is **globally unique** (not per-workspace) — the public URL carries no workspace, so the lookup must be unambiguous; `uniqueFormSlug` dedupes across all workspaces. **`description` is canonical Markdown** (ADR-0017) — the rich body shown above the fields (a job-application form's *job description* is just this field), authored with the shared `<MarkdownInput/>` and rendered with `<MarkdownRenderer/>`; legacy plaintext values stay valid Markdown. A "job-application form" is **not a distinct entity** — it is a Form with a Markdown `description` + custom **Form fields** + a `create_crm_contact` **destination**; the form layer stays job-ignorant.
 _Avoid_: Survey, lead form (it's generic; CRM is one destination), CrmForm (it is **not** CRM-coupled — don't name it that).
 
 **Form field**:

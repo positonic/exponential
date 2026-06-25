@@ -9,6 +9,7 @@ import {
   getProjectAccess,
   hasProjectAccess as userHasProjectAccess,
 } from './access';
+import { assignMeetingPlacement } from './meetings/assignMeetingPlacement';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -509,36 +510,16 @@ export class TranscriptionProcessingService {
     autoProcess = true
   ): Promise<{ success: boolean; error?: string; processed?: ProcessTranscriptionResult }> {
     try {
-      // 1. Verify user has access to both transcription and project
-      const transcription = await db.transcriptionSession.findUnique({
-        where: { id: transcriptionId }
+      // 1. Place the meeting through the single placement service so the
+      //    meeting AND its extracted Actions are re-homed together (projectId +
+      //    workspaceId), and edit access on both the meeting and the target
+      //    project is enforced. Then optionally run extraction.
+      await assignMeetingPlacement(db, userId, {
+        meetingIds: [transcriptionId],
+        projectId,
+        scope: "editable",
       });
 
-      if (!transcription || transcription.userId !== userId) {
-        return { success: false, error: 'Transcription not found or access denied' };
-      }
-
-      const hasProjectAccess = await this.verifyUserAccess(userId, projectId);
-      if (!hasProjectAccess) {
-        return { success: false, error: 'Access denied to project' };
-      }
-
-      // Get the project's workspace to inherit
-      const project = await db.project.findUnique({
-        where: { id: projectId },
-        select: { workspaceId: true }
-      });
-
-      // 2. Update the transcription with the project and workspace
-      await db.transcriptionSession.update({
-        where: { id: transcriptionId },
-        data: {
-          projectId,
-          workspaceId: project?.workspaceId ?? null
-        }
-      });
-
-      // 3. Optionally process the transcription
       if (autoProcess) {
         const processed = await this.processTranscription(transcriptionId, userId);
         return { success: true, processed };

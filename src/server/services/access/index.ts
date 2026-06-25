@@ -79,6 +79,7 @@ export {
   canEditProject,
   canManageProjectMembers,
   buildProjectAccessWhere,
+  buildProjectEditWhere,
 } from "./resolvers/projectResolver";
 export {
   getActionAccess,

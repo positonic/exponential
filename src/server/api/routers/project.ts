@@ -15,6 +15,7 @@ import {
 } from "~/server/services/access";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -75,6 +76,15 @@ export const projectRouter = createTRPCRouter({
         projects,
       };
     }),
+
+  /**
+   * Candidate projects for placing a meeting: every project the caller can
+   * edit, across all their workspaces, tagged with workspace for grouping in
+   * the placement picker. See `getAssignableProjects`.
+   */
+  getAssignable: protectedProcedure.query(({ ctx }) =>
+    getAssignableProjects(ctx.db, ctx.session.user.id),
+  ),
 
   getAll: protectedProcedure
     .input(z.object({

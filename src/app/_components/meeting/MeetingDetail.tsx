@@ -15,6 +15,7 @@ import {
 } from "./ParticipantPicker";
 import { buildMeetingViewModel } from "~/lib/meeting-view-model";
 import type { MeetingSession } from "~/lib/meeting-view-model";
+import type { MeetingProjectOption } from "./MeetingProjectPicker";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
@@ -24,13 +25,15 @@ interface MeetingDetailProps {
   session: MeetingSession;
   actions: TranscriptAction[];
   isActionsLoading: boolean;
-  workspaces: { id: string; name: string }[];
+  /** Candidate projects for placement (edit-scoped, across workspaces). */
+  assignableProjects: MeetingProjectOption[];
   isCreatingActions: boolean;
   /** True while a summary is being auto-generated on view for this meeting. */
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onMeetingDateChange: (value: Date | null) => void;
-  onWorkspaceChange: (value: string | null) => void;
+  /** Place the meeting onto a project (null clears placement). */
+  onProjectChange: (projectId: string | null) => void;
   onCreateActions: () => void;
   onArchive: () => void;
 }
@@ -57,12 +60,12 @@ export function MeetingDetail({
   session,
   actions,
   isActionsLoading,
-  workspaces,
+  assignableProjects,
   isCreatingActions,
   isGeneratingSummary,
   onSaveSummary,
   onMeetingDateChange,
-  onWorkspaceChange,
+  onProjectChange,
   onCreateActions,
   onArchive,
 }: MeetingDetailProps) {
@@ -261,9 +264,10 @@ export function MeetingDetail({
             updatedLabel={new Date(session.updatedAt).toLocaleString(undefined, timestampFmt)}
             meetingDate={meetingDateObj}
             onMeetingDateChange={onMeetingDateChange}
-            workspaceId={session.workspaceId ?? null}
-            workspaces={workspaces}
-            onWorkspaceChange={onWorkspaceChange}
+            projectId={session.projectId ?? null}
+            assignableProjects={assignableProjects}
+            onProjectChange={onProjectChange}
+            workspaceName={session.workspace?.name ?? null}
             onShare={handleShare}
             onExportTranscript={handleExportTranscript}
             canExport={Boolean(session.transcription)}
