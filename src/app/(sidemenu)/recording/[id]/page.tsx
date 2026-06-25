@@ -18,10 +18,28 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       { transcriptionId: id },
       { enabled: Boolean(id) },
     );
-  const { data: workspaces } = api.workspace.list.useQuery();
+  const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
   const utils = api.useUtils();
   const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
+  const assignProjectMutation = api.transcription.assignProject.useMutation({
+    onSuccess: () => {
+      notifications.show({
+        title: "Saved",
+        message: "Meeting placement updated",
+        color: "green",
+      });
+      void utils.transcription.getById.invalidate({ id });
+      void utils.action.getByTranscription.invalidate({ transcriptionId: id });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message || "Failed to update placement",
+        color: "red",
+      });
+    },
+  });
   const archiveMutation = api.transcription.archiveTranscription.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -165,23 +183,11 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
-  async function handleWorkspaceChange(workspaceId: string | null) {
+  function handleProjectChange(projectId: string | null) {
     if (!session) return;
-    try {
-      await updateDetailsMutation.mutateAsync({ id: session.id, workspaceId });
-      notifications.show({
-        title: "Saved",
-        message: workspaceId ? "Meeting moved to workspace" : "Meeting removed from workspace",
-        color: "green",
-      });
-      void utils.transcription.getById.invalidate({ id });
-    } catch (error) {
-      notifications.show({
-        title: "Error",
-        message: error instanceof Error ? error.message : "Failed to update workspace",
-        color: "red",
-      });
-    }
+    // Routes through the placement service: sets the project, derives the
+    // workspace, and re-homes the meeting's Actions in one path.
+    assignProjectMutation.mutate({ transcriptionId: session.id, projectId });
   }
 
   // Register page context so the agent chat knows what recording is in view.
@@ -223,12 +229,12 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       session={session}
       actions={transcriptActions}
       isActionsLoading={isActionsLoading}
-      workspaces={(workspaces ?? []).map((ws) => ({ id: ws.id, name: ws.name }))}
+      assignableProjects={assignableProjects}
       isCreatingActions={generateDraftsMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
       onMeetingDateChange={handleMeetingDateChange}
-      onWorkspaceChange={handleWorkspaceChange}
+      onProjectChange={handleProjectChange}
       onCreateActions={handleCreateActions}
       onArchive={handleArchive}
     />
