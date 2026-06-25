@@ -34,7 +34,6 @@ import {
   IconBrandBluesky,
   IconBuilding,
   IconPlus,
-  IconPhoneCall,
   IconCalendar,
   IconNote,
   IconStar,
@@ -126,18 +125,22 @@ function ActivityItem({
   action,
   date,
   subject,
+  icon,
+  href,
 }: {
   actor: string;
   action: string;
   date: Date;
   subject?: string;
+  icon?: React.ReactNode;
+  href?: string;
 }) {
   const initial = actor[0]?.toUpperCase() ?? '?';
 
-  return (
+  const body = (
     <div className="flex items-start gap-3 py-3">
       <Avatar size="sm" radius="xl" className="mt-0.5">
-        {initial}
+        {icon ?? initial}
       </Avatar>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
@@ -161,6 +164,16 @@ function ActivityItem({
       </div>
     </div>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block rounded-md hover:bg-surface-hover transition-colors">
+        {body}
+      </Link>
+    );
+  }
+
+  return body;
 }
 
 // Collapsible section component
@@ -583,6 +596,19 @@ export default function ContactDetailPage() {
     { enabled: !!contactId }
   );
 
+  // Get meetings associated with this contact
+  const { data: meetingsData } = api.crmContact.getMeetings.useQuery(
+    { contactId },
+    { enabled: !!contactId }
+  );
+  const meetings = meetingsData?.meetings ?? [];
+
+  // Get the unified activity timeline (interactions + meetings)
+  const { data: activityData } = api.crmContact.getActivity.useQuery(
+    { contactId },
+    { enabled: !!contactId }
+  );
+
   // Get all contacts for prev/next navigation
   const { data: allContacts } = api.crmContact.getAll.useQuery(
     { workspaceId: workspaceId! },
@@ -604,7 +630,7 @@ export default function ContactDetailPage() {
     };
   }, [allContacts, contactId]);
 
-  // Build activity items
+  // Build activity items from the merged interaction + meeting timeline
   const activityItems = useMemo(() => {
     if (!contact) return [];
     const items: Array<{
@@ -613,28 +639,42 @@ export default function ContactDetailPage() {
       action: string;
       date: Date;
       subject?: string;
+      icon?: React.ReactNode;
+      href?: string;
     }> = [];
 
     const fullName =
       [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown';
 
-    // Add interactions as activity
-    contact.interactions?.forEach((interaction) => {
+    activityData?.events.forEach((event) => {
+      if (event.kind === 'meeting') {
+        items.push({
+          id: `meeting-${event.id}`,
+          actor: fullName,
+          action: 'had a meeting',
+          date: new Date(event.occurredAt),
+          subject: event.title ?? event.summary ?? undefined,
+          icon: <IconCalendar size={16} />,
+          href: `/recording/${event.id}`,
+        });
+        return;
+      }
+
       items.push({
-        id: interaction.id,
+        id: event.id,
         actor: fullName,
         action:
-          interaction.type === 'EMAIL'
+          event.interactionType === 'EMAIL'
             ? 'sent an email'
-            : interaction.type === 'TELEGRAM'
+            : event.interactionType === 'TELEGRAM'
               ? 'sent a message'
-              : interaction.type === 'PHONE_CALL'
+              : event.interactionType === 'PHONE_CALL'
                 ? 'had a call'
-                : interaction.type === 'MEETING'
+                : event.interactionType === 'MEETING'
                   ? 'had a meeting'
                   : 'added a note',
-        date: new Date(interaction.createdAt),
-        subject: interaction.subject ?? interaction.notes ?? undefined,
+        date: new Date(event.occurredAt),
+        subject: event.subject ?? event.notes ?? undefined,
       });
     });
 
@@ -647,7 +687,7 @@ export default function ContactDetailPage() {
     });
 
     return items.sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [contact]);
+  }, [contact, activityData]);
 
   if (workspaceLoading || isLoading) {
     return (
@@ -790,14 +830,14 @@ export default function ContactDetailPage() {
               Telegram
             </Tabs.Tab>
             <Tabs.Tab
-              value="calls"
+              value="meetings"
               rightSection={
                 <Badge size="xs" variant="light">
-                  {contact.interactions?.filter((i) => i.type === 'PHONE_CALL').length ?? 0}
+                  {meetings.length}
                 </Badge>
               }
             >
-              Calls
+              Meetings
             </Tabs.Tab>
             <Tabs.Tab
               value="company"
@@ -959,6 +999,8 @@ export default function ContactDetailPage() {
                         action={item.action}
                         date={item.date}
                         subject={item.subject}
+                        icon={item.icon}
+                        href={item.href}
                       />
                     ))
                   ) : (
@@ -1057,6 +1099,8 @@ export default function ContactDetailPage() {
                         action={item.action}
                         date={item.date}
                         subject={item.subject}
+                        icon={item.icon}
+                        href={item.href}
                       />
                     ))
                   ) : (
@@ -1167,48 +1211,52 @@ export default function ContactDetailPage() {
             </div>
           )}
 
-          {activeTab === 'calls' && (
+          {activeTab === 'meetings' && (
             <div className="space-y-4">
               <Title order={4} className="text-text-primary">
-                Calls
+                Meetings
               </Title>
-              {contact.interactions?.filter((i) => i.type === 'PHONE_CALL').length ? (
+              {meetings.length ? (
                 <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
-                  {contact.interactions
-                    .filter((i) => i.type === 'PHONE_CALL')
-                    .map((call) => (
-                      <div key={call.id} className="p-4 flex items-start gap-3">
-                        <Avatar size="md" radius="xl">
-                          {getInitialFromName(contact.firstName ?? contact.lastName)}
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline justify-between gap-2 mb-1">
-                            <Text size="sm" className="font-semibold text-text-primary">
-                              {call.subject ?? 'Call'}
-                            </Text>
+                  {meetings.map((meeting) => (
+                    <Link
+                      key={meeting.id}
+                      href={`/recording/${meeting.id}`}
+                      className="flex items-start gap-3 p-4 hover:bg-surface-hover transition-colors"
+                    >
+                      <Avatar size="md" radius="xl" color="grape">
+                        <IconCalendar size={18} />
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline justify-between gap-2 mb-1">
+                          <Text size="sm" className="font-semibold text-text-primary">
+                            {meeting.title ?? 'Untitled meeting'}
+                          </Text>
+                          {(meeting.meetingDate ?? meeting.createdAt) && (
                             <Text size="xs" className="text-text-muted shrink-0">
-                              {new Date(call.createdAt).toLocaleDateString('en-US', {
+                              {new Date(
+                                meeting.meetingDate ?? meeting.createdAt
+                              ).toLocaleDateString('en-US', {
                                 day: 'numeric',
                                 month: 'short',
+                                year: 'numeric',
                               })}
-                            </Text>
-                          </div>
-                          <Text size="sm" className="text-text-muted">
-                            {fullName}
-                          </Text>
-                          {call.notes && (
-                            <Text size="sm" className="text-text-muted mt-1 line-clamp-2">
-                              {call.notes}
                             </Text>
                           )}
                         </div>
+                        {meeting.summary && (
+                          <Text size="sm" className="text-text-muted line-clamp-2">
+                            {meeting.summary}
+                          </Text>
+                        )}
                       </div>
-                    ))}
+                    </Link>
+                  ))}
                 </div>
               ) : (
                 <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
-                  <IconPhoneCall size={40} className="text-text-muted mx-auto mb-3" />
-                  <Text size="sm" className="text-text-muted">No calls yet</Text>
+                  <IconCalendar size={40} className="text-text-muted mx-auto mb-3" />
+                  <Text size="sm" className="text-text-muted">No meetings yet</Text>
                 </div>
               )}
             </div>
