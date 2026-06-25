@@ -1,8 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Group, Button, Text, Loader, Stack } from "@mantine/core";
+import {
+  Group,
+  Button,
+  Text,
+  Loader,
+  Stack,
+  Select,
+  Modal,
+  TextInput,
+} from "@mantine/core";
 import { IconPlus, IconSettings } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { DealKanbanBoard } from "~/app/_components/pipeline/DealKanbanBoard";
@@ -16,39 +26,62 @@ export default function PipelinePage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(
+    null,
+  );
+  const [newPipelineOpen, setNewPipelineOpen] = useState(false);
+  const [newPipelineName, setNewPipelineName] = useState("");
 
   const utils = api.useUtils();
 
-  // Query for existing pipeline
+  // A workspace may hold N named pipelines (ADR-0033).
   const {
-    data: pipeline,
-    isLoading: pipelineLoading,
-    error: pipelineError,
-  } = api.pipeline.get.useQuery(
+    data: pipelines,
+    isLoading: pipelinesLoading,
+    error: pipelinesError,
+  } = api.pipeline.list.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId },
   );
 
-  // Mutation to create pipeline if it doesn't exist
   const createPipelineMutation = api.pipeline.create.useMutation({
-    onSuccess: () => {
-      void utils.pipeline.get.invalidate({ workspaceId: workspaceId! });
+    onSuccess: (created) => {
+      setSelectedPipelineId(created.id);
+      void utils.pipeline.list.invalidate({ workspaceId: workspaceId! });
     },
   });
 
-  // Auto-create pipeline if none exists
+  // First-run convenience: seed a default pipeline when the workspace has none.
   useEffect(() => {
     if (
       workspaceId &&
-      !pipelineLoading &&
-      !pipeline &&
-      !pipelineError &&
+      !pipelinesLoading &&
+      !pipelinesError &&
+      pipelines?.length === 0 &&
       !createPipelineMutation.isPending &&
       !createPipelineMutation.isSuccess
     ) {
       createPipelineMutation.mutate({ workspaceId });
     }
-  }, [workspaceId, pipelineLoading, pipeline, pipelineError, createPipelineMutation]);
+  }, [
+    workspaceId,
+    pipelinesLoading,
+    pipelinesError,
+    pipelines,
+    createPipelineMutation,
+  ]);
+
+  // Keep a valid pipeline selected: default to the first when none is chosen or
+  // the chosen one disappears (e.g. after switching workspaces).
+  useEffect(() => {
+    if (!pipelines || pipelines.length === 0) return;
+    if (!selectedPipelineId || !pipelines.some((p) => p.id === selectedPipelineId)) {
+      setSelectedPipelineId(pipelines[0]!.id);
+    }
+  }, [pipelines, selectedPipelineId]);
+
+  const pipeline =
+    pipelines?.find((p) => p.id === selectedPipelineId) ?? pipelines?.[0];
 
   const { data: deals, isLoading: dealsLoading } =
     api.pipeline.getDeals.useQuery(
@@ -61,9 +94,34 @@ export default function PipelinePage() {
     { enabled: !!pipeline?.id },
   );
 
+  const handleCreatePipeline = () => {
+    const name = newPipelineName.trim();
+    if (!name || !workspaceId) return;
+    createPipelineMutation.mutate(
+      { workspaceId, name },
+      {
+        onSuccess: () => {
+          setNewPipelineOpen(false);
+          setNewPipelineName("");
+          notifications.show({
+            title: "Pipeline created",
+            message: `“${name}” is ready. Rename its stages in Settings.`,
+            color: "green",
+          });
+        },
+        onError: (error) =>
+          notifications.show({
+            title: "Could not create pipeline",
+            message: error.message,
+            color: "red",
+          }),
+      },
+    );
+  };
+
   if (!workspace) return null;
 
-  if (pipelineLoading || createPipelineMutation.isPending) {
+  if (pipelinesLoading || createPipelineMutation.isPending) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader />
@@ -93,9 +151,30 @@ export default function PipelinePage() {
     <Stack gap="md">
       {/* Header */}
       <Group justify="space-between">
-        <Text fw={600} size="xl">
-          Pipeline
-        </Text>
+        <Group gap="sm">
+          {pipelines && pipelines.length > 1 ? (
+            <Select
+              aria-label="Select pipeline"
+              data={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+              value={pipeline.id}
+              onChange={(value) => value && setSelectedPipelineId(value)}
+              allowDeselect={false}
+              w={220}
+              size="md"
+            />
+          ) : (
+            <Text fw={600} size="xl">
+              {pipeline.name}
+            </Text>
+          )}
+          <Button
+            variant="subtle"
+            leftSection={<IconPlus size={16} />}
+            onClick={() => setNewPipelineOpen(true)}
+          >
+            New pipeline
+          </Button>
+        </Group>
         <Group gap="sm">
           <Button
             variant="light"
@@ -152,6 +231,41 @@ export default function PipelinePage() {
         opened={!!selectedDealId}
         onClose={() => setSelectedDealId(null)}
       />
+
+      <Modal
+        opened={newPipelineOpen}
+        onClose={() => setNewPipelineOpen(false)}
+        title="New pipeline"
+        centered
+      >
+        <Stack gap="md">
+          <TextInput
+            label="Name"
+            placeholder="e.g. Hiring"
+            data-autofocus
+            value={newPipelineName}
+            onChange={(e) => setNewPipelineName(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCreatePipeline();
+            }}
+          />
+          <Text c="dimmed" size="xs">
+            Seeds the default stages — rename and reorder them in Settings.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setNewPipelineOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreatePipeline}
+              loading={createPipelineMutation.isPending}
+              disabled={!newPipelineName.trim()}
+            >
+              Create
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
