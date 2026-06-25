@@ -254,25 +254,37 @@ export const pipelineRouter = createTRPCRouter({
     )
     .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
-      // Shift existing stages at or after the target order
-      await ctx.db.pipelineStage.updateMany({
+      // Fetch the stages that need to shift up to make room. We can't use a
+      // single `updateMany({ increment: 1 })` because the @@unique([projectId,
+      // order]) constraint is checked per-row (not deferred): shifting order
+      // 3→4 transiently collides with the existing order 4. Shift them inside a
+      // transaction, highest order first, so each row moves into a free slot.
+      const stagesToShift = await ctx.db.pipelineStage.findMany({
         where: {
           projectId: input.projectId,
           order: { gte: input.order },
         },
-        data: {
-          order: { increment: 1 },
-        },
+        orderBy: { order: "desc" },
+        select: { id: true, order: true },
       });
 
-      return ctx.db.pipelineStage.create({
-        data: {
-          projectId: input.projectId,
-          name: input.name,
-          color: input.color,
-          type: input.type,
-          order: input.order,
-        },
+      return ctx.db.$transaction(async (tx) => {
+        for (const stage of stagesToShift) {
+          await tx.pipelineStage.update({
+            where: { id: stage.id },
+            data: { order: stage.order + 1 },
+          });
+        }
+
+        return tx.pipelineStage.create({
+          data: {
+            projectId: input.projectId,
+            name: input.name,
+            color: input.color,
+            type: input.type,
+            order: input.order,
+          },
+        });
       });
     }),
 
