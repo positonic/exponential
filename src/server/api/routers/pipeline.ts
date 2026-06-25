@@ -74,14 +74,18 @@ async function ensureStageAccess(
 export const pipelineRouter = createTRPCRouter({
   // ─── Pipeline (Project) management ──────────────────────────
 
-  get: protectedProcedure
+  // List every pipeline in a workspace (a workspace may hold N named
+  // pipelines — e.g. a Sales and a Hiring pipeline — see ADR-0033). Filtered
+  // to the pipelines the user can view; ordered oldest-first so the first
+  // entry is the stable default the single-pipeline `get` would have returned.
+  list: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string(),
       }),
     )
     .query(async ({ ctx, input }) => {
-      const pipeline = await ctx.db.project.findFirst({
+      const pipelines = await ctx.db.project.findMany({
         where: {
           workspaceId: input.workspaceId,
           type: "pipeline",
@@ -91,6 +95,44 @@ export const pipelineRouter = createTRPCRouter({
             orderBy: { order: "asc" },
           },
         },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const visible: typeof pipelines = [];
+      for (const pipeline of pipelines) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          pipeline.id,
+        );
+        if (hasProjectAccess(access)) visible.push(pipeline);
+      }
+      return visible;
+    }),
+
+  get: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        // Target a specific pipeline. Omitted → the workspace's default
+        // (oldest) pipeline, preserving the historical single-pipeline contract
+        // for callers that don't yet know about multiple pipelines.
+        pipelineId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const pipeline = await ctx.db.project.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          type: "pipeline",
+          ...(input.pipelineId ? { id: input.pipelineId } : {}),
+        },
+        include: {
+          pipelineStages: {
+            orderBy: { order: "asc" },
+          },
+        },
+        orderBy: { createdAt: "asc" },
       });
       if (!pipeline) return null;
       const access = await getProjectAccess(
@@ -106,6 +148,10 @@ export const pipelineRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
+        // A workspace may hold many pipelines, so each create makes a distinct
+        // one. Names need not be unique. Defaults so the first-run auto-create
+        // path (which has no name to offer) still works.
+        name: z.string().min(1).max(120).default("Pipeline"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -125,23 +171,10 @@ export const pipelineRouter = createTRPCRouter({
         });
       }
 
-      // Check if one already exists
-      const existing = await ctx.db.project.findFirst({
-        where: {
-          workspaceId: input.workspaceId,
-          type: "pipeline",
-        },
-        include: {
-          pipelineStages: {
-            orderBy: { order: "asc" },
-          },
-        },
-      });
-
-      if (existing) return existing;
-
-      // Create a new pipeline project with default stages
-      const baseSlug = slugify("Pipeline");
+      // Always create a new, distinct pipeline (multi-pipeline, ADR-0033) —
+      // no collapsing to an existing one. Each is seeded with the generic
+      // DEFAULT_STAGES; the user re-stages it via the stage editor.
+      const baseSlug = slugify(input.name) || "pipeline";
       let slug = baseSlug;
       let counter = 1;
       while (await ctx.db.project.findFirst({ where: { slug } })) {
@@ -151,7 +184,7 @@ export const pipelineRouter = createTRPCRouter({
 
       return ctx.db.project.create({
         data: {
-          name: "Pipeline",
+          name: input.name,
           slug,
           type: "pipeline",
           status: "ACTIVE",
