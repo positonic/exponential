@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import {
   Title,
@@ -76,7 +76,12 @@ export default function FormEditorPage() {
   const overviewHref = pathname.split('/').slice(0, -1).join('/');
   const utils = api.useUtils();
 
-  const query = api.form.get.useQuery({ id }, { enabled: !!id });
+  // Don't refetch this editor query on window focus: a focus refetch while the
+  // user is mid-edit was wiping unsaved changes (see hydration effect below).
+  const query = api.form.get.useQuery(
+    { id },
+    { enabled: !!id, refetchOnWindowFocus: false },
+  );
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -102,6 +107,14 @@ export default function FormEditorPage() {
     Record<ContactSlot, string | null>
   >({ email: null, firstName: null, lastName: null, company: null });
   const [dirty, setDirty] = useState(false);
+  // Mirror `dirty` in a ref so the hydration effect can read it without
+  // re-subscribing to it. We only re-hydrate from the server when there are
+  // no unsaved local edits.
+  const dirtyRef = useRef(false);
+  const markDirty = (value: boolean) => {
+    dirtyRef.current = value;
+    setDirty(value);
+  };
 
   const { workspaceId } = useWorkspace();
   const { data: pipelines } = api.pipeline.list.useQuery(
@@ -114,6 +127,11 @@ export default function FormEditorPage() {
   useEffect(() => {
     const data = query.data;
     if (!data) return;
+    // A background refetch (e.g. switching tabs and back) produces a new
+    // `query.data` reference and re-runs this effect. If the user has unsaved
+    // edits, re-hydrating here would silently wipe them, so skip while dirty.
+    // First load and post-save refetches run with dirty=false.
+    if (dirtyRef.current) return;
     setName(data.name);
     setSlug(data.slug);
     setDescription(data.description ?? '');
@@ -187,12 +205,12 @@ export default function FormEditorPage() {
     } else {
       setDealEnabled(false);
     }
-    setDirty(false);
+    markDirty(false);
   }, [query.data]);
 
   const save = api.form.update.useMutation({
     onSuccess: () => {
-      setDirty(false);
+      markDirty(false);
       notifications.show({ title: 'Saved', message: 'Form saved.', color: 'green' });
       void utils.form.get.invalidate({ id });
       void utils.form.list.invalidate();
@@ -210,7 +228,7 @@ export default function FormEditorPage() {
       notifications.show({ title: 'Could not delete', message: error.message, color: 'red' }),
   });
 
-  const touch = () => setDirty(true);
+  const touch = () => markDirty(true);
 
   const addField = () => {
     setFields((prev) => [
