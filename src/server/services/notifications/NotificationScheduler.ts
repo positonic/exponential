@@ -4,6 +4,7 @@ import { WhatsAppNotificationService } from './WhatsAppNotificationService';
 import { ZulipNotificationService } from './ZulipNotificationService';
 import { NotificationTemplates } from './NotificationTemplates';
 import { sendPushToUser } from './WebPushService';
+import { notificationDeepLink } from './notificationDeepLink';
 import { addDays, setHours, setMinutes, startOfDay, startOfWeek } from 'date-fns';
 import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
@@ -143,7 +144,12 @@ export class NotificationScheduler {
             title: notification.title,
             body: notification.message,
             tag: notification.type ?? 'scheduled',
-            url: '/',
+            // Deep-link to the relevant entity (e.g. a new meeting opens
+            // /recording/[id]); the service worker reads this on click.
+            url: notificationDeepLink({
+              type: notification.type,
+              metadata: notification.metadata,
+            }),
           },
           db,
         );
