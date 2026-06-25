@@ -1,4 +1,5 @@
 import { createFlavorAssigner, hostNamesOf } from "./flavor";
+import { stripScreenshots } from "./strip";
 import type { TranscriptParser, TranscriptTurn } from "./types";
 
 /**
@@ -30,10 +31,6 @@ const SPEAKER_RE = /^([A-Za-z][A-Za-z0-9 .'’-]{0,40}):\s*/;
 
 function isMetaLabel(label: string): boolean {
   return META_HEADER_KEYS.has(label.trim().toLowerCase());
-}
-
-function stripScreenshots(raw: string): string {
-  return raw.replace(/\s*\[SCREENSHOT\]\.?\s*/g, " ");
 }
 
 /**

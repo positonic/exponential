@@ -1,8 +1,5 @@
+import { stripScreenshots } from "./strip";
 import type { TranscriptParser } from "./types";
-
-function stripScreenshots(raw: string): string {
-  return raw.replace(/\s*\[SCREENSHOT\]\.?\s*/g, " ");
-}
 
 /**
  * Terminal fallback: a transcript we could not structure becomes one

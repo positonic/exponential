@@ -1,6 +1,7 @@
 import type { RouterOutputs } from "~/trpc/react";
 import { getInitial } from "~/utils/avatarColors";
 import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
+import { parseTranscript } from "~/lib/transcript";
 import type { FirefliesSummary } from "~/server/services/FirefliesService";
 
 /**
@@ -52,42 +53,19 @@ export interface MeetingViewModel {
   questions: never[];
   hasVideo: boolean;
   captureCount: number;
-  /** Number of diarized transcript turns; 0 for plain-text / no transcript
-   *  (so the Transcript tab badge self-hides). Mirrors TranscriptTab parsing. */
+  /** Number of canonical transcript turns; 0 for an empty/absent transcript
+   *  (so the Transcript tab badge self-hides). */
   transcriptCount: number;
 }
 
-/** Count diarized transcript turns the way {@link TranscriptTab} renders them:
- *  prefer `sentencesJson`, fall back to a Fireflies-shaped `transcription`
- *  string. Plain text has no discrete turns → 0. */
+/** Count canonical transcript turns via the shared parser registry (ADR-0032).
+ *  One source of truth — the same normalization the renderer consumes. */
 function countTranscriptTurns(
   transcription: string | null,
   sentencesJson: unknown,
 ): number {
-  const countArray = (arr: unknown[]): number =>
-    arr.filter(
-      (s) => s && typeof s === "object" && typeof (s as { text?: unknown }).text === "string",
-    ).length;
-
-  if (Array.isArray(sentencesJson)) {
-    const n = countArray(sentencesJson);
-    if (n > 0) return n;
-  }
-  if (transcription) {
-    try {
-      const obj: unknown = JSON.parse(transcription);
-      if (
-        obj &&
-        typeof obj === "object" &&
-        Array.isArray((obj as { sentences?: unknown }).sentences)
-      ) {
-        return countArray((obj as { sentences: unknown[] }).sentences);
-      }
-    } catch {
-      /* not JSON — plain text, no discrete turns */
-    }
-  }
-  return 0;
+  // Turn count is independent of speaker flavor, so participants aren't needed.
+  return parseTranscript({ transcription, sentencesJson, participants: [] }).length;
 }
 
 function capitalise(value: string): string {
