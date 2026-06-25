@@ -1,32 +1,29 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EditorContent, BubbleMenu, useEditor } from "@tiptap/react";
-import { RichTextEditor } from "@mantine/tiptap";
 import type { Editor, JSONContent } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
-import { Stack, Text } from "@mantine/core";
-import { modals } from "@mantine/modals";
+import { Stack } from "@mantine/core";
+import { RichTextEditor } from "@mantine/tiptap";
 import { notifications } from "@mantine/notifications";
 import { IconMessagePlus } from "@tabler/icons-react";
 import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
-import { buildPrdExtensions } from "~/lib/prd/extensions";
-import { SlashCommand } from "~/lib/prd/slash-command";
-import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { reconcileThreads } from "~/lib/prd/thread-reconciliation";
 import {
   CommentResolution,
   setResolvedThreadIds,
 } from "~/lib/prd/comment-resolution";
-import { usePrdImageUpload } from "~/hooks/usePrdImageUpload";
+import {
+  RichDocEditor,
+  type RichDocEditorHandle,
+} from "~/app/_components/shared/RichDocEditor";
 import {
   PrdCommentsPanel,
   type FeatureCommentRow,
   type PanelThread,
 } from "~/app/_components/prd/PrdCommentsPanel";
 import { PrdThreadPopover } from "~/app/_components/prd/PrdThreadPopover";
-import "@mantine/tiptap/styles.css";
 
 interface AnchorPos {
   top: number;
@@ -54,18 +51,12 @@ function newThreadId(): string {
 }
 
 /**
- * The single Tiptap component for the **PRD body** (ADR-0024), with `editable`
- * toggled by permission. Read mode renders `descriptionDoc` (lazily migrating a
- * legacy Markdown `description` on first load). Edit mode adds the Tier B
- * surface — bubble menu, `/` slash menu, task lists, code blocks, image
- * paste/drop, placeholder — with debounced autosave and an optimistic-
- * concurrency stale-write guard.
- *
- * With `enableComments`, a workspace member can select text and pin a comment
- * thread to it via a `comment` mark; the highlight stays glued to the words via
- * ProseMirror position mapping, and the discussion panel lists reconciled
- * threads (anchored vs orphaned). The Markdown projection is derived here and
- * sent alongside the JSON on save; comment marks drop from it.
+ * The **PRD body** editor (ADR-0024): the shared {@link RichDocEditor} engine
+ * wired to the Feature `descriptionDoc`/`description`/`docVersion` storage, plus
+ * the Feature-specific anchored-comments layer. With `enableComments`, a member
+ * can select text and pin a comment thread to it via a `comment` mark; the
+ * highlight stays glued to the words via ProseMirror position mapping, and the
+ * discussion panel lists reconciled threads (anchored vs orphaned).
  */
 export function PrdDocument({
   featureId,
@@ -75,13 +66,8 @@ export function PrdDocument({
   editable = false,
   enableComments = false,
 }: PrdDocumentProps) {
-  const [doc, setDoc] = useState<JSONContent | null>(descriptionDoc);
-  const migrationStarted = useRef(false);
-  const contentLoaded = useRef(false);
-
-  const versionRef = useRef(docVersion);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const conflictShown = useRef(false);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const flushSaveRef = useRef<() => void>(() => undefined);
 
   // Bumped on every doc change so thread reconciliation re-reads the live marks.
   const [docTick, setDocTick] = useState(0);
@@ -90,7 +76,7 @@ export function PrdDocument({
   // When set, the active thread shows as a popover anchored under its highlight;
   // when null, the active thread's composer lives in the bottom Discussion list.
   const [anchorPos, setAnchorPos] = useState<AnchorPos | null>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Position (relative to the editor wrapper) just below a doc range, so a
   // thread popover sits directly under the highlighted text (Linear-style).
@@ -118,13 +104,13 @@ export function PrdDocument({
   const utils = api.useUtils();
   const initDescriptionDoc = api.product.feature.initDescriptionDoc.useMutation();
   const updateFeature = api.product.feature.update.useMutation();
+  const uploadImageMutation = api.product.feature.uploadImage.useMutation();
   const createComment = api.product.featureComment.create.useMutation();
   const replyComment = api.product.featureComment.reply.useMutation();
   const updateComment = api.product.featureComment.update.useMutation();
   const deleteComment = api.product.featureComment.delete.useMutation();
   const resolveThread = api.product.featureComment.resolve.useMutation();
   const unresolveThread = api.product.featureComment.unresolve.useMutation();
-  const imageHandlers = usePrdImageUpload(featureId);
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
 
@@ -137,127 +123,10 @@ export function PrdDocument({
     [commentsQuery.data],
   );
 
-  // Resolve the document to render, migrating legacy Markdown once.
-  useEffect(() => {
-    if (descriptionDoc) {
-      setDoc(descriptionDoc);
-      return;
-    }
-    if (migrationStarted.current) return;
-    migrationStarted.current = true;
-
-    if (!description || description.trim() === "") {
-      setDoc(EMPTY_DOC);
-      return;
-    }
-    const converted = markdownToDoc(description);
-    setDoc(converted);
-    initDescriptionDoc.mutate({ id: featureId, doc: converted });
-    // initDescriptionDoc is stable; intentionally not a dep.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [descriptionDoc, description, featureId]);
-
-  // Latest save fn behind a ref so the editor's onUpdate closure never goes stale.
-  const saveRef = useRef<(editor: Editor) => void>(() => undefined);
-  saveRef.current = (editor: Editor) => {
-    const json = editor.getJSON();
-    const markdown = (
-      editor.storage.markdown as { getMarkdown: () => string }
-    ).getMarkdown();
-    updateFeature.mutate(
-      {
-        id: featureId,
-        descriptionDoc: json,
-        description: markdown,
-        baseVersion: versionRef.current,
-      },
-      {
-        onSuccess: (res) => {
-          if (res && typeof (res as { docVersion?: number }).docVersion === "number") {
-            versionRef.current = (res as { docVersion: number }).docVersion;
-          }
-        },
-        onError: (err) => {
-          if (err.data?.code === "CONFLICT" && !conflictShown.current) {
-            conflictShown.current = true;
-            modals.openConfirmModal({
-              title: "This PRD changed",
-              children: (
-                <Text size="sm">
-                  Someone else saved a newer version of this PRD. Reload to get the
-                  latest? Unsaved changes in this tab will be lost.
-                </Text>
-              ),
-              labels: { confirm: "Reload", cancel: "Keep editing" },
-              onConfirm: () => window.location.reload(),
-              onCancel: () => {
-                conflictShown.current = false;
-              },
-            });
-          }
-        },
-      },
-    );
+  const handleReady = (handle: RichDocEditorHandle) => {
+    setEditor(handle.editor);
+    flushSaveRef.current = handle.flushSave;
   };
-
-  const editor = useEditor({
-    editable,
-    extensions: [
-      ...buildPrdExtensions(),
-      ...(enableComments ? [CommentResolution] : []),
-      ...(editable ? [SlashCommand] : []),
-    ],
-    content: doc ?? "",
-    immediatelyRender: false,
-    onUpdate: ({ editor: e }) => {
-      if (enableComments) setDocTick((t) => t + 1);
-      if (!editable) return;
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => saveRef.current(e), 1000);
-    },
-    onBlur: ({ editor: e }) => {
-      if (!editable) return;
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      saveRef.current(e);
-    },
-    editorProps: {
-      attributes: {
-        class: "prose prose-invert max-w-none focus:outline-none",
-      },
-      ...(editable
-        ? {
-            handlePaste: imageHandlers.handlePaste,
-            handleDrop: imageHandlers.handleDrop,
-          }
-        : {}),
-      ...(enableComments
-        ? {
-            handleClick: (view, pos) => {
-              const mark = view.state.doc
-                .resolve(pos)
-                .marks()
-                .find((m) => m.type.name === "comment");
-              const threadId = mark?.attrs.threadId as string | undefined;
-              if (threadId) {
-                setActiveThreadId(threadId);
-                setAnchorPos(computeAnchor(view, pos, pos));
-              } else {
-                closeThread();
-              }
-              return false;
-            },
-          }
-        : {}),
-    },
-  });
-
-  // Load the resolved doc into the editor exactly once (never clobber edits).
-  useEffect(() => {
-    if (editor && doc && !contentLoaded.current) {
-      contentLoaded.current = true;
-      editor.commands.setContent(doc);
-    }
-  }, [editor, doc]);
 
   // Push the set of resolved threads to the editor so their highlights hide.
   useEffect(() => {
@@ -274,7 +143,7 @@ export function PrdDocument({
   // Reconcile threads against the live document; include a pending (just-created,
   // not-yet-saved) thread so its composer shows immediately.
   const panelThreads: PanelThread[] = useMemo(() => {
-    const liveDoc = editor?.getJSON() ?? doc ?? null;
+    const liveDoc = editor?.getJSON() ?? null;
     const reconciled: PanelThread[] = reconcileThreads<FeatureCommentRow>(
       liveDoc,
       comments,
@@ -293,7 +162,7 @@ export function PrdDocument({
     return reconciled;
     // docTick drives recompute as marks change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, doc, comments, pending, docTick]);
+  }, [editor, comments, pending, docTick]);
 
   const startComment = () => {
     if (!editor) return;
@@ -309,12 +178,11 @@ export function PrdDocument({
     const threadId = newThreadId();
     const anchor = computeAnchor(editor.view, from, to);
     editor.chain().focus().setMark("comment", { threadId }).run();
-    // setMark's onUpdate scheduled a debounced autosave; cancel it so we don't
+    // setMark's onUpdate scheduled a debounced autosave; flush it now so we don't
     // fire two concurrent saves with the same baseVersion (which can race into a
     // spurious stale-write conflict). Persist the mark right away instead so the
     // thread is anchored on reload.
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    saveRef.current(editor);
+    flushSaveRef.current();
     setPending({ threadId, quotedText });
     setActiveThreadId(threadId);
     setAnchorPos(anchor);
@@ -444,60 +312,66 @@ export function PrdDocument({
       />
     ) : null;
 
-  let body: React.ReactNode;
-  if (!editable && doc && isDocEmpty(doc)) {
-    body = (
-      <Text size="sm" className="text-text-muted">
-        No description provided.
-      </Text>
-    );
-  } else if (!editable) {
-    body = <EditorContent editor={editor} className="prd-document" />;
-  } else {
-    body = (
-      <RichTextEditor
-        editor={editor}
-        className="prd-document"
-        styles={{
-          root: { border: "none", backgroundColor: "transparent" },
-          content: { backgroundColor: "transparent", padding: 0 },
-        }}
+  const commentButton =
+    enableComments && editable ? (
+      <RichTextEditor.Control
+        onClick={startComment}
+        aria-label="Comment on selection"
+        title="Comment on selection"
       >
-        {editor && (
-          <BubbleMenu editor={editor} tippyOptions={{ duration: 150 }}>
-            <RichTextEditor.ControlsGroup>
-              <RichTextEditor.Bold />
-              <RichTextEditor.Italic />
-              <RichTextEditor.Code />
-              <RichTextEditor.Link />
-              <RichTextEditor.H1 />
-              <RichTextEditor.H2 />
-              <RichTextEditor.H3 />
-              <RichTextEditor.BulletList />
-              <RichTextEditor.OrderedList />
-              {enableComments && (
-                <RichTextEditor.Control
-                  onClick={startComment}
-                  aria-label="Comment on selection"
-                  title="Comment on selection"
-                >
-                  <IconMessagePlus size={16} />
-                </RichTextEditor.Control>
-              )}
-            </RichTextEditor.ControlsGroup>
-          </BubbleMenu>
-        )}
-        <RichTextEditor.Content />
-      </RichTextEditor>
-    );
-  }
+        <IconMessagePlus size={16} />
+      </RichTextEditor.Control>
+    ) : null;
 
   return (
     <Stack gap="lg">
-      <div ref={wrapperRef} className="relative">
-        {body}
-        {threadPopover}
-      </div>
+      <RichDocEditor
+        initialDoc={descriptionDoc}
+        initialMarkdown={description}
+        docVersion={docVersion}
+        editable={editable}
+        conflict={{
+          title: "This PRD changed",
+          message:
+            "Someone else saved a newer version of this PRD. Reload to get the latest? Unsaved changes in this tab will be lost.",
+        }}
+        onSave={async ({ doc, markdown, baseVersion }) =>
+          updateFeature.mutateAsync({
+            id: featureId,
+            descriptionDoc: doc,
+            description: markdown,
+            baseVersion,
+          })
+        }
+        onInitDoc={(doc) => initDescriptionDoc.mutate({ id: featureId, doc })}
+        uploadImage={(base64Data) =>
+          uploadImageMutation.mutateAsync({ id: featureId, base64Data })
+        }
+        extraExtensions={enableComments ? [CommentResolution] : undefined}
+        bubbleExtras={commentButton}
+        onDocUpdate={enableComments ? () => setDocTick((t) => t + 1) : undefined}
+        onReady={handleReady}
+        wrapperRef={wrapperRef}
+        editorClick={
+          enableComments
+            ? (view, pos) => {
+                const mark = view.state.doc
+                  .resolve(pos)
+                  .marks()
+                  .find((m) => m.type.name === "comment");
+                const threadId = mark?.attrs.threadId as string | undefined;
+                if (threadId) {
+                  setActiveThreadId(threadId);
+                  setAnchorPos(computeAnchor(view, pos, pos));
+                } else {
+                  closeThread();
+                }
+                return false;
+              }
+            : undefined
+        }
+        overlay={threadPopover}
+      />
       {commentsPanel}
     </Stack>
   );

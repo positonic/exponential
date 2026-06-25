@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { uploadToBlob } from "~/lib/blob";
 import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
@@ -168,8 +169,19 @@ export const pageRouter = createTRPCRouter({
       if (!page) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
       }
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
-      return page;
+      const access = await getKnowledgePageAccess(
+        ctx.db,
+        ctx.session.user.id,
+        page,
+      );
+      if (!canViewKnowledgePage(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this page",
+        });
+      }
+      // The editor needs to know whether to render read-only.
+      return { ...page, canEdit: canEditKnowledgePage(access) };
     }),
 
   create: protectedProcedure
@@ -301,6 +313,61 @@ export const pageRouter = createTRPCRouter({
         where: { id },
         data,
       });
+    }),
+
+  /**
+   * Persist the one-time lazy migration of a null `bodyDoc` into the canonical
+   * ProseMirror JSON (ADR-0024), mirroring `feature.initDescriptionDoc`. The
+   * client converts the Markdown `body` (or an empty doc) on first open and
+   * calls this once. Idempotent and write-once: if `bodyDoc` is already set, the
+   * existing doc wins and nothing is written.
+   */
+  initBodyDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+
+      const existing = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.id },
+        select: { bodyDoc: true },
+      });
+      if (existing?.bodyDoc != null) {
+        return { migrated: false, bodyDoc: existing.bodyDoc };
+      }
+
+      const updated = await ctx.db.knowledgePage.update({
+        where: { id: input.id },
+        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+        select: { bodyDoc: true },
+      });
+      return { migrated: true, bodyDoc: updated.bodyDoc };
+    }),
+
+  /**
+   * Upload an image pasted/dropped into the page body (ADR-0024 Tier B),
+   * mirroring `feature.uploadImage`: base64 in, public URL out, via Vercel Blob.
+   * Gated by the same edit check as saving.
+   */
+  uploadImage: protectedProcedure
+    .input(z.object({ id: z.string(), base64Data: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+
+      // Same 5MB cap as feature.uploadImage (base64 is ~4/3 the byte size).
+      const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
+      if (approxBytes > 5 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Image too large. Please use an image under 5MB.",
+        });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/pages/${input.id}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+      return { url: blob.url };
     }),
 
   delete: protectedProcedure
