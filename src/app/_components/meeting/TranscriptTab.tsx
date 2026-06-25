@@ -4,17 +4,9 @@ import { useMemo, useState } from "react";
 import { IconSearch, IconUsers } from "@tabler/icons-react";
 import { MpAvatar } from "./MpAvatar";
 import { getInitial } from "~/utils/avatarColors";
-import type {
-  MeetingChapter,
-  MeetingParticipant,
-  ParticipantFlavor,
-} from "~/lib/meeting-view-model";
-
-interface Sentence {
-  text: string;
-  speakerName: string | null;
-  startTime: number;
-}
+import { parseTranscript } from "~/lib/transcript";
+import type { TranscriptTurn } from "~/lib/transcript";
+import type { MeetingChapter, MeetingParticipant } from "~/lib/meeting-view-model";
 
 interface TranscriptTabProps {
   transcription: string | null;
@@ -27,42 +19,6 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-/** Parse the best available diarized transcript. Prefers `sentencesJson`,
- *  falls back to a Fireflies-shaped `transcription` string, else null. */
-function parseSentences(transcription: string | null, sentencesJson: unknown): Sentence[] | null {
-  const fromArray = (arr: unknown[]): Sentence[] | null => {
-    const rows = arr
-      .map((s) => {
-        if (!s || typeof s !== "object") return null;
-        const obj = s as Record<string, unknown>;
-        const text = typeof obj.text === "string" ? obj.text : null;
-        if (text === null) return null;
-        const speakerName =
-          typeof obj.speaker_name === "string" ? obj.speaker_name : null;
-        const startTime = typeof obj.start_time === "number" ? obj.start_time : 0;
-        return { text, speakerName, startTime };
-      })
-      .filter((r): r is Sentence => r !== null);
-    return rows.length > 0 ? rows : null;
-  };
-
-  if (Array.isArray(sentencesJson)) {
-    const parsed = fromArray(sentencesJson);
-    if (parsed) return parsed;
-  }
-  if (transcription) {
-    try {
-      const obj: unknown = JSON.parse(transcription);
-      if (obj && typeof obj === "object" && Array.isArray((obj as { sentences?: unknown }).sentences)) {
-        return fromArray((obj as { sentences: unknown[] }).sentences);
-      }
-    } catch {
-      /* not JSON — plain text */
-    }
-  }
-  return null;
 }
 
 function withHighlight(text: string, query: string) {
@@ -94,38 +50,31 @@ export function TranscriptTab({
   const [query, setQuery] = useState("");
   const [onlyMe, setOnlyMe] = useState(false);
 
-  const sentences = useMemo(
-    () => parseSentences(transcription, sentencesJson),
-    [transcription, sentencesJson],
+  // Normalize via the canonical parser (ADR-0032): flavor and timestamps are
+  // resolved in the parser, so this component is purely presentational.
+  const turns = useMemo<TranscriptTurn[]>(
+    () =>
+      parseTranscript({
+        transcription,
+        sentencesJson,
+        participants: participants.map((p) => ({
+          name: p.name,
+          isHost: p.isHost,
+        })),
+      }),
+    [transcription, sentencesJson, participants],
   );
 
-  // speaker name → identity flavor (match participants first, then rotate)
-  const flavorBySpeaker = useMemo(() => {
-    const map = new Map<string, ParticipantFlavor>();
-    for (const p of participants) map.set(p.name, p.flavor);
-    if (sentences) {
-      let rotation = 0;
-      const rotated: ParticipantFlavor[] = ["them", "alt"];
-      for (const s of sentences) {
-        const name = s.speakerName ?? "";
-        if (!name || map.has(name)) continue;
-        map.set(name, rotated[rotation % rotated.length]!);
-        rotation += 1;
-      }
-    }
-    return map;
-  }, [participants, sentences]);
+  const hasMe = useMemo(() => turns.some((t) => t.flavor === "me"), [turns]);
 
-  const hostNames = useMemo(
-    () => new Set(participants.filter((p) => p.flavor === "me").map((p) => p.name)),
-    [participants],
-  );
+  if (turns.length === 0) {
+    return <div className="mp-empty">No transcript available yet.</div>;
+  }
 
-  // Plain-text fallback: no diarization data.
-  if (!sentences) {
-    if (!transcription) {
-      return <div className="mp-empty">No transcript available yet.</div>;
-    }
+  // Speaker-less fallback: a single unstructured block. Render it plainly (no
+  // avatar/name, newlines preserved) with search, as before.
+  const isPlainFallback = turns.length === 1 && turns[0]!.speaker === null;
+  if (isPlainFallback) {
     return (
       <div>
         <div className="mp-tr__toolbar">
@@ -139,19 +88,20 @@ export function TranscriptTab({
           </div>
         </div>
         <p className="mp-turn__text" style={{ whiteSpace: "pre-wrap" }}>
-          {withHighlight(transcription, query)}
+          {withHighlight(turns[0]!.text, query)}
         </p>
       </div>
     );
   }
 
-  const filtered = sentences.filter((s) => {
-    if (onlyMe && !(s.speakerName && hostNames.has(s.speakerName))) return false;
-    if (query && !s.text.toLowerCase().includes(query.toLowerCase())) return false;
+  const filtered = turns.filter((t) => {
+    if (onlyMe && t.flavor !== "me") return false;
+    if (query && !t.text.toLowerCase().includes(query.toLowerCase())) return false;
     return true;
   });
 
-  // interleave chapter markers by start time (only when not filtering)
+  // interleave chapter markers by start time (only when not filtering, and only
+  // for timestamped transcripts — plain-text pastes have no times or chapters)
   const sortedChapters = [...chapters].sort((a, b) => a.startTime - b.startTime);
   const showChapters = !query && !onlyMe && sortedChapters.length > 0;
   let nextChapter = 0;
@@ -167,7 +117,7 @@ export function TranscriptTab({
             onChange={(e) => setQuery(e.currentTarget.value)}
           />
         </div>
-        {hostNames.size > 0 && (
+        {hasMe && (
           <button
             className={`mp-tr__filter ${onlyMe ? "on" : ""}`}
             onClick={() => setOnlyMe((v) => !v)}
@@ -180,12 +130,12 @@ export function TranscriptTab({
       {filtered.length === 0 ? (
         <div className="mp-empty">No matching transcript lines.</div>
       ) : (
-        filtered.map((s, i) => {
+        filtered.map((turn, i) => {
           const chapterMarkers: React.ReactNode[] = [];
-          if (showChapters) {
+          if (showChapters && turn.startTime !== null) {
             while (
               nextChapter < sortedChapters.length &&
-              s.startTime >= sortedChapters[nextChapter]!.startTime
+              turn.startTime >= sortedChapters[nextChapter]!.startTime
             ) {
               const ch = sortedChapters[nextChapter]!;
               chapterMarkers.push(
@@ -199,14 +149,16 @@ export function TranscriptTab({
             }
           }
 
-          const name = s.speakerName ?? "";
-          const flavor = flavorBySpeaker.get(name) ?? "them";
+          const name = turn.speaker ?? "";
+          const flavor = turn.flavor ?? "them";
           return (
             <div key={`row-${i}`}>
               {chapterMarkers}
               <div className="mp-turn">
                 <div className="mp-turn__gutter">
-                  <span className="mp-turn__time">{formatTime(s.startTime)}</span>
+                  {turn.startTime !== null && (
+                    <span className="mp-turn__time">{formatTime(turn.startTime)}</span>
+                  )}
                   {name && (
                     <MpAvatar
                       initial={getInitial(name)}
@@ -216,8 +168,10 @@ export function TranscriptTab({
                   )}
                 </div>
                 <div>
-                  {name && <div className={`mp-turn__name mp-turn__name--${flavor}`}>{name}</div>}
-                  <p className="mp-turn__text">{withHighlight(s.text, query)}</p>
+                  {name && (
+                    <div className={`mp-turn__name mp-turn__name--${flavor}`}>{name}</div>
+                  )}
+                  <p className="mp-turn__text">{withHighlight(turn.text, query)}</p>
                 </div>
               </div>
             </div>
