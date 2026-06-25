@@ -43,7 +43,7 @@ import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
-import { generateLinearId } from "~/lib/fun-ids";
+import { generateLinearId, ticketUrlId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
@@ -411,7 +411,7 @@ export default function TicketsBacklogPage() {
     <div
       key={ticket.id}
       className="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer border-b border-border-primary"
-      onClick={() => router.push(`${basePath}/${ticket.id}`)}
+      onClick={() => router.push(`${basePath}/${ticketUrlId(ticket)}`)}
     >
       <Text size="xs" className="text-text-muted font-mono w-14 shrink-0" lineClamp={1}>
         {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
@@ -482,7 +482,7 @@ export default function TicketsBacklogPage() {
     <Table.Tr
       key={ticket.id}
       className="cursor-pointer hover:bg-surface-hover transition-colors"
-      onClick={() => router.push(`${basePath}/${ticket.id}`)}
+      onClick={() => router.push(`${basePath}/${ticketUrlId(ticket)}`)}
     >
       {vc.has("id") && (
         <Table.Td style={{ width: 70 }}>

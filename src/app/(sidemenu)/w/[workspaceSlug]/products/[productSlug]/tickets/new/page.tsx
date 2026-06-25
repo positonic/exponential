@@ -17,6 +17,7 @@ import {
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { ticketUrlId } from "~/lib/fun-ids";
 
 const TYPE_OPTIONS = [
   { value: "BUG", label: "Bug" },
@@ -101,7 +102,7 @@ export default function NewTicketPage() {
       }
       if (workspace) {
         router.push(
-          `/w/${workspace.slug}/products/${productSlug}/tickets/${ticket.id}`,
+          `/w/${workspace.slug}/products/${productSlug}/tickets/${ticketUrlId(ticket)}`,
         );
       }
     },

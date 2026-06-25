@@ -19,6 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { STATUS_COLORS, STATUS_LABELS } from "~/lib/ticket-statuses";
+import { ticketUrlId } from "~/lib/fun-ids";
 
 interface Props {
   ticketId: string | null;
@@ -107,7 +108,7 @@ export function TicketDrawer({ ticketId, basePath, onClose }: Props) {
 
           <Button
             component={Link}
-            href={`${basePath}/tickets/${ticket.id}`}
+            href={`${basePath}/tickets/${ticketUrlId(ticket)}`}
             rightSection={<IconExternalLink size={14} />}
             variant="filled"
             fullWidth
@@ -132,6 +133,7 @@ function StatusPill({ status }: { status: string }) {
 
 interface MinimalLinkedTicket {
   id: string;
+  number: number;
   title: string;
   status: string;
 }
@@ -177,7 +179,7 @@ function DependencyList({
               <Text
                 size="xs"
                 component={Link}
-                href={`${basePath}/tickets/${t.id}`}
+                href={`${basePath}/tickets/${ticketUrlId(t)}`}
                 className="text-text-primary flex-1 min-w-0 hover:text-blue-400 transition-colors"
                 lineClamp={1}
               >

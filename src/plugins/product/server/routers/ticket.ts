@@ -11,6 +11,7 @@ import {
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
+import { parseTicketUrlId } from "~/lib/fun-ids";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -262,6 +263,62 @@ export const ticketRouter = createTRPCRouter({
 
       const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
       return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
+    }),
+
+  /**
+   * Resolve a ticket URL segment to its canonical CUID, scoped to a product.
+   * Accepts the user-friendly sequential number (`29`), a Linear-style id
+   * (`PLAT-29`), a CUID, or a fun shortId. Powers `/tickets/29` URLs: the
+   * detail page feeds the returned `id` into `getById`. The `number` is
+   * returned too so the page can canonicalise the address bar.
+   */
+  resolveId: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        productSlug: z.string(),
+        identifier: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+
+      const product = await ctx.db.product.findUnique({
+        where: {
+          workspaceId_slug: {
+            workspaceId: input.workspaceId,
+            slug: input.productSlug,
+          },
+        },
+        select: { id: true },
+      });
+      if (!product) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
+      }
+
+      const number = parseTicketUrlId(input.identifier);
+      const ticket =
+        number !== null
+          ? await ctx.db.ticket.findUnique({
+              where: { productId_number: { productId: product.id, number } },
+              select: { id: true, number: true },
+            })
+          : await ctx.db.ticket.findFirst({
+              where: {
+                productId: product.id,
+                OR: [{ id: input.identifier }, { shortId: input.identifier }],
+              },
+              select: { id: true, number: true },
+            });
+
+      if (!ticket) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+      return ticket;
     }),
 
   create: protectedProcedure
