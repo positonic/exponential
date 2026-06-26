@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Container,
   Card,
@@ -13,9 +13,13 @@ import {
   Checkbox,
   Button,
   ThemeIcon,
+  Alert,
+  Group,
+  Anchor,
 } from '@mantine/core';
 import { IconCircleCheck } from '@tabler/icons-react';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { loadDraft, saveDraft, clearDraft } from './formDraft';
 
 interface PublicField {
   key: string;
@@ -47,9 +51,41 @@ export function PublicForm({
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  // Form draft (CONTEXT.md ### Forms): restore in-progress answers from
+  // localStorage on load, then persist them debounced as the applicant types.
+  const [restored, setRestored] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
 
   const setValue = (key: string, value: unknown) =>
     setValues((prev) => ({ ...prev, [key]: value }));
+
+  // Restore once on mount (client-only — runs after hydration to avoid a
+  // server/client mismatch). `hydrated` gates the save effect so its first
+  // pass — which still sees the initial empty values — never overwrites the
+  // draft we're about to load.
+  useEffect(() => {
+    const draft = loadDraft(slug);
+    if (draft) {
+      setValues(draft);
+      setRestored(true);
+    }
+    setHydrated(true);
+  }, [slug]);
+
+  // Persist answers debounced; honeypot lives in its own state and is never
+  // included in `values`, so it's never written to the draft.
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = setTimeout(() => saveDraft(slug, values), 500);
+    return () => clearTimeout(timer);
+  }, [values, slug, hydrated]);
+
+  const handleClearDraft = () => {
+    clearDraft(slug);
+    setValues({});
+    setErrors({});
+    setRestored(false);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +105,8 @@ export function PublicForm({
         confirmationMessage?: string | null;
       };
       if (res.ok && body.ok) {
+        clearDraft(slug);
+        setRestored(false);
         setDone(
           body.confirmationMessage ??
             confirmationMessage ??
@@ -113,6 +151,27 @@ export function PublicForm({
             <MarkdownRenderer content={description} variant="prose" />
           )}
         </Stack>
+        {restored && (
+          <Alert
+            variant="light"
+            color="blue"
+            withCloseButton
+            onClose={() => setRestored(false)}
+            mb="md"
+          >
+            <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
+              <Text size="sm">Restored your saved answers on this device.</Text>
+              <Anchor
+                component="button"
+                type="button"
+                size="sm"
+                onClick={handleClearDraft}
+              >
+                Clear
+              </Anchor>
+            </Group>
+          </Alert>
+        )}
         <form onSubmit={handleSubmit}>
           <Stack gap="md">
             {fields.map((field) => {
