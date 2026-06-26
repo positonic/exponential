@@ -1,7 +1,6 @@
 "use client";
 
 import { NavLinks } from "./NavLinks";
-import { SidebarContent } from "./SidebarContent";
 import { FavouritesNav } from "./FavouritesNav";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
@@ -88,13 +87,6 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
 
           <div className="sb-group">
             <NavLinks />
-          </div>
-
-          <div className="sb-divider" />
-
-          <div className="sb-section-label">Workspaces</div>
-          <div className="sb-group sb-group--secondary">
-            <SidebarContent />
           </div>
 
           <FavouritesNav />

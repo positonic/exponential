@@ -13,7 +13,7 @@ import {
   IconClipboardList,
   IconSettings,
   IconFile,
-  type IconProps,
+  type Icon,
 } from "@tabler/icons-react";
 import { NavLink } from "./NavLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -21,7 +21,7 @@ import { api } from "~/trpc/react";
 
 // Maps a stored page-favourite icon name to a glyph. Names are produced by the
 // products favourite-target helper; unknown names fall back to a generic file.
-const PAGE_ICONS: Record<string, React.ComponentType<IconProps>> = {
+const PAGE_ICONS: Record<string, Icon> = {
   product: IconBox,
   problems: IconTargetArrow,
   backlog: IconLayoutList,
@@ -63,7 +63,7 @@ export function FavouritesNav(): React.JSX.Element | null {
               ? `/w/${workspaceSlug}/${fav.entityId}`
               : `/w/${workspaceSlug}/goals?tab=okrs&drawer=${fav.entityType}:${fav.entityId}`;
 
-          let icon: React.ComponentType<IconProps>;
+          let icon: Icon;
           if (fav.entityType === "objective") {
             icon = IconTarget;
           } else if (fav.entityType === "keyResult") {

@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { navLayoutSchema } from "~/lib/navLayout";
 
-// Valid section and item keys
+// Valid section and item keys (legacy - kept for backwards compat with old mutations)
 const VALID_SECTIONS = ["projects", "alignment", "teams", "tools"] as const;
 const VALID_ITEMS = [
   // Projects section
@@ -41,6 +43,7 @@ export const navigationPreferenceRouter = createTRPCRouter({
         showInspiringQuote: true,
         showSuggestedFocus: true,
         showGamification: false,
+        navLayout: null,
       };
     }
 
@@ -50,6 +53,7 @@ export const navigationPreferenceRouter = createTRPCRouter({
       showInspiringQuote: preferences.showInspiringQuote,
       showSuggestedFocus: preferences.showSuggestedFocus,
       showGamification: preferences.showGamification,
+      navLayout: preferences.navLayout ?? null,
     };
   }),
 
@@ -154,11 +158,11 @@ export const navigationPreferenceRouter = createTRPCRouter({
       });
     }),
 
-  // Reset to defaults (show everything)
+  // Reset to defaults (show everything, clear navLayout)
   resetToDefaults: protectedProcedure.mutation(async ({ ctx }) => {
     return ctx.db.navigationPreference.upsert({
       where: { userId: ctx.session.user.id },
-      update: { hiddenSections: [], hiddenItems: [] },
+      update: { hiddenSections: [], hiddenItems: [], navLayout: Prisma.DbNull },
       create: {
         userId: ctx.session.user.id,
         hiddenSections: [],
@@ -166,6 +170,22 @@ export const navigationPreferenceRouter = createTRPCRouter({
       },
     });
   }),
+
+  // Save full nav layout (order, section names, visibility)
+  updateNavLayout: protectedProcedure
+    .input(navLayoutSchema)
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.navigationPreference.upsert({
+        where: { userId: ctx.session.user.id },
+        update: { navLayout: input },
+        create: {
+          userId: ctx.session.user.id,
+          hiddenSections: [],
+          hiddenItems: [],
+          navLayout: input,
+        },
+      });
+    }),
 
   // Toggle inspiring quote visibility
   toggleInspiringQuote: protectedProcedure
