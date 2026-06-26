@@ -14,15 +14,15 @@ import {
   IconBook,
   IconRoute,
   IconBriefcase,
+  type Icon,
 } from "@tabler/icons-react";
-import type { ComponentType } from "react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { parseNavLayout, NAV_ITEM_CONFIG, DEFAULT_NAV_LAYOUT } from "~/lib/navLayout";
 
-const ITEM_ICONS: Record<string, ComponentType<{ size?: number }>> = {
+const ITEM_ICONS: Record<string, Icon> = {
   goals: IconTarget,
   alignment: IconRoute,
   actions: IconBriefcase,
@@ -36,7 +36,7 @@ const ITEM_ICONS: Record<string, ComponentType<{ size?: number }>> = {
 
 export function NavLink({ href, icon: Icon, children, count, matchSegments }: {
   href: string;
-  icon?: ComponentType<{ size?: number }>;
+  icon?: Icon;
   children: React.ReactNode;
   count?: React.ReactNode;
   matchSegments?: string[];
