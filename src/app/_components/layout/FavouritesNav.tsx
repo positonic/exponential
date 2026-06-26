@@ -63,7 +63,7 @@ export function FavouritesNav(): React.JSX.Element | null {
               ? `/w/${workspaceSlug}/${fav.entityId}`
               : `/w/${workspaceSlug}/goals?tab=okrs&drawer=${fav.entityType}:${fav.entityId}`;
 
-          let icon: React.ComponentType<IconProps>;
+          let icon: Icon;
           if (fav.entityType === "objective") {
             icon = IconTarget;
           } else if (fav.entityType === "keyResult") {
