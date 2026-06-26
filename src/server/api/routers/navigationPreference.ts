@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { navLayoutSchema } from "~/lib/navLayout";
 
@@ -161,7 +162,7 @@ export const navigationPreferenceRouter = createTRPCRouter({
   resetToDefaults: protectedProcedure.mutation(async ({ ctx }) => {
     return ctx.db.navigationPreference.upsert({
       where: { userId: ctx.session.user.id },
-      update: { hiddenSections: [], hiddenItems: [], navLayout: null },
+      update: { hiddenSections: [], hiddenItems: [], navLayout: Prisma.DbNull },
       create: {
         userId: ctx.session.user.id,
         hiddenSections: [],
