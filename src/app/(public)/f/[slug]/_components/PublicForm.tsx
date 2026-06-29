@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Container,
   Card,
@@ -57,6 +57,12 @@ export function PublicForm({
   // localStorage on load, then persist them debounced as the applicant types.
   const [restored, setRestored] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // Time-trap (ADR-0034): record when the form was presented so the intake can
+  // reject implausibly fast (bot) submissions.
+  const renderedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    renderedAtRef.current = Date.now();
+  }, []);
   // Applicant account CTA (CONTEXT.md ### Forms): an optional, success-page-only
   // offer to create an Exponential account via a magic link to the email the
   // applicant already submitted. Captured at submit so it survives the values
@@ -125,10 +131,13 @@ export function PublicForm({
     setGeneralError(null);
     setErrors({});
     try {
+      const elapsedMs = renderedAtRef.current
+        ? Date.now() - renderedAtRef.current
+        : 0;
       const res = await fetch(`/api/forms/${slug}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: values, honeypot }),
+        body: JSON.stringify({ data: values, honeypot, elapsedMs }),
       });
       const body = (await res.json()) as {
         ok: boolean;
