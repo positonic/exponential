@@ -136,6 +136,16 @@ _Avoid_: Auto-close, auto-merge (it promotes a ticket on *someone else's* merge,
 - **Meetings** now emit `WorkspaceActivityEvent` rows via `recordActivity` (entityType `meeting`: `created`, then `summarized` once the auto-summary lands) — the internal-data write-path of ADR-0001, so a meeting appears in the workspace feed, the **Aggregated activity feed**, and the **Weekly work digest** from one write.
 - **Commit activity** _(decided, not yet built — [ADR-0022](docs/adr/0022-github-activity-ingestion-webhook-poll-persisted.md))_: commits are **persisted** to `GitHubActivity` via the webhook `push` event + the per-install App-token poll (not the retired PAT cron of ADR-0019), per-commit stored but **rendered grouped**, reaching the **Aggregated activity feed** and the digest. Attributing a commit to *you* still needs the **GitHub identity claim** (`User.githubLogin`), which remains unbuilt — so "mine" filtering is the gating dependency for commits in the **Weekly work digest**.
 
+### Daily planning
+
+**Today's actions**:
+The set of a user's **Actions** that the `/today` page renders — the canonical "what's on my plate today". **ACTIVE** actions, owned by the user (created-by-me-with-no-assignees **or** assigned-to-me — same ownership as `action.getAll`), drawn across **all workspaces** (the `/today` route is deliberately *not* workspace-scoped). Partitioned by `useActionPartition` into **overdue** (`scheduledStart` before today), **today** (`scheduledStart` today, **or** no schedule and `dueDate` today), and **inbox** (no schedule, no due date, no project). The key semantic: an action is "on my plate today" if it is **scheduled-or-due** today — *scheduled today counts even with no due date* (this is why a 2:24 PM-scheduled "Pay Malte" belongs here). When **Zoe** is asked to act on "today"/"these"/"those" actions, she must resolve against *this* set via a tool, never a name search — the partition logic is being extracted from the client hook to a pure server-shared function so the page, the tRPC endpoint, and Zoe's tool agree by construction (one-source-of-truth, as with [ADR-0007](docs/adr/0007-deterministic-action-extraction.md) and the **Weekly plan digest**). See [ADR-0034](docs/adr/0034-todays-actions-shared-partition.md).
+_Avoid_: Today's plan (reserved — that's the narrower voice **Daily brief**), today's tasks, my day.
+
+**Daily brief**:
+The short, **speakable** morning summary built by `generateBriefingData` and surfaced by voice's `get_todays_plan` **coarse tool** and the web morning briefing. **Narrower than Today's actions on purpose**: it counts only **due-today** (`dueDate` in `[startOfDay, endOfDay]`) and **overdue-by-`dueDate`** actions plus low-progress projects — it does **not** include scheduled-today or inbox actions. So the **Daily brief** and **Today's actions** can legitimately disagree on what "today" contains (the brief omits a scheduled-but-not-due "Pay Malte"). This divergence is **known and accepted for now**; converging voice onto the **Today's actions** definition is deferred, not done. See [ADR-0034](docs/adr/0034-todays-actions-shared-partition.md).
+_Avoid_: Treating the brief as the source of truth for `/today`; "today's plan" for the `/today` list.
+
 ### Weekly planning
 
 **Weekly plan**:

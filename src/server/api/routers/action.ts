@@ -24,6 +24,7 @@ import {
   PROJECT_ACTIVITY_TYPES,
 } from "~/server/services/projectActivity";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { partitionActions } from "~/lib/actions/partition";
 
 
 export const actionRouter = createTRPCRouter({
@@ -976,6 +977,92 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+    }),
+
+  // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
+  // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the
+  // same `partitionActions()` source of truth as the client hook, so "what
+  // counts as today" agrees by construction. Distinct from the due-only
+  // Daily brief (`generateBriefingData`).
+  getTodaysActions: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Same ownership as action.getAll: created-by-me-with-no-assignees OR
+      // assigned-to-me. Cross-workspace by default; optional workspaceId filter
+      // matches either the action's own workspace or its project's workspace
+      // (so project-less actions are still scoped correctly).
+      const actions = await ctx.db.action.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { createdById: userId, assignees: { none: {} } },
+                { assignees: { some: { userId } } },
+              ],
+            },
+            ...(input?.workspaceId
+              ? [
+                  {
+                    OR: [
+                      { workspaceId: input.workspaceId },
+                      { project: { workspaceId: input.workspaceId } },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          scheduledStart: true,
+          dueDate: true,
+          projectId: true,
+          completedAt: true,
+          project: {
+            select: {
+              name: true,
+              workspace: { select: { name: true } },
+            },
+          },
+          workspace: { select: { name: true } },
+        },
+      });
+
+      const partition = partitionActions(actions, { today: new Date() });
+
+      const PER_GROUP_CAP = 50;
+      const toRow = (a: (typeof actions)[number]) => ({
+        id: a.id,
+        name: a.name,
+        status: a.status,
+        scheduledStart: a.scheduledStart,
+        dueDate: a.dueDate,
+        projectName: a.project?.name ?? null,
+        workspaceName: a.workspace?.name ?? a.project?.workspace?.name ?? null,
+      });
+
+      const toGroup = (group: (typeof actions)) => ({
+        count: group.length,
+        actions: group.slice(0, PER_GROUP_CAP).map(toRow),
+      });
+
+      return {
+        overdue: toGroup(partition.overdue),
+        today: toGroup(partition.todays),
+        inbox: toGroup(partition.inbox),
+      };
     }),
 
   getByDateRange: protectedProcedure
