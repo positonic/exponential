@@ -69,13 +69,6 @@ export function PublicForm({
   const setValue = (key: string, value: unknown) =>
     setValues((prev) => ({ ...prev, [key]: value }));
 
-  const emailForAccount = (): string => {
-    const emailField = fields.find((f) => f.type === 'email');
-    if (!emailField) return '';
-    const v = values[emailField.key];
-    return typeof v === 'string' ? v.trim() : '';
-  };
-
   const handleCreateAccount = async () => {
     if (!accountEmail) return;
     setAccountSubmitting(true);
@@ -146,7 +139,14 @@ export function PublicForm({
       if (res.ok && body.ok) {
         clearDraft(slug);
         setRestored(false);
-        setAccountEmail(emailForAccount());
+        // Capture the submitted email inline (from the values being submitted)
+        // for the optional account CTA on the success screen.
+        const emailField = fields.find((f) => f.type === 'email');
+        const submittedEmail =
+          emailField && typeof values[emailField.key] === 'string'
+            ? (values[emailField.key] as string).trim()
+            : '';
+        setAccountEmail(submittedEmail);
         setDone(
           body.confirmationMessage ??
             confirmationMessage ??
