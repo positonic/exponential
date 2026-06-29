@@ -3896,11 +3896,13 @@ export const mastraRouter = createTRPCRouter({
       status: z.enum(['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED']).optional().default('ACTIVE'),
       priority: z.enum(['HIGH', 'MEDIUM', 'LOW', 'NONE']).optional().default('MEDIUM'),
       workspaceId: z.string().optional(),
+      startDate: z.string().optional(), // ISO string
+      endDate: z.string().optional(), // ISO string
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🏗️ [tRPC createProject] RECEIVED: name="${input.name}", status=${input.status}, priority=${input.priority}, userId=${userId}`);
+      console.log(`🏗️ [tRPC createProject] RECEIVED: name="${input.name}", status=${input.status}, priority=${input.priority}, startDate=${input.startDate ?? "none"}, endDate=${input.endDate ?? "none"}, userId=${userId}`);
 
       // Generate a unique slug
       const baseSlug = slugify(input.name);
@@ -3921,6 +3923,8 @@ export const mastraRouter = createTRPCRouter({
           slug,
           createdById: userId,
           workspaceId: input.workspaceId ?? null,
+          startDate: input.startDate ? new Date(input.startDate) : null,
+          endDate: input.endDate ? new Date(input.endDate) : null,
         },
       });
 
@@ -3934,6 +3938,75 @@ export const mastraRouter = createTRPCRouter({
           status: project.status,
           priority: project.priority,
           slug: project.slug,
+        },
+      };
+    }),
+
+  // Update an existing project's core fields on behalf of the agent. Only the
+  // provided fields change. Access is gated by the same project-access path the
+  // human `project.updateDates` / `mastra.updateAction` use (ADR-0016 — reuse
+  // the human authorization path, the agent JWT never enters the LLM context).
+  // Dates arrive as ISO strings (the `dueDate` convention) and are parsed here.
+  updateProject: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      name: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      status: z.enum(['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED']).optional(),
+      priority: z.enum(['HIGH', 'MEDIUM', 'LOW', 'NONE']).optional(),
+      startDate: z.string().nullable().optional(), // ISO string, null to clear
+      endDate: z.string().nullable().optional(), // ISO string, null to clear
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`✏️ [tRPC updateProject] RECEIVED: projectId=${input.projectId}, userId=${userId}, changes=${JSON.stringify(input)}`);
+
+      const existing = await ctx.db.project.findUnique({
+        where: { id: input.projectId },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      }
+
+      const access = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!hasProjectAccess(access)) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this project',
+        });
+      }
+
+      const updateData: Record<string, unknown> = {};
+      if (input.name !== undefined) updateData.name = input.name;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.status !== undefined) updateData.status = input.status;
+      if (input.priority !== undefined) updateData.priority = input.priority;
+      if (input.startDate !== undefined) {
+        updateData.startDate = input.startDate ? new Date(input.startDate) : null;
+      }
+      if (input.endDate !== undefined) {
+        updateData.endDate = input.endDate ? new Date(input.endDate) : null;
+      }
+
+      const project = await ctx.db.project.update({
+        where: { id: input.projectId },
+        data: updateData,
+      });
+
+      console.log(`✅ [tRPC updateProject] UPDATED: id=${project.id}, name="${project.name}"`);
+
+      return {
+        project: {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          status: project.status,
+          priority: project.priority,
+          slug: project.slug,
+          startDate: project.startDate ? project.startDate.toISOString() : null,
+          endDate: project.endDate ? project.endDate.toISOString() : null,
         },
       };
     }),
