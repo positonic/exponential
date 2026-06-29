@@ -3953,6 +3953,8 @@ export const mastraRouter = createTRPCRouter({
           status: project.status,
           priority: project.priority,
           slug: project.slug,
+          startDate: project.startDate ? project.startDate.toISOString() : null,
+          endDate: project.endDate ? project.endDate.toISOString() : null,
         },
       };
     }),
