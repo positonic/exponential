@@ -34,6 +34,21 @@ import { NotionAgentService } from "~/server/services/notionAgentService";
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Parse an ISO date string supplied by an agent tool into a Date. Empty/nullish
+// values clear the field (return null); a malformed string throws BAD_REQUEST
+// rather than silently persisting an `Invalid Date` to the DB.
+function parseAgentDate(value: string | null | undefined, field: string): Date | null {
+  if (value == null || value === "") return null;
+  const parsed = new Date(value);
+  if (isNaN(parsed.getTime())) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Invalid ${field}: expected an ISO date string (e.g. "2026-09-19T12:00:00Z")`,
+    });
+  }
+  return parsed;
+}
+
 // Get Mastra API URL from environment variable
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
@@ -3923,8 +3938,8 @@ export const mastraRouter = createTRPCRouter({
           slug,
           createdById: userId,
           workspaceId: input.workspaceId ?? null,
-          startDate: input.startDate ? new Date(input.startDate) : null,
-          endDate: input.endDate ? new Date(input.endDate) : null,
+          startDate: parseAgentDate(input.startDate, "startDate"),
+          endDate: parseAgentDate(input.endDate, "endDate"),
         },
       });
 
@@ -3984,10 +3999,10 @@ export const mastraRouter = createTRPCRouter({
       if (input.status !== undefined) updateData.status = input.status;
       if (input.priority !== undefined) updateData.priority = input.priority;
       if (input.startDate !== undefined) {
-        updateData.startDate = input.startDate ? new Date(input.startDate) : null;
+        updateData.startDate = parseAgentDate(input.startDate, "startDate");
       }
       if (input.endDate !== undefined) {
-        updateData.endDate = input.endDate ? new Date(input.endDate) : null;
+        updateData.endDate = parseAgentDate(input.endDate, "endDate");
       }
 
       const project = await ctx.db.project.update({
