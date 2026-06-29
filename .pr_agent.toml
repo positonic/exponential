@@ -1,0 +1,32 @@
+# PR-Agent (Qodo) configuration — version-controlled review behaviour.
+# Full reference: https://qodo-merge-docs.qodo.ai/usage-guide/configuration_options/
+# Env-level settings (model + ANTHROPIC.KEY) live in .github/workflows/pr_agent.yml.
+
+[config]
+# Keep both the primary and fallback on Anthropic so PR-Agent never tries to
+# initialise an OpenAI client (which would require OPENAI_API_KEY).
+model = "anthropic/claude-sonnet-4-6"
+fallback_models = ["anthropic/claude-sonnet-4-6"]
+# Markdown rendering of the model's suggestions.
+publish_output = true
+
+[pr_reviewer]
+# Concise, focused review. Flip these on if you want more.
+require_score_review = false
+require_tests_review = true
+require_security_review = true
+num_max_findings = 4
+# Don't re-post the whole review on every push; update the existing comment.
+persistent_comment = true
+final_update_message = false
+
+[pr_description]
+# Auto-generate a structured description + walkthrough.
+publish_description_as_comment = false
+add_original_user_description = true
+generate_ai_title = false
+
+[pr_code_suggestions]
+# Improvement suggestions ("/improve"). Keep the volume sane.
+num_code_suggestions = 4
+commitable_code_suggestions = false
