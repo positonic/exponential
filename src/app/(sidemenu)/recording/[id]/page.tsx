@@ -76,6 +76,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   // one) with explicit feedback, vs the silent auto-generate-on-view above.
   async function handleRegenerateSummary() {
     if (!session) return;
+    // Don't stack a manual regenerate on top of an in-flight generation (the
+    // auto-generate-on-view effect shares this mutation).
+    if (generateSummaryMutation.isPending) return;
     try {
       await generateSummaryMutation.mutateAsync({ transcriptionId: session.id });
       notifications.show({

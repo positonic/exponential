@@ -330,10 +330,12 @@ export class TranscriptSummarizerService {
     // Prefer Claude (richer themed write-ups); fall back to OpenAI when only
     // OPENAI_API_KEY is configured. `invokeAnthropic` / `invokeChat` each throw
     // SummarizationNotConfiguredError when their key is missing, so "neither
-    // key" surfaces as not-configured to the caller.
+    // key" surfaces as not-configured to the caller. The OpenAI fallback keeps
+    // its original deterministic temperature (0) — the richer output comes from
+    // the prompt, not temperature, and JSON stays reliable.
     const raw = process.env.ANTHROPIC_API_KEY
       ? await this.invokeAnthropic(system, userPrompt, options)
-      : await this.invokeChat(system, userPrompt, { temperature: 0.4, ...options });
+      : await this.invokeChat(system, userPrompt, { temperature: 0, ...options });
 
     let parsed: z.infer<typeof firefliesSummaryJsonSchema>;
     try {
