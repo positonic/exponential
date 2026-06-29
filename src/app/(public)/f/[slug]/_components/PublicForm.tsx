@@ -16,8 +16,10 @@ import {
   Alert,
   Group,
   Anchor,
+  Divider,
 } from '@mantine/core';
-import { IconCircleCheck } from '@tabler/icons-react';
+import { IconCircleCheck, IconUserPlus } from '@tabler/icons-react';
+import { signIn } from 'next-auth/react';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import { loadDraft, saveDraft, clearDraft } from './formDraft';
 
@@ -55,9 +57,39 @@ export function PublicForm({
   // localStorage on load, then persist them debounced as the applicant types.
   const [restored, setRestored] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // Applicant account CTA (CONTEXT.md ### Forms): an optional, success-page-only
+  // offer to create an Exponential account via a magic link to the email the
+  // applicant already submitted. Captured at submit so it survives the values
+  // state. No link to the CrmContact the submission created (v1).
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountRequested, setAccountRequested] = useState(false);
+  const [accountSubmitting, setAccountSubmitting] = useState(false);
+  const [accountError, setAccountError] = useState<string | null>(null);
 
   const setValue = (key: string, value: unknown) =>
     setValues((prev) => ({ ...prev, [key]: value }));
+
+  const handleCreateAccount = async () => {
+    if (!accountEmail) return;
+    setAccountSubmitting(true);
+    setAccountError(null);
+    try {
+      const res = await signIn('postmark', {
+        email: accountEmail,
+        redirect: false,
+        callbackUrl: '/',
+      });
+      if (res?.error) {
+        setAccountError('Could not start account setup. Please try again.');
+      } else {
+        setAccountRequested(true);
+      }
+    } catch {
+      setAccountError('Could not start account setup. Please try again.');
+    } finally {
+      setAccountSubmitting(false);
+    }
+  };
 
   // Restore once on mount (client-only — runs after hydration to avoid a
   // server/client mismatch). `hydrated` gates the save effect so its first
@@ -107,6 +139,14 @@ export function PublicForm({
       if (res.ok && body.ok) {
         clearDraft(slug);
         setRestored(false);
+        // Capture the submitted email inline (from the values being submitted)
+        // for the optional account CTA on the success screen.
+        const emailField = fields.find((f) => f.type === 'email');
+        const submittedEmail =
+          emailField && typeof values[emailField.key] === 'string'
+            ? (values[emailField.key] as string).trim()
+            : '';
+        setAccountEmail(submittedEmail);
         setDone(
           body.confirmationMessage ??
             confirmationMessage ??
@@ -136,6 +176,38 @@ export function PublicForm({
             <Text c="dimmed" ta="center">
               {done}
             </Text>
+
+            {accountEmail && (
+              <>
+                <Divider w="100%" my="xs" />
+                {accountRequested ? (
+                  <Text size="sm" c="dimmed" ta="center">
+                    Check your inbox at <strong>{accountEmail}</strong> to finish
+                    setting up your account.
+                  </Text>
+                ) : (
+                  <Stack align="center" gap="xs">
+                    <Text size="sm" c="dimmed" ta="center">
+                      Want to apply faster next time and keep track of your
+                      applications? Create a free Exponential account.
+                    </Text>
+                    <Button
+                      variant="light"
+                      leftSection={<IconUserPlus size={16} />}
+                      loading={accountSubmitting}
+                      onClick={() => void handleCreateAccount()}
+                    >
+                      Create my account
+                    </Button>
+                    {accountError && (
+                      <Text c="red" size="sm">
+                        {accountError}
+                      </Text>
+                    )}
+                  </Stack>
+                )}
+              </>
+            )}
           </Stack>
         </Card>
       </Container>
