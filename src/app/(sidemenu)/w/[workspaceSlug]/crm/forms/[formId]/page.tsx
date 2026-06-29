@@ -28,6 +28,7 @@ import {
   IconTrash,
   IconArrowUp,
   IconArrowDown,
+  IconExternalLink,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
@@ -335,9 +336,23 @@ export default function FormEditorPage() {
             <Badge color={isActive ? 'green' : 'gray'} variant="light">
               {isActive ? 'active' : 'inactive'}
             </Badge>
-            <Text c="dimmed" size="sm">
-              /f/{slug}
-            </Text>
+            {isActive ? (
+              <Anchor
+                href={`/f/${slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                size="sm"
+              >
+                <Group gap={4} align="center">
+                  /f/{slug}
+                  <IconExternalLink size={14} />
+                </Group>
+              </Anchor>
+            ) : (
+              <Text c="dimmed" size="sm">
+                /f/{slug} (activate to view live)
+              </Text>
+            )}
           </Group>
         </Box>
         <Group gap="sm">
