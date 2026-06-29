@@ -72,6 +72,27 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   });
   const { mutate: generateSummary } = generateSummaryMutation;
 
+  // Manual refresh: re-run the AI summary (the mutation overwrites the stored
+  // one) with explicit feedback, vs the silent auto-generate-on-view above.
+  async function handleRegenerateSummary() {
+    if (!session) return;
+    try {
+      await generateSummaryMutation.mutateAsync({ transcriptionId: session.id });
+      notifications.show({
+        title: "Summary regenerated",
+        message: "The meeting summary has been refreshed.",
+        color: "green",
+      });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message:
+          error instanceof Error ? error.message : "Failed to regenerate summary",
+        color: "red",
+      });
+    }
+  }
+
   useEffect(() => {
     if (!session) return;
     const hasSummary = Boolean(session.summary?.trim());
@@ -236,6 +257,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
       onCreateActions={handleCreateActions}
+      onRegenerateSummary={handleRegenerateSummary}
       onArchive={handleArchive}
     />
   );

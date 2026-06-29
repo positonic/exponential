@@ -35,6 +35,8 @@ interface MeetingDetailProps {
   /** Place the meeting onto a project (null clears placement). */
   onProjectChange: (projectId: string | null) => void;
   onCreateActions: () => void;
+  /** Re-run the AI summary, overwriting the stored one (manual refresh). */
+  onRegenerateSummary: () => void;
   onArchive: () => void;
 }
 
@@ -67,6 +69,7 @@ export function MeetingDetail({
   onMeetingDateChange,
   onProjectChange,
   onCreateActions,
+  onRegenerateSummary,
   onArchive,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>("summary");
@@ -228,6 +231,7 @@ export function MeetingDetail({
                 isGeneratingSummary={isGeneratingSummary}
                 onSaveSummary={onSaveSummary}
                 onCreateActions={onCreateActions}
+                onRegenerate={onRegenerateSummary}
               />
             )}
             {tab === "transcript" && (

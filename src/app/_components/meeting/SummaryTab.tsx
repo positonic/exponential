@@ -10,6 +10,7 @@ import {
   IconCheck,
   IconAlertCircle,
   IconPlus,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
@@ -31,6 +32,8 @@ interface SummaryTabProps {
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onCreateActions: () => void;
+  /** Re-run the AI summary, overwriting the stored one (manual refresh). */
+  onRegenerate: () => void;
 }
 
 export function SummaryTab({
@@ -44,6 +47,7 @@ export function SummaryTab({
   isGeneratingSummary,
   onSaveSummary,
   onCreateActions,
+  onRegenerate,
 }: SummaryTabProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -130,6 +134,20 @@ export function SummaryTab({
               <button className="mp-chipbtn" onClick={startEdit}>
                 <IconPencil size={11} /> Edit
               </button>
+              {hasTranscript && (
+                <button
+                  className="mp-chipbtn"
+                  onClick={onRegenerate}
+                  disabled={isGeneratingSummary}
+                >
+                  {isGeneratingSummary ? (
+                    <Loader size={11} />
+                  ) : (
+                    <IconRefresh size={11} />
+                  )}{" "}
+                  {hasSummary ? "Regenerate" : "Generate"}
+                </button>
+              )}
             </div>
           </>
         )}
