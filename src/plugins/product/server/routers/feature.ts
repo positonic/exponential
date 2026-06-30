@@ -319,6 +319,9 @@ export const featureRouter = createTRPCRouter({
               color: true,
             },
           },
+          // Lean Objective for the Product Roadmap's swimlane grouping
+          // (ADR-0035) — id + title only, no Key results / nested graph.
+          goal: { select: { id: true, title: true } },
         },
       });
     }),
