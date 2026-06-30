@@ -280,6 +280,49 @@ export const featureRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Workspace-wide Feature fetch for the cross-product **Product Roadmap** board
+   * (ADR-0035). Unlike {@link list} (one Product), this returns every Feature
+   * across *all* of the workspace's Products, with only the lean card fields the
+   * board needs plus the parent `product` (icon/color/name for the card badge).
+   * No descriptions, no ticket graphs — keep the payload small.
+   *
+   * Access is gated at the workspace level (`assertWorkspaceMember`); every
+   * Feature returned belongs to a Product in that workspace, so the per-Product
+   * access check is unnecessary.
+   */
+  listForWorkspace: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+
+      return ctx.db.feature.findMany({
+        where: { product: { workspaceId: input.workspaceId } },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          goalId: true,
+          updatedAt: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              icon: true,
+              color: true,
+            },
+          },
+        },
+      });
+    }),
+
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
