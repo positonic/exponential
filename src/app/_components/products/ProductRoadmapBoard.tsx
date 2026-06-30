@@ -7,9 +7,12 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
@@ -53,8 +56,39 @@ const UNALIGNED_KEY = '__unaligned__';
 const FLAT_LANE_KEY = '__flat__';
 /** Separator joining a lane key + status into a unique droppable cell id. */
 const CELL_SEP = '::';
+/** Prefix marking a droppable as a swimlane *header* (the re-align drop zone). */
+const LANE_HEADER_PREFIX = 'lane-header';
 
 const STATUS_VALUES = new Set<string>(FEATURE_STATUSES.map((s) => s.value));
+
+/** Droppable id for a swimlane's header (the Objective re-align drop zone). */
+function laneHeaderId(laneKey: string) {
+  return `${LANE_HEADER_PREFIX}${CELL_SEP}${laneKey}`;
+}
+
+/** If `overId` is a lane header, return its lane key; otherwise null. */
+function parseLaneHeader(overId: string): string | null {
+  const head = `${LANE_HEADER_PREFIX}${CELL_SEP}`;
+  return overId.startsWith(head) ? overId.slice(head.length) : null;
+}
+
+/**
+ * The target `goalId` for a re-align drop onto a lane header. A lane's key *is*
+ * its Objective's id (or the Unaligned sentinel), so the goalId is derived
+ * directly — dropping onto Unaligned clears alignment (`null`).
+ */
+function laneKeyToGoalId(laneKey: string): number | null {
+  return laneKey === UNALIGNED_KEY ? null : Number(laneKey);
+}
+
+/**
+ * Prefer the droppable under the pointer (so the narrow lane *header* is a
+ * reliable target) and fall back to rectangle overlap for column cells.
+ */
+const collisionDetection: CollisionDetection = (args) => {
+  const pointer = pointerWithin(args);
+  return pointer.length > 0 ? pointer : rectIntersection(args);
+};
 
 /**
  * A droppable cell id encodes both its lane and its status (`lane::STATUS`) so
@@ -322,6 +356,7 @@ function FlatBoard({
 interface Lane {
   key: string;
   title: string;
+  goalId: number | null;
   isUnaligned: boolean;
   features: RoadmapFeature[];
 }
@@ -338,6 +373,7 @@ function buildLanes(features: RoadmapFeature[]): Lane[] {
         aligned.set(key, {
           key,
           title: f.goal.title,
+          goalId: f.goal.id,
           isUnaligned: false,
           features: [f],
         });
@@ -352,11 +388,46 @@ function buildLanes(features: RoadmapFeature[]): Lane[] {
     ordered.push({
       key: UNALIGNED_KEY,
       title: 'Unaligned',
+      goalId: null,
       isUnaligned: true,
       features: unaligned,
     });
   }
   return ordered;
+}
+
+/**
+ * A swimlane's label gutter, doubling as the droppable re-align target. Dropping
+ * a card here re-aligns it to this lane's Objective (or clears alignment for the
+ * Unaligned lane). The header is the *only* re-align drop zone — a status
+ * (column) drag never re-homes the OKR (ADR-0035).
+ */
+function LaneHeader({ lane, canEdit }: { lane: Lane; canEdit: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: laneHeaderId(lane.key),
+    disabled: !canEdit,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`w-48 min-w-48 shrink-0 rounded-md pt-1 transition-all duration-200 ${
+        isOver ? 'ring-2 ring-blue-400 ring-opacity-50 bg-surface-hover' : ''
+      }`}
+    >
+      <Text
+        size="sm"
+        fw={600}
+        className={lane.isUnaligned ? 'text-text-muted italic' : 'text-text-primary'}
+        lineClamp={2}
+      >
+        {lane.title}
+      </Text>
+      <Text size="xs" className="text-text-muted">
+        {lane.features.length}{' '}
+        {lane.features.length === 1 ? 'feature' : 'features'}
+      </Text>
+    </div>
+  );
 }
 
 function SwimlaneBoard({
@@ -391,20 +462,7 @@ function SwimlaneBoard({
             const buckets = bucketByStatus(lane.features);
             return (
               <div key={lane.key} className="flex gap-3">
-                <div className="w-48 min-w-48 shrink-0 pt-1">
-                  <Text
-                    size="sm"
-                    fw={600}
-                    className={lane.isUnaligned ? 'text-text-muted italic' : 'text-text-primary'}
-                    lineClamp={2}
-                  >
-                    {lane.title}
-                  </Text>
-                  <Text size="xs" className="text-text-muted">
-                    {lane.features.length}{' '}
-                    {lane.features.length === 1 ? 'feature' : 'features'}
-                  </Text>
-                </div>
+                <LaneHeader lane={lane} canEdit={canEdit} />
                 {columns.map((col) => {
                   const items = buckets[col.value] ?? [];
                   return (
@@ -447,6 +505,12 @@ export function ProductRoadmapBoard() {
   const [optimisticMoves, setOptimisticMoves] = useState<
     Record<string, FeatureStatus>
   >({});
+  // Optimistic Objective re-aligns: featureId → its new goal (or null when
+  // re-aligned into the Unaligned lane). Carries the full goal so the card
+  // jumps swimlanes immediately (lane grouping reads `goal`, not just goalId).
+  const [optimisticAligns, setOptimisticAligns] = useState<
+    Record<string, RoadmapFeature['goal']>
+  >({});
 
   // A status drag writes `feature.update`, whose access check admits any
   // workspace member. Viewers/guests therefore get a read-only board — the
@@ -468,8 +532,14 @@ export function ProductRoadmapBoard() {
       });
     },
     onError: (_err, variables) => {
-      // Roll back the optimistic move.
+      // Roll back the optimistic move (status and/or re-align — a single drag
+      // triggers one of them, so clearing both for this feature is safe).
       setOptimisticMoves((prev) => {
+        const next = { ...prev };
+        delete next[variables.id];
+        return next;
+      });
+      setOptimisticAligns((prev) => {
         const next = { ...prev };
         delete next[variables.id];
         return next;
@@ -481,18 +551,39 @@ export function ProductRoadmapBoard() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
-  // Apply optimistic status moves over the fetched data.
+  // Apply optimistic status moves + Objective re-aligns over the fetched data.
   const features = useMemo(() => {
     const base = data ?? [];
-    if (Object.keys(optimisticMoves).length === 0) return base;
-    return base.map((f) =>
-      optimisticMoves[f.id] ? { ...f, status: optimisticMoves[f.id]! } : f,
-    );
-  }, [data, optimisticMoves]);
+    if (
+      Object.keys(optimisticMoves).length === 0 &&
+      Object.keys(optimisticAligns).length === 0
+    ) {
+      return base;
+    }
+    return base.map((f) => {
+      let next = f;
+      if (optimisticMoves[f.id]) {
+        next = { ...next, status: optimisticMoves[f.id]! };
+      }
+      if (f.id in optimisticAligns) {
+        const goal = optimisticAligns[f.id] ?? null;
+        next = { ...next, goal, goalId: goal?.id ?? null };
+      }
+      return next;
+    });
+  }, [data, optimisticMoves, optimisticAligns]);
 
   const featuresById = useMemo(() => {
     const m = new Map<string, RoadmapFeature>();
     for (const f of features) m.set(f.id, f);
+    return m;
+  }, [features]);
+
+  // goalId → its lean goal, so a re-align onto a lane header can set the card's
+  // goal (for the optimistic lane jump) without an extra lookup.
+  const goalsById = useMemo(() => {
+    const m = new Map<number, NonNullable<RoadmapFeature['goal']>>();
+    for (const f of features) if (f.goal) m.set(f.goal.id, f.goal);
     return m;
   }, [features]);
 
@@ -532,16 +623,29 @@ export function ProductRoadmapBoard() {
       if (!over) return;
 
       const featureId = String(active.id);
-      const nextStatus = resolveTargetStatus(String(over.id), featuresById);
-      if (!nextStatus) return;
-
       const feature = featuresById.get(featureId);
-      if (!feature || feature.status === nextStatus) return;
+      if (!feature) return;
+      const overId = String(over.id);
 
+      // Re-align: dropped onto a swimlane header → change goalId (vertical).
+      const laneKey = parseLaneHeader(overId);
+      if (laneKey !== null) {
+        const nextGoalId = laneKeyToGoalId(laneKey);
+        if (feature.goalId === nextGoalId) return;
+        const nextGoal =
+          nextGoalId !== null ? (goalsById.get(nextGoalId) ?? null) : null;
+        setOptimisticAligns((prev) => ({ ...prev, [featureId]: nextGoal }));
+        updateFeature.mutate({ id: featureId, goalId: nextGoalId });
+        return;
+      }
+
+      // Status change: dropped onto a status column/cell (horizontal).
+      const nextStatus = resolveTargetStatus(overId, featuresById);
+      if (!nextStatus || feature.status === nextStatus) return;
       setOptimisticMoves((prev) => ({ ...prev, [featureId]: nextStatus }));
       updateFeature.mutate({ id: featureId, status: nextStatus });
     },
-    [canEdit, featuresById, updateFeature],
+    [canEdit, featuresById, goalsById, updateFeature],
   );
 
   const activeFeature = activeId ? featuresById.get(activeId) : null;
@@ -618,6 +722,7 @@ export function ProductRoadmapBoard() {
       {toolbar}
       <DndContext
         sensors={sensors}
+        collisionDetection={collisionDetection}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
