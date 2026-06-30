@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
 export const navItemSchema = z.object({
-  id: z.string(),
+  id: z.string().min(1),
   hidden: z.boolean(),
 });
 
 export const navSectionSchema = z.object({
-  id: z.string(),
-  name: z.string(),
+  id: z.string().min(1),
+  name: z.string().min(1),
   hidden: z.boolean(),
   items: z.array(navItemSchema),
 });
@@ -105,7 +105,47 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
   },
 };
 
+/**
+ * Merges a persisted layout with {@link DEFAULT_NAV_LAYOUT} so that sections and
+ * items added to the defaults in a later release roll out to existing users.
+ * The user's existing order, custom names, and visibility flags are preserved;
+ * missing default items are appended to their matching section and missing
+ * default sections are appended at the end.
+ */
+function mergeWithDefaults(saved: NavSection[]): NavSection[] {
+  const merged = saved.map((section) => {
+    const defaultSection = DEFAULT_NAV_LAYOUT.find((d) => d.id === section.id);
+    if (!defaultSection) return section;
+
+    const existingItemIds = new Set(section.items.map((i) => i.id));
+    const missingItems = defaultSection.items
+      .filter((i) => !existingItemIds.has(i.id))
+      .map((i) => ({ ...i }));
+
+    return missingItems.length > 0
+      ? { ...section, items: [...section.items, ...missingItems] }
+      : section;
+  });
+
+  const existingSectionIds = new Set(saved.map((s) => s.id));
+  const missingSections = DEFAULT_NAV_LAYOUT.filter(
+    (d) => !existingSectionIds.has(d.id),
+  ).map((s) => ({ ...s, items: s.items.map((i) => ({ ...i })) }));
+
+  return [...merged, ...missingSections];
+}
+
+/**
+ * Parses persisted navigation layout data into a validated `NavSection[]`.
+ * Returns {@link DEFAULT_NAV_LAYOUT} when `raw` is null/undefined or fails
+ * schema validation. On a successful parse the stored layout is merged with the
+ * defaults (see {@link mergeWithDefaults}) so newly shipped nav entries appear
+ * for existing users.
+ *
+ * @example
+ * const layout = parseNavLayout(preferences?.navLayout ?? null);
+ */
 export function parseNavLayout(raw: unknown): NavSection[] {
   const result = navLayoutSchema.safeParse(raw);
-  return result.success ? result.data : DEFAULT_NAV_LAYOUT;
+  return result.success ? mergeWithDefaults(result.data) : DEFAULT_NAV_LAYOUT;
 }

@@ -20,7 +20,7 @@ import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
-import { parseNavLayout, NAV_ITEM_CONFIG, DEFAULT_NAV_LAYOUT } from "~/lib/navLayout";
+import { parseNavLayout, NAV_ITEM_CONFIG } from "~/lib/navLayout";
 
 const ITEM_ICONS: Record<string, Icon> = {
   goals: IconTarget,
@@ -34,19 +34,39 @@ const ITEM_ICONS: Record<string, Icon> = {
   knowledge: IconBook,
 };
 
-export function NavLink({ href, icon: Icon, children, count, matchSegments }: {
+interface NavLinkProps {
   href: string;
   icon?: Icon;
   children: React.ReactNode;
   count?: React.ReactNode;
+  /**
+   * Route segments (matched after the `/w/:workspaceSlug` prefix) that also
+   * mark this link active, e.g. `['goals', 'okrs']`. When omitted, activeness
+   * falls back to an exact/prefix match on `href`.
+   */
   matchSegments?: string[];
-}) {
+}
+
+/**
+ * A single sidebar navigation link. Highlights itself as active when the
+ * current pathname matches `href` (exact or prefix) or, when provided, any of
+ * `matchSegments` as a whole route segment after the workspace prefix.
+ */
+export function NavLink({ href, icon: Icon, children, count, matchSegments }: NavLinkProps): React.ReactElement {
   const pathname = usePathname();
   const hrefPath = href.split("?")[0] ?? href;
 
+  // Compare whole route segments after the `/w/:workspaceSlug` prefix so a
+  // workspace slug that overlaps a nav segment (e.g. `/w/goals/projects`)
+  // doesn't wrongly activate an unrelated item.
+  const pathnameSegments = pathname.split("/").filter(Boolean);
+  const routeSegments =
+    pathnameSegments[0] === "w" ? pathnameSegments.slice(2) : pathnameSegments;
+  const isHrefActive = pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
+
   const isActive = matchSegments
-    ? matchSegments.some((s) => pathname.includes(`/${s}`))
-    : pathname === hrefPath || pathname.startsWith(hrefPath + '/');
+    ? isHrefActive || matchSegments.some((segment) => routeSegments.includes(segment))
+    : isHrefActive;
 
   return (
     <Link
@@ -73,18 +93,24 @@ function SectionDivider() {
   return <div className="sb-divider" />;
 }
 
-export function NavLinks() {
+/**
+ * Renders the workspace sidebar navigation from the user's persisted
+ * `navLayout` preference: global items (Inbox/Today) followed by the
+ * configurable sections/items, with plugin gating and a reduced guest view.
+ */
+export function NavLinks(): React.ReactElement {
   const { workspaceSlug, workspaceId, userRole } = useWorkspace();
+  const isGuest = userRole === 'guest';
+
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery(
     undefined,
     { staleTime: 30 * 1000 },
   );
   const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
     { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId, staleTime: 5 * 60 * 1000 },
+    { enabled: !!workspaceId && !isGuest, staleTime: 5 * 60 * 1000 },
   );
 
-  const isGuest = userRole === 'guest';
   const layout = parseNavLayout(preferences?.navLayout ?? null);
 
   return (
@@ -149,6 +175,3 @@ export function NavLinks() {
     </>
   );
 }
-
-// Export defaults for use in settings page
-export { DEFAULT_NAV_LAYOUT };

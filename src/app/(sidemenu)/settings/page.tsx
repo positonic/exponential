@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
@@ -16,6 +17,7 @@ import {
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -55,30 +57,39 @@ import {
 } from "~/lib/navLayout";
 
 // Drag ID helpers
-const secId = (id: string) => `sec:${id}`;
-const itmId = (sectionId: string, itemId: string) => `itm:${sectionId}:${itemId}`;
-const parseDragId = (id: string) => {
-  if (id.startsWith('sec:')) return { type: 'section' as const, sectionId: id.slice(4), itemId: null };
+type DragInfo =
+  | { type: 'section'; sectionId: string; itemId: null }
+  | { type: 'item'; sectionId: string; itemId: string };
+
+function secId(id: string): string {
+  return `sec:${id}`;
+}
+
+function itmId(sectionId: string, itemId: string): string {
+  return `itm:${sectionId}:${itemId}`;
+}
+
+function parseDragId(id: string): DragInfo | null {
+  if (id.startsWith('sec:')) return { type: 'section', sectionId: id.slice(4), itemId: null };
   if (id.startsWith('itm:')) {
     const parts = id.slice(4).split(':');
-    return { type: 'item' as const, sectionId: parts[0] ?? '', itemId: parts[1] ?? '' };
+    return { type: 'item', sectionId: parts[0] ?? '', itemId: parts[1] ?? '' };
   }
   return null;
-};
+}
 
 // --- SortableItem ---
-function SortableNavItemRow({
-  item,
-  sectionId,
-  onToggle,
-}: {
+interface SortableNavItemRowProps {
   item: NavItem;
   sectionId: string;
   onToggle: () => void;
-}) {
+}
+
+function SortableNavItemRow({ item, sectionId, onToggle }: SortableNavItemRowProps): React.ReactElement {
   const dndId = itmId(sectionId, item.id);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: dndId });
   const config = NAV_ITEM_CONFIG[item.id];
+  const label = config?.label ?? item.id;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -88,16 +99,27 @@ function SortableNavItemRow({
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-surface-primary border border-border-primary">
-      <button {...attributes} {...listeners} className="cursor-grab text-text-muted hover:text-text-primary touch-none">
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label={`Drag to reorder ${label}`}
+        className="cursor-grab text-text-muted hover:text-text-primary touch-none"
+      >
         <IconGripVertical size={14} />
       </button>
       <span className={`flex-1 text-sm ${item.hidden ? 'text-text-muted line-through' : 'text-text-primary'}`}>
-        {config?.label ?? item.id}
+        {label}
       </span>
       {config?.requiresPlugin && (
         <span className="text-[10px] text-text-muted px-1.5 py-0.5 rounded bg-surface-tertiary">plugin</span>
       )}
-      <button onClick={onToggle} className="text-text-muted hover:text-text-primary">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={`${item.hidden ? 'Show' : 'Hide'} ${label}`}
+        className="text-text-muted hover:text-text-primary"
+      >
         {item.hidden ? <IconEyeOff size={14} /> : <IconEye size={14} />}
       </button>
     </div>
@@ -105,7 +127,11 @@ function SortableNavItemRow({
 }
 
 // Drag overlay version (no sortable hooks)
-function NavItemRowOverlay({ label }: { label: string }) {
+interface NavItemRowOverlayProps {
+  label: string;
+}
+
+function NavItemRowOverlay({ label }: NavItemRowOverlayProps): React.ReactElement {
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-surface-secondary border border-border-focus shadow-lg opacity-95">
       <IconGripVertical size={14} className="text-text-muted" />
@@ -115,17 +141,14 @@ function NavItemRowOverlay({ label }: { label: string }) {
 }
 
 // --- SortableSection ---
-function SortableSectionRow({
-  section,
-  onToggle,
-  onRename,
-  onToggleItem,
-}: {
+interface SortableSectionRowProps {
   section: NavSection;
   onToggle: () => void;
   onRename: (name: string) => void;
   onToggleItem: (itemId: string) => void;
-}) {
+}
+
+function SortableSectionRow({ section, onToggle, onRename, onToggleItem }: SortableSectionRowProps): React.ReactElement {
   const dndId = secId(section.id);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: dndId });
   const [editing, setEditing] = useState(false);
@@ -150,7 +173,13 @@ function SortableSectionRow({
         <Stack gap="xs">
           {/* Section header */}
           <Group gap="xs" wrap="nowrap">
-            <button {...attributes} {...listeners} className="cursor-grab text-text-muted hover:text-text-primary touch-none shrink-0">
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              aria-label={`Drag to reorder ${section.name} section`}
+              className="cursor-grab text-text-muted hover:text-text-primary touch-none shrink-0"
+            >
               <IconGripVertical size={16} />
             </button>
 
@@ -208,7 +237,11 @@ function SortableSectionRow({
   );
 }
 
-function SectionRowOverlay({ name }: { name: string }) {
+interface SectionRowOverlayProps {
+  name: string;
+}
+
+function SectionRowOverlay({ name }: SectionRowOverlayProps): React.ReactElement {
   return (
     <Paper withBorder p="sm" className="bg-surface-secondary border-border-focus shadow-lg opacity-95">
       <Group gap="xs">
@@ -220,7 +253,12 @@ function SectionRowOverlay({ name }: { name: string }) {
 }
 
 // --- Main page ---
-export default function NavigationSettingsPage() {
+/**
+ * Settings page for editing and persisting the user's navigation layout
+ * preferences — section/item ordering, renaming, and visibility — via a
+ * drag-and-drop editor backed by the `navigationPreference` router.
+ */
+export default function NavigationSettingsPage(): React.ReactElement {
   const utils = api.useUtils();
 
   const { data: preferences, isLoading } = api.navigationPreference.getPreferences.useQuery();
@@ -266,8 +304,15 @@ export default function NavigationSettingsPage() {
     onSuccess: () => void utils.navigationPreference.getPreferences.invalidate(),
   });
 
+  // Serialize layout writes: every edit (toggle/rename/reorder) sends the full
+  // NavSection[] snapshot, so concurrent in-flight saves could land out of
+  // order and let a stale snapshot overwrite a newer one. Chaining each save
+  // onto the previous one guarantees the server receives them in edit order.
+  const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   const saveLayout = useCallback((newLayout: NavSection[]) => {
-    updateNavLayout.mutate(newLayout);
+    saveChain.current = saveChain.current
+      .then(() => updateNavLayout.mutateAsync(newLayout))
+      .catch(() => undefined);
   }, [updateNavLayout]);
 
   // --- Layout mutation helpers ---
@@ -299,7 +344,8 @@ export default function NavigationSettingsPage() {
 
   // --- DnD ---
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -314,16 +360,20 @@ export default function NavigationSettingsPage() {
     const overInfo = parseDragId(over.id as string);
     if (!activeInfo || !overInfo || activeInfo.type !== 'item') return;
 
+    const activeItemId = activeInfo.itemId;
     const targetSectionId = overInfo.sectionId;
-    if (activeInfo.sectionId === targetSectionId) return;
 
     // Move item to new section
     setLayout((prev) => {
-      const source = prev.find((s) => s.id === activeInfo.sectionId);
+      // Resolve the item's CURRENT section from the latest state — the active
+      // drag id still encodes the item's original section, so re-deriving it
+      // here lets the item move between (and back to) sections within one drag.
+      const source = prev.find((s) => s.items.some((i) => i.id === activeItemId));
       const target = prev.find((s) => s.id === targetSectionId);
       if (!source || !target) return prev;
+      if (source.id === targetSectionId) return prev;
 
-      const item = source.items.find((i) => i.id === activeInfo.itemId);
+      const item = source.items.find((i) => i.id === activeItemId);
       if (!item) return prev;
 
       const overItemIdx = overInfo.type === 'item'
@@ -333,7 +383,7 @@ export default function NavigationSettingsPage() {
       const insertAt = overItemIdx === -1 ? target.items.length : overItemIdx;
 
       return prev.map((s) => {
-        if (s.id === activeInfo.sectionId) return { ...s, items: s.items.filter((i) => i.id !== activeInfo.itemId) };
+        if (s.id === source.id) return { ...s, items: s.items.filter((i) => i.id !== activeItemId) };
         if (s.id === targetSectionId) {
           const newItems = [...s.items];
           newItems.splice(insertAt, 0, item);
@@ -361,17 +411,24 @@ export default function NavigationSettingsPage() {
       if (oldIdx !== -1 && newIdx !== -1) {
         next = arrayMove(layout, oldIdx, newIdx);
       }
-    } else if (activeInfo.type === 'item' && activeInfo.sectionId === overInfo.sectionId) {
-      // Same-section reorder
-      next = layout.map((s) => {
-        if (s.id !== activeInfo.sectionId) return s;
-        const oldIdx = s.items.findIndex((i) => i.id === activeInfo.itemId);
-        const newIdx = s.items.findIndex((i) => i.id === overInfo.itemId);
-        if (oldIdx === -1 || newIdx === -1) return s;
-        return { ...s, items: arrayMove(s.items, oldIdx, newIdx) };
-      });
+    } else if (activeInfo.type === 'item') {
+      // Resolve the item's CURRENT section from the latest layout — onDragOver
+      // may have already moved it across sections during this drag, so
+      // activeInfo.sectionId (the original section) can be stale. Finalize the
+      // reorder within whichever section now holds the item, at the drop point.
+      const activeItemId = activeInfo.itemId;
+      const currentSection = layout.find((s) => s.items.some((i) => i.id === activeItemId));
+      if (currentSection && overInfo.sectionId === currentSection.id) {
+        next = layout.map((s) => {
+          if (s.id !== currentSection.id) return s;
+          const oldIdx = s.items.findIndex((i) => i.id === activeItemId);
+          const newIdx = s.items.findIndex((i) => i.id === overInfo.itemId);
+          if (oldIdx === -1 || newIdx === -1) return s;
+          return { ...s, items: arrayMove(s.items, oldIdx, newIdx) };
+        });
+      }
     }
-    // Cross-section moves already handled by onDragOver
+    // Cross-section moves are already finalized by onDragOver.
 
     setLayout(next);
     saveLayout(next);
