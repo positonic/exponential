@@ -167,7 +167,7 @@ _Avoid_: Review session (only in code), wizard state (it is no longer client-onl
 ### Product
 
 **Product**:
-A unit of work delivery owned by a workspace — has its own backlog, features, cycles, retros. Stored as `Product`. Routes live under `/w/[slug]/products/[productSlug]`. A Product also **owns zero or more Projects** (`Project.productId`, nullable) — so a Product spans two parallel work hierarchies: Feature→Ticket (product-management work) and Project→Action (delivery work). The product list and a Products & Projects view live as sibling routes (`/products`, `/products-grid`, `/products-projects`).
+A unit of work delivery owned by a workspace — has its own backlog, features, cycles, retros. Stored as `Product`. Routes live under `/w/[slug]/products/[productSlug]`. A Product also **owns zero or more Projects** (`Project.productId`, nullable) — so a Product spans two parallel work hierarchies: Feature→Ticket (product-management work) and Project→Action (delivery work). The product list, a Products & Projects view, and the cross-product **Product Roadmap** live as sibling routes (`/products`, `/products-grid`, `/products-projects`, `/products-roadmap`).
 _Avoid_: App, service, module.
 
 **Unassigned project**:
@@ -189,6 +189,10 @@ _Avoid_: Bot, service account (use "Errol" or "the Errol system user").
 **Feature**:
 A coherent slice of product capability inside a Product, stored as `Feature`. Has `status` (`IDEA`, `DEFINED`, `IN_PROGRESS`, `SHIPPED`, `ARCHIVED`), optional `vision`, optional alignment to a Goal (`Feature.goalId`). Groups Tickets (`Ticket.featureId`).
 _Avoid_: Task, story, item, issue.
+
+**Product Roadmap**:
+A workspace-wide **view** — a tab in the products area (`/products-roadmap`, sibling to List/Grid/Products & Projects) — that lays every **Feature** across *all* the workspace's **Products** onto one Kanban. Columns are `Feature.status` (`IDEA → DEFINED → IN_PROGRESS → SHIPPED`; `ARCHIVED` is a hidden filter, not a column; `SHIPPED` is time-bounded, defaulting to the current **OKR** `period`). Rows are **swimlanes by Objective** — each Feature sits under the **Objective** it aligns to (`Feature.goalId`), with an **Unaligned** lane for Features serving no Objective (a deliberate governance signal). Cards drag horizontally to change status and vertically (into a lane *header*) to re-align Objective — both write `feature.update` and inherit its access check, so a viewer gets a read-only board. Grouping collapses to a flat status Kanban ("group by: Objective / none"). It is **status-grouped, deliberately not time-based**, and is a **derived view** — *no `Roadmap` table*, just `Feature` + `Goal` read together. Its purpose is to **bridge OKRs and per-Product delivery**: the one screen where you see, per Objective, what's an idea vs in-flight vs shipped across every product. Strictly distinct from the strategy-pipeline **Roadmap** below (that means scheduled *Projects with timing*). See [ADR-0035](docs/adr/0035-product-roadmap-derived-status-view.md).
+_Avoid_: Roadmap (overloaded — the pipeline state below is Projects-with-*timing*; this is Features-by-*status*); Gantt/timeline (this has no time axis); Board (loses the OKR-swimlane bridge that earns the name).
 
 **Objective**:
 A strategic outcome — what Exponential schemas call `Goal`. Use the word "Objective" in OKR conversation and UI affordances ("Aligned to objective: …"); the underlying table is `Goal` for historical reasons. An Objective can nest under a parent Objective (`Goal.parentGoalId`), be scoped to a `period` (e.g. `Q2-2026`), and have many **Key results**.
@@ -242,7 +246,7 @@ _Avoid_: Solution, initiative (use "approach"); modelling it as its own table (i
 
 **Roadmap / Backlog**:
 Where a confirmed Implementation **Approach (Project)** lands — **not a separate entity**. **Roadmap** = committed work *with timing* (a scheduled Project); **Backlog** = validated but not yet scheduled. There is no `Roadmap` table; a roadmap is a **view/state over Projects**. (The legacy static `/roadmap` marketing page is unrelated and not data-backed.)
-_Avoid_: Treating "Roadmap" as a database or as the dependency-graph view (which deliberately avoids the word — it carries timeline connotations).
+_Avoid_: Treating "Roadmap" as a database or as the dependency-graph view (which deliberately avoids the word — it carries timeline connotations). Also distinct from the **Product Roadmap** tab above — that is a status-grouped view over *Features*; this is a timing-state over *Projects*. Same word, different entity and axis.
 
 **Parked**:
 A cross-cutting state for **Problems, Hypotheses, and Approaches** alike — an item that didn't pass its gate is parked **with a reason** (insufficient evidence, out of scope, duplicate, …), never deleted. The record of what was considered and why it was passed over; revisited quarterly. Modelled as `parkedAt` + `parkReason` on each entity, not a status value (an item's lifecycle status and its parked-ness are independent).
