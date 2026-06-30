@@ -23,7 +23,9 @@ import {
   SegmentedControl,
   Skeleton,
   Stack,
+  Switch,
   Text,
+  Tooltip,
 } from '@mantine/core';
 import { IconRoute } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -31,11 +33,17 @@ import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { EmptyState } from '~/app/_components/EmptyState';
 import { getAvatarColor, getInitial } from '~/utils/avatarColors';
-import { FEATURE_STATUSES, type FeatureStatus } from '~/lib/feature-statuses';
+import {
+  FEATURE_STATUSES,
+  ROADMAP_BOARD_COLUMNS,
+  ARCHIVED_FEATURE_STATUS,
+  type FeatureStatus,
+} from '~/lib/feature-statuses';
 
 type RoadmapFeature =
   RouterOutputs['product']['feature']['listForWorkspace'][number];
 type RoadmapProduct = RoadmapFeature['product'];
+type RoadmapColumn = (typeof FEATURE_STATUSES)[number];
 
 type GroupBy = 'objective' | 'none';
 
@@ -270,16 +278,18 @@ function FlatBoard({
   features,
   prefix,
   canEdit,
+  columns,
 }: {
   features: RoadmapFeature[];
   prefix: string;
   canEdit: boolean;
+  columns: RoadmapColumn[];
 }) {
-  const columns = useMemo(() => bucketByStatus(features), [features]);
+  const buckets = useMemo(() => bucketByStatus(features), [features]);
   return (
     <div className="flex w-full min-w-0 gap-3 overflow-x-auto px-8 pt-4 pb-4">
-      {FEATURE_STATUSES.map((col) => {
-        const items = columns[col.value] ?? [];
+      {columns.map((col) => {
+        const items = buckets[col.value] ?? [];
         return (
           <Paper key={col.value} className="w-64 min-w-64 shrink-0" p="sm" radius="md" withBorder>
             <Group justify="space-between" mb="sm">
@@ -353,10 +363,12 @@ function SwimlaneBoard({
   features,
   prefix,
   canEdit,
+  columns,
 }: {
   features: RoadmapFeature[];
   prefix: string;
   canEdit: boolean;
+  columns: RoadmapColumn[];
 }) {
   const lanes = useMemo(() => buildLanes(features), [features]);
 
@@ -366,7 +378,7 @@ function SwimlaneBoard({
         {/* Header row: lane-label gutter + status column labels */}
         <div className="flex gap-3">
           <div className="w-48 min-w-48 shrink-0" />
-          {FEATURE_STATUSES.map((col) => (
+          {columns.map((col) => (
             <div key={col.value} className="w-64 min-w-64 shrink-0 pb-1">
               <StatusBadge label={col.label} color={col.color} />
             </div>
@@ -376,7 +388,7 @@ function SwimlaneBoard({
         {/* Lanes */}
         <Stack gap="sm" mt="xs">
           {lanes.map((lane) => {
-            const columns = bucketByStatus(lane.features);
+            const buckets = bucketByStatus(lane.features);
             return (
               <div key={lane.key} className="flex gap-3">
                 <div className="w-48 min-w-48 shrink-0 pt-1">
@@ -393,8 +405,8 @@ function SwimlaneBoard({
                     {lane.features.length === 1 ? 'feature' : 'features'}
                   </Text>
                 </div>
-                {FEATURE_STATUSES.map((col) => {
-                  const items = columns[col.value] ?? [];
+                {columns.map((col) => {
+                  const items = buckets[col.value] ?? [];
                   return (
                     <Paper key={col.value} className="w-64 min-w-64 shrink-0" p="xs" radius="md" withBorder>
                       <StatusCell
@@ -427,6 +439,10 @@ export function ProductRoadmapBoard() {
   const { workspace, workspaceId, userRole } = useWorkspace();
   const prefix = workspace?.slug ? `/w/${workspace.slug}` : '';
   const [groupBy, setGroupBy] = useState<GroupBy>('objective');
+  // ARCHIVED is a hidden filter, not a column (default off); SHIPPED is bounded
+  // to the current OKR period by default (ADR-0035, slice teal.mango).
+  const [showArchived, setShowArchived] = useState(false);
+  const [showAllShipped, setShowAllShipped] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [optimisticMoves, setOptimisticMoves] = useState<
     Record<string, FeatureStatus>
@@ -480,6 +496,30 @@ export function ProductRoadmapBoard() {
     return m;
   }, [features]);
 
+  // Start of the current OKR period (quarter) — the SHIPPED bound. Computed
+  // once at mount; v1 uses `Feature.updatedAt` as a coarse shipped-at proxy
+  // (FeatureScope.shippedAt is the precise signal for a later refinement).
+  const quarterStart = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+  }, []);
+
+  // Columns: ARCHIVED only appears as a column when revealed.
+  const columns = showArchived ? FEATURE_STATUSES : ROADMAP_BOARD_COLUMNS;
+
+  // Apply the ARCHIVED + SHIPPED-period filters to what the board renders.
+  const visibleFeatures = useMemo(
+    () =>
+      features.filter((f) => {
+        if (f.status === ARCHIVED_FEATURE_STATUS) return showArchived;
+        if (f.status === 'SHIPPED' && !showAllShipped) {
+          return new Date(f.updatedAt).getTime() >= quarterStart.getTime();
+        }
+        return true;
+      }),
+    [features, showArchived, showAllShipped, quarterStart],
+  );
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(String(event.active.id));
   }, []);
@@ -507,24 +547,44 @@ export function ProductRoadmapBoard() {
   const activeFeature = activeId ? featuresById.get(activeId) : null;
 
   const toolbar = (
-    <div className="flex items-center gap-2 px-8 pt-4">
-      <Text size="xs" className="text-text-muted">
-        Group by
-      </Text>
-      <SegmentedControl
+    <div className="flex flex-wrap items-center gap-4 px-8 pt-4">
+      <div className="flex items-center gap-2">
+        <Text size="xs" className="text-text-muted">
+          Group by
+        </Text>
+        <SegmentedControl
+          size="xs"
+          value={groupBy}
+          onChange={(v) => setGroupBy(v as GroupBy)}
+          data={[
+            { value: 'objective', label: 'Objective' },
+            { value: 'none', label: 'None' },
+          ]}
+          styles={{
+            root: {
+              backgroundColor: 'var(--color-surface-secondary)',
+              border: '1px solid var(--color-border-primary)',
+            },
+          }}
+        />
+      </div>
+      <Tooltip
+        label="By default, SHIPPED shows only features updated this quarter"
+        position="bottom"
+        withArrow
+      >
+        <Switch
+          size="xs"
+          label="All shipped"
+          checked={showAllShipped}
+          onChange={(e) => setShowAllShipped(e.currentTarget.checked)}
+        />
+      </Tooltip>
+      <Switch
         size="xs"
-        value={groupBy}
-        onChange={(v) => setGroupBy(v as GroupBy)}
-        data={[
-          { value: 'objective', label: 'Objective' },
-          { value: 'none', label: 'None' },
-        ]}
-        styles={{
-          root: {
-            backgroundColor: 'var(--color-surface-secondary)',
-            border: '1px solid var(--color-border-primary)',
-          },
-        }}
+        label="Show archived"
+        checked={showArchived}
+        onChange={(e) => setShowArchived(e.currentTarget.checked)}
       />
     </div>
   );
@@ -534,7 +594,7 @@ export function ProductRoadmapBoard() {
       <>
         {toolbar}
         <div className="flex gap-3 overflow-x-auto px-8 pt-4 pb-4">
-          {FEATURE_STATUSES.map((col) => (
+          {ROADMAP_BOARD_COLUMNS.map((col) => (
             <Skeleton key={col.value} height={320} className="w-64 min-w-64 shrink-0" radius="md" />
           ))}
         </div>
@@ -562,9 +622,19 @@ export function ProductRoadmapBoard() {
         onDragEnd={handleDragEnd}
       >
         {groupBy === 'objective' ? (
-          <SwimlaneBoard features={features} prefix={prefix} canEdit={canEdit} />
+          <SwimlaneBoard
+            features={visibleFeatures}
+            prefix={prefix}
+            canEdit={canEdit}
+            columns={columns}
+          />
         ) : (
-          <FlatBoard features={features} prefix={prefix} canEdit={canEdit} />
+          <FlatBoard
+            features={visibleFeatures}
+            prefix={prefix}
+            canEdit={canEdit}
+            columns={columns}
+          />
         )}
         <DragOverlay>
           {activeFeature ? (
