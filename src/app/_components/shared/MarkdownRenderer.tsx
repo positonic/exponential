@@ -337,6 +337,13 @@ interface MarkdownRendererProps {
   content: string;
   /** Spacing preset. Defaults to long-form "prose". */
   variant?: MarkdownVariant;
+  /**
+   * Preserve single (typed) newlines as line breaks, even in the `prose`
+   * variant. Use for prose authored in a textarea (e.g. the public form
+   * description) so it matches the `MarkdownInput` compact preview. The
+   * `compact` variant always preserves soft breaks regardless of this flag.
+   */
+  softBreaks?: boolean;
   /** Names that should render as mention badges (compact surfaces). */
   mentionNames?: string[];
   /** Owner-only image delete handler (compact surfaces, e.g. comments). */
@@ -347,6 +354,7 @@ interface MarkdownRendererProps {
 export function MarkdownRenderer({
   content,
   variant = "prose",
+  softBreaks,
   mentionNames,
   onDeleteImage,
   className,
@@ -366,8 +374,10 @@ export function MarkdownRenderer({
   }
 
   const remarkPlugins: PluggableList = [remarkGfm];
-  // Compact surfaces are textarea-authored: preserve typed line breaks.
-  if (variant === "compact") remarkPlugins.push(remarkSoftBreaks);
+  // Textarea-authored content preserves typed line breaks: always for the
+  // compact variant, opt-in via `softBreaks` for prose surfaces.
+  if (variant === "compact" || softBreaks)
+    remarkPlugins.push(remarkSoftBreaks);
   if (mentionNames && mentionNames.length > 0) {
     remarkPlugins.push([remarkMentions, mentionNames]);
   }
