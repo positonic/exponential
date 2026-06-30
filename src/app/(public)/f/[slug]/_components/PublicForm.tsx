@@ -220,7 +220,11 @@ export function PublicForm({
         <Stack gap="xs" mb="md">
           <Title order={2}>{name}</Title>
           {description && (
-            <MarkdownRenderer content={description} variant="prose" />
+            <MarkdownRenderer
+              content={description}
+              variant="prose"
+              softBreaks
+            />
           )}
         </Stack>
         {restored && (
