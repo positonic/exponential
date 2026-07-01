@@ -347,6 +347,7 @@ export const workspaceRouter = createTRPCRouter({
         enableDailyPlanBanner: z.boolean().optional(),
         enableWeeklyReviewBanner: z.boolean().optional(),
         enableEmailNotifications: z.boolean().optional(),
+        enableAutoEnrichContacts: z.boolean().optional(),
         homeLayout: z.enum(["command", "activity", "coaching"]).optional(),
       })
     )
@@ -381,6 +382,7 @@ export const workspaceRouter = createTRPCRouter({
           enableDailyPlanBanner: input.enableDailyPlanBanner,
           enableWeeklyReviewBanner: input.enableWeeklyReviewBanner,
           enableEmailNotifications: input.enableEmailNotifications,
+          enableAutoEnrichContacts: input.enableAutoEnrichContacts,
           homeLayout: input.homeLayout,
         },
       });

@@ -43,6 +43,7 @@ import {
   IconClock,
   IconPlus,
   IconShieldExclamation,
+  IconSparkles,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -154,6 +155,7 @@ export default function WorkspaceSettingsPage() {
   const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
+  const autoEnrichContactsEnabled = workspaceData?.enableAutoEnrichContacts ?? false;
   const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
 
   const featureSuccess = (message: string) => () => {
@@ -218,6 +220,13 @@ export default function WorkspaceSettingsPage() {
       emailNotificationsEnabled
         ? 'Email notifications have been disabled'
         : 'Email notifications have been enabled'
+    ),
+  });
+  const updateAutoEnrichContactsMutation = api.workspace.update.useMutation({
+    onSuccess: featureSuccess(
+      autoEnrichContactsEnabled
+        ? 'Contact auto-enrichment has been disabled'
+        : 'Contact auto-enrichment has been enabled'
     ),
   });
 
@@ -1046,6 +1055,21 @@ export default function WorkspaceSettingsPage() {
                 updateEmailNotificationsMutation.mutate({
                   workspaceId,
                   enableEmailNotifications: checked,
+                });
+              }}
+            />
+            <FeatureRow
+              icon={IconSparkles}
+              tag="CRM"
+              title="Auto-enrich Contacts"
+              description="When a contact is created, run a background web search to fill in missing details (email, LinkedIn, Twitter, bio, organization)."
+              enabled={autoEnrichContactsEnabled}
+              disabled={!canEdit || updateAutoEnrichContactsMutation.isPending}
+              onToggle={(checked) => {
+                if (!workspaceId) return;
+                updateAutoEnrichContactsMutation.mutate({
+                  workspaceId,
+                  enableAutoEnrichContacts: checked,
                 });
               }}
             />
