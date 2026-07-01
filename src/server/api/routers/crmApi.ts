@@ -7,7 +7,10 @@ import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
-import { dispatchContactEnrichment } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
+import {
+  dispatchContactEnrichment,
+  enqueueContactEnrichment,
+} from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -531,6 +534,36 @@ export const crmApiRouter = createTRPCRouter({
       });
 
       return interaction;
+    }),
+
+  // Explicitly enqueue a web-search enrichment job for an existing contact.
+  // Unlike the automatic path (which fires on create and is gated on the
+  // workspace's enableAutoEnrichContacts flag), this is a deliberate user
+  // action, so it forces the enqueue regardless of the flag. The
+  // enrich-pending-contacts cron drains the PENDING row into Mastra's
+  // enrichmentAgent. Idempotent: a contact with a job already PENDING/RUNNING is
+  // not re-queued (that in-flight job's id is returned instead).
+  contactEnrich: apiKeyMiddleware
+    .input(z.object({ contactId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const contact = await ctx.db.crmContact.findUnique({
+        where: { id: input.contactId },
+        select: { workspaceId: true },
+      });
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      }
+      await verifyWorkspaceAccess(ctx.db, contact.workspaceId, ctx.userId);
+
+      return enqueueContactEnrichment(
+        ctx.db,
+        {
+          contactId: input.contactId,
+          workspaceId: contact.workspaceId,
+          createdById: ctx.userId,
+        },
+        { force: true },
+      );
     }),
 
   // ─── Organizations ──────────────────────────────────────────────
