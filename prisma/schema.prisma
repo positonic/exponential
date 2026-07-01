@@ -2587,6 +2587,11 @@ model CrmContact {
   profileType         String?
   skills              String[]
   tags                String[]
+  // Field keys whose CURRENT value came from enrichment, not a human (ADR-0036).
+  // The UI badges these "AI — verify". A human edit clears the key; re-enrich may
+  // refresh a still-AI field but never a human-locked one. Defaults to [] so the
+  // ADD COLUMN backfills existing rows (never NULL).
+  aiSourcedFields     String[]  @default([])
   lastInteractionAt   DateTime?
   lastInteractionType String?
   // Email consent: set when the contact unsubscribes; honored by every Broadcast send.

@@ -7,8 +7,15 @@ import { ContactSyncService } from "~/server/services/ContactSyncService";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
-import { dispatchContactEnrichment } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
+import {
+  dispatchContactEnrichment,
+  enqueueContactEnrichment,
+} from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
+
+// Workspace roles allowed to spend enrichment budget (a paid web search + LLM
+// call per run). Viewers and project-only "guests" are excluded (ADR-0036).
+const ENRICH_ROLES = ["owner", "admin", "member"];
 
 // Verify the signed-in user belongs to the workspace that owns `contactId`.
 // Throws NOT_FOUND / FORBIDDEN otherwise.
@@ -511,7 +518,7 @@ export const crmContactRouter = createTRPCRouter({
       // Get the contact and verify access
       const existingContact = await ctx.db.crmContact.findUnique({
         where: { id },
-        select: { workspaceId: true, profileType: true },
+        select: { workspaceId: true, profileType: true, aiSourcedFields: true },
       });
 
       if (!existingContact) {
@@ -581,6 +588,18 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
+      // Human input is ground truth: any field this user edits stops being
+      // AI-sourced (ADR-0036). Clear those keys from the provenance list.
+      const humanEditedKeys = Object.keys(updateData).filter(
+        (k) => (updateData as Record<string, unknown>)[k] !== undefined,
+      );
+      const nextAiSourced = existingContact.aiSourcedFields.filter(
+        (f) => !humanEditedKeys.includes(f),
+      );
+      if (nextAiSourced.length !== existingContact.aiSourcedFields.length) {
+        dbUpdate.aiSourcedFields = nextAiSourced;
+      }
+
       const contact = await ctx.db.crmContact.update({
         where: { id },
         data: dbUpdate,
@@ -635,6 +654,79 @@ export const crmContactRouter = createTRPCRouter({
           bluesky: null,
         };
       }
+    }),
+
+  // Explicitly queue a web-search enrichment job for an existing contact — the
+  // UI "Enrich" button. Editor-gated (owner/admin/member) because each run costs
+  // a paid search + LLM call. Force-enqueues regardless of the workspace
+  // enableAutoEnrichContacts flag; the enrich-pending-contacts cron drains it.
+  enrichNow: protectedProcedure
+    .input(z.object({ contactId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const contact = await ctx.db.crmContact.findUnique({
+        where: { id: input.contactId },
+        select: { workspaceId: true },
+      });
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: contact.workspaceId,
+          userId: ctx.session.user.id,
+        },
+        select: { role: true },
+      });
+      if (!membership || !ENRICH_ROLES.includes(membership.role)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You need edit access to enrich contacts",
+        });
+      }
+
+      return enqueueContactEnrichment(
+        ctx.db,
+        {
+          contactId: input.contactId,
+          workspaceId: contact.workspaceId,
+          createdById: ctx.session.user.id,
+        },
+        { force: true },
+      );
+    }),
+
+  // Latest enrichment job for a contact, for the drawer to poll
+  // (PENDING → RUNNING → COMPLETED/FAILED). Null when never enriched.
+  getEnrichmentStatus: protectedProcedure
+    .input(z.object({ contactId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const contact = await ctx.db.crmContact.findFirst({
+        where: {
+          id: input.contactId,
+          workspace: { members: { some: { userId: ctx.session.user.id } } },
+        },
+        select: { id: true },
+      });
+      if (!contact) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact not found or inaccessible",
+        });
+      }
+
+      return ctx.db.crmContactEnrichment.findFirst({
+        where: { contactId: input.contactId },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          status: true,
+          error: true,
+          createdAt: true,
+          startedAt: true,
+          completedAt: true,
+        },
+      });
     }),
 
   // Delete a contact
