@@ -198,6 +198,47 @@ export const formRouter = createTRPCRouter({
               });
             }
           }
+          if (dest.type === "create_insight") {
+            // A create_insight config needs a target product and a mapped
+            // title (ADR-0037). Body is optional; no email is required.
+            const productId =
+              typeof dest.config.productId === "string"
+                ? dest.config.productId
+                : "";
+            if (!productId) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Create insight requires a target product.",
+              });
+            }
+            const fieldMap =
+              dest.config.fieldMap && typeof dest.config.fieldMap === "object"
+                ? (dest.config.fieldMap as Record<string, unknown>)
+                : {};
+            const titleKey =
+              typeof fieldMap.title === "string" ? fieldMap.title : "";
+            if (!effectiveFields.some((f) => f.key === titleKey)) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Create insight requires a form field mapped to the insight's title.",
+              });
+            }
+            // The product must live in this form's own workspace — a form is
+            // workspace-owned; an Insight is product-scoped (re-checked at
+            // submit by the destination).
+            const product = await ctx.db.product.findFirst({
+              where: { id: productId, workspaceId: form.workspaceId },
+              select: { id: true },
+            });
+            if (!product) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Create insight: the selected product is not in this form's workspace.",
+              });
+            }
+          }
         }
       }
 
