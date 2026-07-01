@@ -202,6 +202,60 @@ describe("insight router (mocked)", () => {
         expect.objectContaining({ where: { productId } }),
       );
     });
+
+    it("applies no source filter for origin 'all' (default)", async () => {
+      stubProductLookup(dbMock);
+      stubMembership(dbMock, true);
+      dbMock.insight.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.insight.list({ productId, origin: "all" });
+
+      const where = dbMock.insight.findMany.mock.calls[0]?.[0]?.where;
+      expect(where).toMatchObject({ productId, parkedAt: null });
+      // "all" must not add any source predicate.
+      expect(where).not.toHaveProperty("source");
+      expect(where).not.toHaveProperty("OR");
+    });
+
+    it("filters to form-sourced insights for origin 'form'", async () => {
+      stubProductLookup(dbMock);
+      stubMembership(dbMock, true);
+      dbMock.insight.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.insight.list({ productId, origin: "form" });
+
+      expect(dbMock.insight.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            productId,
+            source: { startsWith: "form:" },
+          }),
+        }),
+      );
+    });
+
+    it("excludes form-sourced insights for origin 'manual'", async () => {
+      stubProductLookup(dbMock);
+      stubMembership(dbMock, true);
+      dbMock.insight.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.insight.list({ productId, origin: "manual" });
+
+      expect(dbMock.insight.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            productId,
+            OR: [
+              { source: null },
+              { NOT: { source: { startsWith: "form:" } } },
+            ],
+          }),
+        }),
+      );
+    });
   });
 
   describe("park / unpark", () => {
