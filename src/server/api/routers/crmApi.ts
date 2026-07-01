@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
+import { dispatchContactEnrichment } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -110,9 +111,55 @@ async function getPipelineForWorkspace(
   return pipeline;
 }
 
+// Find an existing organization by name (case-insensitive, workspace-scoped)
+// or create it. Lets callers link a contact to an org by name in one call
+// without a separate lookup — the CLI/SDK's `organizationName` convenience.
+async function resolveOrganizationByName(
+  db: PrismaClient,
+  workspaceId: string,
+  userId: string,
+  name: string,
+): Promise<string> {
+  const trimmed = name.trim();
+  const existing = await db.crmOrganization.findFirst({
+    where: { workspaceId, name: { equals: trimmed, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  const created = await db.crmOrganization.create({
+    data: { workspaceId, name: trimmed, createdById: userId },
+    select: { id: true },
+  });
+  return created.id;
+}
+
 // ─── Input Schemas ──────────────────────────────────────────────────
 
 const piiFields = ["email", "phone", "linkedIn", "telegram", "twitter", "github", "bluesky"] as const;
+
+const organizationSizeEnum = z.enum([
+  "1-10", "11-50", "51-200", "201-500", "501-1000", "1000+",
+]);
+
+const organizationCreateInput = z.object({
+  workspaceId: z.string(),
+  name: z.string().min(1),
+  websiteUrl: z.string().url().optional().nullable(),
+  logoUrl: z.string().url().optional().nullable(),
+  description: z.string().optional(),
+  industry: z.string().optional(),
+  size: organizationSizeEnum.optional(),
+});
+
+const organizationInclude = {
+  createdBy: {
+    select: { id: true, name: true, email: true, image: true },
+  },
+  _count: {
+    select: { contacts: true },
+  },
+} as const;
 
 const contactCreateInput = z.object({
   workspaceId: z.string(),
@@ -130,6 +177,9 @@ const contactCreateInput = z.object({
   skills: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   organizationId: z.string().optional(),
+  // Link (or find-or-create) an organization by name. Ignored when
+  // organizationId is supplied — the explicit id always wins.
+  organizationName: z.string().optional(),
 });
 
 const contactUpdateInput = z.object({
@@ -148,6 +198,9 @@ const contactUpdateInput = z.object({
   skills: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   organizationId: z.string().optional().nullable(),
+  // Link (or find-or-create) an organization by name. Ignored when
+  // organizationId is supplied — the explicit id always wins.
+  organizationName: z.string().optional(),
 });
 
 // ─── Router ─────────────────────────────────────────────────────────
@@ -260,7 +313,7 @@ export const crmApiRouter = createTRPCRouter({
   contactCreate: apiKeyMiddleware
     .input(contactCreateInput)
     .mutation(async ({ ctx, input }) => {
-      const { workspaceId, ...contactData } = input;
+      const { workspaceId, organizationName, ...contactData } = input;
       await verifyWorkspaceAccess(ctx.db, workspaceId, ctx.userId);
 
       if (contactData.organizationId) {
@@ -274,6 +327,14 @@ export const crmApiRouter = createTRPCRouter({
             message: "Organization must belong to the same workspace",
           });
         }
+      } else if (organizationName?.trim()) {
+        // No explicit id — find-or-create the org by name in this workspace.
+        contactData.organizationId = await resolveOrganizationByName(
+          ctx.db,
+          workspaceId,
+          ctx.userId,
+          organizationName,
+        );
       }
 
       const contactInclude = {
@@ -324,6 +385,12 @@ export const crmApiRouter = createTRPCRouter({
           data: dbData as Parameters<typeof ctx.db.crmContact.create>[0]["data"],
           include: contactInclude,
         });
+        // Opt-in async enrichment (no-op unless the workspace enabled it).
+        await dispatchContactEnrichment(ctx.db, {
+          contactId: contact.id,
+          workspaceId,
+          createdById: ctx.userId,
+        });
         return { ...safeDecryptContact(contact), wasExisting: false };
       } catch (err) {
         // Concurrent double-submit: between the dedupe lookup above and this
@@ -348,7 +415,7 @@ export const crmApiRouter = createTRPCRouter({
   contactUpdate: apiKeyMiddleware
     .input(contactUpdateInput)
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
+      const { id, organizationName, ...updateData } = input;
 
       const existing = await ctx.db.crmContact.findUnique({
         where: { id },
@@ -368,7 +435,17 @@ export const crmApiRouter = createTRPCRouter({
       if (updateData.profileType !== undefined) dbUpdate.profileType = updateData.profileType;
       if (updateData.skills !== undefined) dbUpdate.skills = updateData.skills;
       if (updateData.tags !== undefined) dbUpdate.tags = updateData.tags;
-      if (updateData.organizationId !== undefined) dbUpdate.organizationId = updateData.organizationId;
+      if (updateData.organizationId !== undefined) {
+        dbUpdate.organizationId = updateData.organizationId;
+      } else if (organizationName?.trim()) {
+        // No explicit id — find-or-create the org by name in this workspace.
+        dbUpdate.organizationId = await resolveOrganizationByName(
+          ctx.db,
+          existing.workspaceId,
+          ctx.userId,
+          organizationName,
+        );
+      }
 
       // PII fields - encrypt or null
       for (const field of piiFields) {
@@ -454,6 +531,89 @@ export const crmApiRouter = createTRPCRouter({
       });
 
       return interaction;
+    }),
+
+  // ─── Organizations ──────────────────────────────────────────────
+
+  organizationList: apiKeyMiddleware
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        search: z.string().optional(),
+        industry: z.string().optional(),
+        limit: z.number().min(1).max(100).optional(),
+        cursor: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { workspaceId, search, industry, limit = 50, cursor } = input;
+      await verifyWorkspaceAccess(ctx.db, workspaceId, ctx.userId);
+
+      const organizations = await ctx.db.crmOrganization.findMany({
+        where: {
+          workspaceId,
+          ...(search
+            ? {
+                OR: [
+                  { name: { contains: search, mode: "insensitive" } },
+                  { description: { contains: search, mode: "insensitive" } },
+                ],
+              }
+            : {}),
+          ...(industry ? { industry } : {}),
+        },
+        include: organizationInclude,
+        orderBy: { name: "asc" },
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+
+      let nextCursor: string | undefined;
+      if (organizations.length > limit) {
+        organizations.pop();
+        nextCursor = organizations[organizations.length - 1]?.id;
+      }
+
+      return { organizations, nextCursor };
+    }),
+
+  organizationGet: apiKeyMiddleware
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const organization = await ctx.db.crmOrganization.findFirst({
+        where: {
+          id: input.id,
+          workspace: { members: { some: { userId: ctx.userId } } },
+        },
+        include: organizationInclude,
+      });
+
+      if (!organization) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Organization not found or inaccessible",
+        });
+      }
+
+      return organization;
+    }),
+
+  organizationCreate: apiKeyMiddleware
+    .input(organizationCreateInput)
+    .mutation(async ({ ctx, input }) => {
+      const { workspaceId, ...organizationData } = input;
+      await verifyWorkspaceAccess(ctx.db, workspaceId, ctx.userId);
+
+      const organization = await ctx.db.crmOrganization.create({
+        data: {
+          ...organizationData,
+          workspaceId,
+          createdById: ctx.userId,
+        },
+        include: organizationInclude,
+      });
+
+      return organization;
     }),
 
   // ─── Pipeline ───────────────────────────────────────────────────

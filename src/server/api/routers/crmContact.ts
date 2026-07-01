@@ -7,6 +7,7 @@ import { ContactSyncService } from "~/server/services/ContactSyncService";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
+import { dispatchContactEnrichment } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 
 // Verify the signed-in user belongs to the workspace that owns `contactId`.
@@ -470,6 +471,14 @@ export const crmContactRouter = createTRPCRouter({
           e,
         );
       }
+
+      // Opt-in async enrichment: enqueue a web-search job when the workspace
+      // has it enabled. Never let this break creation.
+      await dispatchContactEnrichment(ctx.db, {
+        contactId: contact.id,
+        workspaceId,
+        createdById: ctx.session.user.id,
+      });
 
       // Decrypt fields for the response
       try {

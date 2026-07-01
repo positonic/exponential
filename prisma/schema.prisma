@@ -309,6 +309,9 @@ model Workspace {
   enableDailyPlanBanner    Boolean    @default(true)
   enableWeeklyReviewBanner Boolean    @default(true)
   enableEmailNotifications Boolean    @default(true)
+  // When on, creating a CRM contact enqueues an async web-search enrichment job
+  // (drained by the enrich-pending-contacts cron → Mastra enrichmentAgent).
+  enableAutoEnrichContacts Boolean    @default(false)
 
   // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
   notionDefaultConfig Json?
@@ -335,6 +338,7 @@ model Workspace {
   crmCommunications       CrmCommunication[]
   crmTemplates            CrmCommunicationTemplate[]
   crmImportBatches        ContactImportBatch[]
+  crmEnrichments          CrmContactEnrichment[]
   // Forms relations
   forms                   Form[]
   // Plugin and OKR relations
@@ -2610,6 +2614,7 @@ model CrmContact {
   deals                       Deal[]
   transcriptionParticipations TranscriptionSessionParticipant[]
   screenshots                 CrmContactScreenshot[]
+  enrichments                 CrmContactEnrichment[]
 
   @@index([workspaceId])
   @@index([organizationId])
@@ -2620,6 +2625,33 @@ model CrmContact {
   @@index([connectionScore])
   @@index([workspaceId, importSource])
   @@unique([workspaceId, emailHash])
+}
+
+// Async enrichment job for a CRM contact. Written (status PENDING) by
+// dispatchContactEnrichment when a contact is created in a workspace with
+// enableAutoEnrichContacts on; drained by the enrich-pending-contacts cron,
+// which hands the contact to Mastra's enrichmentAgent (web search + write-back).
+// Mirrors ContactImportBatch's role as a durable status/audit record for
+// serverless fire-and-forget work.
+model CrmContactEnrichment {
+  id          String    @id @default(cuid())
+  contactId   String
+  workspaceId String
+  status      String    @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
+  error       String?   @db.Text
+  metadata    Json? // agent summary, fields written, tool uses
+  createdById String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  contact   CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // Join between a CRM contact and an uploaded image/screenshot. Mirrors
