@@ -12,6 +12,11 @@ export interface KanbanColumnDef {
   id: string;
   title: string;
   accent: ColumnAccent;
+  /**
+   * Optional content rendered on the right of the column header (e.g. the CRM
+   * pipeline's per-stage deal-value total). Generic — the board never inspects it.
+   */
+  headerAccessory?: ReactNode;
 }
 
 /**

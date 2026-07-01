@@ -237,6 +237,7 @@ export function KanbanBoard<T extends KanbanItem>({
               itemIds={itemIdsByColumn[column.id] ?? []}
               dragOverItemId={dragOverItemId}
               columnEmptyState={columnEmptyState}
+              headerAccessory={column.headerAccessory}
             >
               {(itemId) => {
                 const item = itemById.get(itemId);

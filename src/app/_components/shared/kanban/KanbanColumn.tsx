@@ -27,6 +27,8 @@ interface KanbanColumnProps {
   /** Rendered per item, in order. */
   children: (itemId: string) => ReactNode;
   columnEmptyState?: ReactNode;
+  /** Optional content on the right of the header. */
+  headerAccessory?: ReactNode;
 }
 
 /**
@@ -41,6 +43,7 @@ export function KanbanColumn({
   dragOverItemId,
   children,
   columnEmptyState,
+  headerAccessory,
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -61,6 +64,9 @@ export function KanbanColumn({
           <span className={styles.kcolLabel}>{title}</span>
           <span className={styles.kcolCount}>{itemIds.length}</span>
         </div>
+        {headerAccessory != null && (
+          <div className={styles.kcolHeadRight}>{headerAccessory}</div>
+        )}
       </div>
 
       <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
