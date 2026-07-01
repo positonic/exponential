@@ -12,7 +12,11 @@ import { runPendingEnrichments } from "~/server/services/crm/enrichment/runPendi
  * A durable queue drained by cron — rather than a fire-and-forget fetch from the
  * create mutation — is deliberate: Vercel serverless can freeze a function after
  * it returns, orphaning un-awaited async work. Registered in vercel.json.
- * Auth is the shared CRON_SECRET, matching the other cron routes.
+ *
+ * Auth is the shared CRON_SECRET. Because this endpoint has real external side
+ * effects (it triggers Mastra agent runs and paid web searches), it fails
+ * closed: a missing CRON_SECRET denies every request rather than leaving the
+ * sweep open to anonymous callers.
  */
 export async function GET(_request: NextRequest) {
   try {
@@ -20,7 +24,7 @@ export async function GET(_request: NextRequest) {
     const authHeader = headersList.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

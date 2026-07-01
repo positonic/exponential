@@ -1,6 +1,5 @@
 import { type PrismaClient } from "@prisma/client";
 
-import { decryptBuffer } from "~/server/utils/encryption";
 import { generateAgentJWT } from "~/server/utils/jwt";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
@@ -102,12 +101,27 @@ async function enrichOne(db: PrismaClient, enrichmentId: string): Promise<void> 
   );
 
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim();
-  const existingEmail = safeDecrypt(contact.email);
+
+  // Tell the agent which contactable fields are ALREADY populated by name only —
+  // presence, never the decrypted value. This keeps the "only fill empty fields"
+  // guidance actionable without decrypting PII into the prompt (and thus into the
+  // external agent request / model context). Presence is a plain null-check on
+  // the encrypted columns; no decryption needed.
+  const alreadySet: string[] = [];
+  if (contact.email != null) alreadySet.push("email");
+  if (contact.phone != null) alreadySet.push("phone");
+  if (contact.linkedIn != null) alreadySet.push("LinkedIn");
+  if (contact.twitter != null) alreadySet.push("Twitter");
+  if (contact.github != null) alreadySet.push("GitHub");
+  if (contact.bluesky != null) alreadySet.push("Bluesky");
+
   const known: string[] = [];
   if (contact.about) known.push(`Bio: ${contact.about}`);
   if (contact.organization?.name) known.push(`Organization: ${contact.organization.name}`);
   if (contact.tags?.length) known.push(`Tags: ${contact.tags.join(", ")}`);
-  if (existingEmail) known.push(`Email: ${existingEmail}`);
+  if (alreadySet.length) {
+    known.push(`Already-populated fields (do NOT overwrite): ${alreadySet.join(", ")}`);
+  }
 
   const prompt = [
     `Enrich the CRM contact with id "${contact.id}" (workspace "${contact.workspaceId}").`,
@@ -141,23 +155,17 @@ async function enrichOne(db: PrismaClient, enrichmentId: string): Promise<void> 
     }),
   });
 
-  const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Mastra enrichmentAgent failed (${res.status}): ${text.slice(0, 500)}`);
+    const errText = await res.text();
+    throw new Error(
+      `Mastra enrichmentAgent failed (${res.status}): ${errText.slice(0, 500)}`,
+    );
   }
 
-  // Record the agent's summary for the audit trail; the agent has already
-  // written any fields back to the contact via its CRM tools.
-  await db.crmContactEnrichment.update({
-    where: { id: enrichmentId },
-    data: { metadata: { agentResponse: text.slice(0, 2000) } },
-  });
-}
-
-function safeDecrypt(value: Buffer | Uint8Array | null): string | null {
-  try {
-    return decryptBuffer(value) ?? null;
-  } catch {
-    return null;
-  }
+  // Deliberately do NOT persist the agent's free-text response: it can echo
+  // back PII it found/confirmed (e.g. the contact's email), and metadata is a
+  // plaintext JSONB column — storing it there would undercut the encryption-at-
+  // rest guarantee for contact PII. The enrichment result is already reflected
+  // on the contact record itself (the source of truth), and this job's
+  // status/timestamps provide the audit trail.
 }
