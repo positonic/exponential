@@ -38,6 +38,7 @@ export function KanbanBoard<T extends KanbanItem>({
   renderCard,
   onMove,
   getItemLabel,
+  disabled = false,
   emptyState,
   columnEmptyState,
   bleed = false,
@@ -119,6 +120,9 @@ export function KanbanBoard<T extends KanbanItem>({
     setActiveId(null);
 
     if (!over) return;
+
+    // Read-only board: a card can be picked up but never moves.
+    if (disabled) return;
 
     const itemId = active.id as string;
     const dragged = itemById.get(itemId);
