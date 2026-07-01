@@ -7,7 +7,6 @@ import { researchRouter } from "./research";
 import { cycleRouter } from "./cycle";
 import { retrospectiveRouter } from "./retrospective";
 import { insightRouter } from "./insight";
-import { problemRouter } from "./problem";
 
 export const productPluginRouter = createTRPCRouter({
   product: productRouter,
@@ -16,7 +15,6 @@ export const productPluginRouter = createTRPCRouter({
   ticket: ticketRouter,
   research: researchRouter,
   insight: insightRouter,
-  problem: problemRouter,
   cycle: cycleRouter,
   retrospective: retrospectiveRouter,
 });

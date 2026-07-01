@@ -29,12 +29,11 @@ import { buildProductFavoriteTarget } from "./favoriteTarget";
 
 const tabs = [
   { value: "overview", href: "", label: "Overview", icon: IconHome },
-  { value: "problems", href: "/problems", label: "Problems", icon: IconTargetArrow },
   { value: "backlog", href: "/tickets", label: "Backlog", icon: IconLayoutList },
   { value: "features", href: "/features", label: "Features", icon: IconBulb },
   { value: "graph", href: "/graph", label: "Graph", icon: IconAffiliate },
   { value: "cycles", href: "/cycles", label: "Cycles", icon: IconCalendarClock },
-  { value: "research", href: "/research", label: "Insights", icon: IconBulb },
+  { value: "insights", href: "/insights", label: "Insights", icon: IconTargetArrow },
   { value: "retro", href: "/retrospectives", label: "Retro", icon: IconClipboardList },
 ] as const;
 
@@ -86,14 +85,14 @@ export default function ProductLayout({
     if (typeof window === "undefined") return;
 
     const warm = () => {
-      void utils.product.problem.list.prefetch({ productId, includeParked: false });
       void utils.product.ticket.list.prefetch({ productId });
       void utils.product.feature.list.prefetch({ productId });
       void utils.product.product.getDependencyGraph.prefetch({
         productId,
         includeCompleted: false,
       });
-      void utils.product.insight.list.prefetch({ productId });
+      // Matches the Insights page's default query key (includeParked: false).
+      void utils.product.insight.list.prefetch({ productId, includeParked: false });
       // NB: cycle.list is intentionally NOT prewarmed — with autoCreate it
       // writes (ensureUpcomingCycles / reconcileCycleStatuses), so eagerly
       // prefetching it would create sprint data for products whose Cycles tab

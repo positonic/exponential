@@ -256,7 +256,6 @@ model User {
   ticketComments        TicketComment[]    @relation("TicketCommentAuthor")
   ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
   insightsCreated       Insight[]          @relation("InsightCreatedBy")
-  problemsCreated       Problem[]          @relation("ProblemCreatedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -915,8 +914,6 @@ model Project {
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
   deals                 Deal[]
-  // Pipeline Triage: Problems this project is an Approach for (ADR-0008)
-  problemApproaches     ProblemApproach[]
 
   @@index([name])
   @@index([status])
@@ -3879,7 +3876,6 @@ model Product {
   retrospectives  Retrospective[]
   ticketTemplates TicketTemplate[]
   projects        Project[]
-  problems        Problem[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -4043,6 +4039,7 @@ enum InsightType {
   JOURNEY
   OBSERVATION
   COMPETITIVE
+  PROBLEM
 }
 
 enum InsightStatus {
@@ -4063,6 +4060,15 @@ model Insight {
   sentiment   String?
   description String        @default("")
   status      InsightStatus @default(INBOX)
+  // General triage fields, usable by any insight type (ADR-0036). Formerly
+  // Problem-only; parking (parkedAt/parkReason) is now a general "defer with a
+  // reason, reversibly" affordance independent of `status`.
+  impact      Int?
+  confidence  Int?
+  category    String?
+  evidence    String?
+  parkedAt    DateTime?
+  parkReason  String?
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -4309,63 +4315,11 @@ model InsightTag {
   @@index([tagId])
 }
 
-// ============================================
-// Pipeline Triage - Problem (see docs/adr/0008-pipeline-triage-model.md)
-// ============================================
-
-/// Lifecycle of a Problem as it moves through the triage pipeline.
-/// Independent of parked-ness (a Problem can be parked at any stage).
-enum ProblemStage {
-  IDEA
-  QUALIFIED
-  PRIORITISED
-}
-
-/// A validated issue worth solving - "who's hurt and how", scoped to a Product.
-/// Distinct from an Insight (raw research evidence); a Problem is the committed
-/// issue that enters the strategy pipeline. `impact`/`confidence` are the two
-/// prioritisation axes - ease is deliberately NOT scored here (it lives on the
-/// Approach later). `parkedAt`/`parkReason` are populated by a later slice but
-/// the columns exist now to avoid a second migration.
-model Problem {
-  id          String       @id @default(cuid())
-  productId   String
-  title       String
-  description String?
-  evidence    String?
-  category    String?
-  impact      Int?
-  confidence  Int?
-  stage       ProblemStage @default(IDEA)
-  parkedAt    DateTime?
-  parkReason  String?
-  createdById String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  product    Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy  User              @relation("ProblemCreatedBy", fields: [createdById], references: [id])
-  approaches ProblemApproach[]
-
-  @@index([productId])
-  @@index([stage])
-  @@index([createdById])
-}
-
-/// "Approaches" - the many-to-many link between a Problem and the Projects
-/// that tackle it (ADR-0008: an Approach IS a Project, not a new model). A
-/// Project can address several Problems; a Problem has several Approaches.
-model ProblemApproach {
-  problemId String
-  projectId String
-  createdAt DateTime @default(now())
-
-  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@id([problemId, projectId])
-  @@index([projectId])
-}
+// Pipeline Triage — Problem/ProblemApproach/ProblemStage removed (ADR-0036,
+// supersedes ADR-0008). A Problem is now an Insight of type PROBLEM; the general
+// triage fields on Insight (impact/confidence/category/evidence/parkedAt/
+// parkReason) absorb its extra columns. The Problem↔Project "Approach" links
+// (ProblemApproach) are intentionally discarded, not migrated.
 
 // ============================================
 // One2b Agent Models

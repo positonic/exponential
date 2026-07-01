@@ -13,9 +13,14 @@ const insightTypeEnum = z.enum([
   "JOURNEY",
   "OBSERVATION",
   "COMPETITIVE",
+  "PROBLEM",
 ]);
 
 const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "LINKED", "DISMISSED"]);
+
+// General triage scores (impact/confidence), 1–5. Usable by any insight type
+// (ADR-0036) — formerly Problem-only.
+const scoreSchema = z.number().int().min(1).max(5);
 
 async function loadInsightWithAccess(
   db: PrismaClient,
@@ -44,6 +49,11 @@ export const insightRouter = createTRPCRouter({
         productId: z.string(),
         type: insightTypeEnum.optional(),
         status: insightStatusEnum.optional(),
+        category: z.string().optional(),
+        // Parked insights are hidden by default — parking is independent of
+        // status (an insight keeps its status while parked). Pass true to
+        // include them (the "Show parked" toggle / a Parked lane).
+        includeParked: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -54,6 +64,8 @@ export const insightRouter = createTRPCRouter({
           productId: input.productId,
           ...(input.type ? { type: input.type } : {}),
           ...(input.status ? { status: input.status } : {}),
+          ...(input.category ? { category: input.category } : {}),
+          ...(input.includeParked ? {} : { parkedAt: null }),
         },
         orderBy: [{ createdAt: "desc" }],
         include: {
@@ -99,6 +111,11 @@ export const insightRouter = createTRPCRouter({
         source: boundedText("Source", 500).optional(),
         sentiment: z.enum(["positive", "neutral", "negative"]).optional(),
         status: insightStatusEnum.optional(),
+        // General triage fields (ADR-0036) — usable by any type.
+        evidence: boundedText("Evidence", TEXT_LIMITS.LARGE).optional(),
+        category: boundedText("Category", TEXT_LIMITS.LABEL).optional(),
+        impact: scoreSchema.optional(),
+        confidence: scoreSchema.optional(),
         featureIds: z.array(z.string()).optional(),
       }),
     )
@@ -114,6 +131,10 @@ export const insightRouter = createTRPCRouter({
             body: input.body,
             source: input.source,
             sentiment: input.sentiment,
+            evidence: input.evidence,
+            category: input.category,
+            impact: input.impact,
+            confidence: input.confidence,
             description: input.title,
             status: input.status ?? "INBOX",
             createdById: ctx.session.user.id,
@@ -155,6 +176,11 @@ export const insightRouter = createTRPCRouter({
         source: boundedText("Source", 500).nullable().optional(),
         sentiment: z.enum(["positive", "neutral", "negative"]).nullable().optional(),
         status: insightStatusEnum.optional(),
+        // General triage fields (ADR-0036).
+        evidence: boundedText("Evidence", TEXT_LIMITS.LARGE).nullable().optional(),
+        category: boundedText("Category", TEXT_LIMITS.LABEL).nullable().optional(),
+        impact: scoreSchema.nullable().optional(),
+        confidence: scoreSchema.nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -242,5 +268,37 @@ export const insightRouter = createTRPCRouter({
         });
       });
       return { success: true };
+    }),
+
+  // ── Parking ───────────────────────────────────────────────────────────
+  // A general, reversible "defer with a reason" affordance on any insight
+  // (ADR-0036) — set aside WITH A REASON, never deleted, and revivable at its
+  // prior status. Parked-ness is independent of `status`.
+
+  park: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        reason: boundedText("Reason", TEXT_LIMITS.MEDIUM, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      return ctx.db.insight.update({
+        where: { id: input.id },
+        data: { parkedAt: new Date(), parkReason: input.reason },
+      });
+    }),
+
+  unpark: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      // Clearing parkedAt/parkReason restores the insight at its prior status,
+      // which was never touched while parked.
+      return ctx.db.insight.update({
+        where: { id: input.id },
+        data: { parkedAt: null, parkReason: null },
+      });
     }),
 });
