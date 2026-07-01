@@ -422,7 +422,7 @@ export const crmApiRouter = createTRPCRouter({
 
       const existing = await ctx.db.crmContact.findUnique({
         where: { id },
-        select: { workspaceId: true },
+        select: { workspaceId: true, aiSourcedFields: true },
       });
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
@@ -456,6 +456,16 @@ export const crmApiRouter = createTRPCRouter({
         if (value !== undefined) {
           dbUpdate[field] = value ? encryptString(value) : null;
         }
+      }
+
+      // Human input is ground truth: any field edited here stops being
+      // AI-sourced (ADR-0036). dbUpdate's keys are exactly the fields changed.
+      const humanEditedKeys = Object.keys(dbUpdate);
+      const nextAiSourced = existing.aiSourcedFields.filter(
+        (f) => !humanEditedKeys.includes(f),
+      );
+      if (nextAiSourced.length !== existing.aiSourcedFields.length) {
+        dbUpdate.aiSourcedFields = nextAiSourced;
       }
 
       const contact = await ctx.db.crmContact.update({

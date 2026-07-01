@@ -14,6 +14,7 @@ import {
   Modal,
   Tooltip,
   Text,
+  Badge,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -35,6 +36,7 @@ import {
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
+import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
 import type { PastedScreenshot } from '~/app/_components/ActionModalForm';
 
 const PROFILE_TYPES = [
@@ -62,6 +64,8 @@ export interface EditContactDrawerContact {
   about: string | null;
   profileType: string | null;
   organizationId: string | null;
+  /** Field keys whose current value came from AI enrichment (see ADR-0036). */
+  aiSourcedFields?: string[];
 }
 
 interface EditContactDrawerProps {
@@ -141,6 +145,30 @@ function GroupLabel({
   );
 }
 
+/**
+ * Small badge marking a field whose value came from AI enrichment (ADR-0036).
+ * The agent can confidently pick the wrong same-named person, so enriched
+ * fields are flagged for a human to verify.
+ */
+function AiFieldBadge() {
+  return (
+    <Badge size="xs" variant="light" color="grape">
+      AI · verify
+    </Badge>
+  );
+}
+
+/** Label + optional "AI · verify" badge for a field, rendered inline. */
+function FieldLabel({ label, ai }: { label: string; ai: boolean }) {
+  if (!ai) return <>{label}</>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {label}
+      <AiFieldBadge />
+    </span>
+  );
+}
+
 export function EditContactDrawer({
   opened,
   onClose,
@@ -171,6 +199,12 @@ export function EditContactDrawer({
     <K extends keyof FormState>(key: K) =>
     (value: FormState[K]) =>
       setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Field keys whose value came from AI enrichment — badge them "AI · verify".
+  const aiFields = useMemo(
+    () => new Set(contact.aiSourcedFields ?? []),
+    [contact.aiSourcedFields],
+  );
 
   const { data: organizations } = api.crmOrganization.getAll.useQuery(
     { workspaceId, limit: 100 },
@@ -392,7 +426,9 @@ export function EditContactDrawer({
             </Chip.Group>
             <Select
               mt="md"
-              label="Company"
+              label={
+                <FieldLabel label="Company" ai={aiFields.has('organizationId')} />
+              }
               placeholder="Select organization…"
               data={
                 organizations?.organizations.map((org) => ({
@@ -411,7 +447,7 @@ export function EditContactDrawer({
           <section className="mb-7">
             <GroupLabel icon={<IconMail size={13} />}>Contact</GroupLabel>
             <TextInput
-              label="Email"
+              label={<FieldLabel label="Email" ai={aiFields.has('email')} />}
               type="email"
               leftSection={<IconMail size={15} />}
               value={form.email}
@@ -419,7 +455,7 @@ export function EditContactDrawer({
             />
             <TextInput
               mt="sm"
-              label="Phone"
+              label={<FieldLabel label="Phone" ai={aiFields.has('phone')} />}
               leftSection={<IconPhone size={15} />}
               placeholder="Add phone number"
               value={form.phone}
@@ -431,7 +467,7 @@ export function EditContactDrawer({
           <section className="mb-7">
             <GroupLabel icon={<IconShare3 size={13} />}>Social</GroupLabel>
             <TextInput
-              label="LinkedIn URL"
+              label={<FieldLabel label="LinkedIn URL" ai={aiFields.has('linkedIn')} />}
               type="url"
               leftSection={<IconBrandLinkedin size={15} />}
               value={form.linkedIn}
@@ -439,7 +475,7 @@ export function EditContactDrawer({
             />
             <TextInput
               mt="sm"
-              label="Telegram"
+              label={<FieldLabel label="Telegram" ai={aiFields.has('telegram')} />}
               leftSection={<IconBrandTelegram size={15} />}
               placeholder="username"
               value={form.telegram}
@@ -447,7 +483,7 @@ export function EditContactDrawer({
             />
             <TextInput
               mt="sm"
-              label="Twitter / X"
+              label={<FieldLabel label="Twitter / X" ai={aiFields.has('twitter')} />}
               leftSection={<IconBrandTwitter size={15} />}
               placeholder="handle"
               value={form.twitter}
@@ -455,7 +491,7 @@ export function EditContactDrawer({
             />
             <TextInput
               mt="sm"
-              label="GitHub"
+              label={<FieldLabel label="GitHub" ai={aiFields.has('github')} />}
               leftSection={<IconBrandGithub size={15} />}
               placeholder="username"
               value={form.github}
@@ -463,7 +499,7 @@ export function EditContactDrawer({
             />
             <TextInput
               mt="sm"
-              label="BlueSky"
+              label={<FieldLabel label="BlueSky" ai={aiFields.has('bluesky')} />}
               leftSection={<IconBrandBluesky size={15} />}
               placeholder="handle.bsky.social"
               value={form.bluesky}
@@ -473,7 +509,12 @@ export function EditContactDrawer({
 
           {/* Description — paste a screenshot here to attach it (like actions). */}
           <section className="mb-7">
-            <GroupLabel icon={<IconFileText size={13} />}>Description</GroupLabel>
+            <GroupLabel icon={<IconFileText size={13} />}>
+              <span className="inline-flex items-center gap-1.5">
+                Description
+                {aiFields.has('about') && <AiFieldBadge />}
+              </span>
+            </GroupLabel>
             <MarkdownInput
               value={form.about}
               onChange={(value) => set('about')(value)}
@@ -575,6 +616,7 @@ export function EditContactDrawer({
 
         {/* Footer */}
         <div className="flex shrink-0 items-center gap-2 border-t border-border-subtle px-4 py-3">
+          <EnrichContactButton contactId={contact.id} />
           <span className="text-xs text-text-muted">
             Changes aren&apos;t saved until you confirm.
           </span>
