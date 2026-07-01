@@ -92,7 +92,12 @@ export class CreateInsightDestination implements IFormDestination {
     // Human triage promotes it later. A configured PROBLEM (or an unknown type)
     // is coerced to the FEEDBACK default; the status is always INBOX.
     const type = this.resolveType(config.insightType);
-    const source = `form:${context.formSlug}`;
+    // Provenance stamp. Fall back to the formId if the slug is somehow empty,
+    // so `source` is never a bare "form:" (which would still match the origin
+    // filter but lose identity, and could collide with hand-typed sources).
+    const slug =
+      context.formSlug.length > 0 ? context.formSlug : context.formId;
+    const source = `form:${slug}`;
 
     const insight = await this.db.insight.create({
       data: {

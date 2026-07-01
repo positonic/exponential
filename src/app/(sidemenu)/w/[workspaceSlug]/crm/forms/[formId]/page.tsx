@@ -362,13 +362,32 @@ export default function FormEditorPage() {
       });
     }
     if (insightEnabled) {
+      // Surface the same requirements the server enforces (form.update) as
+      // immediate client-side feedback, rather than letting the save round-trip
+      // and fail with a BAD_REQUEST.
+      if (!insightProductId) {
+        notifications.show({
+          title: 'Missing product',
+          message: 'Create insight requires a target product.',
+          color: 'red',
+        });
+        return;
+      }
+      if (!insightTitleField) {
+        notifications.show({
+          title: 'Missing title mapping',
+          message: 'Create insight requires a field mapped to the insight title.',
+          color: 'red',
+        });
+        return;
+      }
       destinations.push({
         type: 'create_insight',
         config: {
-          productId: insightProductId ?? '',
+          productId: insightProductId,
           insightType: insightType ?? 'FEEDBACK',
           fieldMap: {
-            ...(insightTitleField ? { title: insightTitleField } : {}),
+            title: insightTitleField,
             ...(insightBodyField ? { body: insightBodyField } : {}),
           },
         },
