@@ -170,6 +170,7 @@ export async function POST(
     validation.clean,
     {
       formId: form.id,
+      formSlug: form.slug,
       workspaceId: form.workspaceId,
       submissionId: submission.id,
       ownerId: form.createdById,

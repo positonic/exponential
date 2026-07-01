@@ -5,6 +5,8 @@
  */
 export interface FormDestinationContext {
   formId: string;
+  /** The form's stable slug — stamped into `Insight.source` as `form:<slug>`. */
+  formSlug: string;
   workspaceId: string;
   submissionId: string;
   /** The form owner — used to attribute the created contact + automation run. */
