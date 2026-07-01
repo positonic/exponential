@@ -48,6 +48,12 @@ export interface KanbanBoardProps<T extends KanbanItem> {
   onMove: (itemId: string, toColumnId: string, toIndex: number) => void | Promise<unknown>;
   /** Accessible label for a11y drag announcements. Defaults to the item id. */
   getItemLabel?: (item: T) => string;
+  /**
+   * When true, drops are ignored: a card can be picked up but never moves or
+   * fires `onMove` (it snaps back). Used by boards whose current grouping isn't
+   * the mutable axis (e.g. Actions grouped by project/list/priority).
+   */
+  disabled?: boolean;
   /** Rendered instead of the board when there are no items. */
   emptyState?: ReactNode;
   /** Rendered inside a column body when that column has no items. */

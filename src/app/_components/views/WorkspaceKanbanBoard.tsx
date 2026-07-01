@@ -1,22 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  closestCenter,
-} from "@dnd-kit/core";
-import type { DragEndEvent, DragStartEvent, DragOverEvent } from "@dnd-kit/core";
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { ScrollArea, Group, Paper, Text } from "@mantine/core";
+import { useMemo } from "react";
+import { Paper, Text } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
-import { KanbanColumn } from "../KanbanColumn";
 import { TaskCard } from "../TaskCard";
+import { KanbanBoard as SharedKanbanBoard } from "../shared/kanban";
+import type { ColumnAccent, KanbanColumnDef, KanbanItem } from "../shared/kanban";
 import type { ViewGroupBy } from "~/types/view";
 
 type ActionStatus = "BACKLOG" | "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "CANCELLED";
@@ -70,6 +60,15 @@ interface WorkspaceKanbanBoardProps {
   groupBy?: ViewGroupBy;
 }
 
+// A board item carries its Action plus the column it currently sits in. The
+// item id is decoupled from the action id: in STATUS mode (the only draggable
+// axis) it IS the action id so the card's `useSortable` matches; in the other
+// modes it's composite so a single action can appear under multiple columns
+// (e.g. an action in several lists).
+interface BoardItem extends KanbanItem {
+  action: Action;
+}
+
 const STATUS_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
   { id: "BACKLOG", title: "Backlog", color: "gray" },
   { id: "TODO", title: "To Do", color: "blue" },
@@ -78,8 +77,6 @@ const STATUS_COLUMNS: { id: ActionStatus; title: string; color: string }[] = [
   { id: "DONE", title: "Done", color: "green" },
   { id: "CANCELLED", title: "Cancelled", color: "red" },
 ];
-
-type ColumnAccent = "slate" | "brand" | "amber" | "violet" | "green" | "red";
 
 function mapColorToAccent(color: string): ColumnAccent {
   switch (color) {
@@ -106,23 +103,29 @@ const priorityOrder: Record<string, number> = {
   'Remember': 9, 'Watch': 10
 };
 
-export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" }: WorkspaceKanbanBoardProps) {
-  const [activeTask, setActiveTask] = useState<Action | null>(null);
-  const [optimisticUpdates, setOptimisticUpdates] = useState<Record<string, ActionStatus>>({});
-  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+function sortActions(a: Action, b: Action): number {
+  const aOrder = a.kanbanOrder;
+  const bOrder = b.kanbanOrder;
+  if (aOrder != null && bOrder != null) return aOrder - bOrder;
+  if (aOrder != null) return -1;
+  if (bOrder != null) return 1;
 
+  const aStart = a.scheduledStart ? new Date(a.scheduledStart).getTime() : Infinity;
+  const bStart = b.scheduledStart ? new Date(b.scheduledStart).getTime() : Infinity;
+  if (aStart !== bStart) return aStart - bStart;
+
+  const priorityDiff = (priorityOrder[a.priority] ?? 999) - (priorityOrder[b.priority] ?? 999);
+  if (priorityDiff !== 0) return priorityDiff;
+
+  return a.id.localeCompare(b.id);
+}
+
+export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" }: WorkspaceKanbanBoardProps) {
   const utils = api.useUtils();
 
-  // Mutation for updating kanban status
+  // Only STATUS grouping mutates on drop; the shared board owns the optimistic
+  // move + rollback, so here we keep just the notification + invalidate.
   const updateKanbanStatusMutation = api.view.updateKanbanStatus.useMutation({
-    onMutate: async ({ actionId, kanbanStatus }) => {
-      // Only set if not already set by handleDragEnd (avoid duplicate render)
-      setOptimisticUpdates(prev => {
-        if (prev[actionId] === kanbanStatus) return prev;
-        return { ...prev, [actionId]: kanbanStatus };
-      });
-      return { actionId };
-    },
     onSuccess: () => {
       notifications.show({
         title: "Status Updated",
@@ -130,13 +133,7 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
         color: "green",
       });
     },
-    onError: (error, { actionId }) => {
-      // Rollback optimistic update
-      setOptimisticUpdates(prev => {
-        const newUpdates = { ...prev };
-        delete newUpdates[actionId];
-        return newUpdates;
-      });
+    onError: (error) => {
       notifications.show({
         title: "Update Failed",
         message: error.message || "Failed to update task status",
@@ -148,75 +145,47 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
     },
   });
 
-  // Apply optimistic updates
-  const actionsWithOptimisticUpdates = useMemo(() => {
-    return actions.map(action => ({
-      ...action,
-      kanbanStatus: optimisticUpdates[action.id] ?? action.kanbanStatus
-    }));
-  }, [actions, optimisticUpdates]);
-
-  // Get columns based on groupBy
-  const columns = useMemo(() => {
-    if (groupBy === "STATUS") {
-      return STATUS_COLUMNS;
-    }
-
+  // Column definitions for the current grouping (with a Mantine colour we map to
+  // the shared accent vocabulary).
+  const columns = useMemo<{ id: string; title: string; color: string }[]>(() => {
     if (groupBy === "PROJECT") {
-      // Get unique projects from actions
       const projectMap = new Map<string, { id: string; name: string }>();
-      actionsWithOptimisticUpdates.forEach(action => {
-        if (action.project) {
-          projectMap.set(action.project.id, action.project);
-        }
+      actions.forEach((action) => {
+        if (action.project) projectMap.set(action.project.id, action.project);
       });
-
-      const projectColumns = Array.from(projectMap.values()).map(project => ({
+      const projectColumns = Array.from(projectMap.values()).map((project) => ({
         id: project.id,
         title: project.name,
         color: "blue",
       }));
-
-      // Add "No Project" column if there are unassigned actions
-      const hasUnassigned = actionsWithOptimisticUpdates.some(a => !a.projectId);
-      if (hasUnassigned) {
-        return [{ id: "no-project", title: "No Project", color: "gray" }, ...projectColumns];
-      }
-      return projectColumns;
+      const hasUnassigned = actions.some((a) => !a.projectId);
+      return hasUnassigned
+        ? [{ id: "no-project", title: "No Project", color: "gray" }, ...projectColumns]
+        : projectColumns;
     }
 
     if (groupBy === "LIST") {
       const listMap = new Map<string, { id: string; name: string; listType: string }>();
-      actionsWithOptimisticUpdates.forEach(action => {
-        action.lists?.forEach(al => {
-          listMap.set(al.list.id, al.list);
-        });
+      actions.forEach((action) => {
+        action.lists?.forEach((al) => listMap.set(al.list.id, al.list));
       });
-
-      const listColumns = Array.from(listMap.values()).map(list => ({
+      const listColumns = Array.from(listMap.values()).map((list) => ({
         id: list.id,
         title: list.name,
         color: list.listType === "SPRINT" ? "blue" : "gray",
       }));
-
-      const hasUnassigned = actionsWithOptimisticUpdates.some(
-        a => !a.lists || a.lists.length === 0
-      );
-      if (hasUnassigned) {
-        return [{ id: "no-list", title: "No List", color: "gray" }, ...listColumns];
-      }
-      return listColumns;
+      const hasUnassigned = actions.some((a) => !a.lists || a.lists.length === 0);
+      return hasUnassigned
+        ? [{ id: "no-list", title: "No List", color: "gray" }, ...listColumns]
+        : listColumns;
     }
 
     if (groupBy === "PRIORITY") {
       const prioritySet = new Set<string>();
-      actionsWithOptimisticUpdates.forEach(action => {
-        prioritySet.add(action.priority);
-      });
-
+      actions.forEach((action) => prioritySet.add(action.priority));
       return Array.from(prioritySet)
         .sort((a, b) => (priorityOrder[a] ?? 999) - (priorityOrder[b] ?? 999))
-        .map(p => ({
+        .map((p) => ({
           id: p,
           title: p,
           color: (priorityOrder[p] ?? 999) <= 3 ? "red" : (priorityOrder[p] ?? 999) <= 5 ? "yellow" : "gray",
@@ -224,222 +193,76 @@ export function WorkspaceKanbanBoard({ workspaceId, actions, groupBy = "STATUS" 
     }
 
     return STATUS_COLUMNS;
-  }, [groupBy, actionsWithOptimisticUpdates]);
+  }, [groupBy, actions]);
 
-  // Group actions by the selected field
-  const actionsByGroup = useMemo(() => {
-    return columns.reduce((acc, column) => {
-      const columnActions = actionsWithOptimisticUpdates.filter(action => {
-        if (groupBy === "STATUS") {
-          return action.kanbanStatus === column.id ||
-            (column.id === "TODO" && !action.kanbanStatus);
-        }
-        if (groupBy === "PROJECT") {
-          return column.id === "no-project"
-            ? !action.projectId
-            : action.projectId === column.id;
-        }
-        if (groupBy === "LIST") {
-          if (column.id === "no-list") {
-            return !action.lists || action.lists.length === 0;
-          }
-          return action.lists?.some(al => al.list.id === column.id) ?? false;
-        }
-        if (groupBy === "PRIORITY") {
-          return action.priority === column.id;
-        }
-        return false;
-      });
+  // Whether an action belongs in a given column, for the active grouping.
+  const belongsInColumn = (action: Action, columnId: string): boolean => {
+    switch (groupBy) {
+      case "PROJECT":
+        return columnId === "no-project" ? !action.projectId : action.projectId === columnId;
+      case "LIST":
+        return columnId === "no-list"
+          ? !action.lists || action.lists.length === 0
+          : (action.lists?.some((al) => al.list.id === columnId) ?? false);
+      case "PRIORITY":
+        return action.priority === columnId;
+      case "STATUS":
+      default:
+        return action.kanbanStatus === columnId || (columnId === "TODO" && !action.kanbanStatus);
+    }
+  };
 
-      // Sort by kanbanOrder (manual positioning), then scheduledStart, then priority, then ID
-      acc[column.id] = columnActions.sort((a, b) => {
-        const aOrder = a.kanbanOrder;
-        const bOrder = b.kanbanOrder;
+  // Flatten to board items in column + sorted order. In STATUS mode the item id
+  // is the action id (draggable); otherwise it is composite so multi-column
+  // membership (lists) is preserved.
+  const items = useMemo<BoardItem[]>(() => {
+    const flattened: BoardItem[] = [];
+    for (const column of columns) {
+      const columnActions = actions.filter((a) => belongsInColumn(a, column.id)).sort(sortActions);
+      for (const action of columnActions) {
+        flattened.push({
+          id: groupBy === "STATUS" ? action.id : `${column.id}::${action.id}`,
+          columnId: column.id,
+          action,
+        });
+      }
+    }
+    return flattened;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns, actions, groupBy]);
 
-        // 1. Manual positioning takes precedence (if BOTH have kanbanOrder)
-        if (aOrder != null && bOrder != null) {
-          return aOrder - bOrder;
-        }
-        if (aOrder != null) return -1;
-        if (bOrder != null) return 1;
-
-        // 2. Sort by scheduledStart (ascending - earliest first, null/undefined at end)
-        const aScheduledStart = a.scheduledStart ? new Date(a.scheduledStart).getTime() : Infinity;
-        const bScheduledStart = b.scheduledStart ? new Date(b.scheduledStart).getTime() : Infinity;
-        if (aScheduledStart !== bScheduledStart) {
-          return aScheduledStart - bScheduledStart;
-        }
-
-        // 3. Sort by priority (1st Priority first)
-        const priorityDiff = (priorityOrder[a.priority] ?? 999) - (priorityOrder[b.priority] ?? 999);
-        if (priorityDiff !== 0) return priorityDiff;
-
-        // 4. Tiebreaker: by ID
-        return a.id.localeCompare(b.id);
-      });
-
-      return acc;
-    }, {} as Record<string, Action[]>);
-  }, [columns, actionsWithOptimisticUpdates, groupBy]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+  const sharedColumns = useMemo<KanbanColumnDef[]>(
+    () => columns.map((c) => ({ id: c.id, title: c.title, accent: mapColorToAccent(c.color) })),
+    [columns],
   );
 
-  const handleDragStart = (event: DragStartEvent) => {
-    const task = actionsWithOptimisticUpdates.find(action => action.id === event.active.id);
-    setActiveTask(task ?? null);
-    setDragOverTaskId(null);
-  };
-
-  const handleDragOver = (event: DragOverEvent) => {
-    const { over } = event;
-
-    if (over) {
-      const overId = over.id as string;
-      const isColumn = columns.some(col => col.id === overId);
-
-      if (!isColumn) {
-        setDragOverTaskId(overId);
-      } else {
-        setDragOverTaskId(null);
-      }
-    } else {
-      setDragOverTaskId(null);
-    }
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setDragOverTaskId(null);
-
-    if (!over) {
-      setActiveTask(null);
-      return;
-    }
-
-    const taskId = active.id as string;
-    const overId = over.id as string;
-
-    const task = actionsWithOptimisticUpdates.find(action => action.id === taskId);
-    if (!task) {
-      setActiveTask(null);
-      return;
-    }
-
-    if (updateKanbanStatusMutation.isPending) {
-      setActiveTask(null);
-      return;
-    }
-
-    // Only handle status changes for STATUS grouping
-    if (groupBy !== "STATUS") {
-      setActiveTask(null);
-      return;
-    }
-
-    // Determine the new status
-    const isColumn = columns.some(col => col.id === overId);
-    let newStatus: ActionStatus;
-
-    if (isColumn) {
-      newStatus = overId as ActionStatus;
-    } else {
-      // Dropped on another task - use that task's status
-      const targetTask = actionsWithOptimisticUpdates.find(action => action.id === overId);
-      if (!targetTask) {
-        setActiveTask(null);
-        return;
-      }
-      newStatus = targetTask.kanbanStatus ?? "TODO";
-    }
-
-    const currentStatus = optimisticUpdates[taskId] ?? task.kanbanStatus ?? "TODO";
-
-    if (currentStatus === newStatus) {
-      setActiveTask(null);
-      return;
-    }
-
-    // CRITICAL: Apply optimistic update BEFORE clearing activeTask
-    // This ensures the card is in its new position when DragOverlay disappears
-    setOptimisticUpdates(prev => ({ ...prev, [taskId]: newStatus }));
-
-    // NOW clear activeTask (DragOverlay disappears, but card is already in new position)
-    setActiveTask(null);
-
-    // Fire the mutation
-    updateKanbanStatusMutation.mutate({
-      actionId: taskId,
-      kanbanStatus: newStatus,
+  const handleMove = (itemId: string, toColumnId: string) => {
+    // Only reached in STATUS mode (the board is `disabled` otherwise), where the
+    // item id is the action id and the column id is the target status.
+    return updateKanbanStatusMutation.mutateAsync({
+      actionId: itemId,
+      kanbanStatus: toColumnId as ActionStatus,
     });
   };
 
-  const handleDragCancel = () => {
-    setActiveTask(null);
-    setDragOverTaskId(null);
-  };
-
-  if (!actions.length) {
-    return (
-      <Paper className="p-8 text-center bg-surface-primary">
-        <Text size="lg" c="dimmed">
-          No actions found
-        </Text>
-        <Text size="sm" className="text-text-secondary mt-2">
-          Actions from projects in this workspace will appear here.
-        </Text>
-      </Paper>
-    );
-  }
-
   return (
-    <div className="w-full" role="application" aria-label="Workspace Kanban board">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <ScrollArea>
-          <Group
-            gap="md"
-            align="flex-start"
-            wrap="nowrap"
-            className="pb-4"
-            style={{ minWidth: `${columns.length * 296}px` }}
-          >
-            {columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                id={column.id}
-                title={column.title}
-                accent={mapColorToAccent(column.color)}
-                tasks={actionsByGroup[column.id] ?? []}
-                dragOverTaskId={dragOverTaskId}
-              />
-            ))}
-          </Group>
-        </ScrollArea>
-
-        <DragOverlay>
-          {activeTask && (
-            <TaskCard
-              task={activeTask}
-              isDragging
-            />
-          )}
-        </DragOverlay>
-      </DndContext>
-    </div>
+    <SharedKanbanBoard<BoardItem>
+      columns={sharedColumns}
+      items={items}
+      onMove={handleMove}
+      disabled={groupBy !== "STATUS"}
+      getItemLabel={(item) => item.action.name}
+      renderCard={(item, { isOverlay }) => <TaskCard task={item.action} isDragging={isOverlay} />}
+      emptyState={
+        <Paper className="p-8 text-center bg-surface-primary">
+          <Text size="lg" c="dimmed">
+            No actions found
+          </Text>
+          <Text size="sm" className="text-text-secondary mt-2">
+            Actions from projects in this workspace will appear here.
+          </Text>
+        </Paper>
+      }
+    />
   );
 }
