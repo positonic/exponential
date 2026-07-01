@@ -1,5 +1,5 @@
 /**
- * Time-trap (ADR-0034): a human takes a few seconds to fill a form; a bot
+ * Time-trap (ADR-0036): a human takes a few seconds to fill a form; a bot
  * submits near-instantly. The public form reports how long it was on screen
  * (`elapsedMs`); the intake rejects implausibly fast fills like a honeypot hit.
  *
