@@ -11,11 +11,11 @@ import {
   dispatchContactEnrichment,
   enqueueContactEnrichment,
 } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
+import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 
 // Workspace roles allowed to spend enrichment budget (a paid web search + LLM
 // call per run). Viewers and project-only "guests" are excluded (ADR-0036).
 const ENRICH_ROLES = ["owner", "admin", "member"];
-import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 
 // Verify the signed-in user belongs to the workspace that owns `contactId`.
 // Throws NOT_FOUND / FORBIDDEN otherwise.
