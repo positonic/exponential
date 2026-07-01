@@ -333,6 +333,8 @@ export default function ResearchPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "board">("list");
   const [showParked, setShowParked] = useState(false);
+  const [parkTarget, setParkTarget] = useState<{ id: string; title: string } | null>(null);
+  const [parkReason, setParkReason] = useState("");
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -390,18 +392,16 @@ export default function ResearchPage() {
     });
   };
 
-  const handlePark = (id: string) => {
-    modals.openConfirmModal({
-      title: "Park insight",
-      children: (
-        <Text size="sm">
-          Parking defers this insight with a reason; it keeps its status and can be revived later.
-        </Text>
-      ),
-      labels: { confirm: "Park", cancel: "Cancel" },
-      // Reason is required by the API; a simple default keeps this one-click.
-      onConfirm: () => parkInsight.mutate({ id, reason: "Parked" }),
-    });
+  const openParkModal = (id: string, title: string) => {
+    setParkReason("");
+    setParkTarget({ id, title });
+  };
+
+  const confirmPark = () => {
+    const reason = parkReason.trim();
+    if (!parkTarget || !reason) return;
+    parkInsight.mutate({ id: parkTarget.id, reason });
+    setParkTarget(null);
   };
 
   if (!workspace) return null;
@@ -648,7 +648,7 @@ export default function ResearchPage() {
                         ) : (
                           <Menu.Item
                             leftSection={<IconPlayerPause size={14} />}
-                            onClick={() => handlePark(insight.id)}
+                            onClick={() => openParkModal(insight.id, insight.title)}
                           >
                             Park
                           </Menu.Item>
@@ -677,6 +677,38 @@ export default function ResearchPage() {
           productId={product.id}
         />
       )}
+
+      {/* Park modal — collects a meaningful reason (parking = defer WITH a reason). */}
+      <Modal
+        opened={!!parkTarget}
+        onClose={() => setParkTarget(null)}
+        title="Park insight"
+        size="md"
+      >
+        <Stack gap="md">
+          <Text size="sm" className="text-text-muted">
+            Parking defers &quot;{parkTarget?.title}&quot; with a reason; it keeps its status and can be
+            revived later.
+          </Text>
+          <Textarea
+            label="Reason"
+            placeholder="Why park this? e.g. out of scope, duplicate, insufficient evidence"
+            value={parkReason}
+            onChange={(e) => setParkReason(e.currentTarget.value)}
+            data-autofocus
+            autosize
+            minRows={2}
+            maxRows={5}
+            required
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setParkTarget(null)}>Cancel</Button>
+            <Button onClick={confirmPark} disabled={!parkReason.trim()} loading={parkInsight.isPending}>
+              Park
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
