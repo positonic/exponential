@@ -114,7 +114,7 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
-  // Time-trap (ADR-0034): reject implausibly fast fills like a honeypot hit —
+  // Time-trap (ADR-0036): reject implausibly fast fills like a honeypot hit —
   // record, skip destinations, fake success so bots learn nothing.
   if (isTooFastSubmission(body.elapsedMs)) {
     await db.formSubmission.create({

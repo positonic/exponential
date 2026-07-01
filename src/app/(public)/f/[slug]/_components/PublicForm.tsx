@@ -57,7 +57,7 @@ export function PublicForm({
   // localStorage on load, then persist them debounced as the applicant types.
   const [restored, setRestored] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  // Time-trap (ADR-0034): record when the form was presented so the intake can
+  // Time-trap (ADR-0036): record when the form was presented so the intake can
   // reject implausibly fast (bot) submissions.
   const renderedAtRef = useRef<number | null>(null);
   useEffect(() => {
