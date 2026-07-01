@@ -102,37 +102,38 @@ async function enrichOne(db: PrismaClient, enrichmentId: string): Promise<void> 
 
   const name = [contact.firstName, contact.lastName].filter(Boolean).join(" ").trim();
 
-  // Tell the agent which contactable fields are ALREADY populated by name only —
-  // presence, never the decrypted value. This keeps the "only fill empty fields"
-  // guidance actionable without decrypting PII into the prompt (and thus into the
-  // external agent request / model context). Presence is a plain null-check on
-  // the encrypted columns; no decryption needed.
-  const alreadySet: string[] = [];
-  if (contact.email != null) alreadySet.push("email");
-  if (contact.phone != null) alreadySet.push("phone");
-  if (contact.linkedIn != null) alreadySet.push("LinkedIn");
-  if (contact.twitter != null) alreadySet.push("Twitter");
-  if (contact.github != null) alreadySet.push("GitHub");
-  if (contact.bluesky != null) alreadySet.push("Bluesky");
+  // Provenance (ADR-0036). A field already populated by a HUMAN (present but not
+  // in aiSourcedFields) is locked — the agent must not touch it. Empty fields, or
+  // fields still AI-sourced, are fair game (fill or refresh). Presence is a plain
+  // null-check on the (encrypted) columns; no PII is decrypted.
+  const aiSourced = new Set(contact.aiSourcedFields);
+  const contactRow = contact as unknown as Record<string, unknown>;
+  const humanLocked = ENRICHABLE_FIELDS.filter(
+    (f) => isFieldPresent(contactRow, f.key) && !aiSourced.has(f.key),
+  );
 
   const known: string[] = [];
-  if (contact.about) known.push(`Bio: ${contact.about}`);
   if (contact.organization?.name) known.push(`Organization: ${contact.organization.name}`);
   if (contact.tags?.length) known.push(`Tags: ${contact.tags.join(", ")}`);
-  if (alreadySet.length) {
-    known.push(`Already-populated fields (do NOT overwrite): ${alreadySet.join(", ")}`);
-  }
 
   const prompt = [
     `Enrich the CRM contact with id "${contact.id}" (workspace "${contact.workspaceId}").`,
     name ? `Name: ${name}.` : "Name unknown.",
-    known.length ? `Already known:\n${known.join("\n")}` : "No other details known.",
+    known.length ? `Context:\n${known.join("\n")}` : "No other details known.",
     "",
     "Web-search this person, then update the contact (contactId above) with any",
-    "new details you can verify: email, LinkedIn, Twitter/X, a concise bio (about),",
-    "and their current organization. Only fill fields that are currently empty —",
-    "never overwrite an existing value. Link the organization by name if found.",
-  ].join("\n");
+    "details you can verify: email, LinkedIn, Twitter/X, a concise bio (about), and",
+    "their current organization (link by name if found).",
+    humanLocked.length
+      ? `Do NOT modify these human-verified fields — leave them exactly as they are: ${humanLocked
+          .map((f) => f.label)
+          .join(", ")}.`
+      : "",
+    "You may fill any empty field, and may correct a field only if it was itself",
+    "AI-suggested. Never invent a value you cannot verify.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const res = await fetch(`${MASTRA_API_URL}/api/agents/enrichmentAgent/generate`, {
     method: "POST",
@@ -162,10 +163,54 @@ async function enrichOne(db: PrismaClient, enrichmentId: string): Promise<void> 
     );
   }
 
-  // Deliberately do NOT persist the agent's free-text response: it can echo
-  // back PII it found/confirmed (e.g. the contact's email), and metadata is a
-  // plaintext JSONB column — storing it there would undercut the encryption-at-
-  // rest guarantee for contact PII. The enrichment result is already reflected
-  // on the contact record itself (the source of truth), and this job's
-  // status/timestamps provide the audit trail.
+  // Provenance write-back (ADR-0036): re-read the contact and mark which
+  // enrichable fields are now AI-sourced — anything present that the agent was
+  // free to write (i.e. not human-locked). Only presence is inspected; no PII is
+  // decrypted or stored. We deliberately do NOT persist the agent's free-text
+  // response (it can echo PII into the plaintext metadata column).
+  const after = await db.crmContact.findUniqueOrThrow({
+    where: { id: contact.id },
+    select: {
+      email: true,
+      phone: true,
+      linkedIn: true,
+      telegram: true,
+      twitter: true,
+      github: true,
+      bluesky: true,
+      about: true,
+      organizationId: true,
+    },
+  });
+  const afterRow = after as unknown as Record<string, unknown>;
+  const lockedKeys = new Set(humanLocked.map((f) => f.key));
+  const nextAiSourced = ENRICHABLE_FIELDS.filter(
+    (f) => isFieldPresent(afterRow, f.key) && !lockedKeys.has(f.key),
+  ).map((f) => f.key);
+
+  await db.crmContact.update({
+    where: { id: contact.id },
+    data: { aiSourcedFields: nextAiSourced },
+  });
+}
+
+// The contact fields enrichment may write, with human-facing labels. `about` is
+// treated empty when blank; the rest are empty when null (encrypted PII columns
+// are null when unset, so presence needs no decryption).
+const ENRICHABLE_FIELDS = [
+  { key: "email", label: "email" },
+  { key: "phone", label: "phone" },
+  { key: "linkedIn", label: "LinkedIn" },
+  { key: "telegram", label: "Telegram" },
+  { key: "twitter", label: "Twitter" },
+  { key: "github", label: "GitHub" },
+  { key: "bluesky", label: "Bluesky" },
+  { key: "about", label: "bio" },
+  { key: "organizationId", label: "organization" },
+] as const;
+
+function isFieldPresent(row: Record<string, unknown>, key: string): boolean {
+  const v = row[key];
+  if (key === "about") return typeof v === "string" && v.trim().length > 0;
+  return v != null;
 }
