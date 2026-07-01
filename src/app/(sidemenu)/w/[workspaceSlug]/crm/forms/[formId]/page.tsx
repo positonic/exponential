@@ -65,6 +65,20 @@ const CONTACT_SLOTS = [
 
 type ContactSlot = (typeof CONTACT_SLOTS)[number]['key'];
 
+// create_insight (ADR-0037): a form lands a raw Insight in INBOX. A form must
+// NEVER produce a `PROBLEM` — that is a triaged state reached only by a human —
+// so PROBLEM is intentionally absent from the picker (the destination also
+// coerces it to FEEDBACK defensively).
+const INSIGHT_TYPE_OPTIONS = [
+  { value: 'FEEDBACK', label: 'Feedback' },
+  { value: 'PAIN_POINT', label: 'Pain point' },
+  { value: 'OPPORTUNITY', label: 'Opportunity' },
+  { value: 'PERSONA', label: 'Persona' },
+  { value: 'JOURNEY', label: 'Journey' },
+  { value: 'OBSERVATION', label: 'Observation' },
+  { value: 'COMPETITIVE', label: 'Competitive' },
+] as const;
+
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -107,6 +121,14 @@ export default function FormEditorPage() {
   const [dealFieldMap, setDealFieldMap] = useState<
     Record<ContactSlot, string | null>
   >({ email: null, firstName: null, lastName: null, company: null });
+  // create_insight destination (ADR-0037): land a raw product Insight in INBOX.
+  const [insightEnabled, setInsightEnabled] = useState(false);
+  const [insightProductId, setInsightProductId] = useState<string | null>(null);
+  const [insightType, setInsightType] = useState<string | null>('FEEDBACK');
+  const [insightTitleField, setInsightTitleField] = useState<string | null>(
+    null,
+  );
+  const [insightBodyField, setInsightBodyField] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   // Mirror `dirty` in a ref so the hydration effect can read it without
   // re-subscribing to it. We only re-hydrate from the server when there are
@@ -124,6 +146,12 @@ export default function FormEditorPage() {
   );
   const dealStages =
     pipelines?.find((p) => p.id === dealPipelineId)?.pipelineStages ?? [];
+  // Products for the create_insight target picker — scoped to this form's
+  // workspace (the destination re-checks the product belongs to it at submit).
+  const { data: products } = api.product.product.list.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: !!workspaceId },
+  );
 
   useEffect(() => {
     const data = query.data;
@@ -205,6 +233,29 @@ export default function FormEditorPage() {
       });
     } else {
       setDealEnabled(false);
+    }
+    const insight = asArray(data.destinations).find(
+      (d) => (d as { type?: string }).type === 'create_insight',
+    ) as { config?: Record<string, unknown> } | undefined;
+    if (insight?.config) {
+      setInsightEnabled(true);
+      setInsightProductId(
+        typeof insight.config.productId === 'string'
+          ? insight.config.productId
+          : null,
+      );
+      setInsightType(
+        typeof insight.config.insightType === 'string'
+          ? insight.config.insightType
+          : 'FEEDBACK',
+      );
+      const imap = (insight.config.fieldMap ?? {}) as Record<string, unknown>;
+      setInsightTitleField(
+        typeof imap.title === 'string' ? imap.title : null,
+      );
+      setInsightBodyField(typeof imap.body === 'string' ? imap.body : null);
+    } else {
+      setInsightEnabled(false);
     }
     markDirty(false);
   }, [query.data]);
@@ -307,6 +358,38 @@ export default function FormEditorPage() {
           ...(dealTitleTemplate.trim()
             ? { dealTitleTemplate: dealTitleTemplate.trim() }
             : {}),
+        },
+      });
+    }
+    if (insightEnabled) {
+      // Surface the same requirements the server enforces (form.update) as
+      // immediate client-side feedback, rather than letting the save round-trip
+      // and fail with a BAD_REQUEST.
+      if (!insightProductId) {
+        notifications.show({
+          title: 'Missing product',
+          message: 'Create insight requires a target product.',
+          color: 'red',
+        });
+        return;
+      }
+      if (!insightTitleField) {
+        notifications.show({
+          title: 'Missing title mapping',
+          message: 'Create insight requires a field mapped to the insight title.',
+          color: 'red',
+        });
+        return;
+      }
+      destinations.push({
+        type: 'create_insight',
+        config: {
+          productId: insightProductId,
+          insightType: insightType ?? 'FEEDBACK',
+          fieldMap: {
+            title: insightTitleField,
+            ...(insightBodyField ? { body: insightBodyField } : {}),
+          },
         },
       });
     }
@@ -654,6 +737,87 @@ export default function FormEditorPage() {
                   w={200}
                 />
               ))}
+            </Group>
+          </Stack>
+        )}
+      </Card>
+
+      <Card withBorder padding="md">
+        <Group justify="space-between" mb="sm">
+          <Box>
+            <Text fw={600}>When submitted → Create product insight</Text>
+            <Text c="dimmed" size="xs">
+              Lands one raw Insight in a product&rsquo;s Inbox for the team to
+              triage. No contact or deal is created.
+            </Text>
+          </Box>
+          <Switch
+            checked={insightEnabled}
+            onChange={(e) => {
+              setInsightEnabled(e.currentTarget.checked);
+              touch();
+            }}
+          />
+        </Group>
+        {insightEnabled && (
+          <Stack gap="sm">
+            <Group gap="sm" wrap="wrap" align="flex-end">
+              <Select
+                label="Product *"
+                placeholder="Select a product"
+                data={(products ?? []).map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                }))}
+                value={insightProductId}
+                onChange={(value) => {
+                  setInsightProductId(value);
+                  touch();
+                }}
+                searchable
+                w={260}
+              />
+              <Select
+                label="Insight type"
+                data={INSIGHT_TYPE_OPTIONS.map((t) => ({
+                  value: t.value,
+                  label: t.label,
+                }))}
+                value={insightType}
+                onChange={(value) => {
+                  setInsightType(value);
+                  touch();
+                }}
+                allowDeselect={false}
+                w={200}
+              />
+            </Group>
+            <Divider label="Map form fields → insight" labelPosition="left" />
+            <Group gap="sm" wrap="wrap">
+              <Select
+                label="Title *"
+                placeholder="Select a field"
+                data={fieldKeyOptions}
+                value={insightTitleField}
+                onChange={(value) => {
+                  setInsightTitleField(value);
+                  touch();
+                }}
+                clearable
+                w={220}
+              />
+              <Select
+                label="Body"
+                placeholder="Select a field"
+                data={fieldKeyOptions}
+                value={insightBodyField}
+                onChange={(value) => {
+                  setInsightBodyField(value);
+                  touch();
+                }}
+                clearable
+                w={220}
+              />
             </Group>
           </Stack>
         )}

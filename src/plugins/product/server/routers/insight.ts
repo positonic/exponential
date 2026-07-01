@@ -18,6 +18,11 @@ const insightTypeEnum = z.enum([
 
 const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "LINKED", "DISMISSED"]);
 
+// Provenance filter (ADR-0037). An insight "came from a form" iff its `source`
+// starts with `form:` (stamped by the `create_insight` destination). `manual`
+// is everything else; `all` (default) applies no source filter.
+const insightOriginEnum = z.enum(["form", "manual", "all"]);
+
 // General triage scores (impact/confidence), 1–5. Usable by any insight type
 // (ADR-0036) — formerly Problem-only.
 const scoreSchema = z.number().int().min(1).max(5);
@@ -50,6 +55,10 @@ export const insightRouter = createTRPCRouter({
         type: insightTypeEnum.optional(),
         status: insightStatusEnum.optional(),
         category: z.string().optional(),
+        // Provenance filter (ADR-0037): `form` = came in via a form
+        // (`source` starts with `form:`), `manual` = anything else, `all`
+        // (default) applies no source filter.
+        origin: insightOriginEnum.optional(),
         // Parked insights are hidden by default — parking is independent of
         // status (an insight keeps its status while parked). Pass true to
         // include them (the "Show parked" toggle / a Parked lane).
@@ -59,12 +68,28 @@ export const insightRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
+      // Translate the origin filter into a `source` predicate. `form` matches
+      // the `form:` prefix stamped by the create_insight destination; `manual`
+      // excludes it (NULL sources are manual too).
+      const originWhere =
+        input.origin === "form"
+          ? { source: { startsWith: "form:" } }
+          : input.origin === "manual"
+            ? {
+                OR: [
+                  { source: null },
+                  { NOT: { source: { startsWith: "form:" } } },
+                ],
+              }
+            : {};
+
       return ctx.db.insight.findMany({
         where: {
           productId: input.productId,
           ...(input.type ? { type: input.type } : {}),
           ...(input.status ? { status: input.status } : {}),
           ...(input.category ? { category: input.category } : {}),
+          ...originWhere,
           ...(input.includeParked ? {} : { parkedAt: null }),
         },
         orderBy: [{ createdAt: "desc" }],

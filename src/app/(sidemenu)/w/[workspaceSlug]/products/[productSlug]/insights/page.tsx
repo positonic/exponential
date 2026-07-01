@@ -54,6 +54,23 @@ import {
 
 const SCORE_OPTIONS = ["1", "2", "3", "4", "5"].map((v) => ({ value: v, label: v }));
 
+// Provenance filter (ADR-0037). `form` = arrived via a form (source starts with
+// `form:`), `manual` = everything else, `all` = both.
+type InsightOrigin = "all" | "form" | "manual";
+
+/**
+ * Render an insight's `source` readably. A form-stamped source is
+ * `form:<slug>`; show it as "Form: <slug>" rather than the raw prefix. Anything
+ * else is shown verbatim.
+ */
+function formatSource(source: string): string {
+  if (source.startsWith("form:")) {
+    const slug = source.slice("form:".length);
+    return slug ? `Form: ${slug}` : "Form";
+  }
+  return source;
+}
+
 // ---------------------------------------------------------------------------
 // Create modal
 // ---------------------------------------------------------------------------
@@ -332,6 +349,7 @@ export default function ResearchPage() {
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [view, setView] = useState<"list" | "board">("list");
+  const [origin, setOrigin] = useState<InsightOrigin>("all");
   const [showParked, setShowParked] = useState(false);
   const [parkTarget, setParkTarget] = useState<{ id: string; title: string } | null>(null);
   const [parkReason, setParkReason] = useState("");
@@ -342,7 +360,7 @@ export default function ResearchPage() {
   );
 
   const { data: insights, isLoading } = api.product.insight.list.useQuery(
-    { productId: product?.id ?? "", includeParked: showParked },
+    { productId: product?.id ?? "", includeParked: showParked, origin },
     { enabled: !!product?.id },
   );
 
@@ -444,6 +462,18 @@ export default function ResearchPage() {
         </div>
 
         <div className="flex-1" />
+
+        {/* Origin filter (ADR-0037) — form-sourced vs manual insights. */}
+        <SegmentedControl
+          size="xs"
+          value={origin}
+          onChange={(v) => setOrigin(v as InsightOrigin)}
+          data={[
+            { value: "all", label: "All" },
+            { value: "form", label: "Form" },
+            { value: "manual", label: "Manual" },
+          ]}
+        />
 
         <Switch
           size="xs"
@@ -601,7 +631,7 @@ export default function ResearchPage() {
                       )}
                       {insight.source && (
                         <Text size="xs" className="text-text-muted">
-                          {insight.source}
+                          {formatSource(insight.source)}
                         </Text>
                       )}
                       {product && (
