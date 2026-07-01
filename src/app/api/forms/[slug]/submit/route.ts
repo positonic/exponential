@@ -8,6 +8,7 @@ import {
 } from "~/server/services/forms/formSchema";
 import { runFormDestinations } from "~/server/services/forms/runDestinations";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
+import { isTooFastSubmission } from "~/server/services/forms/timeTrap";
 
 /**
  * Public **Forms intake** (ADR-0029): POST /api/forms/[slug]/submit. Validates
@@ -70,9 +71,13 @@ export async function POST(
     );
   }
 
-  let body: { data?: unknown; honeypot?: unknown };
+  let body: { data?: unknown; honeypot?: unknown; elapsedMs?: unknown };
   try {
-    body = (await request.json()) as { data?: unknown; honeypot?: unknown };
+    body = (await request.json()) as {
+      data?: unknown;
+      honeypot?: unknown;
+      elapsedMs?: unknown;
+    };
   } catch {
     return NextResponse.json(
       { ok: false, error: "Invalid request body" },
@@ -104,6 +109,23 @@ export async function POST(
         formId: form.id,
         data: {},
         metadata: { ip, honeypotTripped: true } as Prisma.InputJsonValue,
+      },
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Time-trap (ADR-0034): reject implausibly fast fills like a honeypot hit —
+  // record, skip destinations, fake success so bots learn nothing.
+  if (isTooFastSubmission(body.elapsedMs)) {
+    await db.formSubmission.create({
+      data: {
+        formId: form.id,
+        data: {},
+        metadata: {
+          ip,
+          timeTrapped: true,
+          elapsedMs: typeof body.elapsedMs === "number" ? body.elapsedMs : null,
+        } as Prisma.InputJsonValue,
       },
     });
     return NextResponse.json({ ok: true });
