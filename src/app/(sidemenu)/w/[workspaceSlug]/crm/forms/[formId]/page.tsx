@@ -292,7 +292,7 @@ export default function FormEditorPage() {
         message: data.isActive
           ? `Now accepting submissions at /f/${data.slug}`
           : 'The public link is no longer live.',
-        color: 'green',
+        color: data.isActive ? 'green' : 'gray',
       });
       void utils.form.get.invalidate({ id });
       void utils.form.list.invalidate();

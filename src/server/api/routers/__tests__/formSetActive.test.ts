@@ -136,6 +136,7 @@ describe("form.setActive (mocked)", () => {
     expect(dbMock.form.update).toHaveBeenCalledWith({
       where: { id: formId },
       data: { isActive: true },
+      select: { id: true, isActive: true, slug: true },
     });
   });
 
@@ -154,6 +155,7 @@ describe("form.setActive (mocked)", () => {
     expect(dbMock.form.update).toHaveBeenCalledWith({
       where: { id: formId },
       data: { isActive: false },
+      select: { id: true, isActive: true, slug: true },
     });
   });
 

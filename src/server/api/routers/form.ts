@@ -93,6 +93,8 @@ export const formRouter = createTRPCRouter({
       return ctx.db.form.update({
         where: { id: input.id },
         data: { isActive: input.isActive },
+        // Only what the switch UI consumes — keeps the contract explicit.
+        select: { id: true, isActive: true, slug: true },
       });
     }),
 
