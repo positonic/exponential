@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { type PrismaClient, type Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { uniqueFormSlug } from "~/server/services/forms/formSlug";
+import { slugify } from "~/utils/slugify";
 import {
   formFieldSchema,
   formDestinationSchema,
@@ -96,6 +97,62 @@ export const formRouter = createTRPCRouter({
         // Only what the switch UI consumes — keeps the contract explicit.
         select: { id: true, isActive: true, slug: true },
       });
+    }),
+
+  /**
+   * Rename a form's public slug (deferred in ADR-0029, now needed: the slug is
+   * frozen from the form's *initial* name, so a "test" placeholder sticks).
+   * The requested slug is normalized with the same `slugify` used at create; a
+   * collision with another form is rejected (CONFLICT) rather than silently
+   * deduped — the caller asked for a specific URL, so surprising them with
+   * `test_2` is worse than an error. Renaming breaks the old /f/ URL (no
+   * redirect table in v1) and leaves historical `source = "form:<old-slug>"`
+   * insight provenance untouched — both accepted, surfaced in the editor UI.
+   */
+  updateSlug: protectedProcedure
+    .input(z.object({ id: z.string(), slug: z.string().min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const form = await loadFormForUser(ctx.db, input.id, ctx.session.user.id);
+      const desired = slugify(input.slug) || "";
+      if (!desired) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The slug must contain at least one letter or number.",
+        });
+      }
+      if (desired === form.slug) {
+        return { id: form.id, slug: form.slug };
+      }
+      const clash = await ctx.db.form.findUnique({
+        where: { slug: desired },
+        select: { id: true },
+      });
+      if (clash && clash.id !== form.id) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `"/f/${desired}" is already taken by another form.`,
+        });
+      }
+      try {
+        return await ctx.db.form.update({
+          where: { id: input.id },
+          data: { slug: desired },
+          select: { id: true, slug: true },
+        });
+      } catch (err) {
+        // The probe→write pair is not atomic; the DB @unique constraint is the
+        // real guard. Translate a lost race into the same clean CONFLICT.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === "P2002"
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"/f/${desired}" is already taken by another form.`,
+          });
+        }
+        throw err;
+      }
     }),
 
   update: protectedProcedure
