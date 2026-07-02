@@ -24,6 +24,8 @@ export default async function PublicFormPage({
       confirmationMessage={form.confirmationMessage}
       offerApplicantAccount={form.offerApplicantAccount}
       applicantAccountPrompt={form.applicantAccountPrompt}
+      submitLabel={form.submitLabel}
+      footnote={form.footnote}
     />
   );
 }

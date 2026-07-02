@@ -41,7 +41,17 @@ import { DEFAULT_APPLICANT_ACCOUNT_PROMPT } from '~/lib/forms/applicantAccountPr
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
-type FieldType = 'text' | 'email' | 'textarea' | 'select' | 'checkbox' | 'url';
+type FieldType =
+  | 'text'
+  | 'email'
+  | 'textarea'
+  | 'select'
+  | 'checkbox'
+  | 'checkbox_group'
+  | 'url';
+
+/** Field types that render a free-text input and so can carry a placeholder. */
+const PLACEHOLDER_TYPES: FieldType[] = ['text', 'email', 'textarea', 'url'];
 
 interface EditorField {
   key: string;
@@ -49,6 +59,7 @@ interface EditorField {
   type: FieldType;
   required: boolean;
   options: string[];
+  placeholder: string;
 }
 
 const FIELD_TYPE_OPTIONS = [
@@ -57,6 +68,7 @@ const FIELD_TYPE_OPTIONS = [
   { value: 'textarea', label: 'Long text' },
   { value: 'select', label: 'Dropdown' },
   { value: 'checkbox', label: 'Checkbox' },
+  { value: 'checkbox_group', label: 'Checkboxes (multi)' },
   { value: 'url', label: 'URL / link' },
 ];
 
@@ -111,6 +123,9 @@ export default function FormEditorPage() {
   // ('' = use the built-in default copy).
   const [offerAccount, setOfferAccount] = useState(true);
   const [accountPrompt, setAccountPrompt] = useState('');
+  // Public renderer copy overrides ('' = use the defaults).
+  const [submitLabel, setSubmitLabel] = useState('');
+  const [footnote, setFootnote] = useState('');
   const [fields, setFields] = useState<EditorField[]>([]);
   const [crmEnabled, setCrmEnabled] = useState(false);
   const [customerType, setCustomerType] = useState<string | null>(null);
@@ -176,6 +191,8 @@ export default function FormEditorPage() {
     setConfirmationMessage(data.confirmationMessage ?? '');
     setOfferAccount(data.offerApplicantAccount);
     setAccountPrompt(data.applicantAccountPrompt ?? '');
+    setSubmitLabel(data.submitLabel ?? '');
+    setFootnote(data.footnote ?? '');
     setFields(
       asArray(data.fields).map((f) => {
         const field = f as Partial<EditorField>;
@@ -185,6 +202,7 @@ export default function FormEditorPage() {
           type: field.type ?? 'text',
           required: field.required ?? false,
           options: Array.isArray(field.options) ? field.options : [],
+          placeholder: field.placeholder ?? '',
         };
       }),
     );
@@ -344,7 +362,14 @@ export default function FormEditorPage() {
   const addField = () => {
     setFields((prev) => [
       ...prev,
-      { key: '', label: '', type: 'text', required: false, options: [] },
+      {
+        key: '',
+        label: '',
+        type: 'text',
+        required: false,
+        options: [],
+        placeholder: '',
+      },
     ]);
     touch();
   };
@@ -385,7 +410,12 @@ export default function FormEditorPage() {
       label: f.label.trim() || f.key,
       type: f.type,
       required: f.required,
-      ...(f.type === 'select' ? { options: f.options } : {}),
+      ...(f.type === 'select' || f.type === 'checkbox_group'
+        ? { options: f.options }
+        : {}),
+      ...(PLACEHOLDER_TYPES.includes(f.type) && f.placeholder.trim()
+        ? { placeholder: f.placeholder.trim() }
+        : {}),
     }));
     const destinations: { type: string; config: Record<string, unknown> }[] =
       [];
@@ -464,6 +494,8 @@ export default function FormEditorPage() {
       confirmationMessage: confirmationMessage.trim() || null,
       offerApplicantAccount: offerAccount,
       applicantAccountPrompt: accountPrompt.trim() || null,
+      submitLabel: submitLabel.trim() || null,
+      footnote: footnote.trim() || null,
     });
   };
 
@@ -669,12 +701,23 @@ export default function FormEditorPage() {
                     updateField(index, { required: e.currentTarget.checked })
                   }
                 />
-                {field.type === 'select' && (
+                {(field.type === 'select' ||
+                  field.type === 'checkbox_group') && (
                   <TagsInput
                     label="Options"
                     value={field.options}
                     onChange={(value) => updateField(index, { options: value })}
                     w={220}
+                  />
+                )}
+                {PLACEHOLDER_TYPES.includes(field.type) && (
+                  <TextInput
+                    label="Placeholder"
+                    value={field.placeholder}
+                    onChange={(e) =>
+                      updateField(index, { placeholder: e.currentTarget.value })
+                    }
+                    w={180}
                   />
                 )}
                 <Group gap={2}>
@@ -951,6 +994,29 @@ export default function FormEditorPage() {
         autosize
         minRows={2}
       />
+
+      <Group grow align="flex-start">
+        <TextInput
+          label="Submit button label"
+          description="Leave empty for “Submit”."
+          placeholder="Submit"
+          value={submitLabel}
+          onChange={(e) => {
+            setSubmitLabel(e.currentTarget.value);
+            touch();
+          }}
+        />
+        <TextInput
+          label="Footnote"
+          description="Small note under the submit button."
+          placeholder="We’ll only use your email for updates and follow-ups."
+          value={footnote}
+          onChange={(e) => {
+            setFootnote(e.currentTarget.value);
+            touch();
+          }}
+        />
+      </Group>
 
       <Card withBorder padding="md">
         <Stack gap="sm">

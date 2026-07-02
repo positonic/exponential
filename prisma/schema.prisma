@@ -2840,6 +2840,11 @@ model Form {
   // Defaults preserve pre-existing behaviour (offer shown, default copy).
   offerApplicantAccount  Boolean @default(true)
   applicantAccountPrompt String? @db.Text
+  // Public renderer copy overrides: the submit button label (null = "Submit")
+  // and a small dimmed note rendered under the button (null = nothing) —
+  // e.g. "We'll only use your email for updates and follow-ups."
+  submitLabel String?
+  footnote    String? @db.Text
   createdById         String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

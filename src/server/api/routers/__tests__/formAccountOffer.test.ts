@@ -157,7 +157,25 @@ describe("form.update — applicant account offer (mocked)", () => {
     },
   );
 
-  it("leaves both untouched when omitted from the payload", async () => {
+  it("persists submit-label and footnote overrides, normalizing empty to null", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.form.update({
+      id: formId,
+      submitLabel: "Count me in",
+      footnote: "   ",
+    });
+
+    expect(dbMock.form.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          submitLabel: "Count me in",
+          footnote: null,
+        }),
+      }),
+    );
+  });
+
+  it("leaves all copy fields untouched when omitted from the payload", async () => {
     const caller = createMockCaller({ userId: callerId, db: dbMock });
     await caller.form.update({ id: formId, name: "Renamed" });
 
@@ -166,6 +184,8 @@ describe("form.update — applicant account offer (mocked)", () => {
         data: expect.objectContaining({
           offerApplicantAccount: undefined,
           applicantAccountPrompt: undefined,
+          submitLabel: undefined,
+          footnote: undefined,
         }),
       }),
     );

@@ -26,7 +26,14 @@ import { loadDraft, saveDraft, clearDraft } from './formDraft';
 interface PublicField {
   key: string;
   label: string;
-  type: 'text' | 'email' | 'textarea' | 'select' | 'checkbox' | 'url';
+  type:
+    | 'text'
+    | 'email'
+    | 'textarea'
+    | 'select'
+    | 'checkbox'
+    | 'checkbox_group'
+    | 'url';
   required: boolean;
   options?: string[];
   placeholder?: string;
@@ -42,6 +49,8 @@ interface PublicFormProps {
   confirmationMessage: string | null;
   offerApplicantAccount: boolean;
   applicantAccountPrompt: string | null;
+  submitLabel: string | null;
+  footnote: string | null;
 }
 
 export function PublicForm({
@@ -52,6 +61,8 @@ export function PublicForm({
   confirmationMessage,
   offerApplicantAccount,
   applicantAccountPrompt,
+  submitLabel,
+  footnote,
 }: PublicFormProps) {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [honeypot, setHoneypot] = useState('');
@@ -315,6 +326,29 @@ export function PublicForm({
                   />
                 );
               }
+              if (field.type === 'checkbox_group') {
+                // "Check all that apply" — value is an array of the selected
+                // option strings.
+                const selected = Array.isArray(values[field.key])
+                  ? (values[field.key] as string[])
+                  : [];
+                return (
+                  <Checkbox.Group
+                    key={field.key}
+                    label={field.label}
+                    required={field.required}
+                    error={errors[field.key]}
+                    value={selected}
+                    onChange={(v) => setValue(field.key, v)}
+                  >
+                    <Stack gap="xs" mt="xs">
+                      {(field.options ?? []).map((opt) => (
+                        <Checkbox key={opt} value={opt} label={opt} />
+                      ))}
+                    </Stack>
+                  </Checkbox.Group>
+                );
+              }
               return (
                 <TextInput
                   {...common}
@@ -351,8 +385,14 @@ export function PublicForm({
             )}
 
             <Button type="submit" loading={submitting}>
-              Submit
+              {submitLabel ?? 'Submit'}
             </Button>
+
+            {footnote && (
+              <Text size="sm" c="dimmed" ta="center">
+                {footnote}
+              </Text>
+            )}
           </Stack>
         </form>
       </Card>

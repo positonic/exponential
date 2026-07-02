@@ -90,3 +90,54 @@ describe("validateSubmission", () => {
     if (!result.ok) expect(result.errors.first_name).toMatch(/too long/i);
   });
 });
+
+describe("validateSubmission — checkbox_group", () => {
+  const groupFields: FormField[] = [
+    {
+      key: "help",
+      label: "How would you like to help?",
+      type: "checkbox_group",
+      required: true,
+      options: ["Keep me in the loop", "I'd like to test", "Something else"],
+    },
+  ];
+
+  it("accepts a subset of options and dedupes/trims selections", () => {
+    const result = validateSubmission(groupFields, {
+      help: ["Keep me in the loop", " I'd like to test ", "Keep me in the loop"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(result.clean.help).toEqual([
+        "Keep me in the loop",
+        "I'd like to test",
+      ]);
+  });
+
+  it("tolerates a lone string as a single selection", () => {
+    const result = validateSubmission(groupFields, { help: "Something else" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.clean.help).toEqual(["Something else"]);
+  });
+
+  it("rejects a selection not in the options", () => {
+    const result = validateSubmission(groupFields, {
+      help: ["Keep me in the loop", "injected"],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.help).toMatch(/invalid option/i);
+  });
+
+  it("requires at least one selection when required", () => {
+    const result = validateSubmission(groupFields, { help: [] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.help).toMatch(/required/i);
+  });
+
+  it("accepts an empty selection when optional", () => {
+    const optional: FormField[] = [{ ...groupFields[0]!, required: false }];
+    const result = validateSubmission(optional, {});
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.clean.help).toEqual([]);
+  });
+});
