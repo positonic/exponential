@@ -32,7 +32,9 @@ import {
   IconPencil,
   IconCheck,
   IconX,
+  IconQrcode,
 } from '@tabler/icons-react';
+import { FormQrModal } from './_components/FormQrModal';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { slugify } from '~/utils/slugify';
@@ -333,6 +335,9 @@ export default function FormEditorPage() {
       }),
   });
 
+  // Share-via-QR modal for the public /f/[slug] link.
+  const [qrOpen, setQrOpen] = useState(false);
+
   // Inline slug rename (deferred in ADR-0029). `slugDraft === null` means not
   // editing. The server normalizes with the same slugify used at create and
   // rejects collisions; local `slug` flips only on success.
@@ -581,6 +586,15 @@ export default function FormEditorPage() {
                   aria-label="Rename public link"
                 >
                   <IconPencil size={14} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  onClick={() => setQrOpen(true)}
+                  aria-label="Share via QR code"
+                >
+                  <IconQrcode size={14} />
                 </ActionIcon>
               </>
             )}
@@ -1045,6 +1059,13 @@ export default function FormEditorPage() {
           )}
         </Stack>
       </Card>
+
+      <FormQrModal
+        opened={qrOpen}
+        onClose={() => setQrOpen(false)}
+        url={`${typeof window !== 'undefined' ? window.location.origin : ''}/f/${slug}`}
+        slug={slug}
+      />
     </Stack>
   );
 }
