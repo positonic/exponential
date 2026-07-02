@@ -79,6 +79,23 @@ export const formRouter = createTRPCRouter({
       return { id: form.id };
     }),
 
+  /**
+   * Persist activation on its own, decoupled from the editor's draft Save
+   * flow. The Active switch must take effect immediately — it must never be
+   * silently lost because the rest of the draft failed validation or Save was
+   * never clicked (the public /f/[slug] page 404s on an inactive form, so a
+   * "live-looking" toggle that didn't persist is a broken public link).
+   */
+  setActive: protectedProcedure
+    .input(z.object({ id: z.string(), isActive: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFormForUser(ctx.db, input.id, ctx.session.user.id);
+      return ctx.db.form.update({
+        where: { id: input.id },
+        data: { isActive: input.isActive },
+      });
+    }),
+
   update: protectedProcedure
     .input(
       z.object({
