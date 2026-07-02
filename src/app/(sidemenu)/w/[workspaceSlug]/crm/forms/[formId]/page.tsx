@@ -483,7 +483,7 @@ export default function FormEditorPage() {
                   value={slugDraft}
                   onChange={(e) => setSlugDraft(e.currentTarget.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter')
+                    if (e.key === 'Enter' && !updateSlug.isPending)
                       updateSlug.mutate({ id, slug: slugDraft });
                     if (e.key === 'Escape') setSlugDraft(null);
                   }}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type PrismaClient, type Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
@@ -127,17 +127,32 @@ export const formRouter = createTRPCRouter({
         where: { slug: desired },
         select: { id: true },
       });
-      if (clash && clash.id !== input.id) {
+      if (clash && clash.id !== form.id) {
         throw new TRPCError({
           code: "CONFLICT",
           message: `"/f/${desired}" is already taken by another form.`,
         });
       }
-      return ctx.db.form.update({
-        where: { id: input.id },
-        data: { slug: desired },
-        select: { id: true, slug: true },
-      });
+      try {
+        return await ctx.db.form.update({
+          where: { id: input.id },
+          data: { slug: desired },
+          select: { id: true, slug: true },
+        });
+      } catch (err) {
+        // The probe→write pair is not atomic; the DB @unique constraint is the
+        // real guard. Translate a lost race into the same clean CONFLICT.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === "P2002"
+        ) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `"/f/${desired}" is already taken by another form.`,
+          });
+        }
+        throw err;
+      }
     }),
 
   update: protectedProcedure
