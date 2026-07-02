@@ -140,19 +140,22 @@ describe("form.update — applicant account offer (mocked)", () => {
     );
   });
 
-  it("stores an empty/whitespace prompt as null (built-in default copy)", async () => {
-    const caller = createMockCaller({ userId: callerId, db: dbMock });
-    await caller.form.update({
-      id: formId,
-      applicantAccountPrompt: "   ",
-    });
+  it.each(["   ", ""])(
+    "stores an empty/whitespace prompt (%j) as null (built-in default copy)",
+    async (emptyPrompt) => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.form.update({
+        id: formId,
+        applicantAccountPrompt: emptyPrompt,
+      });
 
-    expect(dbMock.form.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ applicantAccountPrompt: null }),
-      }),
-    );
-  });
+      expect(dbMock.form.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ applicantAccountPrompt: null }),
+        }),
+      );
+    },
+  );
 
   it("leaves both untouched when omitted from the payload", async () => {
     const caller = createMockCaller({ userId: callerId, db: dbMock });

@@ -338,7 +338,9 @@ export const formRouter = createTRPCRouter({
           applicantAccountPrompt:
             input.applicantAccountPrompt === undefined
               ? undefined
-              : (input.applicantAccountPrompt?.trim() ?? "") || null,
+              : input.applicantAccountPrompt === null
+                ? null
+                : input.applicantAccountPrompt.trim() || null,
         },
       });
       return { id: form.id };
