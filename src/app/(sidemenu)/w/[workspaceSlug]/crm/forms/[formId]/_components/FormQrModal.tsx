@@ -99,7 +99,9 @@ export function FormQrModal({ opened, onClose, url, slug }: FormQrModalProps) {
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const objectUrl = URL.createObjectURL(blob);
     triggerDownload(objectUrl, `${slug}-qr-${variant}.svg`);
-    URL.revokeObjectURL(objectUrl);
+    // Defer revocation — revoking synchronously races the browser starting
+    // the download and can yield an empty file.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
   };
 
   return (
