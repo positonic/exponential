@@ -175,7 +175,7 @@ describe("form.update — applicant account offer (mocked)", () => {
     );
   });
 
-  it("leaves both untouched when omitted from the payload", async () => {
+  it("leaves all copy fields untouched when omitted from the payload", async () => {
     const caller = createMockCaller({ userId: callerId, db: dbMock });
     await caller.form.update({ id: formId, name: "Renamed" });
 
@@ -184,6 +184,8 @@ describe("form.update — applicant account offer (mocked)", () => {
         data: expect.objectContaining({
           offerApplicantAccount: undefined,
           applicantAccountPrompt: undefined,
+          submitLabel: undefined,
+          footnote: undefined,
         }),
       }),
     );
