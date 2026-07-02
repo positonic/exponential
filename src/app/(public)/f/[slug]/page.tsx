@@ -22,6 +22,8 @@ export default async function PublicFormPage({
       description={form.description}
       fields={parseFormFields(form.fields)}
       confirmationMessage={form.confirmationMessage}
+      offerApplicantAccount={form.offerApplicantAccount}
+      applicantAccountPrompt={form.applicantAccountPrompt}
     />
   );
 }

@@ -37,6 +37,7 @@ import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { slugify } from '~/utils/slugify';
 import { CRM_CUSTOMER_TYPE_OPTIONS } from '~/lib/crm/automationCatalog';
+import { DEFAULT_APPLICANT_ACCOUNT_PROMPT } from '~/lib/forms/applicantAccountPrompt';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
@@ -106,6 +107,10 @@ export default function FormEditorPage() {
   const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(false);
   const [confirmationMessage, setConfirmationMessage] = useState('');
+  // Applicant account offer (success page): toggle + optional custom prompt
+  // ('' = use the built-in default copy).
+  const [offerAccount, setOfferAccount] = useState(true);
+  const [accountPrompt, setAccountPrompt] = useState('');
   const [fields, setFields] = useState<EditorField[]>([]);
   const [crmEnabled, setCrmEnabled] = useState(false);
   const [customerType, setCustomerType] = useState<string | null>(null);
@@ -169,6 +174,8 @@ export default function FormEditorPage() {
     setDescription(data.description ?? '');
     setIsActive(data.isActive);
     setConfirmationMessage(data.confirmationMessage ?? '');
+    setOfferAccount(data.offerApplicantAccount);
+    setAccountPrompt(data.applicantAccountPrompt ?? '');
     setFields(
       asArray(data.fields).map((f) => {
         const field = f as Partial<EditorField>;
@@ -455,6 +462,8 @@ export default function FormEditorPage() {
       fields: cleanedFields,
       destinations,
       confirmationMessage: confirmationMessage.trim() || null,
+      offerApplicantAccount: offerAccount,
+      applicantAccountPrompt: accountPrompt.trim() || null,
     });
   };
 
@@ -942,6 +951,34 @@ export default function FormEditorPage() {
         autosize
         minRows={2}
       />
+
+      <Card withBorder padding="md">
+        <Stack gap="sm">
+          <Switch
+            label="Offer an Exponential account after submit"
+            description="Shows a create-account prompt and button on the success page. Only appears when the form collects an email."
+            checked={offerAccount}
+            onChange={(e) => {
+              setOfferAccount(e.currentTarget.checked);
+              touch();
+            }}
+          />
+          {offerAccount && (
+            <Textarea
+              label="Account prompt"
+              description="Leave empty to use the default text."
+              placeholder={DEFAULT_APPLICANT_ACCOUNT_PROMPT}
+              value={accountPrompt}
+              onChange={(e) => {
+                setAccountPrompt(e.currentTarget.value);
+                touch();
+              }}
+              autosize
+              minRows={2}
+            />
+          )}
+        </Stack>
+      </Card>
     </Stack>
   );
 }
