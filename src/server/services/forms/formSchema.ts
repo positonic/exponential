@@ -14,6 +14,7 @@ export const FORM_FIELD_TYPES = [
   "textarea",
   "select",
   "checkbox",
+  "checkbox_group",
   "url",
 ] as const;
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
@@ -78,6 +79,34 @@ export function validateSubmission(
         errors[field.key] = `${field.label} is required`;
       } else {
         clean[field.key] = value;
+      }
+      continue;
+    }
+
+    if (field.type === "checkbox_group") {
+      // "Check all that apply": value is an array of selected option strings
+      // (a lone string is tolerated). Every selection must be a defined
+      // option; required means at least one selection.
+      const rawArr = Array.isArray(raw)
+        ? raw
+        : typeof raw === "string" && raw
+          ? [raw]
+          : [];
+      const selections = [
+        ...new Set(
+          rawArr
+            .filter((v): v is string => typeof v === "string")
+            .map((v) => v.trim())
+            .filter(Boolean),
+        ),
+      ];
+      const invalid = selections.filter((s) => !field.options?.includes(s));
+      if (invalid.length > 0) {
+        errors[field.key] = `${field.label} contains an invalid option`;
+      } else if (field.required && selections.length === 0) {
+        errors[field.key] = `${field.label} is required`;
+      } else {
+        clean[field.key] = selections;
       }
       continue;
     }
