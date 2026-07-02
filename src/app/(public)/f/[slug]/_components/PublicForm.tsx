@@ -32,12 +32,16 @@ interface PublicField {
   placeholder?: string;
 }
 
+import { DEFAULT_APPLICANT_ACCOUNT_PROMPT } from '~/lib/forms/applicantAccountPrompt';
+
 interface PublicFormProps {
   slug: string;
   name: string;
   description: string | null;
   fields: PublicField[];
   confirmationMessage: string | null;
+  offerApplicantAccount: boolean;
+  applicantAccountPrompt: string | null;
 }
 
 export function PublicForm({
@@ -46,6 +50,8 @@ export function PublicForm({
   description,
   fields,
   confirmationMessage,
+  offerApplicantAccount,
+  applicantAccountPrompt,
 }: PublicFormProps) {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [honeypot, setHoneypot] = useState('');
@@ -186,7 +192,7 @@ export function PublicForm({
               {done}
             </Text>
 
-            {accountEmail && (
+            {offerApplicantAccount && accountEmail && (
               <>
                 <Divider w="100%" my="xs" />
                 {accountRequested ? (
@@ -197,8 +203,8 @@ export function PublicForm({
                 ) : (
                   <Stack align="center" gap="xs">
                     <Text size="sm" c="dimmed" ta="center">
-                      Want to apply faster next time and keep track of your
-                      applications? Create a free Exponential account.
+                      {applicantAccountPrompt ??
+                        DEFAULT_APPLICANT_ACCOUNT_PROMPT}
                     </Text>
                     <Button
                       variant="light"

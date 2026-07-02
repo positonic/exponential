@@ -165,6 +165,8 @@ export const formRouter = createTRPCRouter({
         destinations: z.array(formDestinationSchema).optional(),
         isActive: z.boolean().optional(),
         confirmationMessage: z.string().max(2000).nullable().optional(),
+        offerApplicantAccount: z.boolean().optional(),
+        applicantAccountPrompt: z.string().max(500).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -331,6 +333,14 @@ export const formRouter = createTRPCRouter({
             input.confirmationMessage === undefined
               ? undefined
               : input.confirmationMessage,
+          offerApplicantAccount: input.offerApplicantAccount,
+          // Empty/whitespace override falls back to null (the built-in copy).
+          applicantAccountPrompt:
+            input.applicantAccountPrompt === undefined
+              ? undefined
+              : input.applicantAccountPrompt === null
+                ? null
+                : input.applicantAccountPrompt.trim() || null,
         },
       });
       return { id: form.id };

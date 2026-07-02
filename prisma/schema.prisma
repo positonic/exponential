@@ -2834,6 +2834,12 @@ model Form {
   destinations        Json     @default("[]")
   isActive            Boolean  @default(false)
   confirmationMessage String?  @db.Text
+  // Applicant account offer (CONTEXT.md ### Forms): whether the success page
+  // shows the optional "create an Exponential account" CTA, and an optional
+  // per-form override of its prompt copy (null = the built-in default).
+  // Defaults preserve pre-existing behaviour (offer shown, default copy).
+  offerApplicantAccount  Boolean @default(true)
+  applicantAccountPrompt String? @db.Text
   createdById         String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
