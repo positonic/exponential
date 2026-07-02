@@ -29,6 +29,9 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconExternalLink,
+  IconPencil,
+  IconCheck,
+  IconX,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
@@ -305,6 +308,30 @@ export default function FormEditorPage() {
       }),
   });
 
+  // Inline slug rename (deferred in ADR-0029). `slugDraft === null` means not
+  // editing. The server normalizes with the same slugify used at create and
+  // rejects collisions; local `slug` flips only on success.
+  const [slugDraft, setSlugDraft] = useState<string | null>(null);
+  const updateSlug = api.form.updateSlug.useMutation({
+    onSuccess: (data) => {
+      setSlug(data.slug);
+      setSlugDraft(null);
+      notifications.show({
+        title: 'Public link updated',
+        message: `The form now lives at /f/${data.slug}. The old link no longer works.`,
+        color: 'green',
+      });
+      void utils.form.get.invalidate({ id });
+      void utils.form.list.invalidate();
+    },
+    onError: (error) =>
+      notifications.show({
+        title: 'Could not rename the link',
+        message: error.message,
+        color: 'red',
+      }),
+  });
+
   const touch = () => markDirty(true);
 
   const addField = () => {
@@ -446,22 +473,75 @@ export default function FormEditorPage() {
             <Badge color={isActive ? 'green' : 'gray'} variant="light">
               {isActive ? 'active' : 'inactive'}
             </Badge>
-            {isActive ? (
-              <Anchor
-                href={`/f/${slug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                size="sm"
-              >
-                <Group gap={4} align="center">
-                  /f/{slug}
-                  <IconExternalLink size={14} />
-                </Group>
-              </Anchor>
+            {slugDraft !== null ? (
+              <Group gap={4} align="center">
+                <Text size="sm" c="dimmed">
+                  /f/
+                </Text>
+                <TextInput
+                  size="xs"
+                  value={slugDraft}
+                  onChange={(e) => setSlugDraft(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter')
+                      updateSlug.mutate({ id, slug: slugDraft });
+                    if (e.key === 'Escape') setSlugDraft(null);
+                  }}
+                  autoFocus
+                  aria-label="New public link slug"
+                />
+                <ActionIcon
+                  variant="subtle"
+                  color="green"
+                  size="sm"
+                  loading={updateSlug.isPending}
+                  onClick={() => updateSlug.mutate({ id, slug: slugDraft })}
+                  aria-label="Save new link"
+                >
+                  <IconCheck size={14} />
+                </ActionIcon>
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  onClick={() => setSlugDraft(null)}
+                  aria-label="Cancel rename"
+                >
+                  <IconX size={14} />
+                </ActionIcon>
+                <Text c="dimmed" size="xs">
+                  renaming breaks the old link
+                </Text>
+              </Group>
             ) : (
-              <Text c="dimmed" size="sm">
-                /f/{slug} (activate to view live)
-              </Text>
+              <>
+                {isActive ? (
+                  <Anchor
+                    href={`/f/${slug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="sm"
+                  >
+                    <Group gap={4} align="center">
+                      /f/{slug}
+                      <IconExternalLink size={14} />
+                    </Group>
+                  </Anchor>
+                ) : (
+                  <Text c="dimmed" size="sm">
+                    /f/{slug} (activate to view live)
+                  </Text>
+                )}
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
+                  onClick={() => setSlugDraft(slug)}
+                  aria-label="Rename public link"
+                >
+                  <IconPencil size={14} />
+                </ActionIcon>
+              </>
             )}
           </Group>
         </Box>
