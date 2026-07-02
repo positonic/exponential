@@ -35,6 +35,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
       { id: 'actions', hidden: false },
       { id: 'projects', hidden: false },
       { id: 'products', hidden: false },
+      { id: 'pages', hidden: false },
     ],
   },
   {
@@ -86,6 +87,10 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
     label: 'Products',
     href: (s) => `/w/${s}/products`,
     requiresPlugin: 'product',
+  },
+  pages: {
+    label: 'Pages',
+    href: (s) => `/w/${s}/pages`,
   },
   crm: {
     label: 'CRM',
