@@ -280,6 +280,31 @@ export default function FormEditorPage() {
       notifications.show({ title: 'Could not delete', message: error.message, color: 'red' }),
   });
 
+  // Activation persists immediately via its own mutation — never through the
+  // draft Save flow, where it could be silently lost to unrelated validation.
+  // Local `isActive` flips only on success, so the badge and the public
+  // /f/[slug] link never claim a liveness the database doesn't have.
+  const setActive = api.form.setActive.useMutation({
+    onSuccess: (data) => {
+      setIsActive(data.isActive);
+      notifications.show({
+        title: data.isActive ? 'Form is live' : 'Form deactivated',
+        message: data.isActive
+          ? `Now accepting submissions at /f/${data.slug}`
+          : 'The public link is no longer live.',
+        color: data.isActive ? 'green' : 'gray',
+      });
+      void utils.form.get.invalidate({ id });
+      void utils.form.list.invalidate();
+    },
+    onError: (error) =>
+      notifications.show({
+        title: 'Could not update active state',
+        message: error.message,
+        color: 'red',
+      }),
+  });
+
   const touch = () => markDirty(true);
 
   const addField = () => {
@@ -393,13 +418,15 @@ export default function FormEditorPage() {
         },
       });
     }
+    // `isActive` is deliberately absent: activation persists immediately via
+    // the dedicated setActive mutation, never through the draft Save (which
+    // could clobber a just-toggled value with a stale one).
     save.mutate({
       id,
       name: name.trim() || 'Untitled form',
       description: description.trim() || null,
       fields: cleanedFields,
       destinations,
-      isActive,
       confirmationMessage: confirmationMessage.trim() || null,
     });
   };
@@ -442,10 +469,10 @@ export default function FormEditorPage() {
           <Switch
             label="Active"
             checked={isActive}
-            onChange={(e) => {
-              setIsActive(e.currentTarget.checked);
-              touch();
-            }}
+            disabled={setActive.isPending}
+            onChange={(e) =>
+              setActive.mutate({ id, isActive: e.currentTarget.checked })
+            }
           />
           <Button
             variant="subtle"
