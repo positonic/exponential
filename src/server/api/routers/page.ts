@@ -452,11 +452,14 @@ export const pageRouter = createTRPCRouter({
 
       // Mint the id here rather than in the schema default so it only exists
       // for pages that have actually been published. Retry on the (36^8)
-      // collision rather than pre-checking.
+      // collision rather than pre-checking. `publicId: null` in the where
+      // guards against a concurrent first publish: the loser of that race
+      // must reuse the winner's id, never overwrite an id that may already
+      // have been shared.
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
           return await ctx.db.knowledgePage.update({
-            where: { id: input.id },
+            where: { id: input.id, AND: [{ publicId: null }] },
             data: {
               isPublic: true,
               publicId: generatePublicId(),
@@ -466,10 +469,19 @@ export const pageRouter = createTRPCRouter({
             select: PUBLIC_SETTINGS_SELECT,
           });
         } catch (error) {
-          const isUniqueViolation =
-            error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === "P2002";
-          if (!isUniqueViolation) throw error;
+          if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            // P2002: minted id collided with another page's — remint.
+            if (error.code === "P2002") continue;
+            // P2025: a concurrent publish minted first — keep its id.
+            if (error.code === "P2025") {
+              return ctx.db.knowledgePage.update({
+                where: { id: input.id },
+                data: { isPublic: true, publishedAt: new Date() },
+                select: PUBLIC_SETTINGS_SELECT,
+              });
+            }
+          }
+          throw error;
         }
       }
       throw new TRPCError({
@@ -494,7 +506,7 @@ export const pageRouter = createTRPCRouter({
 
   /** Edit the cosmetic slug and/or the search-engine opt-in. The slug is
    * re-slugified server-side, so any input collapses to a valid URL segment;
-   * old URLs keep working via the canonical 301 (lookup is by `publicId`). */
+   * old URLs keep working via the canonical redirect (lookup is by `publicId`). */
   updatePublicSettings: protectedProcedure
     .input(
       z.object({

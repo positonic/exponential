@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 /** One DB roundtrip shared by generateMetadata and the page render. */
 const getPublishedPage = cache(async (param: string) => {
-  const parsed = parsePublicPageParam(decodeURIComponent(param));
+  const parsed = parsePublicPageParam(param);
   if (!parsed) return null;
   const page = await db.knowledgePage.findFirst({
     where: { publicId: parsed.publicId, isPublic: true },

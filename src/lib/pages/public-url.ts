@@ -36,15 +36,23 @@ const PARAM_PATTERN = new RegExp(
 );
 
 /**
- * Split a `/p/[slugId]` route param into its cosmetic slug and the resolving
- * `publicId` (the segment after the last hyphen). The slug may be "" (bare-id
- * URL) or stale — the route compares it against the canonical slug and 301s.
- * Returns null when the param can't contain a well-formed id.
+ * Split a raw (still percent-encoded) `/p/[slugId]` route param into its
+ * cosmetic slug and the resolving `publicId` (the segment after the last
+ * hyphen). The slug may be "" (bare-id URL) or stale — the route compares it
+ * against the canonical slug and permanently redirects (308). Returns null
+ * when the param can't contain a well-formed id, including malformed
+ * percent-encoding — bad input must 404, never 500.
  */
 export function parsePublicPageParam(
   param: string,
 ): { slug: string; publicId: string } | null {
-  const match = PARAM_PATTERN.exec(param);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(param);
+  } catch {
+    return null;
+  }
+  const match = PARAM_PATTERN.exec(decoded);
   if (!match) return null;
   return { slug: match[1] ?? "", publicId: match[2]! };
 }

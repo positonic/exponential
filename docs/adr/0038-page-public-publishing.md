@@ -14,7 +14,7 @@ Publishing also cuts across the ADR-0033 visibility model — a Page inheriting 
 
 ## Decision
 
-- **URL scheme**: `/p/{publicSlug}-{publicId}`. The `publicId` (8-char lowercase-alphanumeric, minted at first publish, `@unique`, immutable) **alone resolves the page**. The `publicSlug` is cosmetic: auto-slugified from the title, freely editable, no uniqueness constraint. A request with a stale slug 301-redirects to the canonical URL.
+- **URL scheme**: `/p/{publicSlug}-{publicId}`. The `publicId` (8-char lowercase-alphanumeric, minted at first publish, `@unique`, immutable) **alone resolves the page**. The `publicSlug` is cosmetic: auto-slugified from the title, freely editable, no uniqueness constraint. A request with a stale slug permanently redirects (HTTP 308 via Next's `permanentRedirect`) to the canonical URL.
 - **Live content, not a snapshot**: the public route renders the current `bodyDoc`. Unpublish (`isPublic = false`) → immediate 404; republish reuses the same `publicId`, so previously shared links revive.
 - **Publish gate = edit access on the Page** (`ensurePageAccess "edit"`), with no extra role gate and **no carve-out for restricted-project Pages** — the share popover states the consequence plainly. Publishing is an explicit per-page act; it never follows from visibility rules.
 - **noindex by default**: robots meta is `noindex` unless the per-page `publicSeoIndexed` opt-in is set; only opted-in pages enter `sitemap.ts`.

@@ -59,6 +59,18 @@ describe("parsePublicPageParam", () => {
     expect(parsePublicPageParam("slug-abcd123!")).toBeNull();
   });
 
+  it("percent-decodes the raw route param", () => {
+    expect(parsePublicPageParam("my%2Dpage-abcd1234")).toEqual({
+      slug: "my-page",
+      publicId: "abcd1234",
+    });
+  });
+
+  it("rejects malformed percent-encoding instead of throwing", () => {
+    expect(parsePublicPageParam("%C0")).toBeNull();
+    expect(parsePublicPageParam("%e0%a4-abcd1234")).toBeNull();
+  });
+
   it("round-trips what buildPublicPagePath produces", () => {
     const path = buildPublicPagePath("my-page", "abcd1234");
     expect(path).toBe("/p/my-page-abcd1234");
