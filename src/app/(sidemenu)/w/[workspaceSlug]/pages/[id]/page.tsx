@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Container, Skeleton, Text, TextInput } from '@mantine/core';
+import { Skeleton, Text, TextInput } from '@mantine/core';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
@@ -77,27 +77,27 @@ function PageEditorContent({ pageId }: { pageId: string }) {
 
   if (isLoading) {
     return (
-      <Container size="md" className="py-8">
+      <div className="w-full px-6 py-8">
         <Skeleton height={36} width={320} mb="xl" />
         <Skeleton height={400} />
-      </Container>
+      </div>
     );
   }
 
   if (error || !page) {
     return (
-      <Container size="md" className="py-8">
+      <div className="w-full px-6 py-8">
         <Text className="text-text-secondary">
           {error?.data?.code === 'FORBIDDEN'
             ? "You don't have access to this page."
             : 'Page not found.'}
         </Text>
-      </Container>
+      </div>
     );
   }
 
   return (
-    <Container size="md" className="py-8">
+    <div className="w-full px-6 py-8">
       <div className="mb-4">
         <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
       </div>
@@ -108,7 +108,7 @@ function PageEditorContent({ pageId }: { pageId: string }) {
         docVersion={page.docVersion}
         editable={page.canEdit}
       />
-    </Container>
+    </div>
   );
 }
 
