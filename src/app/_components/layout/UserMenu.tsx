@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu, Avatar, Text, UnstyledButton } from "@mantine/core";
-import { useMantineColorScheme } from "@mantine/core";
+import { useComputedColorScheme, useMantineColorScheme } from "@mantine/core";
 import {
   IconSettings,
   IconMessageReport,
@@ -42,7 +42,12 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ session, onClose }: UserMenuProps) {
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { setColorScheme } = useMantineColorScheme();
+  // Resolved scheme ('auto' → actual); initial value in effect avoids a
+  // hydration mismatch on the menu icon/label.
+  const computedColorScheme = useComputedColorScheme("dark", {
+    getInitialValueInEffect: true,
+  });
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const { openBugReport } = useBugReport();
   const { isSectionVisible, isItemVisible } = useNavigationPreferences();
@@ -59,16 +64,10 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
         .slice(0, 2)
     : "U";
 
+  // Mantine owns persistence (mantine-color-scheme-value) and syncs the
+  // data-mantine-color-scheme attribute that both Mantine and Tailwind read.
   const handleThemeToggle = () => {
-    const newScheme = colorScheme === "dark" ? "light" : "dark";
-    toggleColorScheme();
-    const html = document.documentElement;
-    if (newScheme === "dark") {
-      html.classList.add("dark");
-    } else {
-      html.classList.remove("dark");
-    }
-    localStorage.setItem("color-scheme", newScheme);
+    setColorScheme(computedColorScheme === "dark" ? "light" : "dark");
   };
 
   return (
@@ -277,7 +276,7 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
 
             <Menu.Item
               leftSection={
-                colorScheme === "dark" ? (
+                computedColorScheme === "dark" ? (
                   <IconSun size={16} />
                 ) : (
                   <IconMoon size={16} />
@@ -286,10 +285,10 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
               onClick={handleThemeToggle}
               className="text-text-primary hover:bg-surface-hover"
             >
-              {colorScheme === "dark" ? "Light mode" : "Dark mode"}
+              {computedColorScheme === "dark" ? "Light mode" : "Dark mode"}
             </Menu.Item>
 
-            {colorScheme === "dark" && (
+            {computedColorScheme === "dark" && (
               <Menu.Item
                 leftSection={<IconPalette size={16} />}
                 onClick={() => {

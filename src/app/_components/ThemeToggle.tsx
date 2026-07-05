@@ -1,29 +1,25 @@
 "use client";
 
-import { useMantineColorScheme } from '@mantine/core';
+import {
+  useComputedColorScheme,
+  useMantineColorScheme,
+} from '@mantine/core';
 import { ActionIcon, Menu } from '@mantine/core';
 import { IconSun, IconMoon, IconPalette } from '@tabler/icons-react';
 import { getDarkTheme, setDarkTheme, type DarkThemeVariant } from '~/lib/dark-theme';
 
 export function ThemeToggle() {
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { setColorScheme } = useMantineColorScheme();
+  // Resolve in an effect so SSR (which can't know the visitor's scheme) and
+  // the first client render agree — avoids a hydration mismatch on the icon.
+  const computed = useComputedColorScheme('dark', {
+    getInitialValueInEffect: true,
+  });
 
+  // Mantine owns persistence (mantine-color-scheme-value) and syncs the
+  // data-mantine-color-scheme attribute that both Mantine and Tailwind read.
   const handleToggle = () => {
-    const newScheme = colorScheme === 'dark' ? 'light' : 'dark';
-
-    // Toggle Mantine color scheme
-    toggleColorScheme();
-
-    // Sync with Tailwind
-    const html = document.documentElement;
-    if (newScheme === 'dark') {
-      html.classList.add('dark');
-    } else {
-      html.classList.remove('dark');
-    }
-
-    // Store preference
-    localStorage.setItem('color-scheme', newScheme);
+    setColorScheme(computed === 'dark' ? 'light' : 'dark');
   };
 
   const handleVariant = (variant: DarkThemeVariant) => {
@@ -32,7 +28,7 @@ export function ThemeToggle() {
 
   const currentVariant = typeof window !== 'undefined' ? getDarkTheme() : 'navy';
 
-  if (colorScheme === 'dark') {
+  if (computed === 'dark') {
     return (
       <Menu shadow="md" width={160} position="bottom-end">
         <Menu.Target>
