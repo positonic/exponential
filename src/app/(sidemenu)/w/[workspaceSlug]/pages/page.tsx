@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
-import { Container, Skeleton, Text } from '@mantine/core';
+import { Skeleton, Text } from '@mantine/core';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { PagesListContent } from './_components/PagesListContent';
 
@@ -10,18 +10,18 @@ function WorkspacePagesContent() {
 
   if (isLoading) {
     return (
-      <Container size="lg" className="py-8">
+      <div className="w-full px-6 py-8">
         <Skeleton height={40} width={200} mb="lg" />
         <Skeleton height={300} />
-      </Container>
+      </div>
     );
   }
 
   if (!workspace || !workspaceId || !workspaceSlug) {
     return (
-      <Container size="lg" className="py-8">
+      <div className="w-full px-6 py-8">
         <Text className="text-text-secondary">Workspace not found</Text>
-      </Container>
+      </div>
     );
   }
 

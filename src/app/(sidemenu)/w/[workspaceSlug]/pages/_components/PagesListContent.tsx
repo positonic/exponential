@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
-  Container,
   Group,
   Skeleton,
   Text,
@@ -49,7 +48,7 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
   }, [pages, search]);
 
   return (
-    <Container size="lg" className="py-8">
+    <div className="w-full px-6 py-8">
       <Group justify="space-between" align="center" mb="lg">
         <Group gap="xs" align="center">
           <IconFileText size={22} className="text-text-secondary" />
@@ -115,6 +114,6 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
           ))}
         </div>
       )}
-    </Container>
+    </div>
   );
 }
