@@ -6,6 +6,7 @@ import { Skeleton, Text, TextInput } from '@mantine/core';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
+import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 
 /** Inline-editable page title; saves on blur/Enter when changed (metadata-only
  * update, so no docVersion dance). Read-only users see static text. */
@@ -72,7 +73,13 @@ function PageTitle({
   );
 }
 
-function PageEditorContent({ pageId }: { pageId: string }) {
+function PageEditorContent({
+  pageId,
+  workspaceSlug,
+}: {
+  pageId: string;
+  workspaceSlug: string;
+}) {
   const { data: page, isLoading, error } = api.page.get.useQuery({ id: pageId });
 
   if (isLoading) {
@@ -98,8 +105,19 @@ function PageEditorContent({ pageId }: { pageId: string }) {
 
   return (
     <div className="w-full px-6 py-8">
-      <div className="mb-4">
-        <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
+        </div>
+        <PageShareMenu
+          pageId={page.id}
+          workspaceSlug={workspaceSlug}
+          isPublic={page.isPublic}
+          publicId={page.publicId}
+          publicSlug={page.publicSlug}
+          publicSeoIndexed={page.publicSeoIndexed}
+          canEdit={page.canEdit}
+        />
       </div>
       <PageDocument
         pageId={page.id}
@@ -113,14 +131,15 @@ function PageEditorContent({ pageId }: { pageId: string }) {
 }
 
 export default function WorkspacePageEditorPage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ id: string; workspaceSlug: string }>();
   const pageId = params?.id;
+  const workspaceSlug = params?.workspaceSlug;
 
-  if (!pageId) return null;
+  if (!pageId || !workspaceSlug) return null;
 
   return (
     <main className="flex h-full flex-col text-text-primary">
-      <PageEditorContent pageId={pageId} />
+      <PageEditorContent pageId={pageId} workspaceSlug={workspaceSlug} />
     </main>
   );
 }
