@@ -77,16 +77,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Published pages that opted into search indexing (ADR-0038). noindex
   // (default) pages are deliberately absent — public means link-only there.
-  const publishedPages = await db.knowledgePage.findMany({
-    where: { isPublic: true, publicSeoIndexed: true, publicId: { not: null } },
-    select: { publicId: true, publicSlug: true, updatedAt: true },
-  });
-  const publicPagePaths: MetadataRoute.Sitemap = publishedPages.map((page) => ({
-    url: `${baseUrl}${buildPublicPagePath(page.publicSlug ?? 'untitled', page.publicId!)}`,
-    lastModified: page.updatedAt,
-    changeFrequency: 'weekly' as const,
-    priority: 0.5,
-  }));
+  // The sitemap is prerendered at build time, so a DB that is unreachable or
+  // not yet migrated must degrade to "no page entries", never fail the build.
+  let publicPagePaths: MetadataRoute.Sitemap = [];
+  try {
+    const publishedPages = await db.knowledgePage.findMany({
+      where: { isPublic: true, publicSeoIndexed: true, publicId: { not: null } },
+      select: { publicId: true, publicSlug: true, updatedAt: true },
+    });
+    publicPagePaths = publishedPages.map((page) => ({
+      url: `${baseUrl}${buildPublicPagePath(page.publicSlug ?? 'untitled', page.publicId!)}`,
+      lastModified: page.updatedAt,
+      changeFrequency: 'weekly' as const,
+      priority: 0.5,
+    }));
+  } catch (error) {
+    console.warn('[sitemap] Skipping published pages:', error);
+  }
 
   return [
     ...staticPages,
