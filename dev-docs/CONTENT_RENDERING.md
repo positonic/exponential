@@ -4,6 +4,8 @@
 
 If you are about to render or accept user/agent-authored text (a description, an update, a comment, a chat message, notes, a body), use the two canonical components below. Do **not** reach for `react-markdown`, `dangerouslySetInnerHTML`, Tiptap, or a bare `<Textarea>` for prose.
 
+**The one documented exception**: the published-page public route (`/p/[slugId]`) renders server-generated HTML from the sanitized, schema-constrained ProseMirror `bodyDoc` via `dangerouslySetInnerHTML` — see [ADR-0038](../docs/adr/0038-page-public-publishing.md). That exception is confined to that route; everything else follows this doc.
+
 ## TL;DR
 
 | You need to… | Use | Import from |
@@ -67,9 +69,9 @@ New writes are always Markdown. Existing HTML (legacy Tiptap fields) renders via
 
 When reviewing or writing a change that touches prose input or display, confirm:
 
-- [ ] Prose **display** uses `MarkdownRenderer` (correct `variant`) — not `react-markdown` directly, not `dangerouslySetInnerHTML`, not raw `<Text>{content}</Text>`.
+- [ ] Prose **display** uses `MarkdownRenderer` (correct `variant`) — not `react-markdown` directly, not `dangerouslySetInnerHTML` (sole exception: the ADR-0038 published-page route), not raw `<Text>{content}</Text>`.
 - [ ] Prose **input** uses `MarkdownInput` / `CommentInput` — not a bare `<Textarea>`. (Non-prose textareas — API keys, JSON config, search — are exempt.)
 - [ ] No **new** Tiptap editor or HTML-producing input was introduced.
 - [ ] New content is stored as **Markdown**; any HTML touched is converted on edit, not written fresh.
 
-A lint rule enforces the mechanical half (no direct `react-markdown` import / `dangerouslySetInnerHTML` outside the canonical components). The textarea-for-prose case is a human/agent judgement call — hence this checklist.
+There is currently **no lint rule** for any of this — `react-markdown` imports, `dangerouslySetInnerHTML`, and the textarea-for-prose case are all caught in review, hence this checklist.

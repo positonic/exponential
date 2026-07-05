@@ -1,7 +1,13 @@
 import { z } from "zod";
+import { randomInt } from "crypto";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@prisma/client";
+import {
+  PUBLIC_ID_ALPHABET,
+  PUBLIC_ID_LENGTH,
+  slugifyPageTitle,
+} from "~/lib/pages/public-url";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
@@ -23,6 +29,16 @@ import {
  * server only stores it as JSON.
  */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+/** The publishing state the share popover renders (ADR-0038). */
+const PUBLIC_SETTINGS_SELECT = {
+  id: true,
+  isPublic: true,
+  publicId: true,
+  publicSlug: true,
+  publicSeoIndexed: true,
+  publishedAt: true,
+} satisfies Prisma.KnowledgePageSelect;
 
 /** A Page reduced to exactly what the access resolver needs. */
 const PAGE_ACCESS_SELECT = {
@@ -111,6 +127,15 @@ async function assertCanPlacePage(
       message: "You need member access to this workspace to create a page",
     });
   }
+}
+
+/** Mint an 8-char lowercase-alphanumeric public id (ADR-0038). */
+function generatePublicId(): string {
+  let id = "";
+  for (let i = 0; i < PUBLIC_ID_LENGTH; i++) {
+    id += PUBLIC_ID_ALPHABET[randomInt(PUBLIC_ID_ALPHABET.length)];
+  }
+  return id;
 }
 
 export const pageRouter = createTRPCRouter({
@@ -395,6 +420,164 @@ export const pageRouter = createTRPCRouter({
       const filename = `screenshots/pages/${input.id}/${timestamp}.png`;
       const blob = await uploadToBlob(input.base64Data, filename);
       return { url: blob.url };
+    }),
+
+  /**
+   * Publish a Page to the web (ADR-0038). Edit access is the whole gate —
+   * including restricted-project Pages; the share popover is the consent
+   * surface. First publish mints the immutable `publicId` and derives
+   * `publicSlug` from the title; republish reuses both, reviving old links.
+   */
+  publish: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+
+      const existing = await ctx.db.knowledgePage.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { title: true, publicId: true, publicSlug: true },
+      });
+
+      const publicSlug =
+        existing.publicSlug ?? slugifyPageTitle(existing.title);
+
+      if (existing.publicId) {
+        return ctx.db.knowledgePage.update({
+          where: { id: input.id },
+          data: { isPublic: true, publicSlug, publishedAt: new Date() },
+          select: PUBLIC_SETTINGS_SELECT,
+        });
+      }
+
+      // Mint the id here rather than in the schema default so it only exists
+      // for pages that have actually been published. Retry on the (36^8)
+      // collision rather than pre-checking. `publicId: null` in the where
+      // guards against a concurrent first publish: the loser of that race
+      // must reuse the winner's id, never overwrite an id that may already
+      // have been shared.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          return await ctx.db.knowledgePage.update({
+            where: { id: input.id, AND: [{ publicId: null }] },
+            data: {
+              isPublic: true,
+              publicId: generatePublicId(),
+              publicSlug,
+              publishedAt: new Date(),
+            },
+            select: PUBLIC_SETTINGS_SELECT,
+          });
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError) {
+            // P2002: minted id collided with another page's — remint.
+            if (error.code === "P2002") continue;
+            // P2025: a concurrent publish minted first — keep its id.
+            if (error.code === "P2025") {
+              return ctx.db.knowledgePage.update({
+                where: { id: input.id },
+                data: { isPublic: true, publishedAt: new Date() },
+                select: PUBLIC_SETTINGS_SELECT,
+              });
+            }
+          }
+          throw error;
+        }
+      }
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Could not allocate a public URL. Please try again.",
+      });
+    }),
+
+  /** Unpublish → the public URL 404s immediately. `publicId`/`publicSlug` are
+   * kept so republishing revives previously shared links (ADR-0038). */
+  unpublish: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+      return ctx.db.knowledgePage.update({
+        where: { id: input.id },
+        data: { isPublic: false },
+        select: PUBLIC_SETTINGS_SELECT,
+      });
+    }),
+
+  /** Edit the cosmetic slug and/or the search-engine opt-in. The slug is
+   * re-slugified server-side, so any input collapses to a valid URL segment;
+   * old URLs keep working via the canonical redirect (lookup is by `publicId`). */
+  updatePublicSettings: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        publicSlug: boundedText("Slug", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        publicSeoIndexed: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+      return ctx.db.knowledgePage.update({
+        where: { id: input.id },
+        data: {
+          ...(input.publicSlug !== undefined
+            ? { publicSlug: slugifyPageTitle(input.publicSlug) }
+            : {}),
+          ...(input.publicSeoIndexed !== undefined
+            ? { publicSeoIndexed: input.publicSeoIndexed }
+            : {}),
+        },
+        select: PUBLIC_SETTINGS_SELECT,
+      });
+    }),
+
+  /**
+   * Duplicate a Page: view access on the source + the same placement gate as
+   * create (so the copy lands with identical visibility — same project /
+   * workspace, per ADR-0038). Copies content and the search toggle; the copy
+   * is owned by the duplicator and never inherits publish state.
+   */
+  duplicate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "view");
+      await assertCanPlacePage(ctx.db, userId, page.workspaceId, page.projectId);
+
+      const source = await ctx.db.knowledgePage.findUniqueOrThrow({
+        where: { id: input.id },
+        select: {
+          title: true,
+          body: true,
+          bodyDoc: true,
+          includeInSearch: true,
+          workspaceId: true,
+          projectId: true,
+        },
+      });
+
+      const copy = await ctx.db.knowledgePage.create({
+        data: {
+          title: `${source.title} (copy)`,
+          body: source.body,
+          bodyDoc:
+            source.bodyDoc === null
+              ? undefined
+              : (source.bodyDoc as Prisma.InputJsonValue),
+          includeInSearch: source.includeInSearch,
+          workspaceId: source.workspaceId,
+          projectId: source.projectId,
+          createdById: userId,
+        },
+      });
+
+      // Index the copied body like create does for seeded bodies.
+      if (source.body?.trim()) {
+        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(copy.id);
+      }
+      return copy;
     }),
 
   delete: protectedProcedure

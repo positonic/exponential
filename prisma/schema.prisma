@@ -2552,6 +2552,14 @@ model KnowledgePage {
   body            String?
   docVersion      Int      @default(0)
   includeInSearch Boolean  @default(true)
+  // Public publishing (ADR-0038). `publicId` alone resolves /p/{publicSlug}-{publicId}:
+  // minted at first publish, immutable, survives unpublish so republish revives old links.
+  // `publicSlug` is cosmetic and freely editable; a stale slug 301s to canonical.
+  isPublic         Boolean   @default(false)
+  publicId         String?   @unique
+  publicSlug       String?
+  publicSeoIndexed Boolean   @default(false)
+  publishedAt      DateTime?
   workspaceId     String
   projectId       String?
   createdById     String
