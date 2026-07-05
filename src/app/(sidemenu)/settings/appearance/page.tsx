@@ -1,6 +1,6 @@
 'use client';
 
-import { useMantineColorScheme } from '@mantine/core';
+import { useComputedColorScheme, useMantineColorScheme } from '@mantine/core';
 import {
   Container,
   Title,
@@ -20,7 +20,12 @@ import {
 } from '~/lib/dark-theme';
 
 export default function AppearanceSettingsPage() {
+  // Mantine owns persistence (mantine-color-scheme-value) and syncs the
+  // data-mantine-color-scheme attribute that both Mantine and Tailwind read.
   const { colorScheme, setColorScheme } = useMantineColorScheme();
+  const computedColorScheme = useComputedColorScheme('dark', {
+    getInitialValueInEffect: true,
+  });
   const [darkVariant, setDarkVariant] = useState<DarkThemeVariant>('navy');
 
   useEffect(() => {
@@ -28,30 +33,7 @@ export default function AppearanceSettingsPage() {
   }, []);
 
   const handleChange = (value: string) => {
-    const scheme = value as 'light' | 'dark' | 'auto';
-    setColorScheme(scheme);
-
-    // Sync with Tailwind
-    const html = document.documentElement;
-    if (scheme === 'dark') {
-      html.classList.add('dark');
-      html.classList.remove('light');
-    } else if (scheme === 'light') {
-      html.classList.remove('dark');
-      html.classList.add('light');
-    } else {
-      // auto - follow system preference
-      const prefersDark = window.matchMedia(
-        '(prefers-color-scheme: dark)'
-      ).matches;
-      if (prefersDark) {
-        html.classList.add('dark');
-      } else {
-        html.classList.remove('dark');
-      }
-    }
-
-    localStorage.setItem('color-scheme', scheme);
+    setColorScheme(value as 'light' | 'dark' | 'auto');
   };
 
   const handleDarkVariant = (value: string) => {
@@ -60,7 +42,7 @@ export default function AppearanceSettingsPage() {
     setDarkTheme(variant);
   };
 
-  const isDark = colorScheme === 'dark' || (colorScheme === 'auto' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const isDark = computedColorScheme === 'dark';
 
   return (
     <Container size="md" py="xl">
