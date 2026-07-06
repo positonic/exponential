@@ -67,7 +67,7 @@ export function PrdDocument({
   enableComments = false,
 }: PrdDocumentProps) {
   const [editor, setEditor] = useState<Editor | null>(null);
-  const flushSaveRef = useRef<() => void>(() => undefined);
+  const flushSaveRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   // Bumped on every doc change so thread reconciliation re-reads the live marks.
   const [docTick, setDocTick] = useState(0);
@@ -182,7 +182,7 @@ export function PrdDocument({
     // fire two concurrent saves with the same baseVersion (which can race into a
     // spurious stale-write conflict). Persist the mark right away instead so the
     // thread is anchored on reload.
-    flushSaveRef.current();
+    void flushSaveRef.current();
     setPending({ threadId, quotedText });
     setActiveThreadId(threadId);
     setAnchorPos(anchor);
