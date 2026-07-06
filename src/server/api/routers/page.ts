@@ -9,7 +9,12 @@ import {
   PUBLIC_ID_LENGTH,
   slugifyPageTitle,
 } from "~/lib/pages/public-url";
-import { collectPageLinkIds } from "~/lib/pages/public-doc";
+import {
+  collectPageLinkIds,
+  remapPageLinkIds,
+  type PageLinkRewrite,
+} from "~/lib/pages/public-doc";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
@@ -50,6 +55,22 @@ const PAGE_ACCESS_SELECT = {
   workspaceId: true,
   docVersion: true,
 } satisfies Prisma.KnowledgePageSelect;
+
+/** Everything duplicate-with-sub-pages copies per page (+ access fields). */
+const DUPLICATE_SELECT = {
+  id: true,
+  title: true,
+  body: true,
+  bodyDoc: true,
+  includeInSearch: true,
+  workspaceId: true,
+  projectId: true,
+  createdById: true,
+} satisfies Prisma.KnowledgePageSelect;
+
+type DuplicateRow = Prisma.KnowledgePageGetPayload<{
+  select: typeof DUPLICATE_SELECT;
+}>;
 
 async function loadPageForAccess(db: PrismaClient, id: string) {
   const page = await db.knowledgePage.findUnique({
@@ -128,6 +149,22 @@ async function assertCanPlacePage(
       code: "FORBIDDEN",
       message: "You need member access to this workspace to create a page",
     });
+  }
+}
+
+/** Non-throwing {@link assertCanPlacePage} — for bulk paths (duplicate-with-
+ * sub-pages) that skip un-placeable pages instead of failing the whole op. */
+async function canPlacePage(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+  projectId: string | null | undefined,
+): Promise<boolean> {
+  try {
+    await assertCanPlacePage(db, userId, workspaceId, projectId);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -301,6 +338,100 @@ export const pageRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * The workspace's pages arranged as a nesting tree (ADR-0039). Nesting is the
+   * `pageLink` graph: a child is a page linked from another page's body. Builds
+   * the adjacency over the caller's *viewable* pages only (same access `where`
+   * as {@link list}), picks one canonical parent per child — the newest-edited
+   * linker, matching `parentCrumb` — and returns a depth-flattened, display-
+   * ordered list (roots newest-first, children in the parent's document order).
+   * Cycle- and multi-parent-safe: every viewable page appears exactly once.
+   */
+  tree: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const filters: Prisma.KnowledgePageWhereInput[] = [
+        buildKnowledgePageAccessWhere(userId),
+        { workspaceId: input.workspaceId },
+      ];
+      if (input.projectId) {
+        filters.push({ projectId: input.projectId });
+      }
+
+      const pages = await ctx.db.knowledgePage.findMany({
+        where: { AND: filters },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          title: true,
+          projectId: true,
+          isPublic: true,
+          updatedAt: true,
+          bodyDoc: true,
+          project: { select: { id: true, name: true } },
+        },
+      });
+
+      type Row = Omit<(typeof pages)[number], "bodyDoc">;
+      const rowById = new Map<string, Row>();
+      // Child ids per page, restricted to viewable pages in this set and in the
+      // page's document order.
+      const childIdsOf = new Map<string, string[]>();
+      const inSet = new Set(pages.map((p) => p.id));
+      for (const page of pages) {
+        const { bodyDoc, ...row } = page;
+        rowById.set(page.id, row);
+        childIdsOf.set(
+          page.id,
+          collectPageLinkIds(bodyDoc as JSONContent | null).filter((id) =>
+            inSet.has(id),
+          ),
+        );
+      }
+
+      // Canonical parent per child = the newest-edited page that links it.
+      // `pages` is already newest-first, so the first linker we see wins.
+      const parentOf = new Map<string, string>();
+      for (const page of pages) {
+        for (const childId of childIdsOf.get(page.id) ?? []) {
+          if (childId === page.id) continue; // ignore self-links
+          if (!parentOf.has(childId)) parentOf.set(childId, page.id);
+        }
+      }
+
+      const flat: (Row & { depth: number; hasChildren: boolean })[] = [];
+      const visited = new Set<string>();
+      const visit = (id: string, depth: number) => {
+        if (visited.has(id)) return; // cycle / multi-parent guard
+        visited.add(id);
+        const row = rowById.get(id);
+        if (!row) return;
+        const children = (childIdsOf.get(id) ?? []).filter(
+          (childId) => parentOf.get(childId) === id && !visited.has(childId),
+        );
+        flat.push({ ...row, depth, hasChildren: children.length > 0 });
+        for (const childId of children) visit(childId, depth + 1);
+      };
+
+      // Roots: pages nothing viewable links to, newest-first (order preserved).
+      for (const page of pages) {
+        if (!parentOf.has(page.id)) visit(page.id, 0);
+      }
+      // Any page still unvisited sits in a link cycle with no external root —
+      // surface it as a root so the tree never silently drops a page.
+      for (const page of pages) {
+        if (!visited.has(page.id)) visit(page.id, 0);
+      }
+
+      return flat;
+    }),
+
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -386,6 +517,51 @@ export const pageRouter = createTRPCRouter({
         }
       }
       return null;
+    }),
+
+  /**
+   * The sub-pages of a page: the `pageLink` targets in its own `bodyDoc`
+   * (ADR-0039 — nesting is the link graph, so a child is literally a link in
+   * the parent's body), resolved to live `{id, title, isPublic}` in document
+   * order and filtered to the ones the caller can view. Cheap: no reverse scan
+   * — the children are already named in the body we just loaded.
+   */
+  children: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "view");
+
+      const self = await ctx.db.knowledgePage.findUniqueOrThrow({
+        where: { id: input.id },
+        select: { bodyDoc: true },
+      });
+      const ids = collectPageLinkIds(self.bodyDoc as JSONContent | null);
+      if (ids.length === 0) return [];
+
+      // Same-workspace only: a pasted cross-workspace id must not surface
+      // another workspace's title (mirrors collectLinkedPages / parentCrumb).
+      // Push the view-access filter into the query (buildKnowledgePageAccessWhere
+      // mirrors getKnowledgePageAccess) so one round-trip returns exactly the
+      // viewable candidates — no per-child access resolution.
+      const candidates = await ctx.db.knowledgePage.findMany({
+        where: {
+          id: { in: ids },
+          workspaceId: page.workspaceId,
+          ...buildKnowledgePageAccessWhere(userId),
+        },
+        select: { id: true, title: true, isPublic: true },
+      });
+      const byId = new Map(candidates.map((c) => [c.id, c]));
+
+      // Re-emit in document order (the order of `ids`), viewable ones only.
+      const children: { id: string; title: string; isPublic: boolean }[] = [];
+      for (const id of ids) {
+        const candidate = byId.get(id);
+        if (candidate) children.push(candidate);
+      }
+      return children;
     }),
 
   create: protectedProcedure
@@ -731,47 +907,140 @@ export const pageRouter = createTRPCRouter({
    * create (so the copy lands with identical visibility — same project /
    * workspace, per ADR-0038). Copies content and the search toggle; the copy
    * is owned by the duplicator and never inherits publish state.
+   *
+   * With `withSubpages`, the whole sub-tree is copied (ADR-0039): BFS the
+   * `pageLink` graph (workspace-scoped, cycle-safe, capped at
+   * {@link LINKED_PAGES_LIMIT}), deep-copy the reachable pages the caller can
+   * both view and place, remap old→new ids, and rewrite the copied bodies'
+   * `pageLink` targets so the copy links to the copies. Links to pages that
+   * can't be copied (no access, or beyond the cap) keep pointing at the
+   * originals. Only the root is titled "(copy)"; sub-pages keep their names.
    */
   duplicate: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), withSubpages: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
       await assertCanPlacePage(ctx.db, userId, page.workspaceId, page.projectId);
 
-      const source = await ctx.db.knowledgePage.findUniqueOrThrow({
+      const workspace = await ctx.db.workspace.findUniqueOrThrow({
+        where: { id: page.workspaceId },
+        select: { slug: true },
+      });
+
+      // The set of pages to copy: the root, plus (when requested) the reachable
+      // sub-tree the caller can view AND place. Order the root first so it gets
+      // the "(copy)" title and is returned as the entry point.
+      const rootRow = await ctx.db.knowledgePage.findUniqueOrThrow({
         where: { id: input.id },
-        select: {
-          title: true,
-          body: true,
-          bodyDoc: true,
-          includeInSearch: true,
-          workspaceId: true,
-          projectId: true,
-        },
+        select: DUPLICATE_SELECT,
       });
+      const toCopy: DuplicateRow[] = [rootRow];
 
-      const copy = await ctx.db.knowledgePage.create({
-        data: {
-          title: `${source.title} (copy)`,
-          body: source.body,
-          bodyDoc:
-            source.bodyDoc === null
-              ? undefined
-              : (source.bodyDoc as Prisma.InputJsonValue),
-          includeInSearch: source.includeInSearch,
-          workspaceId: source.workspaceId,
-          projectId: source.projectId,
-          createdById: userId,
-        },
-      });
-
-      // Index the copied body like create does for seeded bodies.
-      if (source.body?.trim()) {
-        getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(copy.id);
+      if (input.withSubpages) {
+        const linked = await collectLinkedPages(
+          ctx.db,
+          page,
+          rootRow.bodyDoc as JSONContent | null,
+        );
+        const extraIds = linked.map((l) => l.id).filter((id) => id !== input.id);
+        // Filter to viewable rows in the query (buildKnowledgePageAccessWhere
+        // mirrors getKnowledgePageAccess) rather than resolving access per row.
+        const rows =
+          extraIds.length > 0
+            ? await ctx.db.knowledgePage.findMany({
+                where: {
+                  id: { in: extraIds },
+                  ...buildKnowledgePageAccessWhere(userId),
+                },
+                select: DUPLICATE_SELECT,
+              })
+            : [];
+        const rowById = new Map(rows.map((r) => [r.id, r]));
+        // Memoize the placement gate per (workspace, project) — sub-pages of a
+        // tree overwhelmingly share one, collapsing the check to ~one round-trip.
+        const placeable = new Map<string, boolean>();
+        // Iterate extraIds (not rows) to preserve BFS/document order.
+        for (const id of extraIds) {
+          const row = rowById.get(id);
+          if (!row) continue;
+          const placeKey = `${row.workspaceId}:${row.projectId ?? ""}`;
+          let canPlace = placeable.get(placeKey);
+          if (canPlace === undefined) {
+            canPlace = await canPlacePage(
+              ctx.db,
+              userId,
+              row.workspaceId,
+              row.projectId,
+            );
+            placeable.set(placeKey, canPlace);
+          }
+          if (canPlace) toCopy.push(row);
+        }
       }
-      return copy;
+
+      // Two passes in one transaction: create every copy (to mint ids and build
+      // the old→new remap), then rewrite each copied body's `pageLink` targets.
+      const copies = await ctx.db.$transaction(async (tx) => {
+        const remap = new Map<string, PageLinkRewrite>();
+        const created: { source: DuplicateRow; id: string }[] = [];
+        for (const [index, row] of toCopy.entries()) {
+          const created0 = await tx.knowledgePage.create({
+            data: {
+              title: index === 0 ? `${row.title} (copy)` : row.title,
+              body: row.body,
+              bodyDoc:
+                row.bodyDoc === null
+                  ? undefined
+                  : (row.bodyDoc as Prisma.InputJsonValue),
+              includeInSearch: row.includeInSearch,
+              workspaceId: row.workspaceId,
+              projectId: row.projectId,
+              createdById: userId,
+            },
+            select: { id: true },
+          });
+          remap.set(row.id, {
+            pageId: created0.id,
+            href: buildPageEditorPath(workspace.slug, created0.id),
+          });
+          created.push({ source: row, id: created0.id });
+        }
+
+        // Rewrite links only for copies whose body actually links a copied
+        // page — skip the no-op writes.
+        for (const { source, id } of created) {
+          if (source.bodyDoc === null) continue;
+          const doc = source.bodyDoc as JSONContent;
+          if (!collectPageLinkIds(doc).some((linkId) => remap.has(linkId))) {
+            continue;
+          }
+          await tx.knowledgePage.update({
+            where: { id },
+            data: { bodyDoc: remapPageLinkIds(doc, remap) as Prisma.InputJsonValue },
+          });
+        }
+        return created;
+      });
+
+      // Index every copied body like create does for seeded bodies.
+      for (const { source, id } of copies) {
+        if (source.body?.trim()) {
+          getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
+        }
+      }
+      // The root copy is the entry point the client navigates to. `toCopy`
+      // always leads with `rootRow`, so `copies` is never empty — guard anyway
+      // so a partial transaction surfaces a clear error instead of a crash.
+      const rootCopy = copies[0];
+      if (!rootCopy) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Duplicate produced no pages",
+        });
+      }
+      return { id: rootCopy.id };
     }),
 
   delete: protectedProcedure

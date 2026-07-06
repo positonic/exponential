@@ -27,7 +27,7 @@ Introduce **Page** (`KnowledgePage`) as a first-class authored-document entity.
 - **Reuse the existing `Document` model.** Rejected — it's a file-ingestion artefact (`s3Key`, `ingestionStatus`) with the wrong shape and a name collision; authored prose is a different thing.
 - **Markdown-only via `MarkdownInput` (full ADR-0017 compliance).** Rejected — loses the rich editor (slash menu, structure) that motivated the feature; the ADR-0024 pattern already preserves agent-readability via the projection.
 - **A "Documents" tab inside Knowledge Base.** Considered and rejected in favour of a top-level nav item for prominence; search co-location is preserved regardless via the shared index.
-- **Nesting/folders in v1.** Deferred — `parentId` is cheap to add later and not worth the tree-nav UI now.
+- **Nesting/folders in v1.** Deferred — `parentId` is cheap to add later and not worth the tree-nav UI now. *(Superseded by [ADR-0039](0039-page-nesting-soft-link-graph.md): nesting shipped via the `pageLink` graph instead, and `parentId` was decided against — the graph is the single source of truth.)*
 
 ## Consequences
 

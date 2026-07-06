@@ -89,9 +89,13 @@ export function PageShareMenu({
     },
     onError: (e) => onError(e, "Could not publish linked pages"),
   });
+  // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
+  const children = api.page.children.useQuery({ id: pageId });
+  const hasSubpages = (children.data?.length ?? 0) > 0;
   const duplicate = api.page.duplicate.useMutation({
     onSuccess: (copy) => {
       void utils.page.list.invalidate();
+      void utils.page.tree.invalidate();
       router.push(`/w/${workspaceSlug}/pages/${copy.id}`);
     },
     onError: (e) => onError(e, "Could not duplicate page"),
@@ -270,6 +274,15 @@ export function PageShareMenu({
           >
             Duplicate
           </Menu.Item>
+          {hasSubpages ? (
+            <Menu.Item
+              leftSection={<IconCopy size={14} />}
+              disabled={duplicate.isPending}
+              onClick={() => duplicate.mutate({ id: pageId, withSubpages: true })}
+            >
+              Duplicate with sub-pages
+            </Menu.Item>
+          ) : null}
         </Menu.Dropdown>
       </Menu>
     </Group>

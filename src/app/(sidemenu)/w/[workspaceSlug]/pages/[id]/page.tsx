@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Skeleton, Text, TextInput } from '@mantine/core';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
+import { PageSubpages } from '~/app/_components/pages/PageSubpages';
+import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
 
 /** Inline-editable page title; saves on blur/Enter when changed (metadata-only
  * update, so no docVersion dance). Read-only users see static text. */
@@ -81,6 +83,35 @@ function PageEditorContent({
   workspaceSlug: string;
 }) {
   const { data: page, isLoading, error } = api.page.get.useQuery({ id: pageId });
+  const utils = api.useUtils();
+  const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
+
+  // Detach a sub-page: remove its `pageLink` block(s) from the live doc, flush
+  // the save, then refresh the child list. Editing the live editor (not the DB)
+  // keeps the body the single source of truth and avoids a docVersion conflict
+  // with the open editor (ADR-0039).
+  const detachChild = async (childId: string) => {
+    const editor = editorHandleRef.current?.editor;
+    if (!editor) return;
+    const ranges: { from: number; to: number }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'pageLink' && node.attrs.pageId === childId) {
+        ranges.push({ from: pos, to: pos + node.nodeSize });
+      }
+      return true;
+    });
+    if (ranges.length === 0) return;
+    // Delete highest position first so earlier ranges stay valid.
+    let chain = editor.chain();
+    for (const range of ranges.sort((a, b) => b.from - a.from)) {
+      chain = chain.deleteRange(range);
+    }
+    chain.run();
+    await editorHandleRef.current?.flushSave();
+    await utils.page.children.invalidate({ id: pageId });
+    await utils.page.get.invalidate({ id: pageId });
+    void utils.page.list.invalidate();
+  };
 
   if (isLoading) {
     return (
@@ -128,6 +159,15 @@ function PageEditorContent({
         workspaceId={page.workspaceId}
         workspaceSlug={workspaceSlug}
         projectId={page.projectId}
+        onEditorReady={(handle) => {
+          editorHandleRef.current = handle;
+        }}
+      />
+      <PageSubpages
+        pageId={page.id}
+        workspaceSlug={workspaceSlug}
+        editable={page.canEdit}
+        onDetach={page.canEdit ? detachChild : undefined}
       />
     </div>
   );

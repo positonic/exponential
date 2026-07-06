@@ -29,6 +29,8 @@ const getPublishedPage = cache(async (param: string) => {
   const page = await db.knowledgePage.findFirst({
     where: { publicId: parsed.publicId, isPublic: true },
     select: {
+      id: true,
+      workspaceId: true,
       title: true,
       body: true,
       bodyDoc: true,
@@ -69,6 +71,67 @@ async function resolvePublishedPageLinks(
       },
     ]),
   );
+}
+
+/** A published parent for the breadcrumb: its live title and public path. */
+interface PublicParent {
+  title: string;
+  href: string;
+}
+
+/**
+ * Resolve the published parent of a page for the public breadcrumb (ADR-0038:
+ * render a link to the parent only when the parent is itself published). Nesting
+ * is the `pageLink` graph (ADR-0039), so this is the reverse lookup used in-app
+ * by `page.parentCrumb`, narrowed to `isPublic` linkers: same-workspace pages
+ * whose `bodyDoc` links this page (cheap `::text` LIKE prefilter, then confirmed
+ * with {@link collectPageLinkIds} to reject incidental text matches). The
+ * newest-edited published linker wins; returns null when none is published.
+ */
+async function resolvePublishedParent(
+  pageId: string,
+  workspaceId: string,
+): Promise<PublicParent | null> {
+  // Escape LIKE wildcards so a pathological id can't broaden the prefilter.
+  // Use a replacer function (not "\\$&") so the backslash is emitted literally
+  // and `%`/`_`/`\` are each prefixed with a real escape backslash.
+  const likePattern = `%${pageId.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  const rows = await db.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "KnowledgePage"
+    WHERE "workspaceId" = ${workspaceId}
+      AND "id" <> ${pageId}
+      AND "isPublic" = true
+      AND "publicId" IS NOT NULL
+      AND "bodyDoc"::text LIKE ${likePattern}
+    ORDER BY "updatedAt" DESC
+    LIMIT 20
+  `;
+  if (rows.length === 0) return null;
+
+  const candidates = await db.knowledgePage.findMany({
+    where: { id: { in: rows.map((r) => r.id) } },
+    select: {
+      id: true,
+      title: true,
+      bodyDoc: true,
+      publicId: true,
+      publicSlug: true,
+    },
+  });
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+
+  // Preserve the raw query's newest-edited-first order.
+  for (const { id } of rows) {
+    const candidate = byId.get(id);
+    if (!candidate?.publicId) continue;
+    const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
+    if (!links.includes(pageId)) continue;
+    return {
+      title: candidate.title,
+      href: buildPublicPagePath(candidate.publicSlug ?? "untitled", candidate.publicId),
+    };
+  }
+  return null;
 }
 
 /** Plain-text excerpt of the Markdown projection for meta descriptions. */
@@ -139,6 +202,8 @@ export default async function PublishedPage({
       )
     : null;
 
+  const parent = await resolvePublishedParent(page.id, page.workspaceId);
+
   const updatedAt = new Intl.DateTimeFormat("en", {
     day: "numeric",
     month: "short",
@@ -161,6 +226,18 @@ export default async function PublishedPage({
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
         <article>
+          {parent ? (
+            <nav aria-label="Breadcrumb" className="mb-3 text-sm text-text-muted">
+              <Link
+                href={parent.href}
+                className="transition-colors hover:text-text-primary"
+              >
+                {parent.title}
+              </Link>
+              <span className="px-1.5">/</span>
+              <span className="text-text-secondary">{page.title}</span>
+            </nav>
+          ) : null}
           <h1 className="mb-2 text-3xl font-bold text-text-primary">
             {page.title}
           </h1>

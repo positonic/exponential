@@ -10,9 +10,16 @@ import {
   Skeleton,
   Text,
   TextInput,
+  Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconFileText, IconPlus, IconSearch } from '@tabler/icons-react';
+import {
+  IconChevronRight,
+  IconFileText,
+  IconPlus,
+  IconSearch,
+  IconWorld,
+} from '@tabler/icons-react';
 import { formatDistanceToNow } from 'date-fns';
 import { api } from '~/trpc/react';
 
@@ -25,7 +32,10 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
   const router = useRouter();
   const [search, setSearch] = useState('');
 
-  const { data: pages, isLoading } = api.page.list.useQuery({ workspaceId });
+  // The tree carries the nesting (ADR-0039) — pages ordered depth-first with a
+  // `depth` for indentation. Search flattens it (matches surface without their
+  // ancestors, so indentation would be misleading).
+  const { data: pages, isLoading } = api.page.tree.useQuery({ workspaceId });
 
   const createPage = api.page.create.useMutation({
     onSuccess: (page) => {
@@ -40,12 +50,14 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
     },
   });
 
-  const filteredPages = useMemo(() => {
+  const query = search.trim().toLowerCase();
+  const rows = useMemo(() => {
     if (!pages) return [];
-    const q = search.trim().toLowerCase();
-    if (!q) return pages;
-    return pages.filter((p) => p.title.toLowerCase().includes(q));
-  }, [pages, search]);
+    if (!query) return pages;
+    return pages
+      .filter((p) => p.title.toLowerCase().includes(query))
+      .map((p) => ({ ...p, depth: 0, hasChildren: false }));
+  }, [pages, query]);
 
   return (
     <div className="w-full px-6 py-8">
@@ -81,7 +93,7 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
           <Skeleton height={56} />
           <Skeleton height={56} />
         </div>
-      ) : filteredPages.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="rounded-[10px] border border-border-primary bg-background-secondary px-6 py-12 text-center">
           <Text className="text-text-secondary">
             {pages && pages.length > 0
@@ -91,19 +103,36 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {filteredPages.map((page) => (
+          {rows.map((page) => (
             <Link
               key={page.id}
               href={`/w/${workspaceSlug}/pages/${page.id}`}
               className="group flex items-center justify-between gap-4 rounded-[10px] border border-border-primary bg-background-secondary px-[18px] py-3 transition-colors hover:border-border-focus hover:bg-surface-hover"
+              style={page.depth > 0 ? { marginLeft: page.depth * 22 } : undefined}
             >
-              <div className="min-w-0 flex-1">
-                <Text className="truncate text-[14.5px] font-semibold text-text-primary">
-                  {page.title}
-                </Text>
-                <Text className="text-xs text-text-muted">
-                  Updated {formatDistanceToNow(new Date(page.updatedAt), { addSuffix: true })}
-                </Text>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {page.depth > 0 ? (
+                  <IconChevronRight
+                    size={14}
+                    className="shrink-0 text-text-muted"
+                    aria-hidden
+                  />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <Text className="truncate text-[14.5px] font-semibold text-text-primary">
+                      {page.title}
+                    </Text>
+                    {page.isPublic ? (
+                      <Tooltip label="Published to the web" withArrow>
+                        <IconWorld size={14} className="shrink-0 text-text-muted" />
+                      </Tooltip>
+                    ) : null}
+                  </div>
+                  <Text className="text-xs text-text-muted">
+                    Updated {formatDistanceToNow(new Date(page.updatedAt), { addSuffix: true })}
+                  </Text>
+                </div>
               </div>
               {page.project ? (
                 <Badge variant="light" color="gray" size="sm" className="shrink-0">

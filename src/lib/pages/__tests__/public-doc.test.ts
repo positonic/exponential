@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { generateHTML } from "@tiptap/html";
 import type { JSONContent } from "@tiptap/core";
 
-import { collectPageLinkIds, sanitizeDocForPublic } from "../public-doc";
+import {
+  collectPageLinkIds,
+  remapPageLinkIds,
+  sanitizeDocForPublic,
+  type PageLinkRewrite,
+} from "../public-doc";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 
 function doc(content: JSONContent[]): JSONContent {
@@ -181,6 +186,69 @@ describe("sanitizeDocForPublic", () => {
     ]);
     const snapshot = JSON.parse(JSON.stringify(input)) as JSONContent;
     sanitizeDocForPublic(input);
+    expect(input).toEqual(snapshot);
+  });
+});
+
+describe("remapPageLinkIds", () => {
+  const remap = new Map<string, PageLinkRewrite>([
+    ["old1", { pageId: "new1", href: "/w/acme/pages/new1" }],
+    ["old2", { pageId: "new2", href: "/w/acme/pages/new2" }],
+  ]);
+
+  it("rewrites pageId and href for remapped targets, in nested nodes", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "old1", title: "One", href: "/w/acme/pages/old1" },
+      },
+      {
+        type: "blockquote",
+        content: [
+          {
+            type: "pageLink",
+            attrs: { pageId: "old2", title: "Two", href: "/w/acme/pages/old2" },
+          },
+        ],
+      },
+    ]);
+    const out = remapPageLinkIds(input, remap);
+    expect(out.content![0]!.attrs).toEqual({
+      pageId: "new1",
+      title: "One",
+      href: "/w/acme/pages/new1",
+    });
+    expect(out.content![1]!.content![0]!.attrs).toEqual({
+      pageId: "new2",
+      title: "Two",
+      href: "/w/acme/pages/new2",
+    });
+  });
+
+  it("leaves links whose target is not in the remap untouched", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "other", title: "Kept", href: "/w/acme/pages/other" },
+      },
+    ]);
+    const out = remapPageLinkIds(input, remap);
+    expect(out.content![0]!.attrs).toEqual({
+      pageId: "other",
+      title: "Kept",
+      href: "/w/acme/pages/other",
+    });
+  });
+
+  it("does not mutate the input document", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "old1", title: "One", href: "/w/acme/pages/old1" },
+      },
+    ]);
+    const snapshot = JSON.parse(JSON.stringify(input)) as JSONContent;
+    remapPageLinkIds(input, remap);
     expect(input).toEqual(snapshot);
   });
 });

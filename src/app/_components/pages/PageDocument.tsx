@@ -11,6 +11,7 @@ import {
   type RichDocEditorHandle,
 } from "~/app/_components/shared/RichDocEditor";
 import type { SlashCommandItem } from "~/lib/prd/slash-command";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
 
 interface PageDocumentProps {
   pageId: string;
@@ -25,6 +26,9 @@ interface PageDocumentProps {
   workspaceId: string;
   workspaceSlug: string;
   projectId?: string | null;
+  /** Forwards the editor handle to the host (e.g. the Sub-pages panel, which
+   * detaches a child by removing its `pageLink` block from the live doc). */
+  onEditorReady?: (handle: RichDocEditorHandle) => void;
 }
 
 /**
@@ -46,6 +50,7 @@ export function PageDocument({
   workspaceId,
   workspaceSlug,
   projectId,
+  onEditorReady,
 }: PageDocumentProps) {
   const router = useRouter();
   const utils = api.useUtils();
@@ -78,7 +83,7 @@ export function PageDocument({
                     attrs: {
                       pageId: page.id,
                       title: page.title,
-                      href: `/w/${workspaceSlug}/pages/${page.id}`,
+                      href: buildPageEditorPath(workspaceSlug, page.id),
                     },
                   })
                   .run();
@@ -135,6 +140,7 @@ export function PageDocument({
       slashExtras={slashExtras}
       onReady={(handle) => {
         handleRef.current = handle;
+        onEditorReady?.(handle);
       }}
     />
   );
