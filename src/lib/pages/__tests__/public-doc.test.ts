@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JSONContent } from "@tiptap/core";
 
-import { sanitizeDocForPublic } from "../public-doc";
+import { collectPageLinkIds, sanitizeDocForPublic } from "../public-doc";
 
 function doc(content: JSONContent[]): JSONContent {
   return { type: "doc", content };
@@ -122,6 +122,57 @@ describe("sanitizeDocForPublic", () => {
     });
   });
 
+  it("links page links whose target is published, with the live title", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx1", title: "Old title", href: "/w/acme/pages/clx1" },
+      },
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx2", title: "Private", href: "/w/acme/pages/clx2" },
+      },
+    ]);
+    const out = sanitizeDocForPublic(
+      input,
+      new Map([["clx1", { title: "Live title", href: "/p/live-title-ab12cd34" }]]),
+    );
+    // Published target → paragraph linking to the public URL.
+    expect(out.content![0]).toEqual({
+      type: "paragraph",
+      content: [
+        {
+          type: "text",
+          text: "Live title",
+          marks: [{ type: "link", attrs: { href: "/p/live-title-ab12cd34" } }],
+        },
+      ],
+    });
+    // Unpublished target → title-only node, no id/href leak.
+    expect(out.content![1]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Private" },
+    });
+  });
+
+  it("falls back to title-only when a resolved href is not app-relative", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx1", title: "Cached", href: "/w/acme/pages/clx1" },
+      },
+    ]);
+    const out = sanitizeDocForPublic(
+      input,
+      // A target whose href is somehow unsafe must never reach the HTML.
+      new Map([["clx1", { title: "Live", href: "javascript:alert(1)" }]]),
+    );
+    expect(out.content![0]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Cached" },
+    });
+  });
+
   it("does not mutate the input document", () => {
     const input = doc([
       { type: "image", attrs: { src: "data:image/png;base64,AAAA" } },
@@ -129,5 +180,26 @@ describe("sanitizeDocForPublic", () => {
     const snapshot = JSON.parse(JSON.stringify(input)) as JSONContent;
     sanitizeDocForPublic(input);
     expect(input).toEqual(snapshot);
+  });
+});
+
+describe("collectPageLinkIds", () => {
+  it("collects distinct ids in document order, including nested nodes", () => {
+    const input = doc([
+      { type: "pageLink", attrs: { pageId: "b", title: "B" } },
+      {
+        type: "blockquote",
+        content: [{ type: "pageLink", attrs: { pageId: "a", title: "A" } }],
+      },
+      { type: "pageLink", attrs: { pageId: "b", title: "B again" } },
+      { type: "pageLink" },
+      { type: "paragraph", content: [{ type: "text", text: "no links" }] },
+    ]);
+    expect(collectPageLinkIds(input)).toEqual(["b", "a"]);
+  });
+
+  it("returns empty for empty or missing docs", () => {
+    expect(collectPageLinkIds(null)).toEqual([]);
+    expect(collectPageLinkIds(doc([]))).toEqual([]);
   });
 });

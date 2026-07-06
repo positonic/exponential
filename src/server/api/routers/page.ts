@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { randomInt } from "crypto";
+import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@prisma/client";
@@ -8,6 +9,7 @@ import {
   PUBLIC_ID_LENGTH,
   slugifyPageTitle,
 } from "~/lib/pages/public-url";
+import { collectPageLinkIds } from "~/lib/pages/public-doc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
@@ -138,6 +140,123 @@ function generatePublicId(): string {
   return id;
 }
 
+/**
+ * The publish core (ADR-0038), shared by `publish` and `publishMany`. Callers
+ * must have already enforced edit access. First publish mints the immutable
+ * `publicId` and derives `publicSlug` from the title; republish reuses both,
+ * reviving old links.
+ */
+async function publishPage(db: PrismaClient, id: string) {
+  const existing = await db.knowledgePage.findUniqueOrThrow({
+    where: { id },
+    select: { title: true, publicId: true, publicSlug: true },
+  });
+
+  const publicSlug = existing.publicSlug ?? slugifyPageTitle(existing.title);
+
+  if (existing.publicId) {
+    return db.knowledgePage.update({
+      where: { id },
+      data: { isPublic: true, publicSlug, publishedAt: new Date() },
+      select: PUBLIC_SETTINGS_SELECT,
+    });
+  }
+
+  // Mint the id here rather than in the schema default so it only exists
+  // for pages that have actually been published. Retry on the (36^8)
+  // collision rather than pre-checking. `publicId: null` in the where
+  // guards against a concurrent first publish: the loser of that race
+  // must reuse the winner's id, never overwrite an id that may already
+  // have been shared.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return await db.knowledgePage.update({
+        where: { id, AND: [{ publicId: null }] },
+        data: {
+          isPublic: true,
+          publicId: generatePublicId(),
+          publicSlug,
+          publishedAt: new Date(),
+        },
+        select: PUBLIC_SETTINGS_SELECT,
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        // P2002: minted id collided with another page's — remint.
+        if (error.code === "P2002") continue;
+        // P2025: a concurrent publish minted first — keep its id.
+        if (error.code === "P2025") {
+          return db.knowledgePage.update({
+            where: { id },
+            data: { isPublic: true, publishedAt: new Date() },
+            select: PUBLIC_SETTINGS_SELECT,
+          });
+        }
+      }
+      throw error;
+    }
+  }
+  throw new TRPCError({
+    code: "INTERNAL_SERVER_ERROR",
+    message: "Could not allocate a public URL. Please try again.",
+  });
+}
+
+/** Cap on the pageLink graph walk — keeps a pathological/cyclic doc bounded. */
+const LINKED_PAGES_LIMIT = 50;
+
+/**
+ * Walk the `pageLink` graph from a root page (BFS, cycle-safe, capped at
+ * {@link LINKED_PAGES_LIMIT}), returning the distinct reachable pages.
+ * Constrained to the root's workspace: `/page` only ever creates same-workspace
+ * links, and a pasted cross-workspace id must not leak another workspace's
+ * titles through this query.
+ */
+async function collectLinkedPages(
+  db: PrismaClient,
+  root: { id: string; workspaceId: string },
+  rootDoc: JSONContent | null,
+) {
+  const visited = new Set<string>([root.id]);
+  const linked: {
+    id: string;
+    title: string;
+    isPublic: boolean;
+    createdById: string;
+    projectId: string | null;
+    workspaceId: string;
+  }[] = [];
+  let frontier = collectPageLinkIds(rootDoc).filter((id) => !visited.has(id));
+
+  while (frontier.length > 0 && visited.size <= LINKED_PAGES_LIMIT) {
+    frontier.forEach((id) => visited.add(id));
+    const pages = await db.knowledgePage.findMany({
+      where: { id: { in: frontier }, workspaceId: root.workspaceId },
+      select: {
+        id: true,
+        title: true,
+        isPublic: true,
+        bodyDoc: true,
+        createdById: true,
+        projectId: true,
+        workspaceId: true,
+      },
+    });
+    const next: string[] = [];
+    for (const page of pages) {
+      const { bodyDoc, ...rest } = page;
+      linked.push(rest);
+      next.push(
+        ...collectPageLinkIds(bodyDoc as JSONContent | null).filter(
+          (id) => !visited.has(id),
+        ),
+      );
+    }
+    frontier = [...new Set(next)];
+  }
+  return linked;
+}
+
 export const pageRouter = createTRPCRouter({
   /**
    * List the Pages a user can see in a workspace (visibility per ADR-0033 /
@@ -208,6 +327,65 @@ export const pageRouter = createTRPCRouter({
       }
       // The editor needs to know whether to render read-only.
       return { ...page, canEdit: canEditKnowledgePage(access) };
+    }),
+
+  /**
+   * The "parent" of a page for breadcrumbs: a page whose body links to this
+   * one via a `pageLink` node. Sub-pages are soft — there is no stored parent
+   * pointer (ADR-0033/0038) — so this is a reverse lookup: scan same-workspace
+   * pages whose serialized `bodyDoc` mentions this id (cheap `::text` LIKE
+   * pre-filter), then confirm with {@link collectPageLinkIds} to reject
+   * incidental text matches, and gate on the caller's view access. A page can
+   * have several linkers; the newest-edited viewable one wins. Returns null
+   * when the page is top-level or has no viewable linker.
+   */
+  parentCrumb: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "view");
+
+      // Escape LIKE wildcards (`%` `_` `\`) so a pathological id can't broaden
+      // the pre-filter into a full-workspace scan. Postgres LIKE treats `\` as
+      // the escape char by default, so `\%`/`\_`/`\\` match those literals.
+      // (Titles still can't leak: every candidate is view-gated below.)
+      const likePattern = `%${input.id.replace(/[\\%_]/g, "\\$&")}%`;
+      const rows = await ctx.db.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "KnowledgePage"
+        WHERE "workspaceId" = ${page.workspaceId}
+          AND "id" <> ${input.id}
+          AND "bodyDoc"::text LIKE ${likePattern}
+        ORDER BY "updatedAt" DESC
+        LIMIT 20
+      `;
+      if (rows.length === 0) return null;
+
+      const candidates = await ctx.db.knowledgePage.findMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+        select: {
+          id: true,
+          title: true,
+          bodyDoc: true,
+          createdById: true,
+          projectId: true,
+          workspaceId: true,
+        },
+      });
+      const byId = new Map(candidates.map((c) => [c.id, c]));
+
+      // Preserve the raw query's newest-edited-first order.
+      for (const { id } of rows) {
+        const candidate = byId.get(id);
+        if (!candidate) continue;
+        const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
+        if (!links.includes(input.id)) continue;
+        const access = await getKnowledgePageAccess(ctx.db, userId, candidate);
+        if (canViewKnowledgePage(access)) {
+          return { id: candidate.id, title: candidate.title };
+        }
+      }
+      return null;
     }),
 
   create: protectedProcedure
@@ -433,61 +611,77 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+      return publishPage(ctx.db, input.id);
+    }),
 
-      const existing = await ctx.db.knowledgePage.findUniqueOrThrow({
+  /**
+   * The pages this page links to (via `pageLink` nodes, transitively) that are
+   * not yet published and that the caller could publish. The share popover
+   * lists them so publishing a sub-tree stays an explicit, visible act —
+   * ADR-0038's "publishing never follows from visibility rules" holds; this
+   * only extends the consent surface.
+   */
+  linkedUnpublished: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "view");
+
+      const root = await ctx.db.knowledgePage.findUniqueOrThrow({
         where: { id: input.id },
-        select: { title: true, publicId: true, publicSlug: true },
+        select: { bodyDoc: true },
       });
+      const linked = await collectLinkedPages(
+        ctx.db,
+        page,
+        root.bodyDoc as JSONContent | null,
+      );
 
-      const publicSlug =
-        existing.publicSlug ?? slugifyPageTitle(existing.title);
-
-      if (existing.publicId) {
-        return ctx.db.knowledgePage.update({
-          where: { id: input.id },
-          data: { isPublic: true, publicSlug, publishedAt: new Date() },
-          select: PUBLIC_SETTINGS_SELECT,
-        });
-      }
-
-      // Mint the id here rather than in the schema default so it only exists
-      // for pages that have actually been published. Retry on the (36^8)
-      // collision rather than pre-checking. `publicId: null` in the where
-      // guards against a concurrent first publish: the loser of that race
-      // must reuse the winner's id, never overwrite an id that may already
-      // have been shared.
-      for (let attempt = 0; attempt < 5; attempt++) {
-        try {
-          return await ctx.db.knowledgePage.update({
-            where: { id: input.id, AND: [{ publicId: null }] },
-            data: {
-              isPublic: true,
-              publicId: generatePublicId(),
-              publicSlug,
-              publishedAt: new Date(),
-            },
-            select: PUBLIC_SETTINGS_SELECT,
-          });
-        } catch (error) {
-          if (error instanceof Prisma.PrismaClientKnownRequestError) {
-            // P2002: minted id collided with another page's — remint.
-            if (error.code === "P2002") continue;
-            // P2025: a concurrent publish minted first — keep its id.
-            if (error.code === "P2025") {
-              return ctx.db.knowledgePage.update({
-                where: { id: input.id },
-                data: { isPublic: true, publishedAt: new Date() },
-                select: PUBLIC_SETTINGS_SELECT,
-              });
-            }
-          }
-          throw error;
+      const publishable: { id: string; title: string }[] = [];
+      for (const candidate of linked) {
+        if (candidate.isPublic) continue;
+        const access = await getKnowledgePageAccess(ctx.db, userId, candidate);
+        if (canEditKnowledgePage(access)) {
+          publishable.push({ id: candidate.id, title: candidate.title });
         }
       }
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Could not allocate a public URL. Please try again.",
-      });
+      return publishable;
+    }),
+
+  /**
+   * Publish several pages at once — the share popover's "publish linked pages"
+   * action (typically the ids returned by `linkedUnpublished`). Each page is
+   * gated by the same edit check as `publish`; ids are explicit so the server
+   * never publishes anything the user didn't see listed.
+   */
+  publishMany: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(LINKED_PAGES_LIMIT),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const ids = [...new Set(input.ids)];
+      // Pre-flight: require edit access on *every* page before publishing any,
+      // so "you can't publish X" rejects the whole request up front instead of
+      // after publishing some of the batch. This is not a transaction —
+      // publishPage's mint-collision retry must survive a unique violation,
+      // which would abort a Postgres tx — so a rare failure mid-loop leaves a
+      // partial batch. That's safe: publishing is idempotent, so the caller can
+      // simply retry. (The permission window between check and publish is
+      // sub-second and low-impact: at worst a page the user could edit moments
+      // ago gets published.)
+      for (const id of ids) {
+        const page = await loadPageForAccess(ctx.db, id);
+        await ensurePageAccess(ctx.db, userId, page, "edit");
+      }
+      const results = [];
+      for (const id of ids) {
+        results.push(await publishPage(ctx.db, id));
+      }
+      return results;
     }),
 
   /** Unpublish → the public URL 404s immediately. `publicId`/`publicSlug` are
