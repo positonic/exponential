@@ -78,7 +78,11 @@ export const PageLink = Node.create({
             ((node.attrs.title as string | null) ?? "Untitled") || "Untitled";
           const href = (node.attrs.href as string | null) ?? "";
           const safeTitle = title.replace(/([[\]])/g, "\\$1");
-          state.write(`[${safeTitle}](${href})`);
+          // Escape the same destination characters prosemirror-markdown
+          // escapes for link marks, so a hostile href can't break out of the
+          // link syntax and corrupt the projection.
+          const safeHref = href.replace(/[()"\\]/g, "\\$&");
+          state.write(`[${safeTitle}](${safeHref})`);
           state.closeBlock(node);
         },
         parse: {},

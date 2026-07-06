@@ -136,6 +136,16 @@ describe("PRD document codec", () => {
         ],
       };
       expect(docToMarkdown(doc)).toBe("[A \\[draft\\]]()");
+      const hostileHref: JSONContent = {
+        type: "doc",
+        content: [
+          {
+            type: "pageLink",
+            attrs: { pageId: "clx2", title: "T", href: "/w/a(b)/pages/x" },
+          },
+        ],
+      };
+      expect(docToMarkdown(hostileHref)).toBe("[T](/w/a\\(b\\)/pages/x)");
       const bare: JSONContent = {
         type: "doc",
         content: [{ type: "pageLink" }],
