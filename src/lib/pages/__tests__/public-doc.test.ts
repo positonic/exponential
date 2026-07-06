@@ -155,6 +155,24 @@ describe("sanitizeDocForPublic", () => {
     });
   });
 
+  it("falls back to title-only when a resolved href is not app-relative", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx1", title: "Cached", href: "/w/acme/pages/clx1" },
+      },
+    ]);
+    const out = sanitizeDocForPublic(
+      input,
+      // A target whose href is somehow unsafe must never reach the HTML.
+      new Map([["clx1", { title: "Live", href: "javascript:alert(1)" }]]),
+    );
+    expect(out.content![0]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Cached" },
+    });
+  });
+
   it("does not mutate the input document", () => {
     const input = doc([
       { type: "image", attrs: { src: "data:image/png;base64,AAAA" } },

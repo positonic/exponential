@@ -346,11 +346,16 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
+      // Escape LIKE wildcards (`%` `_` `\`) so a pathological id can't broaden
+      // the pre-filter into a full-workspace scan. Postgres LIKE treats `\` as
+      // the escape char by default, so `\%`/`\_`/`\\` match those literals.
+      // (Titles still can't leak: every candidate is view-gated below.)
+      const likePattern = `%${input.id.replace(/[\\%_]/g, "\\$&")}%`;
       const rows = await ctx.db.$queryRaw<{ id: string }[]>`
         SELECT "id" FROM "KnowledgePage"
         WHERE "workspaceId" = ${page.workspaceId}
           AND "id" <> ${input.id}
-          AND "bodyDoc"::text LIKE ${`%${input.id}%`}
+          AND "bodyDoc"::text LIKE ${likePattern}
         ORDER BY "updatedAt" DESC
         LIMIT 20
       `;
@@ -659,8 +664,15 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const ids = [...new Set(input.ids)];
-      // Gate every page before publishing any, so a mid-list FORBIDDEN can't
-      // leave a half-published batch.
+      // Pre-flight: require edit access on *every* page before publishing any,
+      // so "you can't publish X" rejects the whole request up front instead of
+      // after publishing some of the batch. This is not a transaction —
+      // publishPage's mint-collision retry must survive a unique violation,
+      // which would abort a Postgres tx — so a rare failure mid-loop leaves a
+      // partial batch. That's safe: publishing is idempotent, so the caller can
+      // simply retry. (The permission window between check and publish is
+      // sub-second and low-impact: at worst a page the user could edit moments
+      // ago gets published.)
       for (const id of ids) {
         const page = await loadPageForAccess(ctx.db, id);
         await ensurePageAccess(ctx.db, userId, page, "edit");

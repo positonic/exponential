@@ -42,10 +42,12 @@ function sanitizeNode(
     const pageId = node.attrs?.pageId;
     const target =
       typeof pageId === "string" ? pageLinks.get(pageId) : undefined;
-    if (target) {
-      // The target is published — link to its public URL with the live title.
-      // Constructed here from trusted values, so it bypasses SAFE_LINK_HREF
-      // (the public path is app-relative, not http(s)).
+    // A published target with a safe app-relative href becomes a real link to
+    // its public URL with its live title. The href is built from trusted
+    // values (buildPublicPagePath always emits `/p/…`), but this is a public
+    // HTML render, so we still refuse anything that isn't an app-relative path
+    // — defense-in-depth against a `javascript:`/`data:` href slipping in.
+    if (target && target.href.startsWith("/")) {
       return {
         type: "paragraph",
         content: [
@@ -57,6 +59,8 @@ function sanitizeNode(
         ],
       };
     }
+    // Otherwise (unpublished / unknown / unsafe href): title-only text, with no
+    // page id or internal workspace path leaked.
     const title = node.attrs?.title;
     return {
       type: "pageLink",
