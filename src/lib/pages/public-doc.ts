@@ -124,3 +124,40 @@ export function collectPageLinkIds(
   if (doc) walk(doc);
   return ids;
 }
+
+/** A `pageLink` node's rewritten target: the new page id and its in-app href. */
+export interface PageLinkRewrite {
+  pageId: string;
+  href: string;
+}
+
+/**
+ * Rewrite `pageLink` node targets through a remap (old page id → new
+ * {pageId, href}). Used by duplicate-with-sub-pages (ADR-0039) so a copied tree
+ * links to the copies, not the originals. Links whose target isn't in the remap
+ * (un-copyable / out-of-scope pages) are left untouched. Pure; returns a new doc
+ * and never mutates the input.
+ */
+export function remapPageLinkIds(
+  doc: JSONContent,
+  remap: ReadonlyMap<string, PageLinkRewrite>,
+): JSONContent {
+  const rewrite = (node: JSONContent): JSONContent => {
+    let next = node;
+    if (node.type === "pageLink") {
+      const pageId = node.attrs?.pageId;
+      const target = typeof pageId === "string" ? remap.get(pageId) : undefined;
+      if (target) {
+        next = {
+          ...node,
+          attrs: { ...node.attrs, pageId: target.pageId, href: target.href },
+        };
+      }
+    }
+    if (next.content) {
+      return { ...next, content: next.content.map(rewrite) };
+    }
+    return next;
+  };
+  return rewrite(doc);
+}
