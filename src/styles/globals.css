@@ -2208,6 +2208,70 @@
   padding-left: 1.5rem;
 }
 
+/* PRD body tables (Tier B). In the editable editor prosemirror-tables wraps the
+   table in `.tableWrapper` (the horizontal scroll container); the headless
+   public render (`generateHTML`) emits a bare <table>, so styling covers both.
+   All colors come from semantic tokens so tables follow light/dark. */
+.prd-document .tableWrapper {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.prd-document table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.75rem 0;
+}
+/* Inside the editor the wrapper owns the vertical margin. */
+.prd-document .tableWrapper table {
+  margin: 0;
+}
+.prd-document th,
+.prd-document td {
+  position: relative;
+  min-width: 4rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-border-primary);
+  vertical-align: top;
+  text-align: left;
+}
+.prd-document th {
+  background-color: var(--color-surface-secondary);
+  font-weight: 600;
+}
+/* Cells wrap their text in a <p>; drop its default gap. */
+.prd-document th > p,
+.prd-document td > p {
+  margin: 0;
+}
+/* Selected-cell highlight while editing (prosemirror-tables CellSelection). */
+.prd-document .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background-color: color-mix(
+    in srgb,
+    var(--color-brand-primary) 18%,
+    transparent
+  );
+  pointer-events: none;
+}
+/* Column resize handle + cursor (editable editor only). */
+.prd-document .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: -1px;
+  width: 3px;
+  background-color: var(--color-brand-primary);
+  pointer-events: none;
+}
+.prd-document .tableWrapper.resize-cursor {
+  cursor: col-resize;
+}
+
 /* React Flow (CRM Automation builder) — theme the canvas chrome to the app's
    navy surfaces instead of React Flow's default light styling. Colors come from
    semantic tokens so this follows light/dark like the rest of the app. */

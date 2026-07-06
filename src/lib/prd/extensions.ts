@@ -5,6 +5,10 @@ import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableHeader from "@tiptap/extension-table-header";
+import TableCell from "@tiptap/extension-table-cell";
 import { Markdown } from "tiptap-markdown";
 import { CommentMark } from "./comment-mark";
 import { PageLink } from "./page-link";
@@ -24,9 +28,9 @@ import { PageLink } from "./page-link";
  * projection.
  *
  * Capability is deliberately "Tier B / Linear-grade": headings, lists, task
- * lists, code blocks, links, inline marks, and anchored comment marks. Every
- * node/mark here is serialisable by tiptap-markdown except {@link CommentMark},
- * which intentionally drops from the Markdown projection.
+ * lists, code blocks, tables, links, inline marks, and anchored comment marks.
+ * Every node/mark here is serialisable by tiptap-markdown except
+ * {@link CommentMark}, which intentionally drops from the Markdown projection.
  */
 export const PRD_DEFAULT_PLACEHOLDER =
   "Write the PRD… select text to format or comment, or type / for blocks.";
@@ -63,6 +67,16 @@ export function buildPrdExtensions(
       allowBase64: false,
       HTMLAttributes: { class: "prd-image rounded-md max-w-full" },
     }),
+    // Tables (Tier B). `resizable` only takes effect in the editable editor;
+    // the headless codec and public render ignore it but must share the same
+    // node schema so documents round-trip and serialise identically.
+    Table.configure({
+      resizable: true,
+      HTMLAttributes: { class: "prd-table" },
+    }),
+    TableRow,
+    TableHeader,
+    TableCell,
     CommentMark,
     options.pageLink ?? PageLink,
     Placeholder.configure({

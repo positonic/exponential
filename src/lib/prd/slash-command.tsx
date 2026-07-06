@@ -19,6 +19,7 @@ import {
   IconListNumbers,
   IconCode,
   IconQuote,
+  IconTable,
   type TablerIcon,
 } from "@tabler/icons-react";
 import tippy, { type Instance, type GetReferenceClientRect } from "tippy.js";
@@ -26,7 +27,7 @@ import tippy, { type Instance, type GetReferenceClientRect } from "tippy.js";
 /**
  * `/` slash-command block menu for the PRD editor (ADR-0024 Tier B). Built on
  * `@tiptap/suggestion`: typing `/` opens a keyboard-navigable list that inserts
- * structural blocks (headings, lists, task lists, code block, quote). Hosts can
+ * structural blocks (headings, lists, task lists, code block, quote, table). Hosts can
  * append context-dependent commands (e.g. the Pages editor's "Page" command)
  * via the `extraCommands` option.
  */
@@ -93,6 +94,18 @@ const COMMANDS: SlashCommandItem[] = [
     icon: IconQuote,
     run: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+  },
+  {
+    title: "Table",
+    description: "Insert a table with a header row",
+    icon: IconTable,
+    run: ({ editor, range }) =>
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .run(),
   },
 ];
 

@@ -5,7 +5,17 @@ import { EditorContent, BubbleMenu, useEditor } from "@tiptap/react";
 import { RichTextEditor } from "@mantine/tiptap";
 import type { Editor, Extensions, JSONContent } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
-import { Text } from "@mantine/core";
+import { ActionIcon, Group, Text, Tooltip } from "@mantine/core";
+import {
+  IconColumnInsertLeft,
+  IconColumnInsertRight,
+  IconColumnRemove,
+  IconRowInsertBottom,
+  IconRowInsertTop,
+  IconRowRemove,
+  IconTrash,
+  type TablerIcon,
+} from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
@@ -85,6 +95,65 @@ export interface RichDocEditorProps {
  * the optional extension points (`extraExtensions`, `bubbleExtras`, `overlay`,
  * `footer`, `editorClick`, `onReady`).
  */
+
+/** Row/column controls for the table bubble menu (shown when the cursor sits in
+ * a table with an empty selection — a non-empty selection surfaces the text
+ * formatting menu instead, so the two never overlap). */
+function TableControls({ editor }: { editor: Editor }) {
+  const actions: { label: string; icon: TablerIcon; run: () => void }[] = [
+    {
+      label: "Add column before",
+      icon: IconColumnInsertLeft,
+      run: () => editor.chain().focus().addColumnBefore().run(),
+    },
+    {
+      label: "Add column after",
+      icon: IconColumnInsertRight,
+      run: () => editor.chain().focus().addColumnAfter().run(),
+    },
+    {
+      label: "Delete column",
+      icon: IconColumnRemove,
+      run: () => editor.chain().focus().deleteColumn().run(),
+    },
+    {
+      label: "Add row before",
+      icon: IconRowInsertTop,
+      run: () => editor.chain().focus().addRowBefore().run(),
+    },
+    {
+      label: "Add row after",
+      icon: IconRowInsertBottom,
+      run: () => editor.chain().focus().addRowAfter().run(),
+    },
+    {
+      label: "Delete row",
+      icon: IconRowRemove,
+      run: () => editor.chain().focus().deleteRow().run(),
+    },
+    {
+      label: "Delete table",
+      icon: IconTrash,
+      run: () => editor.chain().focus().deleteTable().run(),
+    },
+  ];
+  return (
+    <Group
+      gap={2}
+      wrap="nowrap"
+      className="bg-surface-secondary border-border-primary rounded-md border p-1 shadow-md"
+    >
+      {actions.map(({ label, icon: Icon, run }) => (
+        <Tooltip key={label} label={label} withArrow>
+          <ActionIcon variant="subtle" size="sm" aria-label={label} onClick={run}>
+            <Icon size={16} />
+          </ActionIcon>
+        </Tooltip>
+      ))}
+    </Group>
+  );
+}
+
 export function RichDocEditor({
   initialDoc,
   initialMarkdown,
@@ -340,7 +409,11 @@ export function RichDocEditor({
         }}
       >
         {editor && (
-          <BubbleMenu editor={editor} tippyOptions={{ duration: 150 }}>
+          <BubbleMenu
+            editor={editor}
+            pluginKey="textFormatting"
+            tippyOptions={{ duration: 150 }}
+          >
             <RichTextEditor.ControlsGroup>
               <RichTextEditor.Bold />
               <RichTextEditor.Italic />
@@ -353,6 +426,18 @@ export function RichDocEditor({
               <RichTextEditor.OrderedList />
               {bubbleExtras}
             </RichTextEditor.ControlsGroup>
+          </BubbleMenu>
+        )}
+        {editor && (
+          <BubbleMenu
+            editor={editor}
+            pluginKey="tableControls"
+            tippyOptions={{ duration: 150, placement: "top" }}
+            shouldShow={({ editor: e }) =>
+              e.isActive("table") && e.state.selection.empty
+            }
+          >
+            <TableControls editor={editor} />
           </BubbleMenu>
         )}
         <RichTextEditor.Content />
