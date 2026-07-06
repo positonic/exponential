@@ -30,6 +30,11 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { ingestChannelSummary } from "~/server/services/activity/ingestChannelSummary";
 import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "~/server/services/goalService";
 import { NotionAgentService } from "~/server/services/notionAgentService";
+import {
+  importNotionCycleTickets,
+  resolveOrCreateWorkspaceTags,
+  attachTicketTags,
+} from "~/server/services/notionTicketImport";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -4409,7 +4414,12 @@ export const mastraRouter = createTRPCRouter({
         points: z.number().optional(),
         cycleName: z.string().optional(),
         assigneeName: z.string().optional(),
+        // Per-ticket labels, merged with the top-level `labels` below.
+        labels: z.array(z.string().min(1).max(50)).max(10).optional(),
       })).min(1).max(100),
+      // Labels applied to EVERY created ticket (e.g. an import provenance tag).
+      // Resolved against workspace/global tags by slug; created when missing.
+      labels: z.array(z.string().min(1).max(50)).max(10).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -4417,6 +4427,31 @@ export const mastraRouter = createTRPCRouter({
       console.log(`🎫 [tRPC bulkCreateTickets] RECEIVED: productId=${input.productId}, count=${input.tickets.length}, userId=${userId}`);
 
       const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      // Resolve the shared label set once; per-ticket labels resolve lazily
+      // through a memo so repeated names don't re-query.
+      const sharedTagIds = input.labels?.length
+        ? await resolveOrCreateWorkspaceTags(ctx.db, {
+            workspaceId: product.workspaceId,
+            userId,
+            names: input.labels,
+          })
+        : [];
+      const tagIdMemo = new Map<string, string[]>();
+      const resolveTicketTagIds = async (names: string[] | undefined): Promise<string[]> => {
+        if (!names?.length) return sharedTagIds;
+        const key = names.join(" ");
+        let extra = tagIdMemo.get(key);
+        if (!extra) {
+          extra = await resolveOrCreateWorkspaceTags(ctx.db, {
+            workspaceId: product.workspaceId,
+            userId,
+            names,
+          });
+          tagIdMemo.set(key, extra);
+        }
+        return [...new Set([...sharedTagIds, ...extra])];
+      };
 
       // Pre-resolve cycles (SPRINT lists in the workspace) and members once.
       const [cycles, members] = await Promise.all([
@@ -4509,6 +4544,8 @@ export const mastraRouter = createTRPCRouter({
             },
           });
 
+          await attachTicketTags(ctx.db, ticket.id, await resolveTicketTagIds(t.labels));
+
           await recordActivity(ctx.db, {
             workspaceId: product.workspaceId,
             userId,
@@ -4537,6 +4574,59 @@ export const mastraRouter = createTRPCRouter({
       console.log(`✅ [tRPC bulkCreateTickets] Done: ${created.length} created, ${failed.length} failed`);
 
       return { created, failed, totalCreated: created.length, totalFailed: failed.length };
+    }),
+
+  // Import one Notion backlog cycle into a product's tickets in a single call.
+  // Codifies the previously agent-improvised flow (resolve cycle page, relation
+  // filter, field mapping, provenance labels, dedup) — see notionTicketImport.ts.
+  // Idempotent: re-runs skip rows already imported (Notion page id stored in
+  // Ticket.links.notionPageId, with a title+cycle fallback).
+  importNotionCycleTickets: protectedProcedure
+    .input(z.object({
+      productId: z.string(),
+      notionDatabaseId: z.string().min(1),
+      cyclePageId: z.string().optional(),
+      cycleName: z.string().optional(),
+      relationProperty: z.string().optional(),
+      labels: z.array(z.string().min(1).max(50)).max(10).optional(),
+      targetCycleName: z.string().optional(),
+      properties: z.object({
+        status: z.string().optional(),
+        priority: z.string().optional(),
+        type: z.string().optional(),
+        effort: z.string().optional(),
+        label: z.string().optional(),
+      }).optional(),
+      dryRun: z.boolean().optional(),
+    }).refine((v) => v.cyclePageId ?? v.cycleName, {
+      message: "Provide cyclePageId or cycleName",
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`📥 [tRPC importNotionCycleTickets] RECEIVED: productId=${input.productId}, cycle="${input.cycleName ?? input.cyclePageId}", dryRun=${input.dryRun ?? false}, userId=${userId}`);
+
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      const result = await importNotionCycleTickets(ctx.db, {
+        userId,
+        workspaceId: product.workspaceId,
+        productId: input.productId,
+        notionDatabaseId: input.notionDatabaseId,
+        cyclePageId: input.cyclePageId,
+        cycleName: input.cycleName,
+        relationProperty: input.relationProperty,
+        labels: input.labels,
+        targetCycleName: input.targetCycleName,
+        properties: input.properties,
+        dryRun: input.dryRun,
+      });
+
+      if (result.connected && result.error === undefined) {
+        console.log(`✅ [tRPC importNotionCycleTickets] Done: ${result.created.length} created, ${result.skipped.length} skipped, ${result.failed.length} failed (dryRun=${result.dryRun})`);
+      }
+
+      return result;
     }),
 });
 
