@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal, MultiSelect } from "@mantine/core";
@@ -253,14 +253,18 @@ export function TodayDesktopShell({
     return [...overdue, ...todays];
   }, [partition.overdue, partition.todays]);
 
-  const handleRescheduleAllOverdue = () => {
+  // "Now", not the midnight `today` from useDayRollover: bulkReschedule also
+  // sets scheduledStart, and a midnight date would render the rescheduled
+  // items as 12:00 AM blocks on the agenda rail (ReschedulePopover's "Today"
+  // quick option makes the same choice).
+  const handleRescheduleAllOverdue = useCallback(() => {
     bulkReschedule({
       actionIds: partition.overdue.map((a) => a.id),
       dueDate: new Date(),
       label: "Today",
       fromOverdue: true,
     });
-  };
+  }, [bulkReschedule, partition.overdue]);
 
   // ---- Bulk selection -----------------------------------------------------
   const selection = useBulkSelection(

@@ -27,8 +27,12 @@ describe("formatRelativeDueAge", () => {
     ).toBe("due yesterday");
   });
 
-  it("clamps to at least one day", () => {
-    expect(formatRelativeDueAge(today, today)).toBe("due yesterday");
+  it("defensively clamps a same-calendar-day anchor to 'due yesterday'", () => {
+    // Callers only pass anchors strictly before today, so a same-day anchor
+    // is out of contract; the clamp guarantees we never render "due 0d ago".
+    expect(formatRelativeDueAge(localDay(2026, 6, 29, 8), today)).toBe(
+      "due yesterday",
+    );
   });
 
   it("rounds correctly across a DST-length day", () => {
