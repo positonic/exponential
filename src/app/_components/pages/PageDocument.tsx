@@ -68,7 +68,7 @@ export function PageDocument({
           createPageMutate(
             { workspaceId, projectId },
             {
-              onSuccess: (page) => {
+              onSuccess: async (page) => {
                 if (editor.isDestroyed) return;
                 editor
                   .chain()
@@ -82,11 +82,12 @@ export function PageDocument({
                     },
                   })
                   .run();
-                // Persist the link now — navigating away unmounts the editor
-                // before the debounced autosave would fire — and mark this
-                // page's cached doc stale so back-navigation refetches it.
-                handleRef.current?.flushSave();
-                void utils.page.get.invalidate({ id: pageId });
+                // Persist the link before navigating — the unmount would drop
+                // the debounced autosave — and only then mark this page's
+                // cached doc stale, so back-navigation can't refetch the
+                // pre-link doc while the save is still in flight.
+                await handleRef.current?.flushSave();
+                await utils.page.get.invalidate({ id: pageId });
                 void utils.page.list.invalidate();
                 router.push(`/w/${workspaceSlug}/pages/${page.id}`);
               },

@@ -19,8 +19,10 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** Imperative handle the comment layer (or any host) needs from the engine. */
 export interface RichDocEditorHandle {
   editor: Editor | null;
-  /** Cancel any pending debounced autosave and persist immediately. */
-  flushSave: () => void;
+  /** Cancel any pending debounced autosave and persist immediately. Resolves
+   * once the save has settled, so a host can await it before navigating away
+   * (a rejected save resolves too — the conflict modal handles the error). */
+  flushSave: () => Promise<void>;
 }
 
 export interface RichDocEditorProps {
@@ -200,13 +202,15 @@ export function RichDocEditor({
   }, [initialDoc, initialMarkdown]);
 
   // Latest save fn behind a ref so the editor's onUpdate closure never goes stale.
-  const saveRef = useRef<(editor: Editor) => void>(() => undefined);
+  const saveRef = useRef<(editor: Editor) => Promise<void>>(() =>
+    Promise.resolve(),
+  );
   saveRef.current = (editor: Editor) => {
     const json = editor.getJSON();
     const markdown = (
       editor.storage.markdown as { getMarkdown: () => string }
     ).getMarkdown();
-    void onSave({ doc: json, markdown, baseVersion: versionRef.current })
+    return onSave({ doc: json, markdown, baseVersion: versionRef.current })
       .then((res) => {
         if (res && typeof res.docVersion === "number") {
           versionRef.current = res.docVersion;
@@ -233,9 +237,9 @@ export function RichDocEditor({
       });
   };
 
-  const flushSave = () => {
+  const flushSave = async () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (editorRef.current) saveRef.current(editorRef.current);
+    if (editorRef.current) await saveRef.current(editorRef.current);
   };
   const editorRef = useRef<Editor | null>(null);
 
@@ -257,12 +261,12 @@ export function RichDocEditor({
       onDocUpdate?.();
       if (!editable) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => saveRef.current(e), 1000);
+      debounceRef.current = setTimeout(() => void saveRef.current(e), 1000);
     },
     onBlur: ({ editor: e }) => {
       if (!editable) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      saveRef.current(e);
+      void saveRef.current(e);
     },
     editorProps: {
       attributes: {
