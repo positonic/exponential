@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { generateHTML } from "@tiptap/html";
 import type { JSONContent } from "@tiptap/core";
 
 import { collectPageLinkIds, sanitizeDocForPublic } from "../public-doc";
+import { buildPrdExtensions } from "~/lib/prd/extensions";
 
 function doc(content: JSONContent[]): JSONContent {
   return { type: "doc", content };
@@ -201,5 +203,46 @@ describe("collectPageLinkIds", () => {
   it("returns empty for empty or missing docs", () => {
     expect(collectPageLinkIds(null)).toEqual([]);
     expect(collectPageLinkIds(doc([]))).toEqual([]);
+  });
+});
+
+// Mirrors the exact composition in renderPublicPageHtml (server-only, so it
+// can't be imported here): generateHTML(sanitizeDocForPublic(doc), extensions).
+// Guards the /p/ public render path for tables end-to-end without a DB.
+describe("public render path (tables)", () => {
+  const cell = (text: string): JSONContent => ({
+    type: "tableCell",
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  });
+  const headerCell = (text: string): JSONContent => ({
+    type: "tableHeader",
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  });
+  const tableDoc = doc([
+    {
+      type: "table",
+      content: [
+        { type: "tableRow", content: [headerCell("Name"), headerCell("Role")] },
+        { type: "tableRow", content: [cell("Ada"), cell("Engineer")] },
+      ],
+    },
+  ]);
+
+  it("renders a table node to real table HTML", () => {
+    const html = generateHTML(
+      sanitizeDocForPublic(tableDoc),
+      buildPrdExtensions(),
+    );
+    expect(html).toContain("<table");
+    expect(html).toContain("<th");
+    expect(html).toContain("<td");
+    expect(html).toContain("Ada");
+    expect(html).toContain("Engineer");
+  });
+
+  it("keeps the table intact through public sanitization", () => {
+    const out = sanitizeDocForPublic(tableDoc);
+    const table = out.content?.find((n) => n.type === "table");
+    expect(table?.content?.length).toBe(2);
   });
 });
