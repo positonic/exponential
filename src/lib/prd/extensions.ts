@@ -1,4 +1,4 @@
-import type { Extensions } from "@tiptap/core";
+import type { AnyExtension, Extensions } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -7,6 +7,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import { Markdown } from "tiptap-markdown";
 import { CommentMark } from "./comment-mark";
+import { PageLink } from "./page-link";
 
 /**
  * The schema for the **PRD body** — the single scoped exception to ADR-0017
@@ -31,7 +32,16 @@ export const PRD_DEFAULT_PLACEHOLDER =
   "Write the PRD… select text to format or comment, or type / for blocks.";
 
 export function buildPrdExtensions(
-  options: { placeholder?: string } = {},
+  options: {
+    placeholder?: string;
+    /**
+     * Override for the {@link PageLink} node — the interactive editor passes
+     * `PageLinkWithView` (same schema + a React node view resolving the live
+     * page title); the headless codec and the server-side public render use
+     * the plain base node.
+     */
+    pageLink?: AnyExtension;
+  } = {},
 ): Extensions {
   return [
     StarterKit.configure({
@@ -54,6 +64,7 @@ export function buildPrdExtensions(
       HTMLAttributes: { class: "prd-image rounded-md max-w-full" },
     }),
     CommentMark,
+    options.pageLink ?? PageLink,
     Placeholder.configure({
       placeholder: options.placeholder ?? PRD_DEFAULT_PLACEHOLDER,
     }),

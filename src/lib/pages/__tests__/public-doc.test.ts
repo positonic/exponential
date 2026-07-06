@@ -99,6 +99,29 @@ describe("sanitizeDocForPublic", () => {
     expect(listItem.content![0]!.content![0]!.marks).toEqual([]);
   });
 
+  it("strips page ids and internal hrefs from page links, keeping the title", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: {
+          pageId: "clx123",
+          title: "Design notes",
+          href: "/w/acme/pages/clx123",
+        },
+      },
+      { type: "pageLink" },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    expect(out.content![0]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Design notes" },
+    });
+    expect(out.content![1]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Untitled" },
+    });
+  });
+
   it("does not mutate the input document", () => {
     const input = doc([
       { type: "image", attrs: { src: "data:image/png;base64,AAAA" } },

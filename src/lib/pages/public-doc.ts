@@ -9,6 +9,8 @@ import type { JSONContent } from "@tiptap/core";
  *  - `image` nodes keep only http(s) srcs (drops `data:`/`javascript:`)
  *  - `comment` marks are internal collaboration artifacts and are stripped,
  *    matching the Markdown projection, which also drops them (ADR-0024)
+ *  - `pageLink` nodes keep only the cached title — the target page id and
+ *    internal workspace path are private and must not leak into public HTML
  *
  * Pure and isomorphic — unit-testable without a DOM.
  */
@@ -22,6 +24,14 @@ function isSafeLinkMark(mark: { attrs?: Record<string, unknown> }): boolean {
 }
 
 function sanitizeNode(node: JSONContent): JSONContent | null {
+  if (node.type === "pageLink") {
+    const title = node.attrs?.title;
+    return {
+      type: "pageLink",
+      attrs: { title: typeof title === "string" && title ? title : "Untitled" },
+    };
+  }
+
   if (node.type === "image") {
     const src = node.attrs?.src as unknown;
     if (typeof src !== "string" || !SAFE_IMAGE_SRC.test(src.trim())) {
