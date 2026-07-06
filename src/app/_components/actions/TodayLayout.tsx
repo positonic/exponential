@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Text } from "@mantine/core";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -192,6 +192,18 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
     for (const s of activeSuggestions) handleAcceptSuggestion(s);
   };
 
+  // "Now", not midnight — see TodayDesktopShell.handleRescheduleAllOverdue.
+  const handleRescheduleAllOverdue = useCallback(
+    (ids: string[]) =>
+      bulkReschedule({
+        actionIds: ids,
+        dueDate: new Date(),
+        label: "Today",
+        fromOverdue: true,
+      }),
+    [bulkReschedule],
+  );
+
   const handleActionOpen = (id: string) => {
     if (detailedEnabled && workspace?.slug) {
       router.push(`/w/${workspace.slug}/actions/${id}`);
@@ -250,6 +262,7 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
               deepLinkActionId={actionIdFromUrl}
               onActionOpen={handleActionOpen}
               onActionClose={clearActionId}
+              onRescheduleAllOverdue={handleRescheduleAllOverdue}
             />
           )}
         </div>

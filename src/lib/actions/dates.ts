@@ -47,6 +47,19 @@ export function formatHourMinute12(h: number): string {
   return `${disp}:${String(min).padStart(2, "0")} ${suffix}`;
 }
 
+// Relative age of an overdue item, e.g. "due yesterday" / "due 5d ago".
+// Day-normalized before diffing so DST 23/25-hour days round correctly;
+// clamps to 1 day since callers only pass anchors strictly before today.
+export function formatRelativeDueAge(anchor: Date, today: Date): string {
+  const MS_DAY = 86_400_000;
+  const a = new Date(anchor);
+  a.setHours(0, 0, 0, 0);
+  const t = new Date(today);
+  t.setHours(0, 0, 0, 0);
+  const days = Math.max(1, Math.round((t.getTime() - a.getTime()) / MS_DAY));
+  return days === 1 ? "due yesterday" : `due ${days}d ago`;
+}
+
 export function addDays(base: Date, n: number): Date {
   const d = new Date(base);
   d.setDate(d.getDate() + n);

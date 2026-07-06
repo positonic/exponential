@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal, MultiSelect } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconHash, IconSearch } from "@tabler/icons-react";
+import { IconChevronRight, IconHash, IconSearch } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useDayRollover } from "~/hooks/useDayRollover";
-import { hourFloat } from "~/lib/actions/dates";
+import { formatRelativeDueAge, hourFloat } from "~/lib/actions/dates";
+import { overdueAnchor } from "~/lib/actions/partition";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
 import { EditActionModal } from "../EditActionModal";
@@ -59,6 +60,13 @@ export function TodayDesktopShell({
     useDisclosure(false);
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
+  const [overdueOpen, setOverdueOpen] = useState(true);
+  const [completedOpen, setCompletedOpen] = useState(false);
+  // Bulk "select all" operates on overdue + today rows; never let a collapsed
+  // section hide rows that selection would silently include.
+  useEffect(() => {
+    if (bulkMode) setOverdueOpen(true);
+  }, [bulkMode]);
   const [zoeOpen, setZoeOpen] = useState(true);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(
     new Set(),
@@ -238,12 +246,25 @@ export function TodayDesktopShell({
     return `${DOW[d.getDay()]} · ${MON[d.getMonth()]} ${d.getDate()}`;
   }, []);
 
-  // ---- Rendered task list (active todays + overdue, completed at bottom) ---
+  // ---- Rendered task list (bulk selection scope: overdue + todays) --------
   const renderedActions = useMemo(() => {
     const overdue = partition.overdue;
     const todays = partition.todays;
     return [...overdue, ...todays];
   }, [partition.overdue, partition.todays]);
+
+  // "Now", not the midnight `today` from useDayRollover: bulkReschedule also
+  // sets scheduledStart, and a midnight date would render the rescheduled
+  // items as 12:00 AM blocks on the agenda rail (ReschedulePopover's "Today"
+  // quick option makes the same choice).
+  const handleRescheduleAllOverdue = useCallback(() => {
+    bulkReschedule({
+      actionIds: partition.overdue.map((a) => a.id),
+      dueDate: new Date(),
+      label: "Today",
+      fromOverdue: true,
+    });
+  }, [bulkReschedule, partition.overdue]);
 
   // ---- Bulk selection -----------------------------------------------------
   const selection = useBulkSelection(
@@ -413,27 +434,132 @@ export function TodayDesktopShell({
               <div className="td-tasklist__rows">
                 {actionsQuery.isLoading ? (
                   <div className="td-tasklist__empty">Loading…</div>
-                ) : renderedActions.length === 0 ? (
+                ) : renderedActions.length === 0 &&
+                  partition.completedToday.length === 0 ? (
                   <div className="td-tasklist__empty">Nothing scheduled. Enjoy the calm.</div>
                 ) : (
-                  renderedActions.map((a) => (
-                    <TaskRow
-                      key={a.id}
-                      action={a as unknown as Action}
-                      isOverdue={partition.overdue.some((o) => o.id === a.id)}
-                      bulkMode={bulkMode}
-                      bulkSelected={selection.isSelected(a.id)}
-                      onBulkToggle={selection.toggle}
-                      onComplete={handleComplete}
-                      onOpen={handleOpen}
-                      onReschedule={handleReschedule}
-                      onTagClick={(tagId) => {
-                        if (!selectedTagIds.includes(tagId)) {
-                          onSelectedTagIdsChange([...selectedTagIds, tagId]);
-                        }
-                      }}
-                    />
-                  ))
+                  <>
+                    {hasOverdue && (
+                      <div className="td-section td-section--overdue">
+                        <button
+                          type="button"
+                          className="td-section__toggle"
+                          aria-expanded={overdueOpen}
+                          onClick={() => setOverdueOpen((v) => !v)}
+                        >
+                          <IconChevronRight
+                            size={12}
+                            className={
+                              overdueOpen
+                                ? "td-section__chev td-section__chev--open"
+                                : "td-section__chev"
+                            }
+                          />
+                          Overdue
+                          <span className="td-section__count td-section__count--overdue">
+                            {partition.overdue.length}
+                          </span>
+                        </button>
+                        {!bulkMode && (
+                          <button
+                            type="button"
+                            className="td-section__action"
+                            onClick={handleRescheduleAllOverdue}
+                          >
+                            Reschedule all → Today
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {overdueOpen &&
+                      partition.overdue.map((a) => {
+                        const anchor = overdueAnchor(a);
+                        return (
+                          <TaskRow
+                            key={a.id}
+                            action={a as unknown as Action}
+                            isOverdue
+                            overdueLabel={
+                              anchor
+                                ? formatRelativeDueAge(anchor, today)
+                                : undefined
+                            }
+                            bulkMode={bulkMode}
+                            bulkSelected={selection.isSelected(a.id)}
+                            onBulkToggle={selection.toggle}
+                            onComplete={handleComplete}
+                            onOpen={handleOpen}
+                            onReschedule={handleReschedule}
+                            onTagClick={(tagId) => {
+                              if (!selectedTagIds.includes(tagId)) {
+                                onSelectedTagIdsChange([...selectedTagIds, tagId]);
+                              }
+                            }}
+                          />
+                        );
+                      })}
+
+                    {hasOverdue && partition.todays.length > 0 && (
+                      <div className="td-section">
+                        Today
+                        <span className="td-section__count">
+                          {partition.todays.length}
+                        </span>
+                      </div>
+                    )}
+                    {partition.todays.map((a) => (
+                      <TaskRow
+                        key={a.id}
+                        action={a as unknown as Action}
+                        bulkMode={bulkMode}
+                        bulkSelected={selection.isSelected(a.id)}
+                        onBulkToggle={selection.toggle}
+                        onComplete={handleComplete}
+                        onOpen={handleOpen}
+                        onReschedule={handleReschedule}
+                        onTagClick={(tagId) => {
+                          if (!selectedTagIds.includes(tagId)) {
+                            onSelectedTagIdsChange([...selectedTagIds, tagId]);
+                          }
+                        }}
+                      />
+                    ))}
+
+                    {partition.completedToday.length > 0 && (
+                      <>
+                        <div className="td-section">
+                          <button
+                            type="button"
+                            className="td-section__toggle"
+                            aria-expanded={completedOpen}
+                            onClick={() => setCompletedOpen((v) => !v)}
+                          >
+                            <IconChevronRight
+                              size={12}
+                              className={
+                                completedOpen
+                                  ? "td-section__chev td-section__chev--open"
+                                  : "td-section__chev"
+                              }
+                            />
+                            Completed
+                            <span className="td-section__count">
+                              {partition.completedToday.length}
+                            </span>
+                          </button>
+                        </div>
+                        {completedOpen &&
+                          partition.completedToday.map((a) => (
+                            <TaskRow
+                              key={a.id}
+                              action={a as unknown as Action}
+                              onComplete={handleComplete}
+                              onOpen={handleOpen}
+                            />
+                          ))}
+                      </>
+                    )}
+                  </>
                 )}
               </div>
 

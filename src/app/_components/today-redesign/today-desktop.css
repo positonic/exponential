@@ -222,6 +222,67 @@
   font-weight: 500;
 }
 
+/* ============================================================
+   List sections (Overdue / Today / Completed)
+   ============================================================ */
+.td-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px 6px;
+  font-size: 10.5px;
+  color: var(--td-faint);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 500;
+}
+
+/* `.td ` prefix wins over the `.td button` reset. */
+.td .td-section__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.td-section--overdue .td-section__toggle { color: var(--td-prio-urgent); }
+
+.td-section__chev { transition: transform 120ms; flex-shrink: 0; }
+.td-section__chev--open { transform: rotate(90deg); }
+
+.td-section__count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--td-surface-2);
+  color: var(--td-muted);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+.td-section__count--overdue {
+  background: var(--td-prio-urgent-10);
+  color: var(--td-prio-urgent);
+}
+
+.td .td-section__action {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--td-prio-urgent-dim);
+  color: var(--td-prio-urgent);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  text-transform: none;
+  cursor: pointer;
+}
+.td .td-section__action:hover { background: var(--td-prio-urgent-10); }
+
 .td-task {
   display: grid;
   grid-template-columns: 20px 1fr auto;
@@ -340,10 +401,30 @@
   flex-shrink: 0;
 }
 
+.td-task__meta-item--overdue { color: var(--td-prio-urgent); }
+
 .td-task__reschedule {
   position: relative;
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
+
+/* Hover-revealed one-click "Today" triage on overdue rows. */
+.td .td-task__quick {
+  display: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--td-prio-urgent-dim);
+  color: var(--td-prio-urgent);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.td-task:hover .td-task__quick { display: inline-flex; }
+.td .td-task__quick:hover { background: var(--td-prio-urgent-10); }
 
 .td-task__action {
   width: 28px;
