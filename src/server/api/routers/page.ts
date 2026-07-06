@@ -542,31 +542,24 @@ export const pageRouter = createTRPCRouter({
 
       // Same-workspace only: a pasted cross-workspace id must not surface
       // another workspace's title (mirrors collectLinkedPages / parentCrumb).
+      // Push the view-access filter into the query (buildKnowledgePageAccessWhere
+      // mirrors getKnowledgePageAccess) so one round-trip returns exactly the
+      // viewable candidates — no per-child access resolution.
       const candidates = await ctx.db.knowledgePage.findMany({
-        where: { id: { in: ids }, workspaceId: page.workspaceId },
-        select: {
-          id: true,
-          title: true,
-          isPublic: true,
-          createdById: true,
-          projectId: true,
-          workspaceId: true,
+        where: {
+          id: { in: ids },
+          workspaceId: page.workspaceId,
+          ...buildKnowledgePageAccessWhere(userId),
         },
+        select: { id: true, title: true, isPublic: true },
       });
       const byId = new Map(candidates.map((c) => [c.id, c]));
 
+      // Re-emit in document order (the order of `ids`), viewable ones only.
       const children: { id: string; title: string; isPublic: boolean }[] = [];
       for (const id of ids) {
         const candidate = byId.get(id);
-        if (!candidate) continue;
-        const access = await getKnowledgePageAccess(ctx.db, userId, candidate);
-        if (canViewKnowledgePage(access)) {
-          children.push({
-            id: candidate.id,
-            title: candidate.title,
-            isPublic: candidate.isPublic,
-          });
-        }
+        if (candidate) children.push(candidate);
       }
       return children;
     }),
@@ -952,19 +945,38 @@ export const pageRouter = createTRPCRouter({
           rootRow.bodyDoc as JSONContent | null,
         );
         const extraIds = linked.map((l) => l.id).filter((id) => id !== input.id);
+        // Filter to viewable rows in the query (buildKnowledgePageAccessWhere
+        // mirrors getKnowledgePageAccess) rather than resolving access per row.
         const rows =
           extraIds.length > 0
             ? await ctx.db.knowledgePage.findMany({
-                where: { id: { in: extraIds } },
+                where: {
+                  id: { in: extraIds },
+                  ...buildKnowledgePageAccessWhere(userId),
+                },
                 select: DUPLICATE_SELECT,
               })
             : [];
-        for (const row of rows) {
-          const access = await getKnowledgePageAccess(ctx.db, userId, row);
-          if (!canViewKnowledgePage(access)) continue;
-          if (!(await canPlacePage(ctx.db, userId, row.workspaceId, row.projectId)))
-            continue;
-          toCopy.push(row);
+        const rowById = new Map(rows.map((r) => [r.id, r]));
+        // Memoize the placement gate per (workspace, project) — sub-pages of a
+        // tree overwhelmingly share one, collapsing the check to ~one round-trip.
+        const placeable = new Map<string, boolean>();
+        // Iterate extraIds (not rows) to preserve BFS/document order.
+        for (const id of extraIds) {
+          const row = rowById.get(id);
+          if (!row) continue;
+          const placeKey = `${row.workspaceId}:${row.projectId ?? ""}`;
+          let canPlace = placeable.get(placeKey);
+          if (canPlace === undefined) {
+            canPlace = await canPlacePage(
+              ctx.db,
+              userId,
+              row.workspaceId,
+              row.projectId,
+            );
+            placeable.set(placeKey, canPlace);
+          }
+          if (canPlace) toCopy.push(row);
         }
       }
 
@@ -1018,8 +1030,17 @@ export const pageRouter = createTRPCRouter({
           getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
         }
       }
-      // The root copy is the entry point the client navigates to.
-      return { id: copies[0]!.id };
+      // The root copy is the entry point the client navigates to. `toCopy`
+      // always leads with `rootRow`, so `copies` is never empty — guard anyway
+      // so a partial transaction surfaces a clear error instead of a crash.
+      const rootCopy = copies[0];
+      if (!rootCopy) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Duplicate produced no pages",
+        });
+      }
+      return { id: rootCopy.id };
     }),
 
   delete: protectedProcedure

@@ -93,7 +93,9 @@ async function resolvePublishedParent(
   workspaceId: string,
 ): Promise<PublicParent | null> {
   // Escape LIKE wildcards so a pathological id can't broaden the prefilter.
-  const likePattern = `%${pageId.replace(/[\\%_]/g, "\\$&")}%`;
+  // Use a replacer function (not "\\$&") so the backslash is emitted literally
+  // and `%`/`_`/`\` are each prefixed with a real escape backslash.
+  const likePattern = `%${pageId.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
   const rows = await db.$queryRaw<{ id: string }[]>`
     SELECT "id" FROM "KnowledgePage"
     WHERE "workspaceId" = ${workspaceId}

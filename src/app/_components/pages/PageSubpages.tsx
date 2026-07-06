@@ -30,10 +30,14 @@ export function PageSubpages({
   editable,
   onDetach,
 }: PageSubpagesProps) {
-  const { data: children } = api.page.children.useQuery({ id: pageId });
+  const { data: children, isLoading } = api.page.children.useQuery({
+    id: pageId,
+  });
   const [detachingId, setDetachingId] = useState<string | null>(null);
 
-  if (!children || children.length === 0) return null;
+  // Render nothing while loading (avoids showing an empty panel before data
+  // arrives) and when the page has no viewable sub-pages.
+  if (isLoading || !children || children.length === 0) return null;
 
   const handleDetach = async (childId: string) => {
     if (!onDetach) return;
