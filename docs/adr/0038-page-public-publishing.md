@@ -36,3 +36,10 @@ Publishing also cuts across the ADR-0033 visibility model — a Page inheriting 
 - New public route group with its own root layout at `/p/[slugId]`; the first place the app serves authored workspace content unauthenticated.
 - `page.publish` / `page.unpublish` / `page.updatePublicSettings` / `page.duplicate` mutations.
 - Sub-pages (deferred by ADR-0033) remain compatible by construction: URLs are flat, publishing is per-page, so a tree adds navigation (breadcrumbs/child links rendered only when the target is itself published) without touching this scheme.
+
+## Amendment — linked-page resolution and batch publish (2026-07-06)
+
+The `/page` slash command created soft sub-pages (`pageLink` nodes), realising the deferred case above. Two additions, both preserving "publishing is an explicit per-page act":
+
+- **Render-time link resolution**: the public route resolves each `pageLink` target per request (the route is already `force-dynamic`). A **published** target renders as a link to its public URL with its live title; an unpublished/deleted target renders as plain title text (no page id or workspace path leaks). Publish order is irrelevant — links go live/dead the moment the target's publish state changes.
+- **Consent-preserving batch publish**: the share popover lists the transitively linked pages that are not yet public (workspace-scoped BFS over `pageLink` graphs, cycle-safe, capped at 50) and offers one action to publish them (`page.publishMany`, ids explicit, edit-gated per page). Nothing is ever published implicitly; **unpublish never cascades** — a linked page may be linked from elsewhere or shared directly.

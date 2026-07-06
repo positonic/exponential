@@ -7,6 +7,7 @@ import {
   Anchor,
   Button,
   CopyButton,
+  Divider,
   Group,
   Menu,
   Popover,
@@ -73,6 +74,20 @@ export function PageShareMenu({
   const updateSettings = api.page.updatePublicSettings.useMutation({
     onSettled,
     onError: (e) => onError(e, "Could not update public settings"),
+  });
+  // Linked pages that aren't public yet — their links render as plain text on
+  // the public page. Listed here so publishing them stays an explicit act.
+  const linkedUnpublished = api.page.linkedUnpublished.useQuery(
+    { id: pageId },
+    { enabled: canEdit && isPublic },
+  );
+  const linkedPages = linkedUnpublished.data ?? [];
+  const publishMany = api.page.publishMany.useMutation({
+    onSettled: () => {
+      void utils.page.linkedUnpublished.invalidate({ id: pageId });
+      void onSettled();
+    },
+    onError: (e) => onError(e, "Could not publish linked pages"),
   });
   const duplicate = api.page.duplicate.useMutation({
     onSuccess: (copy) => {
@@ -196,6 +211,44 @@ export function PageShareMenu({
                       })
                     }
                   />
+                  {linkedPages.length > 0 ? (
+                    <>
+                      <Divider />
+                      <Stack gap={6}>
+                        <Text size="sm" fw={500}>
+                          Linked pages not yet public
+                        </Text>
+                        <Text size="xs" className="text-text-muted">
+                          Links to these pages show as plain text on the
+                          public page until they are published too.
+                        </Text>
+                        {linkedPages.map((linked) => (
+                          <Text
+                            key={linked.id}
+                            size="xs"
+                            className="truncate text-text-secondary"
+                          >
+                            • {linked.title}
+                          </Text>
+                        ))}
+                        <Button
+                          size="xs"
+                          variant="light"
+                          loading={publishMany.isPending}
+                          onClick={() =>
+                            publishMany.mutate({
+                              ids: linkedPages.map((l) => l.id),
+                            })
+                          }
+                        >
+                          Publish{" "}
+                          {linkedPages.length === 1
+                            ? "1 linked page"
+                            : `${linkedPages.length} linked pages`}
+                        </Button>
+                      </Stack>
+                    </>
+                  ) : null}
                 </>
               ) : null}
             </Stack>

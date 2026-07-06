@@ -11,6 +11,10 @@ import {
   buildPublicPagePath,
   parsePublicPageParam,
 } from "~/lib/pages/public-url";
+import {
+  collectPageLinkIds,
+  type PublicPageLinkMap,
+} from "~/lib/pages/public-doc";
 import { renderPublicPageHtml } from "~/server/services/pages/public-html";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PublicThemeToggle } from "./_components/PublicThemeToggle";
@@ -39,6 +43,33 @@ const getPublishedPage = cache(async (param: string) => {
   if (!page) return null;
   return { page, requestSlug: parsed.slug };
 });
+
+/**
+ * Resolve the `pageLink` targets of a doc that are themselves published, so
+ * the render can link them to their public URLs with their live titles.
+ * Resolution happens per request — the route is `force-dynamic` — so links go
+ * live/dead the moment a target is published/unpublished, regardless of the
+ * order the pages were published in.
+ */
+async function resolvePublishedPageLinks(
+  bodyDoc: JSONContent,
+): Promise<PublicPageLinkMap> {
+  const ids = collectPageLinkIds(bodyDoc);
+  if (ids.length === 0) return new Map();
+  const targets = await db.knowledgePage.findMany({
+    where: { id: { in: ids }, isPublic: true, publicId: { not: null } },
+    select: { id: true, title: true, publicId: true, publicSlug: true },
+  });
+  return new Map(
+    targets.map((t) => [
+      t.id,
+      {
+        title: t.title,
+        href: buildPublicPagePath(t.publicSlug ?? "untitled", t.publicId!),
+      },
+    ]),
+  );
+}
 
 /** Plain-text excerpt of the Markdown projection for meta descriptions. */
 function excerpt(markdown: string | null): string | undefined {
@@ -102,7 +133,10 @@ export default async function PublishedPage({
   }
 
   const html = page.bodyDoc
-    ? renderPublicPageHtml(page.bodyDoc as JSONContent)
+    ? renderPublicPageHtml(
+        page.bodyDoc as JSONContent,
+        await resolvePublishedPageLinks(page.bodyDoc as JSONContent),
+      )
     : null;
 
   const updatedAt = new Intl.DateTimeFormat("en", {
