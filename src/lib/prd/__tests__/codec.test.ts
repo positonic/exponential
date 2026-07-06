@@ -90,6 +90,30 @@ describe("PRD document codec", () => {
       expect(roundTrip(out)).toBe(out);
     });
 
+    it("GFM tables round-trip into table nodes and back to pipe Markdown", () => {
+      const md = [
+        "| Name | Role |",
+        "| --- | --- |",
+        "| Ada | Engineer |",
+        "| Grace | Admiral |",
+      ].join("\n");
+
+      // Markdown → doc yields real table nodes (not dropped text).
+      const doc = markdownToDoc(md);
+      const table = doc.content?.find((n) => n.type === "table");
+      expect(table).toBeDefined();
+      expect(table?.content?.length).toBe(3); // header + 2 body rows
+
+      // doc → Markdown emits a GFM pipe table with a delimiter row.
+      const out = docToMarkdown(doc);
+      expect(out).toContain("| Name | Role |");
+      expect(out).toContain("| --- | --- |");
+      expect(out).toContain("| Ada | Engineer |");
+
+      // Idempotent on a second pass.
+      expect(roundTrip(out)).toBe(out);
+    });
+
     it("a mixed document is idempotent across passes", () => {
       const md = [
         "# Title",
