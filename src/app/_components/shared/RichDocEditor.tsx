@@ -9,8 +9,9 @@ import { Text } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
-import { SlashCommand } from "~/lib/prd/slash-command";
+import { SlashCommand, type SlashCommandItem } from "~/lib/prd/slash-command";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
+import { PageLinkWithView } from "./PageLinkView";
 import "@mantine/tiptap/styles.css";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -52,6 +53,8 @@ export interface RichDocEditorProps {
   // ───────── optional host layer (e.g. Feature comments) ─────────
   /** Extra Tiptap extensions layered on top of the shared set. */
   extraExtensions?: Extensions;
+  /** Extra `/` slash-menu commands appended after the built-in blocks. */
+  slashExtras?: SlashCommandItem[];
   /** Extra bubble-menu controls (rendered after the formatting group). */
   bubbleExtras?: React.ReactNode;
   /** Fires on every doc change, so a host can re-read live marks. */
@@ -90,6 +93,7 @@ export function RichDocEditor({
   onInitDoc,
   uploadImage,
   extraExtensions,
+  slashExtras,
   bubbleExtras,
   onDocUpdate,
   onReady,
@@ -238,8 +242,13 @@ export function RichDocEditor({
   const editor = useEditor({
     editable,
     extensions: [
-      ...buildPrdExtensions(placeholder ? { placeholder } : {}),
-      ...(editable ? [SlashCommand] : []),
+      ...buildPrdExtensions({
+        ...(placeholder ? { placeholder } : {}),
+        pageLink: PageLinkWithView,
+      }),
+      ...(editable
+        ? [SlashCommand.configure({ extraCommands: slashExtras ?? [] })]
+        : []),
       ...(extraExtensions ?? []),
     ],
     content: doc ?? "",

@@ -26,9 +26,11 @@ import tippy, { type Instance, type GetReferenceClientRect } from "tippy.js";
 /**
  * `/` slash-command block menu for the PRD editor (ADR-0024 Tier B). Built on
  * `@tiptap/suggestion`: typing `/` opens a keyboard-navigable list that inserts
- * structural blocks (headings, lists, task lists, code block, quote).
+ * structural blocks (headings, lists, task lists, code block, quote). Hosts can
+ * append context-dependent commands (e.g. the Pages editor's "Page" command)
+ * via the `extraCommands` option.
  */
-interface SlashCommandItem {
+export interface SlashCommandItem {
   title: string;
   description: string;
   icon: TablerIcon;
@@ -166,13 +168,9 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
   },
 );
 
-const suggestion: Omit<SuggestionOptions<SlashCommandItem>, "editor"> = {
+const suggestion: Omit<SuggestionOptions<SlashCommandItem>, "editor" | "items"> = {
   char: "/",
   startOfLine: false,
-  items: ({ query }) =>
-    COMMANDS.filter((item) =>
-      item.title.toLowerCase().startsWith(query.toLowerCase()),
-    ),
   command: ({ editor, range, props }) => props.run({ editor, range }),
   render: () => {
     let component: ReactRenderer<SlashCommandListRef, SlashCommandListProps>;
@@ -226,9 +224,26 @@ const suggestion: Omit<SuggestionOptions<SlashCommandItem>, "editor"> = {
   },
 };
 
-export const SlashCommand = Extension.create({
+export interface SlashCommandOptions {
+  /** Host-injected commands appended after the built-in block commands. */
+  extraCommands: SlashCommandItem[];
+}
+
+export const SlashCommand = Extension.create<SlashCommandOptions>({
   name: "slashCommand",
+  addOptions() {
+    return { extraCommands: [] };
+  },
   addProseMirrorPlugins() {
-    return [Suggestion({ editor: this.editor, ...suggestion })];
+    return [
+      Suggestion({
+        editor: this.editor,
+        ...suggestion,
+        items: ({ query }) =>
+          [...COMMANDS, ...this.options.extraCommands].filter((item) =>
+            item.title.toLowerCase().startsWith(query.toLowerCase()),
+          ),
+      }),
+    ];
   },
 });

@@ -110,6 +110,40 @@ describe("PRD document codec", () => {
     });
   });
 
+  describe("page links project to plain Markdown links", () => {
+    it("serialises a pageLink node as [title](href)", () => {
+      const doc: JSONContent = {
+        type: "doc",
+        content: [
+          {
+            type: "pageLink",
+            attrs: {
+              pageId: "clx123",
+              title: "Design notes",
+              href: "/w/acme/pages/clx123",
+            },
+          },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe("[Design notes](/w/acme/pages/clx123)");
+    });
+
+    it("escapes brackets in the cached title and tolerates missing attrs", () => {
+      const doc: JSONContent = {
+        type: "doc",
+        content: [
+          { type: "pageLink", attrs: { pageId: "clx1", title: "A [draft]" } },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe("[A \\[draft\\]]()");
+      const bare: JSONContent = {
+        type: "doc",
+        content: [{ type: "pageLink" }],
+      };
+      expect(docToMarkdown(bare)).toBe("[Untitled]()");
+    });
+  });
+
   describe("comment marks drop from the Markdown projection", () => {
     it("keeps the text but emits no comment mark/span/threadId", () => {
       const doc: JSONContent = {

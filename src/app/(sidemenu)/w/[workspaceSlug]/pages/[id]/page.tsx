@@ -125,6 +125,9 @@ function PageEditorContent({
         body={page.body ?? null}
         docVersion={page.docVersion}
         editable={page.canEdit}
+        workspaceId={page.workspaceId}
+        workspaceSlug={workspaceSlug}
+        projectId={page.projectId}
       />
     </div>
   );
