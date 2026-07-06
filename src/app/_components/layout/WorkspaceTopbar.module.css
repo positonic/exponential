@@ -24,3 +24,16 @@
 .crumbSep {
   color: var(--color-text-muted);
 }
+
+.crumbLink {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumbLink:hover {
+  color: var(--color-text-primary);
+}

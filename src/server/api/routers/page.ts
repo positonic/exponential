@@ -329,6 +329,60 @@ export const pageRouter = createTRPCRouter({
       return { ...page, canEdit: canEditKnowledgePage(access) };
     }),
 
+  /**
+   * The "parent" of a page for breadcrumbs: a page whose body links to this
+   * one via a `pageLink` node. Sub-pages are soft — there is no stored parent
+   * pointer (ADR-0033/0038) — so this is a reverse lookup: scan same-workspace
+   * pages whose serialized `bodyDoc` mentions this id (cheap `::text` LIKE
+   * pre-filter), then confirm with {@link collectPageLinkIds} to reject
+   * incidental text matches, and gate on the caller's view access. A page can
+   * have several linkers; the newest-edited viewable one wins. Returns null
+   * when the page is top-level or has no viewable linker.
+   */
+  parentCrumb: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "view");
+
+      const rows = await ctx.db.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "KnowledgePage"
+        WHERE "workspaceId" = ${page.workspaceId}
+          AND "id" <> ${input.id}
+          AND "bodyDoc"::text LIKE ${`%${input.id}%`}
+        ORDER BY "updatedAt" DESC
+        LIMIT 20
+      `;
+      if (rows.length === 0) return null;
+
+      const candidates = await ctx.db.knowledgePage.findMany({
+        where: { id: { in: rows.map((r) => r.id) } },
+        select: {
+          id: true,
+          title: true,
+          bodyDoc: true,
+          createdById: true,
+          projectId: true,
+          workspaceId: true,
+        },
+      });
+      const byId = new Map(candidates.map((c) => [c.id, c]));
+
+      // Preserve the raw query's newest-edited-first order.
+      for (const { id } of rows) {
+        const candidate = byId.get(id);
+        if (!candidate) continue;
+        const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
+        if (!links.includes(input.id)) continue;
+        const access = await getKnowledgePageAccess(ctx.db, userId, candidate);
+        if (canViewKnowledgePage(access)) {
+          return { id: candidate.id, title: candidate.title };
+        }
+      }
+      return null;
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
