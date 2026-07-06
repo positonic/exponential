@@ -434,7 +434,8 @@ export function RichDocEditor({
             pluginKey="tableControls"
             tippyOptions={{ duration: 150, placement: "top" }}
             shouldShow={({ editor: e }) =>
-              e.isActive("table") && e.state.selection.empty
+              (e.isActive("tableCell") || e.isActive("tableHeader")) &&
+              e.state.selection.empty
             }
           >
             <TableControls editor={editor} />
