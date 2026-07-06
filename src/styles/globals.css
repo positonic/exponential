@@ -966,6 +966,7 @@
      red→orange→yellow→green→blue scale used in priorityCheckboxBorderVar. */
   --td-prio-urgent:     #E47A6F;
   --td-prio-urgent-dim: rgba(228, 122, 111, 0.55);
+  --td-prio-urgent-10:  rgba(228, 122, 111, 0.10);
 
   --td-prio-p1:         #E47A6F;
   --td-prio-p1-dim:     rgba(228, 122, 111, 0.55);

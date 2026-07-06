@@ -21,6 +21,8 @@ import styles from "./ActionRow.module.css";
 interface ActionRowProps {
   action: Action;
   isOverdue?: boolean;
+  /** Relative age shown on overdue rows, e.g. "due 3d ago". Replaces the bare clock time. */
+  overdueLabel?: string;
   bulkMode?: boolean;
   bulkSelected?: boolean;
   onBulkToggle?: (id: string) => void;
@@ -37,6 +39,7 @@ interface ActionRowProps {
 export function ActionRow({
   action,
   isOverdue = false,
+  overdueLabel,
   bulkMode = false,
   bulkSelected = false,
   onBulkToggle,
@@ -111,7 +114,12 @@ export function ActionRow({
           <ActiveTimerIndicator actionId={action.id} className="ml-2 align-middle" />
         </div>
         <div className={styles.meta}>
-          {isOverdue && timeSource ? (
+          {isOverdue && overdueLabel ? (
+            <span className={`${styles.chip} ${styles.chipOverdue}`}>
+              <IconCalendar size={10} />
+              {overdueLabel}
+            </span>
+          ) : isOverdue && timeSource ? (
             <span className={`${styles.chip} ${styles.chipOverdue}`}>
               <IconClock size={10} />
               {formatClockTime(timeSource)}

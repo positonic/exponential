@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { partitionActions, type PartitionableAction } from "../partition";
+import {
+  overdueAnchor,
+  partitionActions,
+  type PartitionableAction,
+} from "../partition";
 
 // A fixed "today" so the suite is deterministic regardless of the wall clock.
 const TODAY = new Date("2026-06-29T09:00:00.000Z");
@@ -127,6 +131,86 @@ describe("partitionActions", () => {
     expect(todays.map((x) => x.id)).toEqual(["a", "b", "c"]);
   });
 
+  it("buckets an unscheduled past-due action into `overdue` (regression: used to vanish)", () => {
+    const bare = action({ id: "bare", dueDate: at("2026-06-28") });
+    const projected = action({
+      id: "projected",
+      dueDate: at("2026-06-25"),
+      projectId: "proj-1",
+    });
+
+    const { overdue, todays, inbox, upcoming } = partitionActions(
+      [bare, projected],
+      { today: TODAY },
+    );
+
+    expect(overdue.map((x) => x.id).sort()).toEqual(["bare", "projected"]);
+    expect([...todays, ...inbox, ...upcoming]).toHaveLength(0);
+  });
+
+  it("does NOT put an unscheduled past-due/no-project action into `inbox`", () => {
+    const a = action({ id: "late-loose", dueDate: at("2026-06-20") });
+    const { overdue, inbox } = partitionActions([a], { today: TODAY });
+    expect(overdue.map((x) => x.id)).toEqual(["late-loose"]);
+    expect(inbox).toHaveLength(0);
+  });
+
+  it("schedule wins over a past due date: scheduled today → `todays`", () => {
+    const a = action({
+      id: "rescued",
+      scheduledStart: at("2026-06-29", "10:00:00.000Z"),
+      dueDate: at("2026-06-25"),
+    });
+    const { todays, overdue } = partitionActions([a], { today: TODAY });
+    expect(todays.map((x) => x.id)).toEqual(["rescued"]);
+    expect(overdue).toHaveLength(0);
+  });
+
+  it("schedule wins over a past due date: scheduled future → `upcoming`", () => {
+    const a = action({
+      id: "deferred",
+      scheduledStart: at("2026-07-05"),
+      dueDate: at("2026-06-25"),
+    });
+    const { upcoming, overdue } = partitionActions([a], { today: TODAY });
+    expect(upcoming.map((x) => x.id)).toEqual(["deferred"]);
+    expect(overdue).toHaveLength(0);
+  });
+
+  it("sorts `overdue` by priority first, then oldest anchor, then id", () => {
+    const oldQuick = action({ id: "z-old", priority: "Quick", dueDate: at("2026-06-20") });
+    const newQuick = action({ id: "a-new", priority: "Quick", dueDate: at("2026-06-28") });
+    const newP1 = action({ id: "p1", priority: "1st Priority", scheduledStart: at("2026-06-28") });
+
+    const { overdue } = partitionActions([newQuick, oldQuick, newP1], {
+      today: TODAY,
+    });
+    // Priority beats age; within equal priority the oldest debt surfaces first.
+    expect(overdue.map((x) => x.id)).toEqual(["p1", "z-old", "a-new"]);
+  });
+
+  it("fills `completedToday` with today's completions only; `completed` keeps history", () => {
+    const thisMorning = action({
+      id: "fresh",
+      status: "COMPLETED",
+      completedAt: at("2026-06-29"),
+    });
+    const yesterday = action({
+      id: "stale",
+      status: "COMPLETED",
+      completedAt: at("2026-06-28"),
+    });
+    const unknown = action({ id: "unknown", status: "COMPLETED", completedAt: null });
+
+    const { completed, completedToday } = partitionActions(
+      [thisMorning, yesterday, unknown],
+      { today: TODAY },
+    );
+
+    expect(completedToday.map((x) => x.id)).toEqual(["fresh"]);
+    expect(completed.map((x) => x.id).sort()).toEqual(["fresh", "stale", "unknown"]);
+  });
+
   it("does not read the wall clock — same input + same `today` is stable", () => {
     const set = [
       action({ id: "x", scheduledStart: at("2026-06-29", "14:24:00.000Z") }),
@@ -137,5 +221,30 @@ describe("partitionActions", () => {
     const second = partitionActions(set, { today: TODAY });
     expect(first.todays.map((a) => a.id)).toEqual(second.todays.map((a) => a.id));
     expect(first.inbox.map((a) => a.id)).toEqual(second.inbox.map((a) => a.id));
+  });
+});
+
+describe("overdueAnchor", () => {
+  it("uses the scheduled day when a schedule exists (even with a due date)", () => {
+    const anchor = overdueAnchor({
+      scheduledStart: at("2026-06-26"),
+      dueDate: at("2026-06-20"),
+    });
+    expect(anchor?.getDate()).toBe(new Date(at("2026-06-26")).getDate());
+  });
+
+  it("falls back to the due day when unscheduled", () => {
+    const anchor = overdueAnchor({ scheduledStart: null, dueDate: at("2026-06-20") });
+    expect(anchor?.getDate()).toBe(new Date(at("2026-06-20")).getDate());
+  });
+
+  it("returns null when neither date exists", () => {
+    expect(overdueAnchor({ scheduledStart: null, dueDate: null })).toBeNull();
+  });
+
+  it("normalizes to local start of day", () => {
+    const anchor = overdueAnchor({ scheduledStart: at("2026-06-26"), dueDate: null });
+    expect(anchor?.getHours()).toBe(0);
+    expect(anchor?.getMinutes()).toBe(0);
   });
 });

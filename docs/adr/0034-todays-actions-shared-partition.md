@@ -35,3 +35,4 @@ Give Zoe a dedicated **Today's actions** read tool whose definition is provably 
 - New `action.getTodaysActions` tRPC procedure + a `get-todays-actions` tool in `../mastra`.
 - **Two coexisting "today" definitions** are accepted for now: **Today's actions** (scheduled-or-due, the `/today` set and Zoe's chat tool) vs. the **Daily brief** (due-only, voice + morning briefing). Both are documented as canonical terms in CONTEXT.md; convergence of voice is explicitly deferred.
 - A new EvalCase enters the regression suite guarding grounding/no-deflection for this class.
+- **2026-07-06** — the `overdue` bucket widened to include unscheduled actions with a past `dueDate` (previously only past `scheduledStart` counted, so a past-due, never-scheduled action fell through every bucket and vanished from `/today` and Zoe's tool). Schedule still wins: a past-due action scheduled today/future is not overdue. A `completedToday` bucket was added for the `/today` completed section.

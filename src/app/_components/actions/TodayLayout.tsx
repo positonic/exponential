@@ -250,6 +250,14 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
               deepLinkActionId={actionIdFromUrl}
               onActionOpen={handleActionOpen}
               onActionClose={clearActionId}
+              onRescheduleAllOverdue={(ids) =>
+                bulkReschedule({
+                  actionIds: ids,
+                  dueDate: new Date(),
+                  label: "Today",
+                  fromOverdue: true,
+                })
+              }
             />
           )}
         </div>
