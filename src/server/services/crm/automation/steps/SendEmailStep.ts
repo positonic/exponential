@@ -86,6 +86,7 @@ export class SendEmailStep implements IStepExecutor {
           : `Welcome — you're signed up as a ${customerType}`,
         bodyHtml: renderTextBodyToHtml(customBody, data),
         bodyText: renderTextBodyToPlain(customBody, data),
+        workspaceId: context.workspaceId,
       });
       subject = rendered.subject;
       htmlBody = rendered.htmlBody;
@@ -95,6 +96,7 @@ export class SendEmailStep implements IStepExecutor {
         to: toEmail,
         name,
         customerType,
+        workspaceId: context.workspaceId,
       });
       subject = rendered.subject;
       htmlBody = rendered.htmlBody;

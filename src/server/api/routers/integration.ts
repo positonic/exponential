@@ -3355,6 +3355,124 @@ export const integrationRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  // ==================== POSTMARK INTEGRATION ====================
+  // Per-workspace Postmark server token + from-address. Used by
+  // EmailService.resolvePostmark() so a workspace's notification / CRM /
+  // broadcast email ships from its own sender, falling back to the env default.
+
+  createPostmarkIntegration: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        apiKey: z.string().min(1, "Server API token is required"),
+        fromAddress: z.string().email("From address must be a valid email"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Only workspace owners/admins can change how the workspace sends email.
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin"] },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners or admins can configure Postmark.",
+        });
+      }
+
+      // One config per workspace: replace any existing one.
+      await ctx.db.integration.deleteMany({
+        where: { provider: "postmark", workspaceId: input.workspaceId },
+      });
+
+      const integration = await ctx.db.integration.create({
+        data: {
+          name: "Postmark",
+          type: "API_KEY",
+          provider: "postmark",
+          description: "Workspace email delivery via Postmark",
+          userId: ctx.session.user.id,
+          workspaceId: input.workspaceId,
+          status: "ACTIVE",
+        },
+      });
+
+      const encryptedApiKey = encryptCredential(input.apiKey);
+      await ctx.db.integrationCredential.createMany({
+        data: [
+          {
+            key: encryptedApiKey.key,
+            keyType: "api_key",
+            isEncrypted: encryptedApiKey.isEncrypted,
+            integrationId: integration.id,
+          },
+          {
+            key: input.fromAddress,
+            keyType: "from_address",
+            isEncrypted: false,
+            integrationId: integration.id,
+          },
+        ],
+      });
+
+      return { configured: true, fromAddress: input.fromAddress };
+    }),
+
+  // Get the workspace Postmark status. Never returns the token.
+  getWorkspacePostmarkStatus: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      const integration = await ctx.db.integration.findFirst({
+        where: { provider: "postmark", status: "ACTIVE", workspaceId: input.workspaceId },
+        include: { credentials: true },
+      });
+
+      if (!integration) return { configured: false as const };
+
+      const fromAddress = integration.credentials.find(
+        (c) => c.keyType === "from_address",
+      )?.key;
+
+      return { configured: true as const, fromAddress };
+    }),
+
+  removePostmarkIntegration: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin"] },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners or admins can remove Postmark.",
+        });
+      }
+
+      await ctx.db.integration.deleteMany({
+        where: { provider: "postmark", workspaceId: input.workspaceId },
+      });
+      return { success: true };
+    }),
+
   // ==================== ZULIP INTEGRATION ====================
 
   createZulipIntegration: protectedProcedure

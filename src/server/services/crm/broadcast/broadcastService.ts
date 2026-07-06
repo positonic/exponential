@@ -159,6 +159,7 @@ export async function runBroadcastTestSend(
     // Test preview — not a real recipient, so no working unsubscribe needed.
     unsubscribeUrl: "#",
     greetingName: null,
+    workspaceId: input.workspaceId,
   });
 
   return { skipped: false };

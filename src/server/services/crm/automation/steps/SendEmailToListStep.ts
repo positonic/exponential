@@ -100,6 +100,7 @@ export class SendEmailToListStep implements IStepExecutor {
             sections: digest.sections,
             unsubscribeUrl,
             greetingName: r.greetingName,
+            workspaceId: context.workspaceId,
           });
           await this.db.crmCommunication.create({
             data: {
