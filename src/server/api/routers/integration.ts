@@ -3384,39 +3384,44 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      // One config per workspace: replace any existing one.
-      await ctx.db.integration.deleteMany({
-        where: { provider: "postmark", workspaceId: input.workspaceId },
-      });
-
-      const integration = await ctx.db.integration.create({
-        data: {
-          name: "Postmark",
-          type: "API_KEY",
-          provider: "postmark",
-          description: "Workspace email delivery via Postmark",
-          userId: ctx.session.user.id,
-          workspaceId: input.workspaceId,
-          status: "ACTIVE",
-        },
-      });
-
+      // One config per workspace: replace any existing one. Run the replace as a
+      // single transaction so a failure can't leave the workspace with an
+      // integration row and no credentials (which resolvePostmark would silently
+      // treat as "unconfigured") or with no integration at all.
       const encryptedApiKey = encryptCredential(input.apiKey);
-      await ctx.db.integrationCredential.createMany({
-        data: [
-          {
-            key: encryptedApiKey.key,
-            keyType: "api_key",
-            isEncrypted: encryptedApiKey.isEncrypted,
-            integrationId: integration.id,
+      await ctx.db.$transaction(async (tx) => {
+        await tx.integration.deleteMany({
+          where: { provider: "postmark", workspaceId: input.workspaceId },
+        });
+
+        const integration = await tx.integration.create({
+          data: {
+            name: "Postmark",
+            type: "API_KEY",
+            provider: "postmark",
+            description: "Workspace email delivery via Postmark",
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+            status: "ACTIVE",
           },
-          {
-            key: input.fromAddress,
-            keyType: "from_address",
-            isEncrypted: false,
-            integrationId: integration.id,
-          },
-        ],
+        });
+
+        await tx.integrationCredential.createMany({
+          data: [
+            {
+              key: encryptedApiKey.key,
+              keyType: "api_key",
+              isEncrypted: encryptedApiKey.isEncrypted,
+              integrationId: integration.id,
+            },
+            {
+              key: input.fromAddress,
+              keyType: "from_address",
+              isEncrypted: false,
+              integrationId: integration.id,
+            },
+          ],
+        });
       });
 
       return { configured: true, fromAddress: input.fromAddress };

@@ -54,7 +54,17 @@ export async function resolvePostmark(
   const apiKeyCred = integration.credentials.find((c) => c.keyType === "api_key");
   const fromCred = integration.credentials.find((c) => c.keyType === "from_address");
 
-  const apiKey = apiKeyCred ? getDecryptedKey(apiKeyCred) : null;
+  // A corrupted/tampered credential must not break the send — fall back to env.
+  let apiKey: string | null = null;
+  try {
+    apiKey = apiKeyCred ? getDecryptedKey(apiKeyCred) : null;
+  } catch (error) {
+    console.error(
+      "[EmailService] Failed to decrypt workspace Postmark API key; falling back to env config.",
+      error,
+    );
+    return envConfig;
+  }
   const from = fromCred?.key;
 
   // Use the workspace config only when both parts are present; a partial config
