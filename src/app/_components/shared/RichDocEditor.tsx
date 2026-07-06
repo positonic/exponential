@@ -11,6 +11,7 @@ import { notifications } from "@mantine/notifications";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand, type SlashCommandItem } from "~/lib/prd/slash-command";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
+import { createSaveQueue } from "~/lib/prd/save-queue";
 import { PageLinkWithView } from "./PageLinkView";
 import "@mantine/tiptap/styles.css";
 
@@ -201,12 +202,20 @@ export function RichDocEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDoc, initialMarkdown]);
 
-  // Latest save fn behind a ref so the editor's onUpdate closure never goes stale.
-  const saveRef = useRef<(editor: Editor) => Promise<void>>(() =>
-    Promise.resolve(),
-  );
-  saveRef.current = (editor: Editor) => {
+  // Serialized JSON of the last content persisted (or loaded), so no-op
+  // triggers like a plain blur don't fire a save at all.
+  const lastSavedRef = useRef<string | null>(null);
+
+  // Latest save fn behind a ref so the queue's closure never goes stale. It
+  // reads the editor, content and version base at execution time, and never
+  // rejects (the conflict modal handles the error) — the queue relies on that.
+  const saveRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  saveRef.current = () => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) return Promise.resolve();
     const json = editor.getJSON();
+    const serialized = JSON.stringify(json);
+    if (serialized === lastSavedRef.current) return Promise.resolve();
     const markdown = (
       editor.storage.markdown as { getMarkdown: () => string }
     ).getMarkdown();
@@ -215,6 +224,7 @@ export function RichDocEditor({
         if (res && typeof res.docVersion === "number") {
           versionRef.current = res.docVersion;
         }
+        lastSavedRef.current = serialized;
       })
       .catch((err: { data?: { code?: string } }) => {
         if (err?.data?.code === "CONFLICT" && !conflictShown.current) {
@@ -237,9 +247,16 @@ export function RichDocEditor({
       });
   };
 
+  // All triggers (typing debounce, blur, flush) funnel through one queue so
+  // saves never overlap — an overlapping save would reuse the base version of
+  // the one in flight and trip the server's stale-write guard as a phantom
+  // conflict from this same tab.
+  const saveQueueRef = useRef(createSaveQueue(() => saveRef.current()));
+  const requestSave = () => void saveQueueRef.current.request();
+
   const flushSave = async () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (editorRef.current) await saveRef.current(editorRef.current);
+    await saveQueueRef.current.request();
   };
   const editorRef = useRef<Editor | null>(null);
 
@@ -257,16 +274,16 @@ export function RichDocEditor({
     ],
     content: doc ?? "",
     immediatelyRender: false,
-    onUpdate: ({ editor: e }) => {
+    onUpdate: () => {
       onDocUpdate?.();
       if (!editable) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => void saveRef.current(e), 1000);
+      debounceRef.current = setTimeout(requestSave, 1000);
     },
-    onBlur: ({ editor: e }) => {
+    onBlur: () => {
       if (!editable) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      void saveRef.current(e);
+      requestSave();
     },
     editorProps: {
       attributes: {
@@ -292,10 +309,14 @@ export function RichDocEditor({
   }, [editor]);
 
   // Load the resolved doc into the editor exactly once (never clobber edits).
+  // The dirty baseline is read back from the editor (not from `doc`) because
+  // Tiptap normalizes content on load — comparing against the raw input would
+  // make an unedited document look dirty.
   useEffect(() => {
     if (editor && doc && !contentLoaded.current) {
       contentLoaded.current = true;
       editor.commands.setContent(doc);
+      lastSavedRef.current = JSON.stringify(editor.getJSON());
     }
   }, [editor, doc]);
 
