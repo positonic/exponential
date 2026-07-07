@@ -318,6 +318,10 @@ _Avoid_: Voice thread (ambiguous — say "voice memory thread"), conversation (o
 The shared in-app agent chat component (`src/app/_components/ManyChat.tsx`) behind every embedded chat surface — the Zoe drawer and the agent chat pages — rendering streamed responses, tool activity, voice input, and the per-message feedback stars. Talks to `/api/chat/stream` under the signed-in user's web session. The name is purely internal and predates any awareness of **manychat.com** (the WhatsApp/Instagram automation SaaS) — in this codebase "ManyChat" always means this component, never that product. Rename candidate if the collision keeps confusing people (and agents).
 _Avoid_: Reading it as manychat.com; chat widget, chatbox.
 
+**Zoe canvas**:
+The experimental `/home` surface where Zoe answers *in the page content* instead of the drawer: on send, the dashboard below the Zoe input collapses and the answer streams in its place, styled as a dashboard card. A third display mode of the **same** conversation state the Zoe drawer shows (the ADR-0006 "two surfaces, one thread" pattern again) — but each canvas **engagement** (one open→dismiss cycle) starts a **fresh Thread** (new `conversationId`, cleanly scorable), and the canvas renders only the current engagement; full history stays a drawer affordance. Dismissal (✕/Esc) or navigating away mid-stream aborts the stream and marks the turn `incomplete` — one rule for both. v1 renders markdown; native per-preset cards (standup first) are a fast-follow. See [ADR-0040](docs/adr/0040-zoe-canvas-fresh-thread-per-engagement.md).
+_Avoid_: Inline chat, inline mode (position, not identity), embedded drawer, answer canvas, home canvas (couples the concept to one route).
+
 ### Agent quality
 
 _Operations (what to run, when, in what order): [dev-docs/AGENT_QUALITY_RUNBOOK.md](dev-docs/AGENT_QUALITY_RUNBOOK.md)._
