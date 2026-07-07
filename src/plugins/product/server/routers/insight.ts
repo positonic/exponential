@@ -2,8 +2,13 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { uploadToBlob } from "~/lib/blob";
+
+// Loose shape for a ProseMirror document (same treatment as feature.ts).
+const prosemirrorDoc = z.record(z.string(), z.unknown());
 
 const insightTypeEnum = z.enum([
   "PAIN_POINT",
@@ -206,19 +211,126 @@ export const insightRouter = createTRPCRouter({
         category: boundedText("Category", TEXT_LIMITS.LABEL).nullable().optional(),
         impact: scoreSchema.nullable().optional(),
         confidence: scoreSchema.nullable().optional(),
+        // Detail-page body save (ADR-0024, mirrors feature.update): bodyDoc is
+        // the canonical document, the existing `body` field above rides along
+        // as its client-serialised Markdown projection, `baseVersion` is the
+        // optimistic-concurrency check.
+        bodyDoc: prosemirrorDoc.optional(),
+        baseVersion: z.number().int().min(0).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
-      const { id, ...data } = input;
+      const { id, bodyDoc, baseVersion, ...data } = input;
+
+      // Body autosave path: optimistic-concurrency guard + version bump.
+      if (bodyDoc !== undefined) {
+        if (baseVersion === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "baseVersion is required when saving the insight body",
+          });
+        }
+        const current = await ctx.db.insight.findUnique({
+          where: { id },
+          select: { docVersion: true },
+        });
+        const decision = checkStaleWrite({
+          storedVersion: current?.docVersion ?? 0,
+          baseVersion,
+        });
+        if (!decision.accept) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This insight was updated in another tab or by another member. Reload to get the latest version.",
+          });
+        }
+        // Atomic compare-and-set: the WHERE on docVersion closes the
+        // read-to-write race so two concurrent saves can't both bump from the
+        // same base.
+        const res = await ctx.db.insight.updateMany({
+          where: { id, docVersion: baseVersion },
+          data: {
+            ...data,
+            bodyDoc: bodyDoc as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          },
+        });
+        if (res.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This insight was updated concurrently. Reload to get the latest version.",
+          });
+        }
+        return { id, docVersion: decision.nextVersion };
+      }
+
       return ctx.db.insight.update({
         where: { id },
         data: {
           ...data,
           // Keep description in sync with title so both columns stay consistent
           ...(input.title ? { description: input.title } : {}),
+          // A Markdown-only body write (no bodyDoc) invalidates the canonical
+          // doc: null it and bump docVersion so the editor re-derives from
+          // Markdown on next open (mirrors page.update's agent path).
+          ...(data.body !== undefined
+            ? { bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } }
+            : {}),
         },
       });
+    }),
+
+  /**
+   * Persist the one-time lazy migration of a legacy Markdown `body` into the
+   * canonical `bodyDoc` (ADR-0024, mirrors feature.initDescriptionDoc).
+   * Idempotent and write-once: an existing bodyDoc always wins.
+   */
+  initBodyDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      const existing = await ctx.db.insight.findUnique({
+        where: { id: input.id },
+        select: { bodyDoc: true },
+      });
+      if (existing?.bodyDoc != null) {
+        return { migrated: false, bodyDoc: existing.bodyDoc };
+      }
+
+      const updated = await ctx.db.insight.update({
+        where: { id: input.id },
+        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+        select: { bodyDoc: true },
+      });
+      return { migrated: true, bodyDoc: updated.bodyDoc };
+    }),
+
+  /**
+   * Upload an image pasted/dropped into the insight body, mirroring
+   * feature.uploadImage: base64 in, public Vercel Blob URL out.
+   */
+  uploadImage: protectedProcedure
+    .input(z.object({ id: z.string(), base64Data: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      // Same 5MB cap as feature.uploadImage (base64 is ~4/3 the byte size).
+      const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
+      if (approxBytes > 5 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Image too large. Please use an image under 5MB.",
+        });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/insights/${input.id}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+      return { url: blob.url };
     }),
 
   delete: protectedProcedure

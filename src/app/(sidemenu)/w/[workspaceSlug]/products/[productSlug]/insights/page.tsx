@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ActionIcon,
   Avatar,
@@ -93,13 +93,20 @@ function InsightStatusBadge({
           variant="light"
           color={STATUS_COLORS[status] ?? "gray"}
           className="cursor-pointer hover:opacity-80 transition-opacity shrink-0"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
         >
           {STATUS_OPTIONS.find((s) => s.value === status)?.label ?? status}
         </Badge>
       </Menu.Target>
       <Menu.Dropdown>
         {STATUS_OPTIONS.map((s) => (
-          <Menu.Item key={s.value} onClick={() => onUpdate(s.value)}>
+          <Menu.Item
+            key={s.value}
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              onUpdate(s.value);
+            }}
+          >
             <div className="flex items-center gap-2">
               <Badge size="xs" variant="light" color={STATUS_COLORS[s.value] ?? "gray"}>
                 {s.label}
@@ -229,6 +236,7 @@ const GROUP_ORDER: InsightStatus[] = ["INBOX", "TRIAGED", "LINKED", "DISMISSED"]
 
 export default function InsightsPage() {
   const params = useParams();
+  const router = useRouter();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [modalOpened, setModalOpened] = useState(false);
@@ -364,8 +372,11 @@ export default function InsightsPage() {
 
   if (!workspace) return null;
 
+  const basePath = `/w/${workspace.slug}/products/${productSlug}/insights`;
+
   // Single-line row (backlog list pattern): icon, status, title, then compact
-  // meta on the right. Body preview intentionally dropped from the list.
+  // meta on the right. Body preview intentionally dropped from the list; the
+  // row itself opens the detail page.
   const renderRow = (insight: (typeof filtered)[number], isLast: boolean) => {
     const typeDef = TYPE_MAP[insight.type];
     const Icon = typeDef?.icon ?? IconBulb;
@@ -373,9 +384,10 @@ export default function InsightsPage() {
     return (
       <div
         key={insight.id}
-        className={`flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors ${
+        className={`flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer ${
           isLast ? "" : "border-b border-border-primary"
         }`}
+        onClick={() => router.push(`${basePath}/${insight.id}`)}
       >
         <Tooltip label={typeDef?.label ?? insight.type} position="top">
           <div className="shrink-0 flex items-center">
@@ -433,7 +445,12 @@ export default function InsightsPage() {
         </Text>
         <Menu position="bottom-end" withinPortal>
           <Menu.Target>
-            <ActionIcon variant="subtle" size="xs" className="text-text-muted shrink-0">
+            <ActionIcon
+              variant="subtle"
+              size="xs"
+              className="text-text-muted shrink-0"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            >
               <IconDots size={14} />
             </ActionIcon>
           </Menu.Target>
@@ -675,7 +692,11 @@ export default function InsightsPage() {
           onMove={moveInsight}
           getItemLabel={(item) => item.title}
           renderCard={(item, { isOverlay }) => (
-            <InsightCard insight={item} isDragOverlay={isOverlay} />
+            <InsightCard
+              insight={item}
+              isDragOverlay={isOverlay}
+              onClick={() => router.push(`${basePath}/${item.id}`)}
+            />
           )}
         />
       ) : (

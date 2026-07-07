@@ -4075,6 +4075,12 @@ model Insight {
   type        InsightType
   title       String
   body        String?
+  // Rich detail-page body (ADR-0024 storage model, third adopter after
+  // Feature and KnowledgePage): bodyDoc is the canonical ProseMirror JSON,
+  // body above is its derived write-only Markdown projection, docVersion is
+  // the optimistic-concurrency guard.
+  bodyDoc     Json?
+  docVersion  Int           @default(0)
   source      String?
   sentiment   String?
   description String        @default("")
