@@ -4163,6 +4163,87 @@ export const mastraRouter = createTRPCRouter({
       return { success: true, goalId: input.goalId, projectId: input.projectId };
     }),
 
+  linkProjectToKeyResult: protectedProcedure
+    .input(z.object({
+      keyResultId: z.string(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Authorize the KR by ownership OR workspace membership (mirrors okr.linkProject),
+      // so the assistant can link a KR shared within the caller's workspace.
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key result not found or access denied' });
+      }
+
+      // Verify the caller can edit the project being linked.
+      const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!canEditProject(projectAccess)) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: "You don't have permission to link this project" });
+      }
+
+      // Idempotent: no-op if the link already exists (unique keyResultId+projectId).
+      await ctx.db.keyResultProject.upsert({
+        where: {
+          keyResultId_projectId: {
+            keyResultId: input.keyResultId,
+            projectId: input.projectId,
+          },
+        },
+        create: {
+          keyResultId: input.keyResultId,
+          projectId: input.projectId,
+        },
+        update: {},
+      });
+
+      console.log(`🔗 [tRPC linkProjectToKeyResult] Linked project ${input.projectId} to key result ${input.keyResultId}`);
+      return { success: true, keyResultId: input.keyResultId, projectId: input.projectId };
+    }),
+
+  unlinkProjectFromKeyResult: protectedProcedure
+    .input(z.object({
+      keyResultId: z.string(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key result not found or access denied' });
+      }
+
+      await ctx.db.keyResultProject.deleteMany({
+        where: {
+          keyResultId: input.keyResultId,
+          projectId: input.projectId,
+        },
+      });
+
+      console.log(`🔗 [tRPC unlinkProjectFromKeyResult] Unlinked project ${input.projectId} from key result ${input.keyResultId}`);
+      return { success: true, keyResultId: input.keyResultId, projectId: input.projectId };
+    }),
+
+
   deleteProject: protectedProcedure
     .input(z.object({
       projectId: z.string(),
