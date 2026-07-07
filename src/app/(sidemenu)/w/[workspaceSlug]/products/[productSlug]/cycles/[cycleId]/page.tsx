@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Badge,
@@ -15,6 +16,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { DateInput } from "@mantine/dates";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
@@ -157,8 +159,25 @@ export default function CycleDetailPage() {
     .filter((t) => t.status === "DONE")
     .reduce((sum, t) => sum + (t.points ?? 0), 0);
 
+  // Only render the back link once the workspace has resolved — otherwise the
+  // slug is undefined and the href becomes "/w/undefined/…" (a broken link).
+  const backPath = workspace
+    ? `/w/${workspace.slug}/products/${productSlug}/cycles`
+    : null;
+
   return (
     <Stack gap="lg">
+      {/* Back nav */}
+      {backPath && (
+        <Link
+          href={backPath}
+          className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
+        >
+          <IconArrowLeft size={14} />
+          Cycles
+        </Link>
+      )}
+
       <Group justify="space-between" align="flex-start">
         {isEditingHeader ? (
           <Stack gap="sm" style={{ flex: 1 }} maw={520}>

@@ -68,6 +68,27 @@ export default function ProductLayout({
     { enabled: !!workspaceId && !!productSlug },
   );
 
+  // On a cycle detail route (…/cycles/<id>) fetch that cycle so the favourite
+  // snapshots the cycle's own name (e.g. "Cycle 10") instead of the generic
+  // "<Product> · Cycles" tab label. Derive the id from the pathname rather than
+  // params — this layout owns the `[productSlug]` segment, so `params` does not
+  // reliably expose the deeper `[cycleId]` segment. Excludes the "/cycles/new"
+  // create route. React Query dedupes this with the cycle detail page's own
+  // getById call, so it's not an extra request; when navigating to any other
+  // tab the id resolves to undefined and the label falls back to the tab label.
+  const cyclesPrefix = `/products/${productSlug}/cycles/`;
+  const cyclesIdx = pathname.indexOf(cyclesPrefix);
+  const cycleSegment =
+    cyclesIdx === -1
+      ? undefined
+      : pathname.slice(cyclesIdx + cyclesPrefix.length).split("/")[0];
+  const cycleId =
+    cycleSegment && cycleSegment !== "new" ? cycleSegment : undefined;
+  const { data: cycleForFavorite } = api.product.cycle.getById.useQuery(
+    { id: cycleId ?? "" },
+    { enabled: !!cycleId },
+  );
+
   // Warm every sibling tab's route (RSC payload + JS chunk) as soon as a
   // product page mounts, so the first click on any tab is instant instead of
   // paying the cold route-fetch cost. Mirrors what Next <Link> prefetch does
@@ -209,6 +230,7 @@ export default function ProductLayout({
                   workspaceSlug: workspace.slug,
                   productSlug,
                   productName: product.name,
+                  detailLabel: cycleForFavorite?.name,
                 })}
                 workspaceId={workspaceId}
                 size="lg"
