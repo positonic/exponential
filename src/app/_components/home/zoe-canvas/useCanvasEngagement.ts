@@ -133,7 +133,7 @@ export function useCanvasEngagement({
         // Fresh Thread per engagement (ADR-0040). Fall back to a client id on
         // failure — /api/chat/stream accepts client-provided conversation ids.
         try {
-          const res = await startConversation.mutateAsync({ platform: 'manychat' });
+          const res = await startConversation.mutateAsync({ platform: 'web-canvas' });
           engagementConversationId = res.conversationId;
         } catch {
           engagementConversationId = `conv_canvas_${Date.now()}_${Math.random().toString(36).slice(2, 15)}`;
@@ -193,7 +193,10 @@ export function useCanvasEngagement({
             assistantId: customAssistant?.id ?? null,
             workspaceId: workspaceId ?? null,
             conversationId: engagementConversationId,
-            platform: 'manychat',
+            // Distinct stamp for canvas turns (ADR-0040): the interaction-
+            // history rows this send produces are attributed to the canvas so
+            // the agent-quality machinery compares canvas vs drawer Threads.
+            platform: 'web-canvas',
           },
           {
             signal: abortController.signal,

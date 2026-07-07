@@ -7,7 +7,7 @@ import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 // Zod schema for AI interaction logging
 const AiInteractionSchema = z.object({
   // Source Information (Required)
-  platform: z.enum(["slack", "manychat", "api", "webhook", "direct"]),
+  platform: z.enum(["slack", "manychat", "web-canvas", "api", "webhook", "direct"]),
   sourceId: z.string().optional(), // Platform-specific ID
 
   // User Context  
@@ -110,7 +110,7 @@ export const aiInteractionRouter = createTRPCRouter({
       z.object({
         limit: z.number().min(1).max(100).default(20),
         cursor: z.string().nullish(),
-        platform: z.enum(["slack", "manychat", "api", "webhook", "direct"]).optional(),
+        platform: z.enum(["slack", "manychat", "web-canvas", "api", "webhook", "direct"]).optional(),
         projectId: z.string().optional(),
         agentName: z.string().optional(),
         conversationId: z.string().optional(),
@@ -201,7 +201,7 @@ export const aiInteractionRouter = createTRPCRouter({
   getInteractionStats: protectedProcedure
     .input(
       z.object({
-        platform: z.enum(["slack", "manychat", "api", "webhook", "direct"]).optional(),
+        platform: z.enum(["slack", "manychat", "web-canvas", "api", "webhook", "direct"]).optional(),
         projectId: z.string().optional(),
         startDate: z.date().optional(),
         endDate: z.date().optional(),
@@ -488,7 +488,7 @@ export const aiInteractionRouter = createTRPCRouter({
   startConversation: protectedProcedure
     .input(
       z.object({
-        platform: z.enum(["slack", "manychat", "api", "webhook", "direct"]),
+        platform: z.enum(["slack", "manychat", "web-canvas", "api", "webhook", "direct"]),
         projectId: z.string().optional(),
       })
     )

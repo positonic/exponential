@@ -196,7 +196,7 @@ describe("findSettledThreadIds (mocked Prisma)", () => {
     await service.findSettledThreadIds(NOW);
     const groupByArgs = db.aiInteractionHistory.groupBy.mock.calls[0]?.[0];
     expect(groupByArgs?.where?.platform).toEqual({
-      in: ["web", "manychat", "slack", "api", "direct"],
+      in: ["web", "manychat", "web-canvas", "slack", "api", "direct"],
     });
   });
 

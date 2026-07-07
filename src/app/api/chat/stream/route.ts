@@ -106,7 +106,9 @@ export async function POST(req: Request) {
       platform?: string;
     };
 
-    const ALLOWED_PLATFORMS = ["web", "manychat"] as const;
+    // "web-canvas" stamps Zoe canvas turns (ADR-0040) so engagement volume and
+    // judged Thread quality compare canvas vs drawer with no new analytics.
+    const ALLOWED_PLATFORMS = ["web", "manychat", "web-canvas"] as const;
     type ChatPlatform = typeof ALLOWED_PLATFORMS[number];
     const isAllowedPlatform = (p: string): p is ChatPlatform =>
       (ALLOWED_PLATFORMS as readonly string[]).includes(p);
