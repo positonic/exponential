@@ -27,6 +27,9 @@ import { useAgentModal } from "~/providers/AgentModalProvider";
 import { stripHtml } from "~/lib/utils";
 import { calculateProjectHealth } from "./ProjectHealth";
 import { RitualCards } from "./RitualCards";
+import { ZoeCanvas } from "./zoe-canvas/ZoeCanvas";
+import { useCanvasEngagement } from "./zoe-canvas/useCanvasEngagement";
+import { useCanvasOptIn } from "./zoe-canvas/useCanvasOptIn";
 import classes from "./UserHomeDashboard.module.css";
 
 type ProjectPill = "ok" | "active" | "due" | "amber";
@@ -42,6 +45,12 @@ export function UserHomeDashboard() {
   const { workspace, workspaceId } = useWorkspace();
   const { data: session } = useSession();
   const { openWithPrompt } = useAgentModal();
+
+  // Zoe canvas experiment (ADR-0040): with the sticky ?canvas=1 opt-in, sends
+  // from the hero input / chips answer in the page instead of the drawer.
+  const canvasEnabled = useCanvasOptIn();
+  const canvas = useCanvasEngagement({ workspaceId, enabled: canvasEnabled });
+  const canvasActive = canvasEnabled && canvas.engaged;
 
   const [prompt, setPrompt] = useState("");
 
@@ -117,7 +126,11 @@ export function UserHomeDashboard() {
   const sendPrompt = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    openWithPrompt(trimmed);
+    if (canvasEnabled) {
+      canvas.send(trimmed);
+    } else {
+      openWithPrompt(trimmed);
+    }
     setPrompt("");
   };
 
@@ -180,6 +193,10 @@ export function UserHomeDashboard() {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               sendPrompt(prompt);
+            } else if (canvasEnabled && e.key === "Enter" && !e.shiftKey) {
+              // Canvas mode: plain Enter sends, Shift+Enter inserts a newline.
+              e.preventDefault();
+              sendPrompt(prompt);
             }
           }}
           rows={2}
@@ -210,6 +227,20 @@ export function UserHomeDashboard() {
         </div>
       </section>
 
+      {/* Zoe canvas: the engagement answers in the page (ADR-0040) */}
+      {canvasActive && (
+        <ZoeCanvas
+          messages={canvas.messages}
+          isStreaming={canvas.isStreaming}
+          onDismiss={canvas.dismiss}
+          onRetry={canvas.retry}
+        />
+      )}
+
+      {/* Everything below the Zoe input yields to the canvas while an
+          engagement is active (animated collapse; instant restore). */}
+      <div className={clsx(classes.dashYield, canvasActive && classes.dashYield_collapsed)}>
+      <div className={classes.dashYieldInner}>
       <RitualCards />
 
       {/* Dashboard grid */}
@@ -439,6 +470,8 @@ export function UserHomeDashboard() {
             </div>
           </div>
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

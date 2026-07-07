@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
-import { entitiesToRefresh } from "./manyChatToolRefresh";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -29,8 +28,10 @@ import { DraftActionsReviewCard } from './DraftActionsReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
-import { classifyStreamError, type StreamFailureKind } from '~/lib/chat/streamProtocol';
+import { classifyStreamError } from '~/lib/chat/streamProtocol';
 import { streamChatResponse } from '~/lib/chat/streamChatResponse';
+import { failureCopy } from '~/lib/chat/failureCopy';
+import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -153,29 +154,6 @@ type Message = ChatMessage;
  * and re-spends tokens) — they finalize as `incomplete` with a Retry button.
  */
 const MAX_AUTO_RETRIES = 2;
-
-/**
- * User-facing copy for a *terminal* failure (auto-retries already exhausted).
- * Deliberately calm and free of alarming/irrelevant advice (the old text told
- * users to go check API keys on every network blip). A Retry button is rendered
- * alongside, so the copy stays short.
- */
-function failureCopy(kind: StreamFailureKind, severity: 'error' | 'incomplete'): string {
-  if (severity === 'incomplete') {
-    return `The connection dropped before this finished.`;
-  }
-  switch (kind) {
-    case 'transport':
-    case 'idle-timeout':
-      return `The connection to the assistant dropped before it could respond.`;
-    case 'auth':
-      return `Your session looks expired — try refreshing the page, or re-check /settings/api-keys.`;
-    case 'model':
-      return `The assistant hit a snag handling that request.`;
-    default:
-      return `Something went wrong handling that request.`;
-  }
-}
 
 function formatPageContextData(context: PageContext): string {
   const str = (val: unknown, fallback = 'None'): string => {
@@ -1301,43 +1279,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       const executedToolNames = streamResult.toolCalls
         .filter((tc) => tc.status === 'success')
         .map((tc) => tc.name);
-      const toRefresh = entitiesToRefresh(executedToolNames, pageContext?.pageType);
-
-      if (toRefresh.has('goalActivity')) {
-        // Goal feed + count + the goal itself (for the health badge).
-        void utils.goalActivity.getFeed.invalidate();
-        void utils.goalActivity.getCount.invalidate();
-        void utils.goal.getById.invalidate();
-      }
-      if (toRefresh.has('action')) {
-        // Full canonical Action set, mirroring the hand-written create/update/bulk
-        // invalidation sets so create, update, move, and delete refresh every
-        // surface (today list, project board, calendar, score widgets).
-        void utils.action.getAll.invalidate();
-        void utils.action.getToday.invalidate();
-        void utils.action.getScheduledByDate.invalidate();
-        void utils.action.getScheduledByDateRange.invalidate();
-        void utils.action.getProjectActions.invalidate();
-        void utils.scoring.getTodayScore.invalidate();
-        void utils.scoring.getProductivityStats.invalidate();
-      }
-      if (toRefresh.has('okr')) {
-        // Objective cards, hero stats, the year/period counts, and the
-        // create-KR objective picker — the full set the OKR dashboard mounts,
-        // so agent-created objectives/KRs and (un)links appear without reload.
-        void utils.okr.getByObjective.invalidate();
-        void utils.okr.getStats.invalidate();
-        void utils.okr.getCountsByYear.invalidate();
-        void utils.okr.getAvailableGoals.invalidate();
-      }
-      if (toRefresh.has('crmContact')) {
-        // Contact list + the dashboard stat cards + per-contact interaction feed,
-        // so agent-created/updated contacts and logged interactions appear without
-        // a reload.
-        void utils.crmContact.getAll.invalidate();
-        void utils.crmContact.getStats.invalidate();
-        void utils.crmContact.getInteractions.invalidate();
-      }
+      applyToolRefreshInvalidations(utils, executedToolNames, pageContext?.pageType);
 
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —
