@@ -125,6 +125,14 @@ export function DependencyGraphCanvas({
     );
     const showUnaligned = orphanTickets.length > 0;
 
+    // Single source of truth for Ticket alignment edges — consumed by both
+    // the layout pass and the rendered flow edges so they can never diverge.
+    const ticketAlignmentPairs: Array<{ source: string; target: string }> = [];
+    for (const t of tickets) {
+      const source = alignmentSourceFor(t);
+      if (source) ticketAlignmentPairs.push({ source, target: t.id });
+    }
+
     // Objective ids that are reachable via at least one visible Feature.
     const reachableObjectiveIds = new Set<number>();
     for (const f of features) {
@@ -158,11 +166,8 @@ export function DependencyGraphCanvas({
         });
       }
     }
-    for (const t of tickets) {
-      const source = alignmentSourceFor(t);
-      if (source) {
-        layoutEdges.push({ source, target: t.id, kind: "alignment" });
-      }
+    for (const p of ticketAlignmentPairs) {
+      layoutEdges.push({ ...p, kind: "alignment" });
     }
     for (const e of blockingEdges) {
       layoutEdges.push({
@@ -239,13 +244,11 @@ export function DependencyGraphCanvas({
     }
 
     // Alignment edges: Feature → Ticket (or UnalignedContainer → orphan ticket).
-    for (const t of tickets) {
-      const source = alignmentSourceFor(t);
-      if (!source) continue;
+    for (const p of ticketAlignmentPairs) {
       flowEdges.push({
-        id: `alignment:${source}->${t.id}`,
-        source,
-        target: t.id,
+        id: `alignment:${p.source}->${p.target}`,
+        source: p.source,
+        target: p.target,
         type: "default",
         style: alignmentEdgeStyle,
         markerEnd: alignmentMarker,

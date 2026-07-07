@@ -99,6 +99,17 @@ describe("applyCycleFilter", () => {
     expect(Array.from(result.dimmedTicketIds)).toEqual(["b"]);
   });
 
+  it("ignores edges whose blocker is not in the ticket set", () => {
+    // e.g. the blocker was excluded upstream by includeCompleted: false.
+    const result = applyCycleFilter(
+      tickets,
+      [...edges, { fromTicketId: "ghost", toTicketId: "b" }],
+      "c12",
+    );
+    expect(result.dimmedTicketIds.has("ghost")).toBe(false);
+    expect(result.tickets.map((t) => t.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
   it("never dims in-cycle blockers", () => {
     // b and c are both Sprint 12; add an in-cycle edge b→c.
     const result = applyCycleFilter(

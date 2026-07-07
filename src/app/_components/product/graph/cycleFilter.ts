@@ -61,6 +61,7 @@ export function applyCycleFilter(
     return { tickets, dimmedTicketIds: new Set() };
   }
 
+  const allTicketIds = new Set(tickets.map((t) => t.id));
   const inCycle = new Set<string>();
   for (const t of tickets) {
     const matches =
@@ -68,10 +69,16 @@ export function applyCycleFilter(
     if (matches) inCycle.add(t.id);
   }
 
-  // Direction convention: fromTicketId blocks toTicketId.
+  // Direction convention: fromTicketId blocks toTicketId. Skip blockers with
+  // no ticket in the input (e.g. an edge whose blocker was excluded upstream)
+  // so the returned set stays a strict subset of the input tickets' ids.
   const dimmedTicketIds = new Set<string>();
   for (const e of blockingEdges) {
-    if (inCycle.has(e.toTicketId) && !inCycle.has(e.fromTicketId)) {
+    if (
+      inCycle.has(e.toTicketId) &&
+      !inCycle.has(e.fromTicketId) &&
+      allTicketIds.has(e.fromTicketId)
+    ) {
       dimmedTicketIds.add(e.fromTicketId);
     }
   }
