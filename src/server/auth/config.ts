@@ -10,6 +10,16 @@ import { db } from "~/server/db";
 import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
 
 /**
+ * Kill switch for Microsoft Entra ID sign-in. Set to `false` to disable the
+ * "Sign in with Microsoft" option regardless of whether the
+ * `MICROSOFT_ENTRA_ID_*` env vars are configured. The provider code and env
+ * wiring are intentionally left in place so it can be re-enabled by flipping
+ * this back to `true`. Also consumed by the `auth` router
+ * (`getConfiguredProviders`) so the UI button stays in sync.
+ */
+export const MICROSOFT_LOGIN_ENABLED = false;
+
+/**
  * Auto-accept any pending workspace and team invitations matching this user's
  * email. Covers the case where an invitee signs up (or signs in) via a route
  * other than the invite accept page — e.g. OAuth, direct magic link, or a
@@ -151,7 +161,7 @@ export const authConfig = {
         },
       },
     }),
-    ...(process.env.MICROSOFT_ENTRA_ID_CLIENT_ID
+    ...(MICROSOFT_LOGIN_ENABLED && process.env.MICROSOFT_ENTRA_ID_CLIENT_ID
       ? [
           MicrosoftEntraID({
             clientId: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,

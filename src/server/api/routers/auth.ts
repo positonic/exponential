@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { MICROSOFT_LOGIN_ENABLED } from "~/server/auth/config";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { DEFAULT_EXPIRY, generateJWT } from "~/server/utils/jwt";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
@@ -18,7 +19,7 @@ export const authRouter = createTRPCRouter({
    */
   getConfiguredProviders: publicProcedure.query(() => ({
     google: !!process.env.GOOGLE_CLIENT_ID,
-    microsoft: !!process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
+    microsoft: MICROSOFT_LOGIN_ENABLED && !!process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
     discord: !!process.env.AUTH_DISCORD_ID,
     postmark: !!(process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN),
   })),
