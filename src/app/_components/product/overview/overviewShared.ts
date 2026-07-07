@@ -66,6 +66,7 @@ const DAY = 24 * HOUR;
 /** Compact relative age ("4h", "2d") for ticket rows and activity times. */
 export function compactAge(date: Date | string): string {
   const ms = Date.now() - new Date(date).getTime();
+  // Clamp future timestamps (client/server clock skew) to "now".
   if (ms < MINUTE) return "now";
   if (ms < HOUR) return `${Math.floor(ms / MINUTE)}m`;
   if (ms < DAY) return `${Math.floor(ms / HOUR)}h`;

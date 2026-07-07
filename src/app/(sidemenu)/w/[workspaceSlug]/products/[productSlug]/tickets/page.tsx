@@ -242,6 +242,9 @@ export default function TicketsBacklogPage() {
       : undefined;
   const filterAssigneeMe = searchParams.get("assignee") === "me";
   const sessionUserId = session?.user?.id;
+  // With ?assignee=me the ticket query stays disabled until the session
+  // resolves; treat that gap as loading so we don't flash an empty state.
+  const sessionPending = filterAssigneeMe && !sessionUserId;
   const [modalOpened, setModalOpened] = useState(false);
   const [editTicketId, setEditTicketId] = useState<string | null>(null);
   const [epicModalOpened, setEpicModalOpened] = useState(false);
@@ -427,6 +430,15 @@ export default function TicketsBacklogPage() {
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
+
+  // Clear only the overview deep-link params; keep any other query params.
+  const clearUrlFilters = () => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("status");
+    next.delete("assignee");
+    const qs = next.toString();
+    router.replace(qs ? `${basePath}?${qs}` : basePath);
+  };
 
   // List item renderer (compact, no table)
   const renderListItem = (ticket: (typeof sorted)[number]) => (
@@ -657,7 +669,7 @@ export default function TicketsBacklogPage() {
                 size="xs"
                 color="gray"
                 aria-label="Clear filter"
-                onClick={() => router.replace(basePath)}
+                onClick={clearUrlFilters}
               >
                 <IconX size={11} />
               </ActionIcon>
@@ -787,7 +799,7 @@ export default function TicketsBacklogPage() {
         ) : (
           <EpicsList epics={epics ?? []} search={search} basePath={basePath} view={view === "list" ? "list" : "table"} />
         )
-      ) : isLoading ? (
+      ) : (isLoading || sessionPending) ? (
         <Stack gap="xs">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>

@@ -184,12 +184,15 @@ export const productRouter = createTRPCRouter({
     }),
 
   /**
-   * Single-round-trip aggregate for the product Overview tab: open-ticket
-   * counts by status, the current cycle (resolved read-only — never
-   * auto-creates or reconciles, unlike cycle.list) with this product's
-   * in-cycle points/status rollup and the caller's own tickets, the
-   * needs-attention lists (blocked / needs refinement / QA), demoted nav
-   * counts, and the last few ticket activity events for this product.
+   * Single-call aggregate for the product Overview tab: open-ticket counts by
+   * status, the current cycle (resolved read-only — never auto-creates or
+   * reconciles, unlike cycle.list) with this product's in-cycle points/status
+   * rollup and the caller's own tickets, the needs-attention lists (blocked /
+   * needs refinement / QA), demoted nav counts, and the last few ticket
+   * activity events for this product.
+   *
+   * Runs as two parallel DB waves: the independent aggregates first, then the
+   * cycle-ticket and event-ticket lookups (which depend on wave 1) together.
    */
   getOverview: protectedProcedure
     .input(z.object({ productId: z.string() }))
@@ -291,6 +294,33 @@ export const productRouter = createTRPCRouter({
           }),
         ]);
 
+      // Wave 2: the two lookups that depend on wave 1 (cycle-scoped tickets and
+      // the tickets behind the recent events) run together, so an active-cycle
+      // product still costs two DB round trips, not three.
+      const eventTicketIds = [...new Set(rawEvents.map((e) => e.entityId))];
+      const [cycleTickets, eventTickets] = await Promise.all([
+        currentCycle
+          ? ctx.db.ticket.findMany({
+              where: { productId: input.productId, cycleId: currentCycle.id },
+              select: {
+                id: true,
+                shortId: true,
+                number: true,
+                title: true,
+                status: true,
+                points: true,
+                assigneeId: true,
+              },
+            })
+          : Promise.resolve([]),
+        eventTicketIds.length
+          ? ctx.db.ticket.findMany({
+              where: { id: { in: eventTicketIds }, productId: input.productId },
+              select: { id: true, shortId: true, number: true, title: true },
+            })
+          : Promise.resolve([]),
+      ]);
+
       // ---- current cycle rollup (scoped to this product's tickets) ----
       let cycle: {
         id: string;
@@ -313,19 +343,6 @@ export const productRouter = createTRPCRouter({
       } | null = null;
 
       if (currentCycle) {
-        const cycleTickets = await ctx.db.ticket.findMany({
-          where: { productId: input.productId, cycleId: currentCycle.id },
-          select: {
-            id: true,
-            shortId: true,
-            number: true,
-            title: true,
-            status: true,
-            points: true,
-            assigneeId: true,
-          },
-        });
-
         const completedSet = new Set<string>(COMPLETED_TICKET_STATUSES);
         const usesPoints = cycleTickets.some((t) => (t.points ?? 0) > 0);
         const weight = (t: { points: number | null }) =>
@@ -384,16 +401,6 @@ export const productRouter = createTRPCRouter({
       };
 
       // ---- recent activity, resolved to this product's tickets ----
-      const eventTicketIds = [...new Set(rawEvents.map((e) => e.entityId))];
-      const eventTickets = eventTicketIds.length
-        ? await ctx.db.ticket.findMany({
-            where: {
-              id: { in: eventTicketIds },
-              productId: input.productId,
-            },
-            select: { id: true, shortId: true, number: true, title: true },
-          })
-        : [];
       const ticketById = new Map(eventTickets.map((t) => [t.id, t]));
       const activity = rawEvents
         .filter((e) => ticketById.has(e.entityId))
