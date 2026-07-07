@@ -136,6 +136,10 @@ describe('useCanvasEngagement', () => {
     expect(mockStartConversation).toHaveBeenCalledTimes(1);
     expect(result.current.conversationId).toBe('conv-1');
     expect(streamCalls[0]?.payload.conversationId).toBe('conv-1');
+    // Canvas turns are stamped with their own platform (ADR-0040) so the
+    // agent-quality machinery compares canvas vs drawer Threads.
+    expect(streamCalls[0]?.payload.platform).toBe('web-canvas');
+    expect(mockStartConversation).toHaveBeenCalledWith({ platform: 'web-canvas' });
 
     // The engagement transcript: the echoed question + the streamed answer.
     const visible = result.current.messages.filter((m) => m.type !== 'system');
