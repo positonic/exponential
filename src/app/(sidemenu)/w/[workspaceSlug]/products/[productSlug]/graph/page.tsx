@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Group, Skeleton, Stack, Switch } from "@mantine/core";
+import { Group, Select, Skeleton, Stack, Switch } from "@mantine/core";
 import { IconAffiliate } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
@@ -12,6 +12,14 @@ import {
   type GraphNodeClick,
 } from "~/app/_components/product/graph/DependencyGraphCanvas";
 import { TicketDrawer } from "~/app/_components/product/graph/TicketDrawer";
+import {
+  applyCycleFilter,
+  deriveCycleOptions,
+  hasUncycledTickets,
+  CYCLE_FILTER_ALL,
+  CYCLE_FILTER_NONE,
+  type CycleFilterValue,
+} from "~/app/_components/product/graph/cycleFilter";
 
 export default function ProductGraphPage() {
   const params = useParams();
@@ -19,6 +27,8 @@ export default function ProductGraphPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [showCompleted, setShowCompleted] = useState(false);
+  const [cycleFilter, setCycleFilter] =
+    useState<CycleFilterValue>(CYCLE_FILTER_ALL);
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null);
 
   const { data: product, isLoading: isProductLoading } =
@@ -32,6 +42,51 @@ export default function ProductGraphPage() {
       { productId: product?.id ?? "", includeCompleted: showCompleted },
       { enabled: !!product?.id },
     );
+
+  const allTickets = graph?.tickets;
+  const allEdges = graph?.blockingEdges;
+  const allFeatures = graph?.features;
+
+  const cycleOptions = useMemo(
+    () => deriveCycleOptions(allTickets ?? []),
+    [allTickets],
+  );
+  const showNoCycleOption = useMemo(
+    () => hasUncycledTickets(allTickets ?? []),
+    [allTickets],
+  );
+  // Fall back to "All" when the selected cycle drops out of the data
+  // (e.g. after toggling "Show completed").
+  const effectiveFilter =
+    cycleFilter === CYCLE_FILTER_ALL ||
+    (cycleFilter === CYCLE_FILTER_NONE && showNoCycleOption) ||
+    cycleOptions.some((c) => c.id === cycleFilter)
+      ? cycleFilter
+      : CYCLE_FILTER_ALL;
+
+  const { tickets: visibleTickets, dimmedTicketIds } = useMemo(
+    () => applyCycleFilter(allTickets ?? [], allEdges ?? [], effectiveFilter),
+    [allTickets, allEdges, effectiveFilter],
+  );
+
+  // Features stay visible only while an in-cycle (non-dimmed) ticket needs
+  // them; blocking edges only when both endpoints are drawn.
+  const visibleFeatures = useMemo(() => {
+    if (effectiveFilter === CYCLE_FILTER_ALL) return allFeatures ?? [];
+    const neededFeatureIds = new Set(
+      visibleTickets
+        .filter((t) => !dimmedTicketIds.has(t.id) && t.featureId)
+        .map((t) => t.featureId),
+    );
+    return (allFeatures ?? []).filter((f) => neededFeatureIds.has(f.id));
+  }, [allFeatures, visibleTickets, dimmedTicketIds, effectiveFilter]);
+
+  const visibleEdges = useMemo(() => {
+    const ids = new Set(visibleTickets.map((t) => t.id));
+    return (allEdges ?? []).filter(
+      (e) => ids.has(e.fromTicketId) && ids.has(e.toTicketId),
+    );
+  }, [allEdges, visibleTickets]);
 
   if (!workspace) return null;
 
@@ -78,6 +133,23 @@ export default function ProductGraphPage() {
   return (
     <Stack gap="md">
       <Group justify="flex-end">
+        {cycleOptions.length > 0 && (
+          <Select
+            aria-label="Filter by cycle"
+            size="sm"
+            w={200}
+            allowDeselect={false}
+            value={effectiveFilter}
+            onChange={(value) => setCycleFilter(value ?? CYCLE_FILTER_ALL)}
+            data={[
+              { value: CYCLE_FILTER_ALL, label: "All cycles" },
+              ...cycleOptions.map((c) => ({ value: c.id, label: c.name })),
+              ...(showNoCycleOption
+                ? [{ value: CYCLE_FILTER_NONE, label: "No cycle" }]
+                : []),
+            ]}
+          />
+        )}
         <Switch
           label="Show completed"
           checked={showCompleted}
@@ -86,10 +158,11 @@ export default function ProductGraphPage() {
       </Group>
       {hasTickets ? (
         <DependencyGraphCanvas
-          tickets={graph!.tickets}
-          features={graph!.features}
+          tickets={visibleTickets}
+          features={visibleFeatures}
           objectives={graph!.objectives}
-          blockingEdges={graph!.blockingEdges}
+          blockingEdges={visibleEdges}
+          dimmedTicketIds={dimmedTicketIds}
           onNodeClick={handleNodeClick}
         />
       ) : (
