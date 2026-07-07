@@ -23,6 +23,8 @@ const handler = (req: NextRequest) =>
     req,
     router: appRouter,
     createContext: () => createContext(req),
+    // Agent tools always POST, including to query procedures (ADR-0041).
+    allowMethodOverride: true,
     onError:
       env.NODE_ENV === "development"
         ? ({ path, error }) => {
