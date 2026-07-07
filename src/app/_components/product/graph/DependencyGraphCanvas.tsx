@@ -52,6 +52,12 @@ interface Props {
   features?: DependencyGraphFeature[];
   objectives?: DependencyGraphObjective[];
   blockingEdges?: DependencyGraphBlockingEdge[];
+  /**
+   * Tickets rendered dimmed with a cycle chip — out-of-cycle direct blockers
+   * surfaced by the cycle filter. They never join the Unaligned container and
+   * carry no alignment edge when their Feature is filtered out.
+   */
+  dimmedTicketIds?: ReadonlySet<string>;
   onNodeClick?: (event: GraphNodeClick) => void;
 }
 
@@ -84,6 +90,7 @@ export function DependencyGraphCanvas({
   features = [],
   objectives = [],
   blockingEdges = [],
+  dimmedTicketIds,
   onNodeClick,
 }: Props) {
   // Theme the xyflow chrome (Controls / Background) to the app's color scheme
@@ -103,7 +110,19 @@ export function DependencyGraphCanvas({
     }
   };
   const { nodes, edges } = useMemo(() => {
-    const orphanTickets = tickets.filter((t) => t.featureId === null);
+    const dimmed = dimmedTicketIds ?? new Set<string>();
+    const featureIds = new Set(features.map((f) => f.id));
+    // Resolve each ticket's alignment parent under the current filter: its
+    // Feature when visible, the Unaligned container for non-dimmed orphans,
+    // nothing for dimmed tickets whose Feature was filtered out.
+    const alignmentSourceFor = (t: DependencyGraphTicket): string | null => {
+      if (t.featureId && featureIds.has(t.featureId)) return t.featureId;
+      if (t.featureId || dimmed.has(t.id)) return null;
+      return UNALIGNED_NODE_ID;
+    };
+    const orphanTickets = tickets.filter(
+      (t) => t.featureId === null && !dimmed.has(t.id),
+    );
     const showUnaligned = orphanTickets.length > 0;
 
     // Objective ids that are reachable via at least one visible Feature.
@@ -140,18 +159,9 @@ export function DependencyGraphCanvas({
       }
     }
     for (const t of tickets) {
-      if (t.featureId) {
-        layoutEdges.push({
-          source: t.featureId,
-          target: t.id,
-          kind: "alignment",
-        });
-      } else if (showUnaligned) {
-        layoutEdges.push({
-          source: UNALIGNED_NODE_ID,
-          target: t.id,
-          kind: "alignment",
-        });
+      const source = alignmentSourceFor(t);
+      if (source) {
+        layoutEdges.push({ source, target: t.id, kind: "alignment" });
       }
     }
     for (const e of blockingEdges) {
@@ -179,9 +189,13 @@ export function DependencyGraphCanvas({
           status: t.status,
           shortId: t.shortId,
           number: t.number,
+          priority: t.priority,
+          points: t.points,
           assignee: t.assignee,
           openBlockerCount: t.openBlockerCount,
           isBlocked: t.isBlocked,
+          dimmed: dimmed.has(t.id),
+          cycleName: t.cycle?.name ?? null,
         };
         return { id: n.id, type: "ticket", position, data, draggable: false };
       }
@@ -226,7 +240,7 @@ export function DependencyGraphCanvas({
 
     // Alignment edges: Feature → Ticket (or UnalignedContainer → orphan ticket).
     for (const t of tickets) {
-      const source = t.featureId ?? (showUnaligned ? UNALIGNED_NODE_ID : null);
+      const source = alignmentSourceFor(t);
       if (!source) continue;
       flowEdges.push({
         id: `alignment:${source}->${t.id}`,
@@ -261,7 +275,7 @@ export function DependencyGraphCanvas({
     }
 
     return { nodes: flowNodes, edges: flowEdges };
-  }, [tickets, features, objectives, blockingEdges]);
+  }, [tickets, features, objectives, blockingEdges, dimmedTicketIds]);
 
   return (
     <div

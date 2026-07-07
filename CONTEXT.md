@@ -283,8 +283,8 @@ A Ticket is "blocked" when its `openBlockerCount > 0` — i.e. it has at least o
 ### Dependency graph
 
 **Dependency graph**:
-A per-Product visualisation surfaced on the product detail page that overlays two distinct edge types: ticket-dependency edges (blocking, peer, DAG) and alignment edges (`Ticket → Feature → Objective`, hierarchical). Purpose: trace "this Objective is at risk" down to the specific Tickets jamming progress. Edge types are visually distinguished — not collapsed into one. Key results appear as decoration on Objective nodes (status chip), not as graph nodes.
-_Avoid_: Roadmap (carries timeline connotations), tree (loses the cross-cutting blocking edges), org chart.
+A per-Product visualisation surfaced on the product detail page that overlays two distinct edge types: ticket-dependency edges (blocking, peer, DAG) and alignment edges (`Ticket → Feature → Objective`, hierarchical). Purpose: trace "this Objective is at risk" down to the specific Tickets jamming progress. Edge types are visually distinguished — not collapsed into one. Key results appear as decoration on Objective nodes (status chip), not as graph nodes. Ticket cards carry optional encodings that render **only when set** (priority icon, points chip) — an unprioritised, unestimated board pays zero pixels. A **cycle filter** (All / per-cycle / No cycle) restricts the canvas to one cycle's Tickets plus their **1-hop out-of-cycle direct blockers**, drawn dimmed with a cycle chip — deliberately not downstream dependents or transitive chains, so the filtered view answers exactly "what outside work is jamming this cycle?". Spatial clustering by cycle was deliberately rejected: the canvas is a left-to-right cascade where horizontal position encodes dependency rank, and cluster boxes would fight that axis (clustering belongs in static exports instead).
+_Avoid_: Roadmap (carries timeline connotations), tree (loses the cross-cutting blocking edges), org chart, swimlanes/cluster boxes (the rejected spatial grouping).
 
 ### Voice
 

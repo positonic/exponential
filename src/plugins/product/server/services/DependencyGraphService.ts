@@ -12,7 +12,9 @@ export interface DependencyGraphTicket {
   title: string;
   status: TicketStatus;
   priority: number | null;
+  points: number | null;
   featureId: string | null;
+  cycle: { id: string; name: string } | null;
   assignee: { id: string; name: string | null; image: string | null } | null;
   openBlockerCount: number;
   isBlocked: boolean;
@@ -78,7 +80,9 @@ export async function buildGraph(
       title: true,
       status: true,
       priority: true,
+      points: true,
       featureId: true,
+      cycle: { select: { id: true, name: true } },
       assignee: { select: { id: true, name: true, image: true } },
       depsOut: { select: { dependsOn: { select: { status: true } } } },
     },
@@ -97,7 +101,9 @@ export async function buildGraph(
       title: t.title,
       status: t.status,
       priority: t.priority,
+      points: t.points,
       featureId: t.featureId,
+      cycle: t.cycle,
       assignee: t.assignee,
       openBlockerCount,
       isBlocked,
