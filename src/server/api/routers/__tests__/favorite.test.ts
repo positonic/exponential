@@ -230,6 +230,67 @@ describe("favorite router (mocked)", () => {
         },
       ]);
     });
+
+    it("resolves knowledge-page rows (`pages/{id}`) to the live page title, skipping deleted pages", async () => {
+      dbMock.favorite.findMany.mockResolvedValue([
+        {
+          id: "fav-kp",
+          entityType: "page",
+          entityId: "pages/ckpage111",
+          label: "Old snapshot title",
+          icon: null,
+          workspaceId: WORKSPACE_ID,
+        },
+        {
+          id: "fav-kp-deleted",
+          entityType: "page",
+          entityId: "pages/ckpage999",
+          label: "Deleted page",
+          icon: null,
+          workspaceId: WORKSPACE_ID,
+        },
+        {
+          id: "fav-static",
+          entityType: "page",
+          entityId: PAGE_PATH,
+          label: "Acme · Features",
+          icon: "features",
+          workspaceId: WORKSPACE_ID,
+        },
+      ] as never);
+      dbMock.goal.findMany.mockResolvedValue([] as never);
+      dbMock.keyResult.findMany.mockResolvedValue([] as never);
+      // Only ckpage111 still exists, and it has been renamed since favouriting.
+      dbMock.knowledgePage.findMany.mockResolvedValue([
+        { id: "ckpage111", title: "Renamed page" },
+      ] as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      const items = await caller.favorite.list({ workspaceId: WORKSPACE_ID });
+
+      expect(dbMock.knowledgePage.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ["ckpage111", "ckpage999"] } },
+        select: { id: true, title: true },
+      });
+      expect(items).toEqual([
+        {
+          id: "fav-kp",
+          entityType: "page",
+          entityId: "pages/ckpage111",
+          title: "Renamed page",
+          icon: null,
+          workspaceId: WORKSPACE_ID,
+        },
+        {
+          id: "fav-static",
+          entityType: "page",
+          entityId: PAGE_PATH,
+          title: "Acme · Features",
+          icon: "features",
+          workspaceId: WORKSPACE_ID,
+        },
+      ]);
+    });
   });
 
   describe("isFavorite", () => {
