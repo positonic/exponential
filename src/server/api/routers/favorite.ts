@@ -12,6 +12,15 @@ import { getWorkspaceMembership } from "~/server/services/access";
 const entityTypeEnum = z.enum(["objective", "keyResult", "page"]);
 type EntityType = z.infer<typeof entityTypeEnum>;
 
+// Knowledge pages live at `pages/{id}`; their titles are resolved live in
+// `list` so renames show up in the sidebar (and favourites of deleted pages
+// are skipped). Other page paths (e.g. product sections) are static routes
+// and keep their snapshot label. The id charset is kept broad (cuid today,
+// but cuid2/nanoid/uuid ids also match) so a future id-format change won't
+// silently downgrade page favourites to their snapshot label. No `g`/`y`
+// flag: `.match()` on the shared instance stays stateless across rows.
+const KNOWLEDGE_PAGE_PATH = /^pages\/([a-zA-Z0-9_-]+)$/;
+
 /**
  * Verify the user may favourite this entity and return the entity's
  * workspaceId (captured on the Favorite row for workspace-scoped surfaces).
@@ -57,8 +66,9 @@ interface FavoriteListItem {
 export const favoriteRouter = createTRPCRouter({
   // The current user's favourites, optionally scoped to a workspace (the
   // sidebar passes the active workspace). Entity titles are resolved per type;
-  // page titles come from the snapshot label. Favourites whose target no longer
-  // exists are skipped (stale rows) — pages, being plain paths, never go stale.
+  // knowledge-page titles are resolved live from the path's page id, other
+  // page paths use the snapshot label. Favourites whose target no longer
+  // exists are skipped (stale rows) — static page paths never go stale.
   list: protectedProcedure
     .input(z.object({ workspaceId: z.string().nullish() }).optional())
     .query(async ({ ctx, input }): Promise<FavoriteListItem[]> => {
@@ -78,8 +88,12 @@ export const favoriteRouter = createTRPCRouter({
       const keyResultIds = favorites
         .filter((f) => f.entityType === "keyResult")
         .map((f) => f.entityId);
+      const knowledgePageIds = favorites
+        .filter((f) => f.entityType === "page")
+        .map((f) => f.entityId.match(KNOWLEDGE_PAGE_PATH)?.[1])
+        .filter((id): id is string => id !== undefined);
 
-      const [goals, keyResults] = await Promise.all([
+      const [goals, keyResults, knowledgePages] = await Promise.all([
         objectiveIds.length
           ? ctx.db.goal.findMany({
               where: { id: { in: objectiveIds } },
@@ -92,10 +106,17 @@ export const favoriteRouter = createTRPCRouter({
               select: { id: true, title: true },
             })
           : Promise.resolve([]),
+        knowledgePageIds.length
+          ? ctx.db.knowledgePage.findMany({
+              where: { id: { in: knowledgePageIds } },
+              select: { id: true, title: true },
+            })
+          : Promise.resolve([]),
       ]);
 
       const goalTitle = new Map(goals.map((g) => [String(g.id), g.title]));
       const krTitle = new Map(keyResults.map((k) => [k.id, k.title]));
+      const pageTitle = new Map(knowledgePages.map((p) => [p.id, p.title]));
 
       const items: FavoriteListItem[] = [];
       for (const f of favorites) {
@@ -106,8 +127,14 @@ export const favoriteRouter = createTRPCRouter({
         } else if (entityType === "keyResult") {
           title = krTitle.get(f.entityId);
         } else {
-          // page — snapshot label, falling back to the path if somehow unset
-          title = f.label ?? f.entityId;
+          const pageId = f.entityId.match(KNOWLEDGE_PAGE_PATH)?.[1];
+          if (pageId) {
+            // knowledge page — live title; undefined means the page was deleted
+            title = pageTitle.get(pageId);
+          } else {
+            // static page path — snapshot label, falling back to the path
+            title = f.label ?? f.entityId;
+          }
         }
         if (!title) continue; // entity target deleted — skip stale favourite
         items.push({

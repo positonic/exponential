@@ -2,9 +2,10 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import type { PrismaClient, Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { createTicketWithNumber } from "../services/createTicket";
+import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
@@ -87,34 +88,6 @@ const DEP_TICKET_SELECT = {
   priority: true,
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
-
-/**
- * BFS from `startId` following depsOut edges. Returns true if `targetId` is
- * transitively reachable. Used to prevent cycles when adding a dependency.
- */
-async function wouldCreateCycle(
-  db: PrismaClient | Prisma.TransactionClient,
-  startId: string,
-  targetId: string,
-): Promise<boolean> {
-  if (startId === targetId) return true;
-  const visited = new Set<string>();
-  const queue: string[] = [startId];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    const edges = await db.ticketDependency.findMany({
-      where: { ticketId: current },
-      select: { dependsOnId: true },
-    });
-    for (const e of edges) {
-      if (e.dependsOnId === targetId) return true;
-      if (!visited.has(e.dependsOnId)) queue.push(e.dependsOnId);
-    }
-  }
-  return false;
-}
 
 async function loadTemplateWithAccess(
   db: PrismaClient,

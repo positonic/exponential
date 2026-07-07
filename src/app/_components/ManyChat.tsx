@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { api } from "~/trpc/react";
-import { entitiesToRefresh } from "./manyChatToolRefresh";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -26,9 +25,13 @@ import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
 import { ThinkingStatus } from './agent/ThinkingStatus';
 import { DraftActionsReviewCard } from './DraftActionsReviewCard';
-import { useAgentModal, type ChatMessage, type PageContext, type ToolCall } from '~/providers/AgentModalProvider';
+import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
+import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { streamChatResponse } from '~/lib/chat/streamChatResponse';
+import { failureCopy } from '~/lib/chat/failureCopy';
+import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -152,65 +155,6 @@ type Message = ChatMessage;
  */
 const MAX_AUTO_RETRIES = 2;
 
-type StreamFailureKind = 'transport' | 'idle-timeout' | 'auth' | 'model' | 'unknown';
-
-/**
- * Bucket a thrown stream error into an actionable class. The decisive split is
- * `transport` (the HTTP body was cut mid-flight — a `TypeError`/network drop,
- * the dominant mobile failure) which is safe to auto-retry, vs. everything else
- * (idle stall, auth, model/agent error) which is not. Previously ManyChat
- * lumped every `TypeError` into one scary "check your API keys" message; this
- * keeps the copy honest and gates the retry logic.
- */
-function classifyStreamError(error: unknown): { kind: StreamFailureKind; retryable: boolean } {
-  if (!(error instanceof Error)) return { kind: 'unknown', retryable: false };
-  const text = error.message.toLowerCase();
-  if (error.name === 'AbortError' || text.includes('stream-idle-timeout')) {
-    return { kind: 'idle-timeout', retryable: true };
-  }
-  if (text.includes('unauthorized') || text.includes('401') || text.includes('forbidden') || text.includes('403')) {
-    return { kind: 'auth', retryable: false };
-  }
-  if (
-    error.name === 'TypeError' ||
-    text.includes('network') ||
-    text.includes('failed to fetch') ||
-    text.includes('load failed') ||
-    text.includes('timeout') ||
-    text.includes('stream request failed') ||
-    text.includes('connection')
-  ) {
-    return { kind: 'transport', retryable: true };
-  }
-  if (text.includes('mastra') || text.includes('agent')) {
-    return { kind: 'model', retryable: false };
-  }
-  return { kind: 'unknown', retryable: false };
-}
-
-/**
- * User-facing copy for a *terminal* failure (auto-retries already exhausted).
- * Deliberately calm and free of alarming/irrelevant advice (the old text told
- * users to go check API keys on every network blip). A Retry button is rendered
- * alongside, so the copy stays short.
- */
-function failureCopy(kind: StreamFailureKind, severity: 'error' | 'incomplete'): string {
-  if (severity === 'incomplete') {
-    return `The connection dropped before this finished.`;
-  }
-  switch (kind) {
-    case 'transport':
-    case 'idle-timeout':
-      return `The connection to the assistant dropped before it could respond.`;
-    case 'auth':
-      return `Your session looks expired — try refreshing the page, or re-check /settings/api-keys.`;
-    case 'model':
-      return `The assistant hit a snag handling that request.`;
-    default:
-      return `Something went wrong handling that request.`;
-  }
-}
-
 function formatPageContextData(context: PageContext): string {
   const str = (val: unknown, fallback = 'None'): string => {
     if (val == null) return fallback;
@@ -235,6 +179,13 @@ function formatPageContextData(context: PageContext): string {
       const count = str(context.data.meetingCount, '0');
       return `  - The user is viewing their Meetings list (${count} meetings shown).
   - To read, reference, or discuss meetings, call the \`get-meeting-transcriptions\` tool (pass includeTranscript: false for a fast title/date list). Do NOT ask the user to paste them.`;
+    }
+    case 'product': {
+      const d = context.data;
+      return `  - The user is viewing the product "${str(d.productName)}" (productId: ${str(d.productId)}), on its "${str(d.view, 'overview')}" tab.
+  - To read, reference, or analyze this product's tickets, cycles, or dependencies, call \`list-tickets\` / \`list-cycles\` with this productId. Do NOT ask the user to paste tickets.
+  - Cycle references like "cycle 10" go straight into \`list-tickets\`'s \`cycle\` input — the server resolves the name.
+  - To link tickets ("X blocks Y" / "Y depends on X"), propose the edges first, then call \`add-ticket-dependencies\` once the user confirms.`;
     }
     case 'recording': {
       const d = context.data;
@@ -1301,172 +1252,30 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         })),
       });
 
-      // Idle-timeout watchdog: abort if no chunk arrives for IDLE_TIMEOUT_MS.
-      // Prevents the stuck-isStreaming state when the server stream stalls silently.
-      const abortController = new AbortController();
-      const IDLE_TIMEOUT_MS = 60_000;
-      let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      const clearIdleTimer = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-          idleTimer = null;
-        }
-      };
-      const resetIdleTimer = () => {
-        clearIdleTimer();
-        idleTimer = setTimeout(() => {
-          abortController.abort(new DOMException('stream-idle-timeout', 'AbortError'));
-        }, IDLE_TIMEOUT_MS);
-      };
-      resetIdleTimer();
-
-      const response = await fetch('/api/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(streamPayload),
-        signal: abortController.signal,
-      });
-
-      if (!response.ok) {
-        clearIdleTimer();
-        throw new Error('Stream request failed');
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = '';
-      // Server emits a final  __exp_meta__:{...}\n frame carrying
-      // { interactionId, modelId } — strip it from rendered text.
-      // U+001E is virtually never present in normal AI output.
-      const META_RE = /\n?__exp_meta__:([^\n]*)\n?/;
-      // Mid-stream __exp_tool__:{...}\n frames carry structured tool-call
-      // events (call/result/error). Multiple per stream; only fully
-      // terminated frames match. Incomplete tail is stripped separately.
-      const TOOL_RE = /\n?__exp_tool__:([^\n]*)\n/g;
-      const TOOL_PREFIX = '__exp_tool__:';
-      let interactionId: string | undefined;
-      // Keyed by tool-call id; rebuilt from scratch each iteration since we
-      // re-parse `fullResponse` cumulatively. setMessages overwrites the
-      // toolCalls array on every chunk so the UI reflects the latest state.
-      const toolCallsById = new Map<string, ToolCall>();
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          resetIdleTimer();
-
-          const chunk = decoder.decode(value, { stream: true });
-          fullResponse += chunk;
-          streamedChars = fullResponse.length;
-
-          // If the meta frame has arrived (possibly mid-chunk), peel it off
-          // before rendering so the user never briefly sees the sentinel.
-          let displayResponse = fullResponse;
-          const metaMatch = META_RE.exec(fullResponse);
-          if (metaMatch) {
-            displayResponse = fullResponse.slice(0, metaMatch.index);
-            try {
-              const meta = JSON.parse(metaMatch[1] ?? "") as {
-                interactionId?: string;
-              };
-              if (meta.interactionId) interactionId = meta.interactionId;
-            } catch {
-              // Frame split across chunks: try again next iteration.
-            }
-          }
-          // Extract every complete tool frame and update the call map.
-          // Idempotent: re-parsing the same frame just re-sets the same value.
-          displayResponse = displayResponse.replace(TOOL_RE, (_match, json: string) => {
-            try {
-              const payload = JSON.parse(json) as
-                | { phase: 'call'; id: string; name: string; args?: Record<string, unknown> }
-                | { phase: 'result'; id: string; name: string }
-                | { phase: 'error'; id: string; name: string; msg?: string };
-              if (payload.phase === 'call') {
-                toolCallsById.set(payload.id, {
-                  id: payload.id,
-                  name: payload.name,
-                  args: payload.args,
-                  status: 'running',
-                });
-              } else if (payload.phase === 'result') {
-                const existing = toolCallsById.get(payload.id);
-                toolCallsById.set(payload.id, {
-                  id: payload.id,
-                  name: payload.name,
-                  args: existing?.args,
-                  status: 'success',
-                });
-              } else {
-                const existing = toolCallsById.get(payload.id);
-                toolCallsById.set(payload.id, {
-                  id: payload.id,
-                  name: payload.name,
-                  args: existing?.args,
-                  status: 'error',
-                  errorMsg: payload.msg,
-                });
-              }
-            } catch {
-              // Malformed frame — drop it from the display anyway.
-            }
-            return '';
-          });
-          TOOL_RE.lastIndex = 0;
-
-          // Hide a partial frame at the tail (e.g. "...__exp_tool__:{partia")
-          // so the sentinel doesn't briefly leak into the bubble.
-          const incompleteAt = displayResponse.lastIndexOf(TOOL_PREFIX);
-          if (incompleteAt !== -1 && !displayResponse.slice(incompleteAt).includes('\n')) {
-            displayResponse = displayResponse.slice(0, incompleteAt).replace(/\n$/, '');
-          }
-
-          // Strip zero-width-space keepalives the server emits on
-          // non-text chunks (see route.ts). They reset the idle timer
-          // above (every reader.read() resets) but must not appear in
-          // the rendered text.
-          displayResponse = displayResponse.replace(/​/g, '');
-
-          const toolCallsSnapshot = Array.from(toolCallsById.values());
-
+      // Fetch + incremental protocol parsing (sentinel frames, keepalive
+      // stripping, idle-timeout watchdog) live in ~/lib/chat so every chat
+      // surface consumes one implementation. Each update rewrites the trailing
+      // AI bubble with the cumulative parsed state.
+      const streamResult = await streamChatResponse(streamPayload, {
+        onUpdate: (update) => {
+          streamedChars = update.rawLength;
           setMessages(prev => {
             const updated = [...prev];
             const lastMessage = updated[updated.length - 1];
             if (lastMessage && lastMessage.type === 'ai') {
               updated[updated.length - 1] = {
                 ...lastMessage,
-                content: displayResponse,
-                ...(toolCallsSnapshot.length > 0 ? { toolCalls: toolCallsSnapshot } : {}),
+                content: update.displayText,
+                ...(update.toolCalls.length > 0 ? { toolCalls: update.toolCalls } : {}),
               };
             }
             return updated;
           });
-        }
-      }
+        },
+      });
+      const fullResponse = streamResult.displayText;
+      const interactionId = streamResult.interactionId;
 
-      // Final strip: ensure fullResponse used downstream (length checks,
-      // emptyResponse logic) excludes the meta sentinel.
-      const finalMatch = META_RE.exec(fullResponse);
-      if (finalMatch) {
-        fullResponse = fullResponse.slice(0, finalMatch.index);
-        try {
-          const meta = JSON.parse(finalMatch[1] ?? "") as { interactionId?: string };
-          interactionId ??= meta.interactionId;
-        } catch {
-          // Unparseable meta frame — interactionId stays undefined; feedback
-          // UI handles missing IDs by not rendering the rating affordance.
-        }
-      }
-      // Strip any remaining __exp_tool__ frames so they don't pollute the
-      // log preview or trigger length checks based on metadata bytes.
-      TOOL_RE.lastIndex = 0;
-      fullResponse = fullResponse.replace(TOOL_RE, '');
-      // Also strip server-side zero-width-space keepalives so they don't
-      // count toward emptyResponse / length checks.
-      fullResponse = fullResponse.replace(/​/g, '');
-
-      clearIdleTimer();
       setIsStreaming(false);
 
       // Agent writes leave sibling views (each with its own React Query cache)
@@ -1474,51 +1283,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       // entities whose mounted views need invalidating (see manyChatToolRefresh /
       // ADR-0023). Procedure-wide (no args) invalidation keeps it robust against
       // arg source/coercion drift and only refetches mounted observers.
-      const executedToolNames = Array.from(toolCallsById.values())
+      const executedToolNames = streamResult.toolCalls
         .filter((tc) => tc.status === 'success')
         .map((tc) => tc.name);
-      const toRefresh = entitiesToRefresh(executedToolNames, pageContext?.pageType);
-
-      if (toRefresh.has('goalActivity')) {
-        // Goal feed + count + the goal itself (for the health badge).
-        void utils.goalActivity.getFeed.invalidate();
-        void utils.goalActivity.getCount.invalidate();
-        void utils.goal.getById.invalidate();
-      }
-      if (toRefresh.has('action')) {
-        // Full canonical Action set, mirroring the hand-written create/update/bulk
-        // invalidation sets so create, update, move, and delete refresh every
-        // surface (today list, project board, calendar, score widgets).
-        void utils.action.getAll.invalidate();
-        void utils.action.getToday.invalidate();
-        void utils.action.getScheduledByDate.invalidate();
-        void utils.action.getScheduledByDateRange.invalidate();
-        void utils.action.getProjectActions.invalidate();
-        void utils.scoring.getTodayScore.invalidate();
-        void utils.scoring.getProductivityStats.invalidate();
-      }
-      if (toRefresh.has('okr')) {
-        // Objective cards, hero stats, the year/period counts, and the
-        // create-KR objective picker — the full set the OKR dashboard mounts,
-        // so agent-created objectives/KRs and (un)links appear without reload.
-        void utils.okr.getByObjective.invalidate();
-        void utils.okr.getStats.invalidate();
-        void utils.okr.getCountsByYear.invalidate();
-        void utils.okr.getAvailableGoals.invalidate();
-      }
-      if (toRefresh.has('crmContact')) {
-        // Contact list + the dashboard stat cards + per-contact interaction feed,
-        // so agent-created/updated contacts and logged interactions appear without
-        // a reload.
-        void utils.crmContact.getAll.invalidate();
-        void utils.crmContact.getStats.invalidate();
-        void utils.crmContact.getInteractions.invalidate();
-      }
+      applyToolRefreshInvalidations(utils, executedToolNames, pageContext?.pageType);
 
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —
       // the user sees those calls in the ToolActivity row.
-      const isEmptyResponse = fullResponse.trim() === '' && toolCallsById.size === 0;
+      const isEmptyResponse = fullResponse.trim() === '' && streamResult.toolCalls.length === 0;
 
       // Debug: log what we received back
       console.log('📥 [Mastra → ManyChat] Response:', {

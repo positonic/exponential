@@ -53,7 +53,9 @@ function getInitials(name: string): string {
 export function ZoeDrawer() {
   const {
     isOpen,
+    openModal,
     closeModal,
+    canvasEngaged,
     clearChat,
     drawerSize,
     setDrawerSize,
@@ -75,18 +77,22 @@ export function ZoeDrawer() {
   const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
-  // Cmd+J toggle + Esc close
+  // Cmd+J toggle + Esc close. With a Zoe canvas engagement active, ⌘J is the
+  // handoff gesture: opening the drawer shows the same thread and the canvas
+  // dismisses itself (useCanvasEngagement watches isOpen). ⌘J behaviour
+  // outside that case is unchanged.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         if (isOpen) closeModal();
+        else if (canvasEngaged) openModal();
       }
       if (e.key === "Escape" && isOpen) closeModal();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen, closeModal]);
+  }, [isOpen, closeModal, canvasEngaged, openModal]);
 
   const { data: workspaces } = api.workspace.list.useQuery(undefined, {
     enabled: isOpen,

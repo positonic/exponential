@@ -8,6 +8,7 @@ import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
+import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
 import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
 
 /** Inline-editable page title; saves on blur/Enter when changed (metadata-only
@@ -26,6 +27,9 @@ function PageTitle({
   const updateTitle = api.page.update.useMutation({
     onSuccess: () => {
       void utils.page.list.invalidate();
+      // Favourite titles are resolved live from the page, so a rename should
+      // show up in the sidebar immediately.
+      void utils.favorite.list.invalidate();
     },
   });
 
@@ -140,15 +144,23 @@ function PageEditorContent({
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
         </div>
-        <PageShareMenu
-          pageId={page.id}
-          workspaceSlug={workspaceSlug}
-          isPublic={page.isPublic}
-          publicId={page.publicId}
-          publicSlug={page.publicSlug}
-          publicSeoIndexed={page.publicSeoIndexed}
-          canEdit={page.canEdit}
-        />
+        <div className="flex items-center gap-2">
+          <FavoriteButton
+            entityType="page"
+            entityId={`pages/${page.id}`}
+            label={page.title}
+            workspaceId={page.workspaceId}
+          />
+          <PageShareMenu
+            pageId={page.id}
+            workspaceSlug={workspaceSlug}
+            isPublic={page.isPublic}
+            publicId={page.publicId}
+            publicSlug={page.publicSlug}
+            publicSeoIndexed={page.publicSeoIndexed}
+            canEdit={page.canEdit}
+          />
+        </div>
       </div>
       <PageDocument
         pageId={page.id}

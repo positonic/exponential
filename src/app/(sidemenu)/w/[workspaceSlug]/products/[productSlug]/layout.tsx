@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   IconHome,
@@ -12,10 +12,13 @@ import {
   IconPlus,
   IconAffiliate,
   IconTargetArrow,
+  IconMicrophone,
+  IconTicket,
 } from "@tabler/icons-react";
 import {
   ActionIcon,
   Group,
+  Menu,
   Skeleton,
   Tabs,
   Text,
@@ -23,8 +26,10 @@ import {
   Stack,
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { api } from "~/trpc/react";
 import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { buildProductFavoriteTarget } from "./favoriteTarget";
 
 const tabs = [
@@ -51,6 +56,7 @@ export default function ProductLayout({
   // Tab the user just clicked, shown as active immediately while the route
   // navigation is still pending — so the click feels acknowledged at once.
   const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
 
   const utils = api.useUtils();
 
@@ -117,6 +123,35 @@ export default function ProductLayout({
     const id = window.setTimeout(warm, 200);
     return () => window.clearTimeout(id);
   }, [productId, workspaceId, utils]);
+
+  // Tell the AI assistant which product (and tab) the user is looking at, so
+  // "the tickets in cycle 10" resolves without the agent asking. The workspace
+  // layout registrar yields on /products/ routes — this is the sole owner here.
+  const pageContext = useMemo(() => {
+    if (!product || !workspace || !workspaceId) return null;
+    const base = `/w/${workspace.slug}/products/${productSlug}`;
+    const view =
+      tabs.find(
+        (t) =>
+          t.href !== "" &&
+          (pathname === `${base}${t.href}` || pathname.startsWith(`${base}${t.href}/`)),
+      )?.value ?? "overview";
+    return {
+      pageType: "product",
+      pageTitle: product.name,
+      pagePath: pathname,
+      data: {
+        productId: product.id,
+        productName: product.name,
+        productSlug,
+        workspaceId,
+        workspaceSlug: workspace.slug,
+        view,
+      },
+    };
+  }, [product, workspace, workspaceId, productSlug, pathname]);
+
+  useRegisterPageContext(pageContext);
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
@@ -191,15 +226,65 @@ export default function ProductLayout({
                 variant="default"
               />
             )}
-            <ActionIcon
-              variant="filled"
-              size="lg"
-              title="Add"
-              className="hover:scale-105"
-              style={{ transition: "all 0.2s ease" }}
-            >
-              <IconPlus size={20} />
-            </ActionIcon>
+            <Menu position="bottom-end" width={244} shadow="md">
+              <Menu.Target>
+                <ActionIcon
+                  variant="filled"
+                  size="lg"
+                  title="Add"
+                  className="hover:scale-105"
+                  style={{ transition: "all 0.2s ease" }}
+                >
+                  <IconPlus size={20} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Create</Menu.Label>
+                <Menu.Item
+                  leftSection={<IconTicket size={14} />}
+                  onClick={() => setTicketModalOpen(true)}
+                >
+                  New ticket
+                  <Text size="xs" c="dimmed">
+                    Add to the backlog
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconBulb size={14} />}
+                  onClick={() => router.push(`${basePath}/features/new`)}
+                >
+                  New feature
+                  <Text size="xs" c="dimmed">
+                    A larger unit of value
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconMicrophone size={14} />}
+                  onClick={() => router.push(`${basePath}/research/new`)}
+                >
+                  New research
+                  <Text size="xs" c="dimmed">
+                    Interview or finding
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconClipboardList size={14} />}
+                  onClick={() => router.push(`${basePath}/retrospectives/new`)}
+                >
+                  New retro
+                  <Text size="xs" c="dimmed">
+                    End-of-cycle review
+                  </Text>
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item
+                  leftSection={<IconCalendarClock size={14} />}
+                  onClick={() => router.push(`${basePath}/cycles/new`)}
+                >
+                  New cycle
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
             <ActionIcon
               variant="filled"
               size="lg"
@@ -236,6 +321,16 @@ export default function ProductLayout({
           <div className="px-10 pb-6">{children}</div>
         </Stack>
       </Tabs>
+
+      {product && (
+        <CreateTicketModal
+          opened={ticketModalOpen}
+          onClose={() => setTicketModalOpen(false)}
+          productId={product.id}
+          productName={product.name}
+          basePath={`${basePath}/tickets`}
+        />
+      )}
     </div>
   );
 }
