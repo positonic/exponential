@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '~/trpc/react';
 import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { streamChatResponse, type ChatStreamCoreMessage } from '~/lib/chat/streamChatResponse';
@@ -56,6 +56,8 @@ export function useCanvasEngagement({
     canvasEngaged,
     setCanvasEngaged,
     pageContext,
+    isOpen: drawerOpen,
+    closeModal: closeDrawer,
   } = useAgentModal();
   const utils = api.useUtils();
 
@@ -98,6 +100,10 @@ export function useCanvasEngagement({
       const trimmedText = text.trim();
       if (!trimmedText || isStreaming) return;
       const isRetry = attempt > 0;
+
+      // Collision rule: a canvas send with the drawer open closes the drawer
+      // and answers inline — the canvas is the surface the user just chose.
+      if (drawerOpen) closeDrawer();
 
       const agentName = customAssistant?.name ?? 'Zoe';
       let engagementConversationId = engagementIdRef.current;
@@ -269,6 +275,8 @@ export function useCanvasEngagement({
       workspaceId,
       utils,
       pageContext?.pageType,
+      drawerOpen,
+      closeDrawer,
     ],
   );
 
@@ -284,6 +292,26 @@ export function useCanvasEngagement({
     // The engagement's thread stays the provider's active conversationId, so
     // opening the drawer next shows these same turns (drawer = full history).
   }, [setCanvasEngaged]);
+
+  // Handoff (canvas → drawer): the drawer opening while an engagement is
+  // active is the "continue in panel" gesture (⌘J or the FAB). The drawer
+  // reads the same provider state, so it shows the identical turns; the
+  // canvas dismisses — mid-stream that aborts and marks the turn incomplete,
+  // the one abort rule (ADR-0040). Rising-edge detection so a send that just
+  // CLOSED the drawer (the chip collision rule) can't trigger a dismissal.
+  const prevDrawerOpenRef = useRef(drawerOpen);
+  useEffect(() => {
+    const wasOpen = prevDrawerOpenRef.current;
+    prevDrawerOpenRef.current = drawerOpen;
+    if (drawerOpen && !wasOpen && canvasEngaged) dismiss();
+  }, [drawerOpen, canvasEngaged, dismiss]);
+
+  // Navigate-away abort: leaving /home mid-engagement is a dismissal — same
+  // abort + `incomplete` treatment as ✕/Esc. The partial turn stays in the
+  // (app-level) provider state, recoverable via Retry in the drawer.
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
+  useEffect(() => () => dismissRef.current(), []);
 
   return {
     engaged: canvasEngaged,
