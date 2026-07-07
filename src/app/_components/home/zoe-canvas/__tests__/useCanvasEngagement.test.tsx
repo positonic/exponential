@@ -5,12 +5,14 @@
  * of that shared conversation state — provider semantics are the thing under
  * test), with the tRPC layer and the stream transport mocked (mirrors
  * useFavorite.test.ts). Covers: fresh conversationId per engagement,
- * follow-up continuity, dismiss-ends-engagement, and abort-on-dismiss
- * marking the in-flight turn `incomplete`.
+ * follow-up continuity, dismiss-ends-engagement, abort-on-dismiss marking
+ * the in-flight turn `incomplete`, and the drawer⇄canvas collision rules
+ * (handoff keeps the thread, chip-with-drawer-open closes the drawer,
+ * navigate-away aborts).
  */
 
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import type {
   ChatStreamPayload,
@@ -54,8 +56,8 @@ vi.mock('~/app/_components/agent/toolRefreshInvalidation', () => ({
   applyToolRefreshInvalidations: vi.fn(),
 }));
 
-import { AgentModalProvider } from '~/providers/AgentModalProvider';
-import { useCanvasEngagement } from '../useCanvasEngagement';
+import { AgentModalProvider, useAgentModal } from '~/providers/AgentModalProvider';
+import { useCanvasEngagement, type CanvasEngagement } from '../useCanvasEngagement';
 
 function wrapper({ children }: PropsWithChildren) {
   return <AgentModalProvider>{children}</AgentModalProvider>;
@@ -101,6 +103,25 @@ beforeEach(() => {
     },
   );
 });
+
+function hangingStream() {
+  mockStreamChatResponse.mockImplementation(
+    (payload: ChatStreamPayload, options: StreamChatOptions) => {
+      streamCalls.push({ payload, options });
+      return new Promise<ChatStreamUpdate>((_resolve, reject) => {
+        // A partial answer streams, then the stream hangs until aborted.
+        options.onUpdate?.({
+          displayText: 'Partial…',
+          toolCalls: [],
+          rawLength: 8,
+        });
+        options.signal?.addEventListener('abort', () => {
+          reject(new DOMException('canvas-dismissed', 'AbortError'));
+        });
+      });
+    },
+  );
+}
 
 describe('useCanvasEngagement', () => {
   test('opening an engagement mints a fresh conversationId and streams on it', async () => {
@@ -183,22 +204,7 @@ describe('useCanvasEngagement', () => {
   });
 
   test('dismissing mid-stream aborts and marks the turn incomplete with Retry', async () => {
-    mockStreamChatResponse.mockImplementation(
-      (payload: ChatStreamPayload, options: StreamChatOptions) => {
-        streamCalls.push({ payload, options });
-        return new Promise<ChatStreamUpdate>((_resolve, reject) => {
-          // A partial answer streams, then the stream hangs until aborted.
-          options.onUpdate?.({
-            displayText: 'Partial…',
-            toolCalls: [],
-            rawLength: 8,
-          });
-          options.signal?.addEventListener('abort', () => {
-            reject(new DOMException('canvas-dismissed', 'AbortError'));
-          });
-        });
-      },
-    );
+    hangingStream();
 
     const { result } = renderHook(() => useCanvasEngagement({ workspaceId: 'ws-1' }), {
       wrapper,
@@ -217,6 +223,92 @@ describe('useCanvasEngagement', () => {
     const last = result.current.messages.at(-1);
     expect(last?.type).toBe('ai');
     // Partial answer kept, turn finalized as incomplete with Retry available.
+    expect(last?.content).toBe('Partial…');
+    expect(last?.failure).toMatchObject({
+      severity: 'incomplete',
+      canRetry: true,
+      retryText: 'Long question',
+    });
+  });
+
+  test('handoff: drawer opening mid-engagement dismisses the canvas and keeps the thread', async () => {
+    const { result } = renderHook(
+      () => ({ canvas: useCanvasEngagement({ workspaceId: 'ws-1' }), modal: useAgentModal() }),
+      { wrapper },
+    );
+
+    act(() => result.current.canvas.send('Standup on my projects'));
+    await flush();
+    const turnsBefore = result.current.canvas.messages.filter((m) => m.type !== 'system');
+
+    // ⌘J / FAB — the drawer opens: the "continue in panel" gesture.
+    act(() => result.current.modal.openModal());
+
+    expect(result.current.canvas.engaged).toBe(false);
+    // Identical thread, no duplicates: same conversationId, same turns.
+    expect(result.current.canvas.conversationId).toBe('conv-1');
+    expect(result.current.canvas.messages.filter((m) => m.type !== 'system')).toEqual(
+      turnsBefore,
+    );
+  });
+
+  test('collision: a canvas send with the drawer open closes the drawer and engages inline', async () => {
+    const { result } = renderHook(
+      () => ({ canvas: useCanvasEngagement({ workspaceId: 'ws-1' }), modal: useAgentModal() }),
+      { wrapper },
+    );
+
+    act(() => result.current.modal.openModal());
+    expect(result.current.modal.isOpen).toBe(true);
+
+    act(() => result.current.canvas.send('Health-check my active work'));
+    await flush();
+
+    expect(result.current.modal.isOpen).toBe(false);
+    expect(result.current.canvas.engaged).toBe(true);
+    expect(result.current.canvas.conversationId).toBe('conv-1');
+    expect(streamCalls).toHaveLength(1);
+  });
+
+  test('navigate-away mid-stream aborts and marks the turn incomplete in the surviving provider state', async () => {
+    hangingStream();
+
+    // The provider is app-level and survives navigation; only the /home
+    // surface (the canvas hook's host) unmounts. Model that split directly.
+    const canvasRef: { current: CanvasEngagement | null } = { current: null };
+    const modalRef: { current: ReturnType<typeof useAgentModal> | null } = { current: null };
+    function CanvasHost() {
+      canvasRef.current = useCanvasEngagement({ workspaceId: 'ws-1' });
+      return null;
+    }
+    function ModalProbe() {
+      modalRef.current = useAgentModal();
+      return null;
+    }
+
+    const { rerender } = render(
+      <AgentModalProvider>
+        <ModalProbe />
+        <CanvasHost />
+      </AgentModalProvider>,
+    );
+
+    act(() => canvasRef.current!.send('Long question'));
+    await flush();
+    expect(canvasRef.current!.isStreaming).toBe(true);
+
+    // Navigate away: the canvas host unmounts, the provider stays.
+    rerender(
+      <AgentModalProvider>
+        <ModalProbe />
+      </AgentModalProvider>,
+    );
+    await flush();
+
+    expect(streamCalls[0]?.options.signal?.aborted).toBe(true);
+    expect(modalRef.current!.canvasEngaged).toBe(false);
+    const last = modalRef.current!.messages.at(-1);
+    expect(last?.type).toBe('ai');
     expect(last?.content).toBe('Partial…');
     expect(last?.failure).toMatchObject({
       severity: 'incomplete',
