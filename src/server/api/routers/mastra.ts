@@ -23,8 +23,10 @@ import { getWorkspaceMembership } from "~/server/services/access/resolvers/works
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
-import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
+import { loadProductWithAccess, assertWorkspaceMember } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { matchCycle, wouldCreateCycle } from "~/plugins/product/server/services/ticketDependencies";
+import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { ingestChannelSummary } from "~/server/services/activity/ingestChannelSummary";
@@ -4627,6 +4629,288 @@ export const mastraRouter = createTRPCRouter({
       }
 
       return result;
+    }),
+
+  // List the cycles (SPRINT lists) an agent can reference. Cycles are
+  // workspace-scoped; pass a productId to resolve the workspace from a product
+  // the agent already knows. Pure read — unlike the plugin's cycle.list, this
+  // never auto-creates upcoming cycles. Declared as a query per ADR-0041
+  // (agent tools POST; allowMethodOverride accepts it).
+  listCycles: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string().optional(),
+        workspaceId: z.string().optional(),
+      }).refine((v) => v.productId ?? v.workspaceId, {
+        message: "Provide productId or workspaceId",
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      let workspaceId = input.workspaceId;
+      if (input.productId) {
+        const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+        workspaceId = product.workspaceId;
+      } else if (workspaceId) {
+        await assertWorkspaceMember(ctx.db, userId, workspaceId);
+      }
+
+      const cycles = await ctx.db.list.findMany({
+        where: { workspaceId, listType: "SPRINT" },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+          cycleGoal: true,
+          _count: { select: { tickets: true } },
+        },
+        orderBy: [{ startDate: "desc" }, { name: "desc" }],
+      });
+
+      return {
+        cycles: cycles.map((c) => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          status: c.status,
+          startDate: c.startDate?.toISOString() ?? null,
+          endDate: c.endDate?.toISOString() ?? null,
+          cycleGoal: c.cycleGoal,
+          ticketCount: c._count.tickets,
+        })),
+      };
+    }),
+
+  // List a product's tickets, optionally scoped to one cycle, with their
+  // dependency edges — enough for an agent to answer "what's in cycle 10 and
+  // what blocks what?" in a single call. `cycle` accepts anything a human
+  // would say: "Cycle 10", "cycle-10", "10", or a cycle id. If the cycle
+  // doesn't resolve, the response carries the available cycle names so the
+  // agent can self-correct without another lookup round-trip.
+  listTickets: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        cycle: z.string().optional(),
+        status: z.enum([
+          'BACKLOG', 'NEEDS_REFINEMENT', 'READY_TO_PLAN', 'COMMITTED',
+          'IN_PROGRESS', 'BLOCKED', 'QA', 'DONE', 'DEPLOYED', 'ARCHIVED',
+        ]).optional(),
+        type: z.enum(['BUG', 'FEATURE', 'CHORE', 'IMPROVEMENT', 'SPIKE', 'RESEARCH']).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const limit = input.limit ?? 100;
+
+      // Resolve the human cycle reference against the workspace's cycles.
+      let cycleFilter: { id: string; name: string } | undefined;
+      let cycleWarning: string | undefined;
+      let availableCycles: string[] | undefined;
+      if (input.cycle) {
+        const cycles = await ctx.db.list.findMany({
+          where: { workspaceId: product.workspaceId, listType: "SPRINT" },
+          select: { id: true, name: true, slug: true },
+        });
+        const matched = matchCycle(cycles, input.cycle);
+        if (matched) {
+          cycleFilter = { id: matched.id, name: matched.name };
+        } else {
+          availableCycles = cycles.map((c) => c.name);
+          cycleWarning = `Cycle "${input.cycle}" not found in this workspace.`;
+          return { tickets: [], totalCount: 0, cycle: null, warning: cycleWarning, availableCycles };
+        }
+      }
+
+      const where = {
+        productId: input.productId,
+        ...(cycleFilter ? { cycleId: cycleFilter.id } : {}),
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.type ? { type: input.type } : {}),
+      };
+
+      const [totalCount, tickets] = await Promise.all([
+        ctx.db.ticket.count({ where }),
+        ctx.db.ticket.findMany({
+          where,
+          orderBy: [{ status: "asc" }, { number: "asc" }],
+          take: limit,
+          select: {
+            id: true,
+            number: true,
+            shortId: true,
+            title: true,
+            body: true,
+            status: true,
+            type: true,
+            priority: true,
+            points: true,
+            assignee: { select: { name: true } },
+            cycle: { select: { name: true } },
+            feature: { select: { name: true } },
+            epic: { select: { name: true } },
+            depsOut: {
+              select: {
+                dependsOn: { select: { number: true, title: true, status: true } },
+              },
+            },
+            depsIn: {
+              select: {
+                ticket: { select: { number: true, title: true, status: true } },
+              },
+            },
+          },
+        }),
+      ]);
+
+      const completed = new Set<string>(COMPLETED_TICKET_STATUSES);
+      const BODY_PREVIEW_LENGTH = 600;
+
+      return {
+        cycle: cycleFilter ?? null,
+        totalCount,
+        // When totalCount > tickets.length the agent should say so, not
+        // silently reason over a truncated list.
+        tickets: tickets.map((t) => {
+          const dependsOn = t.depsOut.map((d) => d.dependsOn);
+          return {
+            number: t.number,
+            shortId: t.shortId,
+            title: t.title,
+            body:
+              t.body && t.body.length > BODY_PREVIEW_LENGTH
+                ? `${t.body.slice(0, BODY_PREVIEW_LENGTH)}… [truncated]`
+                : t.body,
+            status: t.status,
+            type: t.type,
+            priority: t.priority,
+            points: t.points,
+            assignee: t.assignee?.name ?? null,
+            cycle: t.cycle?.name ?? null,
+            feature: t.feature?.name ?? null,
+            epic: t.epic?.name ?? null,
+            dependsOn,
+            requiredFor: t.depsIn.map((d) => d.ticket),
+            isBlocked: dependsOn.some((d) => !completed.has(d.status)),
+          };
+        }),
+      };
+    }),
+
+  // Create dependency edges between tickets in one product, by ticket number
+  // ("#12 depends on #7"). Enforces the same rules as the plugin's
+  // ticket.addDependency — same product, no self-deps, no cycles (shared
+  // wouldCreateCycle) — and reports per-edge outcomes so an agent can relay
+  // exactly what was linked and what was rejected.
+  addTicketDependencies: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        dependencies: z.array(
+          z.object({
+            ticketNumber: z.number().int().positive(),
+            dependsOnNumber: z.number().int().positive(),
+          }),
+        ).min(1).max(50),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      console.log(`🔗 [tRPC addTicketDependencies] RECEIVED: productId=${input.productId}, edges=${input.dependencies.length}, userId=${userId}`);
+
+      // Resolve every referenced number → ticket id in one query.
+      const numbers = [
+        ...new Set(input.dependencies.flatMap((d) => [d.ticketNumber, d.dependsOnNumber])),
+      ];
+      const tickets = await ctx.db.ticket.findMany({
+        where: { productId: input.productId, number: { in: numbers } },
+        select: { id: true, number: true, title: true },
+      });
+      const byNumber = new Map(tickets.map((t) => [t.number, t]));
+
+      const added: { ticket: number; dependsOn: number }[] = [];
+      const failed: { ticket: number; dependsOn: number; error: string }[] = [];
+
+      for (const dep of input.dependencies) {
+        const ticket = byNumber.get(dep.ticketNumber);
+        const dependsOn = byNumber.get(dep.dependsOnNumber);
+        if (!ticket || !dependsOn) {
+          failed.push({
+            ticket: dep.ticketNumber,
+            dependsOn: dep.dependsOnNumber,
+            error: `Ticket #${!ticket ? dep.ticketNumber : dep.dependsOnNumber} not found in this product`,
+          });
+          continue;
+        }
+        if (ticket.id === dependsOn.id) {
+          failed.push({ ticket: dep.ticketNumber, dependsOn: dep.dependsOnNumber, error: "A ticket cannot depend on itself" });
+          continue;
+        }
+        try {
+          await ctx.db.$transaction(async (tx) => {
+            if (await wouldCreateCycle(tx, dependsOn.id, ticket.id)) {
+              throw new Error("This would create a dependency cycle");
+            }
+            await tx.ticketDependency.upsert({
+              where: { ticketId_dependsOnId: { ticketId: ticket.id, dependsOnId: dependsOn.id } },
+              create: { ticketId: ticket.id, dependsOnId: dependsOn.id, createdById: userId },
+              update: {},
+            });
+          });
+          added.push({ ticket: dep.ticketNumber, dependsOn: dep.dependsOnNumber });
+        } catch (err) {
+          failed.push({
+            ticket: dep.ticketNumber,
+            dependsOn: dep.dependsOnNumber,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      console.log(`✅ [tRPC addTicketDependencies] Done: ${added.length} added, ${failed.length} failed`);
+
+      return { added, failed, totalAdded: added.length, totalFailed: failed.length };
+    }),
+
+  // Remove one dependency edge, by ticket number. Symmetric undo for
+  // addTicketDependencies; deleting a non-existent edge is a no-op success.
+  removeTicketDependency: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        ticketNumber: z.number().int().positive(),
+        dependsOnNumber: z.number().int().positive(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      const [ticket, dependsOn] = await Promise.all([
+        ctx.db.ticket.findUnique({
+          where: { productId_number: { productId: input.productId, number: input.ticketNumber } },
+          select: { id: true },
+        }),
+        ctx.db.ticket.findUnique({
+          where: { productId_number: { productId: input.productId, number: input.dependsOnNumber } },
+          select: { id: true },
+        }),
+      ]);
+      if (!ticket || !dependsOn) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found in this product" });
+      }
+
+      const result = await ctx.db.ticketDependency.deleteMany({
+        where: { ticketId: ticket.id, dependsOnId: dependsOn.id },
+      });
+      return { removed: result.count > 0 };
     }),
 });
 
