@@ -49,6 +49,30 @@ describe("buildProductFavoriteTarget", () => {
     });
   });
 
+  test("detailLabel overrides the tab label on a detail route, keeping path + icon", () => {
+    expect(
+      buildProductFavoriteTarget({
+        ...common,
+        pathname: "/w/clear/products/acme/cycles/xyz789",
+        detailLabel: "Cycle 10",
+      }),
+    ).toEqual({
+      entityId: "products/acme/cycles/xyz789",
+      label: "Cycle 10",
+      icon: "cycles",
+    });
+  });
+
+  test("blank detailLabel falls back to the tab label", () => {
+    expect(
+      buildProductFavoriteTarget({
+        ...common,
+        pathname: "/w/clear/products/acme/cycles/xyz789",
+        detailLabel: "   ",
+      }).label,
+    ).toBe("Acme · Cycles");
+  });
+
   test("strips the workspace prefix to a workspace-relative entityId", () => {
     const { entityId } = buildProductFavoriteTarget({
       ...common,

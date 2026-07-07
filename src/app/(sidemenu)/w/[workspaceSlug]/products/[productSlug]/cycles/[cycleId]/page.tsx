@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Badge,
@@ -14,6 +15,7 @@ import {
   Textarea,
   Title,
 } from "@mantine/core";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -113,8 +115,19 @@ export default function CycleDetailPage() {
     .filter((t) => t.status === "DONE")
     .reduce((sum, t) => sum + (t.points ?? 0), 0);
 
+  const backPath = `/w/${workspace?.slug}/products/${productSlug}/cycles`;
+
   return (
     <Stack gap="lg">
+      {/* Back nav */}
+      <Link
+        href={backPath}
+        className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
+      >
+        <IconArrowLeft size={14} />
+        Cycles
+      </Link>
+
       <Group justify="space-between" align="flex-start">
         <div>
           <Title order={2} className="text-text-primary">

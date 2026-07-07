@@ -46,8 +46,15 @@ export function buildProductFavoriteTarget(args: {
   workspaceSlug: string;
   productSlug: string;
   productName: string;
+  /**
+   * Optional label for a specific detail route (e.g. a cycle's name). When
+   * provided it wins over the tab-level label, so favouriting "Cycle 10"
+   * snapshots "Cycle 10" rather than the generic "<Product> · Cycles".
+   */
+  detailLabel?: string | null;
 }): ProductFavoriteTarget {
-  const { pathname, workspaceSlug, productSlug, productName } = args;
+  const { pathname, workspaceSlug, productSlug, productName, detailLabel } =
+    args;
 
   // Workspace-relative path (strip the /w/<slug>/ prefix).
   const wsPrefix = `/w/${workspaceSlug}/`;
@@ -64,7 +71,8 @@ export function buildProductFavoriteTarget(args: {
 
   const tab =
     PRODUCT_TABS.find((t) => t.segment === segment) ?? PRODUCT_TABS[0]!;
-  const label = tab.label ? `${productName} · ${tab.label}` : productName;
+  const tabLabel = tab.label ? `${productName} · ${tab.label}` : productName;
+  const label = detailLabel?.trim() ? detailLabel.trim() : tabLabel;
 
   return { entityId, label, icon: tab.icon };
 }
