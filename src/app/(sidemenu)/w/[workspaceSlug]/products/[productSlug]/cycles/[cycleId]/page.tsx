@@ -159,18 +159,24 @@ export default function CycleDetailPage() {
     .filter((t) => t.status === "DONE")
     .reduce((sum, t) => sum + (t.points ?? 0), 0);
 
-  const backPath = `/w/${workspace?.slug}/products/${productSlug}/cycles`;
+  // Only render the back link once the workspace has resolved — otherwise the
+  // slug is undefined and the href becomes "/w/undefined/…" (a broken link).
+  const backPath = workspace
+    ? `/w/${workspace.slug}/products/${productSlug}/cycles`
+    : null;
 
   return (
     <Stack gap="lg">
       {/* Back nav */}
-      <Link
-        href={backPath}
-        className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
-      >
-        <IconArrowLeft size={14} />
-        Cycles
-      </Link>
+      {backPath && (
+        <Link
+          href={backPath}
+          className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
+        >
+          <IconArrowLeft size={14} />
+          Cycles
+        </Link>
+      )}
 
       <Group justify="space-between" align="flex-start">
         {isEditingHeader ? (
