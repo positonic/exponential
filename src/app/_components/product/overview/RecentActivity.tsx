@@ -23,6 +23,23 @@ function readMetaString(metadata: unknown, key: string): string | null {
   return null;
 }
 
+/**
+ * Only render avatar URLs that are plain http(s) — rejects `javascript:` /
+ * `data:` and other schemes before they reach an <img src>. Falls back to
+ * initials otherwise.
+ */
+function safeHttpUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? url
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function verbFor(event: ActivityEvent): string {
   switch (event.action) {
     case "created":
@@ -62,6 +79,7 @@ export function RecentActivity({
         <div className="po-act__body">
           {activity.map((event) => {
             const actorName = event.actor?.name ?? "Someone";
+            const avatarUrl = safeHttpUrl(event.actor?.image);
             const movedTo =
               event.action === "status_changed"
                 ? readMetaString(event.metadata, "to")
@@ -80,9 +98,9 @@ export function RecentActivity({
                   title={actorName}
                 >
                   {event.actor ? (
-                    event.actor.image ? (
+                    avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element -- 22px avatar; next/image is overkill here
-                      <img src={event.actor.image} alt="" />
+                      <img src={avatarUrl} alt="" />
                     ) : (
                       getInitial(event.actor.name, null)
                     )

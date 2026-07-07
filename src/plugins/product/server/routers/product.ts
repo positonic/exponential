@@ -211,94 +211,117 @@ export const productRouter = createTRPCRouter({
         "QA",
       ] as const;
 
-      const [statusGroups, navCounts, currentCycle, attentionTickets, rawEvents] =
-        await Promise.all([
-          ctx.db.ticket.groupBy({
-            by: ["status"],
-            where: { productId: input.productId },
-            _count: { _all: true },
-          }),
-          ctx.db.product.findUnique({
-            where: { id: input.productId },
-            select: {
-              _count: {
-                select: {
-                  features: true,
-                  researches: true,
-                  retrospectives: true,
-                },
+      // Read-only "current cycle" predicate: an ACTIVE sprint that hasn't
+      // ended, a PLANNED one whose window contains today (covers workspaces
+      // where the lazy reconcile in cycle.list hasn't run yet), or an ACTIVE
+      // one that ended but was never reconciled to COMPLETED. Cycles are
+      // workspace-scoped (List, listType SPRINT), so this matches any current
+      // sprint in the workspace; we prefer the one holding this product's
+      // tickets below.
+      const currentCycleWhere = {
+        workspaceId: product.workspaceId,
+        listType: "SPRINT" as const,
+        OR: [
+          { status: "ACTIVE" as const, OR: [{ endDate: null }, { endDate: { gt: now } }] },
+          {
+            status: "PLANNED" as const,
+            startDate: { lte: now },
+            endDate: { gt: now },
+          },
+          { status: "ACTIVE" as const, endDate: { lte: now } },
+        ],
+      };
+      const currentCycleSelect = {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+      };
+      // Deterministic pick when several sprints qualify (e.g. parallel team
+      // cycles with the same startDate) — id breaks the tie so the same cycle
+      // is always chosen.
+      const currentCycleOrder = [
+        { startDate: "desc" as const },
+        { id: "desc" as const },
+      ];
+
+      const [
+        statusGroups,
+        navCounts,
+        cycleWithProductTickets,
+        anyCurrentCycle,
+        attentionTickets,
+        productTickets,
+      ] = await Promise.all([
+        ctx.db.ticket.groupBy({
+          by: ["status"],
+          where: { productId: input.productId },
+          _count: { _all: true },
+        }),
+        ctx.db.product.findUnique({
+          where: { id: input.productId },
+          select: {
+            _count: {
+              select: {
+                features: true,
+                researches: true,
+                retrospectives: true,
               },
             },
-          }),
-          // Read-only "current cycle": an ACTIVE sprint that hasn't ended, or
-          // a PLANNED one whose window contains today (covers workspaces where
-          // the lazy reconcile in cycle.list hasn't run yet).
-          ctx.db.list.findFirst({
-            where: {
-              workspaceId: product.workspaceId,
-              listType: "SPRINT",
-              OR: [
-                {
-                  status: "ACTIVE",
-                  OR: [{ endDate: null }, { endDate: { gt: now } }],
-                },
-                {
-                  status: "PLANNED",
-                  startDate: { lte: now },
-                  endDate: { gt: now },
-                },
-                // Ended but never reconciled to COMPLETED — still the most
-                // recent "current" cycle the team was burning down.
-                { status: "ACTIVE", endDate: { lte: now } },
-              ],
-            },
-            orderBy: { startDate: "desc" },
-            select: {
-              id: true,
-              name: true,
-              status: true,
-              startDate: true,
-              endDate: true,
-            },
-          }),
-          ctx.db.ticket.findMany({
-            where: {
-              productId: input.productId,
-              status: { in: [...attentionStatuses] },
-            },
-            select: {
-              id: true,
-              shortId: true,
-              number: true,
-              title: true,
-              status: true,
-              updatedAt: true,
-            },
-            // Oldest first — the longest-rotting work is the most urgent.
-            orderBy: { updatedAt: "asc" },
-          }),
-          // Recent ticket events for the workspace; filtered to this product
-          // below (events carry no productId, so we resolve via the ticket).
-          ctx.db.workspaceActivityEvent.findMany({
-            where: { workspaceId: product.workspaceId, entityType: "ticket" },
-            orderBy: { createdAt: "desc" },
-            take: 50,
-            select: {
-              id: true,
-              entityId: true,
-              action: true,
-              metadata: true,
-              createdAt: true,
-              user: { select: { id: true, name: true, image: true } },
-            },
-          }),
-        ]);
+          },
+        }),
+        // Prefer a current cycle that actually holds this product's tickets, so
+        // the hero shows "their" cycle rather than an unrelated workspace one.
+        ctx.db.list.findFirst({
+          where: {
+            ...currentCycleWhere,
+            tickets: { some: { productId: input.productId } },
+          },
+          orderBy: currentCycleOrder,
+          select: currentCycleSelect,
+        }),
+        // Fallback: the workspace's current cycle even if this product has no
+        // tickets in it yet — the hero then prompts to commit tickets.
+        ctx.db.list.findFirst({
+          where: currentCycleWhere,
+          orderBy: currentCycleOrder,
+          select: currentCycleSelect,
+        }),
+        ctx.db.ticket.findMany({
+          where: {
+            productId: input.productId,
+            status: { in: [...attentionStatuses] },
+          },
+          select: {
+            id: true,
+            shortId: true,
+            number: true,
+            title: true,
+            status: true,
+            updatedAt: true,
+          },
+          // Oldest first — the longest-rotting work is the most urgent.
+          orderBy: { updatedAt: "asc" },
+        }),
+        // This product's tickets (light fields), used to scope the activity
+        // events to this product *in the database* (events carry no productId)
+        // and to resolve the shown events' display. Never loads events from
+        // other products/workspaces. Lighter than the Backlog tab's own
+        // ticket.list, which already loads every product ticket with includes.
+        ctx.db.ticket.findMany({
+          where: { productId: input.productId },
+          select: { id: true, shortId: true, number: true, title: true },
+        }),
+      ]);
 
-      // Wave 2: the two lookups that depend on wave 1 (cycle-scoped tickets and
-      // the tickets behind the recent events) run together, so an active-cycle
-      // product still costs two DB round trips, not three.
-      const eventTicketIds = [...new Set(rawEvents.map((e) => e.entityId))];
-      const [cycleTickets, eventTickets] = await Promise.all([
+      const currentCycle = cycleWithProductTickets ?? anyCurrentCycle;
+      const productTicketIds = productTickets.map((t) => t.id);
+
+      // Wave 2: the two lookups that depend on wave 1 run together — the
+      // cycle-scoped tickets and this product's recent activity events (scoped
+      // by ticket id, so no cross-product events are ever fetched).
+      const [cycleTickets, recentEvents] = await Promise.all([
         currentCycle
           ? ctx.db.ticket.findMany({
               where: { productId: input.productId, cycleId: currentCycle.id },
@@ -313,10 +336,23 @@ export const productRouter = createTRPCRouter({
               },
             })
           : Promise.resolve([]),
-        eventTicketIds.length
-          ? ctx.db.ticket.findMany({
-              where: { id: { in: eventTicketIds }, productId: input.productId },
-              select: { id: true, shortId: true, number: true, title: true },
+        productTicketIds.length
+          ? ctx.db.workspaceActivityEvent.findMany({
+              where: {
+                workspaceId: product.workspaceId,
+                entityType: "ticket",
+                entityId: { in: productTicketIds },
+              },
+              orderBy: { createdAt: "desc" },
+              take: 5,
+              select: {
+                id: true,
+                entityId: true,
+                action: true,
+                metadata: true,
+                createdAt: true,
+                user: { select: { id: true, name: true, image: true } },
+              },
             })
           : Promise.resolve([]),
       ]);
@@ -401,8 +437,10 @@ export const productRouter = createTRPCRouter({
       };
 
       // ---- recent activity, resolved to this product's tickets ----
-      const ticketById = new Map(eventTickets.map((t) => [t.id, t]));
-      const activity = rawEvents
+      // recentEvents is already scoped to this product's ticket ids in the DB,
+      // so every event resolves; the map guard is defensive only.
+      const ticketById = new Map(productTickets.map((t) => [t.id, t]));
+      const activity = recentEvents
         .filter((e) => ticketById.has(e.entityId))
         .slice(0, 5)
         .map((e) => ({
