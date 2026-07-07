@@ -235,7 +235,7 @@ export function CreateInsightModal({
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="What did you learn?"
+            placeholder="Title"
             className="w-full bg-transparent text-base font-medium text-text-primary placeholder-text-muted outline-none"
             autoFocus
           />
@@ -246,7 +246,7 @@ export function CreateInsightModal({
           <Textarea
             value={body}
             onChange={(e) => setBody(e.currentTarget.value)}
-            placeholder="Describe the insight - context, quotes, evidence, links..."
+            placeholder="Description"
             autosize
             minRows={4}
             maxRows={12}
