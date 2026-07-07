@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   IconHome,
@@ -23,6 +23,7 @@ import {
   Stack,
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { api } from "~/trpc/react";
 import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
 import { buildProductFavoriteTarget } from "./favoriteTarget";
@@ -107,6 +108,35 @@ export default function ProductLayout({
     const id = window.setTimeout(warm, 200);
     return () => window.clearTimeout(id);
   }, [productId, workspaceId, utils]);
+
+  // Tell the AI assistant which product (and tab) the user is looking at, so
+  // "the tickets in cycle 10" resolves without the agent asking. The workspace
+  // layout registrar yields on /products/ routes — this is the sole owner here.
+  const pageContext = useMemo(() => {
+    if (!product || !workspace || !workspaceId) return null;
+    const base = `/w/${workspace.slug}/products/${productSlug}`;
+    const view =
+      tabs.find(
+        (t) =>
+          t.href !== "" &&
+          (pathname === `${base}${t.href}` || pathname.startsWith(`${base}${t.href}/`)),
+      )?.value ?? "overview";
+    return {
+      pageType: "product",
+      pageTitle: product.name,
+      pagePath: pathname,
+      data: {
+        productId: product.id,
+        productName: product.name,
+        productSlug,
+        workspaceId,
+        workspaceSlug: workspace.slug,
+        view,
+      },
+    };
+  }, [product, workspace, workspaceId, productSlug, pathname]);
+
+  useRegisterPageContext(pageContext);
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;

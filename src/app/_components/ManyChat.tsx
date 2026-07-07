@@ -180,6 +180,13 @@ function formatPageContextData(context: PageContext): string {
       return `  - The user is viewing their Meetings list (${count} meetings shown).
   - To read, reference, or discuss meetings, call the \`get-meeting-transcriptions\` tool (pass includeTranscript: false for a fast title/date list). Do NOT ask the user to paste them.`;
     }
+    case 'product': {
+      const d = context.data;
+      return `  - The user is viewing the product "${str(d.productName)}" (productId: ${str(d.productId)}), on its "${str(d.view, 'overview')}" tab.
+  - To read, reference, or analyze this product's tickets, cycles, or dependencies, call \`list-tickets\` / \`list-cycles\` with this productId. Do NOT ask the user to paste tickets.
+  - Cycle references like "cycle 10" go straight into \`list-tickets\`'s \`cycle\` input — the server resolves the name.
+  - To link tickets ("X blocks Y" / "Y depends on X"), propose the edges first, then call \`add-ticket-dependencies\` once the user confirms.`;
+    }
     case 'recording': {
       const d = context.data;
       const rawSummary = str(d.summary, 'No summary');

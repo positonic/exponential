@@ -18,6 +18,12 @@ function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) 
 
   const pageContext = useMemo(() => {
     if (!workspace || !workspaceId) return null;
+    // Product routes register their own richer context (ProductLayout). Yield
+    // here: this registrar's effect re-runs on every pathname change and runs
+    // AFTER child effects (parent effects fire last), so registering the
+    // generic workspace context on product routes would clobber the product
+    // context on every product tab switch.
+    if (/\/products\/[^/]+/.test(pathname)) return null;
     return {
       pageType: 'workspace',
       pageTitle: workspace.name,
