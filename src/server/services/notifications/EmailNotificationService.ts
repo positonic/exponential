@@ -220,6 +220,7 @@ export async function sendAssignmentNotifications(
           workspaceName: ws.workspaceName,
           personalSettingsUrl: urls.personalSettingsUrl,
           workspaceSettingsUrl: urls.workspaceSettingsUrl,
+          workspaceId: ws.workspaceId,
         });
       }),
     );
@@ -368,6 +369,7 @@ export async function sendMentionNotifications(
           workspaceName: ws.workspaceName,
           personalSettingsUrl: urls.personalSettingsUrl,
           workspaceSettingsUrl: urls.workspaceSettingsUrl,
+          workspaceId: ws.workspaceId,
         });
       }),
     );

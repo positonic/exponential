@@ -44,6 +44,7 @@ import {
   IconPlus,
   IconShieldExclamation,
   IconSparkles,
+  IconSend,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -109,6 +110,9 @@ export default function WorkspaceSettingsPage() {
   } | null>(null);
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
   const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
+  const [postmarkModalOpened, { open: openPostmarkModal, close: closePostmarkModal }] = useDisclosure(false);
+  const [postmarkApiKey, setPostmarkApiKey] = useState('');
+  const [postmarkFrom, setPostmarkFrom] = useState('');
   const [emailProvider, setEmailProvider] = useState<string>('gmail');
   const [emailAddress, setEmailAddress] = useState('');
   const [emailAppPassword, setEmailAppPassword] = useState('');
@@ -376,6 +380,53 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
+  const { data: postmarkStatus, refetch: refetchPostmarkStatus } =
+    api.integration.getWorkspacePostmarkStatus.useQuery(
+      { workspaceId: workspaceId! },
+      { enabled: !!workspaceId }
+    );
+
+  const createPostmarkMutation = api.integration.createPostmarkIntegration.useMutation({
+    onSuccess: () => {
+      void refetchPostmarkStatus();
+      closePostmarkModal();
+      setPostmarkApiKey('');
+      setPostmarkFrom('');
+      notifications.show({
+        title: 'Postmark Connected',
+        message: 'Workspace email delivery will use your Postmark sender.',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Postmark Connection Failed',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
+  const removePostmarkMutation = api.integration.removePostmarkIntegration.useMutation({
+    onSuccess: () => {
+      void refetchPostmarkStatus();
+      notifications.show({
+        title: 'Postmark Removed',
+        message: 'Workspace email will use the platform default sender.',
+        color: 'blue',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
   const { data: notionConfig, refetch: refetchNotionConfig } = api.workspace.getNotionConfig.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
@@ -439,6 +490,20 @@ export default function WorkspaceSettingsPage() {
   const handleRemoveWorkspaceEmail = () => {
     if (!workspaceId) return;
     removeEmailMutation.mutate({ workspaceId });
+  };
+
+  const handleSavePostmark = () => {
+    if (!workspaceId || !postmarkApiKey || !postmarkFrom) return;
+    createPostmarkMutation.mutate({
+      workspaceId,
+      apiKey: postmarkApiKey,
+      fromAddress: postmarkFrom,
+    });
+  };
+
+  const handleRemovePostmark = () => {
+    if (!workspaceId) return;
+    removePostmarkMutation.mutate({ workspaceId });
   };
 
   const handleStartEdit = (field: 'name' | 'description' | 'aiInstructions') => {
@@ -1130,6 +1195,54 @@ export default function WorkspaceSettingsPage() {
               </Stack>
             </SettingsSection>
 
+            <SettingsSection
+              icon={IconSend}
+              title="Postmark"
+              description="Send this workspace's notification, CRM, and broadcast emails from your own Postmark server and sender address. Leave unset to use the platform default."
+            >
+              <Stack gap="sm">
+                {postmarkStatus?.configured ? (
+                  <Group justify="space-between">
+                    <div>
+                      <div className="text-[13px] text-text-secondary">
+                        {postmarkStatus.fromAddress ?? 'Configured'}
+                      </div>
+                      <div className="text-[11.5px] text-text-muted">
+                        Sending via your Postmark server
+                      </div>
+                    </div>
+                    {canEdit && (
+                      <Group gap="xs">
+                        <Button variant="light" size="xs" onClick={openPostmarkModal}>
+                          Change
+                        </Button>
+                        <Button
+                          variant="subtle"
+                          size="xs"
+                          color="red"
+                          onClick={handleRemovePostmark}
+                          loading={removePostmarkMutation.isPending}
+                        >
+                          Remove
+                        </Button>
+                      </Group>
+                    )}
+                  </Group>
+                ) : (
+                  <Group justify="space-between">
+                    <div className="text-[13px] text-text-muted">
+                      Using the platform default email sender
+                    </div>
+                    {canEdit && (
+                      <Button variant="light" size="xs" onClick={openPostmarkModal}>
+                        Add Postmark
+                      </Button>
+                    )}
+                  </Group>
+                )}
+              </Stack>
+            </SettingsSection>
+
             {workspaceId && (
               <SettingsSection
                 icon={IconBrandSlack}
@@ -1460,6 +1573,52 @@ export default function WorkspaceSettingsPage() {
               disabled={!emailAddress || !emailAppPassword}
             >
               Connect Email
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={postmarkModalOpened}
+        onClose={closePostmarkModal}
+        title="Configure Postmark"
+        size="md"
+      >
+        <Stack gap="md">
+          <Alert icon={<IconSend size={16} />} title="Postmark Setup" color="blue">
+            Emails originating from this workspace will be delivered using your Postmark
+            server token and sender address. The from-address must be a verified Sender
+            Signature (or on a verified domain) in your Postmark account.
+          </Alert>
+
+          <TextInput
+            label="Server API Token"
+            placeholder="Your Postmark server token"
+            required
+            type="password"
+            value={postmarkApiKey}
+            onChange={(e) => setPostmarkApiKey(e.currentTarget.value)}
+          />
+
+          <TextInput
+            label="From Address"
+            placeholder="notifications@yourdomain.com"
+            required
+            type="email"
+            value={postmarkFrom}
+            onChange={(e) => setPostmarkFrom(e.currentTarget.value)}
+          />
+
+          <Group justify="flex-end" mt="md">
+            <Button variant="subtle" onClick={closePostmarkModal}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSavePostmark}
+              loading={createPostmarkMutation.isPending}
+              disabled={!postmarkApiKey || !postmarkFrom}
+            >
+              Save Postmark
             </Button>
           </Group>
         </Stack>

@@ -11,8 +11,70 @@
 import { colorTokens } from "~/styles/colors";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { db } from "~/server/db";
+import { getDecryptedKey } from "~/server/utils/credentialHelper";
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
+
+interface PostmarkConfig {
+  apiKey: string | null;
+  from: string;
+}
+
+/**
+ * Resolve which Postmark server token + from-address to use for a send.
+ *
+ * When a `workspaceId` is provided and that workspace has an ACTIVE `postmark`
+ * integration with both an api key and a from-address, the workspace's own
+ * Postmark config is used so its email ships from its own sender. Otherwise we
+ * fall back to the instance-global env vars — the historical behavior — which is
+ * also what pre-login emails (magic link / welcome) always use since they carry
+ * no workspace context.
+ *
+ * Looked up by `workspaceId` only (no `userId` filter): notification / CRM /
+ * broadcast sends run in a background context with no session user.
+ */
+export async function resolvePostmark(
+  workspaceId?: string
+): Promise<PostmarkConfig> {
+  const envConfig: PostmarkConfig = {
+    apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? null,
+    from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+  };
+
+  if (!workspaceId) return envConfig;
+
+  const integration = await db.integration.findFirst({
+    where: { provider: "postmark", status: "ACTIVE", workspaceId },
+    include: { credentials: true },
+  });
+
+  if (!integration) return envConfig;
+
+  const apiKeyCred = integration.credentials.find((c) => c.keyType === "api_key");
+  const fromCred = integration.credentials.find((c) => c.keyType === "from_address");
+
+  // A corrupted/tampered credential must not break the send — fall back to env.
+  let apiKey: string | null = null;
+  try {
+    apiKey = apiKeyCred ? getDecryptedKey(apiKeyCred) : null;
+  } catch (error) {
+    console.error(
+      "[EmailService] Failed to decrypt workspace Postmark API key; falling back to env config.",
+      error,
+    );
+    return envConfig;
+  }
+  const from = fromCred?.key;
+
+  // Use the workspace config only when both parts are present; a partial config
+  // must not mix a workspace key with the platform from-address (or vice versa).
+  if (apiKey && from) {
+    return { apiKey, from };
+  }
+
+  return envConfig;
+}
 
 // Email clients don't support CSS variables, so we inline the brand hex here.
 // Source of truth is `colorTokens.light.brand.primary` in `src/styles/colors.ts`.
@@ -23,15 +85,19 @@ interface SendEmailParams {
   subject: string;
   htmlBody: string;
   textBody: string;
+  /**
+   * When set, a workspace-configured Postmark server token + from-address is
+   * preferred over the env default. Omit for pre-login / non-workspace emails.
+   */
+  workspaceId?: string;
 }
 
-async function sendEmail({ to, subject, htmlBody, textBody }: SendEmailParams): Promise<void> {
-  const apiKey = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
-  const from = process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im";
+async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendEmailParams): Promise<void> {
+  const { apiKey, from } = await resolvePostmark(workspaceId);
 
   if (!apiKey) {
     console.error(
-      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable."
+      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable, or configure a workspace Postmark integration."
     );
     throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
@@ -665,8 +731,9 @@ export async function sendAssignmentNotificationEmail(params: {
   workspaceName: string;
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
+  workspaceId?: string;
 }): Promise<void> {
-  const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
+  const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
@@ -753,6 +820,7 @@ ${footer.text}
     subject: `[${appName}] You've been assigned to: ${actionName}`,
     htmlBody,
     textBody,
+    workspaceId,
   });
 }
 
@@ -769,8 +837,9 @@ export async function sendMentionNotificationEmail(params: {
   workspaceName: string;
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
+  workspaceId?: string;
 }): Promise<void> {
-  const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
+  const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
@@ -866,6 +935,7 @@ ${footer.text}
     subject: `[${appName}] ${authorName} mentioned you in: ${actionName}`,
     htmlBody,
     textBody,
+    workspaceId,
   });
 }
 
@@ -880,8 +950,9 @@ export async function sendCrmOnboardingWelcomeEmail(params: {
   to: string;
   name?: string | null;
   customerType: string;
+  workspaceId?: string;
 }): Promise<{ subject: string; htmlBody: string; textBody: string }> {
-  const { to, name, customerType } = params;
+  const { to, name, customerType, workspaceId } = params;
   const appName = PRODUCT_NAME;
   const greeting = name ? `Hi ${name},` : "Hi there,";
   const subject = `Welcome — you're signed up as a ${customerType}`;
@@ -907,7 +978,7 @@ We're preparing your ${customerType} agreement now. You'll receive a separate em
 Thanks,
 The ${appName} team`;
 
-  await sendEmail({ to, subject, htmlBody, textBody });
+  await sendEmail({ to, subject, htmlBody, textBody, workspaceId });
   return { subject, htmlBody, textBody };
 }
 
@@ -922,6 +993,7 @@ export async function sendCrmAutomationEmail(params: {
   subject: string;
   bodyHtml: string;
   bodyText: string;
+  workspaceId?: string;
 }): Promise<{ subject: string; htmlBody: string; textBody: string }> {
   const appName = PRODUCT_NAME;
   const htmlBody = `
@@ -938,6 +1010,7 @@ export async function sendCrmAutomationEmail(params: {
     subject: params.subject,
     htmlBody,
     textBody: params.bodyText,
+    workspaceId: params.workspaceId,
   });
   return { subject: params.subject, htmlBody, textBody: params.bodyText };
 }
@@ -961,6 +1034,7 @@ export async function sendBroadcastDigestEmail(params: {
   sections: { category: string; items: string[] }[];
   unsubscribeUrl: string;
   greetingName?: string | null;
+  workspaceId?: string;
 }): Promise<{ subject: string; htmlBody: string; textBody: string }> {
   const appName = PRODUCT_NAME;
   const greeting = params.greetingName
@@ -1021,6 +1095,7 @@ Unsubscribe: ${params.unsubscribeUrl}`;
     subject: params.subject,
     htmlBody,
     textBody,
+    workspaceId: params.workspaceId,
   });
 
   return { subject: params.subject, htmlBody, textBody };
