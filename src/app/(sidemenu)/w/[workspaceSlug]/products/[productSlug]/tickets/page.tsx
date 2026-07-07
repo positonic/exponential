@@ -77,6 +77,40 @@ const TYPE_COLORS: Record<string, string> = {
   BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
 };
 
+// ---------------------------------------------------------------------------
+// Filters
+// ---------------------------------------------------------------------------
+
+type FilterKey = "status" | "priority" | "type" | "assignee" | "epic" | "cycle" | "labels";
+
+interface TicketFilters {
+  status: string[];
+  priority: string[];
+  type: string[];
+  assignee: string[];
+  epic: string[];
+  cycle: string[];
+  labels: string[];
+}
+
+// Arrays are never mutated in place (all updates spread), so a shared empty
+// reference is safe to use as the default / cleared state.
+const EMPTY_FILTERS: TicketFilters = {
+  status: [], priority: [], type: [], assignee: [], epic: [], cycle: [], labels: [],
+};
+
+const FILTER_FACET_META: Array<{ key: FilterKey; label: string }> = [
+  { key: "status", label: "Status" },
+  { key: "priority", label: "Priority" },
+  { key: "type", label: "Type" },
+  { key: "assignee", label: "DRI" },
+  { key: "epic", label: "Epic" },
+  { key: "cycle", label: "Cycle" },
+  { key: "labels", label: "Labels" },
+];
+
+type FacetOptions = Record<FilterKey, Array<{ value: string; label: string }>>;
+
 
 // ---------------------------------------------------------------------------
 // Sort
@@ -222,6 +256,93 @@ function StatusCell({ status, onUpdate }: { status: string; onUpdate: (s: Ticket
 }
 
 // ---------------------------------------------------------------------------
+// Filter popover
+// ---------------------------------------------------------------------------
+
+function FilterPopover({ facetOptions, filters, activeCount, onToggle, onClear }: {
+  facetOptions: FacetOptions;
+  filters: TicketFilters;
+  activeCount: number;
+  onToggle: (key: FilterKey, value: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <Popover position="bottom-end" withinPortal shadow="md">
+      <Popover.Target>
+        <Tooltip label="Filter" position="bottom">
+          <ActionIcon
+            variant="subtle"
+            size="sm"
+            className="text-text-muted hover:text-text-primary rounded-none"
+            style={{ height: 30, width: 30, position: "relative" }}
+            aria-label="Filter tickets"
+          >
+            <IconFilter size={15} />
+            {activeCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-brand-primary px-1 text-[9px] font-semibold text-white">
+                {activeCount}
+              </span>
+            )}
+          </ActionIcon>
+        </Tooltip>
+      </Popover.Target>
+      <Popover.Dropdown
+        styles={{
+          dropdown: {
+            backgroundColor: "var(--color-bg-elevated)",
+            border: "1px solid var(--color-border-primary)",
+            minWidth: 240,
+            maxWidth: 280,
+            maxHeight: 440,
+            overflowY: "auto",
+          },
+        }}
+      >
+        <div className="flex items-center justify-between mb-2">
+          <Text size="xs" fw={600} className="text-text-primary">Filter</Text>
+          {activeCount > 0 && (
+            <UnstyledButton onClick={onClear} className="text-[10px] text-text-muted hover:text-text-primary">
+              Clear all
+            </UnstyledButton>
+          )}
+        </div>
+        <Stack gap="sm">
+          {FILTER_FACET_META.map((facet) => {
+            const opts = facetOptions[facet.key];
+            if (opts.length === 0) return null;
+            const sel = filters[facet.key];
+            return (
+              <div key={facet.key}>
+                <Text size="xs" className="text-text-muted mb-1.5">{facet.label}</Text>
+                <div className="flex flex-wrap gap-1">
+                  {opts.map((o) => {
+                    const on = sel.includes(o.value);
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        onClick={() => onToggle(facet.key, o.value)}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                          on
+                            ? "bg-brand-primary text-white"
+                            : "bg-surface-hover text-text-muted hover:text-text-primary"
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -254,6 +375,7 @@ export default function TicketsBacklogPage() {
   const [view, setView] = useState("table");
   const [entity, setEntity] = useState<"tickets" | "epics">("tickets");
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
+  const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(["id", "status", "title", "priority", "dri", "type", "labels", "epic", "cycle"]),
@@ -275,7 +397,7 @@ export default function TicketsBacklogPage() {
     if (!workspaceId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      saveMutateRef.current({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[]; entity?: "tickets" | "epics" } });
+      saveMutateRef.current({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[]; entity?: "tickets" | "epics"; filters?: TicketFilters } });
     }, 500);
   }, [workspaceId, productSlug]);
 
@@ -289,6 +411,22 @@ export default function TicketsBacklogPage() {
       if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns as string[]));
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
         setEntity(savedPrefs.entity);
+      }
+      if (savedPrefs.filters && typeof savedPrefs.filters === "object") {
+        // Saved prefs are untrusted JSON — guard each facet is actually an
+        // array. Stale values (e.g. a deleted epic id) are harmless: they
+        // simply match no tickets and aren't offered in facetOptions.
+        const f = savedPrefs.filters as Partial<TicketFilters>;
+        const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
+        setFilters({
+          status: arr(f.status),
+          priority: arr(f.priority),
+          type: arr(f.type),
+          assignee: arr(f.assignee),
+          epic: arr(f.epic),
+          cycle: arr(f.cycle),
+          labels: arr(f.labels),
+        });
       }
       setPrefsLoaded(true);
     }
@@ -386,18 +524,89 @@ export default function TicketsBacklogPage() {
     updateTicket.mutate({ id: ticketId, status: newStatus });
   };
 
+  // ── Filters ──
+  // Facet options are derived from the loaded tickets, so only values actually
+  // present in the product are offered. "none" is a synthetic value for the
+  // unset bucket (no priority / unassigned / no epic / no cycle).
+  const facetOptions = useMemo<FacetOptions>(() => {
+    const status = new Map<string, string>();
+    const priority = new Map<string, string>();
+    const type = new Map<string, string>();
+    const assignee = new Map<string, string>();
+    const epic = new Map<string, string>();
+    const cycle = new Map<string, string>();
+    const labels = new Map<string, string>();
+
+    for (const t of tickets ?? []) {
+      status.set(t.status, STATUS_LABELS[t.status] ?? t.status);
+      const pKey = t.priority == null ? "none" : String(t.priority);
+      priority.set(pKey, t.priority == null ? "No priority" : (PRIORITY_LABELS[t.priority] ?? pKey));
+      type.set(t.type, t.type.toLowerCase());
+      assignee.set(t.assignee?.id ?? "none", t.assignee?.name ?? "Unassigned");
+      epic.set(t.epic?.id ?? "none", t.epic?.name ?? "No epic");
+      cycle.set(t.cycle?.id ?? "none", t.cycle?.name ?? "No cycle");
+      for (const x of t.tags ?? []) labels.set(x.tag.id, x.tag.name);
+    }
+
+    const toOpts = (m: Map<string, string>) =>
+      Array.from(m, ([value, label]) => ({ value, label }));
+    // "none" always sorts last; other values alphabetical by label.
+    const alpha = (m: Map<string, string>) =>
+      toOpts(m).sort((a, b) =>
+        a.value === "none" ? 1 : b.value === "none" ? -1 : a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+      );
+
+    return {
+      status: toOpts(status).sort((a, b) => (STATUS_ORDER[a.value] ?? 99) - (STATUS_ORDER[b.value] ?? 99)),
+      priority: toOpts(priority).sort(
+        (a, b) => (a.value === "none" ? 99 : Number(a.value)) - (b.value === "none" ? 99 : Number(b.value)),
+      ),
+      type: alpha(type),
+      assignee: alpha(assignee),
+      epic: alpha(epic),
+      cycle: alpha(cycle),
+      labels: alpha(labels),
+    };
+  }, [tickets]);
+
+  const activeFilterCount = FILTER_FACET_META.reduce((n, f) => n + filters[f.key].length, 0);
+
+  const toggleFilter = (key: FilterKey, value: string) => {
+    setFilters((prev) => {
+      const cur = prev[key];
+      const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
+      const updated = { ...prev, [key]: next };
+      debouncedSave({ filters: updated });
+      return updated;
+    });
+  };
+
+  const clearFilters = () => {
+    setFilters(EMPTY_FILTERS);
+    debouncedSave({ filters: EMPTY_FILTERS });
+  };
+
   // Filter + sort
   const sorted = useMemo(() => {
     if (!tickets) return [];
     const q = search.toLowerCase().trim();
-    const list = q
-      ? tickets.filter(
-          (t) =>
-            t.title.toLowerCase().includes(q) ||
-            t.type.toLowerCase().includes(q) ||
-            (t.assignee?.name ?? "").toLowerCase().includes(q),
-        )
-      : [...tickets];
+    const matchesFilters = (t: (typeof tickets)[number]) => {
+      if (filters.status.length && !filters.status.includes(t.status)) return false;
+      if (filters.priority.length && !filters.priority.includes(t.priority == null ? "none" : String(t.priority))) return false;
+      if (filters.type.length && !filters.type.includes(t.type)) return false;
+      if (filters.assignee.length && !filters.assignee.includes(t.assignee?.id ?? "none")) return false;
+      if (filters.epic.length && !filters.epic.includes(t.epic?.id ?? "none")) return false;
+      if (filters.cycle.length && !filters.cycle.includes(t.cycle?.id ?? "none")) return false;
+      if (filters.labels.length && !(t.tags ?? []).some((x) => filters.labels.includes(x.tag.id))) return false;
+      return true;
+    };
+    const matchesSearch = (t: (typeof tickets)[number]) =>
+      !q ||
+      t.title.toLowerCase().includes(q) ||
+      t.type.toLowerCase().includes(q) ||
+      (t.assignee?.name ?? "").toLowerCase().includes(q);
+
+    const list = tickets.filter((t) => matchesFilters(t) && matchesSearch(t));
     list.sort((a, b) =>
       cmp(
         sortValue(a as unknown as Record<string, unknown>, sortField),
@@ -406,7 +615,7 @@ export default function TicketsBacklogPage() {
       ),
     );
     return list;
-  }, [tickets, search, sortField, sortDir]);
+  }, [tickets, search, sortField, sortDir, filters]);
 
   // Split completed tickets from active
   const { active: activeTickets, completed: completedTickets } = useMemo(() => {
@@ -698,11 +907,13 @@ export default function TicketsBacklogPage() {
         />
 
         <div className="flex items-center border border-border-primary rounded-md overflow-hidden">
-          <Tooltip label="Filter" position="bottom">
-            <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
-              <IconFilter size={15} />
-            </ActionIcon>
-          </Tooltip>
+          <FilterPopover
+            facetOptions={facetOptions}
+            filters={filters}
+            activeCount={activeFilterCount}
+            onToggle={toggleFilter}
+            onClear={clearFilters}
+          />
           <div className="w-px h-4 bg-border-primary" />
           <Popover position="bottom-end" withinPortal shadow="md">
             <Popover.Target>
@@ -948,7 +1159,13 @@ export default function TicketsBacklogPage() {
         )
       ) : tickets && tickets.length > 0 ? (
         <Text size="sm" className="text-text-muted py-8 text-center">
-          No tickets match your search.
+          No tickets match your{" "}
+          {activeFilterCount > 0 && search.trim()
+            ? "filters and search"
+            : activeFilterCount > 0
+              ? "filters"
+              : "search"}
+          .
         </Text>
       ) : (
         <EmptyState
