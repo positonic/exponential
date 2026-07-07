@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   ActionIcon,
   Avatar,
@@ -37,6 +38,7 @@ import {
   IconSortAscending,
   IconSortDescending,
   IconTicket,
+  IconX,
 } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
@@ -226,8 +228,20 @@ function StatusCell({ status, onUpdate }: { status: string; onUpdate: (s: Ticket
 export default function TicketsBacklogPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
+
+  // URL-driven filters — deep links from the Overview tab
+  // (?status=BLOCKED, ?assignee=me). Applied server-side via ticket.list.
+  const statusParam = searchParams.get("status");
+  const urlStatus =
+    statusParam && statusParam in STATUS_LABELS
+      ? (statusParam as TicketStatus)
+      : undefined;
+  const filterAssigneeMe = searchParams.get("assignee") === "me";
+  const sessionUserId = session?.user?.id;
   const [modalOpened, setModalOpened] = useState(false);
   const [editTicketId, setEditTicketId] = useState<string | null>(null);
   const [epicModalOpened, setEpicModalOpened] = useState(false);
@@ -316,8 +330,16 @@ export default function TicketsBacklogPage() {
   );
 
   const { data: tickets, isLoading } = api.product.ticket.list.useQuery(
-    { productId: product?.id ?? "" },
-    { enabled: !!product?.id },
+    {
+      productId: product?.id ?? "",
+      ...(urlStatus ? { status: urlStatus } : {}),
+      ...(filterAssigneeMe && sessionUserId
+        ? { assigneeId: sessionUserId }
+        : {}),
+    },
+    // When ?assignee=me is present, wait for the session so the first fetch
+    // is already filtered instead of flashing the full backlog.
+    { enabled: !!product?.id && (!filterAssigneeMe || !!sessionUserId) },
   );
 
   const { data: features } = api.product.feature.list.useQuery(
@@ -624,6 +646,31 @@ export default function TicketsBacklogPage() {
             </Menu.Item>
           </Menu.Dropdown>
         </Menu>
+
+        {(urlStatus ?? filterAssigneeMe) && (
+          <Badge
+            variant="light"
+            color={urlStatus ? STATUS_COLORS[urlStatus] : "brand"}
+            rightSection={
+              <ActionIcon
+                variant="transparent"
+                size="xs"
+                color="gray"
+                aria-label="Clear filter"
+                onClick={() => router.replace(basePath)}
+              >
+                <IconX size={11} />
+              </ActionIcon>
+            }
+          >
+            {[
+              urlStatus ? STATUS_LABELS[urlStatus] : null,
+              filterAssigneeMe ? "My tickets" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </Badge>
+        )}
 
         <div className="flex-1" />
 

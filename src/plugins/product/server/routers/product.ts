@@ -6,6 +6,10 @@ import { buildProjectAccessWhere } from "~/server/services/access";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import {
+  COMPLETED_TICKET_STATUSES,
+  STATUS_ORDER,
+} from "~/lib/ticket-statuses";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -177,6 +181,250 @@ export const productRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       }
       return product;
+    }),
+
+  /**
+   * Single-round-trip aggregate for the product Overview tab: open-ticket
+   * counts by status, the current cycle (resolved read-only — never
+   * auto-creates or reconciles, unlike cycle.list) with this product's
+   * in-cycle points/status rollup and the caller's own tickets, the
+   * needs-attention lists (blocked / needs refinement / QA), demoted nav
+   * counts, and the last few ticket activity events for this product.
+   */
+  getOverview: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const product = await loadProductWithAccess(
+        ctx.db,
+        userId,
+        input.productId,
+      );
+      const now = new Date();
+
+      const attentionStatuses = [
+        "BLOCKED",
+        "NEEDS_REFINEMENT",
+        "QA",
+      ] as const;
+
+      const [statusGroups, navCounts, currentCycle, attentionTickets, rawEvents] =
+        await Promise.all([
+          ctx.db.ticket.groupBy({
+            by: ["status"],
+            where: { productId: input.productId },
+            _count: { _all: true },
+          }),
+          ctx.db.product.findUnique({
+            where: { id: input.productId },
+            select: {
+              _count: {
+                select: {
+                  features: true,
+                  researches: true,
+                  retrospectives: true,
+                },
+              },
+            },
+          }),
+          // Read-only "current cycle": an ACTIVE sprint that hasn't ended, or
+          // a PLANNED one whose window contains today (covers workspaces where
+          // the lazy reconcile in cycle.list hasn't run yet).
+          ctx.db.list.findFirst({
+            where: {
+              workspaceId: product.workspaceId,
+              listType: "SPRINT",
+              OR: [
+                {
+                  status: "ACTIVE",
+                  OR: [{ endDate: null }, { endDate: { gt: now } }],
+                },
+                {
+                  status: "PLANNED",
+                  startDate: { lte: now },
+                  endDate: { gt: now },
+                },
+                // Ended but never reconciled to COMPLETED — still the most
+                // recent "current" cycle the team was burning down.
+                { status: "ACTIVE", endDate: { lte: now } },
+              ],
+            },
+            orderBy: { startDate: "desc" },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              startDate: true,
+              endDate: true,
+            },
+          }),
+          ctx.db.ticket.findMany({
+            where: {
+              productId: input.productId,
+              status: { in: [...attentionStatuses] },
+            },
+            select: {
+              id: true,
+              shortId: true,
+              number: true,
+              title: true,
+              status: true,
+              updatedAt: true,
+            },
+            // Oldest first — the longest-rotting work is the most urgent.
+            orderBy: { updatedAt: "asc" },
+          }),
+          // Recent ticket events for the workspace; filtered to this product
+          // below (events carry no productId, so we resolve via the ticket).
+          ctx.db.workspaceActivityEvent.findMany({
+            where: { workspaceId: product.workspaceId, entityType: "ticket" },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+            select: {
+              id: true,
+              entityId: true,
+              action: true,
+              metadata: true,
+              createdAt: true,
+              user: { select: { id: true, name: true, image: true } },
+            },
+          }),
+        ]);
+
+      // ---- current cycle rollup (scoped to this product's tickets) ----
+      let cycle: {
+        id: string;
+        name: string;
+        status: string;
+        startDate: Date | null;
+        endDate: Date | null;
+        usesPoints: boolean;
+        committed: number;
+        completed: number;
+        inProgress: number;
+        statusCounts: { status: string; count: number }[];
+        myTickets: {
+          id: string;
+          shortId: string | null;
+          number: number;
+          title: string;
+          status: string;
+        }[];
+      } | null = null;
+
+      if (currentCycle) {
+        const cycleTickets = await ctx.db.ticket.findMany({
+          where: { productId: input.productId, cycleId: currentCycle.id },
+          select: {
+            id: true,
+            shortId: true,
+            number: true,
+            title: true,
+            status: true,
+            points: true,
+            assigneeId: true,
+          },
+        });
+
+        const completedSet = new Set<string>(COMPLETED_TICKET_STATUSES);
+        const usesPoints = cycleTickets.some((t) => (t.points ?? 0) > 0);
+        const weight = (t: { points: number | null }) =>
+          usesPoints ? (t.points ?? 0) : 1;
+
+        const committed = cycleTickets.reduce((s, t) => s + weight(t), 0);
+        const completed = cycleTickets
+          .filter((t) => completedSet.has(t.status))
+          .reduce((s, t) => s + weight(t), 0);
+        const inProgress = cycleTickets
+          .filter((t) => t.status === "IN_PROGRESS")
+          .reduce((s, t) => s + weight(t), 0);
+
+        const cycleStatusCounts = new Map<string, number>();
+        for (const t of cycleTickets) {
+          cycleStatusCounts.set(
+            t.status,
+            (cycleStatusCounts.get(t.status) ?? 0) + 1,
+          );
+        }
+
+        const statusRank = (s: string) => STATUS_ORDER[s] ?? 99;
+        const myTickets = cycleTickets
+          .filter((t) => t.assigneeId === userId)
+          .sort((a, b) => statusRank(a.status) - statusRank(b.status))
+          .slice(0, 4)
+          .map(({ id, shortId, number, title, status }) => ({
+            id,
+            shortId,
+            number,
+            title,
+            status,
+          }));
+
+        cycle = {
+          id: currentCycle.id,
+          name: currentCycle.name,
+          status: currentCycle.status,
+          startDate: currentCycle.startDate,
+          endDate: currentCycle.endDate,
+          usesPoints,
+          committed,
+          completed,
+          inProgress,
+          statusCounts: Array.from(cycleStatusCounts.entries())
+            .map(([status, count]) => ({ status, count }))
+            .sort((a, b) => statusRank(a.status) - statusRank(b.status)),
+          myTickets,
+        };
+      }
+
+      // ---- needs-attention groups (top items + full counts) ----
+      const pickGroup = (status: (typeof attentionStatuses)[number]) => {
+        const items = attentionTickets.filter((t) => t.status === status);
+        return { count: items.length, items: items.slice(0, 5) };
+      };
+
+      // ---- recent activity, resolved to this product's tickets ----
+      const eventTicketIds = [...new Set(rawEvents.map((e) => e.entityId))];
+      const eventTickets = eventTicketIds.length
+        ? await ctx.db.ticket.findMany({
+            where: {
+              id: { in: eventTicketIds },
+              productId: input.productId,
+            },
+            select: { id: true, shortId: true, number: true, title: true },
+          })
+        : [];
+      const ticketById = new Map(eventTickets.map((t) => [t.id, t]));
+      const activity = rawEvents
+        .filter((e) => ticketById.has(e.entityId))
+        .slice(0, 5)
+        .map((e) => ({
+          id: e.id,
+          action: e.action,
+          metadata: e.metadata,
+          createdAt: e.createdAt,
+          actor: e.user,
+          ticket: ticketById.get(e.entityId)!,
+        }));
+
+      return {
+        statusCounts: statusGroups.map((g) => ({
+          status: g.status,
+          count: g._count._all,
+        })),
+        counts: {
+          features: navCounts?._count.features ?? 0,
+          researches: navCounts?._count.researches ?? 0,
+          retrospectives: navCounts?._count.retrospectives ?? 0,
+        },
+        cycle,
+        attention: {
+          blocked: pickGroup("BLOCKED"),
+          needsRefinement: pickGroup("NEEDS_REFINEMENT"),
+          qa: pickGroup("QA"),
+        },
+        activity,
+      };
     }),
 
   create: protectedProcedure
