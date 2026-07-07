@@ -447,6 +447,17 @@ export const productRouter = createTRPCRouter({
         sortDir: z.string().optional(),
         visibleColumns: z.array(z.string()).optional(),
         entity: z.enum(["tickets", "epics"]).optional(),
+        filters: z
+          .object({
+            status: z.array(z.string()).optional(),
+            priority: z.array(z.string()).optional(),
+            type: z.array(z.string()).optional(),
+            assignee: z.array(z.string()).optional(),
+            epic: z.array(z.string()).optional(),
+            cycle: z.array(z.string()).optional(),
+            labels: z.array(z.string()).optional(),
+          })
+          .optional(),
       }),
     }))
     .mutation(async ({ ctx, input }) => {
