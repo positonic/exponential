@@ -448,14 +448,17 @@ export const productRouter = createTRPCRouter({
         visibleColumns: z.array(z.string()).optional(),
         entity: z.enum(["tickets", "epics"]).optional(),
         filters: z
+          // Bounded so a buggy/malicious client can't bloat the persisted
+          // settings JSON. Facet values are ids/enums, so these caps sit far
+          // above any realistic selection.
           .object({
-            status: z.array(z.string()).optional(),
-            priority: z.array(z.string()).optional(),
-            type: z.array(z.string()).optional(),
-            assignee: z.array(z.string()).optional(),
-            epic: z.array(z.string()).optional(),
-            cycle: z.array(z.string()).optional(),
-            labels: z.array(z.string()).optional(),
+            status: z.array(z.string().max(200)).max(200).optional(),
+            priority: z.array(z.string().max(200)).max(200).optional(),
+            type: z.array(z.string().max(200)).max(200).optional(),
+            assignee: z.array(z.string().max(200)).max(200).optional(),
+            epic: z.array(z.string().max(200)).max(200).optional(),
+            cycle: z.array(z.string().max(200)).max(200).optional(),
+            labels: z.array(z.string().max(200)).max(200).optional(),
           })
           .optional(),
       }),

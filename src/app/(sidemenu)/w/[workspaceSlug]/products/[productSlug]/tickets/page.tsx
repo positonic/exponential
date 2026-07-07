@@ -396,15 +396,19 @@ export default function TicketsBacklogPage() {
         setEntity(savedPrefs.entity);
       }
       if (savedPrefs.filters && typeof savedPrefs.filters === "object") {
+        // Saved prefs are untrusted JSON — guard each facet is actually an
+        // array. Stale values (e.g. a deleted epic id) are harmless: they
+        // simply match no tickets and aren't offered in facetOptions.
         const f = savedPrefs.filters as Partial<TicketFilters>;
+        const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
         setFilters({
-          status: f.status ?? [],
-          priority: f.priority ?? [],
-          type: f.type ?? [],
-          assignee: f.assignee ?? [],
-          epic: f.epic ?? [],
-          cycle: f.cycle ?? [],
-          labels: f.labels ?? [],
+          status: arr(f.status),
+          priority: arr(f.priority),
+          type: arr(f.type),
+          assignee: arr(f.assignee),
+          epic: arr(f.epic),
+          cycle: arr(f.cycle),
+          labels: arr(f.labels),
         });
       }
       setPrefsLoaded(true);
@@ -1096,7 +1100,13 @@ export default function TicketsBacklogPage() {
         )
       ) : tickets && tickets.length > 0 ? (
         <Text size="sm" className="text-text-muted py-8 text-center">
-          No tickets match your {activeFilterCount > 0 ? "filters" : "search"}.
+          No tickets match your{" "}
+          {activeFilterCount > 0 && search.trim()
+            ? "filters and search"
+            : activeFilterCount > 0
+              ? "filters"
+              : "search"}
+          .
         </Text>
       ) : (
         <EmptyState
