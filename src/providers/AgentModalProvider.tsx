@@ -1,6 +1,12 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type PropsWithChildren, type Dispatch, type SetStateAction } from 'react';
+import type { ToolCall } from '~/lib/chat/streamProtocol';
+
+// One agent tool invocation, accumulated client-side from __exp_tool__ frames.
+// Canonically defined next to the wire-protocol parser; re-exported here so
+// existing importers keep working.
+export type { ToolCall };
 
 // sessionStorage keys for per-tab isolation (prevents context bleeding between tabs)
 const CHAT_STORAGE_KEY = 'agent-chat-messages';
@@ -8,15 +14,6 @@ const CONVERSATION_STORAGE_KEY = 'agent-chat-conversation-id';
 const DRAWER_SIZE_STORAGE_KEY = 'zoe-drawer-size';
 
 export type DrawerSize = 's' | 'm' | 'l';
-
-// One agent tool invocation, accumulated client-side from __exp_tool__ frames.
-export interface ToolCall {
-  id: string;
-  name: string;
-  args?: Record<string, unknown>;
-  status: 'running' | 'success' | 'error';
-  errorMsg?: string;
-}
 
 // Message type shared between provider and ManyChat
 export interface ChatMessage {
