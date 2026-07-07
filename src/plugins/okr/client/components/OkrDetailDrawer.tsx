@@ -1919,6 +1919,13 @@ export function OkrDetailDrawer({
                   confidence={view.statusConf}
                   expectedFrac={view.expectedFrac}
                 />
+                <SectionHeader title="Add a comment" />
+                <ActivityComposer
+                  onSubmit={handleAddComment}
+                  isSubmitting={
+                    addGoalComment.isPending || addKrComment.isPending
+                  }
+                />
               </>
             )}
 
