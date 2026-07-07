@@ -38,15 +38,11 @@ function formatCount(template: string, n: number, total?: number): string {
   return template.replace('{n}', String(n)).replace('{total}', String(total ?? n));
 }
 
+// Only a curated pickArg may surface an arg value. An unmapped tool shows its
+// humanized verb alone — never a guessed arg (no ids, booleans, or JSON).
 function callLabel(call: ToolCall, display: ToolDisplay | undefined): string {
   const arg = display?.pickArg(call.args);
   if (arg) return arg;
-  // Unmapped tool: show the first string-ish arg as a fallback
-  if (call.args) {
-    for (const v of Object.values(call.args)) {
-      if (typeof v === 'string' && v.trim()) return v;
-    }
-  }
   return display ? display.verb : humanizeToolName(call.name);
 }
 
@@ -73,18 +69,27 @@ const ToolGroupRow = memo(function ToolGroupRow({ group }: { group: ToolGroup })
 
   if (singleCall) {
     headerIcon = <StatusIcon status={singleCall.status} />;
-    const verb =
-      singleCall.status === 'running'
-        ? display?.verb ?? humanizeToolName(toolName)
-        : display?.pastTense ?? humanizeToolName(toolName);
-    const arg = display?.pickArg(singleCall.args) ?? callLabel(singleCall, display);
-    headerLabel = (
-      <span className="text-text-secondary text-xs">
-        {verb}
-        {arg && arg !== verb ? `: ${arg}` : ''}
-        {singleCall.status === 'error' && singleCall.errorMsg ? ` — ${singleCall.errorMsg}` : ''}
-      </span>
-    );
+    if (singleCall.status === 'error') {
+      // Calm failure line: verb only, no arg, no raw error. The raw error
+      // text lives behind the row's click-to-expand (rendered below).
+      headerLabel = (
+        <span className="text-text-secondary text-xs">
+          {display?.verb ?? humanizeToolName(toolName)} — failed
+        </span>
+      );
+    } else {
+      const verb =
+        singleCall.status === 'running'
+          ? display?.verb ?? humanizeToolName(toolName)
+          : display?.pastTense ?? humanizeToolName(toolName);
+      const arg = display?.pickArg(singleCall.args);
+      headerLabel = (
+        <span className="text-text-secondary text-xs">
+          {verb}
+          {arg && arg !== verb ? `: ${arg}` : ''}
+        </span>
+      );
+    }
   } else if (isRunning) {
     headerIcon = <Loader size="xs" />;
     const template = display?.progress ?? `${humanizeToolName(toolName)}… {n}/{total}`;
@@ -109,6 +114,27 @@ const ToolGroupRow = memo(function ToolGroupRow({ group }: { group: ToolGroup })
   }
 
   if (singleCall) {
+    if (singleCall.status === 'error') {
+      return (
+        <div>
+          <UnstyledButton
+            onClick={() => setOpen((v) => !v)}
+            className="flex w-full items-center gap-2 rounded px-2 py-1 hover:bg-surface-hover"
+          >
+            {headerIcon}
+            {headerLabel}
+            <span className="ml-auto text-text-muted">
+              {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            </span>
+          </UnstyledButton>
+          <Collapse in={open}>
+            <div className="mt-1 break-words pl-6 pr-2 pb-1 text-xs text-text-muted">
+              {singleCall.errorMsg?.trim() ? singleCall.errorMsg.trim() : 'No error details available.'}
+            </div>
+          </Collapse>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-2 px-2 py-1">
         {headerIcon}
