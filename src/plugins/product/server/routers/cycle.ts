@@ -408,6 +408,8 @@ export const cycleRouter = createTRPCRouter({
           where: {
             workspaceId: input.workspaceId,
             listType: "SPRINT",
+            // Cancelled cycles are dead — they shouldn't block new dates
+            status: { not: "ARCHIVED" },
             ...(input.startDate ? { endDate: { gt: input.startDate } } : {}),
             ...(input.endDate ? { startDate: { lt: input.endDate } } : {}),
           },
@@ -477,6 +479,8 @@ export const cycleRouter = createTRPCRouter({
               workspaceId: cycle.workspaceId,
               listType: "SPRINT",
               id: { not: input.id },
+              // Cancelled cycles are dead — they shouldn't block new dates
+              status: { not: "ARCHIVED" },
               ...(newStart ? { endDate: { gt: newStart } } : {}),
               ...(newEnd ? { startDate: { lt: newEnd } } : {}),
             },
