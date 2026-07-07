@@ -15,8 +15,11 @@ type EntityType = z.infer<typeof entityTypeEnum>;
 // Knowledge pages live at `pages/{id}`; their titles are resolved live in
 // `list` so renames show up in the sidebar (and favourites of deleted pages
 // are skipped). Other page paths (e.g. product sections) are static routes
-// and keep their snapshot label.
-const KNOWLEDGE_PAGE_PATH = /^pages\/([a-z0-9]+)$/;
+// and keep their snapshot label. The id charset is kept broad (cuid today,
+// but cuid2/nanoid/uuid ids also match) so a future id-format change won't
+// silently downgrade page favourites to their snapshot label. No `g`/`y`
+// flag: `.match()` on the shared instance stays stateless across rows.
+const KNOWLEDGE_PAGE_PATH = /^pages\/([a-zA-Z0-9_-]+)$/;
 
 /**
  * Verify the user may favourite this entity and return the entity's
@@ -87,7 +90,7 @@ export const favoriteRouter = createTRPCRouter({
         .map((f) => f.entityId);
       const knowledgePageIds = favorites
         .filter((f) => f.entityType === "page")
-        .map((f) => KNOWLEDGE_PAGE_PATH.exec(f.entityId)?.[1])
+        .map((f) => f.entityId.match(KNOWLEDGE_PAGE_PATH)?.[1])
         .filter((id): id is string => id !== undefined);
 
       const [goals, keyResults, knowledgePages] = await Promise.all([
@@ -124,7 +127,7 @@ export const favoriteRouter = createTRPCRouter({
         } else if (entityType === "keyResult") {
           title = krTitle.get(f.entityId);
         } else {
-          const pageId = KNOWLEDGE_PAGE_PATH.exec(f.entityId)?.[1];
+          const pageId = f.entityId.match(KNOWLEDGE_PAGE_PATH)?.[1];
           if (pageId) {
             // knowledge page — live title; undefined means the page was deleted
             title = pageTitle.get(pageId);
