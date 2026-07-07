@@ -12,10 +12,13 @@ import {
   IconPlus,
   IconAffiliate,
   IconTargetArrow,
+  IconMicrophone,
+  IconTicket,
 } from "@tabler/icons-react";
 import {
   ActionIcon,
   Group,
+  Menu,
   Skeleton,
   Tabs,
   Text,
@@ -25,6 +28,7 @@ import {
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { buildProductFavoriteTarget } from "./favoriteTarget";
 
 const tabs = [
@@ -51,6 +55,7 @@ export default function ProductLayout({
   // Tab the user just clicked, shown as active immediately while the route
   // navigation is still pending — so the click feels acknowledged at once.
   const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
 
   const utils = api.useUtils();
 
@@ -180,15 +185,65 @@ export default function ProductLayout({
                 variant="default"
               />
             )}
-            <ActionIcon
-              variant="filled"
-              size="lg"
-              title="Add"
-              className="hover:scale-105"
-              style={{ transition: "all 0.2s ease" }}
-            >
-              <IconPlus size={20} />
-            </ActionIcon>
+            <Menu position="bottom-end" width={244} shadow="md">
+              <Menu.Target>
+                <ActionIcon
+                  variant="filled"
+                  size="lg"
+                  title="Add"
+                  className="hover:scale-105"
+                  style={{ transition: "all 0.2s ease" }}
+                >
+                  <IconPlus size={20} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Create</Menu.Label>
+                <Menu.Item
+                  leftSection={<IconTicket size={14} />}
+                  onClick={() => setTicketModalOpen(true)}
+                >
+                  New ticket
+                  <Text size="xs" c="dimmed">
+                    Add to the backlog
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconBulb size={14} />}
+                  onClick={() => router.push(`${basePath}/features/new`)}
+                >
+                  New feature
+                  <Text size="xs" c="dimmed">
+                    A larger unit of value
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconMicrophone size={14} />}
+                  onClick={() => router.push(`${basePath}/research/new`)}
+                >
+                  New research
+                  <Text size="xs" c="dimmed">
+                    Interview or finding
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconClipboardList size={14} />}
+                  onClick={() => router.push(`${basePath}/retrospectives/new`)}
+                >
+                  New retro
+                  <Text size="xs" c="dimmed">
+                    End-of-cycle review
+                  </Text>
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item
+                  leftSection={<IconCalendarClock size={14} />}
+                  onClick={() => router.push(`${basePath}/cycles/new`)}
+                >
+                  New cycle
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
             <ActionIcon
               variant="filled"
               size="lg"
@@ -225,6 +280,16 @@ export default function ProductLayout({
           <div className="px-10 pb-6">{children}</div>
         </Stack>
       </Tabs>
+
+      {product && (
+        <CreateTicketModal
+          opened={ticketModalOpen}
+          onClose={() => setTicketModalOpen(false)}
+          productId={product.id}
+          productName={product.name}
+          basePath={`${basePath}/tickets`}
+        />
+      )}
     </div>
   );
 }
