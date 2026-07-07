@@ -679,3 +679,25 @@
   }
   .heroTitle { font-size: 22px; }
 }
+
+/* Zoe canvas yield (ADR-0040): everything below the Zoe input collapses while
+   an engagement is active. The transitions live on the collapsed state only,
+   so entering the collapse is an animated yield and removing the class
+   restores the dashboard instantly. */
+.dashYield {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.dashYieldInner {
+  min-height: 0;
+}
+.dashYield_collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 450ms ease, opacity 300ms ease;
+}
+.dashYield_collapsed .dashYieldInner {
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s 450ms;
+}
