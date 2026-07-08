@@ -37,6 +37,8 @@ import {
   IconSearch,
   IconTarget,
   IconTrash,
+  IconWorld,
+  IconWorldOff,
   IconX,
 } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
@@ -53,6 +55,7 @@ import {
   TYPE_MAP,
   STATUS_OPTIONS,
   STATUS_COLORS,
+  PUBLISHABLE_INSIGHT_TYPES,
   type InsightStatus,
 } from "~/app/_components/product/insightMeta";
 
@@ -232,7 +235,7 @@ function FilterChip({ label, onClear }: { label: string; onClear: () => void }) 
 
 // Status groups render in triage order; Dismissed starts collapsed (the
 // backlog's "Completed" treatment).
-const GROUP_ORDER: InsightStatus[] = ["INBOX", "TRIAGED", "LINKED", "DISMISSED"];
+const GROUP_ORDER: InsightStatus[] = ["INBOX", "TRIAGED", "DISMISSED"];
 
 export default function InsightsPage() {
   const params = useParams();
@@ -246,6 +249,7 @@ export default function InsightsPage() {
   const [view, setView] = useState<"list" | "board">("list");
   const [origin, setOrigin] = useState<InsightOrigin>("all");
   const [showParked, setShowParked] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set(["DISMISSED"]));
   const [parkTarget, setParkTarget] = useState<{ id: string; title: string } | null>(null);
   const [parkReason, setParkReason] = useState("");
@@ -283,7 +287,12 @@ export default function InsightsPage() {
   );
 
   const { data: insights, isLoading } = api.product.insight.list.useQuery(
-    { productId: product?.id ?? "", includeParked: showParked, origin },
+    {
+      productId: product?.id ?? "",
+      includeParked: showParked,
+      includeDuplicates: showDuplicates,
+      origin,
+    },
     { enabled: !!product?.id },
   );
 
@@ -296,6 +305,8 @@ export default function InsightsPage() {
   const deleteInsight = api.product.insight.delete.useMutation({ onSuccess: invalidate });
   const parkInsight = api.product.insight.park.useMutation({ onSuccess: invalidate });
   const unparkInsight = api.product.insight.unpark.useMutation({ onSuccess: invalidate });
+  const publishInsight = api.product.insight.publish.useMutation({ onSuccess: invalidate });
+  const unpublishInsight = api.product.insight.unpublish.useMutation({ onSuccess: invalidate });
 
   const moveInsight = (itemId: string, toColumnId: string) =>
     updateInsight.mutateAsync({ id: itemId, status: toColumnId as InsightStatus });
@@ -346,7 +357,8 @@ export default function InsightsPage() {
     (typeFilter ? 1 : 0) +
     (statusFilter ? 1 : 0) +
     (origin !== "all" ? 1 : 0) +
-    (showParked ? 1 : 0);
+    (showParked ? 1 : 0) +
+    (showDuplicates ? 1 : 0);
 
   const handleDelete = (id: string, title: string) => {
     modals.openConfirmModal({
@@ -408,6 +420,26 @@ export default function InsightsPage() {
             </Badge>
           </Tooltip>
         )}
+        {insight.publishedAt != null && (
+          <Tooltip label="Visible on the public feedback board" position="top">
+            <Badge
+              size="xs"
+              variant="light"
+              color="teal"
+              className="shrink-0"
+              leftSection={<IconWorld size={10} />}
+            >
+              public
+            </Badge>
+          </Tooltip>
+        )}
+        {insight.duplicateOfId != null && (
+          <Tooltip label="Duplicate of another insight" position="top">
+            <Badge size="xs" variant="light" color="gray" className="shrink-0">
+              duplicate
+            </Badge>
+          </Tooltip>
+        )}
         {(insight.impact != null || insight.confidence != null) && (
           <Tooltip
             label={`Impact ${insight.impact ?? "-"} / Confidence ${insight.confidence ?? "-"}`}
@@ -455,6 +487,22 @@ export default function InsightsPage() {
             </ActionIcon>
           </Menu.Target>
           <Menu.Dropdown>
+            {PUBLISHABLE_INSIGHT_TYPES.includes(insight.type) &&
+              (insight.publishedAt != null ? (
+                <Menu.Item
+                  leftSection={<IconWorldOff size={14} />}
+                  onClick={() => unpublishInsight.mutate({ id: insight.id })}
+                >
+                  Unpublish from board
+                </Menu.Item>
+              ) : (
+                <Menu.Item
+                  leftSection={<IconWorld size={14} />}
+                  onClick={() => publishInsight.mutate({ id: insight.id })}
+                >
+                  Publish to board
+                </Menu.Item>
+              ))}
             {isParked ? (
               <Menu.Item
                 leftSection={<IconPlayerPlay size={14} />}
@@ -523,6 +571,9 @@ export default function InsightsPage() {
           />
         )}
         {showParked && <FilterChip label="Parked" onClear={() => setShowParked(false)} />}
+        {showDuplicates && (
+          <FilterChip label="Duplicates" onClear={() => setShowDuplicates(false)} />
+        )}
 
         <div className="flex-1" />
 
@@ -639,6 +690,16 @@ export default function InsightsPage() {
                   size="xs"
                   checked={showParked}
                   onChange={(e) => setShowParked(e.currentTarget.checked)}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <Text size="xs" className="text-text-muted whitespace-nowrap">
+                  Show duplicates
+                </Text>
+                <Switch
+                  size="xs"
+                  checked={showDuplicates}
+                  onChange={(e) => setShowDuplicates(e.currentTarget.checked)}
                 />
               </div>
             </Stack>

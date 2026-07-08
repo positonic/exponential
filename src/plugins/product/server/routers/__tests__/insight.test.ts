@@ -120,7 +120,7 @@ describe("insight router (mocked)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
-    // The create mutation runs inside a $transaction — invoke the callback with
+    // The create mutation runs inside a $transaction - invoke the callback with
     // the same mock as the transactional client.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dbMock.$transaction.mockImplementation(async (cb: any) => cb(dbMock));
@@ -185,7 +185,12 @@ describe("insight router (mocked)", () => {
 
       expect(dbMock.insight.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { productId, category: "Onboarding", parkedAt: null },
+          where: {
+            productId,
+            category: "Onboarding",
+            parkedAt: null,
+            duplicateOfId: null,
+          },
         }),
       );
     });
@@ -199,7 +204,7 @@ describe("insight router (mocked)", () => {
       await caller.product.insight.list({ productId, includeParked: true });
 
       expect(dbMock.insight.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { productId } }),
+        expect.objectContaining({ where: { productId, duplicateOfId: null } }),
       );
     });
 

@@ -2,10 +2,11 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient, type InsightType } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 // Loose shape for a ProseMirror document (same treatment as feature.ts).
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -21,7 +22,22 @@ const insightTypeEnum = z.enum([
   "PROBLEM",
 ]);
 
-const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "LINKED", "DISMISSED"]);
+// Status is the triage decision: INBOX = not yet reviewed, TRIAGED (shown as
+// "Accepted" in the UI) = reviewed and kept, DISMISSED = reviewed and rejected.
+// Feature linkage is a relational fact (FeatureInsight), never a status. The
+// DB enum retains a legacy LINKED value (kept to avoid a schema migration);
+// it is no longer accepted as input and is coalesced to TRIAGED at read.
+const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "DISMISSED"]);
+
+// Read-time coalescing of the legacy LINKED status (see insightStatusEnum).
+function coalesceStatus<T extends { status: string }>(row: T): T {
+  return row.status === "LINKED" ? { ...row, status: "TRIAGED" } : row;
+}
+
+// The only insight types that may appear on the public feedback board: the
+// user's own voice (feedback, pain points, feature requests / opportunities).
+// Everything else is internal evidence and is rejected by `publish`.
+const PUBLISHABLE_TYPES: InsightType[] = ["FEEDBACK", "PAIN_POINT", "OPPORTUNITY"];
 
 // Provenance filter (ADR-0037). An insight "came from a form" iff its `source`
 // starts with `form:` (stamped by the `create_insight` destination). `manual`
@@ -29,7 +45,7 @@ const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "LINKED", "DISMISSED"]);
 const insightOriginEnum = z.enum(["form", "manual", "all"]);
 
 // General triage scores (impact/confidence), 1–5. Usable by any insight type
-// (ADR-0036) — formerly Problem-only.
+// (ADR-0036) - formerly Problem-only.
 const scoreSchema = z.number().int().min(1).max(5);
 
 async function loadInsightWithAccess(
@@ -41,6 +57,10 @@ async function loadInsightWithAccess(
     where: { id: insightId },
     select: {
       id: true,
+      type: true,
+      title: true,
+      status: true,
+      duplicateOfId: true,
       productId: true,
       product: { select: { workspaceId: true } },
     },
@@ -64,10 +84,14 @@ export const insightRouter = createTRPCRouter({
         // (`source` starts with `form:`), `manual` = anything else, `all`
         // (default) applies no source filter.
         origin: insightOriginEnum.optional(),
-        // Parked insights are hidden by default — parking is independent of
+        // Parked insights are hidden by default - parking is independent of
         // status (an insight keeps its status while parked). Pass true to
         // include them (the "Show parked" toggle / a Parked lane).
         includeParked: z.boolean().optional(),
+        // Duplicates (Linear-style, `duplicateOfId` set) are hidden by
+        // default - they defer to their canonical insight. Pass true to
+        // include them.
+        includeDuplicates: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -88,14 +112,23 @@ export const insightRouter = createTRPCRouter({
               }
             : {};
 
-      return ctx.db.insight.findMany({
+      const rows = await ctx.db.insight.findMany({
         where: {
           productId: input.productId,
           ...(input.type ? { type: input.type } : {}),
-          ...(input.status ? { status: input.status } : {}),
+          // Legacy LINKED rows count as TRIAGED (see insightStatusEnum).
+          ...(input.status
+            ? {
+                status:
+                  input.status === "TRIAGED"
+                    ? { in: ["TRIAGED", "LINKED"] }
+                    : input.status,
+              }
+            : {}),
           ...(input.category ? { category: input.category } : {}),
           ...originWhere,
           ...(input.includeParked ? {} : { parkedAt: null }),
+          ...(input.includeDuplicates ? {} : { duplicateOfId: null }),
         },
         orderBy: [{ createdAt: "desc" }],
         include: {
@@ -104,9 +137,10 @@ export const insightRouter = createTRPCRouter({
           features: {
             include: { feature: { select: { id: true, name: true } } },
           },
-          _count: { select: { features: true } },
+          _count: { select: { features: true, duplicates: true } },
         },
       });
+      return rows.map(coalesceStatus);
     }),
 
   getById: protectedProcedure
@@ -122,13 +156,22 @@ export const insightRouter = createTRPCRouter({
           features: {
             include: { feature: { select: { id: true, name: true, status: true } } },
           },
+          duplicateOf: { select: { id: true, title: true } },
+          duplicates: {
+            select: { id: true, title: true, type: true, createdAt: true },
+            orderBy: { createdAt: "asc" },
+          },
+          comments: {
+            include: { author: { select: { id: true, name: true, image: true } } },
+            orderBy: { createdAt: "asc" },
+          },
         },
       });
       if (!insight) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Insight not found" });
       }
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, insight.product.workspaceId);
-      return insight;
+      return coalesceStatus(insight);
     }),
 
   create: protectedProcedure
@@ -141,7 +184,7 @@ export const insightRouter = createTRPCRouter({
         source: boundedText("Source", 500).optional(),
         sentiment: z.enum(["positive", "neutral", "negative"]).optional(),
         status: insightStatusEnum.optional(),
-        // General triage fields (ADR-0036) — usable by any type.
+        // General triage fields (ADR-0036) - usable by any type.
         evidence: boundedText("Evidence", TEXT_LIMITS.LARGE).optional(),
         category: boundedText("Category", TEXT_LIMITS.LABEL).optional(),
         impact: scoreSchema.optional(),
@@ -166,7 +209,9 @@ export const insightRouter = createTRPCRouter({
             impact: input.impact,
             confidence: input.confidence,
             description: input.title,
-            status: input.status ?? "INBOX",
+            // Created pre-linked to features = already reviewed and kept.
+            status:
+              input.status ?? (input.featureIds?.length ? "TRIAGED" : "INBOX"),
             createdById: ctx.session.user.id,
           },
         });
@@ -220,8 +265,22 @@ export const insightRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const existing = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
       const { id, bodyDoc, baseVersion, ...data } = input;
+
+      // Feed the detail page's activity trail (fire-and-forget). Compare
+      // against the coalesced status so a legacy LINKED row reads as TRIAGED.
+      const previousStatus = coalesceStatus(existing).status;
+      if (data.status && data.status !== previousStatus) {
+        await recordActivity(ctx.db, {
+          workspaceId: existing.product.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "insight",
+          entityId: id,
+          action: "status_changed",
+          metadata: { from: previousStatus, to: data.status },
+        });
+      }
 
       // Body autosave path: optimistic-concurrency guard + version bump.
       if (bodyDoc !== undefined) {
@@ -363,6 +422,12 @@ export const insightRouter = createTRPCRouter({
         create: { insightId: input.insightId, featureId: input.featureId },
         update: {},
       });
+      // Linking evidence to a feature implies it was reviewed and kept:
+      // promote un-triaged insights to TRIAGED. Never resurrect DISMISSED.
+      await ctx.db.insight.updateMany({
+        where: { id: input.insightId, status: { in: ["INBOX", "LINKED"] } },
+        data: { status: "TRIAGED" },
+      });
       return { success: true };
     }),
 
@@ -395,6 +460,13 @@ export const insightRouter = createTRPCRouter({
             });
           }
         }
+        if (uniqueFeatureIds.length > 0) {
+          // Same promotion as linkToFeature: linking implies reviewed-and-kept.
+          await tx.insight.updateMany({
+            where: { id: input.insightId, status: { in: ["INBOX", "LINKED"] } },
+            data: { status: "TRIAGED" },
+          });
+        }
         await tx.featureInsight.deleteMany({ where: { insightId: input.insightId } });
         await tx.featureInsight.createMany({
           data: uniqueFeatureIds.map((featureId) => ({
@@ -409,7 +481,7 @@ export const insightRouter = createTRPCRouter({
 
   // ── Parking ───────────────────────────────────────────────────────────
   // A general, reversible "defer with a reason" affordance on any insight
-  // (ADR-0036) — set aside WITH A REASON, never deleted, and revivable at its
+  // (ADR-0036) - set aside WITH A REASON, never deleted, and revivable at its
   // prior status. Parked-ness is independent of `status`.
 
   park: protectedProcedure
@@ -436,6 +508,238 @@ export const insightRouter = createTRPCRouter({
       return ctx.db.insight.update({
         where: { id: input.id },
         data: { parkedAt: null, parkReason: null },
+      });
+    }),
+
+  // ── Publishing ────────────────────────────────────────────────────────
+  // Feedback-board visibility. Publishing is always an explicit human act -
+  // form intake and triage never set it. Only user-voice insight types may be
+  // published; internal evidence (PROBLEM, COMPETITIVE, OBSERVATION, PERSONA,
+  // JOURNEY) is rejected server-side so the future public board can never
+  // leak it. The board read path must filter on `publishedAt`.
+
+  publish: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!PUBLISHABLE_TYPES.includes(insight.type)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Only user feedback (feedback, pain points, opportunities) can be published to the board",
+        });
+      }
+      const updated = await ctx.db.insight.update({
+        where: { id: input.id },
+        data: { publishedAt: new Date() },
+      });
+      await recordActivity(ctx.db, {
+        workspaceId: insight.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "insight",
+        entityId: input.id,
+        action: "updated",
+        metadata: { change: "published" },
+      });
+      return updated;
+    }),
+
+  unpublish: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const updated = await ctx.db.insight.update({
+        where: { id: input.id },
+        data: { publishedAt: null },
+      });
+      await recordActivity(ctx.db, {
+        workspaceId: insight.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "insight",
+        entityId: input.id,
+        action: "updated",
+        metadata: { change: "unpublished" },
+      });
+      return updated;
+    }),
+
+  // ── Duplicates ────────────────────────────────────────────────────────
+  // Linear-style non-destructive duplicate marking. The duplicate keeps all
+  // its content (insights are evidence; two reports are two data points) but
+  // drops out of default lists and defers to its canonical. Chains are
+  // flattened at write time so `duplicateOfId` is always one level deep.
+
+  markDuplicate: protectedProcedure
+    .input(z.object({ id: z.string(), canonicalId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.id === input.canonicalId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "An insight cannot be a duplicate of itself",
+        });
+      }
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const target = await ctx.db.insight.findUnique({
+        where: { id: input.canonicalId },
+        select: { id: true, title: true, productId: true, duplicateOfId: true },
+      });
+      if (!target || target.productId !== insight.productId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Canonical insight must belong to the same product",
+        });
+      }
+
+      // Flatten chains: if the chosen canonical is itself a duplicate, point
+      // at ITS canonical instead.
+      let canonical: { id: string; title: string } = target;
+      if (target.duplicateOfId) {
+        const resolved = await ctx.db.insight.findUnique({
+          where: { id: target.duplicateOfId },
+          select: { id: true, title: true },
+        });
+        if (resolved) canonical = resolved;
+      }
+      if (canonical.id === input.id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This would create a duplicate cycle",
+        });
+      }
+
+      await ctx.db.$transaction([
+        // Re-point any duplicates of this insight at the new canonical so the
+        // tree stays one level deep.
+        ctx.db.insight.updateMany({
+          where: { duplicateOfId: input.id },
+          data: { duplicateOfId: canonical.id },
+        }),
+        ctx.db.insight.update({
+          where: { id: input.id },
+          data: { duplicateOfId: canonical.id },
+        }),
+      ]);
+
+      await recordActivity(ctx.db, {
+        workspaceId: insight.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "insight",
+        entityId: input.id,
+        action: "updated",
+        metadata: {
+          change: "marked_duplicate",
+          canonicalId: canonical.id,
+          canonicalTitle: canonical.title,
+        },
+      });
+      await recordActivity(ctx.db, {
+        workspaceId: insight.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "insight",
+        entityId: canonical.id,
+        action: "updated",
+        metadata: {
+          change: "duplicate_added",
+          duplicateId: input.id,
+          duplicateTitle: insight.title,
+        },
+      });
+      return { success: true, canonicalId: canonical.id };
+    }),
+
+  unmarkDuplicate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!insight.duplicateOfId) return { success: true };
+      await ctx.db.insight.update({
+        where: { id: input.id },
+        data: { duplicateOfId: null },
+      });
+      await recordActivity(ctx.db, {
+        workspaceId: insight.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "insight",
+        entityId: input.id,
+        action: "updated",
+        metadata: { change: "unmarked_duplicate" },
+      });
+      return { success: true };
+    }),
+
+  // ── Activity ──────────────────────────────────────────────────────────
+  // The detail page's activity feed merges InsightComment rows with
+  // WorkspaceActivityEvent rows (entityType "insight") by createdAt.
+
+  addComment: protectedProcedure
+    .input(
+      z.object({
+        insightId: z.string(),
+        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const comment = await ctx.db.insightComment.create({
+        data: {
+          insightId: input.insightId,
+          authorId: ctx.session.user.id,
+          content: input.content,
+        },
+        include: { author: { select: { id: true, name: true, image: true } } },
+      });
+      await recordActivity(ctx.db, {
+        workspaceId: insight.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "insight_comment",
+        entityId: comment.id,
+        action: "created",
+        metadata: { insightId: input.insightId, snippet: input.content.slice(0, 120) },
+      });
+      return comment;
+    }),
+
+  deleteComment: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.insightComment.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          authorId: true,
+          insight: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        comment.insight.product.workspaceId,
+      );
+      if (comment.authorId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only delete your own comments",
+        });
+      }
+      await ctx.db.insightComment.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  listEvents: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      return ctx.db.workspaceActivityEvent.findMany({
+        where: {
+          workspaceId: insight.product.workspaceId,
+          entityType: "insight",
+          entityId: input.id,
+        },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, image: true } } },
       });
     }),
 });

@@ -32,21 +32,37 @@ export type InsightType = (typeof INSIGHT_TYPES)[number]["value"];
 export const TYPE_MAP: Record<string, { value: string; label: string; icon: TablerIcon; color: string }> =
   Object.fromEntries(INSIGHT_TYPES.map((t) => [t.value, t]));
 
-export type InsightStatus = "INBOX" | "TRIAGED" | "LINKED" | "DISMISSED";
+/**
+ * Insight status is the triage DECISION, not a lifecycle: INBOX = not yet
+ * reviewed, TRIAGED (shown as "Accepted") = reviewed and kept, DISMISSED =
+ * reviewed and rejected. "Reviewed" is the transition out of INBOX, never a
+ * state. Feature linkage is a relational fact (FeatureInsight), not a status -
+ * the DB enum's legacy LINKED value is coalesced to TRIAGED at read in the
+ * insight router and must not reach the client.
+ */
+export type InsightStatus = "INBOX" | "TRIAGED" | "DISMISSED";
 
 export const STATUS_OPTIONS: { value: InsightStatus; label: string }[] = [
   { value: "INBOX", label: "Inbox" },
-  { value: "TRIAGED", label: "Triaged" },
-  { value: "LINKED", label: "Linked" },
+  { value: "TRIAGED", label: "Accepted" },
   { value: "DISMISSED", label: "Dismissed" },
 ];
 
 export const STATUS_COLORS: Record<string, string> = {
   INBOX: "gray",
   TRIAGED: "blue",
-  LINKED: "green",
   DISMISSED: "dark",
 };
+
+/**
+ * Types that may be published to the public feedback board (user-voice only;
+ * mirrors PUBLISHABLE_TYPES in the insight router, which enforces it).
+ */
+export const PUBLISHABLE_INSIGHT_TYPES: string[] = [
+  "FEEDBACK",
+  "PAIN_POINT",
+  "OPPORTUNITY",
+];
 
 export const SENTIMENT_COLORS: Record<string, string> = {
   positive: "green",
@@ -54,10 +70,9 @@ export const SENTIMENT_COLORS: Record<string, string> = {
   negative: "red",
 };
 
-/** Kanban columns for the insights board — the four InsightStatus values. */
+/** Kanban columns for the insights board - the three InsightStatus values. */
 export const INSIGHT_STATUS_COLUMNS: { id: InsightStatus; title: string; accent: ColumnAccent }[] = [
   { id: "INBOX", title: "Inbox", accent: "slate" },
-  { id: "TRIAGED", title: "Triaged", accent: "brand" },
-  { id: "LINKED", title: "Linked", accent: "green" },
+  { id: "TRIAGED", title: "Accepted", accent: "brand" },
   { id: "DISMISSED", title: "Dismissed", accent: "red" },
 ];
