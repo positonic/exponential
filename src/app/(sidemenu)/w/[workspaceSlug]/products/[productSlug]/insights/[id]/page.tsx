@@ -44,6 +44,7 @@ import {
   IconWorldOff,
 } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
+import { useSession } from "next-auth/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import {
@@ -108,6 +109,7 @@ export default function InsightDetailPage() {
   const productSlug = params.productSlug as string;
   const insightId = params.id as string;
   const { workspace } = useWorkspace();
+  const { data: session } = useSession();
   const utils = api.useUtils();
 
   const { data: insight, isLoading } = api.product.insight.getById.useQuery(
@@ -483,14 +485,18 @@ export default function InsightDetailPage() {
                             <MarkdownRenderer content={item.comment.content} />
                           </div>
                         </div>
-                        <ActionIcon
-                          variant="subtle"
-                          color="red"
-                          size="xs"
-                          onClick={() => deleteComment.mutate({ id: item.comment.id })}
-                        >
-                          <IconTrash size={12} />
-                        </ActionIcon>
+                        {/* Server restricts deletes to the author - only
+                            offer the button where it can succeed. */}
+                        {item.comment.author.id === session?.user?.id && (
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            size="xs"
+                            onClick={() => deleteComment.mutate({ id: item.comment.id })}
+                          >
+                            <IconTrash size={12} />
+                          </ActionIcon>
+                        )}
                       </Group>
                     </div>
                   ) : (

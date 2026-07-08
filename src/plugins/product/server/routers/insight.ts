@@ -590,15 +590,26 @@ export const insightRouter = createTRPCRouter({
         });
       }
 
-      // Flatten chains: if the chosen canonical is itself a duplicate, point
-      // at ITS canonical instead.
-      let canonical: { id: string; title: string } = target;
-      if (target.duplicateOfId) {
+      // Flatten chains: if the chosen canonical is itself a duplicate, walk up
+      // to the true root. Writes keep the tree one level deep, but a race or a
+      // direct DB write could leave a deeper chain - loop with a cycle guard
+      // instead of trusting the invariant.
+      let canonical: { id: string; title: string; duplicateOfId: string | null } = target;
+      const visited = new Set<string>([input.id, target.id]);
+      while (canonical.duplicateOfId) {
+        if (visited.has(canonical.duplicateOfId)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This would create a duplicate cycle",
+          });
+        }
+        visited.add(canonical.duplicateOfId);
         const resolved = await ctx.db.insight.findUnique({
-          where: { id: target.duplicateOfId },
-          select: { id: true, title: true },
+          where: { id: canonical.duplicateOfId },
+          select: { id: true, title: true, duplicateOfId: true },
         });
-        if (resolved) canonical = resolved;
+        if (!resolved) break;
+        canonical = resolved;
       }
       if (canonical.id === input.id) {
         throw new TRPCError({
