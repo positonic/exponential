@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
@@ -16,7 +16,7 @@ import {
 
 /**
  * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
- * A cross-workspace Feature move is a lossy cascade, so — per ADR-0027 — the
+ * A cross-workspace Feature move is a lossy cascade, so - per ADR-0027 - the
  * mover must be able to *write* to both the source and destination workspaces,
  * not merely read them. This is stricter than {@link assertWorkspaceMember},
  * which admits viewers.
@@ -42,7 +42,7 @@ async function assertWorkspaceWriteRole(
  * the {@link FeatureMoveGraph} + {@link FeatureMoveDestination} the pure
  * planner consumes. Shared by the read-only `getMovePreview` and the executing
  * `move` mutation so the dialog preview and the actual move are computed from
- * identical inputs (ADR-0027 — preview must never disagree with execution).
+ * identical inputs (ADR-0027 - preview must never disagree with execution).
  */
 async function loadFeatureMoveContext(
   db: PrismaClient,
@@ -163,13 +163,46 @@ async function loadFeatureMoveContext(
 /** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
 
+// Feature lifecycle (Features V2). SHIPPED is the DB value for the "Live"
+// state - the UI always displays "Live". DEPRECATED = was live, sunset by a
+// human; ARCHIVED = registry housekeeping for things that never shipped.
 const featureStatusEnum = z.enum([
   "IDEA",
   "DEFINED",
   "IN_PROGRESS",
   "SHIPPED",
+  "DEPRECATED",
   "ARCHIVED",
 ]);
+
+const requirementKindEnum = z.enum(["FUNCTIONAL", "NON_FUNCTIONAL", "CONSTRAINT"]);
+
+/**
+ * Scope -> Feature status rollup (Features V2). When a Feature has scopes,
+ * its delivery stages derive from them: any live (SHIPPED) scope means the
+ * Feature is live and STAYS live while extensions build; otherwise a scope in
+ * progress means IN_PROGRESS. Registry stages (IDEA/DEFINED) and the manual
+ * terminal states (DEPRECATED/ARCHIVED) are never derived - with no derivable
+ * signal the human's last setting stands. Call after every scope write.
+ */
+async function applyScopeRollup(db: PrismaClient, featureId: string) {
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: { status: true, scopes: { select: { status: true } } },
+  });
+  if (!feature || feature.scopes.length === 0) return;
+  if (feature.status === "DEPRECATED" || feature.status === "ARCHIVED") return;
+
+  const derived = feature.scopes.some((s) => s.status === "SHIPPED")
+    ? ("SHIPPED" as const)
+    : feature.scopes.some((s) => s.status === "IN_PROGRESS")
+      ? ("IN_PROGRESS" as const)
+      : null;
+
+  if (derived && derived !== feature.status) {
+    await db.feature.update({ where: { id: featureId }, data: { status: derived } });
+  }
+}
 
 const scopeStatusEnum = z.enum([
   "PLANNED",
@@ -272,9 +305,10 @@ export const featureRouter = createTRPCRouter({
         orderBy: { createdAt: "desc" },
         include: {
           goal: { select: { id: true, title: true, period: true } },
+          area: { select: { id: true, name: true, displayOrder: true } },
           tags: { include: { tag: true } },
           _count: {
-            select: { scopes: true, userStories: true, tickets: true },
+            select: { scopes: true, requirements: true, tickets: true },
           },
         },
       });
@@ -285,7 +319,7 @@ export const featureRouter = createTRPCRouter({
    * (ADR-0035). Unlike {@link list} (one Product), this returns every Feature
    * across *all* of the workspace's Products, with only the lean card fields the
    * board needs plus the parent `product` (icon/color/name for the card badge).
-   * No descriptions, no ticket graphs — keep the payload small.
+   * No descriptions, no ticket graphs - keep the payload small.
    *
    * Access is gated at the workspace level (`assertWorkspaceMember`); every
    * Feature returned belongs to a Product in that workspace, so the per-Product
@@ -320,7 +354,7 @@ export const featureRouter = createTRPCRouter({
             },
           },
           // Lean Objective for the Product Roadmap's swimlane grouping
-          // (ADR-0035) — id + title only, no Key results / nested graph.
+          // (ADR-0035) - id + title only, no Key results / nested graph.
           goal: { select: { id: true, title: true } },
         },
       });
@@ -343,8 +377,23 @@ export const featureRouter = createTRPCRouter({
               parentGoal: { select: { id: true, title: true } },
             },
           },
+          area: { select: { id: true, name: true } },
           scopes: { orderBy: { displayOrder: "asc" } },
           userStories: { orderBy: { displayOrder: "asc" } },
+          requirements: {
+            orderBy: { displayOrder: "asc" },
+            include: {
+              checkedBy: { select: { id: true, name: true, image: true } },
+            },
+          },
+          pages: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              page: {
+                select: { id: true, title: true, updatedAt: true },
+              },
+            },
+          },
           insights: {
             include: {
               insight: {
@@ -380,6 +429,7 @@ export const featureRouter = createTRPCRouter({
         effort: z.number().optional(),
         priority: z.number().int().min(0).max(4).optional(),
         goalId: z.number().int().optional(),
+        areaId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -398,6 +448,16 @@ export const featureRouter = createTRPCRouter({
         }
       }
 
+      if (input.areaId) {
+        const area = await ctx.db.area.findFirst({
+          where: { id: input.areaId, productId: input.productId },
+          select: { id: true },
+        });
+        if (!area) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+        }
+      }
+
       return ctx.db.feature.create({
         data: {
           productId: input.productId,
@@ -408,6 +468,7 @@ export const featureRouter = createTRPCRouter({
           effort: input.effort,
           priority: input.priority,
           goalId: input.goalId,
+          areaId: input.areaId,
           createdById: ctx.session.user.id,
         },
       });
@@ -426,12 +487,17 @@ export const featureRouter = createTRPCRouter({
         goalId: z.number().int().nullable().optional(),
         // PRD body save (ADR-0024). `descriptionDoc` is the canonical document;
         // `description` rides along as its derived Markdown projection (the
-        // client serialises it, since the projection needs the editor schema —
+        // client serialises it, since the projection needs the editor schema -
         // a deviation from ADR-0024's "server derives", forced by there being no
         // server-side DOM; the JSON-canonical, write-once-Markdown invariant
         // still holds). `baseVersion` is the optimistic-concurrency check.
         descriptionDoc: prosemirrorDoc.optional(),
         baseVersion: z.number().int().min(0).optional(),
+        areaId: z.string().nullable().optional(),
+        // Deprecation cascade (Features V2): when setting status DEPRECATED,
+        // pass true to also deprecate the feature's still-live scopes. The UI
+        // prompts for this; it is never implicit.
+        deprecateScopes: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -450,7 +516,46 @@ export const featureRouter = createTRPCRouter({
         }
       }
 
-      const { id, descriptionDoc, baseVersion, ...rest } = input;
+      if (input.areaId) {
+        const area = await ctx.db.area.findFirst({
+          where: { id: input.areaId, productId: feature.productId },
+          select: { id: true },
+        });
+        if (!area) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+        }
+      }
+
+      // Archived = never became product. A feature that is (or was) live can
+      // only be deprecated - archiving it would erase product history.
+      if (input.status === "ARCHIVED") {
+        const current = await ctx.db.feature.findUnique({
+          where: { id: input.id },
+          select: {
+            status: true,
+            scopes: { select: { status: true }, where: { status: { in: ["SHIPPED", "DEPRECATED"] } } },
+          },
+        });
+        const everLive =
+          current?.status === "SHIPPED" ||
+          current?.status === "DEPRECATED" ||
+          (current?.scopes.length ?? 0) > 0;
+        if (everLive) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This feature was live - deprecate it instead of archiving",
+          });
+        }
+      }
+
+      const { id, descriptionDoc, baseVersion, deprecateScopes, ...rest } = input;
+
+      if (input.status === "DEPRECATED" && deprecateScopes) {
+        await ctx.db.featureScope.updateMany({
+          where: { featureId: id, status: { not: "DEPRECATED" } },
+          data: { status: "DEPRECATED" },
+        });
+      }
 
       // PRD body autosave path: optimistic-concurrency guard + version bump.
       if (descriptionDoc !== undefined) {
@@ -474,7 +579,7 @@ export const featureRouter = createTRPCRouter({
             message:
               decision.reason === "stale"
                 ? "This PRD was updated in another tab or by another member. Reload to get the latest version."
-                : "Stale document version — reload and try again.",
+                : "Stale document version - reload and try again.",
           });
         }
         // Atomic compare-and-set: the WHERE on docVersion closes the read→write
@@ -510,7 +615,7 @@ export const featureRouter = createTRPCRouter({
    * ProseMirror JSON via the codec on first open and calls this to store it.
    *
    * Idempotent and write-once: if `descriptionDoc` is already set, the existing
-   * doc wins and nothing is written — so a second tab (or a real edit that has
+   * doc wins and nothing is written - so a second tab (or a real edit that has
    * already happened) is never clobbered by a migration. `description` is left
    * untouched (it is the source of this migration), as is `docVersion`.
    */
@@ -578,8 +683,8 @@ export const featureRouter = createTRPCRouter({
   /**
    * Move a Feature to a Product in another workspace (ADR-0027).
    *
-   * A Feature has no workspace of its own — its only container link is
-   * `productId` — so "move to a workspace" is re-pointing `productId` at a
+   * A Feature has no workspace of its own - its only container link is
+   * `productId` - so "move to a workspace" is re-pointing `productId` at a
    * Product in the destination workspace. The move is a single-transaction
    * lossy cascade whose rules (and the loss counts shown in the confirm dialog)
    * are computed by the pure {@link planFeatureMove}, so preview and execution
@@ -590,7 +695,7 @@ export const featureRouter = createTRPCRouter({
    */
   /**
    * Read-only preview of a move's loss summary (ADR-0027). Runs the exact same
-   * fetch + {@link planFeatureMove} as `move`, but applies nothing — so the
+   * fetch + {@link planFeatureMove} as `move`, but applies nothing - so the
    * confirm dialog can enumerate every consequence before the user commits,
    * and can never disagree with what `move` will do. Same both-ends access
    * checks as the move itself.
@@ -745,7 +850,7 @@ export const featureRouter = createTRPCRouter({
         select: { displayOrder: true },
       });
 
-      return ctx.db.featureScope.create({
+      const scope = await ctx.db.featureScope.create({
         data: {
           featureId: input.featureId,
           version: input.version,
@@ -755,6 +860,8 @@ export const featureRouter = createTRPCRouter({
           displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
         },
       });
+      await applyScopeRollup(ctx.db, input.featureId);
+      return scope;
     }),
 
   updateScope: protectedProcedure
@@ -769,20 +876,326 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
 
       const { id, ...data } = input;
-      return ctx.db.featureScope.update({
+      const updated = await ctx.db.featureScope.update({
         where: { id },
-        data,
+        data: {
+          ...data,
+          // Going live stamps the shipping event if the caller didn't.
+          ...(input.status === "SHIPPED" && input.shippedAt === undefined
+            ? { shippedAt: new Date() }
+            : {}),
+        },
       });
+      if (input.status !== undefined) {
+        await applyScopeRollup(ctx.db, scope.featureId);
+      }
+      return updated;
     }),
 
   deleteScope: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.featureScope.delete({ where: { id: input.id } });
+      await applyScopeRollup(ctx.db, scope.featureId);
+      return { success: true };
+    }),
+
+  // ────────────────── Areas ──────────────────
+  // Exclusive per-product buckets for the feature registry (Features V2).
+  // Flat, one carving axis per product; deleting an Area un-sorts its
+  // features (areaId SetNull), never deletes them.
+
+  listAreas: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      return ctx.db.area.findMany({
+        where: { productId: input.productId },
+        orderBy: { displayOrder: "asc" },
+        include: { _count: { select: { features: true } } },
+      });
+    }),
+
+  createArea: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.MEDIUM).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const maxOrder = await ctx.db.area.findFirst({
+        where: { productId: input.productId },
+        orderBy: { displayOrder: "desc" },
+        select: { displayOrder: true },
+      });
+      try {
+        return await ctx.db.area.create({
+          data: {
+            productId: input.productId,
+            name: input.name,
+            description: input.description,
+            displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
+          },
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An area with this name already exists in this product",
+          });
+        }
+        throw e;
+      }
+    }),
+
+  updateArea: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.MEDIUM).nullable().optional(),
+        displayOrder: z.number().int().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const area = await ctx.db.area.findUnique({
+        where: { id: input.id },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (!area) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      const { id, ...data } = input;
+      try {
+        return await ctx.db.area.update({ where: { id }, data });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An area with this name already exists in this product",
+          });
+        }
+        throw e;
+      }
+    }),
+
+  deleteArea: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const area = await ctx.db.area.findUnique({
+        where: { id: input.id },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (!area) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      await ctx.db.area.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // ────────────────── Requirements ──────────────────
+  // Checkable EARS-style statements (ADR-0039). Replaces user stories as the
+  // requirements write path; the UserStory endpoints below stay for dormant
+  // legacy data but the UI no longer writes to them.
+
+  addRequirement: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        scopeId: z.string().optional(),
+        statement: boundedText("Statement", TEXT_LIMITS.MEDIUM, { min: 1 }),
+        kind: requirementKindEnum.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== input.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      const maxOrder = await ctx.db.requirement.findFirst({
+        where: { featureId: input.featureId },
+        orderBy: { displayOrder: "desc" },
+        select: { displayOrder: true },
+      });
+      return ctx.db.requirement.create({
+        data: {
+          featureId: input.featureId,
+          scopeId: input.scopeId,
+          statement: input.statement,
+          kind: input.kind,
+          displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
+        },
+      });
+    }),
+
+  updateRequirement: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        statement: boundedText("Statement", TEXT_LIMITS.MEDIUM, { min: 1 }).optional(),
+        kind: requirementKindEnum.nullable().optional(),
+        scopeId: z.string().nullable().optional(),
+        displayOrder: z.number().int().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.db.requirement.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          featureId: true,
+          feature: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!requirement) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        requirement.feature.product.workspaceId,
+      );
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== requirement.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      const { id, ...data } = input;
+      return ctx.db.requirement.update({ where: { id }, data });
+    }),
+
+  /** Check a requirement off as met (or un-check it). Records who and when. */
+  setRequirementChecked: protectedProcedure
+    .input(z.object({ id: z.string(), checked: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.db.requirement.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          feature: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!requirement) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        requirement.feature.product.workspaceId,
+      );
+      return ctx.db.requirement.update({
+        where: { id: input.id },
+        data: input.checked
+          ? { checkedAt: new Date(), checkedById: ctx.session.user.id }
+          : { checkedAt: null, checkedById: null },
+      });
+    }),
+
+  deleteRequirement: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.db.requirement.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          feature: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!requirement) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        requirement.feature.product.workspaceId,
+      );
+      await ctx.db.requirement.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // ────────────────── Spec pages ──────────────────
+  // Document-shaped specs: Knowledge pages (PRDs, research, technical specs)
+  // linked to a Feature, optionally pinned to a Scope. The page must belong to
+  // the same workspace as the feature's product.
+
+  linkPage: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        pageId: z.string(),
+        scopeId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const page = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.pageId },
+        select: { id: true, workspaceId: true },
+      });
+      if (!page || page.workspaceId !== feature.product.workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Page not found in this workspace",
+        });
+      }
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== input.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      await ctx.db.featurePage.upsert({
+        where: {
+          featureId_pageId: { featureId: input.featureId, pageId: input.pageId },
+        },
+        create: {
+          featureId: input.featureId,
+          pageId: input.pageId,
+          scopeId: input.scopeId,
+        },
+        update: { scopeId: input.scopeId ?? null },
+      });
+      return { success: true };
+    }),
+
+  unlinkPage: protectedProcedure
+    .input(z.object({ featureId: z.string(), pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await ctx.db.featurePage.deleteMany({
+        where: { featureId: input.featureId, pageId: input.pageId },
+      });
       return { success: true };
     }),
 

@@ -26,6 +26,7 @@ import {
   IconFilter,
   IconLayoutGrid,
   IconList,
+  IconMap2,
   IconPencil,
   IconPlus,
 } from "@tabler/icons-react";
@@ -34,30 +35,16 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { EditFeatureModal } from "~/app/_components/product/EditFeatureModal";
+import { CreateFeatureModal } from "~/app/_components/product/CreateFeatureModal";
+import {
+  FEATURE_STATUS_LABELS as STATUS_LABELS,
+  FEATURE_STATUS_ORDER as STATUS_ORDER,
+  FEATURE_STATUS_COLORS as STATUS_COLORS,
+} from "~/lib/feature-statuses";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const STATUS_LABELS: Record<string, string> = {
-  IDEA: "Idea",
-  DEFINED: "Defined",
-  IN_PROGRESS: "In progress",
-  SHIPPED: "Shipped",
-  ARCHIVED: "Archived",
-};
-
-const STATUS_ORDER: Record<string, number> = {
-  IDEA: 0, DEFINED: 1, IN_PROGRESS: 2, SHIPPED: 3, ARCHIVED: 4,
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  IDEA: "gray",
-  DEFINED: "blue",
-  IN_PROGRESS: "yellow",
-  SHIPPED: "green",
-  ARCHIVED: "dark",
-};
 
 const PRIORITY_LABELS: Record<number, string> = {
   0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None",
@@ -103,11 +90,9 @@ function groupKey(f: Record<string, unknown>, field: GroupByField): string {
   switch (field) {
     case "status": return (f.status as string) ?? "UNKNOWN";
     case "priority": return f.priority != null ? String(f.priority as number) : "unset";
-    case "area": {
-      const tags = f.tags as Array<{ tag: { category: string | null; name: string } }> | undefined;
-      const areaTag = tags?.find((t) => t.tag.category === "area");
-      return areaTag?.tag.name ?? "No area";
-    }
+    // Real Area relation (Features V2) - replaces the old category:"area" tag
+    // stopgap.
+    case "area": return (f.area as { name: string } | null)?.name ?? "No area";
     default: return "all";
   }
 }
@@ -134,7 +119,9 @@ export default function FeaturesListPage() {
   const [sortField] = useState<SortField>("status");
   const [sortDir] = useState<SortDir>("asc");
   const [view, setView] = useState("list");
-  const [groupBy, setGroupBy] = useState<GroupByField>("none");
+  // The registry default: features grouped by Area - the product's carve.
+  const [groupBy, setGroupBy] = useState<GroupByField>("area");
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -178,11 +165,20 @@ export default function FeaturesListPage() {
       if (arr) arr.push(f);
       else map.set(k, [f]);
     }
-    return Array.from(map.entries()).map(([key, items]) => ({
+    const entries = Array.from(map.entries()).map(([key, items]) => ({
       key,
       label: groupLabel(key, groupBy),
       items,
     }));
+    // Area groups follow the product's own ordering; unsorted features last.
+    if (groupBy === "area") {
+      const orderOf = (g: (typeof entries)[number]) =>
+        g.key === "No area"
+          ? Number.MAX_SAFE_INTEGER
+          : (g.items[0]?.area?.displayOrder ?? Number.MAX_SAFE_INTEGER - 1);
+      entries.sort((a, b) => orderOf(a) - orderOf(b));
+    }
+    return entries;
   }, [sorted, groupBy]);
 
   if (!workspace) return null;
@@ -201,6 +197,11 @@ export default function FeaturesListPage() {
       <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
         {feature.name}
       </Text>
+      {groupBy !== "area" && feature.area && (
+        <Badge size="xs" variant="outline" color="gray" className="shrink-0">
+          {feature.area.name}
+        </Badge>
+      )}
       {feature.priority != null && (
         <Text size="xs" className="text-text-muted shrink-0">
           {PRIORITY_LABELS[feature.priority]}
@@ -357,15 +358,28 @@ export default function FeaturesListPage() {
                   }}
                 />
               </div>
+              <div className="pt-2 border-t border-border-primary mt-2">
+                <Button
+                  component={Link}
+                  href={`/w/${workspace.slug}/products/${productSlug}/settings`}
+                  size="xs"
+                  variant="subtle"
+                  color="gray"
+                  leftSection={<IconMap2 size={14} />}
+                  fullWidth
+                  styles={{ inner: { justifyContent: "flex-start" } }}
+                >
+                  Manage areas in settings
+                </Button>
+              </div>
             </Popover.Dropdown>
           </Popover>
         </div>
 
         <Button
-          component={Link}
-          href={`${basePath}/new`}
           size="xs"
           leftSection={<IconPlus size={14} />}
+          onClick={() => setCreateModalOpen(true)}
           disabled={!product}
           variant="light"
           styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
@@ -432,8 +446,7 @@ export default function FeaturesListPage() {
           action={
             product && (
               <Button
-                component={Link}
-                href={`${basePath}/new`}
+                onClick={() => setCreateModalOpen(true)}
                 leftSection={<IconPlus size={16} />}
                 color="brand"
               >
@@ -449,6 +462,16 @@ export default function FeaturesListPage() {
           opened={editFeatureId !== null}
           onClose={() => setEditFeatureId(null)}
           featureId={editFeatureId}
+          workspaceId={workspaceId ?? undefined}
+        />
+      )}
+
+      {product && (
+        <CreateFeatureModal
+          opened={createModalOpen}
+          onClose={() => setCreateModalOpen(false)}
+          productId={product.id}
+          productName={product.name}
           workspaceId={workspaceId ?? undefined}
         />
       )}

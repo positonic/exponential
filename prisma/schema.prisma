@@ -257,6 +257,7 @@ model User {
   ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
   insightsCreated       Insight[]          @relation("InsightCreatedBy")
   insightComments       InsightComment[]   @relation("InsightCommentAuthor")
+  requirementsChecked   Requirement[]      @relation("RequirementCheckedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -2567,9 +2568,10 @@ model KnowledgePage {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy User      @relation(fields: [createdById], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User          @relation(fields: [createdById], references: [id])
+  features  FeaturePage[]
 
   @@index([workspaceId])
   @@index([projectId])
@@ -3890,6 +3892,7 @@ model Product {
   workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy       User             @relation("ProductCreatedBy", fields: [createdById], references: [id])
   features        Feature[]
+  areas           Area[]
   tickets         Ticket[]
   researches      Research[]
   insights        Insight[]
@@ -3902,12 +3905,41 @@ model Product {
   @@index([createdById])
 }
 
+// Feature lifecycle (Features V2): Idea -> Defined -> In progress -> Live ->
+// Deprecated (+ Archived). SHIPPED is the historical DB value for the Live
+// state - the UI always displays "Live" (live is the state, shipping is the
+// event, recorded by FeatureScope.shippedAt). IDEA/DEFINED/ARCHIVED are always
+// hand-managed. When a Feature has scopes, IN_PROGRESS/SHIPPED roll up from
+// scope statuses (see applyScopeRollup in the feature router). DEPRECATED =
+// was live, sunset by a human - never derived, distinct from ARCHIVED
+// (registry housekeeping for things that never shipped).
 enum FeatureStatus {
   IDEA
   DEFINED
   IN_PROGRESS
   SHIPPED
+  DEPRECATED
   ARCHIVED
+}
+
+// An exclusive bucket sorting a Product's Features into 5-10 groups (the
+// product's capability-map "profile picture"). Per-product, flat, exclusive:
+// a Feature belongs to at most one Area. Each product picks ONE carving axis
+// (functional or technical) - cross-cutting concerns belong in tags, not Areas.
+model Area {
+  id           String   @id @default(cuid())
+  productId    String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  features Feature[]
+
+  @@unique([productId, name])
+  @@index([productId])
 }
 
 model Feature {
@@ -3928,24 +3960,31 @@ model Feature {
   priority    Int?
   // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
   goalId      Int?
+  // Exclusive Area bucket (Features V2) - at most one per Feature, nullable
+  // while unsorted.
+  areaId      String?
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy   User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
-  goal        Goal?            @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
-  scopes      FeatureScope[]
-  userStories UserStory[]
-  insights    FeatureInsight[]
-  tickets     Ticket[]
-  tags        FeatureTag[]
-  comments    FeatureComment[]
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy    User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  goal         Goal?            @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
+  area         Area?            @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  scopes       FeatureScope[]
+  userStories  UserStory[]
+  requirements Requirement[]
+  insights     FeatureInsight[]
+  tickets      Ticket[]
+  tags         FeatureTag[]
+  comments     FeatureComment[]
+  pages        FeaturePage[]
 
   @@index([productId])
   @@index([goalId])
   @@index([createdById])
   @@index([status])
+  @@index([areaId])
 }
 
 /// Discussion note on a PRD body (ADR-0024). Either anchored - pinned via a
@@ -3995,9 +4034,11 @@ model FeatureScope {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  feature     Feature     @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  userStories UserStory[]
-  tickets     Ticket[]    @relation("TicketScope")
+  feature      Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  userStories  UserStory[]
+  requirements Requirement[]
+  tickets      Ticket[]      @relation("TicketScope")
+  pages        FeaturePage[]
 
   @@index([featureId])
 }
@@ -4018,6 +4059,56 @@ model UserStory {
   scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
 
   @@index([featureId])
+  @@index([scopeId])
+}
+
+enum RequirementKind {
+  FUNCTIONAL
+  NON_FUNCTIONAL
+  CONSTRAINT
+}
+
+// An atomic, testable, checkable EARS-style statement about a Feature,
+// optionally pinned to one of its Scopes (ADR-0039). Replaces UserStory as the
+// requirements write path - UserStory stays dormant for existing data.
+// Requirements are drafted in a PRD page and extracted into rows on
+// acceptance; the rows are canonical (checkable met/unmet via checkedAt).
+model Requirement {
+  id           String           @id @default(cuid())
+  featureId    String
+  scopeId      String?
+  statement    String           @db.Text
+  kind         RequirementKind?
+  displayOrder Int              @default(0)
+  checkedAt    DateTime?
+  checkedById  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  feature   Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope     FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+  checkedBy User?         @relation("RequirementCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
+
+  @@index([featureId])
+  @@index([scopeId])
+}
+
+// Document-shaped specs: a Knowledge page (PRD, research writeup, technical
+// spec) linked to a Feature, optionally to a specific Scope for large
+// extensions. The Feature's own body stays the living description; linked
+// pages are the moment-in-time arguments (see CONTEXT.md "PRD").
+model FeaturePage {
+  featureId String
+  pageId    String
+  scopeId   String?
+  createdAt DateTime @default(now())
+
+  feature Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  page    KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  @@id([featureId, pageId])
+  @@index([pageId])
   @@index([scopeId])
 }
 

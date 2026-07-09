@@ -3,19 +3,12 @@
 import { Group, Text, Tooltip } from "@mantine/core";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { ROADMAP_CARD_CLASS, ROADMAP_CARD_WIDTH } from "./nodeVisuals";
+import { FEATURE_STATUS_LABELS } from "~/lib/feature-statuses";
 
 export interface FeatureNodeData extends Record<string, unknown> {
   name: string;
   status: string;
 }
-
-const FEATURE_STATUS_LABELS: Record<string, string> = {
-  IDEA: "Idea",
-  DEFINED: "Defined",
-  IN_PROGRESS: "In progress",
-  SHIPPED: "Shipped",
-  ARCHIVED: "Archived",
-};
 
 export function FeatureNode({ data }: NodeProps) {
   const d = data as unknown as FeatureNodeData;
