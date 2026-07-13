@@ -70,11 +70,13 @@ export function CreateDealModal({
 
   // Keep the stage valid: default to the first stage ("Lead") whenever the
   // pipeline changes or the current stage isn't part of the selected pipeline.
+  // A functional update reads the current stage without depending on it, so the
+  // effect only reacts to the stage list itself.
   useEffect(() => {
-    if (!stages.some((s) => s.id === stageId)) {
-      setStageId(stages[0]?.id ?? "");
-    }
-  }, [stages, stageId]);
+    setStageId((current) =>
+      stages.some((s) => s.id === current) ? current : (stages[0]?.id ?? ""),
+    );
+  }, [stages]);
 
   const utils = api.useUtils();
 

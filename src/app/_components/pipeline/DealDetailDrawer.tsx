@@ -91,16 +91,21 @@ export function DealDetailDrawer({
   });
 
   const updateDealMutation = api.pipeline.updateDeal.useMutation({
-    onSuccess: () => {
+    onSuccess: (updatedDeal) => {
       setIsEditing(false);
       void utils.pipeline.getDeal.invalidate({ id: dealId! });
       // Refresh both the pipeline being viewed and the destination pipeline, in
-      // case the deal was moved between them.
+      // case the deal was moved between them. Read the destination from the
+      // mutation response rather than component state, which may have changed.
       void utils.pipeline.getDeals.invalidate({ projectId });
       void utils.pipeline.getStats.invalidate({ projectId });
-      if (editProjectId && editProjectId !== projectId) {
-        void utils.pipeline.getDeals.invalidate({ projectId: editProjectId });
-        void utils.pipeline.getStats.invalidate({ projectId: editProjectId });
+      if (updatedDeal.projectId !== projectId) {
+        void utils.pipeline.getDeals.invalidate({
+          projectId: updatedDeal.projectId,
+        });
+        void utils.pipeline.getStats.invalidate({
+          projectId: updatedDeal.projectId,
+        });
       }
       notifications.show({
         title: "Deal updated",
