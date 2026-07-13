@@ -26,6 +26,16 @@ export function applySoftBreaks(tree: MdNode): void {
     if (!children) return;
 
     const out: MdNode[] = [];
+    // Emit a break only after real content and never twice in a row, so a run
+    // of blank/whitespace-only lines can't stack into a wall of <br>. (Such a
+    // run reaches us because CommonMark keeps whitespace-only lines — a single
+    // space, an nbsp — inside one paragraph rather than splitting it, unlike a
+    // truly empty line.)
+    const pushBreak = () => {
+      if (out.length > 0 && out[out.length - 1]?.type !== "break") {
+        out.push({ type: "break" });
+      }
+    };
     for (const child of children) {
       if (
         child.type === "text" &&
@@ -34,14 +44,18 @@ export function applySoftBreaks(tree: MdNode): void {
       ) {
         const segments = child.value.split("\n");
         segments.forEach((segment, index) => {
-          if (segment) out.push({ type: "text", value: segment });
-          if (index < segments.length - 1) out.push({ type: "break" });
+          // Whitespace-only lines carry no content — skip the text node and let
+          // their surrounding breaks collapse away.
+          if (segment.trim()) out.push({ type: "text", value: segment });
+          if (index < segments.length - 1) pushBreak();
         });
       } else {
         walk(child);
         out.push(child);
       }
     }
+    // Drop trailing breaks: blank lines at the end of a block add only a gap.
+    while (out.length > 0 && out[out.length - 1]?.type === "break") out.pop();
     node.children = out;
   }
 
