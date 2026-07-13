@@ -16,6 +16,7 @@ import {
 import {
   IconArrowLeft,
   IconArrowsExchange,
+  IconBrandNotion,
   IconLayoutList,
   IconPlus,
   IconRefresh,
@@ -43,8 +44,15 @@ import {
   SettingsDangerZone,
   type SidebarGroup,
 } from "~/app/_components/settings/SettingsShell";
+import { NotionSyncSettings } from "~/app/_components/products/NotionSyncSettings";
 
-type SectionId = "general" | "flow" | "labels" | "workspace" | "danger";
+type SectionId =
+  | "general"
+  | "flow"
+  | "labels"
+  | "notion-sync"
+  | "workspace"
+  | "danger";
 
 // ---------------------------------------------------------------------------
 // Small helpers used inside the design-system sections
@@ -538,6 +546,7 @@ export default function ProductSettingsPage() {
         { id: "general", label: "General", icon: IconSettings },
         { id: "flow", label: "Delivery Flow", icon: IconRefresh },
         { id: "labels", label: "Labels & Areas", icon: IconTags },
+        { id: "notion-sync", label: "Notion sync", icon: IconBrandNotion },
       ],
     },
     {
@@ -781,6 +790,16 @@ export default function ProductSettingsPage() {
             description="Labels are freeform tags for filtering (e.g. tech-debt, urgent). Areas group features by product area (e.g. Platform, Growth)."
           >
             <TagManagementSection workspaceId={workspaceId ?? ""} />
+          </SettingsSection>
+        )}
+
+        {section === "notion-sync" && (
+          <SettingsSection
+            icon={IconBrandNotion}
+            title="Notion sync"
+            description="Link this product's ticket board to a Notion backlog database. Rows in the database sync as tickets in this product."
+          >
+            <NotionSyncSettings productId={product.id} />
           </SettingsSection>
         )}
 

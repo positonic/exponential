@@ -40,7 +40,7 @@ const TICKET_STATUSES = [
  * emoji/punctuation stripped). Anything unmapped falls back to BACKLOG with a
  * per-ticket warning rather than failing the row.
  */
-const STATUS_MAP: Record<string, TicketStatus> = {
+export const STATUS_MAP: Record<string, TicketStatus> = {
   "backlog": "BACKLOG",
   "triage": "BACKLOG",
   "todo": "BACKLOG",
