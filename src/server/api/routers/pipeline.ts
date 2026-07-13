@@ -559,20 +559,109 @@ export const pipelineRouter = createTRPCRouter({
         contactId: z.string().nullable().optional(),
         organizationId: z.string().nullable().optional(),
         assignedToId: z.string().nullable().optional(),
+        // Move the deal to a different pipeline and/or stage. Stages are
+        // per-pipeline, so the two travel together: when projectId changes, a
+        // stageId in the destination pipeline must resolve (falls back to that
+        // pipeline's first stage — "Lead").
+        projectId: z.string().optional(),
+        stageId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
+      const { id, projectId, stageId, ...data } = input;
       await ensureDealAccess(ctx.db, ctx.session.user.id, id, "edit");
 
       const oldDeal = await ctx.db.deal.findUniqueOrThrow({
         where: { id },
-        select: { value: true },
+        select: {
+          value: true,
+          projectId: true,
+          stageId: true,
+          closedAt: true,
+          workspaceId: true,
+          stage: { select: { name: true } },
+        },
       });
+
+      // Resolve the destination pipeline + stage when a move is requested.
+      const targetProjectId = projectId ?? oldDeal.projectId;
+      const isPipelineChange = targetProjectId !== oldDeal.projectId;
+
+      let targetStageId = stageId;
+      if (!targetStageId && isPipelineChange) {
+        // Moving pipeline without an explicit stage → land in the destination's
+        // first stage (lowest order, i.e. "Lead").
+        const firstStage = await ctx.db.pipelineStage.findFirst({
+          where: { projectId: targetProjectId },
+          orderBy: { order: "asc" },
+          select: { id: true },
+        });
+        if (!firstStage) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Destination pipeline has no stages",
+          });
+        }
+        targetStageId = firstStage.id;
+      }
+
+      const isStageChange =
+        targetStageId != null && targetStageId !== oldDeal.stageId;
+
+      // Validate + authorize the destination stage before mutating.
+      let newStage:
+        | { id: string; name: string; type: string; projectId: string }
+        | undefined;
+      let moveData: {
+        projectId?: string;
+        stageId?: string;
+        stageOrder?: number;
+        closedAt?: Date | null;
+      } = {};
+      if (targetStageId && (isStageChange || isPipelineChange)) {
+        const stage = await ctx.db.pipelineStage.findUnique({
+          where: { id: targetStageId },
+          select: { id: true, name: true, type: true, projectId: true },
+        });
+        if (!stage) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Stage not found" });
+        }
+        if (stage.projectId !== targetProjectId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Stage does not belong to the destination pipeline",
+          });
+        }
+        if (isPipelineChange) {
+          await ensurePipelineProjectAccess(
+            ctx.db,
+            ctx.session.user.id,
+            targetProjectId,
+            "edit",
+          );
+        }
+        newStage = stage;
+
+        // Append to the end of the destination stage and reconcile closedAt
+        // with the stage type (mirrors moveDeal).
+        const lastDeal = await ctx.db.deal.findFirst({
+          where: { projectId: targetProjectId, stageId: stage.id },
+          orderBy: { stageOrder: "desc" },
+          select: { stageOrder: true },
+        });
+        const isTerminal = stage.type === "won" || stage.type === "lost";
+        moveData = {
+          projectId: targetProjectId,
+          stageId: stage.id,
+          stageOrder: (lastDeal?.stageOrder ?? -1) + 1,
+          ...(isTerminal && !oldDeal.closedAt ? { closedAt: new Date() } : {}),
+          ...(!isTerminal && oldDeal.closedAt ? { closedAt: null } : {}),
+        };
+      }
 
       const deal = await ctx.db.deal.update({
         where: { id },
-        data,
+        data: { ...data, ...moveData },
         include: {
           stage: true,
           contact: {
@@ -598,6 +687,51 @@ export const pipelineRouter = createTRPCRouter({
             },
           },
         });
+      }
+
+      // Log stage / pipeline moves
+      if (newStage) {
+        const isTerminal =
+          newStage.type === "won" || newStage.type === "lost";
+        await ctx.db.dealActivity.create({
+          data: {
+            dealId: deal.id,
+            userId: ctx.session.user.id,
+            type: isTerminal ? "CLOSED" : "STAGE_CHANGE",
+            content: `Moved from ${oldDeal.stage.name} to ${newStage.name}`,
+            metadata: {
+              fromStageId: oldDeal.stageId,
+              fromStageName: oldDeal.stage.name,
+              toStageId: newStage.id,
+              toStageName: newStage.name,
+              ...(isPipelineChange
+                ? {
+                    fromProjectId: oldDeal.projectId,
+                    toProjectId: targetProjectId,
+                  }
+                : {}),
+            },
+          },
+        });
+
+        // Surface a newly-closed deal as a workspace milestone, matching
+        // moveDeal — only on the transition into a terminal stage.
+        if (isTerminal && !oldDeal.closedAt) {
+          await recordActivity(ctx.db, {
+            workspaceId: oldDeal.workspaceId,
+            userId: ctx.session.user.id,
+            entityType: "deal",
+            entityId: deal.id,
+            action: "completed",
+            metadata: {
+              name: deal.title,
+              outcome: newStage.type, // "won" | "lost"
+              value: oldDeal.value,
+            },
+          }).catch(() => {
+            /* instrumentation failure is non-fatal */
+          });
+        }
       }
 
       return deal;

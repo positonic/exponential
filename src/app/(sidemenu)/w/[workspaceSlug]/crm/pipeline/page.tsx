@@ -213,9 +213,9 @@ export default function PipelinePage() {
       <CreateDealModal
         opened={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
-        projectId={pipeline.id}
+        pipelines={pipelines ?? []}
+        defaultProjectId={pipeline.id}
         workspaceId={workspaceId!}
-        stages={stages}
       />
 
       <PipelineSettingsModal
@@ -230,6 +230,7 @@ export default function PipelinePage() {
         projectId={pipeline.id}
         opened={!!selectedDealId}
         onClose={() => setSelectedDealId(null)}
+        pipelines={pipelines ?? []}
       />
 
       <Modal
