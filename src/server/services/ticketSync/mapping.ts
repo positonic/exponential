@@ -148,7 +148,7 @@ export function mapStatusToNotion(
 /** "1 - High" / "P2" / "0 - Critical" → 0..4, else undefined. */
 export function mapPriority(raw: string | null): number | undefined {
   if (!raw) return undefined;
-  const match = /\d/.exec(raw);
+  const match = /\d+/.exec(raw);
   if (!match) return undefined;
   const n = parseInt(match[0], 10);
   return n >= 0 && n <= 4 ? n : undefined;

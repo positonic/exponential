@@ -128,6 +128,9 @@ describe("mapPriority", () => {
     expect(mapPriority("9 - Whatever")).toBeUndefined();
     expect(mapPriority("High")).toBeUndefined();
     expect(mapPriority(null)).toBeUndefined();
+    // Multi-digit tokens must read as the whole number, not the first digit.
+    expect(mapPriority("P10")).toBeUndefined();
+    expect(mapPriority("10 - Critical")).toBeUndefined();
   });
 });
 

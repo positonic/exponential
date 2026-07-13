@@ -145,12 +145,26 @@ export const ticketSyncRouter = createTRPCRouter({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
         },
-        select: { id: true, integrationId: true, propertyNames: true },
+        select: {
+          id: true,
+          integrationId: true,
+          propertyNames: true,
+          enabled: true,
+        },
       });
       if (!config) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "No Notion sync configured for this product",
+        });
+      }
+
+      // Real syncs honour the pause switch server-side (the UI only disables
+      // the button). Dry-run previews are read-only and stay allowed.
+      if (!config.enabled && !(input.dryRun ?? false)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Notion sync is paused for this product",
         });
       }
 

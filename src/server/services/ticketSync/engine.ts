@@ -454,21 +454,29 @@ export async function runInboundTicketSync(
           continue;
         }
 
+        // Ticket mutation and snapshot advance must land together: if the
+        // snapshot lagged the write, the next run would re-detect the same
+        // remote value as a fresh change and re-apply it.
+        const writes: Prisma.PrismaPromise<unknown>[] = [];
         if (hasLocalWrites) {
-          await db.ticket.update({
-            where: { id: ticket.id },
-            data: localWrites,
-          });
+          writes.push(
+            db.ticket.update({
+              where: { id: ticket.id },
+              data: localWrites,
+            }),
+          );
         }
-
-        await db.ticketSync.update({
-          where: { id: record.id },
-          data: {
-            snapshot: buildInboundSnapshot(merged, remote) as unknown as Prisma.InputJsonValue,
-            externalUrl: row.url ?? undefined,
-            lastSyncedAt: new Date(),
-          },
-        });
+        writes.push(
+          db.ticketSync.update({
+            where: { id: record.id },
+            data: {
+              snapshot: buildInboundSnapshot(merged, remote) as unknown as Prisma.InputJsonValue,
+              externalUrl: row.url ?? undefined,
+              lastSyncedAt: new Date(),
+            },
+          }),
+        );
+        await db.$transaction(writes);
 
         if (hasLocalWrites || hasConflicts) {
           counts.updated++;
