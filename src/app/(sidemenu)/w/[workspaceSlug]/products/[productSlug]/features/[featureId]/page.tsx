@@ -204,20 +204,21 @@ export default function FeatureDetailPage() {
   };
 
   /**
-   * Deprecating a feature prompts to also deprecate its still-live scopes
-   * (never implicit - see CONTEXT.md "Deprecated"). Other statuses apply
-   * directly.
+   * Deprecating a feature prompts to also deprecate its LIVE scopes (never
+   * implicit - see CONTEXT.md "Deprecated"). Planned or in-progress scopes
+   * were never live, so they are never part of the cascade. Other statuses
+   * apply directly.
    */
   const handleStatusChange = (val: string) => {
-    const hasActiveScopes =
-      (feature?.scopes ?? []).some((s) => s.status !== "DEPRECATED");
-    if (val === "DEPRECATED" && hasActiveScopes) {
+    const hasLiveScopes =
+      (feature?.scopes ?? []).some((s) => s.status === "SHIPPED");
+    if (val === "DEPRECATED" && hasLiveScopes) {
       modals.openConfirmModal({
         title: "Deprecate feature",
         children: (
           <Text size="sm">
-            Also deprecate this feature&apos;s scopes? The feature stays in the
-            registry as product history either way.
+            Also deprecate this feature&apos;s live scopes? The feature stays in
+            the registry as product history either way.
           </Text>
         ),
         labels: { confirm: "Deprecate feature + scopes", cancel: "Feature only" },

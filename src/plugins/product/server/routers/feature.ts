@@ -200,7 +200,12 @@ async function applyScopeRollup(db: PrismaClient, featureId: string) {
       : null;
 
   if (derived && derived !== feature.status) {
-    await db.feature.update({ where: { id: featureId }, data: { status: derived } });
+    // The status guard is repeated in the WHERE so a deprecation/archival that
+    // lands between our read and this write is never overwritten.
+    await db.feature.updateMany({
+      where: { id: featureId, status: { notIn: ["DEPRECATED", "ARCHIVED"] } },
+      data: { status: derived },
+    });
   }
 }
 
@@ -550,11 +555,19 @@ export const featureRouter = createTRPCRouter({
 
       const { id, descriptionDoc, baseVersion, deprecateScopes, ...rest } = input;
 
+      // Deprecation cascade: only LIVE scopes become DEPRECATED (deprecated =
+      // was live, sunset - a PLANNED scope was never live, so it keeps its
+      // status). Runs in one transaction with the feature update below so a
+      // failed feature write cannot leave scopes deprecated on their own.
       if (input.status === "DEPRECATED" && deprecateScopes) {
-        await ctx.db.featureScope.updateMany({
-          where: { featureId: id, status: { not: "DEPRECATED" } },
-          data: { status: "DEPRECATED" },
-        });
+        const [, updated] = await ctx.db.$transaction([
+          ctx.db.featureScope.updateMany({
+            where: { featureId: id, status: "SHIPPED" },
+            data: { status: "DEPRECATED" },
+          }),
+          ctx.db.feature.update({ where: { id }, data: rest }),
+        ]);
+        return updated;
       }
 
       // PRD body autosave path: optimistic-concurrency guard + version bump.
