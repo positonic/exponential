@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess } from "./product";
-import { STATUS_MAP } from "~/server/services/notionTicketImport";
+import { DEFAULT_STATUS_MAP } from "~/server/services/ticketSync/mapping";
 
 /**
  * ticketSync — configuration surface for the product ↔ Notion backlog sync.
@@ -97,7 +97,7 @@ export const ticketSyncRouter = createTRPCRouter({
           databaseName: input.databaseName,
           // Seed with the tolerant import heuristics; editable later without
           // redeploying (configurable-map, sticky-collapse decision).
-          statusMap: STATUS_MAP,
+          statusMap: DEFAULT_STATUS_MAP,
           createdById: ctx.session.user.id,
         },
         update: {
