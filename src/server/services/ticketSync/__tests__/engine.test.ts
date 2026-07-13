@@ -422,5 +422,11 @@ describe("runInboundTicketSync — windowing and failures", () => {
     expect(result.failed).toBe(1);
     expect(result.created).toBe(1);
     expect(result.items.some((i) => i.action === "failed" && i.reason === "boom")).toBe(true);
+    // The failed count is persisted on the run record, not just returned.
+    expect(db.ticketSyncRun.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "success", failed: 1 }),
+      }),
+    );
   });
 });

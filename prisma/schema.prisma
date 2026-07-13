@@ -4440,6 +4440,7 @@ model TicketSyncRun {
   skipped    Int       @default(0)
   conflicts  Int       @default(0)
   archived   Int       @default(0)
+  failed     Int       @default(0)
   /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
   items      Json?
 

@@ -519,6 +519,7 @@ export async function runInboundTicketSync(
         updated: counts.updated,
         skipped: counts.skipped,
         conflicts: counts.conflicts,
+        failed: counts.failed,
         items: items as unknown as Prisma.InputJsonValue,
       },
     });
@@ -538,6 +539,11 @@ export async function runInboundTicketSync(
         status: "error",
         finishedAt: new Date(),
         error: error instanceof Error ? error.message : "unknown error",
+        created: counts.created,
+        updated: counts.updated,
+        skipped: counts.skipped,
+        conflicts: counts.conflicts,
+        failed: counts.failed,
         items: items as unknown as Prisma.InputJsonValue,
       },
     });

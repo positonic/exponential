@@ -51,6 +51,7 @@ CREATE TABLE "TicketSyncRun" (
     "skipped" INTEGER NOT NULL DEFAULT 0,
     "conflicts" INTEGER NOT NULL DEFAULT 0,
     "archived" INTEGER NOT NULL DEFAULT 0,
+    "failed" INTEGER NOT NULL DEFAULT 0,
     "items" JSONB,
 
     CONSTRAINT "TicketSyncRun_pkey" PRIMARY KEY ("id")
