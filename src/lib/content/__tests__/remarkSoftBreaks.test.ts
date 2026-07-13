@@ -8,14 +8,15 @@ interface MdNode {
   children?: MdNode[];
 }
 
-/** A paragraph whose single text node holds the given raw value. */
-function paragraph(value: string): MdNode {
+/** A document root wrapping one paragraph whose single text node holds `value`. */
+function doc(value: string): MdNode {
   return {
     type: "root",
     children: [{ type: "paragraph", children: [{ type: "text", value }] }],
   };
 }
 
+/** Children of the paragraph inside the document root. */
 function paragraphChildren(tree: MdNode): MdNode[] {
   return tree.children![0]!.children!;
 }
@@ -29,7 +30,7 @@ function shape(children: MdNode[]): string {
 
 describe("applySoftBreaks", () => {
   it("turns a single newline into a hard break", () => {
-    const tree = paragraph("line1\nline2");
+    const tree = doc("line1\nline2");
     applySoftBreaks(tree);
     expect(shape(paragraphChildren(tree))).toBe("line1|<br>|line2");
   });
@@ -37,19 +38,19 @@ describe("applySoftBreaks", () => {
   it("collapses a run of whitespace-only lines into a single break", () => {
     // CommonMark keeps whitespace-only lines (a lone space, an nbsp) inside one
     // paragraph — the exact shape that used to stack into a wall of <br>.
-    const tree = paragraph("Hello\n \n \n \nWorld");
+    const tree = doc("Hello\n \n \n \nWorld");
     applySoftBreaks(tree);
     expect(shape(paragraphChildren(tree))).toBe("Hello|<br>|World");
   });
 
   it("drops trailing whitespace-only lines entirely (no dangling break)", () => {
-    const tree = paragraph("Let me pull the key actions:\n \n \n \n ");
+    const tree = doc("Let me pull the key actions:\n \n \n \n ");
     applySoftBreaks(tree);
     expect(shape(paragraphChildren(tree))).toBe("Let me pull the key actions:");
   });
 
   it("drops leading whitespace-only lines (no leading break)", () => {
-    const tree = paragraph(" \n \nWorld");
+    const tree = doc(" \n \nWorld");
     applySoftBreaks(tree);
     expect(shape(paragraphChildren(tree))).toBe("World");
   });
@@ -72,7 +73,7 @@ describe("applySoftBreaks", () => {
   });
 
   it("leaves text without newlines untouched", () => {
-    const tree = paragraph("just one line");
+    const tree = doc("just one line");
     applySoftBreaks(tree);
     expect(shape(paragraphChildren(tree))).toBe("just one line");
   });
