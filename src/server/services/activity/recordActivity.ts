@@ -4,7 +4,7 @@ import { env } from "~/env";
 /**
  * Significant workspace events that feed the home-page heatmap, activity feed,
  * and weekly-review sparkline. Each value is stored as the `action` column on
- * `WorkspaceActivityEvent` — keep this list in sync with the column comment.
+ * `WorkspaceActivityEvent` - keep this list in sync with the column comment.
  */
 export type ActivityAction =
   | "created"
@@ -23,6 +23,8 @@ export type ActivityEntityType =
   | "action_comment"
   | "ticket"
   | "ticket_comment"
+  | "insight"
+  | "insight_comment"
   | "project"
   | "goal"
   | "weekly_review"
@@ -48,7 +50,7 @@ export interface RecordActivityInput {
 
 /**
  * Append one row to `WorkspaceActivityEvent`. This is a fire-and-forget
- * primitive for write sites — it MUST NOT throw, because instrumentation
+ * primitive for write sites - it MUST NOT throw, because instrumentation
  * failures should never break the user's mutation.
  *
  * Behavior:
@@ -59,7 +61,7 @@ export interface RecordActivityInput {
  *   normally.
  *
  * Returns true on a successful write, false otherwise. Callers can ignore the
- * return value — it exists for tests and observability.
+ * return value - it exists for tests and observability.
  */
 export async function recordActivity(
   db: PrismaClient,
@@ -68,11 +70,11 @@ export async function recordActivity(
   if (!input.workspaceId) {
     if (env.NODE_ENV === "development") {
       throw new Error(
-        "[recordActivity] workspaceId is required — instrumentation call site is missing it",
+        "[recordActivity] workspaceId is required - instrumentation call site is missing it",
       );
     }
     console.warn(
-      "[recordActivity] missing workspaceId — skipping",
+      "[recordActivity] missing workspaceId - skipping",
       { entityType: input.entityType, entityId: input.entityId, action: input.action },
     );
     return false;

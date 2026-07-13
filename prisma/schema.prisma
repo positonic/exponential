@@ -256,6 +256,7 @@ model User {
   ticketComments        TicketComment[]    @relation("TicketCommentAuthor")
   ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
   insightsCreated       Insight[]          @relation("InsightCreatedBy")
+  insightComments       InsightComment[]   @relation("InsightCommentAuthor")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -2534,14 +2535,14 @@ model KnowledgeChunk {
   @@index([workspaceId])
 }
 
-/// A free-form, human- or Zoe-authored rich document (ADR-0033) — a spec, doc,
+/// A free-form, human- or Zoe-authored rich document (ADR-0033) - a spec, doc,
 /// or wiki page that stands on its own, not scoped to a Product/Day/Meeting. Its
 /// own top-level area (/w/[slug]/pages). Storage reuses the Feature PRD
 /// dual-format (ADR-0024): `bodyDoc` is the canonical ProseMirror JSON the
 /// editor reads/writes; `body` is a derived, write-only Markdown projection
 /// (greppable, embeddable, agent-readable); `docVersion` powers the
 /// optimistic-concurrency stale-write guard. Workspace-scoped with an optional
-/// Project link (flat — no nesting in v1); visibility mirrors Meetings
+/// Project link (flat - no nesting in v1); visibility mirrors Meetings
 /// (project-linked inherits the Project's rules incl. restriction; project-less
 /// is workspace-visible). When `includeInSearch` is on, the Markdown projection
 /// feeds the shared Knowledge index as `KnowledgeChunk.sourceType = "page"`.
@@ -2596,7 +2597,7 @@ model CrmContact {
   skills              String[]
   tags                String[]
   // Field keys whose CURRENT value came from enrichment, not a human (ADR-0036).
-  // The UI badges these "AI — verify". A human edit clears the key; re-enrich may
+  // The UI badges these "AI - verify". A human edit clears the key; re-enrich may
   // refresh a still-AI field but never a human-locked one. Defaults to [] so the
   // ADD COLUMN backfills existing rows (never NULL).
   aiSourcedFields     String[]  @default([])
@@ -2849,7 +2850,7 @@ model Form {
   offerApplicantAccount  Boolean @default(true)
   applicantAccountPrompt String? @db.Text
   // Public renderer copy overrides: the submit button label (null = "Submit")
-  // and a small dimmed note rendered under the button (null = nothing) —
+  // and a small dimmed note rendered under the button (null = nothing) -
   // e.g. "We'll only use your email for updates and follow-ups."
   submitLabel String?
   footnote    String? @db.Text
@@ -4075,6 +4076,12 @@ model Insight {
   type        InsightType
   title       String
   body        String?
+  // Rich detail-page body (ADR-0024 storage model, third adopter after
+  // Feature and KnowledgePage): bodyDoc is the canonical ProseMirror JSON,
+  // body above is its derived write-only Markdown projection, docVersion is
+  // the optimistic-concurrency guard.
+  bodyDoc     Json?
+  docVersion  Int           @default(0)
   source      String?
   sentiment   String?
   description String        @default("")
@@ -4088,21 +4095,56 @@ model Insight {
   evidence    String?
   parkedAt    DateTime?
   parkReason  String?
+  // Feedback-board visibility: set by an explicit human "publish" act, never
+  // automatically. Only user-voice insights (FEEDBACK/PAIN_POINT/OPPORTUNITY)
+  // may be published - internal evidence (PROBLEM, COMPETITIVE, ...) never
+  // reaches the public board. The board read path must filter on this.
+  publishedAt DateTime?
+  // Linear-style duplicate marking: a non-destructive "this describes the same
+  // thing as" pointer. The duplicate keeps ALL its content (insights are
+  // evidence - two reports are two data points); it just drops out of default
+  // lists and defers to its canonical. Chains are flattened at write time
+  // (marking A dup-of B where B is dup-of C points A at C), so this is always
+  // one level deep.
+  duplicateOfId String?
   createdById String
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  research  Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
-  createdBy User             @relation("InsightCreatedBy", fields: [createdById], references: [id])
-  features  FeatureInsight[]
-  tags      InsightTag[]
+  product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  research    Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
+  createdBy   User             @relation("InsightCreatedBy", fields: [createdById], references: [id])
+  duplicateOf Insight?         @relation("InsightDuplicateOf", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates  Insight[]        @relation("InsightDuplicateOf")
+  features    FeatureInsight[]
+  tags        InsightTag[]
+  comments    InsightComment[]
 
   @@index([productId])
   @@index([researchId])
   @@index([status])
   @@index([type])
   @@index([createdById])
+  @@index([duplicateOfId])
+}
+
+// Per-insight discussion, mirroring TicketComment. Events ("status changed",
+// "marked duplicate of ...") are NOT stored here - they live in
+// WorkspaceActivityEvent (entityType "insight") and the detail page merges the
+// two into one activity feed.
+model InsightComment {
+  id        String   @id @default(cuid())
+  insightId String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  author  User    @relation("InsightCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([insightId])
+  @@index([authorId])
 }
 
 model FeatureInsight {
@@ -4334,7 +4376,7 @@ model InsightTag {
   @@index([tagId])
 }
 
-// Pipeline Triage — Problem/ProblemApproach/ProblemStage removed (ADR-0036,
+// Pipeline Triage - Problem/ProblemApproach/ProblemStage removed (ADR-0036,
 // supersedes ADR-0008). A Problem is now an Insight of type PROBLEM; the general
 // triage fields on Insight (impact/confidence/category/evidence/parkedAt/
 // parkReason) absorb its extra columns. The Problem↔Project "Approach" links

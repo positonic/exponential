@@ -42,7 +42,7 @@ describe("research router", () => {
     expect(insight.status).toBe("INBOX");
   });
 
-  it("links insight to feature and updates status to LINKED", async () => {
+  it("links insight to feature and promotes status to TRIAGED", async () => {
     const user = await createUser(db);
     const ws = await createWorkspace(db, { ownerId: user.id });
     const product = await createProduct(db, {
@@ -75,7 +75,9 @@ describe("research router", () => {
     const refreshedInsight = await db.insight.findUnique({
       where: { id: insight.id },
     });
-    expect(refreshedInsight?.status).toBe("LINKED");
+    // Linking promotes un-triaged evidence to TRIAGED ("Accepted"); linkage
+    // itself is the FeatureInsight row, not a status.
+    expect(refreshedInsight?.status).toBe("TRIAGED");
 
     const link = await db.featureInsight.findUnique({
       where: {

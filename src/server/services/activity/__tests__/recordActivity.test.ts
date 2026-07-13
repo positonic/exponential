@@ -1,5 +1,5 @@
 /**
- * Unit tests for recordActivity — the load-bearing primitive that any future
+ * Unit tests for recordActivity - the load-bearing primitive that any future
  * write site calls to log a workspace activity event.
  *
  * Uses mockDeep<PrismaClient>() so the test runs in milliseconds and CANNOT
@@ -9,7 +9,7 @@
  * `/services/` MUST stay mocked.
  *
  * We mock `~/env` rather than mutate process.env, because t3-env caches its
- * Proxy at module-load time — stubbing process.env after the fact has no
+ * Proxy at module-load time - stubbing process.env after the fact has no
  * effect on the existing `env.NODE_ENV` value.
  */
 
@@ -25,7 +25,7 @@ vi.hoisted(() => {
   process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/test";
 });
 
-// Mocked env — the test toggles fakeEnv.NODE_ENV directly. The mock factory
+// Mocked env - the test toggles fakeEnv.NODE_ENV directly. The mock factory
 // returns a getter so each access reads the current value.
 const fakeEnv = { NODE_ENV: "test" as "development" | "test" | "production" };
 vi.mock("~/env", () => ({
@@ -173,7 +173,7 @@ describe("recordActivity", () => {
 
     expect(ok).toBe(false);
     expect(warnSpy).toHaveBeenCalledWith(
-      "[recordActivity] missing workspaceId — skipping",
+      "[recordActivity] missing workspaceId - skipping",
       expect.objectContaining({ entityType: "action", entityId: "action-1" }),
     );
     expect(dbMock.workspaceActivityEvent.create).not.toHaveBeenCalled();

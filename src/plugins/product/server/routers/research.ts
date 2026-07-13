@@ -16,7 +16,10 @@ const researchTypeEnum = z.enum([
 ]);
 
 const insightTypeEnum = z.enum(["PAIN_POINT", "OPPORTUNITY", "FEEDBACK", "PERSONA", "JOURNEY", "OBSERVATION", "COMPETITIVE"]);
-const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "LINKED", "DISMISSED"]);
+// Mirrors insight.ts: status is the triage decision (INBOX / TRIAGED shown as
+// "Accepted" / DISMISSED). The legacy LINKED DB value is no longer written or
+// accepted as input; feature linkage lives in FeatureInsight.
+const insightStatusEnum = z.enum(["INBOX", "TRIAGED", "DISMISSED"]);
 
 async function loadResearchWithAccess(
   db: PrismaClient,
@@ -181,7 +184,15 @@ export const researchRouter = createTRPCRouter({
       return ctx.db.insight.findMany({
         where: {
           research: { productId: input.productId },
-          ...(input.status ? { status: input.status } : {}),
+          // Legacy LINKED rows count as TRIAGED (see insight.ts).
+          ...(input.status
+            ? {
+                status:
+                  input.status === "TRIAGED"
+                    ? { in: ["TRIAGED", "LINKED"] }
+                    : input.status,
+              }
+            : {}),
           ...(input.type ? { type: input.type } : {}),
         },
         orderBy: { createdAt: "desc" },
@@ -299,10 +310,11 @@ export const researchRouter = createTRPCRouter({
         update: {},
       });
 
-      // Auto-update insight status to LINKED
-      await ctx.db.insight.update({
-        where: { id: input.insightId },
-        data: { status: "LINKED" },
+      // Linking evidence to a feature implies it was reviewed and kept:
+      // promote un-triaged insights to TRIAGED. Never resurrect DISMISSED.
+      await ctx.db.insight.updateMany({
+        where: { id: input.insightId, status: { in: ["INBOX", "LINKED"] } },
+        data: { status: "TRIAGED" },
       });
 
       return { success: true };
