@@ -51,6 +51,8 @@ import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PrdDocument } from "~/app/_components/prd/PrdDocument";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
 import {
   FEATURE_STATUS_OPTIONS,
   FEATURE_STATUS_COLORS,
@@ -304,37 +306,44 @@ export default function FeatureDetailPage() {
             </Group>
           </div>
 
-          {/* PRD body - rich document (ADR-0024), replaces MarkdownRenderer here only.
-              Editable for any workspace member (getById already gates membership). */}
-          <PrdDocument
-            featureId={featureId}
-            descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
-            description={feature.description ?? null}
-            docVersion={feature.docVersion}
-            editable
-            enableComments
-          />
-
-          {/* Vision */}
-          {feature.vision && (
-            <div className="border border-border-primary rounded-lg p-3">
-              <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
-              <MarkdownRenderer content={feature.vision} />
-            </div>
-          )}
+          {/* Description - the living rich document (ADR-0024). Editable for
+              any workspace member (getById already gates membership). */}
+          <CollapsibleSection title="Description">
+            <Stack gap="md">
+              <PrdDocument
+                featureId={featureId}
+                descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
+                description={feature.description ?? null}
+                docVersion={feature.docVersion}
+                editable
+                enableComments
+              />
+              {feature.vision && (
+                <div className="border border-border-primary rounded-lg p-3">
+                  <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
+                  <MarkdownRenderer content={feature.vision} />
+                </div>
+              )}
+            </Stack>
+          </CollapsibleSection>
 
           {/* Scopes */}
-          <div>
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-              Scopes
-            </Text>
+          <CollapsibleSection
+            title="Scopes"
+            meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
+          >
             {feature.scopes.length > 0 ? (
               <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
                 {feature.scopes.map((scope, i) => (
                   <div key={scope.id} className={`flex items-start justify-between gap-3 px-3 py-2.5 ${i < feature.scopes.length - 1 ? "border-b border-border-primary" : ""}`}>
                     <div className="flex-1">
                       <Group gap="sm">
-                        <Text size="sm" fw={500} className="text-text-primary">{scope.version}</Text>
+                        <Link
+                          href={`${backPath}/${featureId}/scopes/${scope.id}`}
+                          className="text-sm font-medium text-text-primary hover:underline"
+                        >
+                          {scope.version}
+                        </Link>
                         <Select
                           value={scope.status}
                           onChange={(v) => v && updateScope.mutate({ id: scope.id, status: v as "PLANNED" | "IN_PROGRESS" | "SHIPPED" | "DEPRECATED" })}
@@ -378,24 +387,20 @@ export default function FeatureDetailPage() {
                 Add
               </Button>
             </div>
-          </div>
+          </CollapsibleSection>
 
           {/* Requirements - checkable EARS statements (ADR-0039). Legacy user
               stories render read-only below while any remain; the write path
               is requirements only. */}
-          <div>
-            <Group gap="xs" mb={8}>
-              <IconChecklist size={14} className="text-text-muted" />
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
-                Requirements
-              </Text>
-              {feature.requirements.length > 0 && (
-                <Text size="xs" className="text-text-muted">
-                  {feature.requirements.filter((r) => r.checkedAt != null).length}/
-                  {feature.requirements.length} met
-                </Text>
-              )}
-            </Group>
+          <CollapsibleSection
+            title="Requirements"
+            icon={<IconChecklist size={14} className="text-text-muted" />}
+            meta={
+              feature.requirements.length > 0
+                ? `${feature.requirements.filter((r) => r.checkedAt != null).length}/${feature.requirements.length} met`
+                : undefined
+            }
+          >
             {feature.requirements.length > 0 ? (
               <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
                 {feature.requirements.map((req, i) => {
@@ -517,18 +522,16 @@ export default function FeatureDetailPage() {
                 </div>
               </div>
             )}
-          </div>
+          </CollapsibleSection>
 
-          {/* Specs & docs - Knowledge pages (PRDs, research, technical specs)
-              linked to this feature. The body above stays the living
-              description; these are the moment-in-time arguments. */}
-          <div>
-            <Group gap="xs" mb={8}>
-              <IconFileText size={14} className="text-text-muted" />
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
-                Specs &amp; docs
-              </Text>
-            </Group>
+          {/* Docs - Knowledge pages (PRDs, research, technical specs) linked
+              to this feature. The body above stays the living description;
+              these are the moment-in-time arguments. */}
+          <CollapsibleSection
+            title="Docs"
+            icon={<IconFileText size={14} className="text-text-muted" />}
+            meta={feature.pages.length > 0 ? String(feature.pages.length) : undefined}
+          >
             {feature.pages.length > 0 && (
               <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
                 {feature.pages.map((link, i) => {
@@ -587,14 +590,14 @@ export default function FeatureDetailPage() {
                 Link
               </Button>
             </Group>
-          </div>
+          </CollapsibleSection>
 
           {/* Linked insights */}
           {feature.insights.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Linked insights
-              </Text>
+            <CollapsibleSection
+              title="Linked insights"
+              meta={String(feature.insights.length)}
+            >
               <div className="border border-border-primary rounded-lg overflow-hidden">
                 {feature.insights.map((link, i) => (
                   <div key={link.insight.id} className={`flex items-center gap-3 px-3 py-2.5 ${i < feature.insights.length - 1 ? "border-b border-border-primary" : ""}`}>
@@ -610,8 +613,13 @@ export default function FeatureDetailPage() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
+
+          {/* Activity - feature-level comments, ticket-detail pattern. */}
+          <CollapsibleSection title="Activity">
+            <FeatureActivitySection featureId={featureId} />
+          </CollapsibleSection>
         </Stack>
       </div>
 

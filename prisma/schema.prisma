@@ -3996,6 +3996,10 @@ model Feature {
 model FeatureComment {
   id          String    @id @default(cuid())
   featureId   String
+  // Set when the comment belongs to a Feature scope's activity feed (the
+  // scope detail page) rather than the feature itself. Scope comments are
+  // always doc-level (threadId null).
+  scopeId     String?
   threadId    String?
   parentId    String?
   body        String
@@ -4006,11 +4010,13 @@ model FeatureComment {
   updatedAt   DateTime  @updatedAt
 
   feature   Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope     FeatureScope?    @relation(fields: [scopeId], references: [id], onDelete: Cascade)
   parent    FeatureComment?  @relation("FeatureCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   FeatureComment[] @relation("FeatureCommentReplies")
   createdBy User             @relation("FeatureCommentAuthor", fields: [createdById], references: [id])
 
   @@index([featureId])
+  @@index([scopeId])
   @@index([threadId])
   @@index([parentId])
   @@index([createdById])
@@ -4037,8 +4043,9 @@ model FeatureScope {
   feature      Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
   userStories  UserStory[]
   requirements Requirement[]
-  tickets      Ticket[]      @relation("TicketScope")
+  tickets      Ticket[]         @relation("TicketScope")
   pages        FeaturePage[]
+  comments     FeatureComment[]
 
   @@index([featureId])
 }

@@ -14,7 +14,7 @@ const authorSelect = {
  * Comments on a PRD body (ADR-0024). Anchored comments carry a `threadId` that
  * matches a `comment` mark in `Feature.descriptionDoc`; doc-level comments leave
  * `threadId` null. Bodies are Markdown (ADR-0017). Every procedure reuses the
- * same `loadFeatureWithAccess` workspace-member gate that `feature.update` uses —
+ * same `loadFeatureWithAccess` workspace-member gate that `feature.update` uses -
  * editing the body and commenting share one access path.
  *
  * Procedures: `list`, `create` (root comment), `reply` (threaded), and
@@ -37,6 +37,9 @@ export const featureCommentRouter = createTRPCRouter({
     .input(
       z.object({
         featureId: z.string(),
+        // Scope activity comments (Features V2): set to attach the comment to
+        // a specific FeatureScope's feed instead of the feature's.
+        scopeId: z.string().optional(),
         threadId: z.string().min(1).optional(),
         body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
         quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
@@ -45,9 +48,23 @@ export const featureCommentRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
 
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== input.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+
       return ctx.db.featureComment.create({
         data: {
           featureId: input.featureId,
+          scopeId: input.scopeId,
           threadId: input.threadId,
           body: input.body,
           quotedText: input.quotedText,

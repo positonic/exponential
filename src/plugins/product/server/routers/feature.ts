@@ -917,6 +917,39 @@ export const featureRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  /** Scope detail page (Features V2): the scope plus its feature context. */
+  getScopeById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const scope = await ctx.db.featureScope.findUnique({
+        where: { id: input.id },
+        include: {
+          feature: {
+            select: {
+              id: true,
+              name: true,
+              product: { select: { id: true, slug: true, workspaceId: true, name: true } },
+            },
+          },
+          requirements: {
+            orderBy: { displayOrder: "asc" },
+            include: {
+              checkedBy: { select: { id: true, name: true, image: true } },
+            },
+          },
+        },
+      });
+      if (!scope) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Scope not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        scope.feature.product.workspaceId,
+      );
+      return scope;
+    }),
+
   // ────────────────── Areas ──────────────────
   // Exclusive per-product buckets for the feature registry (Features V2).
   // Flat, one carving axis per product; deleting an Area un-sorts its
