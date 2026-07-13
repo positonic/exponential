@@ -1,10 +1,103 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Select, Switch, Text, Tooltip } from "@mantine/core";
-import { IconBrandNotion, IconPlugConnected, IconUnlink } from "@tabler/icons-react";
+import {
+  Badge,
+  Button,
+  Select,
+  Switch,
+  Text,
+  Tooltip,
+} from "@mantine/core";
+import {
+  IconBrandNotion,
+  IconChevronDown,
+  IconChevronRight,
+  IconEyeSearch,
+  IconPlugConnected,
+  IconRefresh,
+  IconUnlink,
+} from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
+
+interface SyncRunItemView {
+  externalId: string | null;
+  ticketId: string | null;
+  title: string;
+  action: string;
+  reason?: string;
+}
+
+interface SyncOutcomeView {
+  dryRun: boolean;
+  created: number;
+  updated: number;
+  skipped: number;
+  conflicts: number;
+  failed: number;
+  items: SyncRunItemView[];
+}
+
+function SyncOutcome({ outcome }: { outcome: SyncOutcomeView }) {
+  const [expanded, setExpanded] = useState(false);
+  const interesting = outcome.items.filter((i) => i.action !== "skipped");
+  const shown = expanded ? outcome.items : interesting.slice(0, 8);
+
+  return (
+    <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+      <div className="flex items-center justify-between">
+        <Text size="sm" fw={600} className="text-text-primary">
+          {outcome.dryRun ? "Dry run result" : "Last run"}
+        </Text>
+        <div className="flex items-center gap-2">
+          <Badge size="xs" variant="light" color="green">
+            {outcome.created} created
+          </Badge>
+          <Badge size="xs" variant="light" color="blue">
+            {outcome.updated} updated
+          </Badge>
+          <Badge size="xs" variant="light" color="gray">
+            {outcome.skipped} skipped
+          </Badge>
+          {outcome.conflicts > 0 && (
+            <Badge size="xs" variant="light" color="yellow">
+              {outcome.conflicts} conflicts
+            </Badge>
+          )}
+          {outcome.failed > 0 && (
+            <Badge size="xs" variant="light" color="red">
+              {outcome.failed} failed
+            </Badge>
+          )}
+        </div>
+      </div>
+      {outcome.items.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {shown.map((item, i) => (
+            <div key={`${item.externalId ?? item.ticketId ?? i}-${i}`} className="flex gap-2 text-xs">
+              <span className="text-text-muted shrink-0 w-16">{item.action}</span>
+              <span className="text-text-primary truncate">{item.title}</span>
+              {item.reason && (
+                <span className="text-text-muted truncate">— {item.reason}</span>
+              )}
+            </div>
+          ))}
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            leftSection={
+              expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />
+            }
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "Show less" : `Show all ${outcome.items.length} items`}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Product ↔ Notion backlog sync configuration.
@@ -58,6 +151,17 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
 
   const disconnect = api.product.ticketSync.disconnect.useMutation({
     onSuccess: invalidate,
+    onError: (err) => setError(err.message),
+  });
+
+  const [lastOutcome, setLastOutcome] = useState<SyncOutcomeView | null>(null);
+
+  const syncNow = api.product.ticketSync.syncNow.useMutation({
+    onSuccess: async (result) => {
+      setError(null);
+      setLastOutcome(result as SyncOutcomeView);
+      await invalidate();
+    },
     onError: (err) => setError(err.message),
   });
 
@@ -119,18 +223,42 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
                 </Text>
               </div>
             </div>
-            <Button
-              size="xs"
-              variant="subtle"
-              color="red"
-              leftSection={<IconUnlink size={14} />}
-              onClick={onDisconnect}
-              loading={disconnect.isPending}
-            >
-              Disconnect
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconEyeSearch size={14} />}
+                onClick={() => syncNow.mutate({ productId, dryRun: true })}
+                loading={syncNow.isPending && syncNow.variables?.dryRun === true}
+                disabled={syncNow.isPending}
+              >
+                Dry run
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconRefresh size={14} />}
+                onClick={() => syncNow.mutate({ productId, dryRun: false })}
+                loading={syncNow.isPending && syncNow.variables?.dryRun !== true}
+                disabled={syncNow.isPending || !config.enabled}
+              >
+                Sync now
+              </Button>
+              <Button
+                size="xs"
+                variant="subtle"
+                color="red"
+                leftSection={<IconUnlink size={14} />}
+                onClick={onDisconnect}
+                loading={disconnect.isPending}
+              >
+                Disconnect
+              </Button>
+            </div>
           </div>
         </div>
+
+        {lastOutcome && <SyncOutcome outcome={lastOutcome} />}
 
         <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-1">
           <div className="flex items-center justify-between border-b border-border-primary py-3.5 last:border-b-0">

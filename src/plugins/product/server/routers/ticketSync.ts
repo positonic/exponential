@@ -3,6 +3,8 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess } from "./product";
 import { DEFAULT_STATUS_MAP } from "~/server/services/ticketSync/mapping";
+import { runInboundTicketSync } from "~/server/services/ticketSync/engine";
+import { createNotionTicketSyncAdapter } from "~/server/services/ticketSync/notionAdapter";
 
 /**
  * ticketSync — configuration surface for the product ↔ Notion backlog sync.
@@ -132,5 +134,63 @@ export const ticketSyncRouter = createTRPCRouter({
         },
       });
       return { ok: true };
+    }),
+
+  syncNow: protectedProcedure
+    .input(z.object({ productId: z.string(), dryRun: z.boolean().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true, integrationId: true, propertyNames: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+
+      const adapterResult = await createNotionTicketSyncAdapter(ctx.db, config);
+      if (!adapterResult.ok) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: adapterResult.error,
+        });
+      }
+
+      return runInboundTicketSync(ctx.db, adapterResult.adapter, {
+        configId: config.id,
+        trigger: "manual",
+        dryRun: input.dryRun ?? false,
+      });
+    }),
+
+  listRuns: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true },
+      });
+      if (!config) return [];
+
+      return ctx.db.ticketSyncRun.findMany({
+        where: { configId: config.id },
+        orderBy: { startedAt: "desc" },
+        take: input.limit ?? 10,
+      });
     }),
 });
