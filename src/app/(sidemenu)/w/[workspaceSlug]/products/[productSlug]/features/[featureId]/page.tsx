@@ -75,6 +75,27 @@ const PRIORITY_OPTIONS = [
   { value: "4", label: "No priority" },
 ];
 
+// Seed body for one-click PRD pages. Sections follow ADR-0039: requirements
+// are EARS statements, not user stories.
+const PRD_TEMPLATE = `## Problem
+
+What problem does this solve, and for whom?
+
+## Goals
+
+## Non-goals
+
+## Requirements
+
+One testable "shall" statement per line (EARS), e.g. "When a user submits the form, the system shall send a confirmation email within one minute."
+
+## Rollout / scopes
+
+How does this ship incrementally? Map bullets here to the feature's scopes.
+
+## Open questions
+`;
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -183,6 +204,31 @@ export default function FeatureDetailPage() {
   const unlinkPage = api.product.feature.unlinkPage.useMutation({
     onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
   });
+
+  const createPage = api.page.create.useMutation();
+
+  /**
+   * One-click PRD: create a Knowledge page pre-titled and pre-structured
+   * (ADR-0039 - requirements as EARS statements, no user stories), link it
+   * to this feature, and open it for writing.
+   */
+  const [creatingPrd, setCreatingPrd] = useState(false);
+  const handleCreatePrd = async () => {
+    if (!workspaceId || !feature) return;
+    setCreatingPrd(true);
+    try {
+      const page = await createPage.mutateAsync({
+        workspaceId,
+        title: `PRD: ${feature.name}`,
+        body: PRD_TEMPLATE,
+      });
+      await linkPage.mutateAsync({ featureId, pageId: page.id });
+      await utils.page.list.invalidate({ workspaceId });
+      router.push(`/w/${workspace?.slug}/pages/${page.id}`);
+    } finally {
+      setCreatingPrd(false);
+    }
+  };
 
   const deleteFeature = api.product.feature.delete.useMutation({
     onSuccess: async () => {
@@ -588,6 +634,15 @@ export default function FeatureDetailPage() {
                 disabled={!pageToLink}
               >
                 Link
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconFileText size={12} />}
+                onClick={() => void handleCreatePrd()}
+                loading={creatingPrd}
+              >
+                New PRD
               </Button>
             </Group>
           </CollapsibleSection>
