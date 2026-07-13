@@ -17,7 +17,7 @@ interface InsightDocumentProps {
 /**
  * The Insight detail-page body editor: the shared {@link RichDocEditor} engine
  * wired to the Insight `bodyDoc`/`body`/`docVersion` storage (ADR-0024, same
- * shape as PageDocument/PrdDocument). No comment layer and no /page command in
+ * shape as PageDocument/FeatureBodyDocument). No comment layer and no /page command in
  * v1 - just the document surface.
  */
 export function InsightDocument({

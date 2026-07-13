@@ -14,6 +14,7 @@ Meanwhile our features are increasingly specified for and built by agents, where
 
 - A new `Requirement` row (one free-text EARS-flavoured `statement`, optional kind: functional / non-functional / constraint, checkable met/unmet, ordered) attaches to a Feature or is pinned to one of its FeatureScopes - the same shape `UserStory` has today.
 - Requirements are drafted in a PRD (a Knowledge page linked to the Feature, optionally to a Scope) and extracted into rows on acceptance. **Rows are canonical**; the PRD is the argument that produced them and ages into history.
+- A PRD is an optional origin, not a required step: requirements may equally be created directly on a Feature or scope as rows. A PRD is warranted only when the feature needs an argued case (problem, evidence, flows, scope cut); a quick requirements list without one is a sanctioned workflow.
 - User stories are retired as data. The `UserStory` table stays in the schema, dormant, for existing rows and possible later revival - but the UI and `/to-prd` stop writing to it. Stories survive only as optional prose in a PRD's problem section.
 - Definition-of-done is explicitly NOT modelled in the registry (it is a team-wide process checklist); ticket-level acceptance criteria are unchanged.
 

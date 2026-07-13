@@ -50,7 +50,7 @@ import {
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import { PrdDocument } from "~/app/_components/prd/PrdDocument";
+import { FeatureBodyDocument } from "~/app/_components/prd/FeatureBodyDocument";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
 import {
@@ -356,7 +356,7 @@ export default function FeatureDetailPage() {
               any workspace member (getById already gates membership). */}
           <CollapsibleSection title="Description">
             <Stack gap="md">
-              <PrdDocument
+              <FeatureBodyDocument
                 featureId={featureId}
                 descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
                 description={feature.description ?? null}
