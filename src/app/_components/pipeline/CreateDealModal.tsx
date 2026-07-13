@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Modal,
   TextInput,
@@ -24,29 +24,57 @@ interface PipelineStage {
   type: string;
 }
 
+interface PipelineOption {
+  id: string;
+  name: string;
+  pipelineStages: PipelineStage[];
+}
+
 interface CreateDealModalProps {
   opened: boolean;
   onClose: () => void;
-  projectId: string;
+  /** Every pipeline in the workspace the deal can be created on. */
+  pipelines: PipelineOption[];
+  /** The pipeline selected on the page — the modal's default destination. */
+  defaultProjectId: string;
   workspaceId: string;
-  stages: PipelineStage[];
 }
 
 export function CreateDealModal({
   opened,
   onClose,
-  projectId,
+  pipelines,
+  defaultProjectId,
   workspaceId,
-  stages,
 }: CreateDealModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [value, setValue] = useState<number | undefined>();
   const [probability, setProbability] = useState<number | undefined>();
-  const [stageId, setStageId] = useState<string>(stages[0]?.id ?? "");
+  const [projectId, setProjectId] = useState<string>(defaultProjectId);
+  const [stageId, setStageId] = useState<string>("");
   const [contactId, setContactId] = useState<string | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [expectedCloseDate, setExpectedCloseDate] = useState<Date | null>(null);
+
+  // Stages of the currently-selected pipeline (ordered, so [0] is "Lead").
+  const selectedPipeline =
+    pipelines.find((p) => p.id === projectId) ?? pipelines[0];
+  const stages = selectedPipeline?.pipelineStages ?? [];
+
+  // Each time the modal opens, default the destination to the pipeline the page
+  // is showing.
+  useEffect(() => {
+    if (opened) setProjectId(defaultProjectId);
+  }, [opened, defaultProjectId]);
+
+  // Keep the stage valid: default to the first stage ("Lead") whenever the
+  // pipeline changes or the current stage isn't part of the selected pipeline.
+  useEffect(() => {
+    if (!stages.some((s) => s.id === stageId)) {
+      setStageId(stages[0]?.id ?? "");
+    }
+  }, [stages, stageId]);
 
   const utils = api.useUtils();
 
@@ -94,7 +122,8 @@ export function CreateDealModal({
     setDescription("");
     setValue(undefined);
     setProbability(undefined);
-    setStageId(stages[0]?.id ?? "");
+    setProjectId(defaultProjectId);
+    // stageId re-defaults to the first stage via the stages effect.
     setContactId(null);
     setOrganizationId(null);
     setExpectedCloseDate(null);
@@ -125,6 +154,11 @@ export function CreateDealModal({
   const orgOptions = (orgsData?.organizations ?? []).map((o) => ({
     value: o.id,
     label: o.name,
+  }));
+
+  const pipelineOptions = pipelines.map((p) => ({
+    value: p.id,
+    label: p.name,
   }));
 
   const stageOptions = stages.map((s) => ({
@@ -176,6 +210,16 @@ export function CreateDealModal({
             onChange={(val) => setProbability(typeof val === "number" ? val : undefined)}
           />
         </Group>
+
+        {pipelines.length > 1 && (
+          <Select
+            label="Pipeline"
+            data={pipelineOptions}
+            value={projectId}
+            onChange={(val) => val && setProjectId(val)}
+            allowDeselect={false}
+          />
+        )}
 
         <Select
           label="Stage"

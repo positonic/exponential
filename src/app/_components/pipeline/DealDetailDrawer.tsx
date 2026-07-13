@@ -16,6 +16,7 @@ import {
   NumberInput,
   TextInput,
   Input,
+  Select,
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import {
@@ -31,11 +32,27 @@ import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 
+interface PipelineStage {
+  id: string;
+  name: string;
+  color: string;
+  order: number;
+  type: string;
+}
+
+interface PipelineOption {
+  id: string;
+  name: string;
+  pipelineStages: PipelineStage[];
+}
+
 interface DealDetailDrawerProps {
   dealId: string | null;
   projectId: string;
   opened: boolean;
   onClose: () => void;
+  /** Every pipeline in the workspace — lets the deal be moved between them. */
+  pipelines: PipelineOption[];
 }
 
 export function DealDetailDrawer({
@@ -43,6 +60,7 @@ export function DealDetailDrawer({
   projectId,
   opened,
   onClose,
+  pipelines,
 }: DealDetailDrawerProps) {
   const [noteText, setNoteText] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -50,6 +68,13 @@ export function DealDetailDrawer({
   const [editValue, setEditValue] = useState<number | undefined>();
   const [editProbability, setEditProbability] = useState<number | undefined>();
   const [editExpectedCloseDate, setEditExpectedCloseDate] = useState<Date | null>(null);
+  const [editProjectId, setEditProjectId] = useState<string>("");
+  const [editStageId, setEditStageId] = useState<string>("");
+
+  // Stages of the pipeline currently chosen in the editor.
+  const editPipeline =
+    pipelines.find((p) => p.id === editProjectId) ?? pipelines[0];
+  const editStages = editPipeline?.pipelineStages ?? [];
 
   const utils = api.useUtils();
 
@@ -69,8 +94,14 @@ export function DealDetailDrawer({
     onSuccess: () => {
       setIsEditing(false);
       void utils.pipeline.getDeal.invalidate({ id: dealId! });
+      // Refresh both the pipeline being viewed and the destination pipeline, in
+      // case the deal was moved between them.
       void utils.pipeline.getDeals.invalidate({ projectId });
       void utils.pipeline.getStats.invalidate({ projectId });
+      if (editProjectId && editProjectId !== projectId) {
+        void utils.pipeline.getDeals.invalidate({ projectId: editProjectId });
+        void utils.pipeline.getStats.invalidate({ projectId: editProjectId });
+      }
       notifications.show({
         title: "Deal updated",
         message: "Changes saved successfully",
@@ -98,7 +129,22 @@ export function DealDetailDrawer({
     setEditValue(deal.value ?? undefined);
     setEditProbability(deal.probability ?? undefined);
     setEditExpectedCloseDate(deal.expectedCloseDate ? new Date(deal.expectedCloseDate) : null);
+    setEditProjectId(deal.projectId);
+    setEditStageId(deal.stageId);
     setIsEditing(true);
+  }
+
+  function handleEditPipelineChange(value: string | null) {
+    if (!value) return;
+    setEditProjectId(value);
+    // Stages are per-pipeline, so switching pipelines re-defaults the stage to
+    // the destination's first stage ("Lead") unless the current one survives.
+    const stages = pipelines.find((p) => p.id === value)?.pipelineStages ?? [];
+    setEditStageId(
+      stages.some((s) => s.id === editStageId)
+        ? editStageId
+        : (stages[0]?.id ?? ""),
+    );
   }
 
   function saveEdits() {
@@ -109,6 +155,8 @@ export function DealDetailDrawer({
       value: editValue ?? null,
       probability: editProbability ?? null,
       expectedCloseDate: editExpectedCloseDate,
+      projectId: editProjectId,
+      stageId: editStageId,
     });
   }
 
@@ -191,14 +239,32 @@ export function DealDetailDrawer({
             </Group>
           </Group>
 
-          {/* Stage badge */}
-          <Badge variant="light" color={deal.stage.color} size="lg">
-            {deal.stage.name}
-          </Badge>
+          {/* Stage badge (read-only view) */}
+          {!isEditing && (
+            <Badge variant="light" color={deal.stage.color} size="lg">
+              {deal.stage.name}
+            </Badge>
+          )}
 
           {/* Editable fields */}
           {isEditing ? (
             <Stack gap="sm">
+              {pipelines.length > 1 && (
+                <Select
+                  label="Pipeline"
+                  data={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+                  value={editProjectId}
+                  onChange={handleEditPipelineChange}
+                  allowDeselect={false}
+                />
+              )}
+              <Select
+                label="Stage"
+                data={editStages.map((s) => ({ value: s.id, label: s.name }))}
+                value={editStageId}
+                onChange={(val) => val && setEditStageId(val)}
+                allowDeselect={false}
+              />
               <Group grow>
                 <NumberInput
                   label="Value"
