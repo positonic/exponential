@@ -39,7 +39,7 @@ import { getAvatarColor, getInitial } from '~/utils/avatarColors';
 import {
   FEATURE_STATUSES,
   ROADMAP_BOARD_COLUMNS,
-  ARCHIVED_FEATURE_STATUS,
+  HIDDEN_FEATURE_STATUSES,
   type FeatureStatus,
 } from '~/lib/feature-statuses';
 
@@ -75,7 +75,7 @@ function parseLaneHeader(overId: string): string | null {
 /**
  * The target `goalId` for a re-align drop onto a lane header. A lane's key *is*
  * its Objective's id (or the Unaligned sentinel), so the goalId is derived
- * directly — dropping onto Unaligned clears alignment (`null`).
+ * directly - dropping onto Unaligned clears alignment (`null`).
  */
 function laneKeyToGoalId(laneKey: string): number | null {
   return laneKey === UNALIGNED_KEY ? null : Number(laneKey);
@@ -92,7 +92,7 @@ const collisionDetection: CollisionDetection = (args) => {
 
 /**
  * A droppable cell id encodes both its lane and its status (`lane::STATUS`) so
- * every (Objective × status) cell is unique across swimlanes — dnd-kit requires
+ * every (Objective × status) cell is unique across swimlanes - dnd-kit requires
  * unique droppable ids. Horizontal status drag only reads the status half.
  */
 function cellId(laneKey: string, status: string) {
@@ -101,7 +101,7 @@ function cellId(laneKey: string, status: string) {
 
 /**
  * Resolve the target {@link FeatureStatus} of a drop. `over` may be a cell
- * (`lane::STATUS`) or another card (its feature id) when dropped onto a card —
+ * (`lane::STATUS`) or another card (its feature id) when dropped onto a card -
  * in which case we look up that feature's status.
  */
 function resolveTargetStatus(
@@ -116,7 +116,7 @@ function resolveTargetStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Product badge — small colored chip identifying the card's owning Product.
+// Product badge - small colored chip identifying the card's owning Product.
 // `Product.icon` / `Product.color` are free-text and often unset, so fall back
 // to a deterministic avatar color + the product's initial.
 // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ const FEATURE_CARD_CLASS =
   'border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors';
 
 // ---------------------------------------------------------------------------
-// Read-only card — a plain Link (viewers / guests get this).
+// Read-only card - a plain Link (viewers / guests get this).
 // ---------------------------------------------------------------------------
 
 function ReadonlyFeatureCard({
@@ -178,7 +178,7 @@ function ReadonlyFeatureCard({
 }
 
 // ---------------------------------------------------------------------------
-// Draggable card — horizontal drag changes status (members+). Click (when not
+// Draggable card - horizontal drag changes status (members+). Click (when not
 // dragging) navigates to the feature detail.
 // ---------------------------------------------------------------------------
 
@@ -242,7 +242,7 @@ function FeatureCard({
 }
 
 // ---------------------------------------------------------------------------
-// Helpers — bucket a feature list into status columns.
+// Helpers - bucket a feature list into status columns.
 // ---------------------------------------------------------------------------
 
 function bucketByStatus(features: RoadmapFeature[]) {
@@ -305,7 +305,7 @@ function StatusCell({
 }
 
 // ---------------------------------------------------------------------------
-// Flat (group-by: none) — one row of status columns.
+// Flat (group-by: none) - one row of status columns.
 // ---------------------------------------------------------------------------
 
 function FlatBoard({
@@ -350,7 +350,7 @@ function FlatBoard({
 }
 
 // ---------------------------------------------------------------------------
-// Swimlanes (group-by: Objective) — one lane per Objective + an Unaligned lane.
+// Swimlanes (group-by: Objective) - one lane per Objective + an Unaligned lane.
 // ---------------------------------------------------------------------------
 
 interface Lane {
@@ -399,7 +399,7 @@ function buildLanes(features: RoadmapFeature[]): Lane[] {
 /**
  * A swimlane's label gutter, doubling as the droppable re-align target. Dropping
  * a card here re-aligns it to this lane's Objective (or clears alignment for the
- * Unaligned lane). The header is the *only* re-align drop zone — a status
+ * Unaligned lane). The header is the *only* re-align drop zone - a status
  * (column) drag never re-homes the OKR (ADR-0035).
  */
 function LaneHeader({ lane, canEdit }: { lane: Lane; canEdit: boolean }) {
@@ -471,7 +471,7 @@ function SwimlaneBoard({
                         laneKey={lane.key}
                         status={col.value}
                         isEmpty={items.length === 0}
-                        emptyHint="—"
+                        emptyHint="-"
                       >
                         {items.map((f) => (
                           <FeatureCard key={f.id} feature={f} prefix={prefix} canEdit={canEdit} />
@@ -513,7 +513,7 @@ export function ProductRoadmapBoard() {
   >({});
 
   // A status drag writes `feature.update`, whose access check admits any
-  // workspace member. Viewers/guests therefore get a read-only board — the
+  // workspace member. Viewers/guests therefore get a read-only board - the
   // drag affordance is gated client-side on role (the server mutation is the
   // backstop for non-members). See ADR-0035 and the PR note.
   const canEdit =
@@ -532,7 +532,7 @@ export function ProductRoadmapBoard() {
       });
     },
     onError: (_err, variables) => {
-      // Roll back the optimistic move (status and/or re-align — a single drag
+      // Roll back the optimistic move (status and/or re-align - a single drag
       // triggers one of them, so clearing both for this feature is safe).
       setOptimisticMoves((prev) => {
         const next = { ...prev };
@@ -587,7 +587,7 @@ export function ProductRoadmapBoard() {
     return m;
   }, [features]);
 
-  // Start of the current OKR period (quarter) — the SHIPPED bound. Computed
+  // Start of the current OKR period (quarter) - the SHIPPED bound. Computed
   // once at mount; v1 uses `Feature.updatedAt` as a coarse shipped-at proxy
   // (FeatureScope.shippedAt is the precise signal for a later refinement).
   const quarterStart = useMemo(() => {
@@ -602,7 +602,9 @@ export function ProductRoadmapBoard() {
   const visibleFeatures = useMemo(
     () =>
       features.filter((f) => {
-        if (f.status === ARCHIVED_FEATURE_STATUS) return showArchived;
+        // Hidden statuses (ARCHIVED + DEPRECATED, Features V2) sit behind the
+        // reveal toggle - they are registry history, not roadmap lanes.
+        if (HIDDEN_FEATURE_STATUSES.includes(f.status)) return showArchived;
         if (f.status === 'SHIPPED' && !showAllShipped) {
           return new Date(f.updatedAt).getTime() >= quarterStart.getTime();
         }

@@ -13,14 +13,10 @@ import {
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { TagSelector } from "~/app/_components/TagSelector";
-
-const STATUS_OPTIONS = [
-  { value: "IDEA", label: "Idea" },
-  { value: "DEFINED", label: "Defined" },
-  { value: "IN_PROGRESS", label: "In Progress" },
-  { value: "SHIPPED", label: "Shipped" },
-  { value: "ARCHIVED", label: "Archived" },
-];
+import {
+  FEATURE_STATUS_OPTIONS as STATUS_OPTIONS,
+  type FeatureStatus,
+} from "~/lib/feature-statuses";
 
 const PRIORITY_OPTIONS = [
   { value: "0", label: "Urgent" },
@@ -36,8 +32,6 @@ interface EditFeatureModalProps {
   featureId: string;
   workspaceId?: string;
 }
-
-type FeatureStatus = "IDEA" | "DEFINED" | "IN_PROGRESS" | "SHIPPED" | "ARCHIVED";
 
 const inputStyles = {
   input: {
@@ -70,8 +64,14 @@ export function EditFeatureModal({
   const [status, setStatus] = useState<FeatureStatus>("IDEA");
   const [priority, setPriority] = useState<string | null>(null);
   const [effort, setEffort] = useState<number | "">("");
+  const [areaId, setAreaId] = useState<string | null>(null);
   const [tagIds, setTagIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: areas } = api.product.feature.listAreas.useQuery(
+    { productId: featureQuery.data?.product.id ?? "" },
+    { enabled: opened && !!featureQuery.data?.product.id },
+  );
 
   useEffect(() => {
     if (!opened) return;
@@ -83,6 +83,7 @@ export function EditFeatureModal({
     setStatus(feature.status as FeatureStatus);
     setPriority(feature.priority != null ? String(feature.priority) : null);
     setEffort(feature.effort ?? "");
+    setAreaId(feature.areaId ?? null);
   }, [opened, featureQuery.data]);
 
   useEffect(() => {
@@ -106,6 +107,7 @@ export function EditFeatureModal({
         status,
         priority: priority != null ? Number(priority) : undefined,
         effort: typeof effort === "number" ? effort : undefined,
+        areaId,
       });
       await setEntityTags.mutateAsync({
         entityType: "feature",
@@ -188,6 +190,15 @@ export function EditFeatureModal({
             styles={inputStyles}
           />
         </Group>
+        <Select
+          label="Area"
+          placeholder={(areas ?? []).length === 0 ? "No areas yet - create them in product settings" : "None"}
+          value={areaId}
+          onChange={setAreaId}
+          data={(areas ?? []).map((a) => ({ value: a.id, label: a.name }))}
+          clearable
+          styles={inputStyles}
+        />
         <NumberInput
           label="Effort"
           placeholder="Story points or hours"
