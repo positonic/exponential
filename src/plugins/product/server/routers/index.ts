@@ -7,6 +7,7 @@ import { researchRouter } from "./research";
 import { cycleRouter } from "./cycle";
 import { retrospectiveRouter } from "./retrospective";
 import { insightRouter } from "./insight";
+import { ticketSyncRouter } from "./ticketSync";
 
 export const productPluginRouter = createTRPCRouter({
   product: productRouter,
@@ -17,6 +18,7 @@ export const productPluginRouter = createTRPCRouter({
   insight: insightRouter,
   cycle: cycleRouter,
   retrospective: retrospectiveRouter,
+  ticketSync: ticketSyncRouter,
 });
 
 export type ProductPluginRouter = typeof productPluginRouter;

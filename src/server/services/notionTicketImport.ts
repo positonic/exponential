@@ -2,6 +2,15 @@ import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { NotionAgentService } from "./notionAgentService";
 import { NotionService } from "./NotionService";
+import {
+  firstOptionName,
+  mapPoints,
+  mapPriority,
+  mapStatus,
+  mapType,
+  normalizeName,
+  readOptionNames,
+} from "./ticketSync/mapping";
 
 /**
  * notionTicketImport — import one Notion backlog cycle into a product's tickets.
@@ -30,125 +39,12 @@ export const MAX_IMPORT_ROWS = 200;
 /** Notion page size used while paginating the filtered backlog query. */
 const NOTION_PAGE_SIZE = 100;
 
-const TICKET_STATUSES = [
-  "BACKLOG", "NEEDS_REFINEMENT", "READY_TO_PLAN", "COMMITTED",
-  "IN_PROGRESS", "BLOCKED", "QA", "DONE", "DEPLOYED", "ARCHIVED",
-] as const;
-
-/**
- * Notion status/select name → TicketStatus. Keys are normalized (lowercased,
- * emoji/punctuation stripped). Anything unmapped falls back to BACKLOG with a
- * per-ticket warning rather than failing the row.
- */
-const STATUS_MAP: Record<string, TicketStatus> = {
-  "backlog": "BACKLOG",
-  "triage": "BACKLOG",
-  "todo": "BACKLOG",
-  "to do": "BACKLOG",
-  "needs refinement": "NEEDS_REFINEMENT",
-  "refinement": "NEEDS_REFINEMENT",
-  "ready to plan": "READY_TO_PLAN",
-  "ready": "READY_TO_PLAN",
-  "planned": "COMMITTED",
-  "committed": "COMMITTED",
-  "in progress": "IN_PROGRESS",
-  "doing": "IN_PROGRESS",
-  "blocked": "BLOCKED",
-  "qa": "QA",
-  "qa ready": "QA",
-  "qa-ready": "QA",
-  "in review": "QA",
-  "review": "QA",
-  "done": "DONE",
-  "complete": "DONE",
-  "completed": "DONE",
-  "deployed": "DEPLOYED",
-  "shipped": "DEPLOYED",
-  "archived": "ARCHIVED",
-  "cancelled": "ARCHIVED",
-  "canceled": "ARCHIVED",
-  "wont do": "ARCHIVED",
-};
-
-/** Substring → TicketType, checked in order. Falls back to FEATURE. */
-const TYPE_HINTS: Array<[string, TicketType]> = [
-  ["bug", "BUG"],
-  ["spike", "SPIKE"],
-  ["research", "RESEARCH"],
-  ["chore", "CHORE"],
-  ["improvement", "IMPROVEMENT"],
-  ["ticket", "FEATURE"],
-];
-
-/** Lowercase and strip emoji/symbols so "🚨 Bug" and "QA-ready" match tables. */
-function normalizeName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
-
 /** Same slug rule as `tag.create` so lookups hit the `[slug, workspaceId]` unique. */
 function slugifyTagName(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
-}
-
-function mapStatus(raw: string | null): { status: TicketStatus; warning?: string } {
-  if (!raw) return { status: "BACKLOG" };
-  const key = normalizeName(raw);
-  // Exact enum name passed through (e.g. a Notion status literally named "QA").
-  const asEnum = raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
-  const direct = TICKET_STATUSES.find((s) => s === asEnum);
-  const mapped = STATUS_MAP[key] ?? direct;
-  if (!mapped) {
-    return { status: "BACKLOG", warning: `Status "${raw}" not recognized — defaulted to BACKLOG` };
-  }
-  return { status: mapped };
-}
-
-/** "1 - High" / "P2" / "0 - Critical" → 0..4, else undefined. */
-function mapPriority(raw: string | null): number | undefined {
-  if (!raw) return undefined;
-  const match = /\d/.exec(raw);
-  if (!match) return undefined;
-  const n = parseInt(match[0], 10);
-  return n >= 0 && n <= 4 ? n : undefined;
-}
-
-/** "L (5pts)" / "3 pts" / "M (3pts)" → numeric points, else undefined. */
-function mapPoints(raw: string | null): number | undefined {
-  if (!raw) return undefined;
-  const match = /(\d+(?:\.\d+)?)\s*pts?/i.exec(raw);
-  if (!match?.[1]) return undefined;
-  return parseFloat(match[1]);
-}
-
-function mapType(raw: string | null): TicketType {
-  if (!raw) return "FEATURE";
-  const key = normalizeName(raw);
-  for (const [hint, type] of TYPE_HINTS) {
-    if (key.includes(hint)) return type;
-  }
-  return "FEATURE";
-}
-
-/** Read a select/status/multi-select property's name(s) from a raw Notion page. */
-function readOptionNames(props: Record<string, any>, property: string): string[] {
-  const prop = props?.[property];
-  if (!prop) return [];
-  if (prop.type === "select") return prop.select?.name ? [prop.select.name as string] : [];
-  if (prop.type === "status") return prop.status?.name ? [prop.status.name as string] : [];
-  if (prop.type === "multi_select") {
-    return (prop.multi_select ?? []).map((s: any) => s.name as string).filter(Boolean);
-  }
-  return [];
-}
-
-function firstOptionName(props: Record<string, any>, property: string): string | null {
-  return readOptionNames(props, property)[0] ?? null;
 }
 
 export interface NotionCycleImportParams {

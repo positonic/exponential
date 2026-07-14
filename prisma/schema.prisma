@@ -258,6 +258,7 @@ model User {
   insightsCreated       Insight[]          @relation("InsightCreatedBy")
   insightComments       InsightComment[]   @relation("InsightCommentAuthor")
   requirementsChecked   Requirement[]      @relation("RequirementCheckedBy")
+  ticketSyncConfigs     TicketSyncConfig[] @relation("TicketSyncConfigCreatedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -1288,12 +1289,12 @@ model TranscriptionSession {
 }
 
 model Screenshot {
-  id                     String                @id @default(cuid())
+  id                     String                 @id @default(cuid())
   url                    String
   timestamp              String
   transcriptionSessionId String?
-  createdAt              DateTime              @default(now())
-  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
+  createdAt              DateTime               @default(now())
+  transcriptionSession   TranscriptionSession?  @relation(fields: [transcriptionSessionId], references: [id])
   actionScreenshots      ActionScreenshot[]
   crmContactScreenshots  CrmContactScreenshot[]
 }
@@ -1345,6 +1346,7 @@ model Integration {
   githubActivities        GitHubActivity[]
   // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
   workspaceRepositories   WorkspaceRepository[]
+  syncConfigs             TicketSyncConfig[]
 
   @@index([userId])
   @@index([teamId])
@@ -2548,12 +2550,12 @@ model KnowledgeChunk {
 /// is workspace-visible). When `includeInSearch` is on, the Markdown projection
 /// feeds the shared Knowledge index as `KnowledgeChunk.sourceType = "page"`.
 model KnowledgePage {
-  id              String   @id @default(cuid())
-  title           String   @default("Untitled")
-  bodyDoc         Json?
-  body            String?
-  docVersion      Int      @default(0)
-  includeInSearch Boolean  @default(true)
+  id               String    @id @default(cuid())
+  title            String    @default("Untitled")
+  bodyDoc          Json?
+  body             String?
+  docVersion       Int       @default(0)
+  includeInSearch  Boolean   @default(true)
   // Public publishing (ADR-0038). `publicId` alone resolves /p/{publicSlug}-{publicId}:
   // minted at first publish, immutable, survives unpublish so republish revives old links.
   // `publicSlug` is cosmetic and freely editable; a stale slug 301s to canonical.
@@ -2562,11 +2564,11 @@ model KnowledgePage {
   publicSlug       String?
   publicSeoIndexed Boolean   @default(false)
   publishedAt      DateTime?
-  workspaceId     String
-  projectId       String?
-  createdById     String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  workspaceId      String
+  projectId        String?
+  createdById      String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -2629,6 +2631,7 @@ model CrmContact {
   screenshots                 CrmContactScreenshot[]
   enrichments                 CrmContactEnrichment[]
 
+  @@unique([workspaceId, emailHash])
   @@index([workspaceId])
   @@index([organizationId])
   @@index([createdById])
@@ -2637,7 +2640,6 @@ model CrmContact {
   @@index([emailHash])
   @@index([connectionScore])
   @@index([workspaceId, importSource])
-  @@unique([workspaceId, emailHash])
 }
 
 // Async enrichment job for a CRM contact. Written (status PENDING) by
@@ -2831,34 +2833,34 @@ model ContactImportBatch {
 // ============================================
 
 model Form {
-  id                  String   @id @default(cuid())
-  workspaceId         String
-  name                String
+  id                     String   @id @default(cuid())
+  workspaceId            String
+  name                   String
   // Globally unique - the public renderer/intake resolve a form by slug alone
   // (`/f/[slug]`), with no workspace in the URL, so the slug must be unique
   // across all workspaces or submissions could route to the wrong tenant.
-  slug                String   @unique
-  description         String?  @db.Text
+  slug                   String   @unique
+  description            String?  @db.Text
   // FormField[]: [{ key, label, type, required, options?, placeholder? }]
-  fields              Json     @default("[]")
+  fields                 Json     @default("[]")
   // FormDestination[]: [{ type, config }] - run synchronously on submit
-  destinations        Json     @default("[]")
-  isActive            Boolean  @default(false)
-  confirmationMessage String?  @db.Text
+  destinations           Json     @default("[]")
+  isActive               Boolean  @default(false)
+  confirmationMessage    String?  @db.Text
   // Applicant account offer (CONTEXT.md ### Forms): whether the success page
   // shows the optional "create an Exponential account" CTA, and an optional
   // per-form override of its prompt copy (null = the built-in default).
   // Defaults preserve pre-existing behaviour (offer shown, default copy).
-  offerApplicantAccount  Boolean @default(true)
-  applicantAccountPrompt String? @db.Text
+  offerApplicantAccount  Boolean  @default(true)
+  applicantAccountPrompt String?  @db.Text
   // Public renderer copy overrides: the submit button label (null = "Submit")
   // and a small dimmed note rendered under the button (null = nothing) -
   // e.g. "We'll only use your email for updates and follow-ups."
-  submitLabel String?
-  footnote    String? @db.Text
-  createdById         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  submitLabel            String?
+  footnote               String?  @db.Text
+  createdById            String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy   User?            @relation("FormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -3889,16 +3891,17 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy       User             @relation("ProductCreatedBy", fields: [createdById], references: [id])
-  features        Feature[]
-  areas           Area[]
-  tickets         Ticket[]
-  researches      Research[]
-  insights        Insight[]
-  retrospectives  Retrospective[]
-  ticketTemplates TicketTemplate[]
-  projects        Project[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User               @relation("ProductCreatedBy", fields: [createdById], references: [id])
+  features          Feature[]
+  areas             Area[]
+  tickets           Ticket[]
+  researches        Research[]
+  insights          Insight[]
+  retrospectives    Retrospective[]
+  ticketTemplates   TicketTemplate[]
+  projects          Project[]
+  ticketSyncConfigs TicketSyncConfig[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -3943,29 +3946,29 @@ model Area {
 }
 
 model Feature {
-  id          String        @id @default(cuid())
-  productId   String
-  name        String
+  id             String        @id @default(cuid())
+  productId      String
+  name           String
   // PRD body - the scoped ADR-0017 exception (ADR-0024). `descriptionDoc` is the
   // canonical ProseMirror document the editor reads/writes; `description` is a
   // derived, write-only Markdown projection for off-island readers (CLI, agents,
   // card previews) and never read back into the editor. `docVersion` powers the
   // optimistic-concurrency stale-write guard for single-writer editing.
-  description String?
+  description    String?
   descriptionDoc Json?
-  docVersion  Int           @default(0)
-  vision      String?
-  status      FeatureStatus @default(IDEA)
-  effort      Float?
-  priority    Int?
+  docVersion     Int           @default(0)
+  vision         String?
+  status         FeatureStatus @default(IDEA)
+  effort         Float?
+  priority       Int?
   // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
-  goalId      Int?
+  goalId         Int?
   // Exclusive Area bucket (Features V2) - at most one per Feature, nullable
   // while unsorted.
-  areaId      String?
-  createdById String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  areaId         String?
+  createdById    String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   createdBy    User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
@@ -4040,7 +4043,7 @@ model FeatureScope {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  feature      Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  feature      Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
   userStories  UserStory[]
   requirements Requirement[]
   tickets      Ticket[]         @relation("TicketScope")
@@ -4168,36 +4171,36 @@ enum InsightStatus {
 }
 
 model Insight {
-  id          String        @id @default(cuid())
-  productId   String
-  researchId  String?
-  type        InsightType
-  title       String
-  body        String?
+  id            String        @id @default(cuid())
+  productId     String
+  researchId    String?
+  type          InsightType
+  title         String
+  body          String?
   // Rich detail-page body (ADR-0024 storage model, third adopter after
   // Feature and KnowledgePage): bodyDoc is the canonical ProseMirror JSON,
   // body above is its derived write-only Markdown projection, docVersion is
   // the optimistic-concurrency guard.
-  bodyDoc     Json?
-  docVersion  Int           @default(0)
-  source      String?
-  sentiment   String?
-  description String        @default("")
-  status      InsightStatus @default(INBOX)
+  bodyDoc       Json?
+  docVersion    Int           @default(0)
+  source        String?
+  sentiment     String?
+  description   String        @default("")
+  status        InsightStatus @default(INBOX)
   // General triage fields, usable by any insight type (ADR-0036). Formerly
   // Problem-only; parking (parkedAt/parkReason) is now a general "defer with a
   // reason, reversibly" affordance independent of `status`.
-  impact      Int?
-  confidence  Int?
-  category    String?
-  evidence    String?
-  parkedAt    DateTime?
-  parkReason  String?
+  impact        Int?
+  confidence    Int?
+  category      String?
+  evidence      String?
+  parkedAt      DateTime?
+  parkReason    String?
   // Feedback-board visibility: set by an explicit human "publish" act, never
   // automatically. Only user-voice insights (FEEDBACK/PAIN_POINT/OPPORTUNITY)
   // may be published - internal evidence (PROBLEM, COMPETITIVE, ...) never
   // reaches the public board. The board read path must filter on this.
-  publishedAt DateTime?
+  publishedAt   DateTime?
   // Linear-style duplicate marking: a non-destructive "this describes the same
   // thing as" pointer. The duplicate keeps ALL its content (insights are
   // evidence - two reports are two data points); it just drops out of default
@@ -4205,9 +4208,9 @@ model Insight {
   // (marking A dup-of B where B is dup-of C points A at C), so this is always
   // one level deep.
   duplicateOfId String?
-  createdById String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdById   String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   research    Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
@@ -4325,6 +4328,7 @@ model Ticket {
   depsOut   TicketDependency[] @relation("TicketDepsOut")
   depsIn    TicketDependency[] @relation("TicketDepsIn")
   tags      TicketTag[]
+  syncs     TicketSync[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -4660,4 +4664,82 @@ model WorkspaceRepository {
   @@unique([workspaceId, fullName])
   @@index([workspaceId])
   @@index([integrationId])
+}
+
+model TicketSyncConfig {
+  id            String    @id @default(cuid())
+  productId     String
+  provider      String    @default("notion")
+  integrationId String
+  databaseId    String
+  databaseName  String?
+  enabled       Boolean   @default(true)
+  pushEnabled   Boolean   @default(false)
+  statusMap     Json?
+  propertyNames Json?
+  /// Upper bound of the last successful incremental pull window.
+  lastPulledAt  DateTime?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  integration Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  createdBy   User            @relation("TicketSyncConfigCreatedBy", fields: [createdById], references: [id])
+  syncs       TicketSync[]
+  runs        TicketSyncRun[]
+
+  @@unique([productId, provider])
+  @@index([integrationId])
+  @@index([createdById])
+}
+
+model TicketSync {
+  id           String    @id @default(cuid())
+  configId     String
+  ticketId     String
+  provider     String    @default("notion")
+  /// Remote identity — the Notion page id.
+  externalId   String
+  externalUrl  String?
+  /// Field values at last successful sync (three-way merge base).
+  snapshot     Json?
+  lastSyncedAt DateTime  @default(now())
+  tombstonedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  ticket Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, provider])
+  @@unique([configId, externalId])
+  @@index([provider, externalId])
+}
+
+model TicketSyncRun {
+  id         String    @id @default(cuid())
+  configId   String
+  /// manual | cron | agent
+  trigger    String
+  /// pull | push | backfill
+  direction  String    @default("pull")
+  dryRun     Boolean   @default(false)
+  /// running | success | error
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  skipped    Int       @default(0)
+  conflicts  Int       @default(0)
+  archived   Int       @default(0)
+  failed     Int       @default(0)
+  /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
+  items      Json?
+
+  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId, startedAt])
 }
