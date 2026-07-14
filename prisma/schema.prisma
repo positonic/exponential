@@ -257,6 +257,7 @@ model User {
   ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
   insightsCreated       Insight[]          @relation("InsightCreatedBy")
   insightComments       InsightComment[]   @relation("InsightCommentAuthor")
+  requirementsChecked   Requirement[]      @relation("RequirementCheckedBy")
   ticketSyncConfigs     TicketSyncConfig[] @relation("TicketSyncConfigCreatedBy")
 
   // One2b agent schema additions
@@ -1345,7 +1346,7 @@ model Integration {
   githubActivities        GitHubActivity[]
   // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
   workspaceRepositories   WorkspaceRepository[]
-  ticketSyncConfigs       TicketSyncConfig[]
+  syncConfigs             TicketSyncConfig[]
 
   @@index([userId])
   @@index([teamId])
@@ -2569,9 +2570,10 @@ model KnowledgePage {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy User      @relation(fields: [createdById], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User          @relation(fields: [createdById], references: [id])
+  features  FeaturePage[]
 
   @@index([workspaceId])
   @@index([projectId])
@@ -3889,28 +3891,58 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy       User               @relation("ProductCreatedBy", fields: [createdById], references: [id])
-  features        Feature[]
-  tickets         Ticket[]
-  researches      Research[]
-  insights        Insight[]
-  retrospectives  Retrospective[]
-  ticketTemplates TicketTemplate[]
-  projects        Project[]
-  syncConfigs     TicketSyncConfig[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User               @relation("ProductCreatedBy", fields: [createdById], references: [id])
+  features          Feature[]
+  areas             Area[]
+  tickets           Ticket[]
+  researches        Research[]
+  insights          Insight[]
+  retrospectives    Retrospective[]
+  ticketTemplates   TicketTemplate[]
+  projects          Project[]
+  ticketSyncConfigs TicketSyncConfig[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
   @@index([createdById])
 }
 
+// Feature lifecycle (Features V2): Idea -> Defined -> In progress -> Live ->
+// Deprecated (+ Archived). SHIPPED is the historical DB value for the Live
+// state - the UI always displays "Live" (live is the state, shipping is the
+// event, recorded by FeatureScope.shippedAt). IDEA/DEFINED/ARCHIVED are always
+// hand-managed. When a Feature has scopes, IN_PROGRESS/SHIPPED roll up from
+// scope statuses (see applyScopeRollup in the feature router). DEPRECATED =
+// was live, sunset by a human - never derived, distinct from ARCHIVED
+// (registry housekeeping for things that never shipped).
 enum FeatureStatus {
   IDEA
   DEFINED
   IN_PROGRESS
   SHIPPED
+  DEPRECATED
   ARCHIVED
+}
+
+// An exclusive bucket sorting a Product's Features into 5-10 groups (the
+// product's capability-map "profile picture"). Per-product, flat, exclusive:
+// a Feature belongs to at most one Area. Each product picks ONE carving axis
+// (functional or technical) - cross-cutting concerns belong in tags, not Areas.
+model Area {
+  id           String   @id @default(cuid())
+  productId    String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  features Feature[]
+
+  @@unique([productId, name])
+  @@index([productId])
 }
 
 model Feature {
@@ -3931,24 +3963,31 @@ model Feature {
   priority       Int?
   // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
   goalId         Int?
+  // Exclusive Area bucket (Features V2) - at most one per Feature, nullable
+  // while unsorted.
+  areaId         String?
   createdById    String
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy   User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
-  goal        Goal?            @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
-  scopes      FeatureScope[]
-  userStories UserStory[]
-  insights    FeatureInsight[]
-  tickets     Ticket[]
-  tags        FeatureTag[]
-  comments    FeatureComment[]
+  product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy    User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  goal         Goal?            @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
+  area         Area?            @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  scopes       FeatureScope[]
+  userStories  UserStory[]
+  requirements Requirement[]
+  insights     FeatureInsight[]
+  tickets      Ticket[]
+  tags         FeatureTag[]
+  comments     FeatureComment[]
+  pages        FeaturePage[]
 
   @@index([productId])
   @@index([goalId])
   @@index([createdById])
   @@index([status])
+  @@index([areaId])
 }
 
 /// Discussion note on a PRD body (ADR-0024). Either anchored - pinned via a
@@ -3960,6 +3999,10 @@ model Feature {
 model FeatureComment {
   id          String    @id @default(cuid())
   featureId   String
+  // Set when the comment belongs to a Feature scope's activity feed (the
+  // scope detail page) rather than the feature itself. Scope comments are
+  // always doc-level (threadId null).
+  scopeId     String?
   threadId    String?
   parentId    String?
   body        String
@@ -3970,11 +4013,13 @@ model FeatureComment {
   updatedAt   DateTime  @updatedAt
 
   feature   Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope     FeatureScope?    @relation(fields: [scopeId], references: [id], onDelete: Cascade)
   parent    FeatureComment?  @relation("FeatureCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   FeatureComment[] @relation("FeatureCommentReplies")
   createdBy User             @relation("FeatureCommentAuthor", fields: [createdById], references: [id])
 
   @@index([featureId])
+  @@index([scopeId])
   @@index([threadId])
   @@index([parentId])
   @@index([createdById])
@@ -3998,9 +4043,12 @@ model FeatureScope {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  feature     Feature     @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  userStories UserStory[]
-  tickets     Ticket[]    @relation("TicketScope")
+  feature      Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  userStories  UserStory[]
+  requirements Requirement[]
+  tickets      Ticket[]         @relation("TicketScope")
+  pages        FeaturePage[]
+  comments     FeatureComment[]
 
   @@index([featureId])
 }
@@ -4021,6 +4069,56 @@ model UserStory {
   scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
 
   @@index([featureId])
+  @@index([scopeId])
+}
+
+enum RequirementKind {
+  FUNCTIONAL
+  NON_FUNCTIONAL
+  CONSTRAINT
+}
+
+// An atomic, testable, checkable EARS-style statement about a Feature,
+// optionally pinned to one of its Scopes (ADR-0039). Replaces UserStory as the
+// requirements write path - UserStory stays dormant for existing data.
+// Requirements are drafted in a PRD page and extracted into rows on
+// acceptance; the rows are canonical (checkable met/unmet via checkedAt).
+model Requirement {
+  id           String           @id @default(cuid())
+  featureId    String
+  scopeId      String?
+  statement    String           @db.Text
+  kind         RequirementKind?
+  displayOrder Int              @default(0)
+  checkedAt    DateTime?
+  checkedById  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  feature   Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope     FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+  checkedBy User?         @relation("RequirementCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
+
+  @@index([featureId])
+  @@index([scopeId])
+}
+
+// Document-shaped specs: a Knowledge page (PRD, research writeup, technical
+// spec) linked to a Feature, optionally to a specific Scope for large
+// extensions. The Feature's own body stays the living description; linked
+// pages are the moment-in-time arguments (see CONTEXT.md "PRD").
+model FeaturePage {
+  featureId String
+  pageId    String
+  scopeId   String?
+  createdAt DateTime @default(now())
+
+  feature Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  page    KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  @@id([featureId, pageId])
+  @@index([pageId])
   @@index([scopeId])
 }
 
@@ -4354,101 +4452,6 @@ model FeatureTag {
   @@index([tagId])
 }
 
-// ---------------------------------------------------------------------------
-// Product ticket sync (Notion ↔ Ticket two-way backlog sync)
-// ---------------------------------------------------------------------------
-
-/// Standing link between a Product's ticket board and one external backlog
-/// database (v1: Notion). One config per product per provider. `pushEnabled`
-/// gates ALL outbound writes — inbound pull is read-only against the remote.
-/// `integrationId` pins the credential explicitly so scheduled runs don't
-/// depend on a session user. `statusMap` is the configurable remote-status-name
-/// → TicketStatus mapping (seeded from the import heuristics); `propertyNames`
-/// overrides remote property names (status/priority/type/effort/label/cycle).
-model TicketSyncConfig {
-  id            String    @id @default(cuid())
-  productId     String
-  provider      String    @default("notion")
-  integrationId String
-  databaseId    String
-  databaseName  String?
-  enabled       Boolean   @default(true)
-  pushEnabled   Boolean   @default(false)
-  statusMap     Json?
-  propertyNames Json?
-  /// Upper bound of the last successful incremental pull window.
-  lastPulledAt  DateTime?
-  createdById   String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  integration Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-  createdBy   User            @relation("TicketSyncConfigCreatedBy", fields: [createdById], references: [id])
-  syncs       TicketSync[]
-  runs        TicketSyncRun[]
-
-  @@unique([productId, provider])
-  @@index([integrationId])
-  @@index([createdById])
-}
-
-/// Durable mapping between one Ticket and its remote counterpart, plus the
-/// per-field snapshot of the state at the last successful sync — the "base"
-/// of the three-way field merge. `tombstonedAt` marks an archived counterpart
-/// (archive ↔ archive; the sync never hard-deletes on either side).
-model TicketSync {
-  id           String    @id @default(cuid())
-  configId     String
-  ticketId     String
-  provider     String    @default("notion")
-  /// Remote identity — the Notion page id.
-  externalId   String
-  externalUrl  String?
-  /// Field values at last successful sync (three-way merge base).
-  snapshot     Json?
-  lastSyncedAt DateTime  @default(now())
-  tombstonedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  ticket Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-
-  @@unique([ticketId, provider])
-  @@unique([configId, externalId])
-  @@index([provider, externalId])
-}
-
-/// One sync execution (manual, scheduled, agent-triggered, or dry run) with
-/// its outcome counts and the per-item outcome list rendered in the run log.
-model TicketSyncRun {
-  id         String    @id @default(cuid())
-  configId   String
-  /// manual | cron | agent
-  trigger    String
-  /// pull | push | backfill
-  direction  String    @default("pull")
-  dryRun     Boolean   @default(false)
-  /// running | success | error
-  status     String    @default("running")
-  startedAt  DateTime  @default(now())
-  finishedAt DateTime?
-  error      String?
-  created    Int       @default(0)
-  updated    Int       @default(0)
-  skipped    Int       @default(0)
-  conflicts  Int       @default(0)
-  archived   Int       @default(0)
-  failed     Int       @default(0)
-  /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
-  items      Json?
-
-  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-
-  @@index([configId, startedAt])
-}
-
 model EpicTag {
   id        String   @id @default(cuid())
   epicId    String
@@ -4661,4 +4664,82 @@ model WorkspaceRepository {
   @@unique([workspaceId, fullName])
   @@index([workspaceId])
   @@index([integrationId])
+}
+
+model TicketSyncConfig {
+  id            String    @id @default(cuid())
+  productId     String
+  provider      String    @default("notion")
+  integrationId String
+  databaseId    String
+  databaseName  String?
+  enabled       Boolean   @default(true)
+  pushEnabled   Boolean   @default(false)
+  statusMap     Json?
+  propertyNames Json?
+  /// Upper bound of the last successful incremental pull window.
+  lastPulledAt  DateTime?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  integration Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  createdBy   User            @relation("TicketSyncConfigCreatedBy", fields: [createdById], references: [id])
+  syncs       TicketSync[]
+  runs        TicketSyncRun[]
+
+  @@unique([productId, provider])
+  @@index([integrationId])
+  @@index([createdById])
+}
+
+model TicketSync {
+  id           String    @id @default(cuid())
+  configId     String
+  ticketId     String
+  provider     String    @default("notion")
+  /// Remote identity — the Notion page id.
+  externalId   String
+  externalUrl  String?
+  /// Field values at last successful sync (three-way merge base).
+  snapshot     Json?
+  lastSyncedAt DateTime  @default(now())
+  tombstonedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  ticket Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, provider])
+  @@unique([configId, externalId])
+  @@index([provider, externalId])
+}
+
+model TicketSyncRun {
+  id         String    @id @default(cuid())
+  configId   String
+  /// manual | cron | agent
+  trigger    String
+  /// pull | push | backfill
+  direction  String    @default("pull")
+  dryRun     Boolean   @default(false)
+  /// running | success | error
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  skipped    Int       @default(0)
+  conflicts  Int       @default(0)
+  archived   Int       @default(0)
+  failed     Int       @default(0)
+  /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
+  items      Json?
+
+  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId, startedAt])
 }

@@ -18,6 +18,7 @@ import {
   IconArrowsExchange,
   IconBrandNotion,
   IconLayoutList,
+  IconMap2,
   IconPlus,
   IconRefresh,
   IconSettings,
@@ -32,6 +33,7 @@ import type { TagColor } from "~/types/tag";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { AreaManagement } from "~/app/_components/product/AreaManagement";
 import { buildProductFavoriteTarget } from "../favoriteTarget";
 import {
   SettingsShell,
@@ -49,6 +51,7 @@ import { NotionSyncSettings } from "~/app/_components/products/NotionSyncSetting
 type SectionId =
   | "general"
   | "flow"
+  | "areas"
   | "labels"
   | "notion-sync"
   | "workspace"
@@ -81,7 +84,7 @@ function SubSectionLabel({ children }: { children: React.ReactNode }) {
 const TICKET_STATUSES = ["Backlog", "Needs refinement", "Ready to plan", "Committed", "In progress", "Blocked", "QA", "Done", "Deployed", "Archived"];
 const EPIC_STATUSES = ["Open", "In progress", "Done", "Cancelled"];
 const CYCLE_STATUSES = ["Planned", "Active", "Completed", "Archived"];
-const FEATURE_STATUSES = ["Idea", "Defined", "In progress", "Shipped", "Archived"];
+const FEATURE_STATUSES = ["Idea", "Defined", "In progress", "Live", "Deprecated", "Archived"];
 
 function StageRow({
   label,
@@ -443,7 +446,7 @@ export default function ProductSettingsPage() {
           slug: productSlug,
         });
       }
-      // The page is keyed by slug — follow it to the new URL if it changed.
+      // The page is keyed by slug - follow it to the new URL if it changed.
       if (workspace && updated.slug !== productSlug) {
         router.replace(
           `/w/${workspace.slug}/products/${updated.slug}/settings`,
@@ -545,7 +548,8 @@ export default function ProductSettingsPage() {
       items: [
         { id: "general", label: "General", icon: IconSettings },
         { id: "flow", label: "Delivery Flow", icon: IconRefresh },
-        { id: "labels", label: "Labels & Areas", icon: IconTags },
+        { id: "areas", label: "Areas", icon: IconMap2 },
+        { id: "labels", label: "Labels", icon: IconTags },
         { id: "notion-sync", label: "Notion sync", icon: IconBrandNotion },
       ],
     },
@@ -783,11 +787,21 @@ export default function ProductSettingsPage() {
           </>
         )}
 
+        {section === "areas" && (
+          <SettingsSection
+            icon={IconMap2}
+            title="Areas"
+            description="Areas divide this product into its major parts, and every feature belongs to exactly one - for example: Onboarding, Billing, Notifications, Search, Admin. Define 5-10 areas along a single principle (product parts, platforms, or journey steps - not a mix). Use labels for anything that applies across areas, like a technology or a team. Deleting an area does not delete its features; they just become unassigned."
+          >
+            <AreaManagement productId={product?.id ?? ""} />
+          </SettingsSection>
+        )}
+
         {section === "labels" && (
           <SettingsSection
             icon={IconTags}
-            title="Labels & Areas"
-            description="Labels are freeform tags for filtering (e.g. tech-debt, urgent). Areas group features by product area (e.g. Platform, Growth)."
+            title="Labels"
+            description="Freeform tags for filtering (e.g. tech-debt, urgent, mobile). The legacy Area category here only groups tickets in ticket views - feature registry Areas are managed in the Areas section."
           >
             <TagManagementSection workspaceId={workspaceId ?? ""} />
           </SettingsSection>

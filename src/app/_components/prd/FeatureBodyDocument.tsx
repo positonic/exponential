@@ -31,7 +31,7 @@ interface AnchorPos {
 }
 const POPOVER_WIDTH = 360;
 
-interface PrdDocumentProps {
+interface FeatureBodyDocumentProps {
   featureId: string;
   /** Canonical ProseMirror document; null until the feature is first migrated. */
   descriptionDoc: JSONContent | null;
@@ -58,14 +58,14 @@ function newThreadId(): string {
  * highlight stays glued to the words via ProseMirror position mapping, and the
  * discussion panel lists reconciled threads (anchored vs orphaned).
  */
-export function PrdDocument({
+export function FeatureBodyDocument({
   featureId,
   descriptionDoc,
   description,
   docVersion = 0,
   editable = false,
   enableComments = false,
-}: PrdDocumentProps) {
+}: FeatureBodyDocumentProps) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const flushSaveRef = useRef<() => Promise<void>>(() => Promise.resolve());
 

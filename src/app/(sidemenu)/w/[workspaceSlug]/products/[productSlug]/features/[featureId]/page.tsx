@@ -23,17 +23,21 @@ import {
   IconArrowRight,
   IconCalendar,
   IconCategory,
+  IconChecklist,
   IconCircleDot,
   IconCopy,
   IconDots,
+  IconFileText,
   IconFlag,
   IconFlame,
+  IconMap2,
   IconPlus,
   IconTag,
   IconTarget,
   IconTicket,
   IconTrash,
   IconUser,
+  IconX,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -46,28 +50,22 @@ import {
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import { PrdDocument } from "~/app/_components/prd/PrdDocument";
+import { FeatureBodyDocument } from "~/app/_components/prd/FeatureBodyDocument";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
+import {
+  FEATURE_STATUS_OPTIONS,
+  FEATURE_STATUS_COLORS,
+  SCOPE_STATUS_OPTIONS,
+  SCOPE_STATUS_COLORS,
+  REQUIREMENT_KIND_OPTIONS,
+  REQUIREMENT_KIND_LABELS,
+} from "~/lib/feature-statuses";
 import type { JSONContent } from "@tiptap/core";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const STATUS_OPTIONS = [
-  { value: "IDEA", label: "Idea" },
-  { value: "DEFINED", label: "Defined" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "SHIPPED", label: "Shipped" },
-  { value: "ARCHIVED", label: "Archived" },
-];
-
-const STATUS_COLORS: Record<string, string> = {
-  IDEA: "gray",
-  DEFINED: "blue",
-  IN_PROGRESS: "yellow",
-  SHIPPED: "green",
-  ARCHIVED: "dark",
-};
 
 const PRIORITY_OPTIONS = [
   { value: "0", label: "Urgent" },
@@ -77,12 +75,26 @@ const PRIORITY_OPTIONS = [
   { value: "4", label: "No priority" },
 ];
 
-const SCOPE_STATUS_COLORS: Record<string, string> = {
-  PLANNED: "gray",
-  IN_PROGRESS: "yellow",
-  SHIPPED: "green",
-  DEPRECATED: "red",
-};
+// Seed body for one-click PRD pages. Sections follow ADR-0039: requirements
+// are EARS statements, not user stories.
+const PRD_TEMPLATE = `## Problem
+
+What problem does this solve, and for whom?
+
+## Goals
+
+## Non-goals
+
+## Requirements
+
+One testable "shall" statement per line (EARS), e.g. "When a user submits the form, the system shall send a confirmation email within one minute."
+
+## Rollout / scopes
+
+How does this ship incrementally? Map bullets here to the feature's scopes.
+
+## Open questions
+`;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -132,44 +144,91 @@ export default function FeatureDetailPage() {
   const [scopeVersion, setScopeVersion] = useState("");
   const [scopeDescription, setScopeDescription] = useState("");
 
-  // Story form
-  const [storyAsA, setStoryAsA] = useState("");
-  const [storyIWant, setStoryIWant] = useState("");
-  const [storySoThat, setStorySoThat] = useState("");
-  const [storyScopeId, setStoryScopeId] = useState<string | null>(null);
+  // Requirement form (EARS, ADR-0039)
+  const [reqStatement, setReqStatement] = useState("");
+  const [reqKind, setReqKind] = useState<string | null>(null);
+  const [reqScopeId, setReqScopeId] = useState<string | null>(null);
+
+  // Spec page picker
+  const [pageToLink, setPageToLink] = useState<string | null>(null);
+
+  const invalidateFeature = async () => {
+    await utils.product.feature.getById.invalidate({ id: featureId });
+    if (feature?.product.id) await utils.product.feature.list.invalidate({ productId: feature.product.id });
+  };
 
   const updateFeature = api.product.feature.update.useMutation({
-    onSuccess: async () => {
-      await utils.product.feature.getById.invalidate({ id: featureId });
-      if (feature?.product.id) await utils.product.feature.list.invalidate({ productId: feature.product.id });
-    },
+    onSuccess: invalidateFeature,
   });
 
   const addScope = api.product.feature.addScope.useMutation({
     onSuccess: async () => {
       setScopeVersion("");
       setScopeDescription("");
-      await utils.product.feature.getById.invalidate({ id: featureId });
+      await invalidateFeature();
     },
+  });
+
+  const updateScope = api.product.feature.updateScope.useMutation({
+    onSuccess: invalidateFeature,
   });
 
   const deleteScope = api.product.feature.deleteScope.useMutation({
-    onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
+    onSuccess: invalidateFeature,
   });
 
-  const addUserStory = api.product.feature.addUserStory.useMutation({
+  const addRequirement = api.product.feature.addRequirement.useMutation({
     onSuccess: async () => {
-      setStoryAsA("");
-      setStoryIWant("");
-      setStorySoThat("");
-      setStoryScopeId(null);
+      setReqStatement("");
+      setReqKind(null);
+      setReqScopeId(null);
       await utils.product.feature.getById.invalidate({ id: featureId });
     },
   });
 
-  const deleteUserStory = api.product.feature.deleteUserStory.useMutation({
+  const setRequirementChecked = api.product.feature.setRequirementChecked.useMutation({
     onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
   });
+
+  const deleteRequirement = api.product.feature.deleteRequirement.useMutation({
+    onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
+  });
+
+  const linkPage = api.product.feature.linkPage.useMutation({
+    onSuccess: async () => {
+      setPageToLink(null);
+      await utils.product.feature.getById.invalidate({ id: featureId });
+    },
+  });
+
+  const unlinkPage = api.product.feature.unlinkPage.useMutation({
+    onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
+  });
+
+  const createPage = api.page.create.useMutation();
+
+  /**
+   * One-click PRD: create a Knowledge page pre-titled and pre-structured
+   * (ADR-0039 - requirements as EARS statements, no user stories), link it
+   * to this feature, and open it for writing.
+   */
+  const [creatingPrd, setCreatingPrd] = useState(false);
+  const handleCreatePrd = async () => {
+    if (!workspaceId || !feature) return;
+    setCreatingPrd(true);
+    try {
+      const page = await createPage.mutateAsync({
+        workspaceId,
+        title: `PRD: ${feature.name}`,
+        body: PRD_TEMPLATE,
+      });
+      await linkPage.mutateAsync({ featureId, pageId: page.id });
+      await utils.page.list.invalidate({ workspaceId });
+      router.push(`/w/${workspace?.slug}/pages/${page.id}`);
+    } finally {
+      setCreatingPrd(false);
+    }
+  };
 
   const deleteFeature = api.product.feature.delete.useMutation({
     onSuccess: async () => {
@@ -178,8 +237,47 @@ export default function FeatureDetailPage() {
     },
   });
 
+  const { data: areas } = api.product.feature.listAreas.useQuery(
+    { productId: feature?.product.id ?? "" },
+    { enabled: !!feature?.product.id },
+  );
+
+  const { data: workspacePages } = api.page.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+
   const handleFieldUpdate = (field: string, value: unknown) => {
     updateFeature.mutate({ id: featureId, [field]: value });
+  };
+
+  /**
+   * Deprecating a feature prompts to also deprecate its LIVE scopes (never
+   * implicit - see CONTEXT.md "Deprecated"). Planned or in-progress scopes
+   * were never live, so they are never part of the cascade. Other statuses
+   * apply directly.
+   */
+  const handleStatusChange = (val: string) => {
+    const hasLiveScopes =
+      (feature?.scopes ?? []).some((s) => s.status === "SHIPPED");
+    if (val === "DEPRECATED" && hasLiveScopes) {
+      modals.openConfirmModal({
+        title: "Deprecate feature",
+        children: (
+          <Text size="sm">
+            Also deprecate this feature&apos;s live scopes? The feature stays in
+            the registry as product history either way.
+          </Text>
+        ),
+        labels: { confirm: "Deprecate feature + scopes", cancel: "Feature only" },
+        onConfirm: () =>
+          updateFeature.mutate({ id: featureId, status: "DEPRECATED", deprecateScopes: true }),
+        onCancel: () =>
+          updateFeature.mutate({ id: featureId, status: "DEPRECATED" }),
+      });
+      return;
+    }
+    handleFieldUpdate("status", val);
   };
 
   if (isLoading) {
@@ -210,9 +308,14 @@ export default function FeatureDetailPage() {
           {/* Title + badges + overflow menu */}
           <div>
             <Group gap="sm" mb={8}>
-              <Badge size="xs" variant="filled" color={STATUS_COLORS[feature.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
-                {STATUS_OPTIONS.find((s) => s.value === feature.status)?.label ?? feature.status}
+              <Badge size="xs" variant="filled" color={FEATURE_STATUS_COLORS[feature.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
+                {FEATURE_STATUS_OPTIONS.find((s) => s.value === feature.status)?.label ?? feature.status}
               </Badge>
+              {feature.area && (
+                <Badge size="xs" variant="outline" color="gray" leftSection={<IconMap2 size={10} />}>
+                  {feature.area.name}
+                </Badge>
+              )}
             </Group>
 
             <Group justify="space-between" align="flex-start">
@@ -236,7 +339,7 @@ export default function FeatureDetailPage() {
                   <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => {
                     modals.openConfirmModal({
                       title: "Delete feature",
-                      children: <Text size="sm">This will permanently delete the feature and all its scopes and user stories.</Text>,
+                      children: <Text size="sm">This will permanently delete the feature and all its scopes and requirements.</Text>,
                       labels: { confirm: "Delete", cancel: "Cancel" },
                       confirmProps: { color: "red" },
                       onConfirm: () => deleteFeature.mutate({ id: featureId }),
@@ -249,40 +352,66 @@ export default function FeatureDetailPage() {
             </Group>
           </div>
 
-          {/* PRD body — rich document (ADR-0024), replaces MarkdownRenderer here only.
-              Editable for any workspace member (getById already gates membership). */}
-          <PrdDocument
-            featureId={featureId}
-            descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
-            description={feature.description ?? null}
-            docVersion={feature.docVersion}
-            editable
-            enableComments
-          />
-
-          {/* Vision */}
-          {feature.vision && (
-            <div className="border border-border-primary rounded-lg p-3">
-              <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
-              <MarkdownRenderer content={feature.vision} />
-            </div>
-          )}
+          {/* Description - the living rich document (ADR-0024). Editable for
+              any workspace member (getById already gates membership). */}
+          <CollapsibleSection title="Description">
+            <Stack gap="md">
+              <FeatureBodyDocument
+                featureId={featureId}
+                descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
+                description={feature.description ?? null}
+                docVersion={feature.docVersion}
+                editable
+                enableComments
+              />
+              {feature.vision && (
+                <div className="border border-border-primary rounded-lg p-3">
+                  <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
+                  <MarkdownRenderer content={feature.vision} />
+                </div>
+              )}
+            </Stack>
+          </CollapsibleSection>
 
           {/* Scopes */}
-          <div>
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-              Scopes
-            </Text>
+          <CollapsibleSection
+            title="Scopes"
+            meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
+          >
             {feature.scopes.length > 0 ? (
               <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
                 {feature.scopes.map((scope, i) => (
                   <div key={scope.id} className={`flex items-start justify-between gap-3 px-3 py-2.5 ${i < feature.scopes.length - 1 ? "border-b border-border-primary" : ""}`}>
                     <div className="flex-1">
                       <Group gap="sm">
-                        <Text size="sm" fw={500} className="text-text-primary">{scope.version}</Text>
-                        <Badge size="xs" variant="light" color={SCOPE_STATUS_COLORS[scope.status] ?? "gray"}>
-                          {scope.status.replace("_", " ").toLowerCase()}
-                        </Badge>
+                        <Link
+                          href={`${backPath}/${featureId}/scopes/${scope.id}`}
+                          className="text-sm font-medium text-text-primary hover:underline"
+                        >
+                          {scope.version}
+                        </Link>
+                        <Select
+                          value={scope.status}
+                          onChange={(v) => v && updateScope.mutate({ id: scope.id, status: v as "PLANNED" | "IN_PROGRESS" | "SHIPPED" | "DEPRECATED" })}
+                          data={SCOPE_STATUS_OPTIONS}
+                          size="xs"
+                          variant="unstyled"
+                          comboboxProps={{ withinPortal: true }}
+                          classNames={{ input: "text-xs font-medium cursor-pointer" }}
+                          styles={{
+                            input: {
+                              height: 20,
+                              minHeight: 20,
+                              width: 110,
+                              color: `var(--mantine-color-${SCOPE_STATUS_COLORS[scope.status] ?? "gray"}-5)`,
+                            },
+                          }}
+                        />
+                        {scope.shippedAt && (
+                          <Text size="xs" className="text-text-muted">
+                            live since {new Date(scope.shippedAt).toLocaleDateString()}
+                          </Text>
+                        )}
                       </Group>
                       <div className="mt-1">
                         <MarkdownRenderer content={scope.description} />
@@ -304,47 +433,226 @@ export default function FeatureDetailPage() {
                 Add
               </Button>
             </div>
-          </div>
+          </CollapsibleSection>
 
-          {/* User stories */}
-          <div>
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-              User stories
-            </Text>
-            {feature.userStories.length > 0 ? (
+          {/* Requirements - checkable EARS statements (ADR-0039). Legacy user
+              stories render read-only below while any remain; the write path
+              is requirements only. */}
+          <CollapsibleSection
+            title="Requirements"
+            icon={<IconChecklist size={14} className="text-text-muted" />}
+            meta={
+              feature.requirements.length > 0
+                ? `${feature.requirements.filter((r) => r.checkedAt != null).length}/${feature.requirements.length} met`
+                : undefined
+            }
+          >
+            {feature.requirements.length > 0 ? (
               <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
-                {feature.userStories.map((story, i) => (
-                  <div key={story.id} className={`flex items-start justify-between gap-3 px-3 py-2.5 ${i < feature.userStories.length - 1 ? "border-b border-border-primary" : ""}`}>
-                    <Text size="sm" className="text-text-primary flex-1">
-                      <span className="text-text-muted">As a</span> {story.asA ?? "-"}{" "}
-                      <span className="text-text-muted">I want</span> {story.iWant ?? "-"}{" "}
-                      <span className="text-text-muted">so that</span> {story.soThat ?? "-"}
-                    </Text>
-                    <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteUserStory.mutate({ id: story.id })}>
-                      <IconTrash size={12} />
-                    </ActionIcon>
-                  </div>
-                ))}
+                {feature.requirements.map((req, i) => {
+                  const reqScope = feature.scopes.find((s) => s.id === req.scopeId);
+                  return (
+                    <div key={req.id} className={`flex items-start gap-3 px-3 py-2.5 ${i < feature.requirements.length - 1 ? "border-b border-border-primary" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={req.checkedAt != null}
+                        onChange={(e) =>
+                          setRequirementChecked.mutate({ id: req.id, checked: e.currentTarget.checked })
+                        }
+                        className="mt-0.5 shrink-0 cursor-pointer accent-[var(--color-brand-primary)]"
+                        aria-label="Requirement met"
+                      />
+                      <Text
+                        size="sm"
+                        className={`flex-1 min-w-0 ${req.checkedAt != null ? "text-text-muted line-through" : "text-text-primary"}`}
+                      >
+                        {req.statement}
+                      </Text>
+                      {req.kind && (
+                        <Badge size="xs" variant="outline" color="gray" className="shrink-0">
+                          {REQUIREMENT_KIND_LABELS[req.kind] ?? req.kind}
+                        </Badge>
+                      )}
+                      {reqScope && (
+                        <Badge size="xs" variant="light" color="gray" className="shrink-0">
+                          {reqScope.version}
+                        </Badge>
+                      )}
+                      <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteRequirement.mutate({ id: req.id })}>
+                        <IconTrash size={12} />
+                      </ActionIcon>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <Text size="xs" className="text-text-muted mb-3">No stories yet.</Text>
+              <Text size="xs" className="text-text-muted mb-3">
+                No requirements yet. Write testable EARS statements: &quot;When
+                &lt;trigger&gt;, the system shall &lt;response&gt;&quot;.
+              </Text>
             )}
             <div className="flex gap-2 items-end">
-              <TextInput placeholder="As a..." value={storyAsA} onChange={(e) => setStoryAsA(e.currentTarget.value)} size="xs" className="flex-1" />
-              <TextInput placeholder="I want..." value={storyIWant} onChange={(e) => setStoryIWant(e.currentTarget.value)} size="xs" className="flex-1" />
-              <TextInput placeholder="So that..." value={storySoThat} onChange={(e) => setStorySoThat(e.currentTarget.value)} size="xs" className="flex-1" />
-              <Button size="xs" variant="light" leftSection={<IconPlus size={12} />} onClick={() => { if (storyIWant.trim()) addUserStory.mutate({ featureId, scopeId: storyScopeId ?? undefined, asA: storyAsA.trim() || undefined, iWant: storyIWant.trim() || undefined, soThat: storySoThat.trim() || undefined }); }} loading={addUserStory.isPending} disabled={!storyIWant.trim()}>
+              <TextInput
+                placeholder="The system shall..."
+                value={reqStatement}
+                onChange={(e) => setReqStatement(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && reqStatement.trim()) {
+                    e.preventDefault();
+                    addRequirement.mutate({
+                      featureId,
+                      statement: reqStatement.trim(),
+                      kind: (reqKind ?? undefined) as "FUNCTIONAL" | "NON_FUNCTIONAL" | "CONSTRAINT" | undefined,
+                      scopeId: reqScopeId ?? undefined,
+                    });
+                  }
+                }}
+                size="xs"
+                className="flex-1"
+              />
+              <Select
+                placeholder="Kind"
+                value={reqKind}
+                onChange={setReqKind}
+                data={REQUIREMENT_KIND_OPTIONS}
+                size="xs"
+                clearable
+                className="w-36"
+                comboboxProps={{ withinPortal: true }}
+              />
+              {feature.scopes.length > 0 && (
+                <Select
+                  placeholder="Scope"
+                  value={reqScopeId}
+                  onChange={setReqScopeId}
+                  data={feature.scopes.map((s) => ({ value: s.id, label: s.version }))}
+                  size="xs"
+                  clearable
+                  className="w-28"
+                  comboboxProps={{ withinPortal: true }}
+                />
+              )}
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconPlus size={12} />}
+                onClick={() =>
+                  addRequirement.mutate({
+                    featureId,
+                    statement: reqStatement.trim(),
+                    kind: (reqKind ?? undefined) as "FUNCTIONAL" | "NON_FUNCTIONAL" | "CONSTRAINT" | undefined,
+                    scopeId: reqScopeId ?? undefined,
+                  })
+                }
+                loading={addRequirement.isPending}
+                disabled={!reqStatement.trim()}
+              >
                 Add
               </Button>
             </div>
-          </div>
+            {feature.userStories.length > 0 && (
+              <div className="mt-3">
+                <Text size="xs" className="text-text-muted mb-1">
+                  Legacy user stories (read-only - superseded by requirements, ADR-0039):
+                </Text>
+                <div className="border border-border-primary rounded-lg overflow-hidden opacity-70">
+                  {feature.userStories.map((story, i) => (
+                    <div key={story.id} className={`px-3 py-2 ${i < feature.userStories.length - 1 ? "border-b border-border-primary" : ""}`}>
+                      <Text size="xs" className="text-text-secondary">
+                        <span className="text-text-muted">As a</span> {story.asA ?? "-"}{" "}
+                        <span className="text-text-muted">I want</span> {story.iWant ?? "-"}{" "}
+                        <span className="text-text-muted">so that</span> {story.soThat ?? "-"}
+                      </Text>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CollapsibleSection>
+
+          {/* Docs - Knowledge pages (PRDs, research, technical specs) linked
+              to this feature. The body above stays the living description;
+              these are the moment-in-time arguments. */}
+          <CollapsibleSection
+            title="Docs"
+            icon={<IconFileText size={14} className="text-text-muted" />}
+            meta={feature.pages.length > 0 ? String(feature.pages.length) : undefined}
+          >
+            {feature.pages.length > 0 && (
+              <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
+                {feature.pages.map((link, i) => {
+                  const linkScope = feature.scopes.find((s) => s.id === link.scopeId);
+                  return (
+                    <div key={link.pageId} className={`flex items-center gap-3 px-3 py-2.5 ${i < feature.pages.length - 1 ? "border-b border-border-primary" : ""}`}>
+                      <IconFileText size={14} className="text-text-muted shrink-0" />
+                      <Link
+                        href={`/w/${workspace?.slug}/pages/${link.pageId}`}
+                        className="text-sm text-text-primary hover:underline flex-1 min-w-0 truncate"
+                      >
+                        {link.page.title}
+                      </Link>
+                      {linkScope && (
+                        <Badge size="xs" variant="light" color="gray" className="shrink-0">
+                          {linkScope.version}
+                        </Badge>
+                      )}
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        size="xs"
+                        onClick={() => unlinkPage.mutate({ featureId, pageId: link.pageId })}
+                        aria-label="Unlink page"
+                      >
+                        <IconX size={12} />
+                      </ActionIcon>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <Group gap="xs">
+              <Select
+                placeholder="Link a page (PRD, spec, research)..."
+                value={pageToLink}
+                onChange={setPageToLink}
+                data={(workspacePages ?? [])
+                  .filter((p) => !feature.pages.some((l) => l.pageId === p.id))
+                  .map((p) => ({ value: p.id, label: p.title }))}
+                size="xs"
+                searchable
+                clearable
+                nothingFoundMessage="No pages found"
+                className="flex-1"
+                comboboxProps={{ withinPortal: true }}
+              />
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconPlus size={12} />}
+                onClick={() => { if (pageToLink) linkPage.mutate({ featureId, pageId: pageToLink }); }}
+                loading={linkPage.isPending}
+                disabled={!pageToLink}
+              >
+                Link
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconFileText size={12} />}
+                onClick={() => void handleCreatePrd()}
+                loading={creatingPrd}
+              >
+                New PRD
+              </Button>
+            </Group>
+          </CollapsibleSection>
 
           {/* Linked insights */}
           {feature.insights.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Linked insights
-              </Text>
+            <CollapsibleSection
+              title="Linked insights"
+              meta={String(feature.insights.length)}
+            >
               <div className="border border-border-primary rounded-lg overflow-hidden">
                 {feature.insights.map((link, i) => (
                   <div key={link.insight.id} className={`flex items-center gap-3 px-3 py-2.5 ${i < feature.insights.length - 1 ? "border-b border-border-primary" : ""}`}>
@@ -360,8 +668,13 @@ export default function FeatureDetailPage() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
+
+          {/* Activity - feature-level comments, ticket-detail pattern. */}
+          <CollapsibleSection title="Activity">
+            <FeatureActivitySection featureId={featureId} />
+          </CollapsibleSection>
         </Stack>
       </div>
 
@@ -370,10 +683,26 @@ export default function FeatureDetailPage() {
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
           <Select
             value={feature.status}
-            onChange={(val) => val && handleFieldUpdate("status", val)}
-            data={STATUS_OPTIONS}
+            onChange={(val) => val && handleStatusChange(val)}
+            data={FEATURE_STATUS_OPTIONS}
             size="xs"
             variant="unstyled"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        <PropertyRow icon={<IconMap2 size={14} />} label="Area">
+          <Select
+            value={feature.areaId}
+            onChange={(val) => handleFieldUpdate("areaId", val)}
+            data={(areas ?? []).map((a) => ({ value: a.id, label: a.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            nothingFoundMessage="No areas yet"
             comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}

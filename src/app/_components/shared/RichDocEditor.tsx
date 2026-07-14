@@ -90,7 +90,7 @@ export interface RichDocEditorProps {
  * autosave, lazy Markdown→JSON migration, an optimistic-concurrency stale-write
  * guard, slash menu, task lists and image paste. Storage specifics (which
  * mutation persists the doc, how images upload) are injected, so both the
- * Feature PRD (`PrdDocument`) and Knowledge Pages (`PageDocument`) share one
+ * Feature body (`FeatureBodyDocument`) and Knowledge Pages (`PageDocument`) share one
  * engine. Comment/thread UI is NOT part of the engine; a host layers it on via
  * the optional extension points (`extraExtensions`, `bubbleExtras`, `overlay`,
  * `footer`, `editorClick`, `onReady`).
