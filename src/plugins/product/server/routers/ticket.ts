@@ -783,6 +783,45 @@ export const ticketRouter = createTRPCRouter({
       return comment;
     }),
 
+  updateComment: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.ticketComment.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          authorId: true,
+          ticket: {
+            select: { product: { select: { workspaceId: true } } },
+          },
+        },
+      });
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        comment.ticket.product.workspaceId,
+      );
+      if (comment.authorId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only edit your own comments",
+        });
+      }
+      return ctx.db.ticketComment.update({
+        where: { id: input.id },
+        data: { content: input.content },
+        include: { author: { select: { id: true, name: true, image: true } } },
+      });
+    }),
+
   deleteComment: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
