@@ -669,6 +669,109 @@ export const featureRouter = createTRPCRouter({
     }),
 
   /**
+   * Uniform bulk patch across many features (multi-select). Status writes
+   * respect the registry lifecycle: features whose status is scope-derived
+   * (any scope IN_PROGRESS/SHIPPED - see applyScopeRollup) and features the
+   * "was live - deprecate, don't archive" guard protects are SKIPPED, never
+   * overridden; the response reports how many. Bulk DEPRECATED never cascades
+   * to scopes (the single-feature path prompts for that explicitly).
+   */
+  bulkUpdate: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(100),
+        status: featureStatusEnum.optional(),
+        priority: z.number().int().min(0).max(4).nullable().optional(),
+        areaId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { ids, ...patch } = input;
+      const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
+      if (fields.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No fields to update",
+        });
+      }
+
+      const uniqueIds = Array.from(new Set(ids));
+      const features = await ctx.db.feature.findMany({
+        where: { id: { in: uniqueIds } },
+        select: {
+          id: true,
+          status: true,
+          productId: true,
+          product: { select: { workspaceId: true } },
+          scopes: { select: { status: true } },
+        },
+      });
+      if (features.length !== uniqueIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+      const workspaceIds = Array.from(
+        new Set(features.map((f) => f.product.workspaceId)),
+      );
+      for (const workspaceId of workspaceIds) {
+        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+      }
+
+      if (input.areaId) {
+        const productIds = Array.from(
+          new Set(features.map((f) => f.productId)),
+        );
+        if (productIds.length > 1) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Areas are per-product - select features from a single product",
+          });
+        }
+        const area = await ctx.db.area.findFirst({
+          where: { id: input.areaId, productId: productIds[0]! },
+          select: { id: true },
+        });
+        if (!area) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+        }
+      }
+
+      let okIds = features.map((f) => f.id);
+      if (input.status) {
+        const target = input.status;
+        const allowed = features.filter((f) => {
+          const derived = f.scopes.some(
+            (s) => s.status === "SHIPPED" || s.status === "IN_PROGRESS",
+          );
+          if (derived && target !== "DEPRECATED" && target !== "ARCHIVED") {
+            return false;
+          }
+          const everLive =
+            f.status === "SHIPPED" ||
+            f.status === "DEPRECATED" ||
+            f.scopes.some(
+              (s) => s.status === "SHIPPED" || s.status === "DEPRECATED",
+            );
+          if (target === "ARCHIVED" && everLive) return false;
+          return true;
+        });
+        okIds = allowed.map((f) => f.id);
+      }
+
+      if (okIds.length > 0) {
+        await ctx.db.feature.updateMany({
+          where: { id: { in: okIds } },
+          data: Object.fromEntries(fields),
+        });
+      }
+
+      return { updated: okIds.length, skipped: uniqueIds.length - okIds.length };
+    }),
+
+  /**
    * Persist the one-time lazy migration of a legacy Markdown `description` into
    * the canonical `descriptionDoc` (ADR-0024). The client converts Markdown →
    * ProseMirror JSON via the codec on first open and calls this to store it.
@@ -737,6 +840,31 @@ export const featureRouter = createTRPCRouter({
       await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.feature.delete({ where: { id: input.id } });
       return { success: true };
+    }),
+
+  /** Bulk hard delete (multi-select). Same access model as `delete`. */
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const uniqueIds = Array.from(new Set(input.ids));
+      const features = await ctx.db.feature.findMany({
+        where: { id: { in: uniqueIds } },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (features.length !== uniqueIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+      const workspaceIds = Array.from(
+        new Set(features.map((f) => f.product.workspaceId)),
+      );
+      for (const workspaceId of workspaceIds) {
+        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+      }
+      await ctx.db.feature.deleteMany({ where: { id: { in: uniqueIds } } });
+      return { count: uniqueIds.length };
     }),
 
   /**

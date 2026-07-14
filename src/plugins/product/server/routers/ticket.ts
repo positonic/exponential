@@ -478,6 +478,94 @@ export const ticketRouter = createTRPCRouter({
       return updatedTicket;
     }),
 
+  /**
+   * Uniform bulk patch across many tickets (multi-select). One updateMany
+   * plus per-ticket activity events mirroring `update`'s instrumentation, so
+   * per-ticket detail-page histories stay coherent.
+   */
+  bulkUpdate: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(100),
+        status: ticketStatusEnum.optional(),
+        type: ticketTypeEnum.optional(),
+        priority: z.number().int().min(0).max(4).nullable().optional(),
+        assigneeId: z.string().nullable().optional(),
+        epicId: z.string().nullable().optional(),
+        cycleId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { ids, ...patch } = input;
+      const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
+      if (fields.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No fields to update",
+        });
+      }
+
+      const uniqueIds = Array.from(new Set(ids));
+      const tickets = await ctx.db.ticket.findMany({
+        where: { id: { in: uniqueIds } },
+        select: {
+          id: true,
+          status: true,
+          product: { select: { workspaceId: true } },
+        },
+      });
+      if (tickets.length !== uniqueIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+      const workspaceIds = Array.from(
+        new Set(tickets.map((t) => t.product.workspaceId)),
+      );
+      for (const workspaceId of workspaceIds) {
+        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+      }
+
+      const data: Record<string, unknown> = Object.fromEntries(fields);
+      if (input.status) {
+        data.completedAt = COMPLETED_TICKET_STATUSES.includes(input.status)
+          ? new Date()
+          : null;
+      }
+
+      await ctx.db.ticket.updateMany({
+        where: { id: { in: uniqueIds } },
+        data,
+      });
+
+      const fieldsChanged = fields.map(([k]) => k).filter((k) => k !== "status");
+      await Promise.all(
+        tickets.map((t) => {
+          const statusChanged =
+            input.status !== undefined && input.status !== t.status;
+          if (statusChanged) {
+            return recordActivity(ctx.db, {
+              workspaceId: t.product.workspaceId,
+              userId: ctx.session.user.id,
+              entityType: "ticket",
+              entityId: t.id,
+              action: "status_changed",
+              metadata: { from: t.status, to: input.status!, bulk: true },
+            });
+          }
+          if (fieldsChanged.length === 0) return Promise.resolve(true);
+          return recordActivity(ctx.db, {
+            workspaceId: t.product.workspaceId,
+            userId: ctx.session.user.id,
+            entityType: "ticket",
+            entityId: t.id,
+            action: "updated",
+            metadata: { fieldsChanged, bulk: true },
+          });
+        }),
+      );
+
+      return { count: uniqueIds.length };
+    }),
+
   uploadImage: protectedProcedure
     .input(
       z.object({
@@ -509,6 +597,28 @@ export const ticketRouter = createTRPCRouter({
       await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.ticket.delete({ where: { id: input.id } });
       return { success: true };
+    }),
+
+  /** Bulk hard delete (multi-select). Same access model as `delete`. */
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const uniqueIds = Array.from(new Set(input.ids));
+      const tickets = await ctx.db.ticket.findMany({
+        where: { id: { in: uniqueIds } },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (tickets.length !== uniqueIds.length) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+      const workspaceIds = Array.from(
+        new Set(tickets.map((t) => t.product.workspaceId)),
+      );
+      for (const workspaceId of workspaceIds) {
+        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+      }
+      await ctx.db.ticket.deleteMany({ where: { id: { in: uniqueIds } } });
+      return { count: uniqueIds.length };
     }),
 
   search: protectedProcedure

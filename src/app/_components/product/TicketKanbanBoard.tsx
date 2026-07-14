@@ -12,6 +12,7 @@ import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSe
 import { generateLinearId } from "~/lib/fun-ids";
 import { KanbanBoard as SharedKanbanBoard } from "~/app/_components/shared/kanban";
 import type { ColumnAccent, KanbanColumnDef, KanbanItem } from "~/app/_components/shared/kanban";
+import { CardSelectCheckbox } from "~/app/_components/shared/multiSelect";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +34,12 @@ interface TicketItem {
 }
 
 type BoardItem = TicketItem & KanbanItem;
+
+/** Optional multi-select wiring passed down from the tickets page. */
+export interface TicketBoardSelection {
+  isSelected: (id: string) => boolean;
+  toggle: (id: string) => void;
+}
 
 const TYPE_COLORS: Record<string, string> = { BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow" };
 
@@ -62,10 +69,10 @@ function mapStatusColorToAccent(color: string): ColumnAccent {
 }
 
 // ---------------------------------------------------------------------------
-// TicketCard (draggable) — unchanged; owns its own useSortable
+// TicketCard (draggable) - unchanged; owns its own useSortable
 // ---------------------------------------------------------------------------
 
-function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName }: { ticket: TicketItem; basePath: string; isDragOverlay?: boolean; funTicketIds: boolean; productName: string }) {
+function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName, selection }: { ticket: TicketItem; basePath: string; isDragOverlay?: boolean; funTicketIds: boolean; productName: string; selection?: TicketBoardSelection }) {
   const router = useRouter();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ticket.id });
 
@@ -77,21 +84,32 @@ function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName
         opacity: isDragging ? 0.4 : 1,
       };
 
+  const isSelected = !isDragOverlay && (selection?.isSelected(ticket.id) ?? false);
+
   return (
     <Card
       ref={isDragOverlay ? undefined : setNodeRef}
       style={style}
       {...(isDragOverlay ? {} : { ...attributes, ...listeners })}
-      className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-grab active:cursor-grabbing"
+      className={`group/card relative border bg-surface-secondary transition-colors cursor-grab active:cursor-grabbing ${isSelected ? "border-border-focus" : "border-border-primary hover:border-border-focus"}`}
       padding="sm"
       radius="sm"
       onClick={(e: React.MouseEvent) => {
-        if (!isDragging && !isDragOverlay) {
-          e.stopPropagation();
-          router.push(`${basePath}/${ticket.id}`);
+        if (isDragging || isDragOverlay) return;
+        e.stopPropagation();
+        if ((e.metaKey || e.ctrlKey) && selection) {
+          selection.toggle(ticket.id);
+          return;
         }
+        router.push(`${basePath}/${ticket.id}`);
       }}
     >
+      {!isDragOverlay && selection && (
+        <CardSelectCheckbox
+          selected={isSelected}
+          onToggle={() => selection.toggle(ticket.id)}
+        />
+      )}
       {(() => {
         const displayId = funTicketIds && ticket.shortId
           ? ticket.shortId
@@ -138,11 +156,12 @@ interface TicketKanbanBoardProps {
   productName: string;
   funTicketIds: boolean;
   basePath: string;
+  selection?: TicketBoardSelection;
 }
 
 const BOARD_STATUSES = new Set<string>(BOARD_COLUMNS.map((c) => c.value));
 
-export function TicketKanbanBoard({ tickets, productId, productName, funTicketIds, basePath }: TicketKanbanBoardProps) {
+export function TicketKanbanBoard({ tickets, productId, productName, funTicketIds, basePath, selection }: TicketKanbanBoardProps) {
   const utils = api.useUtils();
 
   const updateTicket = api.product.ticket.update.useMutation({
@@ -182,6 +201,7 @@ export function TicketKanbanBoard({ tickets, productId, productName, funTicketId
           isDragOverlay={isOverlay}
           funTicketIds={funTicketIds}
           productName={productName}
+          selection={selection}
         />
       )}
     />

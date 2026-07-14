@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ActionIcon,
@@ -9,6 +9,7 @@ import {
   Button,
   Card,
   Group,
+  Modal,
   Popover,
   SegmentedControl,
   Select,
@@ -31,15 +32,27 @@ import {
   IconPlus,
 } from "@tabler/icons-react";
 import { Menu } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { EditFeatureModal } from "~/app/_components/product/EditFeatureModal";
 import { CreateFeatureModal } from "~/app/_components/product/CreateFeatureModal";
 import {
+  useMultiSelect,
+  SelectSlot,
+  CardSelectCheckbox,
+  HeaderSelectCheckbox,
+  BulkActionBar,
+  BulkActionMenu,
+  buildUndoGroups,
+} from "~/app/_components/shared/multiSelect";
+import {
+  FEATURE_STATUSES,
   FEATURE_STATUS_LABELS as STATUS_LABELS,
   FEATURE_STATUS_ORDER as STATUS_ORDER,
   FEATURE_STATUS_COLORS as STATUS_COLORS,
+  type FeatureStatus,
 } from "~/lib/feature-statuses";
 
 // ---------------------------------------------------------------------------
@@ -133,6 +146,148 @@ export default function FeaturesListPage() {
     { enabled: !!product?.id },
   );
 
+  const { data: areas } = api.product.feature.listAreas.useQuery(
+    { productId: product?.id ?? "" },
+    { enabled: !!product?.id },
+  );
+
+  const utils = api.useUtils();
+
+  // ── Multi-select ──
+  const sel = useMultiSelect();
+  const selClear = sel.clear;
+  // Selection survives the list ↔ cards switch; it clears when the item set
+  // changes meaning (search, product).
+  useEffect(() => {
+    selClear();
+  }, [selClear, search, productSlug]);
+
+  type BulkPatch = {
+    status?: FeatureStatus;
+    priority?: number | null;
+    areaId?: string | null;
+  };
+
+  const listInput = { productId: product?.id ?? "" };
+
+  const bulkUpdate = api.product.feature.bulkUpdate.useMutation({
+    // Optimistic: patch the cached list immediately, roll back on error.
+    onMutate: async (vars) => {
+      await utils.product.feature.list.cancel(listInput);
+      const prev = utils.product.feature.list.getData(listInput);
+      if (prev) {
+        const idSet = new Set(vars.ids);
+        utils.product.feature.list.setData(
+          listInput,
+          prev.map((f) => {
+            if (!idSet.has(f.id)) return f;
+            const next = { ...f };
+            // Status on a feature with scopes may be scope-derived - the
+            // server can skip it, so don't predict it optimistically.
+            if (vars.status !== undefined && f._count.scopes === 0) {
+              next.status = vars.status;
+            }
+            if (vars.priority !== undefined) next.priority = vars.priority;
+            if (vars.areaId !== undefined) {
+              const a = (areas ?? []).find((x) => x.id === vars.areaId);
+              next.area =
+                vars.areaId && a
+                  ? { id: a.id, name: a.name, displayOrder: a.displayOrder }
+                  : null;
+            }
+            return next;
+          }),
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, mctx) => {
+      if (mctx?.prev) utils.product.feature.list.setData(listInput, mctx.prev);
+      notifications.show({
+        title: "Bulk update failed",
+        message: "Your changes were not saved. Please try again.",
+        color: "red",
+      });
+    },
+    onSettled: async () => {
+      if (product?.id) {
+        await utils.product.feature.list.invalidate({ productId: product.id });
+      }
+    },
+  });
+
+  // Bulk hard delete - confirmed via modal (no undo for deletes).
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const bulkDelete = api.product.feature.bulkDelete.useMutation({
+    onSuccess: async (res) => {
+      setConfirmDeleteOpen(false);
+      selClear();
+      notifications.show({
+        message: `Deleted ${res.count} feature${res.count === 1 ? "" : "s"}`,
+      });
+      if (product?.id) {
+        await utils.product.feature.list.invalidate({ productId: product.id });
+      }
+    },
+    onError: () => {
+      notifications.show({
+        title: "Delete failed",
+        message: "The features were not deleted. Please try again.",
+        color: "red",
+      });
+    },
+  });
+
+  // Apply a uniform patch to every selected feature, with an Undo toast that
+  // restores the previous values. The server may skip features whose status
+  // is scope-derived or lifecycle-guarded; the toast reports that.
+  const applyBulk = (patch: BulkPatch) => {
+    const ids = Array.from(sel.selected);
+    if (ids.length === 0) return;
+    const affected = (features ?? []).filter((f) => sel.selected.has(f.id));
+    const undoGroups = buildUndoGroups(affected, (f) => {
+      const prev: Record<string, unknown> = {};
+      if (patch.status !== undefined) prev.status = f.status;
+      if (patch.priority !== undefined) prev.priority = f.priority ?? null;
+      if (patch.areaId !== undefined) prev.areaId = f.area?.id ?? null;
+      return prev;
+    });
+    bulkUpdate.mutate(
+      { ids, ...patch },
+      {
+        onSuccess: (res) => {
+          const noteId = notifications.show({
+            message: (
+              <Group gap="sm" wrap="nowrap" justify="space-between">
+                <Text size="sm">
+                  Updated {res.updated} feature{res.updated === 1 ? "" : "s"}
+                  {res.skipped > 0
+                    ? ` · ${res.skipped} skipped (status derived from scopes or lifecycle-protected)`
+                    : ""}
+                </Text>
+                {res.updated > 0 && (
+                  <Button
+                    size="compact-xs"
+                    variant="light"
+                    onClick={() => {
+                      notifications.hide(noteId);
+                      for (const g of undoGroups) {
+                        bulkUpdate.mutate({ ids: g.ids, ...(g.patch as BulkPatch) });
+                      }
+                    }}
+                  >
+                    Undo
+                  </Button>
+                )}
+              </Group>
+            ),
+            autoClose: 8000,
+          });
+        },
+      },
+    );
+  };
+
   // Filter + sort
   const sorted = useMemo(() => {
     if (!features) return [];
@@ -181,19 +336,67 @@ export default function FeaturesListPage() {
     return entries;
   }, [sorted, groupBy]);
 
+  // Visible row order for shift-click range selection.
+  const visibleIds = useMemo(
+    () => groups.flatMap((g) => g.items.map((f) => f.id)),
+    [groups],
+  );
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/features`;
+
+  // Selection handlers shared by list rows and cards (both are Links):
+  // cmd/ctrl-click toggles, shift-click range-selects, plain click navigates.
+  const itemClickHandlers = (featureId: string) => ({
+    onClick: (e: React.MouseEvent) => {
+      if (e.metaKey || e.ctrlKey) {
+        e.preventDefault();
+        sel.toggle(featureId);
+        return;
+      }
+      if (e.shiftKey) {
+        e.preventDefault();
+        sel.selectRange(featureId, visibleIds);
+      }
+    },
+    onMouseDown: (e: React.MouseEvent) => {
+      // Keep shift-click from starting a text selection.
+      if (e.shiftKey) e.preventDefault();
+    },
+  });
+
+  // Group-header select-all checkbox (right edge, hover-revealed).
+  const renderGroupHeaderCheckbox = (ids: string[]) => {
+    const selectedCount = ids.filter((id) => sel.selected.has(id)).length;
+    const all = ids.length > 0 && selectedCount === ids.length;
+    const some = selectedCount > 0 && !all;
+    return (
+      <HeaderSelectCheckbox
+        selected={all}
+        indeterminate={some}
+        onToggle={() => sel.setMany(ids, !all)}
+      />
+    );
+  };
 
   // List item renderer
   const renderListItem = (feature: (typeof sorted)[number]) => (
     <Link
       key={feature.id}
       href={`${basePath}/${feature.id}`}
-      className="flex items-center gap-3 px-3 py-2.5 hover:bg-surface-hover transition-colors border-b border-border-primary cursor-pointer text-text-primary no-underline"
+      className={`group/row flex items-center gap-3 px-3 py-2.5 transition-colors border-b border-border-primary cursor-pointer text-text-primary no-underline ${sel.isSelected(feature.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
+      {...itemClickHandlers(feature.id)}
     >
-      <Badge size="xs" variant="light" color={STATUS_COLORS[feature.status] ?? "gray"} className="shrink-0">
-        {STATUS_LABELS[feature.status] ?? feature.status}
-      </Badge>
+      <SelectSlot
+        className="shrink-0"
+        selected={sel.isSelected(feature.id)}
+        onToggle={() => sel.toggle(feature.id)}
+        onRangeToggle={() => sel.selectRange(feature.id, visibleIds)}
+      >
+        <Badge size="xs" variant="light" color={STATUS_COLORS[feature.status] ?? "gray"} className="shrink-0">
+          {STATUS_LABELS[feature.status] ?? feature.status}
+        </Badge>
+      </SelectSlot>
       <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
         {feature.name}
       </Text>
@@ -246,9 +449,15 @@ export default function FeaturesListPage() {
       key={feature.id}
       component={Link}
       href={`${basePath}/${feature.id}`}
-      className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors"
+      className={`group/card relative border bg-surface-secondary transition-colors ${sel.isSelected(feature.id) ? "border-border-focus" : "border-border-primary hover:border-border-focus"}`}
       padding="lg"
+      {...itemClickHandlers(feature.id)}
     >
+      <CardSelectCheckbox
+        selected={sel.isSelected(feature.id)}
+        onToggle={() => sel.toggle(feature.id)}
+        onRangeToggle={() => sel.selectRange(feature.id, visibleIds)}
+      />
       <Group gap="xs" mb={8}>
         <Badge
           color={STATUS_COLORS[feature.status] ?? "gray"}
@@ -402,11 +611,12 @@ export default function FeaturesListPage() {
                 <div key={group.key}>{group.items.map(renderListItem)}</div>
               ) : (
                 <div key={group.key}>
-                  <div className="bg-surface-secondary/50 px-3 py-2 border-b border-border-primary">
+                  <div className="group/row relative bg-surface-secondary/50 px-3 py-2 border-b border-border-primary">
                     <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
                       {group.label}
                       <Badge size="xs" variant="light" ml="xs">{group.items.length}</Badge>
                     </Text>
+                    {renderGroupHeaderCheckbox(group.items.map((f) => f.id))}
                   </div>
                   {group.items.map(renderListItem)}
                 </div>
@@ -423,10 +633,13 @@ export default function FeaturesListPage() {
                 </SimpleGrid>
               ) : (
                 <div key={group.key} className="mb-6">
-                  <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                    {group.label}
-                    <Badge size="xs" variant="light" ml="xs">{group.items.length}</Badge>
-                  </Text>
+                  <div className="group/row relative mb-2">
+                    <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
+                      {group.label}
+                      <Badge size="xs" variant="light" ml="xs">{group.items.length}</Badge>
+                    </Text>
+                    {renderGroupHeaderCheckbox(group.items.map((f) => f.id))}
+                  </div>
                   <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
                     {group.items.map(renderCard)}
                   </SimpleGrid>
@@ -456,6 +669,71 @@ export default function FeaturesListPage() {
           }
         />
       )}
+
+      <BulkActionBar count={sel.count} onClear={sel.clear}>
+        <BulkActionMenu label="Status">
+          {FEATURE_STATUSES.map((s) => (
+            <Menu.Item key={s.value} onClick={() => applyBulk({ status: s.value })}>
+              <div className="flex items-center gap-2">
+                <Badge size="xs" variant="light" color={s.color} />
+                {s.label}
+              </div>
+            </Menu.Item>
+          ))}
+        </BulkActionMenu>
+        <BulkActionMenu label="Priority">
+          {([0, 1, 2, 3, 4] as const).map((p) => (
+            <Menu.Item key={p} onClick={() => applyBulk({ priority: p })}>
+              {PRIORITY_LABELS[p]}
+            </Menu.Item>
+          ))}
+          <Menu.Divider />
+          <Menu.Item onClick={() => applyBulk({ priority: null })}>No priority</Menu.Item>
+        </BulkActionMenu>
+        <BulkActionMenu label="Area">
+          {(areas ?? []).map((a) => (
+            <Menu.Item key={a.id} onClick={() => applyBulk({ areaId: a.id })}>
+              {a.name}
+            </Menu.Item>
+          ))}
+          <Menu.Divider />
+          <Menu.Item onClick={() => applyBulk({ areaId: null })}>No area</Menu.Item>
+        </BulkActionMenu>
+        <div className="h-4 w-px bg-border-primary" />
+        <Button
+          variant="subtle"
+          size="compact-xs"
+          color="red"
+          onClick={() => setConfirmDeleteOpen(true)}
+        >
+          Delete
+        </Button>
+      </BulkActionBar>
+
+      <Modal
+        opened={confirmDeleteOpen}
+        onClose={() => setConfirmDeleteOpen(false)}
+        title={`Delete ${sel.count} feature${sel.count === 1 ? "" : "s"}?`}
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" className="text-text-secondary">
+            This permanently deletes the selected feature{sel.count === 1 ? "" : "s"}, including scopes, requirements, and comments. Linked tickets are kept but unlinked. This cannot be undone. If a feature was live, consider Deprecated or Archived instead to keep product history.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setConfirmDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              loading={bulkDelete.isPending}
+              onClick={() => bulkDelete.mutate({ ids: Array.from(sel.selected) })}
+            >
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       {editFeatureId && (
         <EditFeatureModal
