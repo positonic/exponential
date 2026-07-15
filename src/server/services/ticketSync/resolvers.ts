@@ -33,7 +33,8 @@ export async function resolveCycleIdByName(
 
   const base = slugify(params.name) || "cycle";
   let slug = base;
-  for (let suffix = 2; ; suffix++) {
+  const MAX_SLUG_TRIES = 50;
+  for (let suffix = 2; suffix <= MAX_SLUG_TRIES; suffix++) {
     const clash = await db.list.findUnique({
       where: { workspaceId_slug: { workspaceId: params.workspaceId, slug } },
       select: { id: true },
@@ -42,17 +43,32 @@ export async function resolveCycleIdByName(
     slug = `${base}-${suffix}`;
   }
 
-  const cycle = await db.list.create({
-    data: {
-      name: params.name,
-      slug,
-      listType: "SPRINT",
-      workspaceId: params.workspaceId,
-      createdById: params.createdById,
-    },
-    select: { id: true },
-  });
-  return { cycleId: cycle.id, created: true };
+  try {
+    const cycle = await db.list.create({
+      data: {
+        name: params.name,
+        slug,
+        listType: "SPRINT",
+        workspaceId: params.workspaceId,
+        createdById: params.createdById,
+      },
+      select: { id: true },
+    });
+    return { cycleId: cycle.id, created: true };
+  } catch (error) {
+    // A concurrent run may have created the same cycle between our lookup
+    // and the insert — re-resolve by name before giving up.
+    const raced = await db.list.findFirst({
+      where: {
+        workspaceId: params.workspaceId,
+        listType: "SPRINT",
+        name: { equals: params.name, mode: "insensitive" },
+      },
+      select: { id: true },
+    });
+    if (raced) return { cycleId: raced.id, created: false };
+    throw error;
+  }
 }
 
 export async function resolveAssigneeIdByEmail(
