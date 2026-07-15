@@ -231,6 +231,8 @@ export async function runInboundTicketSync(
     configId: string;
     trigger: "manual" | "cron" | "agent";
     dryRun?: boolean;
+    /** Acting user for the run ledger; null for cron/agent triggers. */
+    triggeredById?: string | null;
     /**
      * Restrict the run to rows whose relation property contains a page
      * (e.g. one Notion cycle). Scoped runs always full-scan their subset and
@@ -255,6 +257,7 @@ export async function runInboundTicketSync(
       dryRun,
       status: "running",
       startedAt,
+      triggeredById: params.triggeredById ?? null,
     },
   });
 

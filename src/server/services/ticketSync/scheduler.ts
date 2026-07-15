@@ -49,10 +49,18 @@ export async function runDueTicketSyncs(
   const adapterFactory = deps?.adapterFactory ?? createNotionTicketSyncAdapter;
   const runSync = deps?.runSync ?? runInboundTicketSync;
 
-  const configs = await db.ticketSyncConfig.findMany({
-    where: { enabled: true },
-    select: { id: true, productId: true, integrationId: true, propertyNames: true },
-  });
+  // Disconnected configs (null integration link, ADR-0042) are a deliberate
+  // user state, not a broken credential — they are simply never due, so they
+  // don't pile errored runs into the history every sweep.
+  const configs = (
+    await db.ticketSyncConfig.findMany({
+      where: { enabled: true, integrationId: { not: null } },
+      select: { id: true, productId: true, integrationId: true, propertyNames: true },
+    })
+  ).filter(
+    (config): config is typeof config & { integrationId: string } =>
+      config.integrationId !== null,
+  );
 
   const items: SweepItem[] = [];
   const staleBefore = new Date(now.getTime() - STALE_RUN_MINUTES * 60_000);

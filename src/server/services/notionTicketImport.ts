@@ -235,7 +235,21 @@ export async function importNotionCycleTickets(
   }
 
   // ── 3. Cycle-scoped engine run ──────────────────────────────────────────
-  const adapterResult = await createNotionTicketSyncAdapter(db, config);
+  // A soft-disconnected config (null integration link, ADR-0042) is a
+  // deliberate user state — don't silently revive it from the agent path.
+  const integrationId = config.integrationId;
+  if (!integrationId) {
+    return {
+      connected: true,
+      error:
+        "Notion sync is disconnected for this product — reconnect it in product settings",
+    };
+  }
+
+  const adapterResult = await createNotionTicketSyncAdapter(db, {
+    integrationId,
+    propertyNames: config.propertyNames,
+  });
   if (!adapterResult.ok) {
     return { connected: true, error: adapterResult.error };
   }

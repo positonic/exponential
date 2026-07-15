@@ -63,11 +63,27 @@ beforeEach(() => {
 });
 
 describe("runDueTicketSyncs", () => {
-  it("only sweeps enabled configs", async () => {
+  it("only sweeps enabled, connected configs", async () => {
     await runDueTicketSyncs(db, NOW, { adapterFactory: okAdapter, runSync });
     expect(db.ticketSyncConfig.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { enabled: true } }),
+      expect.objectContaining({
+        where: { enabled: true, integrationId: { not: null } },
+      }),
     );
+  });
+
+  it("never runs a soft-disconnected config, even if the query returns it", async () => {
+    db.ticketSyncConfig.findMany.mockResolvedValue([
+      { ...CONFIG, integrationId: null },
+    ] as never);
+
+    const result = await runDueTicketSyncs(db, NOW, {
+      adapterFactory: okAdapter,
+      runSync,
+    });
+
+    expect(runSync).not.toHaveBeenCalled();
+    expect(result).toEqual({ swept: 0, items: [] });
   });
 
   it("runs the engine for each due config and reports counts", async () => {

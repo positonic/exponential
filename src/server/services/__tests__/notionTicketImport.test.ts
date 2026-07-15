@@ -256,4 +256,19 @@ describe("importNotionCycleTickets (engine delegation)", () => {
     const result = await importNotionCycleTickets(db, PARAMS);
     expect(result).toEqual({ connected: true, error: "No access token" });
   });
+
+  it("refuses a soft-disconnected config instead of reviving it", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      ...CONFIG,
+      integrationId: null,
+    } as never);
+
+    const result = await importNotionCycleTickets(db, PARAMS);
+
+    expect(result).toMatchObject({
+      connected: true,
+      error: expect.stringContaining("disconnected"),
+    });
+    expect(runSyncMock).not.toHaveBeenCalled();
+  });
 });
