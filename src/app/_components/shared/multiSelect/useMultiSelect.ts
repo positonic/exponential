@@ -83,13 +83,13 @@ export function useMultiSelect() {
       )
         return;
       // Closed Mantine modals stay mounted as zero-height roots; an OPEN one
-      // has real height. Menu/Popover dropdowns unmount when closed, so mere
-      // presence means open.
+      // has real height. Menu/Popover dropdowns and Drawers unmount when
+      // closed, so mere presence means open (Esc is theirs, e.g. the peek).
       const modalOpen = Array.from(
         document.querySelectorAll(".mantine-Modal-root"),
       ).some((el) => el.clientHeight > 0);
       const dropdownOpen = !!document.querySelector(
-        ".mantine-Menu-dropdown, .mantine-Popover-dropdown",
+        ".mantine-Menu-dropdown, .mantine-Popover-dropdown, .mantine-Drawer-root",
       );
       if (modalOpen || dropdownOpen) return;
       clear();

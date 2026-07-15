@@ -51,9 +51,11 @@ import {
   BulkActionMenu,
   buildUndoGroups,
 } from "~/app/_components/shared/multiSelect";
+import { PeekDrawer } from "~/app/_components/product/peek/PeekDrawer";
+import { TicketPeek } from "~/app/_components/product/peek/TicketPeek";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
-import { generateLinearId, ticketUrlId } from "~/lib/fun-ids";
+import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
@@ -827,6 +829,23 @@ export default function TicketsBacklogPage() {
     return ids;
   }, [view, sorted, groups, groupBy, collapsed, completedTickets]);
 
+  // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
+  const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/tickets`;
+  const peekId = searchParams.get("peek");
+  const setPeek = (id: string | null) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (id) next.set("peek", id);
+    else next.delete("peek");
+    const qs = next.toString();
+    router.push(qs ? `${peekBasePath}?${qs}` : peekBasePath, { scroll: false });
+  };
+  const peekIndex = peekId ? visibleIds.indexOf(peekId) : -1;
+  const peekPrev = peekIndex > 0 ? () => setPeek(visibleIds[peekIndex - 1]!) : undefined;
+  const peekNext =
+    peekIndex !== -1 && peekIndex < visibleIds.length - 1
+      ? () => setPeek(visibleIds[peekIndex + 1]!)
+      : undefined;
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
 
@@ -840,7 +859,7 @@ export default function TicketsBacklogPage() {
   };
 
   // Row-level selection handlers shared by the list and table renderers:
-  // cmd/ctrl-click toggles, shift-click range-selects, plain click navigates.
+  // cmd/ctrl-click toggles, shift-click range-selects, plain click peeks.
   const rowClickHandlers = (ticketId: string, navigate: () => void) => ({
     onClick: (e: React.MouseEvent) => {
       if (e.metaKey || e.ctrlKey) {
@@ -885,7 +904,7 @@ export default function TicketsBacklogPage() {
     <div
       key={ticket.id}
       className={`group/row flex items-center gap-3 px-3 py-2 transition-colors cursor-pointer border-b border-border-primary ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
-      {...rowClickHandlers(ticket.id, () => router.push(`${basePath}/${ticketUrlId(ticket)}`))}
+      {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
     >
       <SelectSlot
         className="w-14 shrink-0"
@@ -969,7 +988,7 @@ export default function TicketsBacklogPage() {
     <Table.Tr
       key={ticket.id}
       className={`group/row cursor-pointer transition-colors ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
-      {...rowClickHandlers(ticket.id, () => router.push(`${basePath}/${ticketUrlId(ticket)}`))}
+      {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
     >
       {vc.has("id") && (
         <Table.Td style={{ width: 70 }}>
@@ -1286,6 +1305,7 @@ export default function TicketsBacklogPage() {
             funTicketIds={product?.funTicketIds ?? false}
             basePath={basePath}
             selection={{ isSelected: sel.isSelected, toggle: sel.toggle }}
+            onOpenTicket={(id) => setPeek(id)}
           />
         ) : view === "list" ? (
           <div className="border border-border-primary rounded-lg overflow-hidden">
@@ -1571,6 +1591,17 @@ export default function TicketsBacklogPage() {
         onClose={() => setEpicModalOpened(false)}
         workspaceId={workspaceId ?? ""}
       />
+
+      {/* Peek drawer - detail over the list, list stays mounted */}
+      <PeekDrawer
+        opened={!!peekId}
+        onClose={() => setPeek(null)}
+        fullPageHref={peekId ? `${basePath}/${peekId}` : null}
+        onPrev={peekPrev}
+        onNext={peekNext}
+      >
+        {peekId && <TicketPeek ticketId={peekId} basePath={basePath} />}
+      </PeekDrawer>
     </Stack>
   );
 }

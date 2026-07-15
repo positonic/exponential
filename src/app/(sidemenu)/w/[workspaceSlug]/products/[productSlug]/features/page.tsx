@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ActionIcon,
   Badge,
@@ -47,6 +47,8 @@ import {
   BulkActionMenu,
   buildUndoGroups,
 } from "~/app/_components/shared/multiSelect";
+import { PeekDrawer } from "~/app/_components/product/peek/PeekDrawer";
+import { FeaturePeek } from "~/app/_components/product/peek/FeaturePeek";
 import {
   FEATURE_STATUSES,
   FEATURE_STATUS_LABELS as STATUS_LABELS,
@@ -125,6 +127,8 @@ function groupLabel(key: string, field: GroupByField): string {
 
 export default function FeaturesListPage() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [editFeatureId, setEditFeatureId] = useState<string | null>(null);
@@ -342,11 +346,29 @@ export default function FeaturesListPage() {
     [groups],
   );
 
+  // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
+  const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/features`;
+  const peekId = searchParams.get("peek");
+  const setPeek = (id: string | null) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (id) next.set("peek", id);
+    else next.delete("peek");
+    const qs = next.toString();
+    router.push(qs ? `${peekBasePath}?${qs}` : peekBasePath, { scroll: false });
+  };
+  const peekIndex = peekId ? visibleIds.indexOf(peekId) : -1;
+  const peekPrev = peekIndex > 0 ? () => setPeek(visibleIds[peekIndex - 1]!) : undefined;
+  const peekNext =
+    peekIndex !== -1 && peekIndex < visibleIds.length - 1
+      ? () => setPeek(visibleIds[peekIndex + 1]!)
+      : undefined;
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/features`;
 
   // Selection handlers shared by list rows and cards (both are Links):
-  // cmd/ctrl-click toggles, shift-click range-selects, plain click navigates.
+  // cmd/ctrl-click toggles, shift-click range-selects, plain click peeks
+  // (middle-click still opens the full page in a new tab via the href).
   const itemClickHandlers = (featureId: string) => ({
     onClick: (e: React.MouseEvent) => {
       if (e.metaKey || e.ctrlKey) {
@@ -357,7 +379,10 @@ export default function FeaturesListPage() {
       if (e.shiftKey) {
         e.preventDefault();
         sel.selectRange(featureId, visibleIds);
+        return;
       }
+      e.preventDefault();
+      setPeek(featureId);
     },
     onMouseDown: (e: React.MouseEvent) => {
       // Keep shift-click from starting a text selection.
@@ -753,6 +778,22 @@ export default function FeaturesListPage() {
           workspaceId={workspaceId ?? undefined}
         />
       )}
+
+      {/* Peek drawer - detail over the list, list stays mounted */}
+      <PeekDrawer
+        opened={!!peekId}
+        onClose={() => setPeek(null)}
+        fullPageHref={peekId ? `${basePath}/${peekId}` : null}
+        onPrev={peekPrev}
+        onNext={peekNext}
+      >
+        {peekId && (
+          <FeaturePeek
+            featureId={peekId}
+            basePath={`/w/${workspace.slug}/products/${productSlug}`}
+          />
+        )}
+      </PeekDrawer>
     </Stack>
   );
 }

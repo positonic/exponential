@@ -72,7 +72,7 @@ function mapStatusColorToAccent(color: string): ColumnAccent {
 // TicketCard (draggable) - unchanged; owns its own useSortable
 // ---------------------------------------------------------------------------
 
-function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName, selection }: { ticket: TicketItem; basePath: string; isDragOverlay?: boolean; funTicketIds: boolean; productName: string; selection?: TicketBoardSelection }) {
+function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName, selection, onOpenTicket }: { ticket: TicketItem; basePath: string; isDragOverlay?: boolean; funTicketIds: boolean; productName: string; selection?: TicketBoardSelection; onOpenTicket?: (id: string) => void }) {
   const router = useRouter();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ticket.id });
 
@@ -99,6 +99,10 @@ function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName
         e.stopPropagation();
         if ((e.metaKey || e.ctrlKey) && selection) {
           selection.toggle(ticket.id);
+          return;
+        }
+        if (onOpenTicket) {
+          onOpenTicket(ticket.id);
           return;
         }
         router.push(`${basePath}/${ticket.id}`);
@@ -157,11 +161,13 @@ interface TicketKanbanBoardProps {
   funTicketIds: boolean;
   basePath: string;
   selection?: TicketBoardSelection;
+  /** When set, clicking a card opens the peek instead of navigating. */
+  onOpenTicket?: (id: string) => void;
 }
 
 const BOARD_STATUSES = new Set<string>(BOARD_COLUMNS.map((c) => c.value));
 
-export function TicketKanbanBoard({ tickets, productId, productName, funTicketIds, basePath, selection }: TicketKanbanBoardProps) {
+export function TicketKanbanBoard({ tickets, productId, productName, funTicketIds, basePath, selection, onOpenTicket }: TicketKanbanBoardProps) {
   const utils = api.useUtils();
 
   const updateTicket = api.product.ticket.update.useMutation({
@@ -202,6 +208,7 @@ export function TicketKanbanBoard({ tickets, productId, productName, funTicketId
           funTicketIds={funTicketIds}
           productName={productName}
           selection={selection}
+          onOpenTicket={onOpenTicket}
         />
       )}
     />
