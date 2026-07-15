@@ -19,19 +19,22 @@ colors:
   error: "#fa5252"
 typography:
   body:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
     fontSize: "0.875rem"
   title:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
     fontSize: "1.25rem"
     fontWeight: 700
   label:
-    fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
     fontSize: "0.75rem"
     letterSpacing: "0.05em"
     textTransform: "uppercase"
+  display:
+    fontFamily: "var(--font-inter), -apple-system, sans-serif"
+    fontWeight: 700
   mono:
-    fontFamily: "JetBrains Mono, ui-monospace, 'SF Mono', Menlo, monospace"
+    fontFamily: "var(--font-mono, ui-monospace, 'SF Mono', Menlo, monospace)"
     fontSize: "0.75rem"
 ---
 
@@ -67,10 +70,11 @@ Colors are consumed exclusively through semantic tokens (`bg-background-primary`
 
 ## 3. Typography
 
-**Body Font:** Inter (with -apple-system, Segoe UI fallbacks)
+**Body Font:** the system stack via Mantine's default (`-apple-system` → SF Pro on macOS, Segoe UI on Windows, Roboto on Android). No app-level base font is set: `<body>` carries no font class, so Mantine's default stack governs all product UI.
+**Display Font:** Inter, loaded via next/font at weights 700/800/900 only (`--font-inter`), used by marketing/home components. GeistSans is also loaded (`--font-geist-sans`, Tailwind `font-sans`) but only applies where that class is used.
 **Label/Mono Font:** JetBrains Mono (ui-monospace fallbacks) - IDs (`PPV-12`), branch names, code.
 
-**Character:** One quiet sans carries everything; the mono face marks machine-generated identifiers. No display font - hierarchy comes from weight and case, not family.
+**Character:** One quiet sans carries everything; the mono face marks machine-generated identifiers. Hierarchy comes from weight and case, not family. **Known drift:** three sans families are loaded/declared (system, Inter-bold, Geist) while product UI actually renders the system stack; committing to one base font (and setting it on the Mantine theme) is an open decision.
 
 ### Hierarchy
 - **Title** (700, 1.25rem, tight): entity titles on detail pages and peeks; rendered as invisible inputs when editable.

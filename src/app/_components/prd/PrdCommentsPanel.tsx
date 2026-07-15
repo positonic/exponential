@@ -16,7 +16,7 @@ export interface FeatureCommentRow extends ReconcilableComment {
   createdBy: { id: string; name: string | null; image: string | null };
 }
 
-/** The subset the panel renders — satisfied by a reconciled thread or a
+/** The subset the panel renders - satisfied by a reconciled thread or a
  *  just-created pending thread that has no persisted comments yet. */
 export interface PanelThread {
   threadId: string;
@@ -49,8 +49,8 @@ function toThreadComments(rows: FeatureCommentRow[]): Comment[] {
 }
 
 /**
- * Discussion panel for the PRD body (ADR-0024). Lists reconciled threads —
- * anchored, orphaned (rendered from `quotedText`), and resolved — with threaded
+ * Discussion panel for the PRD body (ADR-0024). Lists reconciled threads -
+ * anchored, orphaned (rendered from `quotedText`), and resolved - with threaded
  * replies and resolve/unresolve. Resolved threads are hidden behind a toggle and
  * never deleted, so a settled discussion stays out of the way but is always
  * retrievable and reopenable.
@@ -72,6 +72,13 @@ export function PrdCommentsPanel({
   const open = threads.filter((t) => t.status !== "resolved");
   const resolved = threads.filter((t) => t.status === "resolved");
   const visible = showResolved ? [...open, ...resolved] : open;
+
+  // Nothing to show and nothing pending: render nothing. The old always-on
+  // hint ("Select text in the body...") read as an impossible instruction on
+  // empty documents and collided with the Activity section's vocabulary.
+  if (open.length === 0 && resolved.length === 0 && !pendingThreadId) {
+    return null;
+  }
 
   const renderThread = (thread: PanelThread) => {
     const isResolved = thread.status === "resolved";

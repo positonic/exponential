@@ -180,8 +180,9 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
 
   // One-row strip: relational pills render when set or explicitly revealed
   // via the ⋯ overflow.
+  // Reveals persist across prev/next flips - collapsing what the user just
+  // opened mid-triage was a recall burden.
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
-  useEffect(() => setRevealed(new Set()), [ticketId]);
   const reveal = (key: string) =>
     setRevealed((prev) => new Set(prev).add(key));
 
@@ -243,7 +244,14 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
           maxRows={3}
           variant="unstyled"
           classNames={{ input: "text-text-primary font-bold p-0 leading-tight resize-none" }}
-          styles={{ input: { fontWeight: 700, fontSize: "1.25rem" } }}
+          styles={{ input: { fontWeight: 700, fontSize: "1.25rem", paddingTop: 6, paddingBottom: 6 } }}
+          onKeyDown={(e) => {
+            // A ticket title has no newlines - Enter commits.
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
           onBlur={() => {
             const trimmed = titleValue.trim();
             if (trimmed && trimmed !== ticket.title) setField("title", trimmed);

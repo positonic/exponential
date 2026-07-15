@@ -261,19 +261,39 @@ export default function FeatureDetailPage() {
     const hasLiveScopes =
       (feature?.scopes ?? []).some((s) => s.status === "SHIPPED");
     if (val === "DEPRECATED" && hasLiveScopes) {
-      modals.openConfirmModal({
+      // Three explicit actions - a true Cancel must exist; "cancel = also
+      // deprecate" broke the back-out contract.
+      const modalId = "deprecate-feature";
+      const deprecate = (deprecateScopes: boolean) => {
+        modals.close(modalId);
+        updateFeature.mutate({
+          id: featureId,
+          status: "DEPRECATED",
+          ...(deprecateScopes ? { deprecateScopes: true } : {}),
+        });
+      };
+      modals.open({
+        modalId,
         title: "Deprecate feature",
         children: (
-          <Text size="sm">
-            Also deprecate this feature&apos;s live scopes? The feature stays in
-            the registry as product history either way.
-          </Text>
+          <Stack gap="md">
+            <Text size="sm">
+              Also deprecate this feature&apos;s live scopes? The feature stays in
+              the registry as product history either way.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="subtle" onClick={() => modals.close(modalId)}>
+                Cancel
+              </Button>
+              <Button color="orange" variant="light" onClick={() => deprecate(false)}>
+                Feature only
+              </Button>
+              <Button color="orange" onClick={() => deprecate(true)}>
+                Feature + scopes
+              </Button>
+            </Group>
+          </Stack>
         ),
-        labels: { confirm: "Deprecate feature + scopes", cancel: "Feature only" },
-        onConfirm: () =>
-          updateFeature.mutate({ id: featureId, status: "DEPRECATED", deprecateScopes: true }),
-        onCancel: () =>
-          updateFeature.mutate({ id: featureId, status: "DEPRECATED" }),
       });
       return;
     }

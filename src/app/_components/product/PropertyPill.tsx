@@ -44,7 +44,13 @@ export function PropertyPill({
 }) {
   const iconOnly = label === "" || label == null;
   const button = (
-    <button type="button" className={pillClassName(ghost, iconOnly)}>
+    <button
+      type="button"
+      className={pillClassName(ghost, iconOnly)}
+      // Icon-only pills have no text content; the tooltip doubles as the
+      // accessible name.
+      aria-label={iconOnly ? tooltip : undefined}
+    >
       {icon}
       {!iconOnly && <span className="truncate">{label}</span>}
     </button>

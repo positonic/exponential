@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Badge,
+  Button,
   Group,
   Menu,
   Popover,
@@ -37,6 +38,8 @@ import {
   FEATURE_STATUSES,
   FEATURE_STATUS_LABELS,
   FEATURE_STATUS_COLORS,
+  SCOPE_STATUS_LABELS,
+  SCOPE_STATUS_COLORS,
 } from "~/lib/feature-statuses";
 
 const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
@@ -129,22 +132,43 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
     updateFeature.mutate({ id: featureId, [field]: value });
   };
 
-  // Same deprecation cascade prompt as the detail page.
+  // Deprecation cascade prompt (same as the detail page). Three explicit
+  // actions - a true Cancel must exist; "cancel = also deprecate" broke the
+  // back-out contract.
   const handleStatusChange = (val: string) => {
     const hasLiveScopes = (feature?.scopes ?? []).some((s) => s.status === "SHIPPED");
     if (val === "DEPRECATED" && hasLiveScopes) {
-      modals.openConfirmModal({
+      const modalId = "deprecate-feature";
+      const deprecate = (deprecateScopes: boolean) => {
+        modals.close(modalId);
+        updateFeature.mutate({
+          id: featureId,
+          status: "DEPRECATED",
+          ...(deprecateScopes ? { deprecateScopes: true } : {}),
+        });
+      };
+      modals.open({
+        modalId,
         title: "Deprecate feature",
         children: (
-          <Text size="sm">
-            Also deprecate this feature&apos;s live scopes? The feature stays in
-            the registry as product history either way.
-          </Text>
+          <Stack gap="md">
+            <Text size="sm">
+              Also deprecate this feature&apos;s live scopes? The feature stays in
+              the registry as product history either way.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="subtle" onClick={() => modals.close(modalId)}>
+                Cancel
+              </Button>
+              <Button color="orange" variant="light" onClick={() => deprecate(false)}>
+                Feature only
+              </Button>
+              <Button color="orange" onClick={() => deprecate(true)}>
+                Feature + scopes
+              </Button>
+            </Group>
+          </Stack>
         ),
-        labels: { confirm: "Deprecate feature + scopes", cancel: "Feature only" },
-        onConfirm: () =>
-          updateFeature.mutate({ id: featureId, status: "DEPRECATED", deprecateScopes: true }),
-        onCancel: () => updateFeature.mutate({ id: featureId, status: "DEPRECATED" }),
       });
       return;
     }
@@ -158,8 +182,9 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
 
   // One-row strip: relational pills render when set or explicitly revealed
   // via the ⋯ overflow.
+  // Reveals persist across prev/next flips - collapsing what the user just
+  // opened mid-triage was a recall burden.
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
-  useEffect(() => setRevealed(new Set()), [featureId]);
   const reveal = (key: string) =>
     setRevealed((prev) => new Set(prev).add(key));
 
@@ -191,7 +216,14 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
         maxRows={3}
         variant="unstyled"
         classNames={{ input: "text-text-primary font-bold p-0 leading-tight resize-none" }}
-        styles={{ input: { fontWeight: 700, fontSize: "1.25rem" } }}
+        styles={{ input: { fontWeight: 700, fontSize: "1.25rem", paddingTop: 6, paddingBottom: 6 } }}
+        onKeyDown={(e) => {
+          // A feature name has no newlines - Enter commits.
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
         onBlur={() => {
           const trimmed = nameValue.trim();
           if (trimmed && trimmed !== feature.name) setField("name", trimmed);
@@ -360,13 +392,13 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
         />
       </CollapsibleSection>
 
-      {/* Scopes - summary; add/edit on the full page. */}
-      {feature.scopes.length > 0 && (
-        <CollapsibleSection
-          title="Scopes"
-          icon={<IconCategory size={14} className="text-text-muted" />}
-          meta={String(feature.scopes.length)}
-        >
+      {/* Scopes - summary; add/edit on the full page. Empty state teaches. */}
+      <CollapsibleSection
+        title="Scopes"
+        icon={<IconCategory size={14} className="text-text-muted" />}
+        meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
+      >
+        {feature.scopes.length > 0 ? (
           <Stack gap={6}>
             {feature.scopes.map((s) => (
               <Link
@@ -380,27 +412,41 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
                 <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
                   {s.description}
                 </Text>
-                <Text size="xs" className="text-text-muted shrink-0">
-                  {s.status.toLowerCase().replace("_", " ")}
-                </Text>
+                <Badge
+                  size="xs"
+                  variant="light"
+                  color={SCOPE_STATUS_COLORS[s.status] ?? "gray"}
+                  className="shrink-0"
+                >
+                  {SCOPE_STATUS_LABELS[s.status] ?? s.status}
+                </Badge>
               </Link>
             ))}
           </Stack>
-        </CollapsibleSection>
-      )}
+        ) : (
+          <Text size="sm" className="text-text-muted">
+            No scopes yet - scopes are a feature&apos;s delivery slices (v1, v2, new
+            platforms). Define them on the{" "}
+            <Link href={`${basePath}/features/${featureId}`} className="text-text-secondary underline hover:text-text-primary">
+              full page
+            </Link>
+            .
+          </Text>
+        )}
+      </CollapsibleSection>
 
       {/* Requirements - read-only summary; editing on the full page. */}
-      {feature.requirements.length > 0 && (
-        <CollapsibleSection
-          title="Requirements"
-          icon={<IconChecklist size={14} className="text-text-muted" />}
-          meta={requirementsMeta}
-        >
+      <CollapsibleSection
+        title="Requirements"
+        icon={<IconChecklist size={14} className="text-text-muted" />}
+        meta={requirementsMeta}
+      >
+        {feature.requirements.length > 0 ? (
           <Stack gap={4}>
             {feature.requirements.map((r) => (
               <Group key={r.id} gap="xs" wrap="nowrap" align="flex-start">
                 <span
-                  className={`mt-1.5 inline-block h-1.5 w-1.5 rounded-full shrink-0 ${r.checkedAt != null ? "bg-green-500" : "bg-border-primary"}`}
+                  className={`mt-1.5 inline-block h-1.5 w-1.5 rounded-full shrink-0 ${r.checkedAt != null ? "bg-brand-success" : "border border-border-focus bg-transparent"}`}
                 />
                 <Text size="sm" className={r.checkedAt != null ? "text-text-muted" : "text-text-primary"}>
                   {r.statement}
@@ -408,8 +454,17 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               </Group>
             ))}
           </Stack>
-        </CollapsibleSection>
-      )}
+        ) : (
+          <Text size="sm" className="text-text-muted">
+            No requirements yet - checkable EARS statements about what this
+            feature must do. Draft them on the{" "}
+            <Link href={`${basePath}/features/${featureId}`} className="text-text-secondary underline hover:text-text-primary">
+              full page
+            </Link>
+            .
+          </Text>
+        )}
+      </CollapsibleSection>
 
       {/* Activity */}
       <CollapsibleSection title="Activity">
