@@ -20,6 +20,7 @@ import {
 } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
+import { SyncRunHistory } from "./SyncRunHistory";
 
 interface SyncRunItemView {
   externalId: string | null;
@@ -142,6 +143,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
 
   const invalidate = async () => {
     await utils.product.ticketSync.getConfig.invalidate({ productId });
+    await utils.product.ticketSync.listRuns.invalidate({ productId });
   };
 
   const saveConfig = api.product.ticketSync.saveConfig.useMutation({
@@ -302,6 +304,8 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
           </div>
         </div>
 
+        <SyncRunHistory productId={productId} />
+
         {error && (
           <Text size="sm" c="red">
             {error}
@@ -374,6 +378,8 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
         {!connectionsLoading && !hasConnections
           ? connectNotionCard
           : pickerCard(true)}
+
+        <SyncRunHistory productId={productId} />
 
         {error && (
           <Text size="sm" c="red">

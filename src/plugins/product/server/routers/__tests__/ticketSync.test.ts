@@ -226,6 +226,36 @@ describe("ticketSync router — soft disconnect (mocked)", () => {
     expect(dbMock.ticketSyncConfig.delete).not.toHaveBeenCalled();
   });
 
+  it("listRuns returns the persisted history newest-first with the triggering user", async () => {
+    dbMock.ticketSyncConfig.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "cfg-1" } as any,
+    );
+    dbMock.ticketSyncRun.findMany.mockResolvedValue([]);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticketSync.listRuns({ productId, limit: 20 });
+
+    expect(dbMock.ticketSyncRun.findMany).toHaveBeenCalledWith({
+      where: { configId: "cfg-1" },
+      orderBy: { startedAt: "desc" },
+      take: 20,
+      include: {
+        triggeredBy: { select: { id: true, name: true, email: true } },
+      },
+    });
+  });
+
+  it("listRuns returns [] when the product has no sync config", async () => {
+    dbMock.ticketSyncConfig.findUnique.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const runs = await caller.product.ticketSync.listRuns({ productId });
+
+    expect(runs).toEqual([]);
+    expect(dbMock.ticketSyncRun.findMany).not.toHaveBeenCalled();
+  });
+
   it("syncNow refuses to run on a disconnected connection", async () => {
     dbMock.ticketSyncConfig.findUnique.mockResolvedValue({
       id: "cfg-1",
