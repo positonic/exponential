@@ -41,109 +41,6 @@ interface SyncOutcomeView {
   items: SyncRunItemView[];
 }
 
-interface SyncRunView {
-  id: string;
-  trigger: string;
-  dryRun: boolean;
-  status: string;
-  startedAt: Date | string;
-  error: string | null;
-  created: number;
-  updated: number;
-  skipped: number;
-  conflicts: number;
-  archived: number;
-  failed: number;
-  items: unknown;
-}
-
-function RunRow({ run }: { run: SyncRunView }) {
-  const [expanded, setExpanded] = useState(false);
-  const items = Array.isArray(run.items) ? (run.items as SyncRunItemView[]) : [];
-  const statusColor =
-    run.status === "success" ? "green" : run.status === "error" ? "red" : "yellow";
-
-  return (
-    <div className="border-t border-border-primary py-2.5 first:border-t-0">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-3 text-left"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {expanded ? (
-            <IconChevronDown size={14} className="text-text-muted shrink-0" />
-          ) : (
-            <IconChevronRight size={14} className="text-text-muted shrink-0" />
-          )}
-          <Badge size="xs" variant="light" color={statusColor}>
-            {run.status}
-          </Badge>
-          <Text size="xs" className="text-text-secondary">
-            {run.trigger}
-            {run.dryRun ? " · dry run" : ""}
-          </Text>
-          <Text size="xs" className="text-text-muted truncate">
-            {new Date(run.startedAt).toLocaleString()}
-          </Text>
-        </div>
-        <Text size="xs" className="text-text-muted shrink-0">
-          {run.created} created · {run.updated} updated · {run.skipped} skipped
-          {run.conflicts > 0 ? ` · ${run.conflicts} conflicts` : ""}
-          {run.archived > 0 ? ` · ${run.archived} archived` : ""}
-          {run.failed > 0 ? ` · ${run.failed} failed` : ""}
-        </Text>
-      </button>
-      {expanded && (
-        <div className="mt-2 space-y-1 pl-6">
-          {run.error && (
-            <Text size="xs" c="red">
-              {run.error}
-            </Text>
-          )}
-          {items.length === 0 && !run.error && (
-            <Text size="xs" className="text-text-muted">
-              No item-level changes recorded.
-            </Text>
-          )}
-          {items.map((item, i) => (
-            <div
-              key={`${item.externalId ?? item.ticketId ?? i}-${i}`}
-              className="flex gap-2 text-xs"
-            >
-              <span className="text-text-muted shrink-0 w-16">{item.action}</span>
-              <span className="text-text-primary truncate">{item.title}</span>
-              {item.reason && (
-                <span className="text-text-muted truncate">— {item.reason}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RunHistory({ productId }: { productId: string }) {
-  const { data: runs } = api.product.ticketSync.listRuns.useQuery(
-    { productId, limit: 15 },
-    { enabled: !!productId, refetchInterval: 60_000 },
-  );
-
-  if (!runs || runs.length === 0) return null;
-
-  return (
-    <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-3">
-      <Text size="sm" fw={600} className="text-text-primary mb-1">
-        Run history
-      </Text>
-      {runs.map((run) => (
-        <RunRow key={run.id} run={run as SyncRunView} />
-      ))}
-    </div>
-  );
-}
-
 function SyncOutcome({ outcome }: { outcome: SyncOutcomeView }) {
   const [expanded, setExpanded] = useState(false);
   const interesting = outcome.items.filter((i) => i.action !== "skipped");
@@ -376,8 +273,6 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
         </div>
 
         {lastOutcome && <SyncOutcome outcome={lastOutcome} />}
-
-        <RunHistory productId={productId} />
 
         <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-1">
           <div className="flex items-center justify-between border-b border-border-primary py-3.5 last:border-b-0">
