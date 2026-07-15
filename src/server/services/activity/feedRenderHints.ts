@@ -153,6 +153,13 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "tracked",
   },
 
+  // Ticket sync runs (ADR-0042 feed altitude): one `synced` event per real
+  // run — per-ticket `created` events are suppressed on the engine path.
+  [key("ticket_sync_run", "synced")]: {
+    template: "{actor} synced tickets from Notion: {entityRef}",
+    iconKind: "updated",
+  },
+
   // Channel activity summaries (ADR-0023). The feed renders these rows with a
   // bespoke layout (provider icon + channel name as the actor, summary as the
   // body) rather than this template, but the hint still drives the icon kind
