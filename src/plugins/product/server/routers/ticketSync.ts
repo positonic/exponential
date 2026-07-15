@@ -43,9 +43,11 @@ export const ticketSyncRouter = createTRPCRouter({
         id: config.id,
         productId: config.productId,
         provider: config.provider,
+        // integration is null when the connection is DISCONNECTED (soft
+        // disconnect / deleted Integration row) — links and runs survive.
         integrationId: config.integrationId,
-        integrationName: config.integration.name,
-        integrationStatus: config.integration.status,
+        integrationName: config.integration?.name ?? null,
+        integrationStatus: config.integration?.status ?? null,
         databaseId: config.databaseId,
         databaseName: config.databaseName,
         enabled: config.enabled,
@@ -87,6 +89,10 @@ export const ticketSyncRouter = createTRPCRouter({
         });
       }
 
+      // The upsert doubles as reconnect: a disconnected config (null
+      // integration link) is revived in place — same [productId, provider]
+      // row, so its TicketSync links and run history stay attached even when
+      // a different database is linked (ADR-0042).
       return ctx.db.ticketSyncConfig.upsert({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
@@ -126,12 +132,15 @@ export const ticketSyncRouter = createTRPCRouter({
     .input(z.object({ productId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
-      // Cascades sync records and runs. Tickets themselves are untouched;
-      // re-connecting re-adopts them via their stored Notion page ids.
-      await ctx.db.ticketSyncConfig.delete({
+      // Soft disconnect (ADR-0042): null the integration link, never delete
+      // the row. TicketSync links and TicketSyncRun history survive so a
+      // wrong-database accident stays auditable and revertible; saveConfig
+      // revives the same row on reconnect.
+      await ctx.db.ticketSyncConfig.update({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
         },
+        data: { integrationId: null },
       });
       return { ok: true };
     }),
@@ -159,6 +168,15 @@ export const ticketSyncRouter = createTRPCRouter({
         });
       }
 
+      // A disconnected connection (null integration link) can't reach Notion
+      // at all — reconnect first.
+      if (!config.integrationId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Notion sync is disconnected for this product",
+        });
+      }
+
       // Real syncs honour the pause switch server-side (the UI only disables
       // the button). Dry-run previews are read-only and stay allowed.
       if (!config.enabled && !(input.dryRun ?? false)) {
@@ -168,7 +186,10 @@ export const ticketSyncRouter = createTRPCRouter({
         });
       }
 
-      const adapterResult = await createNotionTicketSyncAdapter(ctx.db, config);
+      const adapterResult = await createNotionTicketSyncAdapter(ctx.db, {
+        integrationId: config.integrationId,
+        propertyNames: config.propertyNames,
+      });
       if (!adapterResult.ok) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -180,6 +201,7 @@ export const ticketSyncRouter = createTRPCRouter({
         configId: config.id,
         trigger: "manual",
         dryRun: input.dryRun ?? false,
+        triggeredById: ctx.session.user.id,
       });
     }),
 

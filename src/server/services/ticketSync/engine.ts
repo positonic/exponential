@@ -169,6 +169,8 @@ export async function runInboundTicketSync(
     configId: string;
     trigger: "manual" | "cron" | "agent";
     dryRun?: boolean;
+    /** Acting user for the run ledger; null for cron/agent triggers. */
+    triggeredById?: string | null;
   },
 ): Promise<InboundSyncResult> {
   const dryRun = params.dryRun ?? false;
@@ -187,6 +189,7 @@ export async function runInboundTicketSync(
       dryRun,
       status: "running",
       startedAt,
+      triggeredById: params.triggeredById ?? null,
     },
   });
 

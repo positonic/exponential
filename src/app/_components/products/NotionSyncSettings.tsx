@@ -115,11 +115,16 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
       { enabled: !!productId },
     );
 
+  // Disconnected = the config row survives but its integration link is null
+  // (soft disconnect, or the Integration row was deleted). Links and run
+  // history are intact; the picker below revives the same connection.
+  const isDisconnected = !!config && !config.integrationId;
+
   // All the caller's Notion connections (workspace-scoped and personal) —
   // same fallback semantics the agent-side credential resolution uses.
   const { data: connections, isLoading: connectionsLoading } =
     api.integration.listNotionConnections.useQuery(undefined, {
-      enabled: !!productId && config === null,
+      enabled: !!productId && (config === null || isDisconnected),
     });
 
   const [integrationId, setIntegrationId] = useState<string | null>(null);
@@ -170,8 +175,9 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
       title: "Disconnect Notion sync",
       children: (
         <Text size="sm">
-          This removes the sync link and its run history. Tickets are not
-          deleted, and reconnecting later re-links previously synced tickets.
+          Disconnecting stops the sync. Tickets, their sync links, and the run
+          history are all kept — reconnect anytime to pick up where you left
+          off.
         </Text>
       ),
       labels: { confirm: "Disconnect", cancel: "Cancel" },
@@ -191,7 +197,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
   // -------------------------------------------------------------------------
   // Connected state
   // -------------------------------------------------------------------------
-  if (config) {
+  if (config && !isDisconnected) {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
@@ -306,42 +312,96 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
   }
 
   // -------------------------------------------------------------------------
-  // Not-connected state — pick a connection, then a database
+  // Disconnected & not-connected states — pick a connection, then a database
   // -------------------------------------------------------------------------
   const hasConnections = (connections?.length ?? 0) > 0;
 
-  if (!connectionsLoading && !hasConnections) {
+  const connectNotionCard = (
+    <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <IconBrandNotion size={22} className="text-text-secondary" />
+          <div>
+            <Text size="sm" fw={600} className="text-text-primary">
+              Connect Notion first
+            </Text>
+            <Text size="xs" className="text-text-muted mt-0.5">
+              No Notion connection found for your account. Connect Notion,
+              then come back here to pick your backlog database.
+            </Text>
+          </div>
+        </div>
+        <Button
+          size="xs"
+          variant="light"
+          leftSection={<IconPlugConnected size={14} />}
+          component="a"
+          href="/api/auth/notion/authorize"
+        >
+          Connect Notion
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Disconnected: the config row (and all its sync links + run history)
+  // survives with a null integration link; reconnecting revives it in place.
+  if (config) {
     return (
-      <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <IconBrandNotion size={22} className="text-text-secondary" />
-            <div>
-              <Text size="sm" fw={600} className="text-text-primary">
-                Connect Notion first
-              </Text>
-              <Text size="xs" className="text-text-muted mt-0.5">
-                No Notion connection found for your account. Connect Notion,
-                then come back here to pick your backlog database.
+      <div className="space-y-4">
+        <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <IconBrandNotion size={22} className="text-text-secondary shrink-0" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Text size="sm" fw={600} className="text-text-primary truncate">
+                  {config.databaseName ?? "Notion database"}
+                </Text>
+                <Badge size="xs" variant="light" color="gray">
+                  Disconnected
+                </Badge>
+              </div>
+              <Text size="xs" className="text-text-muted truncate">
+                Sync is disconnected
+                {config.linkedTicketCount > 0 &&
+                  ` · ${config.linkedTicketCount} linked ticket${config.linkedTicketCount === 1 ? "" : "s"}`}
+                {" · ticket links and run history are kept"}
               </Text>
             </div>
           </div>
-          <Button
-            size="xs"
-            variant="light"
-            leftSection={<IconPlugConnected size={14} />}
-            component="a"
-            href="/api/auth/notion/authorize"
-          >
-            Connect Notion
-          </Button>
         </div>
+
+        {!connectionsLoading && !hasConnections
+          ? connectNotionCard
+          : pickerCard(true)}
+
+        {error && (
+          <Text size="sm" c="red">
+            {error}
+          </Text>
+        )}
       </div>
     );
   }
 
+  if (!connectionsLoading && !hasConnections) {
+    return connectNotionCard;
+  }
+
   return (
     <div className="space-y-4">
+      {pickerCard(false)}
+
+      {error && (
+        <Text size="sm" c="red">
+          {error}
+        </Text>
+      )}
+    </div>
+  );
+
+  function pickerCard(reconnect: boolean) {
+    return (
       <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4 space-y-4">
         <div>
           <Text size="sm" fw={600} className="text-text-primary">
@@ -418,16 +478,10 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
               });
             }}
           >
-            Link database
+            {reconnect ? "Reconnect" : "Link database"}
           </Button>
         </div>
       </div>
-
-      {error && (
-        <Text size="sm" c="red">
-          {error}
-        </Text>
-      )}
-    </div>
-  );
+    );
+  }
 }
