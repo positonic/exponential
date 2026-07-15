@@ -162,6 +162,11 @@ export class NotionService {
     return { results, hasMore: response.has_more ?? false };
   }
 
+  /** Fetch a page's properties only (no blocks). Thin SDK wrapper. */
+  async getPage(pageId: string): Promise<any> {
+    return this.client.pages.retrieve({ page_id: pageId });
+  }
+
   /**
    * Fetch a page's properties plus all its content blocks (auto-paginating the
    * block children). Thin SDK wrapper — flattening/truncation lives in

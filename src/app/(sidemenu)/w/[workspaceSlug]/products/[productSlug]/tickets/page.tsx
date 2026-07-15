@@ -48,6 +48,7 @@ import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId, ticketUrlId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
+import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { EpicsList } from "~/app/_components/product/EpicsList";
 import { TagBadge } from "~/app/_components/TagBadge";
@@ -669,6 +670,7 @@ export default function TicketsBacklogPage() {
         openBlockerCount={ticket.openBlockerCount}
         isBlocked={ticket.isBlocked}
       />
+      <NotionSyncBadge syncs={ticket.syncs} size={14} />
       <div className="shrink-0">
         <PriorityIcon priority={ticket.priority} size={14} />
       </div>

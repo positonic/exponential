@@ -60,6 +60,7 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
+import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import {
@@ -717,6 +718,7 @@ export default function TicketDetailPage() {
                   {displayId}
                 </Text>
               )}
+              <NotionSyncBadge syncs={ticket.syncs} />
             </Group>
 
             <Group justify="space-between" align="flex-start">
