@@ -227,6 +227,11 @@ export const ticketSyncRouter = createTRPCRouter({
         where: { configId: config.id },
         orderBy: { startedAt: "desc" },
         take: input.limit ?? 10,
+        include: {
+          // Who triggered the run; null for cron/agent runs (and rows from
+          // before the ledger recorded it) — the UI renders those as system.
+          triggeredBy: { select: { id: true, name: true, email: true } },
+        },
       });
     }),
 });

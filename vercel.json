@@ -21,6 +21,10 @@
     {
       "path": "/api/cron/enrich-pending-contacts",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/ticket-sync",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

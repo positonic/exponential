@@ -1,0 +1,102 @@
+import type { PrismaClient } from "@prisma/client";
+
+/**
+ * ticketSync/resolvers — map the merge core's relational field values
+ * (cycle name, assignee email) onto real rows.
+ *
+ * Cycles auto-create by name (the old importer's warn-and-leave-unassigned
+ * behavior is retired); assignees only match existing workspace members —
+ * an unmatched email is the caller's warning to surface, never a new user.
+ */
+
+/** Same slug rule as the cycle router so lookups hit `[workspaceId, slug]`. */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+/** Case-insensitive lookup of an existing cycle by name — never creates. */
+export async function findCycleIdByName(
+  db: PrismaClient,
+  params: { workspaceId: string; name: string },
+): Promise<string | null> {
+  const existing = await db.list.findFirst({
+    where: {
+      workspaceId: params.workspaceId,
+      listType: "SPRINT",
+      name: { equals: params.name, mode: "insensitive" },
+    },
+    select: { id: true },
+  });
+  return existing?.id ?? null;
+}
+
+export async function resolveCycleIdByName(
+  db: PrismaClient,
+  params: { workspaceId: string; name: string; createdById: string },
+): Promise<{ cycleId: string; created: boolean }> {
+  const existing = await findCycleIdByName(db, params);
+  if (existing) return { cycleId: existing, created: false };
+
+  const base = slugify(params.name) || "cycle";
+  let slug = base;
+  const MAX_SLUG_TRIES = 50;
+  // Every candidate (including the last) is verified before use; exhaustion
+  // throws instead of handing db.list.create a slug known to clash.
+  for (let suffix = 2; ; suffix++) {
+    const clash = await db.list.findUnique({
+      where: { workspaceId_slug: { workspaceId: params.workspaceId, slug } },
+      select: { id: true },
+    });
+    if (!clash) break;
+    if (suffix > MAX_SLUG_TRIES) {
+      throw new Error(
+        `no free slug for cycle "${params.name}" after ${MAX_SLUG_TRIES} tries`,
+      );
+    }
+    slug = `${base}-${suffix}`;
+  }
+
+  try {
+    const cycle = await db.list.create({
+      data: {
+        name: params.name,
+        slug,
+        listType: "SPRINT",
+        workspaceId: params.workspaceId,
+        createdById: params.createdById,
+      },
+      select: { id: true },
+    });
+    return { cycleId: cycle.id, created: true };
+  } catch (error) {
+    // A concurrent run may have created the same cycle between our lookup
+    // and the insert — re-resolve by name before giving up.
+    const raced = await db.list.findFirst({
+      where: {
+        workspaceId: params.workspaceId,
+        listType: "SPRINT",
+        name: { equals: params.name, mode: "insensitive" },
+      },
+      select: { id: true },
+    });
+    if (raced) return { cycleId: raced.id, created: false };
+    throw error;
+  }
+}
+
+export async function resolveAssigneeIdByEmail(
+  db: PrismaClient,
+  params: { workspaceId: string; email: string },
+): Promise<string | null> {
+  const member = await db.workspaceUser.findFirst({
+    where: {
+      workspaceId: params.workspaceId,
+      user: { email: { equals: params.email, mode: "insensitive" } },
+    },
+    select: { userId: true },
+  });
+  return member?.userId ?? null;
+}

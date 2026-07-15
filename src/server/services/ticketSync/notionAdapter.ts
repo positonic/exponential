@@ -20,6 +20,8 @@ interface PropertyNames {
   type: string;
   effort: string;
   label: string;
+  cycle: string;
+  assignee: string;
 }
 
 const DEFAULT_PROPERTY_NAMES: PropertyNames = {
@@ -28,6 +30,8 @@ const DEFAULT_PROPERTY_NAMES: PropertyNames = {
   type: "Type",
   effort: "Effort",
   label: "Label",
+  cycle: "Cycles",
+  assignee: "Assignee",
 };
 
 export function resolvePropertyNames(raw: unknown): PropertyNames {
@@ -52,6 +56,28 @@ interface RawNotionPage {
   properties?: Record<string, unknown>;
 }
 
+function firstRelationId(
+  props: Record<string, unknown>,
+  property: string,
+): string | null {
+  const prop = props?.[property] as
+    | { type?: string; relation?: Array<{ id?: string }> | null }
+    | undefined;
+  if (prop?.type !== "relation") return null;
+  return prop.relation?.[0]?.id ?? null;
+}
+
+function firstPersonEmail(
+  props: Record<string, unknown>,
+  property: string,
+): string | null {
+  const prop = props?.[property] as
+    | { type?: string; people?: Array<{ person?: { email?: string } }> | null }
+    | undefined;
+  if (prop?.type !== "people") return null;
+  return prop.people?.[0]?.person?.email ?? null;
+}
+
 export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
   constructor(
     private readonly notion: NotionService,
@@ -63,13 +89,27 @@ export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
   async queryRows(params: {
     databaseId: string;
     editedAfter?: Date;
+    relationScope?: { property: string; contains: string };
   }): Promise<RemoteTicketRow[]> {
-    const filter = params.editedAfter
-      ? {
-          timestamp: "last_edited_time" as const,
-          last_edited_time: { after: params.editedAfter.toISOString() },
-        }
-      : undefined;
+    const clauses: unknown[] = [];
+    if (params.editedAfter) {
+      clauses.push({
+        timestamp: "last_edited_time" as const,
+        last_edited_time: { after: params.editedAfter.toISOString() },
+      });
+    }
+    if (params.relationScope) {
+      clauses.push({
+        property: params.relationScope.property,
+        relation: { contains: params.relationScope.contains },
+      });
+    }
+    const filter =
+      clauses.length === 0
+        ? undefined
+        : clauses.length === 1
+          ? clauses[0]
+          : { and: clauses };
 
     const pages: RawNotionPage[] = [];
     let cursor: string | undefined;
@@ -85,10 +125,46 @@ export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
       cursor = page.nextCursor;
     }
 
-    return pages.slice(0, MAX_SYNC_ROWS).map((page) => this.projectRow(page));
+    const rows = pages
+      .slice(0, MAX_SYNC_ROWS)
+      .map((page) => this.projectRow(page));
+
+    // Resolve cycle relation ids → page titles, one concurrent lookup per
+    // unique cycle (resolvePageTitle already swallows per-page failures).
+    const uniqueCycleIds = [
+      ...new Set(
+        rows
+          .map((row) => row.cycleRelationId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const titleCache = new Map(
+      await Promise.all(
+        uniqueCycleIds.map(
+          async (id) => [id, await this.resolvePageTitle(id)] as const,
+        ),
+      ),
+    );
+    for (const row of rows) {
+      if (!row.cycleRelationId) continue;
+      row.cycleName = titleCache.get(row.cycleRelationId) ?? null;
+    }
+
+    return rows;
   }
 
-  private projectRow(page: RawNotionPage): RemoteTicketRow {
+  private async resolvePageTitle(pageId: string): Promise<string | null> {
+    try {
+      const page = (await this.notion.getPage(pageId)) as RawNotionPage;
+      return NotionService.extractTitleFromProperties(page.properties ?? {});
+    } catch {
+      return null;
+    }
+  }
+
+  private projectRow(
+    page: RawNotionPage,
+  ): RemoteTicketRow & { cycleRelationId: string | null } {
     const props = page.properties ?? {};
     return {
       externalId: page.id,
@@ -99,6 +175,9 @@ export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
       rawType: firstOptionName(props, this.propertyNames.type),
       rawEffort: firstOptionName(props, this.propertyNames.effort),
       labels: readOptionNames(props, this.propertyNames.label),
+      cycleName: null, // filled from cycleRelationId after the query pass
+      cycleRelationId: firstRelationId(props, this.propertyNames.cycle),
+      assigneeEmail: firstPersonEmail(props, this.propertyNames.assignee),
       lastEditedAt: page.last_edited_time
         ? new Date(page.last_edited_time)
         : new Date(0),
