@@ -330,6 +330,13 @@ export function SyncRunHistory({ productId }: { productId: string }) {
 
   if (isLoading || !runs || runs.length === 0) return null;
 
+  // Connection-wide revert is a SELECTION of all eligible runs, not a second
+  // mechanism (ADR-0042) — the same run-scoped mutation and the same
+  // aggregated preview/confirm flow.
+  const eligibleRunIds = runs
+    .filter((run) => isRevertible(run as RunRowData))
+    .map((run) => run.id);
+
   return (
     <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
       <div className="flex items-center gap-2">
@@ -337,6 +344,18 @@ export function SyncRunHistory({ productId }: { productId: string }) {
         <Text size="sm" fw={600} className="text-text-primary">
           Sync history
         </Text>
+        {eligibleRunIds.length > 0 && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="orange"
+            className="ml-auto"
+            leftSection={<IconArrowBackUp size={12} />}
+            onClick={() => setRevertTarget(eligibleRunIds)}
+          >
+            Remove all tickets created by this sync
+          </Button>
+        )}
       </div>
       <div className="mt-2">
         {runs.map((run) => (

@@ -263,6 +263,50 @@ describe("planTicketSyncRevert — local-work guardrail", () => {
   });
 });
 
+describe("connection-wide revert — multiple runs in one selection", () => {
+  const runB = pullRun({
+    id: "runB",
+    items: [
+      { externalId: "page-9", ticketId: "t9", title: "From run B", action: "created" },
+    ],
+  });
+
+  beforeEach(() => {
+    db.ticketSyncRun.findMany.mockResolvedValue([pullRun(), runB] as never);
+    db.ticket.findMany.mockResolvedValue([
+      cleanTicket("t1", "Clean one"),
+      cleanTicket("t2", "Touched one"),
+      cleanTicket("t9", "From run B"),
+    ] as never);
+    db.ticketSyncRun.updateMany.mockResolvedValue({ count: 2 } as never);
+  });
+
+  it("aggregates created items across all selected runs into one plan", async () => {
+    const plan = await planTicketSyncRevert(db, {
+      configId: "cfg1",
+      runIds: ["runA", "runB"],
+    });
+
+    expect(plan.deletable.map((e) => e.ticketId).sort()).toEqual(["t1", "t2", "t9"]);
+  });
+
+  it("stamps every selected run against the one revert run", async () => {
+    await executeTicketSyncRevert(db, {
+      configId: "cfg1",
+      runIds: ["runA", "runB"],
+      triggeredById: "user-7",
+    });
+
+    expect(db.ticketSyncRun.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["runA", "runB"] }, configId: "cfg1", revertedAt: null },
+      data: expect.objectContaining({ revertedByRunId: "revert1" }),
+    });
+    expect(db.ticket.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["t1", "t2", "t9"] } },
+    });
+  });
+});
+
 describe("executeTicketSyncRevert", () => {
   it("hard-deletes exactly the deletable tickets", async () => {
     await executeTicketSyncRevert(db, {
