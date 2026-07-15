@@ -17,7 +17,6 @@ import { notifications } from "@mantine/notifications";
 import {
   IconCategory,
   IconChecklist,
-  IconCircleDot,
   IconDots,
   IconFlag,
   IconFlame,
@@ -28,7 +27,7 @@ import {
 import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { PropertyPill, PillRow } from "~/app/_components/product/PropertyPill";
+import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/PropertyPill";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
@@ -295,11 +294,7 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               <Popover.Target>
                 <button
                   type="button"
-                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors cursor-pointer bg-transparent whitespace-nowrap max-w-56 ${
-                    (feature.tags?.length ?? 0) > 0
-                      ? "border-border-primary text-text-secondary hover:border-border-focus hover:text-text-primary"
-                      : "border-dashed border-border-primary text-text-muted hover:border-border-focus hover:text-text-secondary"
-                  }`}
+                  className={pillClassName((feature.tags?.length ?? 0) === 0)}
                 >
                   <IconTag size={13} />
                   <span className="truncate">
@@ -344,14 +339,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
           </PropertyPill>
         </PillRow>
 
-        {/* Meta */}
-        <Group gap={6} mt={8}>
-          <IconCircleDot size={11} className="text-text-muted opacity-60" />
-          <Text size="xs" className="text-text-muted">
-            {feature._count.tickets} tickets · {feature.scopes.length} scopes · Created by{" "}
-            {feature.createdBy?.name ?? "Unknown"} · {new Date(feature.createdAt).toLocaleDateString()}
-          </Text>
-        </Group>
+        {/* Meta - display only, quiet */}
+        <Text size="xs" className="text-text-muted mt-2">
+          {feature._count.tickets} tickets · {feature.scopes.length} scopes · Created by{" "}
+          {feature.createdBy?.name ?? "Unknown"} · {new Date(feature.createdAt).toLocaleDateString()}
+        </Text>
       </div>
 
       <div className="border-t border-border-primary" />

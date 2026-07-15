@@ -2,14 +2,28 @@
 
 import { Menu, Tooltip } from "@mantine/core";
 
-const PILL_CLASS =
-  "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors cursor-pointer bg-transparent whitespace-nowrap max-w-56";
+/**
+ * Pill class shared by PropertyPill and bespoke pill-shaped triggers (e.g.
+ * the labels Popover): one geometry, one state vocabulary - default, hover,
+ * and a visible keyboard focus ring.
+ */
+export function pillClassName(ghost: boolean, iconOnly = false) {
+  return [
+    "inline-flex h-7 items-center gap-1.5 rounded-full border text-xs font-medium transition-colors cursor-pointer bg-transparent whitespace-nowrap max-w-56",
+    iconOnly ? "w-7 justify-center px-0" : "px-2.5",
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-border-focus",
+    ghost
+      ? "border-dashed border-border-primary text-text-muted hover:border-border-focus hover:text-text-secondary"
+      : "border-border-primary text-text-secondary hover:border-border-focus hover:text-text-primary",
+  ].join(" ");
+}
 
 /**
  * Compact property pill for detail peeks and modals (the CreateTicketModal
  * Pill pattern, promoted): icon + value, click opens a menu of choices.
  * A SET pill reads dense (icon carries the meaning); an UNSET pill renders
- * ghosted (dashed, dimmed) as an invitation to fill it.
+ * ghosted (dashed, dimmed) as an invitation to fill it. An empty label
+ * renders a circular icon-only pill (the ⋯ overflow).
  */
 export function PropertyPill({
   icon,
@@ -19,7 +33,7 @@ export function PropertyPill({
   children,
 }: {
   icon?: React.ReactNode;
-  /** Current value when set; property name when ghost. */
+  /** Current value when set; property name when ghost; empty for icon-only. */
   label: React.ReactNode;
   /** Property name, shown on hover (useful when the value hides the name). */
   tooltip?: string;
@@ -28,17 +42,11 @@ export function PropertyPill({
   /** Menu items. */
   children: React.ReactNode;
 }) {
+  const iconOnly = label === "" || label == null;
   const button = (
-    <button
-      type="button"
-      className={`${PILL_CLASS} ${
-        ghost
-          ? "border-dashed border-border-primary text-text-muted hover:border-border-focus hover:text-text-secondary"
-          : "border-border-primary text-text-secondary hover:border-border-focus hover:text-text-primary"
-      }`}
-    >
+    <button type="button" className={pillClassName(ghost, iconOnly)}>
       {icon}
-      <span className="truncate">{label}</span>
+      {!iconOnly && <span className="truncate">{label}</span>}
     </button>
   );
   return (

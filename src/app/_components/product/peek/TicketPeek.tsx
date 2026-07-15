@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Avatar,
-  Group,
   Menu,
   Popover,
   Skeleton,
@@ -13,7 +12,6 @@ import {
   Textarea,
 } from "@mantine/core";
 import {
-  IconCircleDot,
   IconDots,
   IconExternalLink,
   IconFlag,
@@ -28,7 +26,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { PropertyPill, PillRow } from "~/app/_components/product/PropertyPill";
+import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/PropertyPill";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
@@ -230,28 +228,28 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
 
   return (
     <Stack gap="md">
-      {/* Header: id */}
-      {displayId && (
-        <Text size="xs" className="text-text-muted font-mono">
-          {displayId}
-        </Text>
-      )}
-
-      {/* Editable title */}
-      <Textarea
-        value={titleValue}
-        onChange={(e) => setTitleValue(e.currentTarget.value)}
-        autosize
-        minRows={1}
-        maxRows={3}
-        variant="unstyled"
-        classNames={{ input: "text-text-primary font-bold p-0 leading-tight resize-none" }}
-        styles={{ input: { fontWeight: 700, fontSize: "1.25rem" } }}
-        onBlur={() => {
-          const trimmed = titleValue.trim();
-          if (trimmed && trimmed !== ticket.title) setField("title", trimmed);
-        }}
-      />
+      {/* Id kicker + editable title - one tight block */}
+      <div>
+        {displayId && (
+          <Text size="xs" className="text-text-muted font-mono mb-1">
+            {displayId}
+          </Text>
+        )}
+        <Textarea
+          value={titleValue}
+          onChange={(e) => setTitleValue(e.currentTarget.value)}
+          autosize
+          minRows={1}
+          maxRows={3}
+          variant="unstyled"
+          classNames={{ input: "text-text-primary font-bold p-0 leading-tight resize-none" }}
+          styles={{ input: { fontWeight: 700, fontSize: "1.25rem" } }}
+          onBlur={() => {
+            const trimmed = titleValue.trim();
+            if (trimmed && trimmed !== ticket.title) setField("title", trimmed);
+          }}
+        />
+      </div>
 
       {/* Property strip - one line, wraps; ⋯ reveals the unset relations */}
       <div>
@@ -397,11 +395,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               <Popover.Target>
                 <button
                   type="button"
-                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors cursor-pointer bg-transparent whitespace-nowrap max-w-56 ${
-                    (ticket.tags?.length ?? 0) > 0
-                      ? "border-border-primary text-text-secondary hover:border-border-focus hover:text-text-primary"
-                      : "border-dashed border-border-primary text-text-muted hover:border-border-focus hover:text-text-secondary"
-                  }`}
+                  className={pillClassName((ticket.tags?.length ?? 0) === 0)}
                 >
                   <IconTag size={13} />
                   <span className="truncate">
@@ -460,14 +454,11 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
           </PropertyPill>
         </PillRow>
 
-        {/* Meta - display only, not pills */}
-        <Group gap={6} mt={8}>
-          <IconCircleDot size={11} className="text-text-muted opacity-60" />
-          <Text size="xs" className="text-text-muted">
-            Created by {ticket.createdBy?.name ?? "Unknown"} ·{" "}
-            {new Date(ticket.createdAt).toLocaleDateString()}
-          </Text>
-        </Group>
+        {/* Meta - display only, quiet */}
+        <Text size="xs" className="text-text-muted mt-2">
+          Created by {ticket.createdBy?.name ?? "Unknown"} ·{" "}
+          {new Date(ticket.createdAt).toLocaleDateString()}
+        </Text>
       </div>
 
       <div className="border-t border-border-primary" />
@@ -483,14 +474,16 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
         onChanged={() => void invalidate()}
       />
 
-      {/* Dependencies */}
-      <TicketDependenciesSection
-        ticketId={ticketId}
-        productId={ticket.product.id}
-        basePath={basePath}
-        dependsOn={ticket.dependsOn ?? []}
-        requiredFor={ticket.requiredFor ?? []}
-      />
+      {/* Dependencies - same collapsible section header as Actions/Activity */}
+      <CollapsibleSection title="Dependencies">
+        <TicketDependenciesSection
+          ticketId={ticketId}
+          productId={ticket.product.id}
+          basePath={basePath}
+          dependsOn={ticket.dependsOn ?? []}
+          requiredFor={ticket.requiredFor ?? []}
+        />
+      </CollapsibleSection>
 
       {/* Activity - the app-wide feed + composer */}
       <div className="mt-2">
