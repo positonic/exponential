@@ -13,6 +13,7 @@ import {
   Textarea,
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
+import { notifications } from "@mantine/notifications";
 import {
   IconCategory,
   IconChecklist,
@@ -75,7 +76,47 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
     }
   };
 
-  const updateFeature = api.product.feature.update.useMutation({ onSuccess: invalidate });
+  // Optimistic single-field patches (see TicketPeek): instant pill feedback,
+  // rollback on error, background reconcile on settle.
+  const updateFeature = api.product.feature.update.useMutation({
+    onMutate: async (vars) => {
+      await utils.product.feature.getById.cancel({ id: featureId });
+      const prev = utils.product.feature.getById.getData({ id: featureId });
+      if (prev) {
+        const next = { ...prev };
+        if (vars.name !== undefined) next.name = vars.name;
+        if (vars.status !== undefined) next.status = vars.status;
+        if (vars.priority !== undefined) next.priority = vars.priority ?? null;
+        if (vars.effort !== undefined) next.effort = vars.effort ?? null;
+        if (vars.areaId !== undefined) {
+          const a = (areas ?? []).find((x) => x.id === vars.areaId);
+          next.areaId = vars.areaId ?? null;
+          next.area = vars.areaId && a ? { id: a.id, name: a.name } : null;
+        }
+        if (vars.goalId !== undefined) {
+          const g = (goals ?? []).find((x) => x.id === vars.goalId);
+          next.goalId = vars.goalId ?? null;
+          next.goal =
+            vars.goalId && g
+              ? { ...(prev.goal ?? { period: null, parentGoalId: null, parentGoal: null }), id: g.id, title: g.title }
+              : null;
+        }
+        utils.product.feature.getById.setData({ id: featureId }, next);
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, mctx) => {
+      if (mctx?.prev) {
+        utils.product.feature.getById.setData({ id: featureId }, mctx.prev);
+      }
+      notifications.show({
+        title: "Update failed",
+        message: "Your change was not saved. Please try again.",
+        color: "red",
+      });
+    },
+    onSettled: invalidate,
+  });
   const setFeatureTags = api.tag.setFeatureTags.useMutation({ onSuccess: invalidate });
   const createTag = api.tag.create.useMutation({
     onSuccess: async (newTag) => {
