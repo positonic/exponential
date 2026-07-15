@@ -66,6 +66,7 @@ export interface SyncRunItem {
     | "adopted"
     | "skipped"
     | "conflict"
+    | "archived"
     | "failed";
   reason?: string;
 }
@@ -77,6 +78,7 @@ export interface InboundSyncResult {
   updated: number;
   skipped: number;
   conflicts: number;
+  archived: number;
   failed: number;
   items: SyncRunItem[];
 }
@@ -200,7 +202,7 @@ export async function runInboundTicketSync(
   });
 
   const items: SyncRunItem[] = [];
-  const counts = { created: 0, updated: 0, skipped: 0, conflicts: 0, failed: 0 };
+  const counts = { created: 0, updated: 0, skipped: 0, conflicts: 0, archived: 0, failed: 0 };
   const statusMap = (config.statusMap ?? null) as StatusMap | null;
 
   try {
@@ -282,13 +284,75 @@ export async function runInboundTicketSync(
     for (const row of rows) {
       try {
         if (row.archived) {
-          counts.skipped++;
+          // Archive ↔ archive, never hard-delete: a trashed linked page
+          // archives its ticket and tombstones the sync record. The snapshot
+          // status is advanced to ARCHIVED so that a later restore reads the
+          // ticket's ARCHIVED as "unchanged" and lets the remote status win.
+          const record = recordByExternalId.get(row.externalId);
+
+          if (!record) {
+            counts.skipped++;
+            items.push({
+              externalId: row.externalId,
+              ticketId: null,
+              title: row.title,
+              action: "skipped",
+              reason: "trashed page was never linked to a ticket",
+            });
+            continue;
+          }
+
+          if (record.tombstonedAt) {
+            counts.skipped++;
+            items.push({
+              externalId: row.externalId,
+              ticketId: record.ticketId,
+              title: row.title,
+              action: "skipped",
+              reason: "already archived",
+            });
+            continue;
+          }
+
+          if (dryRun) {
+            counts.archived++;
+            items.push({
+              externalId: row.externalId,
+              ticketId: record.ticketId,
+              title: row.title,
+              action: "archived",
+              reason: "would archive ticket (page is in Notion trash)",
+            });
+            continue;
+          }
+
+          const priorSnapshot =
+            (record.snapshot as Partial<SyncedFields> | null) ?? {};
+          await db.$transaction([
+            db.ticket.update({
+              where: { id: record.ticketId },
+              data: { status: "ARCHIVED" },
+            }),
+            db.ticketSync.update({
+              where: { id: record.id },
+              data: {
+                tombstonedAt: new Date(),
+                snapshot: {
+                  ...priorSnapshot,
+                  status: "ARCHIVED",
+                } as unknown as Prisma.InputJsonValue,
+                lastSyncedAt: new Date(),
+              },
+            }),
+          ]);
+
+          counts.archived++;
           items.push({
             externalId: row.externalId,
-            ticketId: recordByExternalId.get(row.externalId)?.ticketId ?? null,
+            ticketId: record.ticketId,
             title: row.title,
-            action: "skipped",
-            reason: "page is in Notion trash (archive propagation ships in a later slice)",
+            action: "archived",
+            reason: "page is in Notion trash",
           });
           continue;
         }
@@ -445,6 +509,12 @@ export async function runInboundTicketSync(
           labels: local.labels,
         });
 
+        // A tombstoned record whose page is out of the trash re-links here:
+        // the archive-time snapshot (status ARCHIVED) makes the ticket's
+        // ARCHIVED read as unchanged, so the remote status wins the merge.
+        const restoring = record.tombstonedAt !== null;
+        if (restoring) warnings.unshift("restored from Notion trash");
+
         const merged = mergeSyncedFields({
           base: (record.snapshot ?? null) as Partial<SyncedFields> | null,
           local,
@@ -563,6 +633,7 @@ export async function runInboundTicketSync(
               } as unknown as Prisma.InputJsonValue,
               externalUrl: row.url ?? undefined,
               lastSyncedAt: new Date(),
+              ...(restoring ? { tombstonedAt: null } : {}),
             },
           }),
         );
@@ -617,6 +688,7 @@ export async function runInboundTicketSync(
         updated: counts.updated,
         skipped: counts.skipped,
         conflicts: counts.conflicts,
+        archived: counts.archived,
         failed: counts.failed,
         items: items as unknown as Prisma.InputJsonValue,
       },
@@ -641,6 +713,7 @@ export async function runInboundTicketSync(
         updated: counts.updated,
         skipped: counts.skipped,
         conflicts: counts.conflicts,
+        archived: counts.archived,
         failed: counts.failed,
         items: items as unknown as Prisma.InputJsonValue,
       },

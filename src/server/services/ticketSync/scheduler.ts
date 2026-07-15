@@ -28,7 +28,7 @@ export interface SweepItem {
   detail?: string;
   result?: Pick<
     InboundSyncResult,
-    "created" | "updated" | "skipped" | "conflicts" | "failed"
+    "created" | "updated" | "skipped" | "conflicts" | "archived" | "failed"
   >;
 }
 
@@ -123,6 +123,7 @@ export async function runDueTicketSyncs(
           updated: result.updated,
           skipped: result.skipped,
           conflicts: result.conflicts,
+          archived: result.archived,
           failed: result.failed,
         },
       });

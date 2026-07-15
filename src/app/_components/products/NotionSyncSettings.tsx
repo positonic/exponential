@@ -35,6 +35,7 @@ interface SyncOutcomeView {
   updated: number;
   skipped: number;
   conflicts: number;
+  archived?: number;
   failed: number;
   items: SyncRunItemView[];
 }
@@ -50,6 +51,7 @@ interface SyncRunView {
   updated: number;
   skipped: number;
   conflicts: number;
+  archived: number;
   failed: number;
   items: unknown;
 }
@@ -87,6 +89,7 @@ function RunRow({ run }: { run: SyncRunView }) {
         <Text size="xs" className="text-text-muted shrink-0">
           {run.created} created · {run.updated} updated · {run.skipped} skipped
           {run.conflicts > 0 ? ` · ${run.conflicts} conflicts` : ""}
+          {run.archived > 0 ? ` · ${run.archived} archived` : ""}
           {run.failed > 0 ? ` · ${run.failed} failed` : ""}
         </Text>
       </button>
@@ -164,6 +167,11 @@ function SyncOutcome({ outcome }: { outcome: SyncOutcomeView }) {
           {outcome.conflicts > 0 && (
             <Badge size="xs" variant="light" color="yellow">
               {outcome.conflicts} conflicts
+            </Badge>
+          )}
+          {(outcome.archived ?? 0) > 0 && (
+            <Badge size="xs" variant="light" color="gray">
+              {outcome.archived} archived
             </Badge>
           )}
           {outcome.failed > 0 && (

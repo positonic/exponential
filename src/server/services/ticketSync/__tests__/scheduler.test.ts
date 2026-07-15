@@ -43,6 +43,7 @@ const OK_RESULT: InboundSyncResult = {
   updated: 2,
   skipped: 3,
   conflicts: 0,
+  archived: 0,
   failed: 0,
   items: [],
 };

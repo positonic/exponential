@@ -458,16 +458,121 @@ describe("runInboundTicketSync — cycles and assignees", () => {
   });
 });
 
-describe("runInboundTicketSync — skips", () => {
-  it("skips rows in the Notion trash", async () => {
+describe("runInboundTicketSync — archive propagation", () => {
+  function linkRecord(overrides: Record<string, unknown> = {}) {
+    db.ticketSync.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        ticketId: "t1",
+        externalId: "page-1",
+        snapshot: snapshotFor(),
+        tombstonedAt: null,
+        ...overrides,
+      },
+    ] as never);
+  }
+
+  it("archives the ticket and tombstones the record when the page is trashed", async () => {
+    linkRecord();
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ archived: true })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(db.ticket.update).toHaveBeenCalledWith({
+      where: { id: "t1" },
+      data: { status: "ARCHIVED" },
+    });
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "s1" },
+        data: expect.objectContaining({
+          tombstonedAt: expect.any(Date),
+          snapshot: expect.objectContaining({ status: "ARCHIVED" }),
+        }),
+      }),
+    );
+    expect(result.archived).toBe(1);
+    expect(result.items[0]!.action).toBe("archived");
+  });
+
+  it("skips a trashed page that was never linked (never creates archived tickets)", async () => {
     const result = await runInboundTicketSync(
       db,
       fakeAdapter([row({ archived: true })]),
       { configId: "cfg1", trigger: "manual" },
     );
     expect(createTicketMock).not.toHaveBeenCalled();
+    expect(db.ticket.update).not.toHaveBeenCalled();
     expect(result.skipped).toBe(1);
+    expect(result.archived).toBe(0);
   });
+
+  it("skips an already-tombstoned record without re-archiving", async () => {
+    linkRecord({ tombstonedAt: new Date("2026-07-01T00:00:00Z") });
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ archived: true })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(db.ticket.update).not.toHaveBeenCalled();
+    expect(result.skipped).toBe(1);
+    expect(result.items[0]!.reason).toBe("already archived");
+  });
+
+  it("dry run reports the would-be archive without writing", async () => {
+    linkRecord();
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ archived: true })]),
+      { configId: "cfg1", trigger: "manual", dryRun: true },
+    );
+
+    expect(db.ticket.update).not.toHaveBeenCalled();
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+    expect(result.archived).toBe(1);
+    expect(result.items[0]!.reason).toContain("would archive");
+  });
+
+  it("re-links a restored page and lets the remote status win the merge", async () => {
+    // Archived earlier: snapshot says ARCHIVED, ticket is ARCHIVED, record
+    // tombstoned. The page is back out of the trash with an active status.
+    linkRecord({
+      snapshot: snapshotFor({ status: "ARCHIVED" }),
+      tombstonedAt: new Date("2026-07-01T00:00:00Z"),
+    });
+    db.ticket.findUnique.mockResolvedValue({
+      ...LINKED_TICKET,
+      status: "ARCHIVED",
+    } as never);
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ rawStatus: "In Progress", archived: false })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(db.ticket.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "IN_PROGRESS" }),
+      }),
+    );
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tombstonedAt: null }),
+      }),
+    );
+    expect(createTicketMock).not.toHaveBeenCalled(); // no duplicate
+    expect(result.items[0]!.reason).toContain("restored from Notion trash");
+  });
+});
+
+describe("runInboundTicketSync — skips", () => {
 
   it("skips rows last edited by our own bot (echo suppression)", async () => {
     const result = await runInboundTicketSync(
