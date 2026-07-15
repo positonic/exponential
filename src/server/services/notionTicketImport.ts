@@ -1,43 +1,25 @@
-import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
-import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import type { Prisma, PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 import { NotionAgentService } from "./notionAgentService";
 import { NotionService } from "./NotionService";
-import {
-  firstOptionName,
-  mapPoints,
-  mapPriority,
-  mapStatus,
-  mapType,
-  normalizeName,
-  readOptionNames,
-} from "./ticketSync/mapping";
+import { DEFAULT_STATUS_MAP, normalizeName } from "./ticketSync/mapping";
+import { runInboundTicketSync } from "./ticketSync/engine";
+import { createNotionTicketSyncAdapter } from "./ticketSync/notionAdapter";
 
 /**
- * notionTicketImport — import one Notion backlog cycle into a product's tickets.
+ * notionTicketImport — agent-facing "import one Notion cycle" entrypoint.
  *
- * Codifies the flow an agent previously had to improvise turn-by-turn (find the
- * cycle page, build the relation filter, map fields, label, avoid duplicates)
- * into a single deterministic, idempotent server-side operation:
- *
- *   1. Resolve the Notion "Cycle" page (by page id, or by exact-title search).
- *   2. Query the backlog database filtered on the cycle relation property,
- *      paginating server-side (the agent's 25-row cap doesn't apply here).
- *   3. Map Notion properties → Ticket fields via tolerant heuristics
- *      (status names, "1 - High" priorities, "L (5pts)" efforts, typed titles).
- *   4. Skip rows already imported — provenance lives in `Ticket.links.notionPageId`,
- *      with a (title, cycle) fallback for tickets created before this existed.
- *   5. Create tickets through the shared `createTicketWithNumber` service and
- *      attach workspace labels (created on first use, e.g. "FROM-NOTION").
+ * Since the standing product ↔ Notion sync landed, this is a thin contract
+ * shim over the sync engine rather than its own importer: it resolves the
+ * cycle page (id or exact-title search, unchanged agent ergonomics), ensures
+ * the product has a sync config (creating one pinned to the caller's Notion
+ * integration when missing), runs a **cycle-scoped inbound engine run**
+ * (trigger: agent), and maps the run manifest back into the response shape
+ * the Mastra tool has always consumed. Tickets it touches get sync records,
+ * so the standing sync owns them from then on.
  *
  * Access control stays at the tRPC boundary (`loadProductWithAccess`) — this
  * module trusts `userId`/`workspaceId`, mirroring `createTicket.ts`.
  */
-
-/** Hard cap on rows pulled from Notion in one import run. */
-export const MAX_IMPORT_ROWS = 200;
-
-/** Notion page size used while paginating the filtered backlog query. */
-const NOTION_PAGE_SIZE = 100;
 
 /** Same slug rule as `tag.create` so lookups hit the `[slug, workspaceId]` unique. */
 function slugifyTagName(name: string): string {
@@ -62,7 +44,7 @@ export interface NotionCycleImportParams {
   relationProperty?: string;
   /** Workspace labels applied to every imported ticket (created on first use). */
   labels?: string[];
-  /** Exponential cycle (SPRINT list) name to assign; defaults to the Notion cycle title. */
+  /** Legacy: cycles now auto-create by their Notion title; a mismatch only warns. */
   targetCycleName?: string;
   /** Property-name overrides for non-default Notion schemas. */
   properties?: { status?: string; priority?: string; type?: string; effort?: string; label?: string };
@@ -161,14 +143,8 @@ export async function importNotionCycleTickets(
   const notion = connection.service;
 
   const warnings: string[] = [];
-  const propNames = {
-    status: params.properties?.status ?? "Status",
-    priority: params.properties?.priority ?? "Priority",
-    type: params.properties?.type ?? "Type",
-    effort: params.properties?.effort ?? "Effort",
-    label: params.properties?.label ?? "Label",
-  };
   const relationProperty = params.relationProperty ?? "Cycles";
+  const dryRun = params.dryRun ?? false;
 
   // ── 1. Resolve the Notion cycle page ────────────────────────────────────
   let cyclePageId = params.cyclePageId;
@@ -201,144 +177,170 @@ export async function importNotionCycleTickets(
     cycleTitle = NotionService.extractTitleFromProperties(page.properties ?? {});
   }
 
-  // ── 2. Pull all rows related to the cycle ───────────────────────────────
-  const rows: any[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await notion.queryDatabase({
-      databaseId: params.notionDatabaseId,
-      filter: { property: relationProperty, relation: { contains: cyclePageId } },
-      pageSize: NOTION_PAGE_SIZE,
-      startCursor: cursor,
-    });
-    rows.push(...page.results);
-    cursor = page.hasMore ? (page.nextCursor ?? undefined) : undefined;
-  } while (cursor && rows.length < MAX_IMPORT_ROWS);
-  if (rows.length > MAX_IMPORT_ROWS) {
-    rows.length = MAX_IMPORT_ROWS;
-    warnings.push(`Import capped at ${MAX_IMPORT_ROWS} rows`);
-  }
-
-  // ── 3. Resolve the target Exponential cycle (SPRINT list) ───────────────
-  const targetCycleName = params.targetCycleName ?? cycleTitle;
-  const sprint = targetCycleName
-    ? await db.list.findFirst({
-        where: {
-          workspaceId: params.workspaceId,
-          listType: "SPRINT",
-          name: { equals: targetCycleName, mode: "insensitive" },
-        },
-        select: { id: true, name: true },
-      })
-    : null;
-  const exponentialCycleId = sprint?.id ?? null;
-  if (!exponentialCycleId && targetCycleName) {
-    warnings.push(`No Exponential cycle named "${targetCycleName}" in the workspace — tickets left unassigned`);
-  }
-
-  // ── 4. Dedup index: provenance links first, (title, cycle) fallback ─────
-  const existing = await db.ticket.findMany({
-    where: { productId: params.productId },
-    select: { title: true, cycleId: true, links: true },
+  // ── 2. Ensure the product has a standing sync config ────────────────────
+  let config = await db.ticketSyncConfig.findUnique({
+    where: { productId_provider: { productId: params.productId, provider: "notion" } },
   });
-  const seenNotionIds = new Set<string>();
-  const seenTitleCycle = new Set<string>();
-  for (const t of existing) {
-    const links = t.links as Record<string, unknown> | null;
-    const notionPageId = links?.notionPageId;
-    if (typeof notionPageId === "string") seenNotionIds.add(notionPageId);
-    seenTitleCycle.add(`${normalizeName(t.title)}::${t.cycleId ?? ""}`);
+
+  if (!config) {
+    // Pin the caller's Notion integration — same workspace-then-personal
+    // fallback the credential resolution above used.
+    const integration =
+      (await db.integration.findFirst({
+        where: {
+          provider: "notion",
+          userId: params.userId,
+          workspaceId: params.workspaceId,
+        },
+        select: { id: true },
+      })) ??
+      (await db.integration.findFirst({
+        where: { provider: "notion", userId: params.userId, workspaceId: null },
+        select: { id: true },
+      }));
+    if (!integration) return { connected: false };
+
+    // The engine needs a standing config; creating it here is idempotent and
+    // is exactly what the settings UI would do. The warning surfaces it.
+    config = await db.ticketSyncConfig.create({
+      data: {
+        productId: params.productId,
+        provider: "notion",
+        integrationId: integration.id,
+        databaseId: params.notionDatabaseId,
+        statusMap: DEFAULT_STATUS_MAP as unknown as Prisma.InputJsonValue,
+        propertyNames: {
+          ...(params.properties ?? {}),
+          cycle: relationProperty,
+        } as Prisma.InputJsonValue,
+        createdById: params.userId,
+      },
+    });
+    warnings.push(
+      "Created a standing Notion sync link for this product (visible in product settings → Notion sync)",
+    );
+  } else if (config.databaseId !== params.notionDatabaseId) {
+    warnings.push(
+      "This product's standing sync is linked to a different Notion database; the linked database was used",
+    );
   }
 
-  // ── 5. Map + create ─────────────────────────────────────────────────────
+  if (
+    params.targetCycleName &&
+    normalizeName(params.targetCycleName) !== normalizeName(cycleTitle)
+  ) {
+    warnings.push(
+      "targetCycleName overrides are no longer supported — the Exponential cycle auto-creates from the Notion cycle title",
+    );
+  }
+
+  // ── 3. Cycle-scoped engine run ──────────────────────────────────────────
+  const adapterResult = await createNotionTicketSyncAdapter(db, config);
+  if (!adapterResult.ok) {
+    return { connected: true, error: adapterResult.error };
+  }
+
+  const run = await runInboundTicketSync(db, adapterResult.adapter, {
+    configId: config.id,
+    trigger: "agent",
+    dryRun,
+    scope: { relationProperty, relationContains: cyclePageId },
+  });
+
+  // ── 4. Agent labels on created tickets (e.g. FROM-NOTION) ───────────────
   const labelNames = params.labels ?? ["FROM-NOTION"];
-  const tagIds = params.dryRun
-    ? []
-    : await resolveOrCreateWorkspaceTags(db, {
-        workspaceId: params.workspaceId,
-        userId: params.userId,
-        names: labelNames,
-      });
-
-  const created: Array<{ id: string; number: number; shortId: string | null; title: string; status: string; warnings: string[] }> = [];
-  const skipped: Array<{ title: string; reason: string }> = [];
-  const failed: Array<{ title: string; error: string }> = [];
-  const preview: MappedTicketPreview[] = [];
-
-  for (const row of rows) {
-    const props = row.properties ?? {};
-    const title = NotionService.extractTitleFromProperties(props);
-    const notionUrl: string = row.url ?? "";
-    const notionPageId: string = row.id;
-
-    if (title === "Untitled") {
-      skipped.push({ title, reason: "Untitled Notion row" });
-      continue;
+  const createdItems = run.items.filter(
+    (i) => i.action === "created" && i.ticketId,
+  );
+  if (!dryRun && createdItems.length > 0 && labelNames.length > 0) {
+    const tagIds = await resolveOrCreateWorkspaceTags(db, {
+      workspaceId: params.workspaceId,
+      userId: params.userId,
+      names: labelNames,
+    });
+    for (const item of createdItems) {
+      await attachTicketTags(db, item.ticketId!, tagIds);
     }
-    if (seenNotionIds.has(notionPageId)) {
-      skipped.push({ title, reason: "Already imported (Notion page id match)" });
-      continue;
-    }
-    if (seenTitleCycle.has(`${normalizeName(title)}::${exponentialCycleId ?? ""}`)) {
-      skipped.push({ title, reason: "A ticket with this title already exists in the target cycle" });
-      continue;
-    }
+  }
 
-    const rowWarnings: string[] = [];
-    const { status, warning: statusWarning } = mapStatus(firstOptionName(props, propNames.status));
-    if (statusWarning) rowWarnings.push(statusWarning);
-    const priority = mapPriority(firstOptionName(props, propNames.priority));
-    const points = mapPoints(firstOptionName(props, propNames.effort));
-    const type = mapType(firstOptionName(props, propNames.type));
-    const notionLabels = readOptionNames(props, propNames.label);
+  // ── 5. Map the run manifest back into the tool's response contract ──────
+  const createdTickets =
+    createdItems.length > 0
+      ? await db.ticket.findMany({
+          where: { id: { in: createdItems.map((i) => i.ticketId!) } },
+          select: { id: true, number: true, shortId: true, title: true, status: true },
+        })
+      : [];
+  const createdById = new Map(createdTickets.map((t) => [t.id, t]));
 
-    const bodyLines = [`Imported from Notion: ${notionUrl}`];
-    if (notionLabels.length > 0) bodyLines.push(`Notion labels: ${notionLabels.join(", ")}`);
-
-    if (params.dryRun) {
-      preview.push({ title, status, type, priority, points, notionUrl, labels: labelNames, warnings: rowWarnings });
-      continue;
-    }
-
-    try {
-      const ticket = await createTicketWithNumber(db, {
-        productId: params.productId,
-        workspaceId: params.workspaceId,
-        createdById: params.userId,
-        title,
-        body: bodyLines.join("\n\n"),
-        type,
-        status,
-        priority,
-        points,
-        cycleId: exponentialCycleId,
-        links: { notion: notionUrl, notionPageId },
-      });
-      await attachTicketTags(db, ticket.id, tagIds);
-      seenNotionIds.add(notionPageId);
-      seenTitleCycle.add(`${normalizeName(title)}::${exponentialCycleId ?? ""}`);
-      created.push({
+  const created = createdItems.flatMap((item) => {
+    const ticket = item.ticketId ? createdById.get(item.ticketId) : undefined;
+    if (!ticket) return [];
+    return [
+      {
         id: ticket.id,
         number: ticket.number,
         shortId: ticket.shortId,
         title: ticket.title,
-        status: ticket.status,
-        warnings: rowWarnings,
-      });
-    } catch (err) {
-      failed.push({ title, error: err instanceof Error ? err.message : String(err) });
-    }
-  }
+        status: ticket.status as string,
+        warnings: item.reason ? [item.reason] : [],
+      },
+    ];
+  });
+
+  const skipped = run.items
+    .filter((i) =>
+      ["skipped", "updated", "conflict", "archived"].includes(i.action),
+    )
+    .map((i) => ({
+      title: i.title,
+      reason:
+        i.action === "skipped"
+          ? (i.reason ?? "already in sync")
+          : `${i.action}: ${i.reason ?? "synced existing ticket"}`,
+    }));
+
+  const failed = run.items
+    .filter((i) => i.action === "failed")
+    .map((i) => ({ title: i.title, error: i.reason ?? "unknown error" }));
+
+  const preview: MappedTicketPreview[] = dryRun
+    ? run.items
+        .filter((i) => i.action === "created" && i.preview)
+        .map((i) => ({
+          title: i.title,
+          status: i.preview!.status,
+          type: i.preview!.type,
+          priority: i.preview!.priority ?? undefined,
+          points: i.preview!.points ?? undefined,
+          notionUrl: i.preview!.url ?? "",
+          labels: labelNames,
+          warnings: i.reason ? [i.reason] : [],
+        }))
+    : [];
+
+  const sprint = await db.list.findFirst({
+    where: {
+      workspaceId: params.workspaceId,
+      listType: "SPRINT",
+      name: { equals: cycleTitle, mode: "insensitive" },
+    },
+    select: { id: true },
+  });
 
   return {
     connected: true,
-    dryRun: params.dryRun ?? false,
-    cycle: { notionPageId: cyclePageId, notionTitle: cycleTitle, exponentialCycleId },
-    totalFound: rows.length,
+    dryRun,
+    cycle: {
+      notionPageId: cyclePageId,
+      notionTitle: cycleTitle,
+      exponentialCycleId: sprint?.id ?? null,
+    },
+    totalFound: run.items.filter((i) => i.action !== "adopted").length,
     created,
     skipped,
     failed,
-    ...(params.dryRun ? { preview } : {}),
+    ...(dryRun ? { preview } : {}),
     warnings,
   };
 }

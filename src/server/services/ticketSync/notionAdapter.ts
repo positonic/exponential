@@ -89,13 +89,27 @@ export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
   async queryRows(params: {
     databaseId: string;
     editedAfter?: Date;
+    relationScope?: { property: string; contains: string };
   }): Promise<RemoteTicketRow[]> {
-    const filter = params.editedAfter
-      ? {
-          timestamp: "last_edited_time" as const,
-          last_edited_time: { after: params.editedAfter.toISOString() },
-        }
-      : undefined;
+    const clauses: unknown[] = [];
+    if (params.editedAfter) {
+      clauses.push({
+        timestamp: "last_edited_time" as const,
+        last_edited_time: { after: params.editedAfter.toISOString() },
+      });
+    }
+    if (params.relationScope) {
+      clauses.push({
+        property: params.relationScope.property,
+        relation: { contains: params.relationScope.contains },
+      });
+    }
+    const filter =
+      clauses.length === 0
+        ? undefined
+        : clauses.length === 1
+          ? clauses[0]
+          : { and: clauses };
 
     const pages: RawNotionPage[] = [];
     let cursor: string | undefined;

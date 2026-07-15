@@ -51,6 +51,8 @@ export interface TicketSyncRemoteAdapter {
   queryRows(params: {
     databaseId: string;
     editedAfter?: Date;
+    /** Restrict to rows whose relation property contains a page (scoped runs). */
+    relationScope?: { property: string; contains: string };
   }): Promise<RemoteTicketRow[]>;
   /** Page content as Markdown-ish text; fetched only when creating a ticket. */
   getPageBody?(externalId: string): Promise<string | null>;
@@ -69,6 +71,15 @@ export interface SyncRunItem {
     | "archived"
     | "failed";
   reason?: string;
+  /** Mapped-field preview, present on dry-run creation items only. */
+  preview?: {
+    status: TicketStatus;
+    type: TicketType;
+    priority: number | null;
+    points: number | null;
+    labels: string[];
+    url: string | null;
+  };
 }
 
 export interface InboundSyncResult {
@@ -180,6 +191,12 @@ export async function runInboundTicketSync(
     configId: string;
     trigger: "manual" | "cron" | "agent";
     dryRun?: boolean;
+    /**
+     * Restrict the run to rows whose relation property contains a page
+     * (e.g. one Notion cycle). Scoped runs always full-scan their subset and
+     * never advance the incremental window.
+     */
+    scope?: { relationProperty: string; relationContains: string };
   },
 ): Promise<InboundSyncResult> {
   const dryRun = params.dryRun ?? false;
@@ -266,7 +283,15 @@ export async function runInboundTicketSync(
     // ------------------------------------------------------------------
     const rows = await adapter.queryRows({
       databaseId: config.databaseId,
-      editedAfter: config.lastPulledAt ?? undefined,
+      editedAfter: params.scope
+        ? undefined
+        : (config.lastPulledAt ?? undefined),
+      relationScope: params.scope
+        ? {
+            property: params.scope.relationProperty,
+            contains: params.scope.relationContains,
+          }
+        : undefined,
     });
 
     const records = await db.ticketSync.findMany({
@@ -388,6 +413,14 @@ export async function runInboundTicketSync(
               action: "created",
               reason:
                 ["would create ticket", ...warnings].join("; "),
+              preview: {
+                status: fields.status,
+                type: fields.type,
+                priority: fields.priority,
+                points: fields.points,
+                labels: fields.labels,
+                url: row.url,
+              },
             });
             continue;
           }
@@ -694,7 +727,9 @@ export async function runInboundTicketSync(
       },
     });
 
-    if (!dryRun) {
+    // Scoped runs saw only a subset — advancing the window would make the
+    // next full run silently skip everything else edited meanwhile.
+    if (!dryRun && !params.scope) {
       await db.ticketSyncConfig.update({
         where: { id: config.id },
         data: { lastPulledAt: startedAt },
