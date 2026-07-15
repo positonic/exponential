@@ -153,6 +153,12 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "tracked",
   },
 
+  // Ticket sync reverts (ADR-0042): one `reverted` event per revert run.
+  [key("ticket_sync_run", "reverted")]: {
+    template: "{actor} reverted a ticket sync: {entityRef}",
+    iconKind: "status_changed",
+  },
+
   // Channel activity summaries (ADR-0023). The feed renders these rows with a
   // bespoke layout (provider icon + channel name as the actor, summary as the
   // body) rather than this template, but the hint still drives the icon kind

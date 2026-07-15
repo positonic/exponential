@@ -12,7 +12,8 @@ export type ActivityAction =
   | "status_changed"
   | "completed"
   | "commented"
-  | "summarized";
+  | "summarized"
+  | "reverted";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -32,7 +33,8 @@ export type ActivityEntityType =
   | "deal"
   | "meeting"
   | "time_entry"
-  | "channel_summary";
+  | "channel_summary"
+  | "ticket_sync_run";
 
 export interface RecordActivityInput {
   workspaceId: string;

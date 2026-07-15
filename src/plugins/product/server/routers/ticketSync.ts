@@ -4,6 +4,10 @@ import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess } from "./product";
 import { DEFAULT_STATUS_MAP } from "~/server/services/ticketSync/mapping";
 import { runInboundTicketSync } from "~/server/services/ticketSync/engine";
+import {
+  executeTicketSyncRevert,
+  planTicketSyncRevert,
+} from "~/server/services/ticketSync/revert";
 import { createNotionTicketSyncAdapter } from "~/server/services/ticketSync/notionAdapter";
 
 /**
@@ -232,6 +236,71 @@ export const ticketSyncRouter = createTRPCRouter({
           // before the ledger recorded it) — the UI renders those as system.
           triggeredBy: { select: { id: true, name: true, email: true } },
         },
+      });
+    }),
+
+  /**
+   * Preview a Sync revert (ADR-0042): what would be deleted, what the
+   * local-work guardrail protects (with reasons), what's already gone.
+   * Read-only — nothing mutates until revertRuns.
+   */
+  previewRevert: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        runIds: z.array(z.string()).min(1).max(100),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+      return planTicketSyncRevert(ctx.db, {
+        configId: config.id,
+        runIds: input.runIds,
+      });
+    }),
+
+  /**
+   * Execute a Sync revert: hard-delete the selected runs' created tickets
+   * (guardrail-protected tickets are skipped and tombstoned), stamp the runs
+   * reverted, and record the revert as its own run in the ledger.
+   */
+  revertRuns: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        runIds: z.array(z.string()).min(1).max(100),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+      return executeTicketSyncRevert(ctx.db, {
+        configId: config.id,
+        runIds: input.runIds,
+        triggeredById: ctx.session.user.id,
       });
     }),
 });
