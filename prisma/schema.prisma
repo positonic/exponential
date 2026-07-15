@@ -259,6 +259,7 @@ model User {
   insightComments       InsightComment[]   @relation("InsightCommentAuthor")
   requirementsChecked   Requirement[]      @relation("RequirementCheckedBy")
   ticketSyncConfigs     TicketSyncConfig[] @relation("TicketSyncConfigCreatedBy")
+  ticketSyncRuns        TicketSyncRun[]    @relation("TicketSyncRunTriggeredBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -4670,7 +4671,9 @@ model TicketSyncConfig {
   id            String    @id @default(cuid())
   productId     String
   provider      String    @default("notion")
-  integrationId String
+  /// Null means DISCONNECTED — disconnect is a soft state change, never a row
+  /// delete, so ticket links and run history always survive (ADR-0042).
+  integrationId String?
   databaseId    String
   databaseName  String?
   enabled       Boolean   @default(true)
@@ -4684,7 +4687,7 @@ model TicketSyncConfig {
   updatedAt     DateTime  @updatedAt
 
   product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  integration Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  integration Integration?    @relation(fields: [integrationId], references: [id], onDelete: SetNull)
   createdBy   User            @relation("TicketSyncConfigCreatedBy", fields: [createdById], references: [id])
   syncs       TicketSync[]
   runs        TicketSyncRun[]
@@ -4722,7 +4725,7 @@ model TicketSyncRun {
   configId   String
   /// manual | cron | agent
   trigger    String
-  /// pull | push | backfill
+  /// pull | push | backfill | revert
   direction  String    @default("pull")
   dryRun     Boolean   @default(false)
   /// running | success | error
@@ -4738,8 +4741,18 @@ model TicketSyncRun {
   failed     Int       @default(0)
   /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
   items      Json?
+  /// Who triggered the run; null for cron/agent runs with no acting user.
+  triggeredById   String?
+  /// Stamped when this run has been reverted — a run is revertible at most once.
+  revertedAt      DateTime?
+  /// The revert run that undid this run.
+  revertedByRunId String?
 
-  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  config        TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  triggeredBy   User?            @relation("TicketSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+  revertedByRun TicketSyncRun?   @relation("TicketSyncRunRevertedBy", fields: [revertedByRunId], references: [id], onDelete: SetNull)
+  revertedRuns  TicketSyncRun[]  @relation("TicketSyncRunRevertedBy")
 
   @@index([configId, startedAt])
+  @@index([triggeredById])
 }
