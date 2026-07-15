@@ -12,11 +12,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-const { createTicketMock, resolveTagsMock, attachTagsMock } = vi.hoisted(() => ({
-  createTicketMock: vi.fn(),
-  resolveTagsMock: vi.fn(),
-  attachTagsMock: vi.fn(),
-}));
+const { createTicketMock, resolveTagsMock, attachTagsMock, recordActivityMock } =
+  vi.hoisted(() => ({
+    createTicketMock: vi.fn(),
+    resolveTagsMock: vi.fn(),
+    attachTagsMock: vi.fn(),
+    recordActivityMock: vi.fn(),
+  }));
 
 vi.mock("~/plugins/product/server/services/createTicket", () => ({
   createTicketWithNumber: createTicketMock,
@@ -25,6 +27,10 @@ vi.mock("~/plugins/product/server/services/createTicket", () => ({
 vi.mock("../../notionTicketImport", () => ({
   resolveOrCreateWorkspaceTags: resolveTagsMock,
   attachTicketTags: attachTagsMock,
+}));
+
+vi.mock("~/server/services/activity/recordActivity", () => ({
+  recordActivity: recordActivityMock,
 }));
 
 import {
@@ -118,6 +124,7 @@ beforeEach(() => {
   createTicketMock.mockReset();
   resolveTagsMock.mockReset();
   attachTagsMock.mockReset();
+  recordActivityMock.mockReset();
 
   db.ticketSyncConfig.findUniqueOrThrow.mockResolvedValue(CONFIG as never);
   db.ticketSyncRun.create.mockResolvedValue({ id: "run1" } as never);
@@ -130,6 +137,7 @@ beforeEach(() => {
   createTicketMock.mockResolvedValue({ id: "new-ticket" });
   resolveTagsMock.mockResolvedValue(["tag1"]);
   attachTagsMock.mockResolvedValue(undefined);
+  recordActivityMock.mockResolvedValue(true);
   db.list.findFirst.mockResolvedValue(null);
   db.list.findUnique.mockResolvedValue(null);
   db.list.create.mockResolvedValue({ id: "list1" } as never);
@@ -714,6 +722,88 @@ describe("runInboundTicketSync — windowing and failures", () => {
     expect(db.ticketSyncRun.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: "success", failed: 1 }),
+      }),
+    );
+  });
+});
+
+describe("runInboundTicketSync — feed altitude (one event per run)", () => {
+  it("creates engine tickets with per-ticket activity suppressed", async () => {
+    await runInboundTicketSync(db, fakeAdapter([row()]), {
+      configId: "cfg1",
+      trigger: "manual",
+    });
+
+    expect(createTicketMock).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ suppressActivity: true }),
+    );
+  });
+
+  it("posts exactly one synced event per real run, attributed to the triggering user", async () => {
+    await runInboundTicketSync(db, fakeAdapter([row()]), {
+      configId: "cfg1",
+      trigger: "manual",
+      triggeredById: "user-7",
+    });
+
+    expect(recordActivityMock).toHaveBeenCalledTimes(1);
+    expect(recordActivityMock).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        workspaceId: "ws1",
+        userId: "user-7",
+        entityType: "ticket_sync_run",
+        entityId: "run1",
+        action: "synced",
+        metadata: expect.objectContaining({
+          productId: "prod1",
+          status: "success",
+          created: 1,
+          adopted: 0,
+        }),
+      }),
+    );
+  });
+
+  it("falls back to an unattributed event for cron/agent runs", async () => {
+    await runInboundTicketSync(db, fakeAdapter([]), {
+      configId: "cfg1",
+      trigger: "cron",
+    });
+
+    expect(recordActivityMock).toHaveBeenCalledTimes(1);
+    expect(recordActivityMock).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ userId: null, action: "synced" }),
+    );
+  });
+
+  it("posts no event for dry runs", async () => {
+    await runInboundTicketSync(db, fakeAdapter([row()]), {
+      configId: "cfg1",
+      trigger: "manual",
+      dryRun: true,
+    });
+
+    expect(recordActivityMock).not.toHaveBeenCalled();
+  });
+
+  it("still posts the run event (status error) when the run fails partway", async () => {
+    const adapter = {
+      queryRows: () => Promise.reject(new Error("Notion exploded")),
+    };
+
+    await expect(
+      runInboundTicketSync(db, adapter, { configId: "cfg1", trigger: "manual" }),
+    ).rejects.toThrow("Notion exploded");
+
+    expect(recordActivityMock).toHaveBeenCalledTimes(1);
+    expect(recordActivityMock).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        action: "synced",
+        metadata: expect.objectContaining({ status: "error" }),
       }),
     );
   });

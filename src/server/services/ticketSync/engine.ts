@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   attachTicketTags,
   resolveOrCreateWorkspaceTags,
@@ -534,6 +535,9 @@ export async function runInboundTicketSync(
               ...(row.url ? { notion: row.url } : {}),
               notionPageId: row.externalId,
             },
+            // Feed altitude: the run posts ONE `synced` event; per-ticket
+            // `created` events would flood the feed (99-row incident).
+            suppressActivity: true,
           });
 
           if (row.labels.length > 0) {
@@ -822,6 +826,8 @@ export async function runInboundTicketSync(
         data: { lastPulledAt: startedAt },
       });
     }
+    // Every real run posts its one feed event, scoped or not.
+    if (!dryRun) await postRunEvent("success");
 
     return { runId: run.id, dryRun, ...counts, items };
   } catch (error) {
@@ -840,6 +846,39 @@ export async function runInboundTicketSync(
         items: items as unknown as Prisma.InputJsonValue,
       },
     });
+    // A failed real run may still have created tickets before dying — the
+    // feed event is how that partial work stays visible.
+    if (!dryRun) await postRunEvent("error");
     throw error;
+  }
+
+  /**
+   * One `synced` activity event per real run (feed altitude, ADR-0042): the
+   * per-ticket `created` events are suppressed on this path, so the run-level
+   * event with its counts is the feed's whole story. Dry runs post nothing.
+   * `recordActivity` never throws — instrumentation can't fail the sync.
+   */
+  async function postRunEvent(status: "success" | "error") {
+    await recordActivity(db, {
+      workspaceId: config.product.workspaceId,
+      userId: params.triggeredById ?? null,
+      entityType: "ticket_sync_run",
+      entityId: run.id,
+      action: "synced",
+      metadata: {
+        // `title` is what the feed shows as the entity reference.
+        title:
+          `${counts.created} created · ${counts.updated} updated · ${counts.skipped} skipped` +
+          (counts.failed > 0 || status === "error" ? ` · ${counts.failed} failed` : ""),
+        productId: config.productId,
+        status,
+        created: counts.created,
+        updated: counts.updated,
+        adopted: items.filter((i) => i.action === "adopted").length,
+        skipped: counts.skipped,
+        conflicts: counts.conflicts,
+        failed: counts.failed,
+      },
+    });
   }
 }

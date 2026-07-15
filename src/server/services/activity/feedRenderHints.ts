@@ -153,6 +153,13 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "tracked",
   },
 
+  // Ticket sync runs (ADR-0042 feed altitude): one `synced` event per real
+  // run — per-ticket `created` events are suppressed on the engine path.
+  [key("ticket_sync_run", "synced")]: {
+    template: "{actor} synced tickets from Notion: {entityRef}",
+    iconKind: "updated",
+  },
+
   // Ticket sync reverts (ADR-0042): one `reverted` event per revert run.
   [key("ticket_sync_run", "reverted")]: {
     template: "{actor} reverted a ticket sync: {entityRef}",

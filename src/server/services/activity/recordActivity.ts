@@ -13,6 +13,7 @@ export type ActivityAction =
   | "completed"
   | "commented"
   | "summarized"
+  | "synced"
   | "reverted";
 
 /**
