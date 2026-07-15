@@ -35,6 +35,7 @@ import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 import { ActivityComposer } from "~/app/_components/shared/ActivityComposer";
+import { ActivityFilterMenu, useActivityFilter } from "~/app/_components/shared/ActivityFilterMenu";
 import { useTicketActivity } from "~/hooks/useTicketActivity";
 import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 import { generateLinearId } from "~/lib/fun-ids";
@@ -97,6 +98,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
 
   const invalidate = async () => {
     await utils.product.ticket.getById.invalidate({ id: ticketId });
+    await utils.product.ticket.listEvents.invalidate({ id: ticketId });
     if (ticket?.product.id) {
       await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
     }
@@ -200,6 +202,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
   );
   const mentionNames = useMemo(() => mentionCandidates.map((c) => c.name), [mentionCandidates]);
   const activity = useTicketActivity(ticketId, { mentionCandidates, mentionNames });
+  const [activityFilter, setActivityFilter] = useActivityFilter();
 
   if (isLoading || !ticket) {
     return (
@@ -495,9 +498,13 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
 
       {/* Activity - the app-wide feed + composer */}
       <div className="mt-2">
-        <CollapsibleSection title="Activity">
+        <CollapsibleSection
+          title="Activity"
+          action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+        >
           <ActivityFeed
             items={activity.items}
+            filter={activityFilter}
             currentUserId={session?.user?.id}
             onDeleteComment={activity.deleteComment}
             onEditComment={activity.editComment}

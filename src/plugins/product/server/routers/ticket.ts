@@ -853,6 +853,30 @@ export const ticketRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  /**
+   * Per-ticket audit events for the unified activity timeline (mirrors
+   * insight.listEvents): WorkspaceActivityEvent rows recorded by the create/
+   * update/bulkUpdate paths, merged client-side with comments by createdAt.
+   */
+  listEvents: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const ticket = await loadTicketWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
+      return ctx.db.workspaceActivityEvent.findMany({
+        where: {
+          workspaceId: ticket.product.workspaceId,
+          entityType: "ticket",
+          entityId: input.id,
+        },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, image: true } } },
+      });
+    }),
+
   // ────────────────── Action ↔ Ticket linking ──────────────────
   linkAction: protectedProcedure
     .input(z.object({ ticketId: z.string(), actionId: z.string() }))

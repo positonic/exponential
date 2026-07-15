@@ -9,6 +9,9 @@ interface CollapsibleSectionProps {
   icon?: React.ReactNode;
   /** Small dimmed text next to the title (e.g. "3/5 met"). */
   meta?: string;
+  /** Right-aligned header control (e.g. a filter menu). Clicks on it do not
+   *  toggle the section. */
+  action?: React.ReactNode;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }
@@ -22,6 +25,7 @@ export function CollapsibleSection({
   title,
   icon,
   meta,
+  action,
   defaultOpen = true,
   children,
 }: CollapsibleSectionProps) {
@@ -29,9 +33,10 @@ export function CollapsibleSection({
 
   return (
     <div>
+      <div className="flex items-center justify-between mb-2">
       <button
         type="button"
-        className="flex items-center gap-1.5 mb-2 bg-transparent border-0 p-0 cursor-pointer"
+        className="flex items-center gap-1.5 bg-transparent border-0 p-0 cursor-pointer"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -50,6 +55,8 @@ export function CollapsibleSection({
           </Text>
         )}
       </button>
+      {action && <div onClick={(e) => e.stopPropagation()}>{action}</div>}
+      </div>
       {open && children}
     </div>
   );
