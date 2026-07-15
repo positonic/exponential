@@ -46,6 +46,9 @@ export function PeekDrawer({
       position="right"
       size={wide ? WIDE : NARROW}
       padding="lg"
+      // Keep browser-level gestures (pinch-to-zoom) working while open:
+      // the scroll lock's event capture swallows ctrl+wheel/trackpad zoom.
+      lockScroll={false}
       withCloseButton
       title={
         <Group gap={4}>
@@ -104,7 +107,12 @@ export function PeekDrawer({
       }
       styles={{
         content: { backgroundColor: "var(--color-bg-elevated)" },
-        header: { backgroundColor: "var(--color-bg-elevated)" },
+        header: {
+          backgroundColor: "var(--color-bg-elevated)",
+          paddingLeft: 36,
+          paddingRight: 24,
+        },
+        body: { paddingLeft: 36, paddingRight: 28 },
       }}
     >
       {children}

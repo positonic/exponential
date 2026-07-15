@@ -17,6 +17,7 @@ import {
   IconCategory,
   IconChecklist,
   IconCircleDot,
+  IconDots,
   IconFlag,
   IconFlame,
   IconMap2,
@@ -115,6 +116,13 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
     if (feature) setNameValue(feature.name);
   }, [feature]);
 
+  // One-row strip: relational pills render when set or explicitly revealed
+  // via the ⋯ overflow.
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  useEffect(() => setRevealed(new Set()), [featureId]);
+  const reveal = (key: string) =>
+    setRevealed((prev) => new Set(prev).add(key));
+
   const requirementsMeta = useMemo(() => {
     if (!feature || feature.requirements.length === 0) return undefined;
     const met = feature.requirements.filter((r) => r.checkedAt != null).length;
@@ -206,11 +214,8 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             <Menu.Divider />
             <Menu.Item onClick={() => setField("effort", null)}>Clear</Menu.Item>
           </PropertyPill>
-        </PillRow>
 
-        {/* Property strip - line 2: planning & relations */}
-        <div className="mt-1.5">
-          <PillRow>
+          {(!!feature.area || revealed.has("area")) && (
             <PropertyPill
               tooltip="Area"
               ghost={!feature.area}
@@ -225,7 +230,9 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               <Menu.Divider />
               <Menu.Item onClick={() => setField("areaId", null)}>No area</Menu.Item>
             </PropertyPill>
+          )}
 
+          {(!!feature.goal || revealed.has("goal")) && (
             <PropertyPill
               tooltip="Goal"
               ghost={!feature.goal}
@@ -240,8 +247,9 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               <Menu.Divider />
               <Menu.Item onClick={() => setField("goalId", null)}>No goal</Menu.Item>
             </PropertyPill>
+          )}
 
-            {/* Labels popover */}
+          {((feature.tags?.length ?? 0) > 0 || revealed.has("labels")) && (
             <Popover position="bottom-start" withinPortal shadow="md">
               <Popover.Target>
                 <button
@@ -274,8 +282,26 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
                 />
               </Popover.Dropdown>
             </Popover>
-          </PillRow>
-        </div>
+          )}
+
+          {/* ⋯ overflow: reveal unset relations */}
+          <PropertyPill tooltip="More" ghost icon={<IconDots size={13} />} label="">
+            {!feature.area && !revealed.has("area") && (
+              <Menu.Item leftSection={<IconMap2 size={13} />} onClick={() => reveal("area")}>Area</Menu.Item>
+            )}
+            {!feature.goal && !revealed.has("goal") && (
+              <Menu.Item leftSection={<IconTarget size={13} />} onClick={() => reveal("goal")}>Goal</Menu.Item>
+            )}
+            {(feature.tags?.length ?? 0) === 0 && !revealed.has("labels") && (
+              <Menu.Item leftSection={<IconTag size={13} />} onClick={() => reveal("labels")}>Labels</Menu.Item>
+            )}
+            {(!!feature.area || revealed.has("area")) &&
+              (!!feature.goal || revealed.has("goal")) &&
+              ((feature.tags?.length ?? 0) > 0 || revealed.has("labels")) && (
+                <Menu.Item disabled>Nothing more to add</Menu.Item>
+              )}
+          </PropertyPill>
+        </PillRow>
 
         {/* Meta */}
         <Group gap={6} mt={8}>

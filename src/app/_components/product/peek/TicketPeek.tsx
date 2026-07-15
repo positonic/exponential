@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Avatar,
-  Badge,
   Group,
   Menu,
   Popover,
@@ -46,16 +45,29 @@ import {
   STATUS_LABELS,
 } from "~/lib/ticket-statuses";
 
+const TICKET_TYPES = ["BUG", "FEATURE", "CHORE", "IMPROVEMENT", "SPIKE", "RESEARCH"] as const;
+
 const TYPE_COLORS: Record<string, string> = {
   BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
 };
 
 const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
 
+function ColorDot({ color }: { color: string }) {
+  return (
+    <span
+      className="inline-block h-2 w-2 rounded-full"
+      style={{ backgroundColor: `var(--mantine-color-${color}-6)` }}
+    />
+  );
+}
+
 /**
  * Full ticket content for the peek drawer: everything the detail page offers,
- * with the properties sidebar compressed into a two-line pill strip
- * (workflow line + planning line + ⋯ overflow) below the title.
+ * with the properties sidebar compressed into ONE pill line. Workflow pills
+ * (status/priority/type/DRI/effort) are always present; relational pills
+ * (feature/epic/cycle/labels) appear when set or when revealed via the
+ * ⋯ overflow - the CreateTicketModal pattern.
  */
 export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath: string }) {
   const { data: session } = useSession();
@@ -110,6 +122,13 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
     if (ticket) setTitleValue(ticket.title);
   }, [ticket]);
 
+  // One-row strip: relational pills render when set or explicitly revealed
+  // via the ⋯ overflow.
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  useEffect(() => setRevealed(new Set()), [ticketId]);
+  const reveal = (key: string) =>
+    setRevealed((prev) => new Set(prev).add(key));
+
   const mentionCandidates: MentionCandidate[] = useMemo(
     () =>
       (workspace?.members ?? []).map(
@@ -146,19 +165,19 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
   const members = workspace?.members ?? [];
   const hasLinks = !!(ticket.branchName ?? ticket.prUrl ?? ticket.designUrl ?? ticket.specUrl);
 
+  const showFeature = !!ticket.feature || revealed.has("feature");
+  const showEpic = !!ticket.epic || revealed.has("epic");
+  const showCycle = !!ticket.cycle || revealed.has("cycle");
+  const showLabels = (ticket.tags?.length ?? 0) > 0 || revealed.has("labels");
+
   return (
     <Stack gap="md">
-      {/* Header: type + id */}
-      <Group gap="sm">
-        <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"}>
-          {ticket.type.toLowerCase()}
-        </Badge>
-        {displayId && (
-          <Text size="xs" className="text-text-muted font-mono">
-            {displayId}
-          </Text>
-        )}
-      </Group>
+      {/* Header: id */}
+      {displayId && (
+        <Text size="xs" className="text-text-muted font-mono">
+          {displayId}
+        </Text>
+      )}
 
       {/* Editable title */}
       <Textarea
@@ -176,29 +195,19 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
         }}
       />
 
-      {/* Property strip - line 1: workflow */}
+      {/* Property strip - one line, wraps; ⋯ reveals the unset relations */}
       <div>
         <PillRow>
           <PropertyPill
             tooltip="Status"
-            icon={
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ backgroundColor: `var(--mantine-color-${STATUS_COLORS[ticket.status] ?? "gray"}-6)` }}
-              />
-            }
+            icon={<ColorDot color={STATUS_COLORS[ticket.status] ?? "gray"} />}
             label={STATUS_LABELS[ticket.status] ?? ticket.status}
           >
             {TICKET_STATUSES.map((s) => (
               <Menu.Item
                 key={s.value}
                 onClick={() => setField("status", s.value)}
-                leftSection={
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: `var(--mantine-color-${s.color}-6)` }}
-                  />
-                }
+                leftSection={<ColorDot color={s.color} />}
               >
                 {s.label}
               </Menu.Item>
@@ -218,6 +227,22 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             ))}
             <Menu.Divider />
             <Menu.Item onClick={() => setField("priority", null)}>No priority</Menu.Item>
+          </PropertyPill>
+
+          <PropertyPill
+            tooltip="Type"
+            icon={<ColorDot color={TYPE_COLORS[ticket.type] ?? "gray"} />}
+            label={ticket.type.toLowerCase()}
+          >
+            {TICKET_TYPES.map((t) => (
+              <Menu.Item
+                key={t}
+                onClick={() => setField("type", t)}
+                leftSection={<ColorDot color={TYPE_COLORS[t] ?? "gray"} />}
+              >
+                {t.toLowerCase()}
+              </Menu.Item>
+            ))}
           </PropertyPill>
 
           <PropertyPill
@@ -257,11 +282,8 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             <Menu.Divider />
             <Menu.Item onClick={() => setField("points", null)}>Clear</Menu.Item>
           </PropertyPill>
-        </PillRow>
 
-        {/* Property strip - line 2: planning & relations */}
-        <div className="mt-1.5">
-          <PillRow>
+          {showFeature && (
             <PropertyPill
               tooltip="Feature"
               ghost={!ticket.feature}
@@ -276,7 +298,9 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               <Menu.Divider />
               <Menu.Item onClick={() => setField("featureId", null)}>No feature</Menu.Item>
             </PropertyPill>
+          )}
 
+          {showEpic && (
             <PropertyPill
               tooltip="Epic"
               ghost={!ticket.epic}
@@ -291,7 +315,9 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               <Menu.Divider />
               <Menu.Item onClick={() => setField("epicId", null)}>No epic</Menu.Item>
             </PropertyPill>
+          )}
 
+          {showCycle && (
             <PropertyPill
               tooltip="Cycle"
               ghost={!ticket.cycle}
@@ -306,8 +332,9 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               <Menu.Divider />
               <Menu.Item onClick={() => setField("cycleId", null)}>No cycle</Menu.Item>
             </PropertyPill>
+          )}
 
-            {/* Labels: combobox needs a popover, not a menu */}
+          {showLabels && (
             <Popover position="bottom-start" withinPortal shadow="md">
               <Popover.Target>
                 <button
@@ -340,33 +367,40 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
                 />
               </Popover.Dropdown>
             </Popover>
+          )}
 
-            {/* Overflow: engineering links */}
-            <PropertyPill tooltip="Links" ghost={!hasLinks} icon={<IconDots size={13} />} label={hasLinks ? "Links" : "More"}>
-              {ticket.branchName && (
-                <Menu.Item leftSection={<IconGitBranch size={13} />} onClick={() => void navigator.clipboard.writeText(ticket.branchName ?? "")}>
-                  Copy branch: {ticket.branchName}
-                </Menu.Item>
-              )}
-              {ticket.prUrl && (
-                <Menu.Item leftSection={<IconExternalLink size={13} />} component="a" href={ticket.prUrl} target="_blank">
-                  Open PR
-                </Menu.Item>
-              )}
-              {ticket.designUrl && (
-                <Menu.Item leftSection={<IconExternalLink size={13} />} component="a" href={ticket.designUrl} target="_blank">
-                  Open design
-                </Menu.Item>
-              )}
-              {ticket.specUrl && (
-                <Menu.Item leftSection={<IconExternalLink size={13} />} component="a" href={ticket.specUrl} target="_blank">
-                  Open spec
-                </Menu.Item>
-              )}
-              {!hasLinks && <Menu.Item disabled>No links yet - add them on the full page</Menu.Item>}
-            </PropertyPill>
-          </PillRow>
-        </div>
+          {/* ⋯ overflow: reveal unset relations + engineering links */}
+          <PropertyPill tooltip="More" ghost icon={<IconDots size={13} />} label="">
+            {!showFeature && <Menu.Item leftSection={<IconFolder size={13} />} onClick={() => reveal("feature")}>Feature</Menu.Item>}
+            {!showEpic && <Menu.Item leftSection={<IconTargetArrow size={13} />} onClick={() => reveal("epic")}>Epic</Menu.Item>}
+            {!showCycle && <Menu.Item leftSection={<IconRepeat size={13} />} onClick={() => reveal("cycle")}>Cycle</Menu.Item>}
+            {!showLabels && <Menu.Item leftSection={<IconTag size={13} />} onClick={() => reveal("labels")}>Labels</Menu.Item>}
+            {hasLinks && (!showFeature || !showEpic || !showCycle || !showLabels) && <Menu.Divider />}
+            {ticket.branchName && (
+              <Menu.Item leftSection={<IconGitBranch size={13} />} onClick={() => void navigator.clipboard.writeText(ticket.branchName ?? "")}>
+                Copy branch: {ticket.branchName}
+              </Menu.Item>
+            )}
+            {ticket.prUrl && (
+              <Menu.Item leftSection={<IconExternalLink size={13} />} component="a" href={ticket.prUrl} target="_blank">
+                Open PR
+              </Menu.Item>
+            )}
+            {ticket.designUrl && (
+              <Menu.Item leftSection={<IconExternalLink size={13} />} component="a" href={ticket.designUrl} target="_blank">
+                Open design
+              </Menu.Item>
+            )}
+            {ticket.specUrl && (
+              <Menu.Item leftSection={<IconExternalLink size={13} />} component="a" href={ticket.specUrl} target="_blank">
+                Open spec
+              </Menu.Item>
+            )}
+            {!hasLinks && showFeature && showEpic && showCycle && showLabels && (
+              <Menu.Item disabled>Nothing more to add</Menu.Item>
+            )}
+          </PropertyPill>
+        </PillRow>
 
         {/* Meta - display only, not pills */}
         <Group gap={6} mt={8}>
