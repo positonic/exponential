@@ -456,6 +456,43 @@ describe("runInboundTicketSync — cycles and assignees", () => {
       expect(call[0].data).not.toHaveProperty("cycleId");
     }
   });
+
+  it("dry run previews the relational outcome without writing", async () => {
+    linkRecord(snapshotFor());
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([
+        row({ cycleName: "Cycle 12", assigneeEmail: "stranger@example.com" }),
+      ]),
+      { configId: "cfg1", trigger: "manual", dryRun: true },
+    );
+
+    expect(db.list.create).not.toHaveBeenCalled();
+    expect(db.ticket.update).not.toHaveBeenCalled();
+    expect(result.items[0]!.reason).toContain('would create cycle "Cycle 12"');
+    expect(result.items[0]!.reason).toContain(
+      "no workspace member with email stranger@example.com",
+    );
+  });
+
+  it("dry run names an existing cycle as a reuse, not a create", async () => {
+    linkRecord(snapshotFor());
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+    db.list.findFirst.mockResolvedValue({ id: "existing-cycle" } as never);
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ cycleName: "Cycle 12" })]),
+      { configId: "cfg1", trigger: "manual", dryRun: true },
+    );
+
+    expect(db.list.create).not.toHaveBeenCalled();
+    expect(result.items[0]!.reason).toContain(
+      'would assign existing cycle "Cycle 12"',
+    );
+  });
 });
 
 describe("runInboundTicketSync — archive propagation", () => {

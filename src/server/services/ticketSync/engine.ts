@@ -6,7 +6,11 @@ import {
   resolveOrCreateWorkspaceTags,
 } from "../notionTicketImport";
 import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
-import { resolveAssigneeIdByEmail, resolveCycleIdByName } from "./resolvers";
+import {
+  findCycleIdByName,
+  resolveAssigneeIdByEmail,
+  resolveCycleIdByName,
+} from "./resolvers";
 import {
   mergeSyncedFields,
   SYNCED_FIELD_KEYS,
@@ -176,6 +180,42 @@ function buildInboundSnapshot(
     }
   }
   return snapshot;
+}
+
+/**
+ * Read-only preview of the relational resolutions the write path would
+ * perform, so a dry-run manifest names the real outcome ("would create cycle
+ * X", "no member for email Y") instead of a bare "would set cycleName".
+ */
+async function relationalPreviewWarnings(
+  db: PrismaClient,
+  workspaceId: string,
+  fields: Partial<Pick<SyncedFields, "cycleName" | "assigneeEmail">>,
+): Promise<string[]> {
+  const warnings: string[] = [];
+  if (fields.cycleName) {
+    const existing = await findCycleIdByName(db, {
+      workspaceId,
+      name: fields.cycleName,
+    });
+    warnings.push(
+      existing
+        ? `would assign existing cycle "${fields.cycleName}"`
+        : `would create cycle "${fields.cycleName}"`,
+    );
+  }
+  if (fields.assigneeEmail) {
+    const assigneeId = await resolveAssigneeIdByEmail(db, {
+      workspaceId,
+      email: fields.assigneeEmail,
+    });
+    if (!assigneeId) {
+      warnings.push(
+        `no workspace member with email ${fields.assigneeEmail} — assignee would be left unchanged`,
+      );
+    }
+  }
+  return warnings;
 }
 
 function extractNotionPageId(links: Prisma.JsonValue | null): string | null {
@@ -405,6 +445,13 @@ export async function runInboundTicketSync(
           });
 
           if (dryRun) {
+            warnings.push(
+              ...(await relationalPreviewWarnings(
+                db,
+                config.product.workspaceId,
+                fields,
+              )),
+            );
             counts.created++;
             items.push({
               externalId: row.externalId,
@@ -604,6 +651,17 @@ export async function runInboundTicketSync(
               snapshotOverrides.assigneeEmail = local.assigneeEmail;
             }
           }
+        }
+
+        // Dry run skips the resolving writes above — preview them read-only
+        // so the manifest still names the real relational outcome.
+        if (dryRun) {
+          warnings.push(
+            ...(await relationalPreviewWarnings(db, config.product.workspaceId, {
+              cycleName: merged.applyToLocal.cycleName,
+              assigneeEmail: merged.applyToLocal.assigneeEmail,
+            })),
+          );
         }
 
         const hasLocalWrites =

@@ -128,12 +128,36 @@ export async function runDueTicketSyncs(
         },
       });
     } catch (error) {
-      // The engine already recorded the errored run; keep sweeping.
+      const detail = error instanceof Error ? error.message : "unknown error";
+      // The engine records its own errored run once one exists; a failure
+      // before that point (config vanished, run insert failed) would leave
+      // no trace in the run history — record it here, best-effort.
+      try {
+        const recorded = await db.ticketSyncRun.findFirst({
+          where: { configId: config.id, startedAt: { gte: now } },
+          select: { id: true },
+        });
+        if (!recorded) {
+          await db.ticketSyncRun.create({
+            data: {
+              configId: config.id,
+              trigger: "cron",
+              direction: "pull",
+              status: "error",
+              startedAt: now,
+              finishedAt: now,
+              error: detail,
+            },
+          });
+        }
+      } catch {
+        // Recording the failure must never stop the sweep.
+      }
       items.push({
         configId: config.id,
         productId: config.productId,
         outcome: "error",
-        detail: error instanceof Error ? error.message : "unknown error",
+        detail,
       });
     }
   }

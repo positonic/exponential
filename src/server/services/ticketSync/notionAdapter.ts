@@ -129,16 +129,24 @@ export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
       .slice(0, MAX_SYNC_ROWS)
       .map((page) => this.projectRow(page));
 
-    // Resolve cycle relation ids → page titles, one lookup per unique cycle.
-    const titleCache = new Map<string, string | null>();
+    // Resolve cycle relation ids → page titles, one concurrent lookup per
+    // unique cycle (resolvePageTitle already swallows per-page failures).
+    const uniqueCycleIds = [
+      ...new Set(
+        rows
+          .map((row) => row.cycleRelationId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const titleCache = new Map(
+      await Promise.all(
+        uniqueCycleIds.map(
+          async (id) => [id, await this.resolvePageTitle(id)] as const,
+        ),
+      ),
+    );
     for (const row of rows) {
       if (!row.cycleRelationId) continue;
-      if (!titleCache.has(row.cycleRelationId)) {
-        titleCache.set(
-          row.cycleRelationId,
-          await this.resolvePageTitle(row.cycleRelationId),
-        );
-      }
       row.cycleName = titleCache.get(row.cycleRelationId) ?? null;
     }
 

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 
@@ -25,7 +26,12 @@ export async function GET(_request: NextRequest) {
         { status: 503 },
       );
     }
-    if (authHeader !== `Bearer ${cronSecret}`) {
+    const expected = Buffer.from(`Bearer ${cronSecret}`);
+    const provided = Buffer.from(authHeader ?? "");
+    if (
+      provided.length !== expected.length ||
+      !timingSafeEqual(provided, expected)
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

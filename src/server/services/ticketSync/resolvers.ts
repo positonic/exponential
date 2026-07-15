@@ -17,10 +17,11 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-export async function resolveCycleIdByName(
+/** Case-insensitive lookup of an existing cycle by name — never creates. */
+export async function findCycleIdByName(
   db: PrismaClient,
-  params: { workspaceId: string; name: string; createdById: string },
-): Promise<{ cycleId: string; created: boolean }> {
+  params: { workspaceId: string; name: string },
+): Promise<string | null> {
   const existing = await db.list.findFirst({
     where: {
       workspaceId: params.workspaceId,
@@ -29,17 +30,32 @@ export async function resolveCycleIdByName(
     },
     select: { id: true },
   });
-  if (existing) return { cycleId: existing.id, created: false };
+  return existing?.id ?? null;
+}
+
+export async function resolveCycleIdByName(
+  db: PrismaClient,
+  params: { workspaceId: string; name: string; createdById: string },
+): Promise<{ cycleId: string; created: boolean }> {
+  const existing = await findCycleIdByName(db, params);
+  if (existing) return { cycleId: existing, created: false };
 
   const base = slugify(params.name) || "cycle";
   let slug = base;
   const MAX_SLUG_TRIES = 50;
-  for (let suffix = 2; suffix <= MAX_SLUG_TRIES; suffix++) {
+  // Every candidate (including the last) is verified before use; exhaustion
+  // throws instead of handing db.list.create a slug known to clash.
+  for (let suffix = 2; ; suffix++) {
     const clash = await db.list.findUnique({
       where: { workspaceId_slug: { workspaceId: params.workspaceId, slug } },
       select: { id: true },
     });
     if (!clash) break;
+    if (suffix > MAX_SLUG_TRIES) {
+      throw new Error(
+        `no free slug for cycle "${params.name}" after ${MAX_SLUG_TRIES} tries`,
+      );
+    }
     slug = `${base}-${suffix}`;
   }
 

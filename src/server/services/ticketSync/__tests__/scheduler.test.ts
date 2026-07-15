@@ -147,6 +147,34 @@ describe("runDueTicketSyncs", () => {
     });
   });
 
+  it("records an errored run when the engine fails before creating one", async () => {
+    runSync.mockRejectedValueOnce(new Error("config vanished"));
+
+    await runDueTicketSyncs(db, NOW, { adapterFactory: okAdapter, runSync });
+
+    expect(db.ticketSyncRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          configId: "cfg1",
+          trigger: "cron",
+          status: "error",
+          error: "config vanished",
+        }),
+      }),
+    );
+  });
+
+  it("does not duplicate a run record the engine already errored", async () => {
+    runSync.mockRejectedValueOnce(new Error("Notion is down"));
+    db.ticketSyncRun.findFirst
+      .mockResolvedValueOnce(null) // overlap check: nothing in flight
+      .mockResolvedValueOnce({ id: "run-engine" } as never); // engine's own record
+
+    await runDueTicketSyncs(db, NOW, { adapterFactory: okAdapter, runSync });
+
+    expect(db.ticketSyncRun.create).not.toHaveBeenCalled();
+  });
+
   it("keeps sweeping when one config's engine run throws", async () => {
     db.ticketSyncConfig.findMany.mockResolvedValue([
       CONFIG,
