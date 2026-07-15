@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Badge,
   Button,
+  Modal,
   Select,
   Switch,
   Text,
@@ -178,6 +179,28 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
     onError: (err) => setError(err.message),
   });
 
+  // First-sync gate (ADR-0042): on a never-pulled connection, "Sync now"
+  // first runs a dry run and shows its preview for explicit confirmation.
+  // UI-level only, deliberately not server-enforced — programmatic callers
+  // stay ungated; their safety net is Sync revert.
+  const [gatePreview, setGatePreview] = useState<SyncOutcomeView | null>(null);
+
+  const gateDryRun = api.product.ticketSync.syncNow.useMutation({
+    onSuccess: (result) => {
+      setError(null);
+      setGatePreview(result as SyncOutcomeView);
+    },
+    onError: (err) => setError(err.message),
+  });
+
+  const onSyncNow = (neverPulled: boolean) => {
+    if (neverPulled) {
+      gateDryRun.mutate({ productId, dryRun: true });
+    } else {
+      syncNow.mutate({ productId, dryRun: false });
+    }
+  };
+
   const onDisconnect = () => {
     modals.openConfirmModal({
       title: "Disconnect Notion sync",
@@ -252,9 +275,12 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
                 size="xs"
                 variant="light"
                 leftSection={<IconRefresh size={14} />}
-                onClick={() => syncNow.mutate({ productId, dryRun: false })}
-                loading={syncNow.isPending && syncNow.variables?.dryRun !== true}
-                disabled={syncNow.isPending || !config.enabled}
+                onClick={() => onSyncNow(!config.lastPulledAt)}
+                loading={
+                  gateDryRun.isPending ||
+                  (syncNow.isPending && syncNow.variables?.dryRun !== true)
+                }
+                disabled={syncNow.isPending || gateDryRun.isPending || !config.enabled}
               >
                 Sync now
               </Button>
@@ -274,6 +300,72 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
 
         {lastOutcome && <SyncOutcome outcome={lastOutcome} />}
 
+        {gatePreview && (
+          <Modal
+            opened
+            onClose={() => setGatePreview(null)}
+            title="First sync — check this is the right database"
+            size="lg"
+          >
+            <div className="space-y-4">
+              <Text size="sm" className="text-text-primary">
+                This connection has never pulled. Syncing{" "}
+                <b>{config.databaseName ?? "this Notion database"}</b> now would
+                create <b>{gatePreview.created}</b> ticket
+                {gatePreview.created === 1 ? "" : "s"} in this product
+                {gatePreview.updated > 0
+                  ? ` (and update ${gatePreview.updated})`
+                  : ""}
+                .
+              </Text>
+              {gatePreview.items.filter((i) => i.action === "created").length > 0 && (
+                <div>
+                  <Text size="xs" fw={600} className="text-text-secondary mb-1">
+                    Sample of what would be created
+                  </Text>
+                  <div className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-border-primary p-2">
+                    {gatePreview.items
+                      .filter((i) => i.action === "created")
+                      .slice(0, 10)
+                      .map((item, i) => (
+                        <Text
+                          key={`${item.externalId ?? i}-${i}`}
+                          size="xs"
+                          className="text-text-primary truncate"
+                        >
+                          {item.title}
+                        </Text>
+                      ))}
+                  </div>
+                </div>
+              )}
+              <Text size="xs" className="text-text-muted">
+                Wrong database? Cancel and re-link — nothing has been created
+                yet.
+              </Text>
+              <div className="flex justify-end gap-2">
+                <Button
+                  size="xs"
+                  variant="default"
+                  onClick={() => setGatePreview(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="xs"
+                  color="brand"
+                  loading={syncNow.isPending}
+                  onClick={() => {
+                    setGatePreview(null);
+                    syncNow.mutate({ productId, dryRun: false });
+                  }}
+                >
+                  Looks right — sync now
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )}
         <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-1">
           <div className="flex items-center justify-between border-b border-border-primary py-3.5 last:border-b-0">
             <div>
