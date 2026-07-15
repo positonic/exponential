@@ -52,7 +52,9 @@ import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { FeatureBodyDocument } from "~/app/_components/prd/FeatureBodyDocument";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
-import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import { useFeatureActivity } from "~/hooks/useFeatureActivity";
+import { ActivityFilterMenu, useActivityFilter } from "~/app/_components/shared/ActivityFilterMenu";
 import {
   FEATURE_STATUS_OPTIONS,
   FEATURE_STATUS_COLORS,
@@ -154,9 +156,12 @@ export default function FeatureDetailPage() {
 
   const invalidateFeature = async () => {
     await utils.product.feature.getById.invalidate({ id: featureId });
+    await utils.product.feature.listEvents.invalidate({ featureId });
     if (feature?.product.id) await utils.product.feature.list.invalidate({ productId: feature.product.id });
   };
 
+  const activity = useFeatureActivity(featureId);
+  const [activityFilter, setActivityFilter] = useActivityFilter();
   const updateFeature = api.product.feature.update.useMutation({
     onSuccess: invalidateFeature,
   });
@@ -692,8 +697,11 @@ export default function FeatureDetailPage() {
           )}
 
           {/* Activity - feature-level comments, ticket-detail pattern. */}
-          <CollapsibleSection title="Activity">
-            <FeatureActivitySection featureId={featureId} />
+          <CollapsibleSection
+            title="Activity"
+            action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+          >
+            <ActivityTimeline activity={activity} filter={activityFilter} />
           </CollapsibleSection>
         </Stack>
       </div>

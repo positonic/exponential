@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
+import { useEffect, useState } from "react";
 import {
   Avatar,
   Menu,
@@ -33,11 +32,9 @@ import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSec
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
-import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
-import { ActivityComposer } from "~/app/_components/shared/ActivityComposer";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
 import { ActivityFilterMenu, useActivityFilter } from "~/app/_components/shared/ActivityFilterMenu";
 import { useTicketActivity } from "~/hooks/useTicketActivity";
-import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 import { generateLinearId } from "~/lib/fun-ids";
 import {
   TICKET_STATUSES,
@@ -70,7 +67,6 @@ function ColorDot({ color }: { color: string }) {
  * ⋯ overflow - the CreateTicketModal pattern.
  */
 export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath: string }) {
-  const { data: session } = useSession();
   const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
@@ -188,20 +184,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
   const reveal = (key: string) =>
     setRevealed((prev) => new Set(prev).add(key));
 
-  const mentionCandidates: MentionCandidate[] = useMemo(
-    () =>
-      (workspace?.members ?? []).map(
-        (m: { user: { id: string; name: string | null; email: string | null; image: string | null } }) => ({
-          id: m.user.id,
-          name: m.user.name ?? m.user.email ?? "Unknown",
-          type: "member" as const,
-          image: m.user.image,
-        }),
-      ),
-    [workspace?.members],
-  );
-  const mentionNames = useMemo(() => mentionCandidates.map((c) => c.name), [mentionCandidates]);
-  const activity = useTicketActivity(ticketId, { mentionCandidates, mentionNames });
+  const activity = useTicketActivity(ticketId);
   const [activityFilter, setActivityFilter] = useActivityFilter();
 
   if (isLoading || !ticket) {
@@ -502,20 +485,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
           title="Activity"
           action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
         >
-          <ActivityFeed
-            items={activity.items}
-            filter={activityFilter}
-            currentUserId={session?.user?.id}
-            onDeleteComment={activity.deleteComment}
-            onEditComment={activity.editComment}
-            mentionNames={activity.mentionNames}
-            emptyMessage="No comments yet. Start the discussion!"
-          />
-          <ActivityComposer
-            onAddComment={activity.addComment}
-            commentPlaceholder="Leave a comment... Use @ to mention"
-            mentionCandidates={activity.mentionCandidates}
-          />
+          <ActivityTimeline activity={activity} filter={activityFilter} />
         </CollapsibleSection>
       </div>
     </Stack>

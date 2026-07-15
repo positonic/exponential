@@ -25,6 +25,8 @@ export type ActivityEntityType =
   | "action_comment"
   | "ticket"
   | "ticket_comment"
+  | "feature"
+  | "feature_scope"
   | "insight"
   | "insight_comment"
   | "project"

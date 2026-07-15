@@ -32,7 +32,9 @@ import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
-import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import { useFeatureActivity } from "~/hooks/useFeatureActivity";
+import { ActivityFilterMenu, useActivityFilter } from "~/app/_components/shared/ActivityFilterMenu";
 import { FeatureBodyDocument } from "~/app/_components/prd/FeatureBodyDocument";
 import {
   FEATURE_STATUSES,
@@ -73,6 +75,7 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
 
   const invalidate = async () => {
     await utils.product.feature.getById.invalidate({ id: featureId });
+    await utils.product.feature.listEvents.invalidate({ featureId });
     if (feature?.product.id) {
       await utils.product.feature.list.invalidate({ productId: feature.product.id });
     }
@@ -175,6 +178,8 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
     setField("status", val);
   };
 
+  const activity = useFeatureActivity(featureId);
+  const [activityFilter, setActivityFilter] = useActivityFilter();
   const [nameValue, setNameValue] = useState("");
   useEffect(() => {
     if (feature) setNameValue(feature.name);
@@ -467,8 +472,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
       </CollapsibleSection>
 
       {/* Activity */}
-      <CollapsibleSection title="Activity">
-        <FeatureActivitySection featureId={featureId} />
+      <CollapsibleSection
+        title="Activity"
+        action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+      >
+        <ActivityTimeline activity={activity} filter={activityFilter} />
       </CollapsibleSection>
     </Stack>
   );
