@@ -7,6 +7,7 @@ import {
   resolveOrCreateWorkspaceTags,
 } from "../notionTicketImport";
 import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
+import { REVERT_TOMBSTONE_KEY } from "./revert";
 import {
   findCycleIdByName,
   resolveAssigneeIdByEmail,
@@ -217,6 +218,15 @@ async function relationalPreviewWarnings(
     }
   }
   return warnings;
+}
+
+function hasRevertTombstone(snapshot: Prisma.JsonValue | null): boolean {
+  return (
+    !!snapshot &&
+    typeof snapshot === "object" &&
+    !Array.isArray(snapshot) &&
+    (snapshot as Record<string, unknown>)[REVERT_TOMBSTONE_KEY] === true
+  );
 }
 
 function extractNotionPageId(links: Prisma.JsonValue | null): string | null {
@@ -558,6 +568,22 @@ export async function runInboundTicketSync(
             title: fields.title,
             action: "created",
             reason: warnings.length > 0 ? warnings.join("; ") : undefined,
+          });
+          continue;
+        }
+
+        // A revert-tombstoned link is permanent: the survivor kept local
+        // work, so a revived connection must never overwrite it again
+        // (ADR-0042). Distinct from the archive-mirror tombstone below,
+        // which restores when the page leaves the Notion trash.
+        if (record.tombstonedAt && hasRevertTombstone(record.snapshot)) {
+          counts.skipped++;
+          items.push({
+            externalId: row.externalId,
+            ticketId: record.ticketId,
+            title: row.title,
+            action: "skipped",
+            reason: "link tombstoned by revert — no longer syncing",
           });
           continue;
         }
