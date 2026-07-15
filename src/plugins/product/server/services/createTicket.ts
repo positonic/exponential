@@ -44,6 +44,13 @@ export interface CreateTicketInput {
   cycleId?: string | null;
   scopeId?: string | null;
   assigneeId?: string | null;
+  /**
+   * Skip the per-ticket `created` activity event. Only the ticket sync engine
+   * passes this — a run posts ONE `synced` event instead of one per ticket
+   * (feed altitude, ADR-0042/ADR-0023). Every other creation path (UI, agents,
+   * webhooks) must leave it unset.
+   */
+  suppressActivity?: boolean;
 }
 
 /**
@@ -107,16 +114,18 @@ export async function createTicketWithNumber(
   });
 
   // Workspace activity feed instrumentation — non-fatal if it fails.
-  await recordActivity(db, {
-    workspaceId: input.workspaceId,
-    userId: input.createdById,
-    entityType: "ticket",
-    entityId: ticket.id,
-    action: "created",
-    metadata: { title: input.title },
-  }).catch(() => {
-    /* instrumentation failure is non-fatal */
-  });
+  if (!input.suppressActivity) {
+    await recordActivity(db, {
+      workspaceId: input.workspaceId,
+      userId: input.createdById,
+      entityType: "ticket",
+      entityId: ticket.id,
+      action: "created",
+      metadata: { title: input.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
 
   return ticket;
 }

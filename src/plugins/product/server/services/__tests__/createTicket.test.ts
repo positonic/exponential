@@ -140,6 +140,20 @@ describe("createTicketWithNumber", () => {
     );
   });
 
+  it("suppresses the activity event only when suppressActivity is set (sync engine path)", async () => {
+    primeDb({ ticketCounter: 9, funTicketIds: false });
+
+    const ticket = await createTicketWithNumber(
+      dbMock,
+      baseInput({ suppressActivity: true, createdById: "user-7" }),
+    );
+
+    // Feed altitude (ADR-0042): the sync run posts one `synced` event
+    // instead; authorship on the ticket itself is unchanged.
+    expect(recordActivity).not.toHaveBeenCalled();
+    expect(ticket.createdById).toBe("user-7");
+  });
+
   it("honors the supplied createdById, type, and status", async () => {
     primeDb({ ticketCounter: 5, funTicketIds: false });
 
