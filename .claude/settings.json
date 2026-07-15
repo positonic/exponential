@@ -1,4 +1,7 @@
 {
+  "env": {
+    "IMPECCABLE_CONTEXT_DIR": "design"
+  },
   "permissions": {
     "allow": [
       "Bash(exponential *)",
