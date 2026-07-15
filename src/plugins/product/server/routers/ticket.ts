@@ -150,6 +150,14 @@ export const ticketRouter = createTRPCRouter({
           tags: { include: { tag: true } },
           depsOut: { select: { dependsOn: { select: { status: true } } } },
           _count: { select: { actions: true, comments: true } },
+          syncs: {
+            select: {
+              provider: true,
+              externalUrl: true,
+              lastSyncedAt: true,
+              tombstonedAt: true,
+            },
+          },
         },
       });
 
@@ -214,6 +222,14 @@ export const ticketRouter = createTRPCRouter({
           depsIn: {
             orderBy: { createdAt: "asc" },
             select: { id: true, ticket: { select: DEP_TICKET_SELECT } },
+          },
+          syncs: {
+            select: {
+              provider: true,
+              externalUrl: true,
+              lastSyncedAt: true,
+              tombstonedAt: true,
+            },
           },
         },
       });
