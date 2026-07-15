@@ -6,6 +6,7 @@ import {
   resolveOrCreateWorkspaceTags,
 } from "../notionTicketImport";
 import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
+import { resolveAssigneeIdByEmail, resolveCycleIdByName } from "./resolvers";
 import {
   mergeSyncedFields,
   SYNCED_FIELD_KEYS,
@@ -35,6 +36,10 @@ export interface RemoteTicketRow {
   rawType: string | null;
   rawEffort: string | null;
   labels: string[];
+  /** Resolved title of the first page in the cycle relation, if any. */
+  cycleName: string | null;
+  /** Email of the first person in the assignee property, if visible. */
+  assigneeEmail: string | null;
   lastEditedAt: Date;
   /** True when the last edit was made by our own integration bot (echo). */
   lastEditedByBot: boolean;
@@ -77,11 +82,11 @@ export interface InboundSyncResult {
 }
 
 /**
- * Fields the inbound slice actively syncs. Cycle, assignee, and label
- * updates arrive in later slices — the engine neutralizes them (feeds the
- * merge identical values on both sides) so they can never produce writes.
+ * Fields that copy straight onto Ticket columns. Cycle and assignee are
+ * relational (name/email → id, via resolvers.ts); labels are still
+ * neutralized (label sync arrives with the push phase).
  */
-const ACTIVE_FIELDS: SyncedFieldKey[] = [
+const SCALAR_FIELDS: SyncedFieldKey[] = [
   "title",
   "status",
   "priority",
@@ -99,6 +104,8 @@ interface LoadedTicket {
   priority: number | null;
   points: number | null;
   updatedAt: Date;
+  cycle: { name: string } | null;
+  assignee: { email: string | null } | null;
 }
 
 function ticketToSyncedFields(ticket: LoadedTicket): SyncedFields {
@@ -109,15 +116,15 @@ function ticketToSyncedFields(ticket: LoadedTicket): SyncedFields {
     type: ticket.type,
     points: ticket.points,
     labels: [],
-    cycleName: null,
-    assigneeEmail: null,
+    cycleName: ticket.cycle?.name ?? null,
+    assigneeEmail: ticket.assignee?.email ?? null,
   };
 }
 
 function rowToSyncedFields(
   row: RemoteTicketRow,
   statusMap: StatusMap | null,
-  neutral: Pick<SyncedFields, "labels" | "cycleName" | "assigneeEmail">,
+  neutral: Pick<SyncedFields, "labels">,
 ): { fields: SyncedFields; warnings: string[] } {
   const warnings: string[] = [];
   const { status, warning } = mapStatus(row.rawStatus, statusMap);
@@ -129,6 +136,8 @@ function rowToSyncedFields(
       priority: mapPriority(row.rawPriority) ?? null,
       type: mapType(row.rawType),
       points: mapPoints(row.rawEffort) ?? null,
+      cycleName: row.cycleName,
+      assigneeEmail: row.assigneeEmail,
       ...neutral,
     },
     warnings,
@@ -304,8 +313,6 @@ export async function runInboundTicketSync(
           // ----------------------------------------------------------
           const { fields, warnings } = rowToSyncedFields(row, statusMap, {
             labels: row.labels,
-            cycleName: null,
-            assigneeEmail: null,
           });
 
           if (dryRun) {
@@ -325,6 +332,35 @@ export async function runInboundTicketSync(
             ? await adapter.getPageBody(row.externalId)
             : null;
 
+          let cycleId: string | null = null;
+          if (fields.cycleName) {
+            const resolved = await resolveCycleIdByName(db, {
+              workspaceId: config.product.workspaceId,
+              name: fields.cycleName,
+              createdById: config.createdById,
+            });
+            cycleId = resolved.cycleId;
+            if (resolved.created) {
+              warnings.push(`created cycle "${fields.cycleName}"`);
+            }
+          }
+
+          let assigneeId: string | null = null;
+          if (fields.assigneeEmail) {
+            assigneeId = await resolveAssigneeIdByEmail(db, {
+              workspaceId: config.product.workspaceId,
+              email: fields.assigneeEmail,
+            });
+            if (!assigneeId) {
+              warnings.push(
+                `no workspace member with email ${fields.assigneeEmail} — left unassigned`,
+              );
+              // Snapshot must reflect the actual local state so the remote
+              // assignee stays visible as a pending inbound change.
+              fields.assigneeEmail = null;
+            }
+          }
+
           const ticket = await createTicketWithNumber(db, {
             productId: config.productId,
             workspaceId: config.product.workspaceId,
@@ -335,6 +371,8 @@ export async function runInboundTicketSync(
             status: fields.status,
             priority: fields.priority,
             points: fields.points,
+            cycleId,
+            assigneeId,
             links: {
               ...(row.url ? { notion: row.url } : {}),
               notionPageId: row.externalId,
@@ -386,6 +424,8 @@ export async function runInboundTicketSync(
             priority: true,
             points: true,
             updatedAt: true,
+            cycle: { select: { name: true } },
+            assignee: { select: { email: true } },
           },
         });
         if (!ticket) {
@@ -403,8 +443,6 @@ export async function runInboundTicketSync(
         const local = ticketToSyncedFields(ticket);
         const { fields: remote, warnings } = rowToSyncedFields(row, statusMap, {
           labels: local.labels,
-          cycleName: local.cycleName,
-          assigneeEmail: local.assigneeEmail,
         });
 
         const merged = mergeSyncedFields({
@@ -415,13 +453,62 @@ export async function runInboundTicketSync(
           remoteEditedAt: row.lastEditedAt,
         });
 
+        // Scalar fields copy straight onto ticket columns …
         const localWrites = Object.fromEntries(
           Object.entries(merged.applyToLocal).filter(([key]) =>
-            (ACTIVE_FIELDS as string[]).includes(key),
+            (SCALAR_FIELDS as string[]).includes(key),
           ),
-        ) as Partial<Pick<SyncedFields, "title" | "status" | "priority" | "type" | "points">>;
+        ) as Partial<Pick<SyncedFields, "title" | "status" | "priority" | "type" | "points">> &
+          { cycleId?: string | null; assigneeId?: string | null };
 
-        const hasLocalWrites = Object.keys(localWrites).length > 0;
+        // … relational fields resolve to ids first. When a value can't be
+        // applied (unmatched assignee email), the write is dropped and the
+        // snapshot pinned to the LOCAL value: the remote change stays visible
+        // as pending inbound, and no phantom local change is invented that
+        // the push phase would echo back at Notion.
+        const snapshotOverrides: Partial<SyncedFields> = {};
+
+        if (!dryRun && "cycleName" in merged.applyToLocal) {
+          const name = merged.applyToLocal.cycleName ?? null;
+          if (name === null) {
+            localWrites.cycleId = null;
+          } else {
+            const resolved = await resolveCycleIdByName(db, {
+              workspaceId: config.product.workspaceId,
+              name,
+              createdById: config.createdById,
+            });
+            localWrites.cycleId = resolved.cycleId;
+            if (resolved.created) warnings.push(`created cycle "${name}"`);
+          }
+        }
+
+        if (!dryRun && "assigneeEmail" in merged.applyToLocal) {
+          const email = merged.applyToLocal.assigneeEmail ?? null;
+          if (email === null) {
+            localWrites.assigneeId = null;
+          } else {
+            const assigneeId = await resolveAssigneeIdByEmail(db, {
+              workspaceId: config.product.workspaceId,
+              email,
+            });
+            if (assigneeId) {
+              localWrites.assigneeId = assigneeId;
+            } else {
+              warnings.push(
+                `no workspace member with email ${email} — assignee left unchanged`,
+              );
+              snapshotOverrides.assigneeEmail = local.assigneeEmail;
+            }
+          }
+        }
+
+        const hasLocalWrites =
+          Object.keys(localWrites).length > 0 ||
+          (dryRun &&
+            Object.keys(merged.applyToLocal).some(
+              (k) => k === "cycleName" || k === "assigneeEmail",
+            ));
         const hasConflicts = merged.conflicts.length > 0;
 
         if (dryRun) {
@@ -434,7 +521,7 @@ export async function runInboundTicketSync(
               title: row.title,
               action: hasConflicts ? "conflict" : "updated",
               reason: [
-                `would set ${Object.keys(localWrites).join(", ") || "nothing"}`,
+                `would set ${Object.keys(merged.applyToLocal).join(", ") || "nothing"}`,
                 ...merged.conflicts.map(
                   (c) => `conflict on ${c.field}: ${c.winner} wins`,
                 ),
@@ -470,7 +557,10 @@ export async function runInboundTicketSync(
           db.ticketSync.update({
             where: { id: record.id },
             data: {
-              snapshot: buildInboundSnapshot(merged, remote) as unknown as Prisma.InputJsonValue,
+              snapshot: {
+                ...buildInboundSnapshot(merged, remote),
+                ...snapshotOverrides,
+              } as unknown as Prisma.InputJsonValue,
               externalUrl: row.url ?? undefined,
               lastSyncedAt: new Date(),
             },
@@ -503,7 +593,7 @@ export async function runInboundTicketSync(
             ticketId: ticket.id,
             title: row.title,
             action: "skipped",
-            reason: "in sync",
+            reason: warnings.length > 0 ? warnings.join("; ") : "in sync",
           });
         }
       } catch (error) {

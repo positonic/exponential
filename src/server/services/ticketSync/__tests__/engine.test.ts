@@ -64,6 +64,8 @@ function row(overrides: Partial<RemoteTicketRow> = {}): RemoteTicketRow {
     rawType: "Bug",
     rawEffort: "L (5pts)",
     labels: [],
+    cycleName: null,
+    assigneeEmail: null,
     lastEditedAt: new Date("2026-07-10T10:00:00Z"),
     lastEditedByBot: false,
     archived: false,
@@ -107,6 +109,8 @@ const LINKED_TICKET = {
   priority: 1,
   points: 5,
   updatedAt: new Date("2026-07-09T10:00:00Z"),
+  cycle: null,
+  assignee: null,
 };
 
 beforeEach(() => {
@@ -126,6 +130,10 @@ beforeEach(() => {
   createTicketMock.mockResolvedValue({ id: "new-ticket" });
   resolveTagsMock.mockResolvedValue(["tag1"]);
   attachTagsMock.mockResolvedValue(undefined);
+  db.list.findFirst.mockResolvedValue(null);
+  db.list.findUnique.mockResolvedValue(null);
+  db.list.create.mockResolvedValue({ id: "list1" } as never);
+  db.workspaceUser.findFirst.mockResolvedValue(null);
 });
 
 describe("runInboundTicketSync — creation", () => {
@@ -309,6 +317,144 @@ describe("runInboundTicketSync — updates and idempotency", () => {
     });
     expect(result.conflicts).toBe(1);
     expect(result.items.some((i) => i.action === "conflict")).toBe(true);
+  });
+});
+
+describe("runInboundTicketSync — cycles and assignees", () => {
+  function linkRecord(snapshot: SyncedFields | null) {
+    db.ticketSync.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        ticketId: "t1",
+        externalId: "page-1",
+        snapshot,
+        tombstonedAt: null,
+      },
+    ] as never);
+  }
+
+  it("auto-creates a missing cycle by name and assigns the ticket", async () => {
+    linkRecord(snapshotFor());
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ cycleName: "Cycle 12" })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(db.list.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: "Cycle 12",
+          listType: "SPRINT",
+          workspaceId: "ws1",
+        }),
+      }),
+    );
+    expect(db.ticket.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ cycleId: "list1" }) }),
+    );
+    expect(result.items[0]!.reason).toContain('created cycle "Cycle 12"');
+  });
+
+  it("reuses an existing cycle (case-insensitive) instead of creating one", async () => {
+    linkRecord(snapshotFor());
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+    db.list.findFirst.mockResolvedValue({ id: "existing-cycle" } as never);
+
+    await runInboundTicketSync(db, fakeAdapter([row({ cycleName: "cycle 12" })]), {
+      configId: "cfg1",
+      trigger: "manual",
+    });
+
+    expect(db.list.create).not.toHaveBeenCalled();
+    expect(db.ticket.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ cycleId: "existing-cycle" }),
+      }),
+    );
+  });
+
+  it("clears the ticket's cycle when the Notion relation is cleared", async () => {
+    linkRecord(snapshotFor({ cycleName: "Cycle 11" }));
+    db.ticket.findUnique.mockResolvedValue({
+      ...LINKED_TICKET,
+      cycle: { name: "Cycle 11" },
+    } as never);
+
+    await runInboundTicketSync(db, fakeAdapter([row({ cycleName: null })]), {
+      configId: "cfg1",
+      trigger: "manual",
+    });
+
+    expect(db.ticket.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ cycleId: null }) }),
+    );
+  });
+
+  it("assigns by email when the person matches a workspace member", async () => {
+    linkRecord(snapshotFor());
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+    db.workspaceUser.findFirst.mockResolvedValue({ userId: "u2" } as never);
+
+    await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ assigneeEmail: "dev2@example.com" })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(db.ticket.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ assigneeId: "u2" }) }),
+    );
+  });
+
+  it("warns and leaves the assignee untouched when the email has no member", async () => {
+    linkRecord(snapshotFor());
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ assigneeEmail: "stranger@example.com" })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    const updateCalls = db.ticket.update.mock.calls;
+    for (const call of updateCalls) {
+      expect(call[0].data).not.toHaveProperty("assigneeId");
+    }
+    expect(
+      result.items[0]!.reason?.includes("no workspace member"),
+    ).toBe(true);
+    // Snapshot pins the LOCAL value so no phantom local change is invented.
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({ assigneeEmail: null }),
+        }),
+      }),
+    );
+  });
+
+  it("does not clobber a locally-changed cycle with an unchanged Notion value", async () => {
+    linkRecord(snapshotFor({ cycleName: "Cycle 11" }));
+    // Local moved the ticket to Cycle 12; Notion still says Cycle 11.
+    db.ticket.findUnique.mockResolvedValue({
+      ...LINKED_TICKET,
+      cycle: { name: "Cycle 12" },
+    } as never);
+
+    await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ cycleName: "Cycle 11" })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(db.list.create).not.toHaveBeenCalled();
+    const updateCalls = db.ticket.update.mock.calls;
+    for (const call of updateCalls) {
+      expect(call[0].data).not.toHaveProperty("cycleId");
+    }
   });
 });
 
