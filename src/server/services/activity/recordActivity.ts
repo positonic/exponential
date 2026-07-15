@@ -13,7 +13,8 @@ export type ActivityAction =
   | "completed"
   | "commented"
   | "summarized"
-  | "synced";
+  | "synced"
+  | "reverted";
 
 /**
  * Entity types we currently log activity for. New writers append new values

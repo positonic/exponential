@@ -808,3 +808,29 @@ describe("runInboundTicketSync — feed altitude (one event per run)", () => {
     );
   });
 });
+
+describe("runInboundTicketSync — revert-tombstoned links (ADR-0042)", () => {
+  it("skips a revert-tombstoned link instead of restoring it", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        ticketId: "t1",
+        externalId: "page-1",
+        snapshot: { title: "Imported row", revertTombstoned: true },
+        tombstonedAt: new Date("2026-07-15T10:00:00Z"),
+      },
+    ] as never);
+
+    const result = await runInboundTicketSync(db, fakeAdapter([row()]), {
+      configId: "cfg1",
+      trigger: "manual",
+    });
+
+    expect(result.skipped).toBe(1);
+    expect(db.ticket.update).not.toHaveBeenCalled();
+    expect(createTicketMock).not.toHaveBeenCalled();
+    const item = result.items.find((i) => i.externalId === "page-1");
+    expect(item?.action).toBe("skipped");
+    expect(item?.reason).toContain("tombstoned by revert");
+  });
+});
