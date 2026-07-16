@@ -565,16 +565,36 @@ export const featureRouter = createTRPCRouter({
       // comment marks don't survive the rewrite - the Markdown projection
       // never carried them - which is the same trade-off as a full-body
       // rewrite in the editor.
-      const data =
-        descriptionDoc === undefined && rest.description !== undefined
-          ? {
-              ...rest,
-              descriptionDoc: markdownToDocServer(
-                rest.description,
-              ) as Prisma.InputJsonValue,
-              docVersion: { increment: 1 },
-            }
-          : rest;
+      let syncDoc = descriptionDoc === undefined && rest.description !== undefined;
+      if (syncDoc) {
+        // Re-sending the stored Markdown unchanged (agents retry-write a lot)
+        // must not rewrite the doc: it would bump `docVersion` for nothing
+        // and hand every open editor tab a spurious CONFLICT.
+        const current = await ctx.db.feature.findUnique({
+          where: { id },
+          select: { description: true },
+        });
+        if (current?.description === rest.description) syncDoc = false;
+      }
+      let data: Prisma.FeatureUncheckedUpdateInput = rest;
+      if (syncDoc) {
+        try {
+          data = {
+            ...rest,
+            descriptionDoc: markdownToDocServer(
+              rest.description,
+            ) as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          };
+        } catch (err) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message:
+              "Failed to derive the PRD document from the Markdown description",
+            cause: err,
+          });
+        }
+      }
 
       // Deprecation cascade: only LIVE scopes become DEPRECATED (deprecated =
       // was live, sunset - a PLANNED scope was never live, so it keeps its

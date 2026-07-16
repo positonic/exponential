@@ -99,7 +99,6 @@ vi.mock("~/lib/blob", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
-import { markdownToDoc } from "~/lib/prd/codec";
 
 const callerId = "user-1";
 const workspaceId = "ws-1";
@@ -153,8 +152,44 @@ describe("feature.update — Markdown-only description sync (mocked)", () => {
 
     const data = updateData(dbMock);
     expect(data?.description).toBe(markdown);
-    expect(data?.descriptionDoc).toEqual(markdownToDoc(markdown));
     expect(data?.docVersion).toEqual({ increment: 1 });
+    // Structural assertion (not a comparison against the codec itself, which
+    // would be tautological): the Markdown became a real ProseMirror doc.
+    const doc = data?.descriptionDoc as {
+      type: string;
+      content: Array<{ type: string }>;
+    };
+    expect(doc.type).toBe("doc");
+    expect(doc.content.map((n) => n.type)).toEqual(["heading", "taskList"]);
+  });
+
+  it("skips the doc rewrite when the incoming Markdown is unchanged", async () => {
+    // An agent re-sending the stored description must not bump docVersion —
+    // that would hand every open editor tab a spurious CONFLICT.
+    const markdown = "# Same body";
+    dbMock.feature.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        id: featureId,
+        productId: "prod-1",
+        product: { workspaceId },
+        description: markdown,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    );
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.feature.update({
+      id: featureId,
+      description: markdown,
+      priority: 1,
+    });
+
+    const data = updateData(dbMock);
+    expect(data?.description).toBe(markdown);
+    expect(data?.priority).toBe(1);
+    expect(data).not.toHaveProperty("descriptionDoc");
+    expect(data).not.toHaveProperty("docVersion");
   });
 
   it("leaves the doc alone when description is not part of the update", async () => {

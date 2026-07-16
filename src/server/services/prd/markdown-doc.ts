@@ -60,7 +60,18 @@ function withDom<T>(fn: () => T): T {
   const saved = new Map<string, PropertyDescriptor | undefined>();
   for (const key of DOM_GLOBALS) {
     const desc = Object.getOwnPropertyDescriptor(globalThis, key);
-    if (desc && !desc.configurable) continue; // can't swap; leave it be
+    if (desc && !desc.configurable) {
+      // `window`/`document` are what the codec actually renders through — if
+      // they exist and can't be swapped, the conversion would silently use
+      // the wrong DOM. Fail loudly instead. The rest of the list is
+      // quirk-detection surface where the ambient value is tolerable.
+      if (key === "window" || key === "document") {
+        throw new Error(
+          `Cannot install temporary DOM: globalThis.${key} exists and is non-configurable`,
+        );
+      }
+      continue;
+    }
     saved.set(key, desc);
     Object.defineProperty(globalThis, key, {
       value:
@@ -73,13 +84,29 @@ function withDom<T>(fn: () => T): T {
     });
   }
   try {
-    return fn();
-  } finally {
-    for (const [key, desc] of saved) {
-      if (desc) Object.defineProperty(globalThis, key, desc);
-      else delete (globalThis as Record<string, unknown>)[key];
+    const result = fn();
+    // The no-concurrent-observer guarantee holds only while the callback is
+    // synchronous. A thenable here means async work started with the
+    // temporary globals installed — refuse it loudly so the hazard is caught
+    // in tests, not production.
+    if (
+      result != null &&
+      typeof (result as { then?: unknown }).then === "function"
+    ) {
+      throw new Error(
+        "withDom callback must be synchronous - an async callback would leak DOM globals to concurrent requests",
+      );
     }
-    void win.happyDOM.close();
+    return result;
+  } finally {
+    try {
+      for (const [key, desc] of saved) {
+        if (desc) Object.defineProperty(globalThis, key, desc);
+        else delete (globalThis as Record<string, unknown>)[key];
+      }
+    } finally {
+      void win.happyDOM.close();
+    }
   }
 }
 
