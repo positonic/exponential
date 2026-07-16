@@ -277,20 +277,23 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             ))}
           </PropertyPill>
 
-          <PropertyPill
-            tooltip="Effort"
-            ghost={feature.effort == null}
-            icon={<IconFlame size={13} />}
-            label={feature.effort == null ? "Effort" : String(feature.effort)}
-          >
-            {EFFORT_OPTIONS.map((n) => (
-              <Menu.Item key={n} onClick={() => setField("effort", n)}>
-                {n}
-              </Menu.Item>
-            ))}
-            <Menu.Divider />
-            <Menu.Item onClick={() => setField("effort", null)}>Clear</Menu.Item>
-          </PropertyPill>
+          {/* Effort rides in the ⋯ overflow until set (see TicketPeek). */}
+          {(feature.effort != null || revealed.has("effort")) && (
+            <PropertyPill
+              tooltip="Effort"
+              ghost={feature.effort == null}
+              icon={<IconFlame size={13} />}
+              label={feature.effort == null ? "Effort" : String(feature.effort)}
+            >
+              {EFFORT_OPTIONS.map((n) => (
+                <Menu.Item key={n} onClick={() => setField("effort", n)}>
+                  {n}
+                </Menu.Item>
+              ))}
+              <Menu.Divider />
+              <Menu.Item onClick={() => setField("effort", null)}>Clear</Menu.Item>
+            </PropertyPill>
+          )}
 
           {(!!feature.area || revealed.has("area")) && (
             <PropertyPill
@@ -357,8 +360,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             </Popover>
           )}
 
-          {/* ⋯ overflow: reveal unset relations */}
+          {/* ⋯ overflow: reveal unset properties */}
           <PropertyPill tooltip="More" ghost icon={<IconDots size={13} />} label="">
+            {feature.effort == null && !revealed.has("effort") && (
+              <Menu.Item leftSection={<IconFlame size={13} />} onClick={() => reveal("effort")}>Effort</Menu.Item>
+            )}
             {!feature.area && !revealed.has("area") && (
               <Menu.Item leftSection={<IconMap2 size={13} />} onClick={() => reveal("area")}>Area</Menu.Item>
             )}
@@ -368,7 +374,8 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             {(feature.tags?.length ?? 0) === 0 && !revealed.has("labels") && (
               <Menu.Item leftSection={<IconTag size={13} />} onClick={() => reveal("labels")}>Labels</Menu.Item>
             )}
-            {(!!feature.area || revealed.has("area")) &&
+            {(feature.effort != null || revealed.has("effort")) &&
+              (!!feature.area || revealed.has("area")) &&
               (!!feature.goal || revealed.has("goal")) &&
               ((feature.tags?.length ?? 0) > 0 || revealed.has("labels")) && (
                 <Menu.Item disabled>Nothing more to add</Menu.Item>

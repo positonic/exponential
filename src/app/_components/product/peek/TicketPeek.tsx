@@ -208,6 +208,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
   const members = workspace?.members ?? [];
   const hasLinks = !!(ticket.branchName ?? ticket.prUrl ?? ticket.designUrl ?? ticket.specUrl);
 
+  const showEffort = ticket.points != null || revealed.has("effort");
   const showFeature = !!ticket.feature || revealed.has("feature");
   const showEpic = !!ticket.epic || revealed.has("epic");
   const showCycle = !!ticket.cycle || revealed.has("cycle");
@@ -320,20 +321,25 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             <Menu.Item onClick={() => setField("assigneeId", null)}>Unassigned</Menu.Item>
           </PropertyPill>
 
-          <PropertyPill
-            tooltip="Effort"
-            ghost={ticket.points == null}
-            icon={<IconFlame size={13} />}
-            label={ticket.points == null ? "Effort" : `${ticket.points} pts`}
-          >
-            {EFFORT_OPTIONS.map((n) => (
-              <Menu.Item key={n} onClick={() => setField("points", n)}>
-                {n}
-              </Menu.Item>
-            ))}
-            <Menu.Divider />
-            <Menu.Item onClick={() => setField("points", null)}>Clear</Menu.Item>
-          </PropertyPill>
+          {/* Effort rides in the ⋯ overflow until set - it's the least
+              scanned workflow property and the strip stays one line longer
+              without it. */}
+          {showEffort && (
+            <PropertyPill
+              tooltip="Effort"
+              ghost={ticket.points == null}
+              icon={<IconFlame size={13} />}
+              label={ticket.points == null ? "Effort" : `${ticket.points} pts`}
+            >
+              {EFFORT_OPTIONS.map((n) => (
+                <Menu.Item key={n} onClick={() => setField("points", n)}>
+                  {n}
+                </Menu.Item>
+              ))}
+              <Menu.Divider />
+              <Menu.Item onClick={() => setField("points", null)}>Clear</Menu.Item>
+            </PropertyPill>
+          )}
 
           {showFeature && (
             <PropertyPill
@@ -417,13 +423,14 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             </Popover>
           )}
 
-          {/* ⋯ overflow: reveal unset relations + engineering links */}
+          {/* ⋯ overflow: reveal unset properties + engineering links */}
           <PropertyPill tooltip="More" ghost icon={<IconDots size={13} />} label="">
+            {!showEffort && <Menu.Item leftSection={<IconFlame size={13} />} onClick={() => reveal("effort")}>Effort</Menu.Item>}
             {!showFeature && <Menu.Item leftSection={<IconFolder size={13} />} onClick={() => reveal("feature")}>Feature</Menu.Item>}
             {!showEpic && <Menu.Item leftSection={<IconTargetArrow size={13} />} onClick={() => reveal("epic")}>Epic</Menu.Item>}
             {!showCycle && <Menu.Item leftSection={<IconRepeat size={13} />} onClick={() => reveal("cycle")}>Cycle</Menu.Item>}
             {!showLabels && <Menu.Item leftSection={<IconTag size={13} />} onClick={() => reveal("labels")}>Labels</Menu.Item>}
-            {hasLinks && (!showFeature || !showEpic || !showCycle || !showLabels) && <Menu.Divider />}
+            {hasLinks && (!showEffort || !showFeature || !showEpic || !showCycle || !showLabels) && <Menu.Divider />}
             {ticket.branchName && (
               <Menu.Item leftSection={<IconGitBranch size={13} />} onClick={() => void navigator.clipboard.writeText(ticket.branchName ?? "")}>
                 Copy branch: {ticket.branchName}
@@ -444,7 +451,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
                 Open spec
               </Menu.Item>
             )}
-            {!hasLinks && showFeature && showEpic && showCycle && showLabels && (
+            {!hasLinks && showEffort && showFeature && showEpic && showCycle && showLabels && (
               <Menu.Item disabled>Nothing more to add</Menu.Item>
             )}
           </PropertyPill>

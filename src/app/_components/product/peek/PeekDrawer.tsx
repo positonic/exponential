@@ -15,9 +15,11 @@ import {
 // the 600-700px band Linear-school side panels sit in) and puts the 14px
 // prose column near its 65-75ch reading measure; 760 was inherited from
 // EditContactDrawer, not derived from content. WIDE is the escape hatch
-// for rich PRD bodies and tables.
-const NARROW = 680;
-const WIDE = 1000;
+// for rich PRD bodies and tables. Fixed px on purpose (content constraints
+// are in ch/px, and CSS px are DPI-independent); the 90vw cap only guards
+// small windows, where Mantine's own clamp kicks in too late (100%).
+const NARROW = "min(680px, 90vw)";
+const WIDE = "min(1000px, 90vw)";
 const WIDE_PREF_KEY = "peek-drawer-wide";
 
 /**
