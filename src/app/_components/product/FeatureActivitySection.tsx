@@ -1,9 +1,12 @@
 "use client";
 
+import { useMemo } from "react";
 import { ActionIcon, Avatar, Group, Stack, Text } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
 import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
 
@@ -22,11 +25,72 @@ interface FeatureActivitySectionProps {
  */
 export function FeatureActivitySection({ featureId, scopeId }: FeatureActivitySectionProps) {
   const { data: session } = useSession();
+  const { workspace } = useWorkspace();
   const utils = api.useUtils();
 
   const { data: comments } = api.product.featureComment.list.useQuery(
     { featureId },
     { enabled: !!featureId },
+  );
+
+  // Fetch agents + linked-team members for @mention autocomplete (mirrors the
+  // Action comment path). Agents are taggable badges only; notifications go to
+  // human workspace members.
+  const { data: mastraAgents } = api.mastra.getMastraAgents.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: teamsForLinking } = api.workspace.getUserTeamsForLinking.useQuery(
+    { workspaceId: workspace?.id ?? "" },
+    { enabled: !!workspace?.id },
+  );
+
+  // Build mention candidates from workspace members + linked team members + agents.
+  const mentionCandidates: MentionCandidate[] = useMemo(() => {
+    const seenIds = new Set<string>();
+    const members: MentionCandidate[] = [];
+
+    for (const m of workspace?.members ?? []) {
+      if (!seenIds.has(m.user.id)) {
+        seenIds.add(m.user.id);
+        members.push({
+          id: m.user.id,
+          name: m.user.name ?? m.user.email ?? "Unknown",
+          type: "member" as const,
+          image: m.user.image,
+        });
+      }
+    }
+
+    const linkedTeams = (teamsForLinking ?? []).filter(
+      (t) => t.isLinkedToThisWorkspace,
+    );
+    for (const team of linkedTeams) {
+      for (const tm of team.members) {
+        if (!seenIds.has(tm.user.id)) {
+          seenIds.add(tm.user.id);
+          members.push({
+            id: tm.user.id,
+            name: tm.user.name ?? tm.user.email ?? "Unknown",
+            type: "member" as const,
+            image: tm.user.image,
+          });
+        }
+      }
+    }
+
+    const agents: MentionCandidate[] = (mastraAgents ?? []).map((a) => ({
+      id: a.id,
+      name: a.name,
+      type: "agent" as const,
+      image: null,
+    }));
+
+    return [...members, ...agents];
+  }, [workspace?.members, teamsForLinking, mastraAgents]);
+
+  const mentionNames = useMemo(
+    () => mentionCandidates.map((c) => c.name),
+    [mentionCandidates],
   );
 
   const invalidate = () => {
@@ -67,7 +131,7 @@ export function FeatureActivitySection({ featureId, scopeId }: FeatureActivitySe
                     </Text>
                   </Group>
                   <div className="ml-6">
-                    <MarkdownRenderer content={c.body} />
+                    <MarkdownRenderer content={c.body} mentionNames={mentionNames} />
                   </div>
                 </div>
                 {c.createdBy.id === session?.user?.id && (
@@ -89,6 +153,7 @@ export function FeatureActivitySection({ featureId, scopeId }: FeatureActivitySe
       <CommentInput
         placeholder="Leave a comment..."
         isSubmitting={addComment.isPending}
+        mentionCandidates={mentionCandidates}
         onSubmit={async (content) => {
           await addComment.mutateAsync({ featureId, scopeId, body: content });
         }}
