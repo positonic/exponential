@@ -38,11 +38,11 @@ import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 import { PRIORITY_OPTIONS } from "~/types/action";
 import { ActivityComposer } from "~/app/_components/shared/ActivityComposer";
 import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 import { useActionActivity } from "~/hooks/useActionActivity";
+import { useWorkspaceMentionCandidates } from "~/hooks/useWorkspaceMentionCandidates";
 import { AssignActionModal } from "./AssignActionModal";
 import { DeadlinePicker } from "./DeadlinePicker";
 import { UnifiedDatePicker } from "./UnifiedDatePicker";
@@ -94,17 +94,6 @@ export function ActionDetailContent({
   const { data: projects } = api.project.getAll.useQuery(
     { workspaceId: workspace?.id },
     { enabled: !!workspace },
-  );
-
-  // Fetch agents for @mention autocomplete
-  const { data: mastraAgents } = api.mastra.getMastraAgents.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Fetch teams linked to this workspace (for @mention of team members)
-  const { data: teamsForLinking } = api.workspace.getUserTeamsForLinking.useQuery(
-    { workspaceId: workspace?.id ?? "" },
-    { enabled: !!workspace?.id },
   );
 
   // Local state for inline editing
@@ -213,49 +202,8 @@ export function ActionDetailContent({
     [actionId, setTagsMutation],
   );
 
-  // Build mention candidates from workspace members + linked team members + agents
-  const mentionCandidates: MentionCandidate[] = useMemo(() => {
-    const seenIds = new Set<string>();
-    const members: MentionCandidate[] = [];
-
-    // Direct workspace members
-    for (const m of workspace?.members ?? []) {
-      if (!seenIds.has(m.user.id)) {
-        seenIds.add(m.user.id);
-        members.push({
-          id: m.user.id,
-          name: m.user.name ?? m.user.email ?? "Unknown",
-          type: "member" as const,
-          image: m.user.image,
-        });
-      }
-    }
-
-    // Members from teams linked to this workspace
-    const linkedTeams = (teamsForLinking ?? []).filter((t) => t.isLinkedToThisWorkspace);
-    for (const team of linkedTeams) {
-      for (const tm of team.members) {
-        if (!seenIds.has(tm.user.id)) {
-          seenIds.add(tm.user.id);
-          members.push({
-            id: tm.user.id,
-            name: tm.user.name ?? tm.user.email ?? "Unknown",
-            type: "member" as const,
-            image: tm.user.image,
-          });
-        }
-      }
-    }
-
-    const agents: MentionCandidate[] = (mastraAgents ?? []).map((a) => ({
-      id: a.id,
-      name: a.name,
-      type: "agent" as const,
-      image: null,
-    }));
-
-    return [...members, ...agents];
-  }, [workspace?.members, teamsForLinking, mastraAgents]);
+  // Mention candidates: workspace members + linked team members + agents
+  const mentionCandidates = useWorkspaceMentionCandidates();
 
   const mentionNames = useMemo(
     () => mentionCandidates.map((c) => c.name),
