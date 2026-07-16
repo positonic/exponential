@@ -25,4 +25,5 @@ This is a **scoped exception** to ADR-0017, not a reversal. ADR-0017 remains the
 
 - A second sanctioned storage format exists for a deliberately narrow set of entities. New use of it must clear the same bar (real need for node addressing), and must keep the Markdown projection so the read side stays ADR-0017-compatible.
 - The projection is lossy on round-trip (comment marks drop) — accepted, because the JSON is canonical and the Markdown is only a projection.
+- Markdown-only API writes (CLI/SDK/agents updating the Markdown without a doc) must not diverge from the canonical doc. Two sanctioned resolutions exist: `feature.update` re-derives `descriptionDoc` from the incoming Markdown server-side (`~/server/services/prd/markdown-doc` — the client codec run under a scoped happy-dom), while `page.update` nulls out `bodyDoc` and lets the editor re-derive it lazily on next open. Both bump `docVersion` so a stale open editor conflicts instead of clobbering. Anchored comment marks don't survive such a rewrite — same trade-off as a full-body rewrite in the editor.
 - Extended to **Pages** by [ADR-0033](0033-knowledge-pages.md), which reuses this exact pattern.

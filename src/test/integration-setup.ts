@@ -13,6 +13,10 @@ process.env.MASTRA_API_URL = "http://localhost:4111";
 // (e.g. CRM contacts). Read at import time by src/server/utils/encryption.ts.
 process.env.DATABASE_ENCRYPTION_KEY = "MMeRcJFimqp98NsQ5i2cawtF4LbcftnfiCNJWLhO/YQ=";
 
+// `server-only` throws outside a React Server environment; stub it so tests
+// can import server modules (e.g. the feature router's Markdown->doc codec).
+vi.mock("server-only", () => ({}));
+
 // Mock next-auth and related modules that depend on Next.js runtime
 vi.mock("next-auth", () => ({
   default: () => ({

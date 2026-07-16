@@ -5,6 +5,7 @@ import { loadProductWithAccess, assertWorkspaceMember } from "./product";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { uploadToBlob } from "~/lib/blob";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { hasMinimumWorkspaceRole } from "~/server/services/access";
@@ -555,6 +556,26 @@ export const featureRouter = createTRPCRouter({
 
       const { id, descriptionDoc, baseVersion, deprecateScopes, ...rest } = input;
 
+      // Markdown-only description write (CLI/SDK/agents): the caller has no
+      // editor, so derive the canonical `descriptionDoc` from the Markdown
+      // server-side (ADR-0024 - the doc is canonical; leaving it stale would
+      // make the edit invisible in the UI and get clobbered on the next
+      // editor save). Bumping `docVersion` turns any open editor tab's next
+      // autosave into a CONFLICT instead of a silent overwrite. Anchored
+      // comment marks don't survive the rewrite - the Markdown projection
+      // never carried them - which is the same trade-off as a full-body
+      // rewrite in the editor.
+      const data =
+        descriptionDoc === undefined && rest.description !== undefined
+          ? {
+              ...rest,
+              descriptionDoc: markdownToDocServer(
+                rest.description,
+              ) as Prisma.InputJsonValue,
+              docVersion: { increment: 1 },
+            }
+          : rest;
+
       // Deprecation cascade: only LIVE scopes become DEPRECATED (deprecated =
       // was live, sunset - a PLANNED scope was never live, so it keeps its
       // status). Runs in one transaction with the feature update below so a
@@ -565,7 +586,7 @@ export const featureRouter = createTRPCRouter({
             where: { featureId: id, status: "SHIPPED" },
             data: { status: "DEPRECATED" },
           }),
-          ctx.db.feature.update({ where: { id }, data: rest }),
+          ctx.db.feature.update({ where: { id }, data }),
         ]);
         return updated;
       }
@@ -617,7 +638,7 @@ export const featureRouter = createTRPCRouter({
 
       const updated = await ctx.db.feature.update({
         where: { id },
-        data: rest,
+        data,
       });
       return updated;
     }),

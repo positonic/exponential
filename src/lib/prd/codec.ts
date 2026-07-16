@@ -11,13 +11,17 @@ import { PRD_EXTENSIONS } from "./extensions";
  *    off-island readers (CLI, agents/SDK, card previews).
  *
  * The invariant: Markdown is written *from* the JSON, one way only, and never
- * read back into the editor. The single exception is the lazy, one-time
- * migration of a legacy `description` into `descriptionDoc` the first time a
- * feature is opened ({@link markdownToDoc}); thereafter the JSON is canonical.
+ * read back into the editor. The exceptions are the lazy, one-time migration
+ * of a legacy `description` into `descriptionDoc` the first time a feature is
+ * opened ({@link markdownToDoc}), and Markdown-only API writes (CLI/SDK),
+ * where the server re-derives the doc from the incoming Markdown; thereafter
+ * the JSON is canonical.
  *
  * Both functions spin up a throwaway headless Tiptap editor. That requires a
  * DOM, so they run in the browser and in unit tests (happy-dom) — never during
- * SSR. Callers must invoke them client-side (e.g. inside an effect).
+ * SSR. Client callers must invoke them client-side (e.g. inside an effect);
+ * server code goes through `~/server/services/prd/markdown-doc`, which runs
+ * this same codec under a scoped happy-dom.
  */
 
 /** Canonical empty document. */
