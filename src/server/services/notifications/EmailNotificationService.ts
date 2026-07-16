@@ -362,13 +362,23 @@ async function fanOutMentionNotifications(
   const recipientIds = mentionedUserIds.filter((id) => id !== commentAuthorId);
   if (recipientIds.length === 0) return;
 
+  // Mention markup is client-supplied: only notify users who actually belong
+  // to this workspace, directly or via a team linked to it. Anyone else a
+  // crafted @[Name](id) names is silently dropped — never leak comment
+  // content outside the workspace.
   const [author, recipients] = await Promise.all([
     db.user.findUnique({
       where: { id: commentAuthorId },
       select: { name: true, email: true },
     }),
     db.user.findMany({
-      where: { id: { in: recipientIds } },
+      where: {
+        id: { in: recipientIds },
+        OR: [
+          { workspaceMemberships: { some: { workspaceId } } },
+          { teams: { some: { team: { workspaceId } } } },
+        ],
+      },
       select: { id: true, name: true, email: true },
     }),
   ]);
