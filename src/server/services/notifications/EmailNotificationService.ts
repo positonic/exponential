@@ -338,6 +338,10 @@ async function fanOutMentionNotifications(
     viewLabel: string;
     commentContent: string;
     commentAuthorId: string;
+    /** The comment's pre-edit body. Users already mentioned in it are skipped,
+     * so editing a comment only notifies newly added mentions — never re-spams
+     * everyone on each edit. */
+    previousContent?: string;
   },
 ): Promise<void> {
   const {
@@ -349,6 +353,7 @@ async function fanOutMentionNotifications(
     viewLabel,
     commentContent,
     commentAuthorId,
+    previousContent,
   } = params;
 
   const mentionedUserIds = await extractMentionedUserIds(
@@ -358,9 +363,16 @@ async function fanOutMentionNotifications(
   );
   if (mentionedUserIds.length === 0) return;
 
-  // Filter out the comment author (don't notify yourself). Non-member ids
-  // (e.g. mentioned agents) never match a User row below, so they drop out.
-  const recipientIds = mentionedUserIds.filter((id) => id !== commentAuthorId);
+  const previouslyMentioned = previousContent
+    ? new Set(await extractMentionedUserIds(db, previousContent, workspaceId))
+    : null;
+
+  // Filter out the comment author (don't notify yourself) and anyone already
+  // mentioned before an edit. Non-member ids (e.g. mentioned agents) never
+  // match a User row below, so they drop out.
+  const recipientIds = mentionedUserIds.filter(
+    (id) => id !== commentAuthorId && !previouslyMentioned?.has(id),
+  );
   if (recipientIds.length === 0) return;
 
   // Mention markup is client-supplied: only notify users who actually belong
@@ -492,10 +504,13 @@ export async function sendFeatureMentionNotifications(
     scopeId?: string;
     commentContent: string;
     commentAuthorId: string;
+    /** Pre-edit body — see {@link fanOutMentionNotifications}. */
+    previousContent?: string;
   },
 ): Promise<void> {
   try {
-    const { featureId, scopeId, commentContent, commentAuthorId } = params;
+    const { featureId, scopeId, commentContent, commentAuthorId, previousContent } =
+      params;
 
     const info = await resolveFeatureWorkspace(db, featureId);
     if (!info) return;
@@ -511,6 +526,7 @@ export async function sendFeatureMentionNotifications(
       viewLabel: "View PRD",
       commentContent,
       commentAuthorId,
+      previousContent,
     });
   } catch (error) {
     console.error("[EmailNotificationService] Failed to send feature mention notifications:", error);
@@ -527,10 +543,12 @@ export async function sendPageMentionNotifications(
     pageId: string;
     commentContent: string;
     commentAuthorId: string;
+    /** Pre-edit body — see {@link fanOutMentionNotifications}. */
+    previousContent?: string;
   },
 ): Promise<void> {
   try {
-    const { pageId, commentContent, commentAuthorId } = params;
+    const { pageId, commentContent, commentAuthorId, previousContent } = params;
 
     const page = await db.knowledgePage.findUnique({
       where: { id: pageId },
@@ -550,6 +568,7 @@ export async function sendPageMentionNotifications(
       viewLabel: "View page",
       commentContent,
       commentAuthorId,
+      previousContent,
     });
   } catch (error) {
     console.error("[EmailNotificationService] Failed to send page mention notifications:", error);

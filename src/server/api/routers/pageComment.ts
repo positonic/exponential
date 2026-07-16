@@ -73,7 +73,7 @@ export const pageCommentRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.knowledgePageComment.findFirst({
         where: { id: input.commentId, createdById: ctx.session.user.id },
-        select: { id: true },
+        select: { id: true, pageId: true, body: true },
       });
       if (!existing) {
         throw new TRPCError({
@@ -81,11 +81,22 @@ export const pageCommentRouter = createTRPCRouter({
           message: "Comment not found or not yours",
         });
       }
-      return ctx.db.knowledgePageComment.update({
+      const updated = await ctx.db.knowledgePageComment.update({
         where: { id: input.commentId },
         data: { body: input.body },
         include: { createdBy: { select: authorSelect } },
       });
+
+      // Fire-and-forget: notify mentions added by the edit. Passing the old
+      // body means already-notified users aren't pinged again.
+      void sendPageMentionNotifications(ctx.db, {
+        pageId: existing.pageId,
+        commentContent: input.body,
+        commentAuthorId: ctx.session.user.id,
+        previousContent: existing.body,
+      });
+
+      return updated;
     }),
 
   delete: protectedProcedure

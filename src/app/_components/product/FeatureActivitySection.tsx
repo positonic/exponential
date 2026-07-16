@@ -23,10 +23,9 @@ export function FeatureActivitySection({ featureId, scopeId }: FeatureActivitySe
   const utils = api.useUtils();
   const mentionCandidates = useWorkspaceMentionCandidates();
 
-  const { data: comments } = api.product.featureComment.list.useQuery(
-    { featureId },
-    { enabled: !!featureId },
-  );
+  const { data: comments } = api.product.featureComment.list.useQuery({
+    featureId,
+  });
 
   const invalidate = () => {
     void utils.product.featureComment.list.invalidate({ featureId });

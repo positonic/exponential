@@ -16,10 +16,7 @@ export function PageCommentsSection({ pageId }: { pageId: string }) {
   const utils = api.useUtils();
   const mentionCandidates = useWorkspaceMentionCandidates();
 
-  const { data: comments } = api.pageComment.list.useQuery(
-    { pageId },
-    { enabled: !!pageId },
-  );
+  const { data: comments } = api.pageComment.list.useQuery({ pageId });
 
   const invalidate = () => {
     void utils.pageComment.list.invalidate({ pageId });
