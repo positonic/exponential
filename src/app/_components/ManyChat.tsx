@@ -30,6 +30,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 import { classifyStreamError } from '~/lib/chat/streamProtocol';
 import { streamChatResponse } from '~/lib/chat/streamChatResponse';
+import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdown';
 import { failureCopy } from '~/lib/chat/failureCopy';
 import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 
@@ -235,18 +236,8 @@ function preprocessAgentHtml(html: string): string {
   return processed;
 }
 
-// Markdown equivalent of preprocessAgentHtml's paragraph splitting:
-// inserts `\n\n` at agent action boundaries so streamed narration renders
-// as separate paragraphs instead of one giant <Text>. Keep action-word
-// list in sync with preprocessAgentHtml above.
-function preprocessAgentMarkdown(content: string): string {
-  return content.replace(
-    /:(Now |Let |Great|Good|Perfect|Excellent|However, |I |The |Then |First, |Next )/g,
-    (_: string, word: string) => `:\n\n${word}`,
-  );
-}
-
 // Render message content with markdown/video support
+// (preprocessAgentMarkdown / linkifyBareUrls live in ~/lib/chat/agentMarkdown)
 function renderMessageContent(content: string, messageType: string) {
   // Handle video links first — reset lastIndex since VIDEO_PATTERN is a global regex
   const hasVideoLinks = VIDEO_PATTERN.test(content);
@@ -286,9 +277,13 @@ function renderMessageContent(content: string, messageType: string) {
     );
   }
 
-  // For AI messages, check if content looks like markdown and render accordingly
-  if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- ') || content.includes('| ') || content.includes('```'))) {
-    const processed = preprocessAgentMarkdown(content);
+  // AI messages are always markdown: the stream inserts `\n\n` between text
+  // blocks separated by tool calls, and prose routinely carries links —
+  // rendering as plain text collapses the paragraph break into a stray gap
+  // and leaves "[CRM](https://…)" raw. (A keyword heuristic used to gate
+  // this; it missed links entirely.)
+  if (messageType === 'ai') {
+    const processed = preprocessAgentMarkdown(linkifyBareUrls(content));
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -299,7 +294,7 @@ function renderMessageContent(content: string, messageType: string) {
     );
   }
 
-  // For regular text, return as-is
+  // For regular (human) text, return as-is
   return content;
 }
 
