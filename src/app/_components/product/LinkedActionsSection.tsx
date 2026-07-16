@@ -11,14 +11,10 @@ import {
   TextInput,
   useCombobox,
 } from "@mantine/core";
-import {
-  IconChevronDown,
-  IconChevronRight,
-  IconPlus,
-  IconX,
-} from "@tabler/icons-react";
+import { IconPlus, IconX } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { api } from "~/trpc/react";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { CreateActionModal } from "~/app/_components/CreateActionModal";
 import { EditActionModal, type Action } from "~/app/_components/EditActionModal";
 
@@ -115,7 +111,7 @@ function ActionRow({
       <ActionIcon
         variant="subtle"
         size="xs"
-        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 transition-opacity shrink-0"
+        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-brand-error transition-opacity shrink-0"
         onClick={(e) => { e.stopPropagation(); onUnlink(action.id); }}
         loading={unlinkPending}
       >
@@ -136,7 +132,6 @@ export function LinkedActionsSection({
   workspaceId: string | null;
   onChanged: () => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
   const [pendingName, setPendingName] = useState("");
   const [createModalOpen, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
@@ -191,21 +186,13 @@ export function LinkedActionsSection({
   };
 
   return (
-    <div className="mt-4">
-      {/* Header - matches Activity style */}
-      <button
-        className="flex items-center gap-1.5 mb-3"
-        onClick={() => setCollapsed((v) => !v)}
+    <div>
+      {/* The shared chevron + uppercase header (one implementation for
+          Actions / Dependencies / Activity), count in the meta slot. */}
+      <CollapsibleSection
+        title="Actions"
+        meta={actions.length > 0 ? String(actions.length) : undefined}
       >
-        {collapsed
-          ? <IconChevronRight size={13} className="text-text-muted" />
-          : <IconChevronDown size={13} className="text-text-muted" />}
-        <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
-          Actions{actions.length > 0 ? ` (${actions.length})` : ""}
-        </Text>
-      </button>
-
-      {!collapsed && (
         <div>
           {/* Active action rows */}
           {activeActions.length > 0 && (
@@ -279,7 +266,7 @@ export function LinkedActionsSection({
                     <Combobox.Option key={r.id} value={r.id}>
                       <div className="flex items-center gap-2">
                         <div
-                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.kanbanStatus === "DONE" ? "bg-green-500" : "bg-border-primary"}`}
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.kanbanStatus === "DONE" ? "bg-brand-success" : "bg-border-primary"}`}
                         />
                         <Text size="xs" className="flex-1">{r.name}</Text>
                         {r.project && (
@@ -312,7 +299,7 @@ export function LinkedActionsSection({
             onActionCreated={(actionId) => { linkAction.mutate({ ticketId, actionId }); setPendingName(""); }}
           />
         </div>
-      )}
+      </CollapsibleSection>
 
       {/* Edit action modal - opened when clicking a row */}
       <EditActionModal

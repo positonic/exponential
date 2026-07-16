@@ -468,26 +468,35 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
         onChanged={() => void invalidate()}
       />
 
-      {/* Dependencies - same collapsible section header as Actions/Activity */}
-      <CollapsibleSection title="Dependencies">
+      {/* Dependencies - same collapsible section header as Actions/Activity;
+          count in the meta slot so a collapsed section still signals deps. */}
+      <CollapsibleSection
+        title="Dependencies"
+        meta={
+          (ticket.dependsOn?.length ?? 0) + (ticket.requiredFor?.length ?? 0) > 0
+            ? String((ticket.dependsOn?.length ?? 0) + (ticket.requiredFor?.length ?? 0))
+            : undefined
+        }
+      >
         <TicketDependenciesSection
           ticketId={ticketId}
           productId={ticket.product.id}
           basePath={basePath}
           dependsOn={ticket.dependsOn ?? []}
           requiredFor={ticket.requiredFor ?? []}
+          variant="wide"
+          productName={ticket.product.name}
+          funTicketIds={ticket.product.funTicketIds}
         />
       </CollapsibleSection>
 
       {/* Activity - the app-wide feed + composer */}
-      <div className="mt-2">
-        <CollapsibleSection
-          title="Activity"
-          action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
-        >
-          <ActivityTimeline activity={activity} filter={activityFilter} />
-        </CollapsibleSection>
-      </div>
+      <CollapsibleSection
+        title="Activity"
+        action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+      >
+        <ActivityTimeline activity={activity} filter={activityFilter} />
+      </CollapsibleSection>
     </Stack>
   );
 }
