@@ -834,7 +834,7 @@ export default function TicketDetailPage() {
                             {c.author.name}
                           </Text>
                           <Text size="xs" className="text-text-muted">
-                            {new Date(c.createdAt).toLocaleDateString()}
+                            {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
                           </Text>
                         </Group>
                         <div className="ml-6">
