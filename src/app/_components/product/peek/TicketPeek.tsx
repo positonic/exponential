@@ -216,15 +216,32 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
 
   return (
     <Stack gap="md">
-      {/* Id kicker + editable title - one tight block */}
+      {/* Kicker row (type + id) + editable title - one tight block. The
+          type pill lives up here like the detail page's type badge, and
+          stays editable via the same menu. */}
       <div>
-        {displayId && (
-          // mb via prop: Tailwind margin utilities are dead on Mantine Text
-          // (its margin reset wins the cascade).
-          <Text size="xs" mb={4} className="text-text-muted font-mono">
-            {displayId}
-          </Text>
-        )}
+        <div className="mb-1 flex items-center gap-2">
+          <PropertyPill
+            tooltip="Type"
+            icon={<ColorDot color={TYPE_COLORS[ticket.type] ?? "gray"} />}
+            label={ticket.type.toLowerCase()}
+          >
+            {TICKET_TYPES.map((t) => (
+              <Menu.Item
+                key={t}
+                onClick={() => setField("type", t)}
+                leftSection={<ColorDot color={TYPE_COLORS[t] ?? "gray"} />}
+              >
+                {t.toLowerCase()}
+              </Menu.Item>
+            ))}
+          </PropertyPill>
+          {displayId && (
+            <Text size="xs" className="text-text-muted font-mono">
+              {displayId}
+            </Text>
+          )}
+        </div>
         <Textarea
           value={titleValue}
           onChange={(e) => setTitleValue(e.currentTarget.value)}
@@ -280,22 +297,6 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             ))}
             <Menu.Divider />
             <Menu.Item onClick={() => setField("priority", null)}>No priority</Menu.Item>
-          </PropertyPill>
-
-          <PropertyPill
-            tooltip="Type"
-            icon={<ColorDot color={TYPE_COLORS[ticket.type] ?? "gray"} />}
-            label={ticket.type.toLowerCase()}
-          >
-            {TICKET_TYPES.map((t) => (
-              <Menu.Item
-                key={t}
-                onClick={() => setField("type", t)}
-                leftSection={<ColorDot color={TYPE_COLORS[t] ?? "gray"} />}
-              >
-                {t.toLowerCase()}
-              </Menu.Item>
-            ))}
           </PropertyPill>
 
           <PropertyPill
