@@ -2,11 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ActionIcon, Button, Group, Select, Text, TextInput } from "@mantine/core";
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+import { ActionIcon, Button, Group, Menu, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { IconChevronDown, IconPlus, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import { SCOPE_STATUS_OPTIONS, SCOPE_STATUS_COLORS } from "~/lib/feature-statuses";
+import {
+  SCOPE_STATUS_OPTIONS,
+  SCOPE_STATUS_LABELS,
+  SCOPE_STATUS_COLORS,
+} from "~/lib/feature-statuses";
 
 export interface FeatureScopeRow {
   id: string;
@@ -57,7 +61,7 @@ export function FeatureScopesSection({
   return (
     <div>
       {scopes.length > 0 ? (
-        <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
+        <div className="border border-border-primary rounded-lg overflow-hidden mb-4">
           {scopes.map((scope, i) => (
             <div
               key={scope.id}
@@ -71,29 +75,41 @@ export function FeatureScopesSection({
                   >
                     {scope.version}
                   </Link>
-                  <Select
-                    value={scope.status}
-                    onChange={(v) =>
-                      v &&
-                      updateScope.mutate({
-                        id: scope.id,
-                        status: v as "PLANNED" | "IN_PROGRESS" | "SHIPPED" | "DEPRECATED",
-                      })
-                    }
-                    data={SCOPE_STATUS_OPTIONS}
-                    size="xs"
-                    variant="unstyled"
-                    comboboxProps={{ withinPortal: true }}
-                    classNames={{ input: "text-xs font-medium cursor-pointer" }}
-                    styles={{
-                      input: {
-                        height: 20,
-                        minHeight: 20,
-                        width: 110,
-                        color: `var(--mantine-color-${SCOPE_STATUS_COLORS[scope.status] ?? "gray"}-5)`,
-                      },
-                    }}
-                  />
+                  {/* Content-sized menu trigger, not a fixed-width Select:
+                      a 110px input left a dead gap and an orphaned chevron
+                      floating mid-row after short values like "Live". */}
+                  <Menu position="bottom-start" withinPortal shadow="md">
+                    <Menu.Target>
+                      <UnstyledButton
+                        className="inline-flex items-center gap-1 text-xs font-medium cursor-pointer"
+                        style={{ color: `var(--mantine-color-${SCOPE_STATUS_COLORS[scope.status] ?? "gray"}-5)` }}
+                      >
+                        {SCOPE_STATUS_LABELS[scope.status] ?? scope.status}
+                        <IconChevronDown size={12} />
+                      </UnstyledButton>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      {SCOPE_STATUS_OPTIONS.map((o) => (
+                        <Menu.Item
+                          key={o.value}
+                          onClick={() =>
+                            updateScope.mutate({
+                              id: scope.id,
+                              status: o.value as "PLANNED" | "IN_PROGRESS" | "SHIPPED" | "DEPRECATED",
+                            })
+                          }
+                          leftSection={
+                            <span
+                              className="inline-block h-2 w-2 rounded-full"
+                              style={{ backgroundColor: `var(--mantine-color-${SCOPE_STATUS_COLORS[o.value] ?? "gray"}-6)` }}
+                            />
+                          }
+                        >
+                          {o.label}
+                        </Menu.Item>
+                      ))}
+                    </Menu.Dropdown>
+                  </Menu>
                   {scope.shippedAt && (
                     <Text size="xs" className="text-text-muted">
                       live since {new Date(scope.shippedAt).toLocaleDateString()}
@@ -116,13 +132,13 @@ export function FeatureScopesSection({
           ))}
         </div>
       ) : (
-        <Text size="xs" mb={12} className="text-text-muted">
+        <Text size="xs" mb={16} className="text-text-muted">
           No scopes yet - scopes are a feature&apos;s delivery slices (v1, v2, new platforms).
         </Text>
       )}
       <div className="flex gap-2 items-end">
         <TextInput
-          placeholder="Version (e.g. v1.0)"
+          placeholder="v1.0"
           value={scopeVersion}
           onChange={(e) => setScopeVersion(e.currentTarget.value)}
           size="xs"

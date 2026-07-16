@@ -14,8 +14,6 @@ import {
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import {
-  IconCategory,
-  IconChecklist,
   IconDots,
   IconFlag,
   IconFlame,
@@ -29,6 +27,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/PropertyPill";
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
+import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
@@ -50,7 +49,7 @@ const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
  * and activity, with the properties sidebar compressed into the pill strip.
  */
 export function FeaturePeek({ featureId, basePath }: { featureId: string; basePath: string }) {
-  const { workspaceId } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
   const { data: feature, isLoading } = api.product.feature.getById.useQuery(
@@ -411,7 +410,6 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
       <div className="pt-2">
         <CollapsibleSection
           title="Scopes"
-          icon={<IconCategory size={14} className="text-text-muted" />}
           meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
         >
           <FeatureScopesSection
@@ -428,7 +426,6 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
       <div className="pt-2">
         <CollapsibleSection
           title="Requirements"
-          icon={<IconChecklist size={14} className="text-text-muted" />}
           meta={requirementsMeta}
         >
           <FeatureRequirementsSection
@@ -436,6 +433,24 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             requirements={feature.requirements}
             scopes={feature.scopes}
             userStories={feature.userStories}
+          />
+        </CollapsibleSection>
+      </div>
+
+      {/* Docs - the SAME block as the detail page (linked PRDs/specs,
+          link picker, one-click New PRD). */}
+      <div className="pt-2">
+        <CollapsibleSection
+          title="Docs"
+          meta={feature.pages.length > 0 ? String(feature.pages.length) : undefined}
+        >
+          <FeatureDocsSection
+            featureId={featureId}
+            featureName={feature.name}
+            workspaceId={workspaceId}
+            workspaceSlug={workspace?.slug}
+            pages={feature.pages}
+            scopes={feature.scopes}
           />
         </CollapsibleSection>
       </div>

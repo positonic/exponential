@@ -72,7 +72,7 @@ export function FeatureRequirementsSection({
   return (
     <div>
       {requirements.length > 0 ? (
-        <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
+        <div className="border border-border-primary rounded-lg overflow-hidden mb-4">
           {requirements.map((req, i) => {
             const reqScope = scopes.find((s) => s.id === req.scopeId);
             return (
@@ -118,7 +118,7 @@ export function FeatureRequirementsSection({
           })}
         </div>
       ) : (
-        <Text size="xs" mb={12} className="text-text-muted">
+        <Text size="xs" mb={16} className="text-text-muted">
           No requirements yet. Write testable EARS statements: &quot;When
           &lt;trigger&gt;, the system shall &lt;response&gt;&quot;.
         </Text>
@@ -144,7 +144,7 @@ export function FeatureRequirementsSection({
           data={REQUIREMENT_KIND_OPTIONS}
           size="xs"
           clearable
-          className="w-36"
+          className="w-28"
           comboboxProps={{ withinPortal: true }}
         />
         {scopes.length > 0 && (
@@ -171,7 +171,7 @@ export function FeatureRequirementsSection({
         </Button>
       </div>
       {(userStories?.length ?? 0) > 0 && (
-        <div className="mt-3">
+        <div className="mt-4">
           <Text size="xs" mb={4} className="text-text-muted">
             Legacy user stories (read-only - superseded by requirements, ADR-0039):
           </Text>

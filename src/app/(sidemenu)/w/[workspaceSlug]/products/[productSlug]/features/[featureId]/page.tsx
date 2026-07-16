@@ -22,21 +22,17 @@ import {
   IconArrowRight,
   IconCalendar,
   IconCategory,
-  IconChecklist,
   IconCircleDot,
   IconCopy,
   IconDots,
-  IconFileText,
   IconFlag,
   IconFlame,
   IconMap2,
-  IconPlus,
   IconTag,
   IconTarget,
   IconTicket,
   IconTrash,
   IconUser,
-  IconX,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -51,6 +47,7 @@ import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { FeatureBodyDocument } from "~/app/_components/prd/FeatureBodyDocument";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection";
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
@@ -73,27 +70,6 @@ const PRIORITY_OPTIONS = [
   { value: "3", label: "Low" },
   { value: "4", label: "No priority" },
 ];
-
-// Seed body for one-click PRD pages. Sections follow ADR-0039: requirements
-// are EARS statements, not user stories.
-const PRD_TEMPLATE = `## Problem
-
-What problem does this solve, and for whom?
-
-## Goals
-
-## Non-goals
-
-## Requirements
-
-One testable "shall" statement per line (EARS), e.g. "When a user submits the form, the system shall send a confirmation email within one minute."
-
-## Rollout / scopes
-
-How does this ship incrementally? Map bullets here to the feature's scopes.
-
-## Open questions
-`;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -139,9 +115,6 @@ export default function FeatureDetailPage() {
 
   const [moveModalOpen, setMoveModalOpen] = useState(false);
 
-  // Spec page picker
-  const [pageToLink, setPageToLink] = useState<string | null>(null);
-
   const invalidateFeature = async () => {
     await utils.product.feature.getById.invalidate({ id: featureId });
     await utils.product.feature.listEvents.invalidate({ featureId });
@@ -154,42 +127,6 @@ export default function FeatureDetailPage() {
     onSuccess: invalidateFeature,
   });
 
-  const linkPage = api.product.feature.linkPage.useMutation({
-    onSuccess: async () => {
-      setPageToLink(null);
-      await utils.product.feature.getById.invalidate({ id: featureId });
-    },
-  });
-
-  const unlinkPage = api.product.feature.unlinkPage.useMutation({
-    onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
-  });
-
-  const createPage = api.page.create.useMutation();
-
-  /**
-   * One-click PRD: create a Knowledge page pre-titled and pre-structured
-   * (ADR-0039 - requirements as EARS statements, no user stories), link it
-   * to this feature, and open it for writing.
-   */
-  const [creatingPrd, setCreatingPrd] = useState(false);
-  const handleCreatePrd = async () => {
-    if (!workspaceId || !feature) return;
-    setCreatingPrd(true);
-    try {
-      const page = await createPage.mutateAsync({
-        workspaceId,
-        title: `PRD: ${feature.name}`,
-        body: PRD_TEMPLATE,
-      });
-      await linkPage.mutateAsync({ featureId, pageId: page.id });
-      await utils.page.list.invalidate({ workspaceId });
-      router.push(`/w/${workspace?.slug}/pages/${page.id}`);
-    } finally {
-      setCreatingPrd(false);
-    }
-  };
-
   const deleteFeature = api.product.feature.delete.useMutation({
     onSuccess: async () => {
       if (feature?.product.id) await utils.product.feature.list.invalidate({ productId: feature.product.id });
@@ -200,11 +137,6 @@ export default function FeatureDetailPage() {
   const { data: areas } = api.product.feature.listAreas.useQuery(
     { productId: feature?.product.id ?? "" },
     { enabled: !!feature?.product.id },
-  );
-
-  const { data: workspacePages } = api.page.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
   );
 
   const handleFieldUpdate = (field: string, value: unknown) => {
@@ -371,7 +303,6 @@ export default function FeatureDetailPage() {
               is requirements only. */}
           <CollapsibleSection
             title="Requirements"
-            icon={<IconChecklist size={14} className="text-text-muted" />}
             meta={
               feature.requirements.length > 0
                 ? `${feature.requirements.filter((r) => r.checkedAt != null).length}/${feature.requirements.length} met`
@@ -391,76 +322,16 @@ export default function FeatureDetailPage() {
               these are the moment-in-time arguments. */}
           <CollapsibleSection
             title="Docs"
-            icon={<IconFileText size={14} className="text-text-muted" />}
             meta={feature.pages.length > 0 ? String(feature.pages.length) : undefined}
           >
-            {feature.pages.length > 0 && (
-              <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
-                {feature.pages.map((link, i) => {
-                  const linkScope = feature.scopes.find((s) => s.id === link.scopeId);
-                  return (
-                    <div key={link.pageId} className={`flex items-center gap-3 px-3 py-2.5 ${i < feature.pages.length - 1 ? "border-b border-border-primary" : ""}`}>
-                      <IconFileText size={14} className="text-text-muted shrink-0" />
-                      <Link
-                        href={`/w/${workspace?.slug}/pages/${link.pageId}`}
-                        className="text-sm text-text-primary hover:underline flex-1 min-w-0 truncate"
-                      >
-                        {link.page.title}
-                      </Link>
-                      {linkScope && (
-                        <Badge size="xs" variant="light" color="gray" className="shrink-0">
-                          {linkScope.version}
-                        </Badge>
-                      )}
-                      <ActionIcon
-                        variant="subtle"
-                        color="gray"
-                        size="xs"
-                        onClick={() => unlinkPage.mutate({ featureId, pageId: link.pageId })}
-                        aria-label="Unlink page"
-                      >
-                        <IconX size={12} />
-                      </ActionIcon>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <Group gap="xs">
-              <Select
-                placeholder="Link a page (PRD, spec, research)..."
-                value={pageToLink}
-                onChange={setPageToLink}
-                data={(workspacePages ?? [])
-                  .filter((p) => !feature.pages.some((l) => l.pageId === p.id))
-                  .map((p) => ({ value: p.id, label: p.title }))}
-                size="xs"
-                searchable
-                clearable
-                nothingFoundMessage="No pages found"
-                className="flex-1"
-                comboboxProps={{ withinPortal: true }}
-              />
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconPlus size={12} />}
-                onClick={() => { if (pageToLink) linkPage.mutate({ featureId, pageId: pageToLink }); }}
-                loading={linkPage.isPending}
-                disabled={!pageToLink}
-              >
-                Link
-              </Button>
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconFileText size={12} />}
-                onClick={() => void handleCreatePrd()}
-                loading={creatingPrd}
-              >
-                New PRD
-              </Button>
-            </Group>
+            <FeatureDocsSection
+              featureId={featureId}
+              featureName={feature.name}
+              workspaceId={workspaceId}
+              workspaceSlug={workspace?.slug}
+              pages={feature.pages}
+              scopes={feature.scopes}
+            />
           </CollapsibleSection>
 
           {/* Linked insights */}
