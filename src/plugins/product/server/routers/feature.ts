@@ -574,7 +574,12 @@ export const featureRouter = createTRPCRouter({
           where: { id },
           select: { description: true },
         });
-        if (current?.description === rest.description) syncDoc = false;
+        if (!current) {
+          // Deleted between the access check and this read - fail the same
+          // way the access check would have.
+          throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+        }
+        if (current.description === rest.description) syncDoc = false;
       }
       let data: Prisma.FeatureUncheckedUpdateInput = rest;
       if (syncDoc) {
