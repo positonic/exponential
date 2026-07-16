@@ -80,6 +80,60 @@ describe("feature router", () => {
     });
   });
 
+  describe("update", () => {
+    it("re-derives descriptionDoc from a Markdown-only description write (ADR-0024)", async () => {
+      // Exercises the real server path: node environment, no DOM globals —
+      // the regeneration must still produce the canonical ProseMirror doc.
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, {
+        workspaceId: ws.id,
+        createdById: user.id,
+      });
+      const feature = await createFeature(db, {
+        productId: product.id,
+        createdById: user.id,
+        name: "Doc sync",
+      });
+      // Simulate a feature whose PRD was already opened in the editor.
+      await db.feature.update({
+        where: { id: feature.id },
+        data: {
+          descriptionDoc: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "stale body" }],
+              },
+            ],
+          },
+          docVersion: 3,
+        },
+      });
+
+      const caller = createTestCaller(user.id);
+      await caller.product.feature.update({
+        id: feature.id,
+        description: "# Fresh body\n\n- [x] shipped it",
+      });
+
+      const stored = await db.feature.findUniqueOrThrow({
+        where: { id: feature.id },
+        select: { description: true, descriptionDoc: true, docVersion: true },
+      });
+      expect(stored.description).toBe("# Fresh body\n\n- [x] shipped it");
+      expect(stored.docVersion).toBe(4);
+      const doc = stored.descriptionDoc as {
+        type: string;
+        content: Array<{ type: string }>;
+      };
+      expect(doc.type).toBe("doc");
+      expect(doc.content.map((n) => n.type)).toEqual(["heading", "taskList"]);
+      expect(JSON.stringify(doc)).not.toContain("stale body");
+    });
+  });
+
   describe("scopes", () => {
     it("adds scopes in display order", async () => {
       const user = await createUser(db);

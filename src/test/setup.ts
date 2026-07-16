@@ -1,5 +1,9 @@
-import { beforeAll, afterAll } from 'vitest';
+import { beforeAll, afterAll, vi } from 'vitest';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
+
+// `server-only` throws outside a React Server environment; stub it so unit
+// tests can import server modules (e.g. via the tRPC routers).
+vi.mock('server-only', () => ({}));
 
 // Register Happy DOM before all tests
 GlobalRegistrator.register();
