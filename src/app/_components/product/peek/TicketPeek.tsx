@@ -218,7 +218,9 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
       {/* Id kicker + editable title - one tight block */}
       <div>
         {displayId && (
-          <Text size="xs" className="text-text-muted font-mono mb-1">
+          // mb via prop: Tailwind margin utilities are dead on Mantine Text
+          // (its margin reset wins the cascade).
+          <Text size="xs" mb={4} className="text-text-muted font-mono">
             {displayId}
           </Text>
         )}
@@ -449,7 +451,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
         </PillRow>
 
         {/* Meta - display only, quiet */}
-        <Text size="xs" className="text-text-muted mt-2">
+        <Text size="xs" mt={8} className="text-text-muted">
           Created by {ticket.createdBy?.name ?? "Unknown"} ·{" "}
           {new Date(ticket.createdAt).toLocaleDateString()}
         </Text>
@@ -460,43 +462,53 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
       {/* Body */}
       <TicketBodyEditor ticketId={ticketId} initialContent={ticket.body} />
 
+      {/* Sections get pt-2 on top of the Stack's 16px gap: 24px between
+          sections vs 8px header-to-content inside one - the grouping ratio
+          a uniform gap="md" couldn't provide. */}
+
       {/* Linked actions - same component as the detail page */}
-      <LinkedActionsSection
-        ticketId={ticketId}
-        actions={ticket.actions ?? []}
-        workspaceId={workspaceId}
-        onChanged={() => void invalidate()}
-      />
+      <div className="pt-2">
+        <LinkedActionsSection
+          ticketId={ticketId}
+          actions={ticket.actions ?? []}
+          workspaceId={workspaceId}
+          onChanged={() => void invalidate()}
+        />
+      </div>
 
       {/* Dependencies - same collapsible section header as Actions/Activity;
           count in the meta slot so a collapsed section still signals deps. */}
-      <CollapsibleSection
-        title="Dependencies"
-        meta={
-          (ticket.dependsOn?.length ?? 0) + (ticket.requiredFor?.length ?? 0) > 0
-            ? String((ticket.dependsOn?.length ?? 0) + (ticket.requiredFor?.length ?? 0))
-            : undefined
-        }
-      >
-        <TicketDependenciesSection
-          ticketId={ticketId}
-          productId={ticket.product.id}
-          basePath={basePath}
-          dependsOn={ticket.dependsOn ?? []}
-          requiredFor={ticket.requiredFor ?? []}
-          variant="wide"
-          productName={ticket.product.name}
-          funTicketIds={ticket.product.funTicketIds}
-        />
-      </CollapsibleSection>
+      <div className="pt-2">
+        <CollapsibleSection
+          title="Dependencies"
+          meta={
+            (ticket.dependsOn?.length ?? 0) + (ticket.requiredFor?.length ?? 0) > 0
+              ? String((ticket.dependsOn?.length ?? 0) + (ticket.requiredFor?.length ?? 0))
+              : undefined
+          }
+        >
+          <TicketDependenciesSection
+            ticketId={ticketId}
+            productId={ticket.product.id}
+            basePath={basePath}
+            dependsOn={ticket.dependsOn ?? []}
+            requiredFor={ticket.requiredFor ?? []}
+            variant="wide"
+            productName={ticket.product.name}
+            funTicketIds={ticket.product.funTicketIds}
+          />
+        </CollapsibleSection>
+      </div>
 
       {/* Activity - the app-wide feed + composer */}
-      <CollapsibleSection
-        title="Activity"
-        action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
-      >
-        <ActivityTimeline activity={activity} filter={activityFilter} />
-      </CollapsibleSection>
+      <div className="pt-2">
+        <CollapsibleSection
+          title="Activity"
+          action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+        >
+          <ActivityTimeline activity={activity} filter={activityFilter} />
+        </CollapsibleSection>
+      </div>
     </Stack>
   );
 }

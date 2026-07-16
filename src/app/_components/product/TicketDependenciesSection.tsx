@@ -110,7 +110,7 @@ export function TicketDependenciesSection({
   };
 
   return (
-    <div className="flex flex-col gap-3 py-1.5">
+    <div className="flex flex-col gap-3">
       <DependencySection
         icon={<IconArrowNarrowLeft size={13} />}
         label="Depends on"
@@ -168,14 +168,11 @@ function DependencySection({
 
   return (
     <div>
+      {/* Icon sits in the same 14px column as the row dots and the Add plus,
+          so label, ID, and Add text share one left rail. */}
       <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-text-muted">{icon}</span>
-        <Text
-          size="xs"
-          fw={600}
-          className="text-text-muted uppercase"
-          style={{ fontSize: "0.65rem", letterSpacing: "0.04em" }}
-        >
+        <span className="inline-flex w-3.5 justify-center text-text-muted">{icon}</span>
+        <Text fz={11} fw={600} className="text-text-muted uppercase tracking-wider">
           {label}
         </Text>
       </div>
@@ -204,9 +201,11 @@ function DependencySection({
         ) : (
           <UnstyledButton
             onClick={() => setIsAdding(true)}
-            className="inline-flex items-center gap-1 self-start py-0.5 text-text-muted hover:text-text-primary transition-colors"
+            className="inline-flex items-center gap-1.5 self-start py-0.5 text-text-muted hover:text-text-primary transition-colors"
           >
-            <IconPlus size={12} />
+            <span className="inline-flex w-3.5 justify-center">
+              <IconPlus size={12} />
+            </span>
             <Text size="xs">Add</Text>
           </UnstyledButton>
         )}
@@ -251,35 +250,38 @@ function DependencyRow({
   return (
     <div className="group flex items-center gap-1.5 py-0.5">
       <Tooltip label={statusLabel} position="top" withArrow>
-        <span
-          role="img"
-          aria-label={`Status: ${statusLabel}`}
-          className="inline-block rounded-full shrink-0"
-          style={{
-            width: 8,
-            height: 8,
-            backgroundColor: `var(--mantine-color-${statusColor}-6)`,
-          }}
-        />
+        <span className="inline-flex w-3.5 justify-center shrink-0">
+          <span
+            role="img"
+            aria-label={`Status: ${statusLabel}`}
+            className="inline-block rounded-full"
+            style={{
+              width: 8,
+              height: 8,
+              backgroundColor: `var(--mantine-color-${statusColor}-6)`,
+            }}
+          />
+        </span>
       </Tooltip>
       {displayId && (
         <Text size="xs" className="text-text-muted font-mono shrink-0">
           {displayId}
         </Text>
       )}
-      {/* The link's click zone is the title text itself, not the row's
-          leftover width - a full-width target sat between the text and the
-          remove affordance. */}
-      <div className="flex-1 min-w-0">
-        <Text
-          size="xs"
-          component={Link}
-          href={`${basePath}/${ticket.id}`}
-          className="inline-block max-w-full truncate align-bottom text-text-primary hover:text-brand-primary transition-colors"
-        >
-          {ticket.title}
-        </Text>
-      </div>
+      {/* Direct flex child: the click zone is the title text itself (no
+          flex-grow), it truncates via min-w-0, and it centers on the row
+          axis like its siblings - a wrapper div inherited the 16px body
+          font and its 24.8px line-box strut pushed the title 4px off the
+          shared baseline. Status stays clustered next to the title instead
+          of stranded at the drawer's far edge. */}
+      <Text
+        size="xs"
+        component={Link}
+        href={`${basePath}/${ticket.id}`}
+        className="min-w-0 truncate text-text-primary hover:text-brand-primary transition-colors"
+      >
+        {ticket.title}
+      </Text>
       {wide && (
         <Text size="xs" className="text-text-muted shrink-0">
           {statusLabel}

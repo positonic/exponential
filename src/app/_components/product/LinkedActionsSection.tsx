@@ -214,7 +214,10 @@ export function LinkedActionsSection({
           {/* Completed actions */}
           {doneActions.length > 0 && (
             <div className="mt-2 mb-2">
-              <Text size="xs" className="text-text-muted opacity-50 mb-1.5 pl-1" style={{ fontSize: "0.65rem", letterSpacing: "0.04em" }}>
+              {/* Same group-label token as the Dependencies sub-groups
+                  (margins via props: utility margins are dead on Mantine
+                  Text - its margin reset wins the cascade). */}
+              <Text fz={11} fw={600} mb={6} className="text-text-muted uppercase tracking-wider">
                 Completed
               </Text>
               <Stack gap="xs">

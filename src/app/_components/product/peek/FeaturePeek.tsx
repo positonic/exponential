@@ -376,8 +376,9 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
           </PropertyPill>
         </PillRow>
 
-        {/* Meta - display only, quiet */}
-        <Text size="xs" className="text-text-muted mt-2">
+        {/* Meta - display only, quiet (mt via prop: Tailwind margin
+            utilities are dead on Mantine Text) */}
+        <Text size="xs" mt={8} className="text-text-muted">
           {feature._count.tickets} tickets · {feature.scopes.length} scopes · Created by{" "}
           {feature.createdBy?.name ?? "Unknown"} · {new Date(feature.createdAt).toLocaleDateString()}
         </Text>
@@ -385,19 +386,25 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
 
       <div className="border-t border-border-primary" />
 
+      {/* Sections get pt-2 on top of the Stack's 16px gap (see TicketPeek):
+          24px between sections vs 8px header-to-content inside one. */}
+
       {/* Description - the living rich document (same editor as the page). */}
-      <CollapsibleSection title="Description">
-        <FeatureBodyDocument
-          featureId={featureId}
-          descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
-          description={feature.description ?? null}
-          docVersion={feature.docVersion}
-          editable
-          enableComments
-        />
-      </CollapsibleSection>
+      <div className="pt-2">
+        <CollapsibleSection title="Description">
+          <FeatureBodyDocument
+            featureId={featureId}
+            descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
+            description={feature.description ?? null}
+            docVersion={feature.docVersion}
+            editable
+            enableComments
+          />
+        </CollapsibleSection>
+      </div>
 
       {/* Scopes - summary; add/edit on the full page. Empty state teaches. */}
+      <div className="pt-2">
       <CollapsibleSection
         title="Scopes"
         icon={<IconCategory size={14} className="text-text-muted" />}
@@ -439,8 +446,10 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
           </Text>
         )}
       </CollapsibleSection>
+      </div>
 
       {/* Requirements - read-only summary; editing on the full page. */}
+      <div className="pt-2">
       <CollapsibleSection
         title="Requirements"
         icon={<IconChecklist size={14} className="text-text-muted" />}
@@ -470,14 +479,17 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
           </Text>
         )}
       </CollapsibleSection>
+      </div>
 
       {/* Activity */}
-      <CollapsibleSection
-        title="Activity"
-        action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
-      >
-        <ActivityTimeline activity={activity} filter={activityFilter} />
-      </CollapsibleSection>
+      <div className="pt-2">
+        <CollapsibleSection
+          title="Activity"
+          action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+        >
+          <ActivityTimeline activity={activity} filter={activityFilter} />
+        </CollapsibleSection>
+      </div>
     </Stack>
   );
 }
