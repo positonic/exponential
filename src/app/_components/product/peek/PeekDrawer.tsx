@@ -11,8 +11,13 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 
-const NARROW = 760;
-const WIDE = 1080;
+// 680 keeps the list usable behind the peek (~42% of a 1600px viewport,
+// the 600-700px band Linear-school side panels sit in) and puts the 14px
+// prose column near its 65-75ch reading measure; 760 was inherited from
+// EditContactDrawer, not derived from content. WIDE is the escape hatch
+// for rich PRD bodies and tables.
+const NARROW = 680;
+const WIDE = 1000;
 const WIDE_PREF_KEY = "peek-drawer-wide";
 
 /**
