@@ -25,6 +25,11 @@ describe('linkifyBareUrls', () => {
     expect(linkifyBareUrls(input)).toBe(input);
   });
 
+  it('leaves protocol-less markdown link targets untouched', () => {
+    const input = 'in your [CRM](exponential.im/w/syntrofi/crm/contacts).';
+    expect(linkifyBareUrls(input)).toBe(input);
+  });
+
   it('leaves protocol URLs untouched (GFM already autolinks them)', () => {
     const input = 'visit https://github.com/foo/bar for details';
     expect(linkifyBareUrls(input)).toBe(input);

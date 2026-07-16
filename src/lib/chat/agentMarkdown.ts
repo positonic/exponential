@@ -27,9 +27,19 @@ const BARE_URL_RE =
   /(^|[\s(])((?:[a-z0-9-]+\.)+(?:com|org|net|io|im|dev|ai|co|app|me|sh|so|xyz|gg|fm|to)\/[^\s)<]*|www\.(?:[a-z0-9-]+\.)+[a-z]{2,})/gi;
 
 export function linkifyBareUrls(content: string): string {
-  return content.replace(BARE_URL_RE, (_match, prefix: string, url: string) => {
-    const trimmed = url.replace(/[.,;:!?]+$/, '');
-    const trailing = url.slice(trimmed.length);
-    return `${prefix}[${trimmed}](https://${trimmed})${trailing}`;
-  });
+  return content.replace(
+    BARE_URL_RE,
+    (match: string, prefix: string, url: string, offset: number) => {
+      // A protocol-less markdown link target — "[CRM](exponential.im/w/…)" —
+      // starts with "(" preceded by "]"; wrapping it again would corrupt the
+      // link. (Targets with a protocol never match: the domain there is
+      // preceded by "/", not whitespace/"(".)
+      if (prefix === '(' && offset > 0 && content[offset - 1] === ']') {
+        return match;
+      }
+      const trimmed = url.replace(/[.,;:!?]+$/, '');
+      const trailing = url.slice(trimmed.length);
+      return `${prefix}[${trimmed}](https://${trimmed})${trailing}`;
+    },
+  );
 }
