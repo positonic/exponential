@@ -376,11 +376,10 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
           </PropertyPill>
         </PillRow>
 
-        {/* Meta - display only, quiet (mt via prop: Tailwind margin
-            utilities are dead on Mantine Text) */}
+        {/* Meta - counts only; creator/date live in the Activity timeline.
+            (mt via prop: Tailwind margin utilities are dead on Mantine Text) */}
         <Text size="xs" mt={8} className="text-text-muted">
-          {feature._count.tickets} tickets · {feature.scopes.length} scopes · Created by{" "}
-          {feature.createdBy?.name ?? "Unknown"} · {new Date(feature.createdAt).toLocaleDateString()}
+          {feature._count.tickets} tickets · {feature.scopes.length} scopes
         </Text>
       </div>
 

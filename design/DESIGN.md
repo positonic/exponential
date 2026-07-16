@@ -95,7 +95,7 @@ Flat by default; hierarchy comes from the background stack (background → surfa
 Mantine v7 is the component base, themed in `src/styles/mantineTheme.ts`; Tailwind handles layout. Established vocabulary - reuse, never reinvent:
 
 - **PropertyPill / PillRow** (`product/PropertyPill`): the compact property editor - 28px pill, icon + value, menu on click; ghost (dashed, dimmed) when unset; icon-only circle for ⋯ overflow; visible focus ring.
-- **CollapsibleSection**: chevron + uppercase label header for every detail-page/peek section.
+- **CollapsibleSection**: chevron + uppercase label header for every detail-page/peek section. **Section anatomy rule:** the chevron owns the left edge; section CONTENT is visually inset from it (bordered rows/inputs carry the inset via their internal padding, flat line content via an explicit ~16px indent). Header-to-content spacing (8px), in-content group spacing (16px), and label-to-row spacing (4px) are three distinct steps - never equidistant.
 - **ActivityFeed + ActivityComposer** (+ `useXActivity` hooks): THE activity paradigm for every entity - comment cards, inline edit, relative timestamps, markdown composer with @mentions.
 - **PeekDrawer**: right-side detail-over-list (760/1080px), prev/next, expand-to-full-page.
 - **CommentInput / MarkdownInput**: the only prose inputs (ADR-0017 - Markdown canonical, never a bare Textarea).

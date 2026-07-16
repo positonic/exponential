@@ -450,11 +450,8 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
           </PropertyPill>
         </PillRow>
 
-        {/* Meta - display only, quiet */}
-        <Text size="xs" mt={8} className="text-text-muted">
-          Created by {ticket.createdBy?.name ?? "Unknown"} ·{" "}
-          {new Date(ticket.createdAt).toLocaleDateString()}
-        </Text>
+        {/* No created-by meta line: the Activity timeline's "created this
+            ticket" event carries that information. */}
       </div>
 
       <div className="border-t border-border-primary" />

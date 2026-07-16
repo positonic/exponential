@@ -110,7 +110,12 @@ export function TicketDependenciesSection({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    // Wide (peek body): content indents under the section header - chevron
+    // on the left edge, content block inset - matching how Actions' cards
+    // and the composer read against their headers. Groups separate at 16px
+    // while label-to-rows stays 4px, so header / group / row spacing are
+    // three distinct steps, not one. Sidebar keeps the flush dense layout.
+    <div className={variant === "wide" ? "flex flex-col gap-4 pl-4" : "flex flex-col gap-3"}>
       <DependencySection
         icon={<IconArrowNarrowLeft size={13} />}
         label="Depends on"
@@ -248,7 +253,7 @@ function DependencyRow({
   const displayId = wide ? getDisplayId(ticket) : null;
 
   return (
-    <div className="group flex items-center gap-1.5 py-0.5">
+    <div className="group flex items-center gap-1.5 py-1">
       <Tooltip label={statusLabel} position="top" withArrow>
         <span className="inline-flex w-3.5 justify-center shrink-0">
           <span
