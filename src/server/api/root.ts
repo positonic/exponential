@@ -84,6 +84,7 @@ import { authRouter } from "./routers/auth";
 import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
+import { pageCommentRouter } from "./routers/pageComment";
 /**
  * This is the primary router for your server.
  *
@@ -170,6 +171,7 @@ export const appRouter = createTRPCRouter({
   document: documentRouter,
   voice: voiceRouter,
   page: pageRouter,
+  pageComment: pageCommentRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,

@@ -178,6 +178,7 @@ model User {
   // Action Discussion relations
   actionComments              ActionComment[]             @relation("ActionCommentAuthor")
   featureComments             FeatureComment[]            @relation("FeatureCommentAuthor")
+  knowledgePageComments       KnowledgePageComment[]      @relation("KnowledgePageCommentAuthor")
   // Blog Discussion relations
   blogComments                BlogComment[]               @relation("BlogCommentAuthor")
   // Daily Planning relations
@@ -2571,13 +2572,34 @@ model KnowledgePage {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy User          @relation(fields: [createdById], references: [id])
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?               @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
+  comments  KnowledgePageComment[]
 
   @@index([workspaceId])
   @@index([projectId])
+  @@index([createdById])
+}
+
+/// Discussion note on a Knowledge Page — the doc-level comment feed under the
+/// page body, same card + composer pattern as FeatureComment's feature-level
+/// feed. No anchored threads: page bodies carry no `comment` marks, so the
+/// model stays flat (no threadId/parentId/quotedText until a real need).
+/// Bodies are Markdown (ADR-0017).
+model KnowledgePageComment {
+  id          String   @id @default(cuid())
+  pageId      String
+  body        String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  page      KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
+
+  @@index([pageId])
   @@index([createdById])
 }
 

@@ -6,6 +6,7 @@ import {
 import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 import { ZulipNotificationService } from "~/server/services/notifications/ZulipNotificationService";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
@@ -513,5 +514,44 @@ export async function sendFeatureMentionNotifications(
     });
   } catch (error) {
     console.error("[EmailNotificationService] Failed to send feature mention notifications:", error);
+  }
+}
+
+/**
+ * Fire-and-forget: Send notifications to users mentioned in a
+ * KnowledgePageComment. Thin wrapper over {@link fanOutMentionNotifications}.
+ */
+export async function sendPageMentionNotifications(
+  db: PrismaClient,
+  params: {
+    pageId: string;
+    commentContent: string;
+    commentAuthorId: string;
+  },
+): Promise<void> {
+  try {
+    const { pageId, commentContent, commentAuthorId } = params;
+
+    const page = await db.knowledgePage.findUnique({
+      where: { id: pageId },
+      select: {
+        title: true,
+        workspace: { select: { id: true, slug: true, name: true } },
+      },
+    });
+    if (!page) return;
+
+    await fanOutMentionNotifications(db, {
+      workspaceId: page.workspace.id,
+      workspaceSlug: page.workspace.slug,
+      workspaceName: page.workspace.name,
+      targetName: page.title,
+      targetPath: buildPageEditorPath(page.workspace.slug, pageId),
+      viewLabel: "View page",
+      commentContent,
+      commentAuthorId,
+    });
+  } catch (error) {
+    console.error("[EmailNotificationService] Failed to send page mention notifications:", error);
   }
 }

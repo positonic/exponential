@@ -72,7 +72,8 @@ type DuplicateRow = Prisma.KnowledgePageGetPayload<{
   select: typeof DUPLICATE_SELECT;
 }>;
 
-async function loadPageForAccess(db: PrismaClient, id: string) {
+/** Load the access-relevant slice of a Page (shared with the pageComment router). */
+export async function loadPageForAccess(db: PrismaClient, id: string) {
   const page = await db.knowledgePage.findUnique({
     where: { id },
     select: PAGE_ACCESS_SELECT,
@@ -83,7 +84,8 @@ async function loadPageForAccess(db: PrismaClient, id: string) {
   return page;
 }
 
-async function ensurePageAccess(
+/** Throw unless the user has view/edit access (shared with the pageComment router). */
+export async function ensurePageAccess(
   db: PrismaClient,
   userId: string,
   page: { createdById: string; projectId: string | null; workspaceId: string },

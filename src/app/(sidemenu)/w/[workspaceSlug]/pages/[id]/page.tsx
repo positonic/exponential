@@ -8,6 +8,7 @@ import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
+import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
 import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
 
@@ -181,6 +182,7 @@ function PageEditorContent({
         editable={page.canEdit}
         onDetach={page.canEdit ? detachChild : undefined}
       />
+      <PageCommentsSection pageId={page.id} />
     </div>
   );
 }
