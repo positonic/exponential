@@ -8,7 +8,7 @@ import { GoalsProgressDashboard } from "./GoalsProgressDashboard";
 import { ProjectStateOverview } from "./ProjectStateOverview";
 import { RitualCards } from "./RitualCards";
 import { WorkspaceSectionCards } from "./WorkspaceSectionCards";
-import { WelcomeBanner } from "./WelcomeChecklist";
+import { WelcomeBanner } from "./WelcomeBanner";
 import { UserHomeDashboard } from "./UserHomeDashboard";
 
 interface CommandCenterProps {

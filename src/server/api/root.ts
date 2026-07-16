@@ -35,6 +35,7 @@ import { projectWorkflowRouter } from "./routers/projectWorkflow";
 import { weeklyReviewRouter } from "./routers/weeklyReview";
 import { portfolioReviewRouter } from "./routers/portfolioReview";
 import { userRouter } from "./routers/user";
+import { welcomeRouter } from "./routers/welcome";
 import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
@@ -126,6 +127,7 @@ export const appRouter = createTRPCRouter({
   weeklyReview: weeklyReviewRouter,
   portfolioReview: portfolioReviewRouter,
   user: userRouter,
+  welcome: welcomeRouter,
   wheelOfLife: wheelOfLifeRouter,
   navigationPreference: navigationPreferenceRouter,
   habit: habitRouter,
