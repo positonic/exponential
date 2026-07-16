@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
-  Badge,
   Button,
   Group,
   Menu,
@@ -29,6 +27,8 @@ import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/PropertyPill";
+import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
+import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
@@ -40,17 +40,14 @@ import {
   FEATURE_STATUSES,
   FEATURE_STATUS_LABELS,
   FEATURE_STATUS_COLORS,
-  SCOPE_STATUS_LABELS,
-  SCOPE_STATUS_COLORS,
 } from "~/lib/feature-statuses";
 
 const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
 
 /**
- * Full feature content for the peek drawer: PRD body, scopes and
- * requirements summaries, and activity, with the properties sidebar
- * compressed into the pill strip. Scope/requirement EDITING stays on the
- * full page; everything else is live here.
+ * Full feature content for the peek drawer: PRD body, the SAME interactive
+ * scopes and requirements blocks as the detail page (shared components),
+ * and activity, with the properties sidebar compressed into the pill strip.
  */
 export function FeaturePeek({ featureId, basePath }: { featureId: string; basePath: string }) {
   const { workspaceId } = useWorkspace();
@@ -409,82 +406,38 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
         </CollapsibleSection>
       </div>
 
-      {/* Scopes - summary; add/edit on the full page. Empty state teaches. */}
+      {/* Scopes - the SAME interactive block as the detail page (status
+          select, scope-page links, delete, add form). */}
       <div className="pt-2">
-      <CollapsibleSection
-        title="Scopes"
-        icon={<IconCategory size={14} className="text-text-muted" />}
-        meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
-      >
-        {feature.scopes.length > 0 ? (
-          <Stack gap={6}>
-            {feature.scopes.map((s) => (
-              <Link
-                key={s.id}
-                href={`${basePath}/features/${featureId}/scopes/${s.id}`}
-                className="flex items-center gap-2 rounded-lg border border-border-primary px-3 py-2 no-underline hover:bg-surface-hover transition-colors"
-              >
-                <Badge size="xs" variant="outline" color="gray" className="shrink-0">
-                  {s.version}
-                </Badge>
-                <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
-                  {s.description}
-                </Text>
-                <Badge
-                  size="xs"
-                  variant="light"
-                  color={SCOPE_STATUS_COLORS[s.status] ?? "gray"}
-                  className="shrink-0"
-                >
-                  {SCOPE_STATUS_LABELS[s.status] ?? s.status}
-                </Badge>
-              </Link>
-            ))}
-          </Stack>
-        ) : (
-          <Text size="sm" className="text-text-muted">
-            No scopes yet - scopes are a feature&apos;s delivery slices (v1, v2, new
-            platforms). Define them on the{" "}
-            <Link href={`${basePath}/features/${featureId}`} className="text-text-secondary underline hover:text-text-primary">
-              full page
-            </Link>
-            .
-          </Text>
-        )}
-      </CollapsibleSection>
+        <CollapsibleSection
+          title="Scopes"
+          icon={<IconCategory size={14} className="text-text-muted" />}
+          meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
+        >
+          <FeatureScopesSection
+            featureId={featureId}
+            productId={feature.product.id}
+            scopes={feature.scopes}
+            scopesPath={`${basePath}/features/${featureId}/scopes`}
+          />
+        </CollapsibleSection>
       </div>
 
-      {/* Requirements - read-only summary; editing on the full page. */}
+      {/* Requirements - the SAME interactive block as the detail page
+          (check off, kind + scope association, delete, add form). */}
       <div className="pt-2">
-      <CollapsibleSection
-        title="Requirements"
-        icon={<IconChecklist size={14} className="text-text-muted" />}
-        meta={requirementsMeta}
-      >
-        {feature.requirements.length > 0 ? (
-          <Stack gap={4}>
-            {feature.requirements.map((r) => (
-              <Group key={r.id} gap="xs" wrap="nowrap" align="flex-start">
-                <span
-                  className={`mt-1.5 inline-block h-1.5 w-1.5 rounded-full shrink-0 ${r.checkedAt != null ? "bg-brand-success" : "border border-border-focus bg-transparent"}`}
-                />
-                <Text size="sm" className={r.checkedAt != null ? "text-text-muted" : "text-text-primary"}>
-                  {r.statement}
-                </Text>
-              </Group>
-            ))}
-          </Stack>
-        ) : (
-          <Text size="sm" className="text-text-muted">
-            No requirements yet - checkable EARS statements about what this
-            feature must do. Draft them on the{" "}
-            <Link href={`${basePath}/features/${featureId}`} className="text-text-secondary underline hover:text-text-primary">
-              full page
-            </Link>
-            .
-          </Text>
-        )}
-      </CollapsibleSection>
+        <CollapsibleSection
+          title="Requirements"
+          icon={<IconChecklist size={14} className="text-text-muted" />}
+          meta={requirementsMeta}
+        >
+          <FeatureRequirementsSection
+            featureId={featureId}
+            requirements={feature.requirements}
+            scopes={feature.scopes}
+            userStories={feature.userStories}
+          />
+        </CollapsibleSection>
       </div>
 
       {/* Activity */}
