@@ -456,14 +456,14 @@ export async function sendMentionNotifications(
   try {
     const { actionId, commentContent, commentAuthorId } = params;
 
-    const ws = await resolveActionWorkspace(db, actionId);
-    if (!ws) return;
-
-    const action = await db.action.findUnique({
-      where: { id: actionId },
-      select: { name: true },
-    });
-    if (!action) return;
+    const [ws, action] = await Promise.all([
+      resolveActionWorkspace(db, actionId),
+      db.action.findUnique({
+        where: { id: actionId },
+        select: { name: true },
+      }),
+    ]);
+    if (!ws || !action) return;
 
     await fanOutMentionNotifications(db, {
       workspaceId: ws.workspaceId,
