@@ -276,8 +276,164 @@ async function extractMentionedUserIds(
 }
 
 /**
- * Fire-and-forget: Send email notifications to mentioned users in a comment.
- * Call this after creating an ActionComment.
+ * Resolve the workspace + product slug + name for a feature (PRD). Features
+ * inherit their workspace via their product; there is no direct workspaceId.
+ */
+async function resolveFeatureWorkspace(
+  db: PrismaClient,
+  featureId: string,
+): Promise<
+  | {
+      workspaceId: string;
+      workspaceSlug: string;
+      workspaceName: string;
+      productSlug: string;
+      featureName: string;
+    }
+  | null
+> {
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: {
+      name: true,
+      product: {
+        select: {
+          slug: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      },
+    },
+  });
+
+  const ws = feature?.product?.workspace;
+  if (!feature || !ws) return null;
+
+  return {
+    workspaceId: ws.id,
+    workspaceSlug: ws.slug,
+    workspaceName: ws.name,
+    productSlug: feature.product.slug,
+    featureName: feature.name,
+  };
+}
+
+/**
+ * Target-agnostic core: notify every mentioned user (minus the author) across
+ * push, Zulip DM, and email. Callers resolve the entity (action, feature, …)
+ * to a workspace + display name + deep-link path and hand it here so the
+ * multi-channel fan-out and per-recipient gating live in exactly one place.
+ */
+async function fanOutMentionNotifications(
+  db: PrismaClient,
+  params: {
+    workspaceId: string;
+    workspaceSlug: string;
+    workspaceName: string;
+    /** Display name of the thing the comment is on (action name, feature name). */
+    targetName: string;
+    /** Relative deep-link path to the comment thread, e.g. /w/slug/actions/id. */
+    targetPath: string;
+    /** Link label used in the Zulip DM, e.g. "View task", "View PRD". */
+    viewLabel: string;
+    commentContent: string;
+    commentAuthorId: string;
+  },
+): Promise<void> {
+  const {
+    workspaceId,
+    workspaceSlug,
+    workspaceName,
+    targetName,
+    targetPath,
+    viewLabel,
+    commentContent,
+    commentAuthorId,
+  } = params;
+
+  const mentionedUserIds = await extractMentionedUserIds(
+    db,
+    commentContent,
+    workspaceId,
+  );
+  if (mentionedUserIds.length === 0) return;
+
+  // Filter out the comment author (don't notify yourself). Non-member ids
+  // (e.g. mentioned agents) never match a User row below, so they drop out.
+  const recipientIds = mentionedUserIds.filter((id) => id !== commentAuthorId);
+  if (recipientIds.length === 0) return;
+
+  const [author, recipients] = await Promise.all([
+    db.user.findUnique({
+      where: { id: commentAuthorId },
+      select: { name: true, email: true },
+    }),
+    db.user.findMany({
+      where: { id: { in: recipientIds } },
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
+  if (!author) return;
+
+  const targetUrl = `${BASE_URL}${targetPath}`;
+  const personalSettingsUrl = `${BASE_URL}/settings/notifications`;
+  const workspaceSettingsUrl = `${BASE_URL}/w/${workspaceSlug}/settings`;
+  const authorName = author.name ?? author.email ?? "Someone";
+  // Strip mention markup for preview and limit to 200 chars
+  const cleanContent = commentContent.replace(/@\[([^\]]+)\](?:\([^)]+\))?/g, "@$1");
+  const commentPreview =
+    cleanContent.length > 200
+      ? cleanContent.substring(0, 200) + "..."
+      : cleanContent;
+
+  await Promise.allSettled(
+    recipients.map(async (recipient) => {
+      const shouldSend = await shouldSendEmailNotification(
+        db,
+        recipient.id,
+        workspaceId,
+      );
+      if (!shouldSend) return;
+
+      // Send push notification
+      void sendPushToUser(
+        recipient.id,
+        {
+          title: `${authorName} mentioned you in ${targetName}`,
+          body: commentPreview,
+          tag: "mention",
+          url: targetPath,
+        },
+        db,
+      );
+
+      // Send Zulip DM
+      void sendZulipDmToUser(db, recipient.id, workspaceId, {
+        title: `${authorName} mentioned you in ${targetName}`,
+        message: `${commentPreview}\n\n[${viewLabel}](${targetUrl})`,
+        priority: "normal",
+      });
+
+      if (!recipient.email) return;
+
+      await sendMentionNotificationEmail({
+        to: recipient.email,
+        mentionedName: recipient.name ?? "",
+        authorName,
+        actionName: targetName,
+        commentPreview,
+        actionUrl: targetUrl,
+        workspaceName,
+        personalSettingsUrl,
+        workspaceSettingsUrl,
+        workspaceId,
+      });
+    }),
+  );
+}
+
+/**
+ * Fire-and-forget: Send notifications to users mentioned in an ActionComment.
+ * Thin wrapper over {@link fanOutMentionNotifications}.
  */
 export async function sendMentionNotifications(
   db: PrismaClient,
@@ -293,87 +449,59 @@ export async function sendMentionNotifications(
     const ws = await resolveActionWorkspace(db, actionId);
     if (!ws) return;
 
-    const mentionedUserIds = await extractMentionedUserIds(
-      db,
+    const action = await db.action.findUnique({
+      where: { id: actionId },
+      select: { name: true },
+    });
+    if (!action) return;
+
+    await fanOutMentionNotifications(db, {
+      workspaceId: ws.workspaceId,
+      workspaceSlug: ws.workspaceSlug,
+      workspaceName: ws.workspaceName,
+      targetName: action.name,
+      targetPath: `/w/${ws.workspaceSlug}/actions/${actionId}`,
+      viewLabel: "View task",
       commentContent,
-      ws.workspaceId,
-    );
-    if (mentionedUserIds.length === 0) return;
-
-    // Filter out the comment author (don't notify yourself)
-    const recipientIds = mentionedUserIds.filter((id) => id !== commentAuthorId);
-    if (recipientIds.length === 0) return;
-
-    const [action, author, recipients] = await Promise.all([
-      db.action.findUnique({
-        where: { id: actionId },
-        select: { name: true },
-      }),
-      db.user.findUnique({
-        where: { id: commentAuthorId },
-        select: { name: true, email: true },
-      }),
-      db.user.findMany({
-        where: { id: { in: recipientIds } },
-        select: { id: true, name: true, email: true },
-      }),
-    ]);
-    if (!action || !author) return;
-
-    const urls = buildNotificationUrls(ws.workspaceSlug, actionId);
-    const authorName = author.name ?? author.email ?? "Someone";
-    // Strip mention markup for preview and limit to 200 chars
-    const cleanContent = commentContent.replace(/@\[([^\]]+)\](?:\([^)]+\))?/g, "@$1");
-    const commentPreview =
-      cleanContent.length > 200
-        ? cleanContent.substring(0, 200) + "..."
-        : cleanContent;
-
-    await Promise.allSettled(
-      recipients.map(async (recipient) => {
-        const shouldSend = await shouldSendEmailNotification(
-          db,
-          recipient.id,
-          ws.workspaceId,
-        );
-        if (!shouldSend) return;
-
-        // Send push notification
-        void sendPushToUser(
-          recipient.id,
-          {
-            title: `${authorName} mentioned you in ${action.name}`,
-            body: commentPreview,
-            tag: "mention",
-            url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
-          },
-          db,
-        );
-
-        // Send Zulip DM
-        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
-          title: `${authorName} mentioned you in ${action.name}`,
-          message: `${commentPreview}\n\n[View task](${urls.actionUrl})`,
-          priority: "normal",
-        });
-
-        if (!recipient.email) return;
-
-        await sendMentionNotificationEmail({
-          to: recipient.email,
-          mentionedName: recipient.name ?? "",
-          authorName,
-          actionName: action.name,
-          commentPreview,
-          actionUrl: urls.actionUrl,
-          workspaceName: ws.workspaceName,
-          personalSettingsUrl: urls.personalSettingsUrl,
-          workspaceSettingsUrl: urls.workspaceSettingsUrl,
-          workspaceId: ws.workspaceId,
-        });
-      }),
-    );
+      commentAuthorId,
+    });
   } catch (error) {
     console.error("[EmailNotificationService] Failed to send mention notifications:", error);
+  }
+}
+
+/**
+ * Fire-and-forget: Send notifications to users mentioned in a FeatureComment
+ * (PRD or one of its scopes). Thin wrapper over {@link fanOutMentionNotifications}.
+ */
+export async function sendFeatureMentionNotifications(
+  db: PrismaClient,
+  params: {
+    featureId: string;
+    scopeId?: string;
+    commentContent: string;
+    commentAuthorId: string;
+  },
+): Promise<void> {
+  try {
+    const { featureId, scopeId, commentContent, commentAuthorId } = params;
+
+    const info = await resolveFeatureWorkspace(db, featureId);
+    if (!info) return;
+
+    const basePath = `/w/${info.workspaceSlug}/products/${info.productSlug}/features/${featureId}`;
+
+    await fanOutMentionNotifications(db, {
+      workspaceId: info.workspaceId,
+      workspaceSlug: info.workspaceSlug,
+      workspaceName: info.workspaceName,
+      targetName: info.featureName,
+      targetPath: scopeId ? `${basePath}/scopes/${scopeId}` : basePath,
+      viewLabel: "View PRD",
+      commentContent,
+      commentAuthorId,
+    });
+  } catch (error) {
+    console.error("[EmailNotificationService] Failed to send feature mention notifications:", error);
   }
 }

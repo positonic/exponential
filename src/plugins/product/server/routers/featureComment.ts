@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadFeatureWithAccess } from "./feature";
+import { sendFeatureMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
 
 const authorSelect = {
   id: true,
@@ -61,7 +62,7 @@ export const featureCommentRouter = createTRPCRouter({
         }
       }
 
-      return ctx.db.featureComment.create({
+      const comment = await ctx.db.featureComment.create({
         data: {
           featureId: input.featureId,
           scopeId: input.scopeId,
@@ -72,6 +73,16 @@ export const featureCommentRouter = createTRPCRouter({
         },
         include: { createdBy: { select: authorSelect } },
       });
+
+      // Fire-and-forget: notify mentioned workspace members.
+      void sendFeatureMentionNotifications(ctx.db, {
+        featureId: input.featureId,
+        scopeId: input.scopeId,
+        commentContent: input.body,
+        commentAuthorId: ctx.session.user.id,
+      });
+
+      return comment;
     }),
 
   reply: protectedProcedure
@@ -84,14 +95,14 @@ export const featureCommentRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const parent = await ctx.db.featureComment.findUnique({
         where: { id: input.parentId },
-        select: { featureId: true, threadId: true, parentId: true },
+        select: { featureId: true, threadId: true, parentId: true, scopeId: true },
       });
       if (!parent) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
       await loadFeatureWithAccess(ctx.db, ctx.session.user.id, parent.featureId);
 
-      return ctx.db.featureComment.create({
+      const comment = await ctx.db.featureComment.create({
         data: {
           featureId: parent.featureId,
           threadId: parent.threadId,
@@ -102,6 +113,17 @@ export const featureCommentRouter = createTRPCRouter({
         },
         include: { createdBy: { select: authorSelect } },
       });
+
+      // Fire-and-forget: notify mentioned workspace members. Deep-link to the
+      // parent's scope thread when the conversation lives on a scope.
+      void sendFeatureMentionNotifications(ctx.db, {
+        featureId: parent.featureId,
+        scopeId: parent.scopeId ?? undefined,
+        commentContent: input.body,
+        commentAuthorId: ctx.session.user.id,
+      });
+
+      return comment;
     }),
 
   update: protectedProcedure
