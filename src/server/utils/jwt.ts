@@ -48,7 +48,7 @@ export interface JWTUserPayload {
 /**
  * Supported JWT token types in the application.
  */
-export type JWTTokenType = "agent-context" | "whatsapp-gateway" | "telegram-gateway" | "api-token" | "extension-token" | "voice-session" | "device-token";
+export type JWTTokenType = "agent-context" | "whatsapp-gateway" | "telegram-gateway" | "matrix-gateway" | "api-token" | "extension-token" | "voice-session" | "device-token";
 
 /**
  * Options for unified JWT generation.
@@ -75,6 +75,7 @@ export const DEFAULT_EXPIRY: Record<JWTTokenType, number> = {
   "agent-context": 30,      // 30 minutes
   "whatsapp-gateway": 60,   // 1 hour
   "telegram-gateway": 60,   // 1 hour
+  "matrix-gateway": 60,     // 1 hour
   "api-token": 1440,        // 24 hours (default, usually overridden)
   "extension-token": 1440,  // 24 hours
   "voice-session": 30,      // 30 minutes (one push-to-talk session; no mid-call refresh in v1, see ADR 0002)
@@ -89,6 +90,7 @@ const TOKEN_AUDIENCE: Record<JWTTokenType, string> = {
   "agent-context": "mastra-agents",
   "whatsapp-gateway": "whatsapp-gateway",
   "telegram-gateway": "telegram-gateway",
+  "matrix-gateway": "matrix-gateway",
   "api-token": "mastra-agents",
   "extension-token": "mastra-agents",
   // Scoped to the voice tool surface so the brain endpoint can validate only its own tokens.
