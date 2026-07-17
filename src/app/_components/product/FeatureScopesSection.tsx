@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { ActionIcon, Button, Group, Menu, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { ActionIcon, Button, Group, Menu, Text, Textarea, TextInput, UnstyledButton } from "@mantine/core";
 import { IconCheck, IconChevronDown, IconPlus, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { ColorDot } from "~/app/_components/product/PropertyPill";
@@ -43,10 +43,26 @@ export function FeatureScopesSection({
   const [scopeVersion, setScopeVersion] = useState("");
   const [scopeDescription, setScopeDescription] = useState("");
 
+  // In-place description editing (the In-Place Edit Rule, DESIGN.md).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  // Esc-cancel guard: blur fires before the cancel setState applies.
+  const cancelingEdit = useRef(false);
+
   const invalidate = async () => {
     await utils.product.feature.getById.invalidate({ id: featureId });
     await utils.product.feature.listEvents.invalidate({ featureId });
     await utils.product.feature.list.invalidate({ productId });
+  };
+
+  const commitDescription = (scope: FeatureScopeRow) => {
+    const v = editValue.trim();
+    if (v && v !== scope.description) {
+      updateScope.mutate({ id: scope.id, description: v });
+      setEditingId(null);
+    } else {
+      setEditingId(null);
+    }
   };
 
   const addScope = api.product.feature.addScope.useMutation({
@@ -114,7 +130,50 @@ export function FeatureScopesSection({
                   )}
                 </Group>
                 <div className="mt-1">
-                  <MarkdownRenderer content={scope.description} />
+                  {editingId === scope.id ? (
+                    <Textarea
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.currentTarget.value)}
+                    // Layered dismiss: Esc cancels this edit, not the drawer
+                    // (Mantine's close listener is window-level).
+                    data-mantine-stop-propagation="true"
+                      autoFocus
+                      autosize
+                      minRows={1}
+                      variant="unstyled"
+                      classNames={{ input: "text-sm text-text-primary p-0" }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          commitDescription(scope);
+                        }
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          cancelingEdit.current = true;
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={() => {
+                        if (cancelingEdit.current) {
+                          cancelingEdit.current = false;
+                          setEditingId(null);
+                          return;
+                        }
+                        commitDescription(scope);
+                      }}
+                    />
+                  ) : (
+                    // Click to edit in place (Enter commits, Esc cancels).
+                    <UnstyledButton
+                      onClick={() => {
+                        setEditingId(scope.id);
+                        setEditValue(scope.description);
+                      }}
+                      className="block w-full text-left"
+                    >
+                      <MarkdownRenderer content={scope.description} />
+                    </UnstyledButton>
+                  )}
                 </div>
               </div>
               {/* Hover-revealed destructive affordance - the app's shared

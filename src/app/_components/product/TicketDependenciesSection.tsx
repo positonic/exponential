@@ -231,6 +231,11 @@ function DependencySection({
         ) : (
           <UnstyledButton
             onClick={() => setIsAdding(true)}
+            // Wide mode: 12px left pad so the + column lines up with the
+            // container rows' px-3 content (dots above, Actions input icon).
+            // Via prop, not a pl-3 class - Mantine's UnstyledButton padding
+            // reset wins the cascade over Tailwind utilities.
+            pl={wide ? 12 : 0}
             className="inline-flex items-center gap-1.5 self-start py-0.5 text-text-muted hover:text-text-primary transition-colors"
           >
             <span className="inline-flex w-3.5 justify-center">

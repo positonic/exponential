@@ -67,6 +67,7 @@ Colors are consumed exclusively through semantic tokens (`bg-background-primary`
 ### Named Rules
 **The Semantic Token Rule.** No literal color values in component code, ever. If a color is missing, add a token; never inline a hex.
 **The Meaningful Color Rule.** Color encodes state, status, priority, or identity. Decoration stays neutral.
+**The In-Place Edit Rule.** Every value visible on a product surface is editable where it stands (invisible inputs, pill/badge menus, click-to-edit rows) or is explicitly read-only by design. "Visible but uneditable" is a defect, not a summary. Design reviews must walk every visible value and attempt to change it - grading only what exists misses missing capabilities.
 
 ## 3. Typography
 

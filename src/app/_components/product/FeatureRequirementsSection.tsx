@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ActionIcon, Badge, Button, Select, Text, TextInput } from "@mantine/core";
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+import { useRef, useState } from "react";
+import { ActionIcon, Badge, Button, Menu, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { REQUIREMENT_KIND_OPTIONS, REQUIREMENT_KIND_LABELS } from "~/lib/feature-statuses";
 
@@ -44,7 +44,29 @@ export function FeatureRequirementsSection({
   const [reqKind, setReqKind] = useState<string | null>(null);
   const [reqScopeId, setReqScopeId] = useState<string | null>(null);
 
+  // In-place statement editing (the In-Place Edit Rule, DESIGN.md).
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  // Esc-cancel guard: blur fires before the cancel setState applies.
+  const cancelingEdit = useRef(false);
+
   const invalidate = () => utils.product.feature.getById.invalidate({ id: featureId });
+
+  const updateRequirement = api.product.feature.updateRequirement.useMutation({
+    onSuccess: () => {
+      setEditingId(null);
+      void invalidate();
+    },
+  });
+
+  const commitStatement = (req: FeatureRequirementRow) => {
+    const v = editValue.trim();
+    if (v && v !== req.statement) {
+      updateRequirement.mutate({ id: req.id, statement: v });
+    } else {
+      setEditingId(null);
+    }
+  };
 
   const addRequirement = api.product.feature.addRequirement.useMutation({
     onSuccess: async () => {
@@ -89,21 +111,92 @@ export function FeatureRequirementsSection({
                   className="mt-0.5 shrink-0 cursor-pointer accent-[var(--color-brand-primary)]"
                   aria-label="Requirement met"
                 />
-                <Text
-                  size="sm"
-                  className={`flex-1 min-w-0 ${req.checkedAt != null ? "text-text-muted line-through" : "text-text-primary"}`}
-                >
-                  {req.statement}
-                </Text>
+                {editingId === req.id ? (
+                  <TextInput
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.currentTarget.value)}
+                    // Layered dismiss: Esc cancels this edit, not the drawer
+                    // (Mantine's close listener is window-level).
+                    data-mantine-stop-propagation="true"
+                    autoFocus
+                    size="xs"
+                    variant="unstyled"
+                    className="flex-1 min-w-0"
+                    classNames={{ input: "text-sm text-text-primary" }}
+                    styles={{ input: { minHeight: 22, height: 22 } }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitStatement(req);
+                      }
+                      if (e.key === "Escape") {
+                        e.stopPropagation();
+                        cancelingEdit.current = true;
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => {
+                      if (cancelingEdit.current) {
+                        cancelingEdit.current = false;
+                        setEditingId(null);
+                        return;
+                      }
+                      commitStatement(req);
+                    }}
+                  />
+                ) : (
+                  // Click to edit in place (Enter commits, Esc cancels).
+                  <UnstyledButton
+                    onClick={() => {
+                      setEditingId(req.id);
+                      setEditValue(req.statement);
+                    }}
+                    className={`flex-1 min-w-0 truncate text-left text-sm ${req.checkedAt != null ? "text-text-muted line-through" : "text-text-primary"}`}
+                  >
+                    {req.statement}
+                  </UnstyledButton>
+                )}
                 {req.kind && (
                   <Badge size="xs" variant="outline" color="gray" className="shrink-0">
                     {REQUIREMENT_KIND_LABELS[req.kind] ?? req.kind}
                   </Badge>
                 )}
-                {reqScope && (
-                  <Badge size="xs" variant="light" color="gray" className="shrink-0">
-                    {reqScope.version}
-                  </Badge>
+                {/* Scope association switches in place; the ghost trigger
+                    appears on hover when no scope is set. */}
+                {scopes.length > 0 && (
+                  <Menu position="bottom-end" withinPortal shadow="md">
+                    <Menu.Target>
+                      <UnstyledButton
+                        className={`shrink-0 ${reqScope ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"}`}
+                        aria-label="Change scope"
+                      >
+                        {reqScope ? (
+                          <Badge size="xs" variant="light" color="gray" className="cursor-pointer">
+                            {reqScope.version}
+                          </Badge>
+                        ) : (
+                          <Badge size="xs" variant="outline" color="gray" className="cursor-pointer border-dashed">
+                            + scope
+                          </Badge>
+                        )}
+                      </UnstyledButton>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      {scopes.map((s) => (
+                        <Menu.Item
+                          key={s.id}
+                          rightSection={s.id === req.scopeId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                          onClick={() => updateRequirement.mutate({ id: req.id, scopeId: s.id })}
+                        >
+                          {s.version}
+                        </Menu.Item>
+                      ))}
+                      <Menu.Divider />
+                      <Menu.Item onClick={() => updateRequirement.mutate({ id: req.id, scopeId: null })}>
+                        No scope
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
                 )}
                 <ActionIcon
                   variant="subtle"
