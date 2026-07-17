@@ -7,6 +7,7 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
+import { deriveActionSource } from "~/server/utils/actionSource";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -1198,7 +1199,7 @@ export const mastraRouter = createTRPCRouter({
           createdById: userId,
           scheduledStart: parsed.scheduledStart,
           dueDate: parsed.dueDate,
-          source: "whatsapp",
+          source: deriveActionSource(ctx.tokenType),
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
           workspaceId: quickMastraWsId,

@@ -120,6 +120,9 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           return {
             db,
             session: jwtSession,
+            // Surface the JWT token type so procedures can attribute writes to
+            // the calling surface (e.g. Action.source for chat gateways).
+            tokenType: decoded.tokenType,
             ...opts,
           };
         }
@@ -131,6 +134,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
   return {
     db,
     session,
+    tokenType: undefined as string | undefined,
     ...opts,
   };
 };
