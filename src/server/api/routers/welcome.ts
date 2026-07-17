@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 /**
  * Per-user "Getting started" setup state, persisted on `User.welcomeSetupState`.
@@ -23,7 +22,12 @@ const setupStateSchema = z.object({
 
 export type WelcomeSetupState = z.infer<typeof setupStateSchema>;
 
-function parseSetupState(value: unknown): WelcomeSetupState {
+/**
+ * Safe-parse a raw `User.welcomeSetupState` value; malformed or empty input
+ * yields the pristine default state. Also used by the admin router to derive
+ * user lifecycle status.
+ */
+export function parseSetupState(value: unknown): WelcomeSetupState {
   const result = setupStateSchema.safeParse(value ?? {});
   return result.success ? result.data : setupStateSchema.parse({});
 }
@@ -131,11 +135,6 @@ export const welcomeRouter = createTRPCRouter({
         },
       });
 
-      void completeOnboardingStep(ctx.db, userId, "goal").catch(
-        (err: unknown) => {
-          console.error("[onboarding-sync] goal:", err);
-        },
-      );
 
       return saveSetupState(ctx.db, userId, {
         ...existing,
@@ -184,11 +183,6 @@ export const welcomeRouter = createTRPCRouter({
         },
       });
 
-      void completeOnboardingStep(ctx.db, userId, "actions").catch(
-        (err: unknown) => {
-          console.error("[onboarding-sync] actions:", err);
-        },
-      );
 
       return saveSetupState(ctx.db, userId, {
         ...existing,
@@ -262,11 +256,6 @@ export const welcomeRouter = createTRPCRouter({
         });
       }
 
-      void completeOnboardingStep(ctx.db, userId, "dailyPlan").catch(
-        (err: unknown) => {
-          console.error("[onboarding-sync] dailyPlan:", err);
-        },
-      );
 
       return saveSetupState(ctx.db, userId, { ...state, planCreated: true });
     }),

@@ -1,0 +1,8 @@
+-- No-op migration.
+--
+-- V3 of the welcome-flow effort (ADR-0044) marks the ten dead onboarding
+-- columns on "User" as /// Deprecated in schema.prisma. Doc comments produce
+-- no DDL, but the repo's schema-change guard (pre-commit + CI) requires every
+-- schema.prisma change to ship with a migration. This empty migration
+-- satisfies that guard honestly. The columns themselves are dropped by a
+-- later V4 migration after soak.

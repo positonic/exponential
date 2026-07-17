@@ -2,31 +2,33 @@ import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import { redirect } from "next/navigation";
 import { CommandCenter } from "~/app/_components/home/CommandCenter";
+import { resolveNewUserRedirect } from "~/server/services/welcome/resolveNewUserRedirect";
 
 export default async function HomePage() {
   const session = await auth();
 
   if (session?.user?.id) {
-    // Check if user has completed onboarding
     const userData = await db.user.findUnique({
       where: { id: session.user.id },
       select: {
-        onboardingCompletedAt: true,
         welcomeCompletedAt: true,
+        // User has no createdAt column; the earliest owned workspace (the
+        // auto-created Personal one) stands in for account creation time.
+        ownedWorkspaces: {
+          orderBy: { createdAt: "asc" },
+          take: 1,
+          select: { createdAt: true },
+        },
       },
     });
 
-    // Redirect to onboarding if not completed
-    if (userData && !userData.onboardingCompletedAt) {
-      redirect('/onboarding');
-    }
-
-    // Redirect new users (completed onboarding within 24h, haven't finished welcome) to welcome
-    if (userData?.onboardingCompletedAt && !userData.welcomeCompletedAt) {
-      const completedAt = new Date(userData.onboardingCompletedAt);
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      if (completedAt > oneDayAgo) {
-        redirect('/welcome');
+    if (userData) {
+      const destination = resolveNewUserRedirect({
+        createdAt: userData.ownedWorkspaces[0]?.createdAt ?? null,
+        welcomeCompletedAt: userData.welcomeCompletedAt,
+      });
+      if (destination) {
+        redirect(destination);
       }
     }
   }

@@ -274,7 +274,6 @@ export const authConfig = {
         where: { email: user.email },
         select: {
           id: true,
-          onboardingCompletedAt: true,
           projects: { take: 1 },
           actions: { take: 1 },
         },

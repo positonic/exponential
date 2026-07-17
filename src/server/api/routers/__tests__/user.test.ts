@@ -230,6 +230,35 @@ describe("user.uploadProfileImage", () => {
   });
 });
 
+describe("user.completeWelcome", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  it("stamps welcomeCompletedAt and performs no project/action writes", async () => {
+    db.user.update.mockResolvedValue({} as unknown as User);
+
+    const result = await caller(db).user.completeWelcome();
+
+    expect(db.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: USER_ID },
+        data: { welcomeCompletedAt: expect.any(Date) as Date },
+      }),
+    );
+    // Regression guard: the onboarding-project close-out block is gone —
+    // completing welcome must not touch projects or actions.
+    expect(db.project.update).not.toHaveBeenCalled();
+    expect(db.project.updateMany).not.toHaveBeenCalled();
+    expect(db.action.update).not.toHaveBeenCalled();
+    expect(db.action.updateMany).not.toHaveBeenCalled();
+    expect(result).toEqual({ success: true });
+  });
+});
+
 describe("user.getWorkHours", () => {
   let db: DeepMockProxy<PrismaClient>;
 

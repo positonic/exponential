@@ -17,15 +17,9 @@ export default async function WelcomePage() {
   const userData = await db.user.findUnique({
     where: { id: session.user.id },
     select: {
-      onboardingCompletedAt: true,
       welcomeCompletedAt: true,
     },
   });
-
-  // Redirect to onboarding if not completed
-  if (userData && !userData.onboardingCompletedAt) {
-    redirect("/onboarding");
-  }
 
   // If welcome is already completed, go to home
   if (userData?.welcomeCompletedAt) {

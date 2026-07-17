@@ -85,9 +85,6 @@ vi.mock("~/server/db", () => {
 vi.mock("~/server/services/notifications/EmailNotificationService", () => ({
   sendAssignmentNotifications: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("~/server/services/onboarding/syncOnboardingProgress", () => ({
-  completeOnboardingStep: vi.fn().mockResolvedValue(undefined),
-}));
 vi.mock("~/lib/blob", () => ({
   uploadToBlob: vi.fn().mockResolvedValue({ url: "blob://test" }),
 }));

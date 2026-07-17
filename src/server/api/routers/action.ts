@@ -15,7 +15,6 @@ import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, can
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
@@ -487,9 +486,6 @@ export const actionRouter = createTRPCRouter({
 
       // Sync onboarding progress if action is linked to a project (fire-and-forget)
       if (input.projectId) {
-        void completeOnboardingStep(ctx.db, ctx.session.user.id, "actions").catch(
-          (err: unknown) => { console.error("[onboarding-sync] actions:", err); },
-        );
 
         void logProjectActivity(ctx.db, {
           projectId: input.projectId,
@@ -760,9 +756,6 @@ export const actionRouter = createTRPCRouter({
 
       // Sync onboarding progress on first action completion (fire-and-forget)
       if (isCompleting && !wasCompleted) {
-        void completeOnboardingStep(ctx.db, ctx.session.user.id, "complete").catch(
-          (err: unknown) => { console.error("[onboarding-sync] complete:", err); },
-        );
       }
 
       // Recalculate score if completion status changed and action is linked to daily plan
@@ -897,9 +890,6 @@ export const actionRouter = createTRPCRouter({
 
       // Sync onboarding progress on first action completion via kanban (fire-and-forget)
       if (isCompleting && !wasCompleted) {
-        void completeOnboardingStep(ctx.db, ctx.session.user.id, "complete").catch(
-          (err: unknown) => { console.error("[onboarding-sync] complete:", err); },
-        );
       }
 
       // Track status change for PM agent analytics (cycle time, lead time)

@@ -13,7 +13,6 @@ import {
   isWorkspaceGuest,
   AccessControlService,
 } from "~/server/services/access";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
 import type { PrismaClient } from "@prisma/client";
@@ -317,10 +316,6 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Sync onboarding progress (fire-and-forget)
-      void completeOnboardingStep(ctx.db, ctx.session.user.id, "project").catch(
-        (err: unknown) => { console.error("[onboarding-sync] project:", err); },
-      );
 
       return project;
     }),
