@@ -191,6 +191,43 @@ export const userRouter = createTRPCRouter({
       return project;
     }),
 
+  getProfile: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: {
+          name: true,
+          email: true,
+          image: true,
+        },
+      });
+
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      return user;
+    }),
+
+  updateProfile: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const updatedUser = await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { name: input.name },
+        select: { name: true },
+      });
+
+      return { success: true, name: updatedUser.name };
+    }),
+
   getWorkHours: protectedProcedure
     .query(async ({ ctx }) => {
       const user = await ctx.db.user.findUnique({

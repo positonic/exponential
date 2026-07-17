@@ -139,6 +139,45 @@ describe("user.updateWorkHours", () => {
   });
 });
 
+describe("user.updateProfile", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  it("persists the new name to User.name", async () => {
+    db.user.update.mockResolvedValue({ name: "New Name" } as unknown as User);
+
+    const result = await caller(db).user.updateProfile({ name: "New Name" });
+
+    expect(db.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: USER_ID },
+        data: { name: "New Name" },
+      }),
+    );
+    expect(result).toEqual({ success: true, name: "New Name" });
+  });
+
+  it("rejects an empty name without writing", async () => {
+    await expect(
+      caller(db).user.updateProfile({ name: "" }),
+    ).rejects.toThrow();
+
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a name longer than 100 characters without writing", async () => {
+    await expect(
+      caller(db).user.updateProfile({ name: "x".repeat(101) }),
+    ).rejects.toThrow();
+
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("user.getWorkHours", () => {
   let db: DeepMockProxy<PrismaClient>;
 
