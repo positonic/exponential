@@ -17,6 +17,7 @@ import {
   IconBrandGoogle,
   IconBrandNotion,
 } from '@tabler/icons-react';
+import { WorkHoursCard } from './WorkHoursCard';
 
 const PROVIDERS = [
   { id: 'discord', label: 'Discord', icon: IconBrandDiscord, color: 'indigo' },
@@ -87,6 +88,9 @@ export default function ProfileSettingsPage() {
             </Stack>
           </Group>
         </Paper>
+
+        {/* Work Hours */}
+        <WorkHoursCard />
 
         {/* Connected Accounts */}
         <div>

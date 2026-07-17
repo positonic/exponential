@@ -191,6 +191,72 @@ export const userRouter = createTRPCRouter({
       return project;
     }),
 
+  getWorkHours: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: {
+          workHoursEnabled: true,
+          workDaysJson: true,
+          workHoursStart: true,
+          workHoursEnd: true,
+        },
+      });
+
+      let workDays: string[] = [];
+      if (user?.workDaysJson) {
+        try {
+          workDays = JSON.parse(user.workDaysJson) as string[];
+        } catch {
+          workDays = [];
+        }
+      }
+
+      return {
+        workHoursEnabled: user?.workHoursEnabled ?? false,
+        workDays,
+        workHoursStart: user?.workHoursStart ?? null,
+        workHoursEnd: user?.workHoursEnd ?? null,
+      };
+    }),
+
+  updateWorkHours: protectedProcedure
+    .input(
+      z.object({
+        workHoursEnabled: z.boolean(),
+        workDays: z.array(z.string()), // ["monday", "tuesday", ...]
+        workHoursStart: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid HH:MM (00:00-23:59)'),
+        workHoursEnd: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid HH:MM (00:00-23:59)'),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workHoursEnabled, workDays, workHoursStart, workHoursEnd } = input;
+
+      const updatedUser = await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: {
+          workHoursEnabled,
+          workDaysJson: JSON.stringify(workDays),
+          workHoursStart,
+          workHoursEnd,
+        },
+        select: {
+          workHoursEnabled: true,
+          workDaysJson: true,
+          workHoursStart: true,
+          workHoursEnd: true,
+        },
+      });
+
+      return {
+        success: true,
+        workHoursEnabled: updatedUser.workHoursEnabled,
+        workDays: updatedUser.workDaysJson ? JSON.parse(updatedUser.workDaysJson) as string[] : [],
+        workHoursStart: updatedUser.workHoursStart,
+        workHoursEnd: updatedUser.workHoursEnd,
+      };
+    }),
+
   completeWelcome: protectedProcedure
     .mutation(async ({ ctx }) => {
       const userId = ctx.session.user.id;
