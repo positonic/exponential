@@ -65,6 +65,12 @@ vi.mock("~/server/db", () => {
   return { db: proxy };
 });
 
+const uploadToBlobMock = vi.hoisted(() => vi.fn());
+vi.mock("~/lib/blob", () => ({
+  uploadToBlob: uploadToBlobMock,
+  deleteFromBlob: vi.fn(),
+}));
+
 import { createMockCaller } from "~/test/trpc-helpers";
 
 const USER_ID = "user-1";
@@ -173,6 +179,52 @@ describe("user.updateProfile", () => {
     await expect(
       caller(db).user.updateProfile({ name: "x".repeat(101) }),
     ).rejects.toThrow();
+
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("user.uploadProfileImage", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    uploadToBlobMock.mockReset();
+  });
+
+  it("uploads to blob storage and persists the URL to User.image", async () => {
+    uploadToBlobMock.mockResolvedValue({
+      url: "https://blob.example.com/profile-images/user-1.png",
+    });
+    db.user.update.mockResolvedValue({} as unknown as User);
+
+    const result = await caller(db).user.uploadProfileImage({
+      base64Data: Buffer.from("fake-image").toString("base64"),
+    });
+
+    expect(uploadToBlobMock).toHaveBeenCalledWith(
+      Buffer.from("fake-image").toString("base64"),
+      `profile-images/${USER_ID}.png`,
+    );
+    expect(db.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: USER_ID },
+        data: { image: "https://blob.example.com/profile-images/user-1.png" },
+      }),
+    );
+    expect(result).toEqual({
+      success: true,
+      imageUrl: "https://blob.example.com/profile-images/user-1.png",
+    });
+  });
+
+  it("does not write User.image when the blob upload fails", async () => {
+    uploadToBlobMock.mockRejectedValue(new Error("blob unavailable"));
+
+    await expect(
+      caller(db).user.uploadProfileImage({ base64Data: "aGVsbG8=" }),
+    ).rejects.toThrow("blob unavailable");
 
     expect(db.user.update).not.toHaveBeenCalled();
   });

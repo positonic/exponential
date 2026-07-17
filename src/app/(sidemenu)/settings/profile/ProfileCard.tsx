@@ -10,10 +10,15 @@ import {
   TextInput,
   ActionIcon,
   Skeleton,
+  FileButton,
+  Tooltip,
+  Loader,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconPencil, IconX } from '@tabler/icons-react';
+import { IconCamera, IconCheck, IconPencil, IconX } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export function ProfileCard() {
   const utils = api.useUtils();
@@ -42,6 +47,46 @@ export function ProfileCard() {
     },
   });
 
+  const uploadProfileImage = api.user.uploadProfileImage.useMutation({
+    onSuccess: async () => {
+      await utils.user.getProfile.invalidate();
+      notifications.show({
+        title: 'Photo uploaded',
+        message: 'Your profile photo has been saved.',
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Upload failed',
+        message: error.message || 'Failed to upload image. Please try again.',
+        color: 'red',
+      });
+    },
+  });
+
+  const handleImageSelect = (file: File | null) => {
+    if (!file) return;
+
+    if (file.size > MAX_IMAGE_BYTES) {
+      notifications.show({
+        title: 'File too large',
+        message: 'Please select an image under 5MB.',
+        color: 'red',
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      if (!base64) return;
+      uploadProfileImage.mutate({ base64Data: base64 });
+    };
+    reader.readAsDataURL(file);
+  };
+
   if (isLoading) {
     return <Skeleton height={140} />;
   }
@@ -60,18 +105,42 @@ export function ProfileCard() {
   return (
     <Paper p="lg" withBorder className="bg-surface-secondary">
       <Group gap="lg" align="flex-start">
-        <Avatar
-          src={profile?.image}
-          size={72}
-          radius="xl"
-          className="bg-brand-primary"
-        >
-          {profile?.name
-            ?.split(' ')
-            .map((n) => n[0])
-            .join('')
-            .toUpperCase() ?? 'U'}
-        </Avatar>
+        <div className="relative">
+          <Avatar
+            src={profile?.image}
+            size={72}
+            radius="xl"
+            className="bg-brand-primary"
+          >
+            {profile?.name
+              ?.split(' ')
+              .map((n) => n[0])
+              .join('')
+              .toUpperCase() ?? 'U'}
+          </Avatar>
+          <FileButton onChange={handleImageSelect} accept="image/*">
+            {(props) => (
+              <Tooltip label="Change photo">
+                <ActionIcon
+                  {...props}
+                  variant="filled"
+                  color="brand"
+                  size="sm"
+                  radius="xl"
+                  className="absolute -bottom-1 -right-1"
+                  disabled={uploadProfileImage.isPending}
+                  aria-label="Upload profile photo"
+                >
+                  {uploadProfileImage.isPending ? (
+                    <Loader size={12} color="white" />
+                  ) : (
+                    <IconCamera size={14} />
+                  )}
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </FileButton>
+        </div>
         <Stack gap="sm" className="flex-1">
           <div>
             <Text size="xs" className="text-text-muted mb-1">

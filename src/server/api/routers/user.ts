@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import { uploadToBlob } from "~/lib/blob";
 
 export const userRouter = createTRPCRouter({
   getCurrentUser: protectedProcedure
@@ -226,6 +227,39 @@ export const userRouter = createTRPCRouter({
       });
 
       return { success: true, name: updatedUser.name };
+    }),
+
+  /**
+   * Upload profile image and save URL to user record.
+   * (Re-homed from the onboarding router; same behavior.)
+   */
+  uploadProfileImage: protectedProcedure
+    .input(
+      z.object({
+        base64Data: z.string(),
+        contentType: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { base64Data } = input;
+      const userId = ctx.session.user.id;
+
+      // Upload to Vercel Blob
+      const filename = `profile-images/${userId}.png`;
+      const blob = await uploadToBlob(base64Data, filename);
+
+      // Update user's image field
+      await ctx.db.user.update({
+        where: { id: userId },
+        data: {
+          image: blob.url,
+        },
+      });
+
+      return {
+        success: true,
+        imageUrl: blob.url,
+      };
     }),
 
   getWorkHours: protectedProcedure
