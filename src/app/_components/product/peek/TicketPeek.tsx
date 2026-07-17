@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Avatar,
   Menu,
@@ -25,7 +25,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/PropertyPill";
+import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_components/product/PropertyPill";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
@@ -49,15 +49,6 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
-
-function ColorDot({ color }: { color: string }) {
-  return (
-    <span
-      className="inline-block h-2 w-2 rounded-full"
-      style={{ backgroundColor: `var(--mantine-color-${color}-6)` }}
-    />
-  );
-}
 
 /**
  * Full ticket content for the peek drawer: everything the detail page offers,
@@ -172,9 +163,16 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
   };
 
   const [titleValue, setTitleValue] = useState("");
+  // Esc-cancel guard: blur() fires before the revert setState applies (see
+  // FeaturePeek) - without it onBlur commits the cancelled draft.
+  const cancelingTitleEdit = useRef(false);
   useEffect(() => {
     if (ticket) setTitleValue(ticket.title);
-  }, [ticket]);
+    // Sync only when the ENTITY changes: keying on the object identity
+    // re-ran on every background refetch (window focus, invalidations) and
+    // silently clobbered an in-progress title edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket?.id]);
 
   // One-row strip: relational pills render when set or explicitly revealed
   // via the ⋯ overflow.
@@ -245,6 +243,10 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
         <Textarea
           value={titleValue}
           onChange={(e) => setTitleValue(e.currentTarget.value)}
+          aria-label="Ticket title"
+          // See FeaturePeek: Mantine's Esc-close listener is window-level;
+          // this attribute is its opt-out for layered dismiss.
+          data-mantine-stop-propagation="true"
           autosize
           minRows={1}
           maxRows={3}
@@ -257,8 +259,20 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               e.preventDefault();
               e.currentTarget.blur();
             }
+            // Layered dismiss: first Esc cancels the edit (revert + blur),
+            // a second Esc closes the drawer.
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              cancelingTitleEdit.current = true;
+              setTitleValue(ticket.title);
+              e.currentTarget.blur();
+            }
           }}
           onBlur={() => {
+            if (cancelingTitleEdit.current) {
+              cancelingTitleEdit.current = false;
+              return;
+            }
             const trimmed = titleValue.trim();
             if (trimmed && trimmed !== ticket.title) setField("title", trimmed);
           }}

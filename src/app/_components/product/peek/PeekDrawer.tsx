@@ -35,6 +35,7 @@ export function PeekDrawer({
   fullPageHref,
   onPrev,
   onNext,
+  label = "Details",
   children,
 }: {
   opened: boolean;
@@ -44,6 +45,9 @@ export function PeekDrawer({
   /** Undefined at the list boundary - the button renders disabled. */
   onPrev?: () => void;
   onNext?: () => void;
+  /** Accessible dialog name (e.g. "Ticket details") - the title slot holds
+   *  only icon buttons, which computes to a garbage dialog name. */
+  label?: string;
   children: React.ReactNode;
 }) {
   // Width preference persists across opens (per Alex: "widens it daily,
@@ -68,7 +72,16 @@ export function PeekDrawer({
         target &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
           target.isContentEditable)
+      )
+        return;
+      // Never flip entities under an open dropdown - the menu would suddenly
+      // refer to a different item.
+      if (
+        document.querySelector(
+          ".mantine-Menu-dropdown, .mantine-Popover-dropdown, .mantine-Select-dropdown, .mantine-Combobox-dropdown",
+        )
       )
         return;
       if (e.key === "j" && onNext) onNext();
@@ -94,6 +107,9 @@ export function PeekDrawer({
       closeButtonProps={{ "aria-label": "Close peek" }}
       title={
         <Group gap={4}>
+          {/* First text in the labelledby target = the dialog's accessible
+              name; without it the name computes from the icon buttons. */}
+          <span className="sr-only">{label}</span>
           {hasNav && (
             <>
               <Tooltip label="Previous in list (k)" position="bottom">

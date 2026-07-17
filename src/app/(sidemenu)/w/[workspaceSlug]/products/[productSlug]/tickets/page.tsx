@@ -1594,6 +1594,7 @@ export default function TicketsBacklogPage() {
 
       {/* Peek drawer - detail over the list, list stays mounted */}
       <PeekDrawer
+        label="Ticket details"
         opened={!!peekId}
         onClose={() => setPeek(null)}
         fullPageHref={peekId ? `${basePath}/${peekId}` : null}

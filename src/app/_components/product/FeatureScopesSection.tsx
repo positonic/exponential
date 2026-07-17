@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ActionIcon, Button, Group, Menu, Text, TextInput, UnstyledButton } from "@mantine/core";
-import { IconChevronDown, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconCheck, IconChevronDown, IconPlus, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { ColorDot } from "~/app/_components/product/PropertyPill";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import {
   SCOPE_STATUS_OPTIONS,
@@ -65,7 +66,7 @@ export function FeatureScopesSection({
           {scopes.map((scope, i) => (
             <div
               key={scope.id}
-              className={`flex items-start justify-between gap-3 px-3 py-2.5 ${i < scopes.length - 1 ? "border-b border-border-primary" : ""}`}
+              className={`group flex items-start justify-between gap-3 px-3 py-2.5 ${i < scopes.length - 1 ? "border-b border-border-primary" : ""}`}
             >
               <div className="flex-1">
                 <Group gap="sm">
@@ -98,12 +99,8 @@ export function FeatureScopesSection({
                               status: o.value as "PLANNED" | "IN_PROGRESS" | "SHIPPED" | "DEPRECATED",
                             })
                           }
-                          leftSection={
-                            <span
-                              className="inline-block h-2 w-2 rounded-full"
-                              style={{ backgroundColor: `var(--mantine-color-${SCOPE_STATUS_COLORS[o.value] ?? "gray"}-6)` }}
-                            />
-                          }
+                          leftSection={<ColorDot color={SCOPE_STATUS_COLORS[o.value] ?? "gray"} />}
+                          rightSection={o.value === scope.status ? <IconCheck size={13} className="text-text-muted" /> : undefined}
                         >
                           {o.label}
                         </Menu.Item>
@@ -120,11 +117,15 @@ export function FeatureScopesSection({
                   <MarkdownRenderer content={scope.description} />
                 </div>
               </div>
+              {/* Hover-revealed destructive affordance - the app's shared
+                  vocabulary (dependency X, action unlink); an always-on red
+                  trash per row read as louder than the content. */}
               <ActionIcon
                 variant="subtle"
-                color="red"
                 size="xs"
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0 text-brand-error hover:bg-surface-hover"
                 onClick={() => deleteScope.mutate({ id: scope.id })}
+                aria-label="Delete scope"
               >
                 <IconTrash size={12} />
               </ActionIcon>

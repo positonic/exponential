@@ -781,6 +781,7 @@ export default function FeaturesListPage() {
 
       {/* Peek drawer - detail over the list, list stays mounted */}
       <PeekDrawer
+        label="Feature details"
         opened={!!peekId}
         onClose={() => setPeek(null)}
         fullPageHref={peekId ? `${basePath}/${peekId}` : null}

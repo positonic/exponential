@@ -2,6 +2,18 @@
 
 import { Menu, Tooltip } from "@mantine/core";
 
+/** 8px status/type dot colored from a Mantine palette name - the shared
+ *  glyph for pill icons and menu items (one implementation, not per-file
+ *  inline spans). */
+export function ColorDot({ color }: { color: string }) {
+  return (
+    <span
+      className="inline-block h-2 w-2 rounded-full"
+      style={{ backgroundColor: `var(--mantine-color-${color}-6)` }}
+    />
+  );
+}
+
 /**
  * Pill class shared by PropertyPill and bespoke pill-shaped triggers (e.g.
  * the labels Popover): one geometry, one state vocabulary - default, hover,

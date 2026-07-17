@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Group,
@@ -14,6 +14,7 @@ import {
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import {
+  IconCheck,
   IconDots,
   IconFlag,
   IconFlame,
@@ -24,7 +25,7 @@ import {
 import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { PropertyPill, PillRow, pillClassName } from "~/app/_components/product/PropertyPill";
+import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_components/product/PropertyPill";
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
 import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection";
@@ -177,9 +178,16 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
   const activity = useFeatureActivity(featureId);
   const [activityFilter, setActivityFilter] = useActivityFilter();
   const [nameValue, setNameValue] = useState("");
+  // Esc-cancel guard: blur() fires before the revert setState applies, so
+  // without this flag onBlur would read the stale draft and commit exactly
+  // the edit the user just cancelled.
+  const cancelingNameEdit = useRef(false);
   useEffect(() => {
     if (feature) setNameValue(feature.name);
-  }, [feature]);
+    // Sync only when the ENTITY changes: keying on the object identity
+    // re-ran on every background refetch and clobbered in-progress edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feature?.id]);
 
   // One-row strip: relational pills render when set or explicitly revealed
   // via the ⋯ overflow.
@@ -212,6 +220,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
       <Textarea
         value={nameValue}
         onChange={(e) => setNameValue(e.currentTarget.value)}
+        aria-label="Feature name"
+        // Mantine's Esc-close listener sits on window, out of React's
+        // propagation - this attribute is its opt-out, giving layered
+        // dismiss: Esc in the field reverts the edit, Esc outside closes.
+        data-mantine-stop-propagation="true"
         autosize
         minRows={1}
         maxRows={3}
@@ -224,8 +237,19 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             e.preventDefault();
             e.currentTarget.blur();
           }
+          // Layered dismiss: first Esc cancels the edit, second closes the peek.
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            cancelingNameEdit.current = true;
+            setNameValue(feature.name);
+            e.currentTarget.blur();
+          }
         }}
         onBlur={() => {
+          if (cancelingNameEdit.current) {
+            cancelingNameEdit.current = false;
+            return;
+          }
           const trimmed = nameValue.trim();
           if (trimmed && trimmed !== feature.name) setField("name", trimmed);
         }}
@@ -236,24 +260,15 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
         <PillRow>
           <PropertyPill
             tooltip="Status"
-            icon={
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ backgroundColor: `var(--mantine-color-${FEATURE_STATUS_COLORS[feature.status] ?? "gray"}-6)` }}
-              />
-            }
+            icon={<ColorDot color={FEATURE_STATUS_COLORS[feature.status] ?? "gray"} />}
             label={FEATURE_STATUS_LABELS[feature.status] ?? feature.status}
           >
             {FEATURE_STATUSES.map((s) => (
               <Menu.Item
                 key={s.value}
                 onClick={() => handleStatusChange(s.value)}
-                leftSection={
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: `var(--mantine-color-${s.color}-6)` }}
-                  />
-                }
+                leftSection={<ColorDot color={s.color} />}
+                rightSection={s.value === feature.status ? <IconCheck size={13} className="text-text-muted" /> : undefined}
               >
                 {s.label}
               </Menu.Item>
@@ -267,10 +282,17 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             label={feature.priority == null ? "Priority" : (PRIORITY_LABELS[feature.priority] ?? String(feature.priority))}
           >
             {[0, 1, 2, 3, 4].map((p) => (
-              <Menu.Item key={p} leftSection={<PriorityIcon priority={p} size={13} />} onClick={() => setField("priority", p)}>
+              <Menu.Item
+                key={p}
+                leftSection={<PriorityIcon priority={p} size={13} />}
+                rightSection={p === feature.priority ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                onClick={() => setField("priority", p)}
+              >
                 {PRIORITY_LABELS[p]}
               </Menu.Item>
             ))}
+            <Menu.Divider />
+            <Menu.Item onClick={() => setField("priority", null)}>No priority</Menu.Item>
           </PropertyPill>
 
           {/* Effort rides in the ⋯ overflow until set (see TicketPeek). */}
@@ -282,7 +304,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               label={feature.effort == null ? "Effort" : String(feature.effort)}
             >
               {EFFORT_OPTIONS.map((n) => (
-                <Menu.Item key={n} onClick={() => setField("effort", n)}>
+                <Menu.Item
+                  key={n}
+                  rightSection={n === feature.effort ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("effort", n)}
+                >
                   {n}
                 </Menu.Item>
               ))}
@@ -299,7 +325,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               label={feature.area?.name ?? "Area"}
             >
               {(areas ?? []).map((a) => (
-                <Menu.Item key={a.id} onClick={() => setField("areaId", a.id)}>
+                <Menu.Item
+                  key={a.id}
+                  rightSection={a.id === feature.areaId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("areaId", a.id)}
+                >
                   {a.name}
                 </Menu.Item>
               ))}
@@ -316,7 +346,11 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
               label={feature.goal?.title ?? "Goal"}
             >
               {(goals ?? []).map((g) => (
-                <Menu.Item key={g.id} onClick={() => setField("goalId", g.id)}>
+                <Menu.Item
+                  key={g.id}
+                  rightSection={g.id === feature.goalId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("goalId", g.id)}
+                >
                   {g.title}
                 </Menu.Item>
               ))}

@@ -78,7 +78,7 @@ export function FeatureRequirementsSection({
             return (
               <div
                 key={req.id}
-                className={`flex items-start gap-3 px-3 py-2.5 ${i < requirements.length - 1 ? "border-b border-border-primary" : ""}`}
+                className={`group flex items-start gap-3 px-3 py-2.5 ${i < requirements.length - 1 ? "border-b border-border-primary" : ""}`}
               >
                 <input
                   type="checkbox"
@@ -107,9 +107,10 @@ export function FeatureRequirementsSection({
                 )}
                 <ActionIcon
                   variant="subtle"
-                  color="red"
                   size="xs"
+                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0 text-brand-error hover:bg-surface-hover"
                   onClick={() => deleteRequirement.mutate({ id: req.id })}
+                  aria-label="Delete requirement"
                 >
                   <IconTrash size={12} />
                 </ActionIcon>

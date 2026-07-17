@@ -50,7 +50,9 @@ export function CollapsibleSection({
           {title}
         </Text>
         {meta && (
-          <Text size="xs" className="text-text-muted">
+          // One tier below the title (11px vs 12px caps) so the count reads
+          // as an annotation, not part of the section name.
+          <Text fz={11} className="text-text-muted">
             {meta}
           </Text>
         )}

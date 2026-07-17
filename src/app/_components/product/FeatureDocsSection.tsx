@@ -104,7 +104,7 @@ export function FeatureDocsSection({
             return (
               <div
                 key={link.pageId}
-                className={`flex items-center gap-3 px-3 py-2.5 ${i < pages.length - 1 ? "border-b border-border-primary" : ""}`}
+                className={`group flex items-center gap-3 px-3 py-2.5 ${i < pages.length - 1 ? "border-b border-border-primary" : ""}`}
               >
                 <IconFileText size={14} className="text-text-muted shrink-0" />
                 <Link
@@ -120,8 +120,8 @@ export function FeatureDocsSection({
                 )}
                 <ActionIcon
                   variant="subtle"
-                  color="gray"
                   size="xs"
+                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0 text-brand-error hover:bg-surface-hover"
                   onClick={() => unlinkPage.mutate({ featureId, pageId: link.pageId })}
                   aria-label="Unlink page"
                 >
