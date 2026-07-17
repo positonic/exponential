@@ -113,6 +113,12 @@ export const welcomeRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Idempotency: a retry after an ambiguous failure must not create a
+      // second goal — the step is already answered.
+      const existing = await loadSetupState(ctx.db, userId);
+      if (existing.goalId !== null) return existing;
+
       const workspaceId = await resolveWorkspaceId(ctx.db, userId);
 
       const goal = await ctx.db.goal.create({
@@ -131,9 +137,8 @@ export const welcomeRouter = createTRPCRouter({
         },
       );
 
-      const state = await loadSetupState(ctx.db, userId);
       return saveSetupState(ctx.db, userId, {
-        ...state,
+        ...existing,
         goal: goal.title,
         goalId: goal.id,
         goalSuggestionIndex: input.suggestionIndex,
@@ -160,6 +165,12 @@ export const welcomeRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Idempotency: a retry after an ambiguous failure must not create a
+      // second action — the step is already answered.
+      const existing = await loadSetupState(ctx.db, userId);
+      if (existing.actionId !== null) return existing;
+
       const workspaceId = await resolveWorkspaceId(ctx.db, userId);
 
       const action = await ctx.db.action.create({
@@ -179,9 +190,8 @@ export const welcomeRouter = createTRPCRouter({
         },
       );
 
-      const state = await loadSetupState(ctx.db, userId);
       return saveSetupState(ctx.db, userId, {
-        ...state,
+        ...existing,
         action: action.name,
         actionId: action.id,
       });

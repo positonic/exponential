@@ -114,9 +114,14 @@ export function useWelcomeSetup() {
       void utils.user.getWelcomeProgress.invalidate();
     },
   });
+  const completedRef = useRef(false);
   const completeWelcome = api.user.completeWelcome.useMutation({
     onSuccess: () => {
       void utils.user.getWelcomeProgress.invalidate();
+    },
+    onError: () => {
+      // Allow the auto-complete effect to retry on the next state change.
+      completedRef.current = false;
     },
   });
 
@@ -203,7 +208,6 @@ export function useWelcomeSetup() {
 
   // All four steps answered → mark welcome complete so the page never
   // reappears (the "Go to Today" CTA just navigates).
-  const completedRef = useRef(false);
   useEffect(() => {
     if (!data || !allDone || data.welcomeCompletedAt || completedRef.current) return;
     completedRef.current = true;

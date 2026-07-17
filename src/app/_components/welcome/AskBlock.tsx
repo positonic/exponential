@@ -55,7 +55,7 @@ export function AskBlock({
             className={`${styles.chip} ${styles.chipGhost}`}
             disabled={disabled}
             onClick={() =>
-              onAnswer({ value: "confirm", label: COPY.planChips.adjust })
+              onAnswer({ value: "adjust", label: COPY.planChips.adjust })
             }
           >
             {COPY.planChips.adjust}
