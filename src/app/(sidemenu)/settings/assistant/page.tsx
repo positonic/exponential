@@ -18,6 +18,7 @@ import { useState, useEffect } from 'react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { TelegramGatewayCard } from '~/app/_components/TelegramGatewayCard';
+import { MatrixGatewayCard } from '~/app/_components/MatrixGatewayCard';
 
 const PERSONALITY_PLACEHOLDER = `Example: You're warm, direct, and a little playful. You have opinions and share them honestly. Skip the corporate tone — be real. When something doesn't add up, say so (kindly). You're genuinely helpful, not performatively helpful.`;
 
@@ -243,6 +244,9 @@ export default function AssistantSettingsPage() {
 
         {/* Telegram Integration */}
         <TelegramGatewayCard assistantSaved={!!assistant || saved} />
+
+        {/* Matrix Integration */}
+        <MatrixGatewayCard assistantSaved={!!assistant || saved} />
 
         {/* Save */}
         <Stack gap="sm">
