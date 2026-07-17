@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ActionIcon, Badge, Button, Menu, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { ActionIcon, Button, Menu, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
 import { IconCheck, IconPlus, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { REQUIREMENT_KIND_OPTIONS, REQUIREMENT_KIND_LABELS } from "~/lib/feature-statuses";
@@ -19,6 +19,60 @@ export interface LegacyUserStory {
   asA: string | null;
   iWant: string | null;
   soThat: string | null;
+}
+
+/**
+ * A quiet, equal-weight inline metadata menu (kind, scope) - editable in place
+ * (the In-Place Edit Rule). Set state reads as low-key muted text; unset shows
+ * a hover-revealed dashed ghost. Kept lighter than a filled Badge on purpose:
+ * these are secondary annotations, not the row's content.
+ */
+function MetaMenu({
+  ariaLabel,
+  label,
+  placeholder,
+  options,
+  value,
+  clearLabel,
+  onSelect,
+}: {
+  ariaLabel: string;
+  label: string | null;
+  placeholder: string;
+  options: Array<{ value: string; label: string }>;
+  value: string | null;
+  clearLabel: string;
+  onSelect: (value: string | null) => void;
+}) {
+  return (
+    <Menu position="bottom-end" withinPortal shadow="md">
+      <Menu.Target>
+        <UnstyledButton
+          aria-label={ariaLabel}
+          className={`shrink-0 rounded px-1.5 py-0.5 text-xs transition ${
+            label
+              ? "text-text-muted hover:bg-surface-hover hover:text-text-secondary"
+              : "border border-dashed border-border-primary text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100 focus-visible:opacity-100"
+          }`}
+        >
+          {label ?? placeholder}
+        </UnstyledButton>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {options.map((o) => (
+          <Menu.Item
+            key={o.value}
+            rightSection={o.value === value ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+            onClick={() => onSelect(o.value)}
+          >
+            {o.label}
+          </Menu.Item>
+        ))}
+        <Menu.Divider />
+        <Menu.Item onClick={() => onSelect(null)}>{clearLabel}</Menu.Item>
+      </Menu.Dropdown>
+    </Menu>
+  );
 }
 
 /**
@@ -100,7 +154,7 @@ export function FeatureRequirementsSection({
             return (
               <div
                 key={req.id}
-                className={`group flex items-start gap-3 px-3 py-2.5 ${i < requirements.length - 1 ? "border-b border-border-primary" : ""}`}
+                className={`group flex items-center gap-2 px-3 py-2.5 ${i < requirements.length - 1 ? "border-b border-border-primary" : ""}`}
               >
                 <input
                   type="checkbox"
@@ -108,7 +162,7 @@ export function FeatureRequirementsSection({
                   onChange={(e) =>
                     setRequirementChecked.mutate({ id: req.id, checked: e.currentTarget.checked })
                   }
-                  className="mt-0.5 shrink-0 cursor-pointer accent-[var(--color-brand-primary)]"
+                  className="shrink-0 cursor-pointer accent-[var(--color-brand-primary)]"
                   aria-label="Requirement met"
                 />
                 {editingId === req.id ? (
@@ -151,52 +205,38 @@ export function FeatureRequirementsSection({
                       setEditingId(req.id);
                       setEditValue(req.statement);
                     }}
-                    className={`flex-1 min-w-0 truncate text-left text-sm ${req.checkedAt != null ? "text-text-muted line-through" : "text-text-primary"}`}
+                    className={`flex-1 min-w-0 cursor-text truncate text-left text-sm ${req.checkedAt != null ? "text-text-muted line-through" : "text-text-primary"}`}
                   >
                     {req.statement}
                   </UnstyledButton>
                 )}
-                {req.kind && (
-                  <Badge size="xs" variant="outline" color="gray" className="shrink-0">
-                    {REQUIREMENT_KIND_LABELS[req.kind] ?? req.kind}
-                  </Badge>
-                )}
-                {/* Scope association switches in place; the ghost trigger
-                    appears on hover when no scope is set. */}
+                {/* Kind and scope are quiet, equal-weight inline menus - both
+                    editable in place (the In-Place Edit Rule); unset shows a
+                    hover-revealed dashed ghost. */}
+                <MetaMenu
+                  ariaLabel="Change kind"
+                  label={req.kind ? (REQUIREMENT_KIND_LABELS[req.kind] ?? req.kind) : null}
+                  placeholder="+ kind"
+                  options={REQUIREMENT_KIND_OPTIONS}
+                  value={req.kind}
+                  clearLabel="No kind"
+                  onSelect={(v) =>
+                    updateRequirement.mutate({
+                      id: req.id,
+                      kind: v as "FUNCTIONAL" | "NON_FUNCTIONAL" | "CONSTRAINT" | null,
+                    })
+                  }
+                />
                 {scopes.length > 0 && (
-                  <Menu position="bottom-end" withinPortal shadow="md">
-                    <Menu.Target>
-                      <UnstyledButton
-                        className={`shrink-0 ${reqScope ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"}`}
-                        aria-label="Change scope"
-                      >
-                        {reqScope ? (
-                          <Badge size="xs" variant="light" color="gray" className="cursor-pointer">
-                            {reqScope.version}
-                          </Badge>
-                        ) : (
-                          <Badge size="xs" variant="outline" color="gray" className="cursor-pointer border-dashed">
-                            + scope
-                          </Badge>
-                        )}
-                      </UnstyledButton>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                      {scopes.map((s) => (
-                        <Menu.Item
-                          key={s.id}
-                          rightSection={s.id === req.scopeId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
-                          onClick={() => updateRequirement.mutate({ id: req.id, scopeId: s.id })}
-                        >
-                          {s.version}
-                        </Menu.Item>
-                      ))}
-                      <Menu.Divider />
-                      <Menu.Item onClick={() => updateRequirement.mutate({ id: req.id, scopeId: null })}>
-                        No scope
-                      </Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu>
+                  <MetaMenu
+                    ariaLabel="Change scope"
+                    label={reqScope?.version ?? null}
+                    placeholder="+ scope"
+                    options={scopes.map((s) => ({ value: s.id, label: s.version }))}
+                    value={req.scopeId}
+                    clearLabel="No scope"
+                    onSelect={(v) => updateRequirement.mutate({ id: req.id, scopeId: v })}
+                  />
                 )}
                 <ActionIcon
                   variant="subtle"
