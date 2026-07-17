@@ -22,7 +22,7 @@ import {
 import { api } from "~/trpc/react";
 import { useDebouncedValue } from "@mantine/hooks";
 
-type UserStatus = "registered" | "onboarding" | "setup" | "active";
+type UserStatus = "registered" | "onboarding" | "active";
 
 function formatRelativeTime(date: Date | null): string {
   if (!date) return "Never";
@@ -53,7 +53,6 @@ function StatusBadge({ status }: { status: UserStatus }) {
   const config: Record<UserStatus, { color: string; label: string }> = {
     registered: { color: "gray", label: "Registered" },
     onboarding: { color: "yellow", label: "Onboarding" },
-    setup: { color: "blue", label: "Setup" },
     active: { color: "green", label: "Active" },
   };
 

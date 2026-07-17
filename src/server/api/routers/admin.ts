@@ -10,6 +10,7 @@ import {
   lastPromptVersionByConversation,
 } from "~/server/services/threadScoreAnalytics";
 import { computeCalibration, isCalibrated } from "~/server/services/calibrationGate";
+import { parseSetupState } from "./welcome";
 import { buildCalibrationPairs } from "~/server/services/calibrationGateService";
 import { JUDGE_VERSION } from "~/server/services/AgentEvalService";
 
@@ -184,8 +185,8 @@ export const adminRouter = createTRPCRouter({
           image: true,
           lastLogin: true,
           isAdmin: true,
-          onboardingCompletedAt: true,
-          onboardingStep: true,
+          welcomeCompletedAt: true,
+          welcomeSetupState: true,
           _count: {
             select: {
               actions: true,
@@ -201,15 +202,23 @@ export const adminRouter = createTRPCRouter({
         nextCursor = nextItem?.id;
       }
 
-      // Compute lifecycle status for each user
+      // Compute lifecycle status for each user from welcome-flow state:
+      // active once the flow is completed, onboarding while welcomeSetupState
+      // records partial progress, registered otherwise.
       const getUserStatus = (user: {
-        onboardingCompletedAt: Date | null;
-        onboardingStep: number;
+        welcomeCompletedAt: Date | null;
+        welcomeSetupState: unknown;
       }): "registered" | "onboarding" | "active" => {
-        if (!user.onboardingCompletedAt) {
-          return user.onboardingStep === 1 ? "registered" : "onboarding";
+        if (user.welcomeCompletedAt) {
+          return "active";
         }
-        return "active";
+        const state = parseSetupState(user.welcomeSetupState);
+        const hasProgress =
+          state.goalId !== null ||
+          state.actionId !== null ||
+          state.planCreated ||
+          state.calendar !== null;
+        return hasProgress ? "onboarding" : "registered";
       };
 
       return {

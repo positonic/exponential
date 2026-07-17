@@ -22,7 +22,12 @@ const setupStateSchema = z.object({
 
 export type WelcomeSetupState = z.infer<typeof setupStateSchema>;
 
-function parseSetupState(value: unknown): WelcomeSetupState {
+/**
+ * Safe-parse a raw `User.welcomeSetupState` value; malformed or empty input
+ * yields the pristine default state. Also used by the admin router to derive
+ * user lifecycle status.
+ */
+export function parseSetupState(value: unknown): WelcomeSetupState {
   const result = setupStateSchema.safeParse(value ?? {});
   return result.success ? result.data : setupStateSchema.parse({});
 }
