@@ -1,5 +1,4 @@
 import { type Context } from "~/server/auth/types";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 export async function getMyOutcomes({ ctx }: { ctx: Context }) {
   return await ctx.db.outcome.findMany({
@@ -54,10 +53,6 @@ export const createOutcome = async ({ ctx, input }: { ctx: Context, input: Outco
     },
   });
 
-  // Sync onboarding progress (fire-and-forget)
-  void completeOnboardingStep(ctx.db, ctx.session.user.id, "outcome").catch(
-    (err: unknown) => { console.error("[onboarding-sync] outcome:", err); },
-  );
 
   return outcome;
 };

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 
 /**
  * Per-user "Getting started" setup state, persisted on `User.welcomeSetupState`.
@@ -131,11 +130,6 @@ export const welcomeRouter = createTRPCRouter({
         },
       });
 
-      void completeOnboardingStep(ctx.db, userId, "goal").catch(
-        (err: unknown) => {
-          console.error("[onboarding-sync] goal:", err);
-        },
-      );
 
       return saveSetupState(ctx.db, userId, {
         ...existing,
@@ -184,11 +178,6 @@ export const welcomeRouter = createTRPCRouter({
         },
       });
 
-      void completeOnboardingStep(ctx.db, userId, "actions").catch(
-        (err: unknown) => {
-          console.error("[onboarding-sync] actions:", err);
-        },
-      );
 
       return saveSetupState(ctx.db, userId, {
         ...existing,
@@ -262,11 +251,6 @@ export const welcomeRouter = createTRPCRouter({
         });
       }
 
-      void completeOnboardingStep(ctx.db, userId, "dailyPlan").catch(
-        (err: unknown) => {
-          console.error("[onboarding-sync] dailyPlan:", err);
-        },
-      );
 
       return saveSetupState(ctx.db, userId, { ...state, planCreated: true });
     }),
