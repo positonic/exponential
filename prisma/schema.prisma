@@ -83,6 +83,7 @@ model User {
   onboardingCompletedAt       DateTime?
   onboardingStep              Int                         @default(1)
   welcomeCompletedAt          DateTime?
+  welcomeSetupState           Json?
   projectSetupCompletedAt     DateTime?
   onboardingProjectId         String?
   selectedTools               String[]

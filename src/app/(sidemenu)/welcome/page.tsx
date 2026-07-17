@@ -1,8 +1,12 @@
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import { redirect } from "next/navigation";
-import { WelcomeChecklist } from "~/app/_components/home/WelcomeChecklist";
+import { GettingStarted } from "~/app/_components/welcome/GettingStarted";
 
+/**
+ * Post-signup "Getting started" page. The assistant is embedded in the page
+ * (Chat + Checklist views) — it must never auto-open as an overlay.
+ */
 export default async function WelcomePage() {
   const session = await auth();
 
@@ -28,5 +32,5 @@ export default async function WelcomePage() {
     redirect("/home");
   }
 
-  return <WelcomeChecklist />;
+  return <GettingStarted />;
 }
