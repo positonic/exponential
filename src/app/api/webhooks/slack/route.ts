@@ -1003,6 +1003,7 @@ async function chatWithZoeUsingTRPC(
     const caller = createCaller({
       db,
       session: mockSession,
+      tokenType: undefined,
       headers: new Headers() // Mock headers for server-side call
     });
 
