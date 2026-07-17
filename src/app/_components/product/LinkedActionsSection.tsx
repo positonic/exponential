@@ -4,13 +4,17 @@ import { useState } from "react";
 import {
   ActionIcon,
   Avatar,
+  Button,
   Checkbox,
   Combobox,
+  Group,
   Stack,
   Text,
   TextInput,
+  UnstyledButton,
   useCombobox,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { api } from "~/trpc/react";
@@ -61,16 +65,15 @@ function ActionRow({
       className="border border-border-primary rounded-lg px-3 py-2 flex items-center gap-2 group cursor-pointer hover:bg-surface-hover transition-colors"
       onClick={() => onOpen(action)}
     >
-      {/* Circular checkbox */}
-      <div
-        className="shrink-0"
-        onClick={(e) => { e.stopPropagation(); onToggle(action, !isDone); }}
-      >
+      {/* Circular checkbox - a real onChange target so Space/screen readers
+          can toggle it (was readOnly with the toggle on a wrapper div). */}
+      <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
         <Checkbox
           size="xs"
           radius="xl"
           checked={isDone}
-          readOnly
+          onChange={(e) => onToggle(action, e.currentTarget.checked)}
+          aria-label={isDone ? "Mark action not done" : "Mark action done"}
           styles={{
             input: {
               borderColor: isDone ? "var(--mantine-color-green-filled)" : getActionPriorityBorderColor(action.priority),
@@ -81,13 +84,14 @@ function ActionRow({
         />
       </div>
 
-      {/* Name */}
-      <Text
-        size="sm"
-        className={`flex-1 min-w-0 truncate ${isDone ? "line-through opacity-30" : "text-text-primary"}`}
+      {/* Name - a focusable open affordance, so the edit modal is reachable
+          by keyboard (the row div's onClick is mouse convenience only). */}
+      <UnstyledButton
+        onClick={(e) => { e.stopPropagation(); onOpen(action); }}
+        className={`flex-1 min-w-0 truncate text-left text-sm ${isDone ? "line-through opacity-30" : "text-text-primary"}`}
       >
         {action.name}
-      </Text>
+      </UnstyledButton>
 
       {/* Assignees */}
       {action.assignees.length > 0 && (
@@ -107,13 +111,15 @@ function ActionRow({
         </Text>
       )}
 
-      {/* Unlink */}
+      {/* Unlink - focus-visible reveal so the button is never invisible
+          while focused. */}
       <ActionIcon
         variant="subtle"
         size="xs"
-        className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-brand-error transition-opacity shrink-0"
+        className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-text-muted hover:text-brand-error transition-opacity shrink-0"
         onClick={(e) => { e.stopPropagation(); onUnlink(action.id); }}
         loading={unlinkPending}
+        aria-label="Unlink action"
       >
         <IconX size={12} />
       </ActionIcon>
@@ -148,7 +154,32 @@ export function LinkedActionsSection({
   const linkAction = api.product.ticket.linkAction.useMutation({
     onSuccess: () => { setSearch(""); onChanged(); },
   });
-  const unlinkAction = api.product.ticket.unlinkAction.useMutation({ onSuccess: onChanged });
+  // Unlink is one unconfirmed click - the undo toast closes the loop
+  // (re-linking is idempotent), matching the list's bulk-edit undo pattern.
+  const unlinkAction = api.product.ticket.unlinkAction.useMutation({
+    onSuccess: (_data, vars) => {
+      onChanged();
+      const nid = `action-unlinked-${vars.actionId}`;
+      notifications.show({
+        id: nid,
+        message: (
+          <Group justify="space-between" gap="sm" wrap="nowrap">
+            <Text size="sm">Action unlinked</Text>
+            <Button
+              size="compact-xs"
+              variant="light"
+              onClick={() => {
+                notifications.hide(nid);
+                linkAction.mutate({ ticketId, actionId: vars.actionId });
+              }}
+            >
+              Undo
+            </Button>
+          </Group>
+        ),
+      });
+    },
+  });
   const updateActionStatus = api.action.update.useMutation({ onSuccess: onChanged });
 
   const linkedIds = new Set(actions.map((a) => a.id));

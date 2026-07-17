@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ActionIcon,
+  Button,
   Combobox,
+  Group,
   Loader,
   Text,
   TextInput,
@@ -12,6 +14,7 @@ import {
   UnstyledButton,
   useCombobox,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconAlertTriangle,
   IconArrowNarrowLeft,
@@ -238,13 +241,42 @@ function DependencyRow({
 }) {
   const utils = api.useUtils();
 
+  const invalidatePair = async () => {
+    await Promise.all([
+      utils.product.ticket.getById.invalidate({ id: ticketId }),
+      utils.product.ticket.getById.invalidate({ id: ticket.id }),
+      utils.product.ticket.list.invalidate({ productId }),
+    ]);
+  };
+
+  const restore = api.product.ticket.addDependency.useMutation({
+    onSuccess: invalidatePair,
+  });
+
+  // Removal is one unconfirmed click - the undo toast closes the loop
+  // (re-adding is idempotent), matching the list's bulk-edit undo pattern.
   const remove = api.product.ticket.removeDependency.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.product.ticket.getById.invalidate({ id: ticketId }),
-        utils.product.ticket.getById.invalidate({ id: ticket.id }),
-        utils.product.ticket.list.invalidate({ productId }),
-      ]);
+    onSuccess: async (_data, vars) => {
+      await invalidatePair();
+      const nid = `dep-removed-${vars.ticketId}-${vars.dependsOnId}`;
+      notifications.show({
+        id: nid,
+        message: (
+          <Group justify="space-between" gap="sm" wrap="nowrap">
+            <Text size="sm">Dependency removed</Text>
+            <Button
+              size="compact-xs"
+              variant="light"
+              onClick={() => {
+                notifications.hide(nid);
+                restore.mutate(vars);
+              }}
+            >
+              Undo
+            </Button>
+          </Group>
+        ),
+      });
     },
   });
 

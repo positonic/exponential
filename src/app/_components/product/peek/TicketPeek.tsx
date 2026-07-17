@@ -11,6 +11,7 @@ import {
   Textarea,
 } from "@mantine/core";
 import {
+  IconCheck,
   IconDots,
   IconExternalLink,
   IconFlag,
@@ -29,7 +30,7 @@ import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_component
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
-import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
+import { TicketDependenciesSection, BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
@@ -229,6 +230,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
                 key={t}
                 onClick={() => setField("type", t)}
                 leftSection={<ColorDot color={TYPE_COLORS[t] ?? "gray"} />}
+                rightSection={t === ticket.type ? <IconCheck size={13} className="text-text-muted" /> : undefined}
               >
                 {t.toLowerCase()}
               </Menu.Item>
@@ -239,6 +241,12 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               {displayId}
             </Text>
           )}
+          {/* Same chip as the list rows - the blocked signal follows the
+              ticket into its peek instead of vanishing on open. */}
+          <BlockedIndicator
+            openBlockerCount={ticket.openBlockerCount}
+            isBlocked={ticket.isBlocked}
+          />
         </div>
         <Textarea
           value={titleValue}
@@ -292,6 +300,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
                 key={s.value}
                 onClick={() => setField("status", s.value)}
                 leftSection={<ColorDot color={s.color} />}
+                rightSection={s.value === ticket.status ? <IconCheck size={13} className="text-text-muted" /> : undefined}
               >
                 {s.label}
               </Menu.Item>
@@ -305,7 +314,12 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             label={ticket.priority == null ? "Priority" : (PRIORITY_LABELS[ticket.priority] ?? String(ticket.priority))}
           >
             {[0, 1, 2, 3, 4].map((p) => (
-              <Menu.Item key={p} leftSection={<PriorityIcon priority={p} size={13} />} onClick={() => setField("priority", p)}>
+              <Menu.Item
+                key={p}
+                leftSection={<PriorityIcon priority={p} size={13} />}
+                rightSection={p === ticket.priority ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                onClick={() => setField("priority", p)}
+              >
                 {PRIORITY_LABELS[p]}
               </Menu.Item>
             ))}
@@ -328,7 +342,11 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             label={ticket.assignee ? (ticket.assignee.name ?? ticket.assignee.email ?? "Unknown") : "DRI"}
           >
             {members.map((m: { user: { id: string; name: string | null } }) => (
-              <Menu.Item key={m.user.id} onClick={() => setField("assigneeId", m.user.id)}>
+              <Menu.Item
+                key={m.user.id}
+                rightSection={m.user.id === ticket.assigneeId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                onClick={() => setField("assigneeId", m.user.id)}
+              >
                 {m.user.name ?? "Unnamed"}
               </Menu.Item>
             ))}
@@ -347,7 +365,11 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               label={ticket.points == null ? "Effort" : `${ticket.points} pts`}
             >
               {EFFORT_OPTIONS.map((n) => (
-                <Menu.Item key={n} onClick={() => setField("points", n)}>
+                <Menu.Item
+                key={n}
+                rightSection={n === ticket.points ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                onClick={() => setField("points", n)}
+              >
                   {n}
                 </Menu.Item>
               ))}
@@ -364,7 +386,11 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               label={ticket.feature?.name ?? "Feature"}
             >
               {(features ?? []).map((f) => (
-                <Menu.Item key={f.id} onClick={() => setField("featureId", f.id)}>
+                <Menu.Item
+                  key={f.id}
+                  rightSection={f.id === ticket.featureId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("featureId", f.id)}
+                >
                   {f.name}
                 </Menu.Item>
               ))}
@@ -381,7 +407,11 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               label={ticket.epic?.name ?? "Epic"}
             >
               {(epics ?? []).map((e) => (
-                <Menu.Item key={e.id} onClick={() => setField("epicId", e.id)}>
+                <Menu.Item
+                  key={e.id}
+                  rightSection={e.id === ticket.epicId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("epicId", e.id)}
+                >
                   {e.name}
                 </Menu.Item>
               ))}
@@ -398,7 +428,11 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               label={ticket.cycle?.name ?? "Cycle"}
             >
               {(cycles ?? []).map((c) => (
-                <Menu.Item key={c.id} onClick={() => setField("cycleId", c.id)}>
+                <Menu.Item
+                  key={c.id}
+                  rightSection={c.id === ticket.cycleId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("cycleId", c.id)}
+                >
                   {c.name}
                 </Menu.Item>
               ))}
