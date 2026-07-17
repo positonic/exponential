@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { uploadToBlob } from "~/lib/blob";
 import { slugify } from "~/utils/slugify";
 import {
   ONBOARDING_PROJECT_NAME,
@@ -101,38 +100,6 @@ export const onboardingRouter = createTRPCRouter({
         emailMarketingOptIn: updatedUser.emailMarketingOptIn,
         attributionSource: updatedUser.attributionSource,
         nextStep: updatedUser.onboardingStep,
-      };
-    }),
-
-  /**
-   * Upload profile image and save URL to user record
-   */
-  uploadProfileImage: protectedProcedure
-    .input(
-      z.object({
-        base64Data: z.string(),
-        contentType: z.string().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const { base64Data } = input;
-      const userId = ctx.session.user.id;
-
-      // Upload to Vercel Blob
-      const filename = `profile-images/${userId}.png`;
-      const blob = await uploadToBlob(base64Data, filename);
-
-      // Update user's image field
-      await ctx.db.user.update({
-        where: { id: userId },
-        data: {
-          image: blob.url,
-        },
-      });
-
-      return {
-        success: true,
-        imageUrl: blob.url,
       };
     }),
 

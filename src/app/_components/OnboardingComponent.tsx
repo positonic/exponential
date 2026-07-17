@@ -197,7 +197,7 @@ export default function OnboardingPageComponent({ userName, userEmail }: Onboard
 
   // tRPC mutations
   const updateProfile = api.onboarding.updateProfile.useMutation();
-  const uploadProfileImage = api.onboarding.uploadProfileImage.useMutation();
+  const uploadProfileImage = api.user.uploadProfileImage.useMutation();
   const updateTools = api.onboarding.updateTools.useMutation();
   const updateWorkHours = api.onboarding.updateWorkHours.useMutation();
   const completeOnboarding = api.onboarding.completeOnboarding.useMutation();
