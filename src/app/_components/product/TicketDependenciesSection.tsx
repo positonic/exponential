@@ -113,12 +113,10 @@ export function TicketDependenciesSection({
   };
 
   return (
-    // Wide (peek body): content indents under the section header - chevron
-    // on the left edge, content block inset - matching how Actions' cards
-    // and the composer read against their headers. Groups separate at 16px
-    // while label-to-rows stays 4px, so header / group / row spacing are
-    // three distinct steps, not one. Sidebar keeps the flush dense layout.
-    <div className={variant === "wide" ? "flex flex-col gap-4 pl-4" : "flex flex-col gap-3"}>
+    // Wide (peek body): the 16px content inset comes from CollapsibleSection
+    // (the section anatomy rule); groups separate at 16px while label-to-rows
+    // stays 4px. Sidebar keeps the flush dense layout.
+    <div className={variant === "wide" ? "flex flex-col gap-4" : "flex flex-col gap-3"}>
       <DependencySection
         icon={<IconArrowNarrowLeft size={13} />}
         label="Depends on"
@@ -184,19 +182,43 @@ function DependencySection({
           {label}
         </Text>
       </div>
-      <div className="flex flex-col gap-0.5">
-        {tickets.map((t) => (
-          <DependencyRow
-            key={t.id}
-            ticket={t}
-            ticketId={ticketId}
-            productId={productId}
-            basePath={basePath}
-            direction={direction}
-            wide={wide}
-            getDisplayId={getDisplayId}
-          />
-        ))}
+      <div className="flex flex-col gap-1">
+        {tickets.length > 0 &&
+          (wide ? (
+            // The container-list grammar (see DESIGN.md): one bordered
+            // container, divider-separated rows - same as Actions, Scopes,
+            // Requirements, and Docs.
+            <div className="border border-border-primary rounded-lg overflow-hidden">
+              {tickets.map((t, i) => (
+                <DependencyRow
+                  key={t.id}
+                  ticket={t}
+                  ticketId={ticketId}
+                  productId={productId}
+                  basePath={basePath}
+                  direction={direction}
+                  wide={wide}
+                  withDivider={i < tickets.length - 1}
+                  getDisplayId={getDisplayId}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {tickets.map((t) => (
+                <DependencyRow
+                  key={t.id}
+                  ticket={t}
+                  ticketId={ticketId}
+                  productId={productId}
+                  basePath={basePath}
+                  direction={direction}
+                  wide={wide}
+                  getDisplayId={getDisplayId}
+                />
+              ))}
+            </div>
+          ))}
         {isAdding ? (
           <AddDependencyCombobox
             ticketId={ticketId}
@@ -229,6 +251,7 @@ function DependencyRow({
   basePath,
   direction,
   wide,
+  withDivider = false,
   getDisplayId,
 }: {
   ticket: LinkedTicket;
@@ -237,6 +260,7 @@ function DependencyRow({
   basePath: string;
   direction: "out" | "in";
   wide: boolean;
+  withDivider?: boolean;
   getDisplayId: GetDisplayId;
 }) {
   const utils = api.useUtils();
@@ -285,7 +309,13 @@ function DependencyRow({
   const displayId = wide ? getDisplayId(ticket) : null;
 
   return (
-    <div className="group flex items-center gap-1.5 py-1">
+    <div
+      className={
+        wide
+          ? `group flex items-center gap-1.5 px-3 py-2 ${withDivider ? "border-b border-border-primary" : ""}`
+          : "group flex items-center gap-1.5 py-1"
+      }
+    >
       <Tooltip label={statusLabel} position="top" withArrow>
         <span className="inline-flex w-3.5 justify-center shrink-0">
           <span

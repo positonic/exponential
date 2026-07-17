@@ -13,6 +13,10 @@ interface CollapsibleSectionProps {
    *  toggle the section. */
   action?: React.ReactNode;
   defaultOpen?: boolean;
+  /** Section anatomy rule (design/DESIGN.md): the chevron owns the left
+   *  edge, content insets 16px under it. Default on; legacy surfaces (CRM)
+   *  opt out until they get their own pass. */
+  inset?: boolean;
   children: React.ReactNode;
 }
 
@@ -27,6 +31,7 @@ export function CollapsibleSection({
   meta,
   action,
   defaultOpen = true,
+  inset = true,
   children,
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
@@ -59,7 +64,7 @@ export function CollapsibleSection({
       </button>
       {action && <div onClick={(e) => e.stopPropagation()}>{action}</div>}
       </div>
-      {open && children}
+      {open && (inset ? <div className="pl-4">{children}</div> : children)}
     </div>
   );
 }

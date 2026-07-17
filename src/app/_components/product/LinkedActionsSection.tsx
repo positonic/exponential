@@ -8,7 +8,6 @@ import {
   Checkbox,
   Combobox,
   Group,
-  Stack,
   Text,
   TextInput,
   UnstyledButton,
@@ -52,6 +51,7 @@ function ActionRow({
   onUnlink,
   onOpen,
   unlinkPending,
+  withDivider = false,
 }: {
   action: LinkedAction;
   isDone: boolean;
@@ -59,10 +59,13 @@ function ActionRow({
   onUnlink: (id: string) => void;
   onOpen: (action: LinkedAction) => void;
   unlinkPending: boolean;
+  withDivider?: boolean;
 }) {
   return (
+    // A divider row inside the section's shared bordered container (the
+    // container-list grammar, see DESIGN.md) - not a per-row card.
     <div
-      className="border border-border-primary rounded-lg px-3 py-2 flex items-center gap-2 group cursor-pointer hover:bg-surface-hover transition-colors"
+      className={`flex items-center gap-2 px-3 py-2 group cursor-pointer hover:bg-surface-hover transition-colors ${withDivider ? "border-b border-border-primary" : ""}`}
       onClick={() => onOpen(action)}
     >
       {/* Circular checkbox - a real onChange target so Space/screen readers
@@ -224,11 +227,11 @@ export function LinkedActionsSection({
         title="Actions"
         meta={actions.length > 0 ? String(actions.length) : undefined}
       >
-        <div>
-          {/* Active action rows */}
+        <div className="flex flex-col gap-4">
+          {/* Active action rows - one bordered container, divider rows */}
           {activeActions.length > 0 && (
-            <Stack gap="xs" mb="xs">
-              {activeActions.map((action) => (
+            <div className="border border-border-primary rounded-lg overflow-hidden">
+              {activeActions.map((action, i) => (
                 <ActionRow
                   key={action.id}
                   action={action}
@@ -237,22 +240,23 @@ export function LinkedActionsSection({
                   onOpen={setEditingAction}
                   onUnlink={(id) => unlinkAction.mutate({ actionId: id })}
                   unlinkPending={unlinkAction.isPending}
+                  withDivider={i < activeActions.length - 1}
                 />
               ))}
-            </Stack>
+            </div>
           )}
 
           {/* Completed actions */}
           {doneActions.length > 0 && (
-            <div className="mt-2 mb-2">
+            <div>
               {/* Same group-label token as the Dependencies sub-groups
                   (margins via props: utility margins are dead on Mantine
                   Text - its margin reset wins the cascade). */}
               <Text fz={11} fw={600} mb={6} className="text-text-muted uppercase tracking-wider">
                 Completed
               </Text>
-              <Stack gap="xs">
-                {doneActions.map((action) => (
+              <div className="border border-border-primary rounded-lg overflow-hidden">
+                {doneActions.map((action, i) => (
                   <ActionRow
                     key={action.id}
                     action={action}
@@ -261,9 +265,10 @@ export function LinkedActionsSection({
                     onOpen={setEditingAction}
                     onUnlink={(id) => unlinkAction.mutate({ actionId: id })}
                     unlinkPending={unlinkAction.isPending}
+                    withDivider={i < doneActions.length - 1}
                   />
                 ))}
-              </Stack>
+              </div>
             </div>
           )}
 
