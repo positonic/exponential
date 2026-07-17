@@ -61,8 +61,9 @@ exponential tickets list --product exponential --status BLOCKED --json          
 
 ## When a skill says "publish to the issue tracker"
 
-- If the source is a **plan, spec, or PRD that needs to be broken into multiple tickets**: invoke `/to-expo`. It handles vertical slicing, dependency wiring, and decision comments.
-- If the source is a **single ticket** (e.g. a PRD as a feature, or a one-off bug): run `exponential tickets create ...` directly, or `exponential features create ...` for PRD-shaped work.
+- If the source is **feature work** (a PRD-shaped plan for a product capability): follow the registry flow — `/to-prd` (human PRD page + native EARS requirement rows on the Feature) → `/to-robo-prd` (Agent PRD on the same page) → `/to-tickets` (few tickets, default one per scope, with the vertical slices as ordered actions). Do NOT route feature work to `/to-expo`.
+- If the source is a **loose plan that doesn't belong to a registry feature** (a cross-product epic, standalone chores): invoke `/to-expo`. It handles vertical slicing, dependency wiring, and decision comments.
+- If the source is a **single ticket** (e.g. a one-off bug): run `exponential tickets create ...` directly.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -76,3 +77,15 @@ This repo ALSO uses [beads](https://github.com/beads-project/beads) for fine-gra
 - **Beads issues** — implementation-scope tracking inside a single session or PR: "I'm about to write code, claim it, close it when committed."
 
 When in doubt for skill-driven flows (`/triage`, `/to-issues`, `/to-prd`, `/qa`), use **Exponential**. Beads remains the right answer for the day-to-day `bd ready → bd update → bd close` loop.
+
+
+## Wayfinding operations
+
+Used by `/wayfinder`. The **map** is a Feature; its tickets are the map's children.
+
+- **Map**: a Feature named `Wayfinder: <destination>` (`exponential features create --product exponential -n "Wayfinder: <destination>" -d "<one-line destination>" --status DEFINED --json`). The map body (Notes / Decisions-so-far / Fog) lives on a linked Knowledge page: `exponential pages create -t "Wayfinder map: <destination>" --body-file <path> --json`, then `exponential features link-page --feature <id> --page <id>`. Use an **epic** instead of a feature only when the destination spans products.
+- **Child ticket**: a ticket under the map feature (`exponential tickets create --product exponential --feature <map-feature-cuid> ...`). Ticket types map as: `research` → `RESEARCH`, `grilling` → `RESEARCH`, `prototype` → `SPIKE`, `task` → `CHORE`. HITL types (`grilling`, `prototype`) get `--status NEEDS_REFINEMENT`; AFK types (`research`, and `task` when an agent can do it) get `--status READY_TO_PLAN`.
+- **Blocking**: native edges — `exponential tickets block <child-cuid> --by <blocker-cuid>`. A ticket is unblocked when `openBlockerCount` is 0.
+- **Frontier query**: `exponential tickets list --feature <map-feature-cuid> --json`, keep open tickets with `openBlockerCount == 0` and no assignee; first in map order wins.
+- **Claim**: `exponential tickets update --id <cuid> --assignee <user-id>` — the session's first write. The assignee is the claim.
+- **Resolve**: `exponential tickets comment add --id <cuid> -m "<the decision>"`, then `exponential tickets update --id <cuid> --status DONE`, then update the map page's Decisions-so-far with a one-line gist + the ticket CUID (`exponential pages update`).
