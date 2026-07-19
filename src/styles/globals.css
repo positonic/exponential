@@ -70,7 +70,7 @@
     --accent-low: #9AA7BC;
     --accent-quick: #5AC8E0;
 
-    /* RGB triplets — required by Tailwind's <alpha-value> opacity-modifier
+    /* RGB triplets - required by Tailwind's <alpha-value> opacity-modifier
        syntax (e.g. `bg-accent-meetings/20`). The hex tokens above cannot be
        split into channels at compile-time, so the Tailwind aliases reference
        these. Values mirror the hex tokens; defined per-mode block for safety
@@ -95,13 +95,13 @@
     --today-rail-task-text: #F9D48A;
     --today-rail-focus-text: #A7F0C3;
 
-    /* Actions list — visual priority tokens */
+    /* Actions list - visual priority tokens */
     --pri-urgent: var(--accent-due);
     --pri-high: var(--accent-okr);
     --pri-normal: var(--brand-400);
     --pri-low: var(--color-text-muted);
 
-    /* Actions list — extended priority palette (matches --td-prio-*) */
+    /* Actions list - extended priority palette (matches --td-prio-*) */
     --pri-p1: var(--accent-due);
     --pri-p2: var(--accent-okr);
     --pri-p3: #E8D26B;
@@ -113,7 +113,7 @@
     --pri-remember: #8C9BE0;
     --pri-watch: #C97DC9;
 
-    /* Actions list — project chip palette (indices 0-4 mapped to accents) */
+    /* Actions list - project chip palette (indices 0-4 mapped to accents) */
     --actions-proj-0: var(--accent-meetings);
     --actions-proj-1: var(--accent-due);
     --actions-proj-2: var(--accent-okr);
@@ -171,7 +171,7 @@
     --ev-rose:   oklch(0.71 0.11 12);
     --ev-slate:  oklch(0.66 0.025 255);
 
-    /* Tinted fill — dark/light surface shows through (15% / hover 24% / past 10%) */
+    /* Tinted fill - dark/light surface shows through (15% / hover 24% / past 10%) */
     --ev-indigo-fill: color-mix(in oklab, var(--ev-indigo) 15%, var(--color-bg-secondary));
     --ev-cyan-fill:   color-mix(in oklab, var(--ev-cyan) 15%, var(--color-bg-secondary));
     --ev-green-fill:  color-mix(in oklab, var(--ev-green) 15%, var(--color-bg-secondary));
@@ -196,7 +196,7 @@
     --ev-rose-fill-past:   color-mix(in oklab, var(--ev-rose) 10%, var(--color-bg-secondary));
     --ev-slate-fill-past:  color-mix(in oklab, var(--ev-slate) 10%, var(--color-bg-secondary));
 
-    /* Secondary text inside an event (time, location) — theme-adaptive */
+    /* Secondary text inside an event (time, location) - theme-adaptive */
     --ev-indigo-sub: color-mix(in oklab, var(--ev-indigo) 38%, var(--color-text-secondary));
     --ev-cyan-sub:   color-mix(in oklab, var(--ev-cyan) 38%, var(--color-text-secondary));
     --ev-green-sub:  color-mix(in oklab, var(--ev-green) 38%, var(--color-text-secondary));
@@ -205,7 +205,7 @@
     --ev-rose-sub:   color-mix(in oklab, var(--ev-rose) 38%, var(--color-text-secondary));
     --ev-slate-sub:  color-mix(in oklab, var(--ev-slate) 38%, var(--color-text-secondary));
 
-    /* Label — LIGHT mode: anchor toward primary (dark) text for AA on the
+    /* Label - LIGHT mode: anchor toward primary (dark) text for AA on the
        pale tinted fill. Dark block below overrides toward white. */
     --ev-indigo-label: color-mix(in oklab, var(--ev-indigo) 72%, var(--color-text-primary));
     --ev-cyan-label:   color-mix(in oklab, var(--ev-cyan) 72%, var(--color-text-primary));
@@ -291,7 +291,7 @@
     --accent-low: #9AA7BC;
     --accent-quick: #5AC8E0;
 
-    /* RGB triplets — required by Tailwind's <alpha-value> opacity-modifier
+    /* RGB triplets - required by Tailwind's <alpha-value> opacity-modifier
        syntax (e.g. `bg-accent-meetings/20`). The hex tokens above cannot be
        split into channels at compile-time, so the Tailwind aliases reference
        these. Values mirror the hex tokens; defined per-mode block for safety
@@ -316,13 +316,13 @@
     --today-rail-task-text: #F9D48A;
     --today-rail-focus-text: #A7F0C3;
 
-    /* Actions list — visual priority tokens */
+    /* Actions list - visual priority tokens */
     --pri-urgent: var(--accent-due);
     --pri-high: var(--accent-okr);
     --pri-normal: var(--brand-400);
     --pri-low: var(--color-text-muted);
 
-    /* Actions list — extended priority palette (matches --td-prio-*) */
+    /* Actions list - extended priority palette (matches --td-prio-*) */
     --pri-p1: var(--accent-due);
     --pri-p2: var(--accent-okr);
     --pri-p3: #E8D26B;
@@ -334,7 +334,7 @@
     --pri-remember: #8C9BE0;
     --pri-watch: #C97DC9;
 
-    /* Actions list — project chip palette (indices 0-4 mapped to accents) */
+    /* Actions list - project chip palette (indices 0-4 mapped to accents) */
     --actions-proj-0: var(--accent-meetings);
     --actions-proj-1: var(--accent-due);
     --actions-proj-2: var(--accent-okr);
@@ -377,7 +377,7 @@
   }
 
 
-  /* Calendar event labels — DARK themes (navy + slate): re-anchor the label
+  /* Calendar event labels - DARK themes (navy + slate): re-anchor the label
      toward white for AA contrast on the dark tinted fill. Base hues, fills
      and sub text are inherited from :root and adapt automatically. */
   [data-mantine-color-scheme="dark"] {
@@ -441,6 +441,37 @@
    states (hover, focus, data-attributes) that cannot be expressed
    as inline styles.
    ================================================================= */
+
+/* --- Default text color --- */
+/* Map Mantine's text color variable to the app token at the body level
+   (inheritance proximity beats the :root default - no specificity war).
+   This replaces the old Text theme default, which injected the color as an
+   INLINE style and made it impossible for any text utility to override. */
+body {
+  --mantine-color-text: var(--color-text-primary);
+}
+
+/* --- Semantic text utilities on Mantine components --- */
+/* Mantine's stylesheet is imported after this file, so its component color
+   rules (e.g. Text's root class) beat the Tailwind text utilities at equal
+   specificity and every `Text className="text-text-muted"` renders as
+   primary text. Doubling the class re-asserts the token with higher
+   specificity regardless of import order. */
+.text-text-primary.text-text-primary {
+  color: var(--color-text-primary);
+}
+.text-text-secondary.text-text-secondary {
+  color: var(--color-text-secondary);
+}
+.text-text-muted.text-text-muted {
+  color: var(--color-text-muted);
+}
+.text-text-disabled.text-text-disabled {
+  color: var(--color-text-disabled);
+}
+.text-text-faint.text-text-faint {
+  color: var(--color-text-faint);
+}
 
 /* --- Modal & Drawer close button --- */
 .mantine-Modal-close:hover,
@@ -515,7 +546,7 @@
   background-color: var(--color-surface-hover);
 }
 
-/* ActionIcon default variant — Mantine's fallback renders grey, so map it onto
+/* ActionIcon default variant - Mantine's fallback renders grey, so map it onto
    the same semantic tokens as Button's default variant. */
 .mantine-ActionIcon-root[data-variant="default"] {
   background-color: var(--color-surface-secondary);
@@ -778,7 +809,7 @@
   margin-bottom: 0.375rem;
 }
 
-/* Blog content typography — overrides Mantine inline styles */
+/* Blog content typography - overrides Mantine inline styles */
 .blog-content p {
   font-size: 1.125rem !important;
   line-height: 1.8 !important;
@@ -794,7 +825,7 @@
 .blog-content table { font-size: 1rem; line-height: 1.7; }
 
 /* ==========================================================================
-   Auth surface (/signin, /invite/[token]) — scoped design tokens
+   Auth surface (/signin, /invite/[token]) - scoped design tokens
    Consumed by src/styles/auth-surface.css. All hex lives here so the feature
    CSS can be hex-free (pre-commit hook only allows hex in this file,
    colors.ts, mantineTheme.ts, EmailService.ts).
@@ -844,7 +875,7 @@
   --invite-avatar-a3: linear-gradient(135deg, #4ADE8C, #1F5DE0);
   --invite-avatar-a4: linear-gradient(135deg, #F5B94A, #F87171);
 
-  /* Brand logo colors (Google / Microsoft — per provider brand guidelines) */
+  /* Brand logo colors (Google / Microsoft - per provider brand guidelines) */
   --google-blue: #4285F4;
   --google-green: #34A853;
   --google-yellow: #FBBC05;
@@ -866,7 +897,7 @@
 }
 
 /* ==========================================================================
-   Meeting detail surface (/recording/[id], redesigned "workspace" layout) —
+   Meeting detail surface (/recording/[id], redesigned "workspace" layout) -
    scoped design tokens. Consumed by
    src/app/_components/meeting/meeting-detail.css. Mirrors today-surface: all
    raw color values live here (this file is allow-listed by the pre-commit
@@ -890,7 +921,7 @@
   --mp-amber-22: rgb(var(--accent-okr-rgb) / 0.22);
   --mp-amber-25: rgb(var(--accent-okr-rgb) / 0.25);
 
-  /* Participant identity gradients (avatars) — reserved for identity only */
+  /* Participant identity gradients (avatars) - reserved for identity only */
   --mp-identity-me: linear-gradient(135deg, var(--brand-400), var(--brand-500));
   --mp-identity-them: linear-gradient(135deg, #A78BFA, #7C5BFF);
   --mp-identity-alt: linear-gradient(135deg, #4ADE8C, #18A86B);
@@ -907,7 +938,7 @@
 }
 
 /* ==========================================================================
-   Today desktop surface (/today, redesigned shell) — scoped design tokens.
+   Today desktop surface (/today, redesigned shell) - scoped design tokens.
    Consumed by src/app/_components/today-redesign/today-desktop.css.
    Mirrors auth-surface / portfolio-review-surface: all hex lives here, the
    feature CSS uses only var(). Pre-commit hook only allows hex in this file,
@@ -939,7 +970,7 @@
   --td-check-border: rgba(255, 255, 255, 0.36);
   --td-check-mark: #0B0F17;
 
-  /* Tag tones — five design presets we map workspace tag colors onto. */
+  /* Tag tones - five design presets we map workspace tag colors onto. */
   --td-tag-sales-fg: #E8C9D5;
   --td-tag-sales-bg: rgba(200, 120, 150, 0.10);
   --td-tag-sales-dot: #D07C9B;
@@ -960,7 +991,7 @@
   --td-tag-pipe-bg: var(--td-accent-10);
   --td-tag-pipe-dot: var(--td-accent);
 
-  /* Priority — encodes the checkbox ring color.
+  /* Priority - encodes the checkbox ring color.
      Solid = priority hue. Dim = resting ring (~55-65% alpha).
      Numbered priorities (p1–p5) follow the project's
      red→orange→yellow→green→blue scale used in priorityCheckboxBorderVar. */
@@ -1009,7 +1040,7 @@
 }
 
 /* ==========================================================================
-   Portfolio review surface (/weekly-plan) — scoped design tokens.
+   Portfolio review surface (/weekly-plan) - scoped design tokens.
    Consumed by src/app/(sidemenu)/weekly-plan/_styles/portfolio-review.css.
    Mirrors the auth-surface pattern: all hex lives here, feature CSS uses var().
    ========================================================================== */
@@ -1058,7 +1089,7 @@
 }
 
 /* ==========================================================================
-   App sidebar (left nav) — scoped design tokens.
+   App sidebar (left nav) - scoped design tokens.
    Consumed by src/app/_components/layout/sidebar.css.
    Mirrors the today-surface / portfolio-review-surface pattern: all hex lives
    here, the feature CSS uses only var(). Dark-only design.
@@ -1108,7 +1139,7 @@
 }
 
 /* ==========================================================================
-   Coaching home surface (workspace home, homeLayout === 'coaching') —
+   Coaching home surface (workspace home, homeLayout === 'coaching') -
    scoped design tokens. Consumed by
    src/app/_components/home/coaching-home.css. Mirrors auth-surface pattern:
    all hex lives here, feature CSS uses var() exclusively. Pre-commit hook
@@ -1193,13 +1224,13 @@
    coaching-home pattern above.
 */
 .activity-layout {
-  /* Heatmap alpha stops — brand blue, used by the contribution-graph cells. */
+  /* Heatmap alpha stops - brand blue, used by the contribution-graph cells. */
   --activity-heatmap-l1: rgba(78, 137, 255, 0.18);
   --activity-heatmap-l2: rgba(78, 137, 255, 0.34);
   --activity-heatmap-l3: rgba(78, 137, 255, 0.58);
   --activity-heatmap-l4: rgba(78, 137, 255, 0.85);
 
-  /* Section accents — reuse the coaching palette to keep both home layouts
+  /* Section accents - reuse the coaching palette to keep both home layouts
      visually coherent (same accent meanings, e.g. crm-green = success). */
   --activity-accent-ritual: #6B8CFF;
   --activity-accent-knowledge: #5AC8E0;
@@ -1214,7 +1245,7 @@
   --activity-accent-due-soft: rgba(248, 113, 113, 0.10);
   --activity-accent-due-border: rgba(248, 113, 113, 0.22);
 
-  /* Milestone (project-completed) accent — celebratory gold. Filled chip plus a
+  /* Milestone (project-completed) accent - celebratory gold. Filled chip plus a
      soft wash so completed-project rows stand out from routine task churn. */
   --activity-accent-milestone: #F5B94A;
   --activity-accent-milestone-contrast: #1A1300;
@@ -1236,7 +1267,7 @@
 }
 
 /* ======================================================
-   MEETING DETAIL MODAL — Two-column tabbed layout
+   MEETING DETAIL MODAL - Two-column tabbed layout
    Used by TranscriptionDetailsModal. All colors via var().
    ====================================================== */
 .mdm {
@@ -2115,7 +2146,7 @@
   color: var(--color-text-primary);
 }
 
-/* PRD body anchored comments (ADR-0024) — highlight glued to the marked words */
+/* PRD body anchored comments (ADR-0024) - highlight glued to the marked words */
 .prd-comment-highlight {
   background-color: color-mix(in srgb, var(--color-brand-warning) 22%, transparent);
   border-bottom: 2px solid
@@ -2128,7 +2159,7 @@
   background-color: color-mix(in srgb, var(--color-brand-warning) 38%, transparent);
 }
 /* Resolved threads keep their mark but hide the highlight (ADR-0024 §Resolve).
-   The decoration may wrap the mark span or land on it directly — cover both. */
+   The decoration may wrap the mark span or land on it directly - cover both. */
 .prd-comment-resolved.prd-comment-highlight,
 .prd-comment-resolved .prd-comment-highlight {
   background-color: transparent;
@@ -2138,7 +2169,7 @@
   margin: 0.5rem 0;
 }
 
-/* PRD body lists — visible markers + Linear-style spacing.
+/* PRD body lists - visible markers + Linear-style spacing.
    The editor sets `prose prose-invert`, but @tailwindcss/typography isn't
    installed, so those classes are inert and Tailwind Preflight strips list
    markers/padding. Restore them explicitly here. Task lists (checkbox lists)
@@ -2173,7 +2204,7 @@
   margin: 0;
 }
 
-/* Task lists (checkbox lists) — Tiptap renders each item as
+/* Task lists (checkbox lists) - Tiptap renders each item as
    <li><label><input></label><div><p>…</p></div></li>. Tailwind Preflight strips
    markers but leaves label/div block-level, so without this the checkbox stacks
    above its text with a big gap. Lay each item out as a flex row instead. */
@@ -2272,7 +2303,7 @@
   cursor: col-resize;
 }
 
-/* React Flow (CRM Automation builder) — theme the canvas chrome to the app's
+/* React Flow (CRM Automation builder) - theme the canvas chrome to the app's
    navy surfaces instead of React Flow's default light styling. Colors come from
    semantic tokens so this follows light/dark like the rest of the app. */
 .react-flow__controls {

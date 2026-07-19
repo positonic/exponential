@@ -44,6 +44,7 @@ export default function ScopeDetailPage() {
       setEditing(false);
       await utils.product.feature.getScopeById.invalidate({ id: scopeId });
       await utils.product.feature.getById.invalidate({ id: featureId });
+      await utils.product.feature.listEvents.invalidate({ featureId, scopeId });
     },
   });
 

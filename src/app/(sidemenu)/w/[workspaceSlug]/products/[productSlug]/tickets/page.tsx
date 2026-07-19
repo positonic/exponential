@@ -40,12 +40,22 @@ import {
   IconTicket,
   IconX,
 } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { EmptyState } from "~/app/_components/EmptyState";
+import {
+  useMultiSelect,
+  SelectSlot,
+  BulkActionBar,
+  BulkActionMenu,
+  buildUndoGroups,
+} from "~/app/_components/shared/multiSelect";
+import { PeekDrawer } from "~/app/_components/product/peek/PeekDrawer";
+import { TicketPeek } from "~/app/_components/product/peek/TicketPeek";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
-import { generateLinearId, ticketUrlId } from "~/lib/fun-ids";
+import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
@@ -355,7 +365,7 @@ export default function TicketsBacklogPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
 
-  // URL-driven filters — deep links from the Overview tab
+  // URL-driven filters - deep links from the Overview tab
   // (?status=BLOCKED, ?assignee=me). Applied server-side via ticket.list.
   const statusParam = searchParams.get("status");
   const urlStatus =
@@ -414,7 +424,7 @@ export default function TicketsBacklogPage() {
         setEntity(savedPrefs.entity);
       }
       if (savedPrefs.filters && typeof savedPrefs.filters === "object") {
-        // Saved prefs are untrusted JSON — guard each facet is actually an
+        // Saved prefs are untrusted JSON - guard each facet is actually an
         // array. Stale values (e.g. a deleted epic id) are harmless: they
         // simply match no tickets and aren't offered in facetOptions.
         const f = savedPrefs.filters as Partial<TicketFilters>;
@@ -471,14 +481,21 @@ export default function TicketsBacklogPage() {
     { enabled: !!workspaceId && !!productSlug },
   );
 
-  const { data: tickets, isLoading } = api.product.ticket.list.useQuery(
-    {
+  // Kept as one memoised object because the bulk-update optimistic patch
+  // must read/write the cache under the exact same query input.
+  const listInput = useMemo(
+    () => ({
       productId: product?.id ?? "",
       ...(urlStatus ? { status: urlStatus } : {}),
       ...(filterAssigneeMe && sessionUserId
         ? { assigneeId: sessionUserId }
         : {}),
-    },
+    }),
+    [product?.id, urlStatus, filterAssigneeMe, sessionUserId],
+  );
+
+  const { data: tickets, isLoading } = api.product.ticket.list.useQuery(
+    listInput,
     // When ?assignee=me is present, wait for the session so the first fetch
     // is already filtered instead of flashing the full backlog.
     { enabled: !!product?.id && (!filterAssigneeMe || !!sessionUserId) },
@@ -508,6 +525,165 @@ export default function TicketsBacklogPage() {
       }
     },
   });
+
+  // ── Multi-select ──
+  const sel = useMultiSelect();
+  const selClear = sel.clear;
+  // Selection survives view/groupBy switches but is cleared whenever the
+  // underlying item set changes meaning (filters, search, entity, deep links).
+  useEffect(() => {
+    selClear();
+  }, [selClear, entity, search, filters, urlStatus, filterAssigneeMe, productSlug]);
+
+  type BulkPatch = {
+    status?: TicketStatus;
+    type?: "BUG" | "FEATURE" | "CHORE" | "IMPROVEMENT" | "SPIKE" | "RESEARCH";
+    priority?: number | null;
+    assigneeId?: string | null;
+    epicId?: string | null;
+    cycleId?: string | null;
+  };
+
+  const members = useMemo(
+    () =>
+      (workspace?.members ?? []).map(
+        (m: { user: { id: string; name: string | null } }) => ({
+          id: m.user.id,
+          name: m.user.name,
+        }),
+      ),
+    [workspace?.members],
+  );
+
+  const bulkUpdate = api.product.ticket.bulkUpdate.useMutation({
+    // Optimistic: patch the cached list immediately, roll back on error.
+    onMutate: async (vars) => {
+      await utils.product.ticket.list.cancel(listInput);
+      const prev = utils.product.ticket.list.getData(listInput);
+      if (prev) {
+        const idSet = new Set(vars.ids);
+        utils.product.ticket.list.setData(
+          listInput,
+          prev.map((t) => {
+            if (!idSet.has(t.id)) return t;
+            const next = { ...t };
+            if (vars.status !== undefined) next.status = vars.status;
+            if (vars.type !== undefined) next.type = vars.type;
+            if (vars.priority !== undefined) next.priority = vars.priority;
+            if (vars.assigneeId !== undefined) {
+              const m = members.find((x) => x.id === vars.assigneeId);
+              next.assignee =
+                vars.assigneeId && m
+                  ? { id: m.id, name: m.name, image: null }
+                  : null;
+            }
+            if (vars.epicId !== undefined) {
+              const e = (epics ?? []).find((x) => x.id === vars.epicId);
+              next.epic = vars.epicId && e ? { id: e.id, name: e.name } : null;
+            }
+            if (vars.cycleId !== undefined) {
+              const c = (cycles ?? []).find((x) => x.id === vars.cycleId);
+              next.cycle =
+                vars.cycleId && c
+                  ? {
+                      id: c.id,
+                      name: c.name,
+                      status: c.status,
+                      startDate: c.startDate,
+                      endDate: c.endDate,
+                    }
+                  : null;
+            }
+            return next;
+          }),
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, _vars, mctx) => {
+      if (mctx?.prev) utils.product.ticket.list.setData(listInput, mctx.prev);
+      notifications.show({
+        title: "Bulk update failed",
+        message: "Your changes were not saved. Please try again.",
+        color: "red",
+      });
+    },
+    onSettled: async () => {
+      if (product?.id) {
+        await utils.product.ticket.list.invalidate({ productId: product.id });
+      }
+    },
+  });
+
+  // Bulk hard delete - confirmed via modal (no undo for deletes).
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const bulkDelete = api.product.ticket.bulkDelete.useMutation({
+    onSuccess: async (res) => {
+      setConfirmDeleteOpen(false);
+      sel.clear();
+      notifications.show({
+        message: `Deleted ${res.count} ticket${res.count === 1 ? "" : "s"}`,
+      });
+      if (product?.id) {
+        await utils.product.ticket.list.invalidate({ productId: product.id });
+      }
+    },
+    onError: () => {
+      notifications.show({
+        title: "Delete failed",
+        message: "The tickets were not deleted. Please try again.",
+        color: "red",
+      });
+    },
+  });
+
+  // Apply a uniform patch to every selected ticket, with an Undo toast that
+  // restores the previous values (one bulk call per distinct prior state).
+  const applyBulk = (patch: BulkPatch) => {
+    const ids = Array.from(sel.selected);
+    if (ids.length === 0) return;
+    const affected = (tickets ?? []).filter((t) => sel.selected.has(t.id));
+    const undoGroups = buildUndoGroups(affected, (t) => {
+      const prev: Record<string, unknown> = {};
+      if (patch.status !== undefined) prev.status = t.status;
+      if (patch.type !== undefined) prev.type = t.type;
+      if (patch.priority !== undefined) prev.priority = t.priority ?? null;
+      if (patch.assigneeId !== undefined)
+        prev.assigneeId = t.assignee?.id ?? null;
+      if (patch.epicId !== undefined) prev.epicId = t.epic?.id ?? null;
+      if (patch.cycleId !== undefined) prev.cycleId = t.cycle?.id ?? null;
+      return prev;
+    });
+    bulkUpdate.mutate(
+      { ids, ...patch },
+      {
+        onSuccess: (res) => {
+          const noteId = notifications.show({
+            message: (
+              <Group gap="sm" wrap="nowrap" justify="space-between">
+                <Text size="sm">
+                  Updated {res.count} ticket{res.count === 1 ? "" : "s"}
+                </Text>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  onClick={() => {
+                    notifications.hide(noteId);
+                    for (const g of undoGroups) {
+                      bulkUpdate.mutate({ ids: g.ids, ...(g.patch as BulkPatch) });
+                    }
+                  }}
+                >
+                  Undo
+                </Button>
+              </Group>
+            ),
+            autoClose: 8000,
+          });
+        },
+      },
+    );
+  };
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -638,6 +814,38 @@ export default function TicketsBacklogPage() {
     [activeTickets, groupBy],
   );
 
+  // Visible row order for shift-click range selection.
+  const visibleIds = useMemo(() => {
+    if (view === "board") return sorted.map((t) => t.id);
+    const ids: string[] = [];
+    for (const g of groups) {
+      if (groupBy === "none" || !collapsed.has(g.key)) {
+        ids.push(...g.items.map((t) => t.id));
+      }
+    }
+    if (!collapsed.has("__completed")) {
+      ids.push(...completedTickets.map((t) => t.id));
+    }
+    return ids;
+  }, [view, sorted, groups, groupBy, collapsed, completedTickets]);
+
+  // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
+  const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/tickets`;
+  const peekId = searchParams.get("peek");
+  const setPeek = (id: string | null) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (id) next.set("peek", id);
+    else next.delete("peek");
+    const qs = next.toString();
+    router.push(qs ? `${peekBasePath}?${qs}` : peekBasePath, { scroll: false });
+  };
+  const peekIndex = peekId ? visibleIds.indexOf(peekId) : -1;
+  const peekPrev = peekIndex > 0 ? () => setPeek(visibleIds[peekIndex - 1]!) : undefined;
+  const peekNext =
+    peekIndex !== -1 && peekIndex < visibleIds.length - 1
+      ? () => setPeek(visibleIds[peekIndex + 1]!)
+      : undefined;
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
 
@@ -650,16 +858,64 @@ export default function TicketsBacklogPage() {
     router.replace(qs ? `${basePath}?${qs}` : basePath);
   };
 
+  // Row-level selection handlers shared by the list and table renderers:
+  // cmd/ctrl-click toggles, shift-click range-selects, plain click peeks.
+  const rowClickHandlers = (ticketId: string, navigate: () => void) => ({
+    onClick: (e: React.MouseEvent) => {
+      if (e.metaKey || e.ctrlKey) {
+        sel.toggle(ticketId);
+        return;
+      }
+      if (e.shiftKey) {
+        sel.selectRange(ticketId, visibleIds);
+        return;
+      }
+      navigate();
+    },
+    onMouseDown: (e: React.MouseEvent) => {
+      // Keep shift-click from starting a text selection.
+      if (e.shiftKey) e.preventDefault();
+    },
+  });
+
+  // Group-header chevron slot: swaps to a select-all-of-group checkbox on
+  // hover (indeterminate when partially selected). Zero layout shift.
+  const renderGroupChevron = (ids: string[], collapsedKey: string) => {
+    const selectedCount = ids.filter((id) => sel.selected.has(id)).length;
+    const all = ids.length > 0 && selectedCount === ids.length;
+    const some = selectedCount > 0 && !all;
+    return (
+      <SelectSlot
+        selected={all}
+        indeterminate={some}
+        onToggle={() => sel.setMany(ids, !all)}
+      >
+        {collapsed.has(collapsedKey) ? (
+          <IconChevronRight size={14} className="text-text-muted" />
+        ) : (
+          <IconChevronDown size={14} className="text-text-muted" />
+        )}
+      </SelectSlot>
+    );
+  };
+
   // List item renderer (compact, no table)
   const renderListItem = (ticket: (typeof sorted)[number]) => (
     <div
       key={ticket.id}
-      className="flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer border-b border-border-primary"
-      onClick={() => router.push(`${basePath}/${ticketUrlId(ticket)}`)}
+      className={`group/row flex items-center gap-3 px-3 py-2 transition-colors cursor-pointer border-b border-border-primary ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
+      {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
     >
-      <Text size="xs" className="text-text-muted font-mono w-14 shrink-0" lineClamp={1}>
-        {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
-      </Text>
+      <SelectSlot
+        className="w-14 shrink-0"
+        selected={sel.isSelected(ticket.id)}
+        onToggle={() => sel.toggle(ticket.id)}
+        onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+      >
+        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
+          {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+        </Text>
+      </SelectSlot>
       <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0" styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
         {STATUS_LABELS[ticket.status] ?? ticket.status}
       </Badge>
@@ -721,27 +977,51 @@ export default function TicketsBacklogPage() {
 
   const vc = visibleColumns;
   const colCount = vc.size;
+  // The table's checkbox swap-slot lives in the first hideable leading column
+  // (ID, else Status). With both hidden, selection still works via
+  // cmd/ctrl/shift-click - we never add a dedicated column, so the layout
+  // never changes.
+  const swapCol = vc.has("id") ? "id" : vc.has("status") ? "status" : null;
 
   // Shared row renderer
   const renderRow = (ticket: (typeof sorted)[number]) => (
     <Table.Tr
       key={ticket.id}
-      className="cursor-pointer hover:bg-surface-hover transition-colors"
-      onClick={() => router.push(`${basePath}/${ticketUrlId(ticket)}`)}
+      className={`group/row cursor-pointer transition-colors ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
+      {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
     >
       {vc.has("id") && (
         <Table.Td style={{ width: 70 }}>
-          <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
-            {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
-          </Text>
+          <SelectSlot
+            selected={sel.isSelected(ticket.id)}
+            onToggle={() => sel.toggle(ticket.id)}
+            onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+          >
+            <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
+              {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
+            </Text>
+          </SelectSlot>
         </Table.Td>
       )}
       {vc.has("status") && (
         <Table.Td style={{ width: 110 }}>
-          <StatusCell
-            status={ticket.status}
-            onUpdate={(s) => handleStatusChange(ticket.id, s)}
-          />
+          {swapCol === "status" ? (
+            <SelectSlot
+              selected={sel.isSelected(ticket.id)}
+              onToggle={() => sel.toggle(ticket.id)}
+              onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+            >
+              <StatusCell
+                status={ticket.status}
+                onUpdate={(s) => handleStatusChange(ticket.id, s)}
+              />
+            </SelectSlot>
+          ) : (
+            <StatusCell
+              status={ticket.status}
+              onUpdate={(s) => handleStatusChange(ticket.id, s)}
+            />
+          )}
         </Table.Td>
       )}
       {vc.has("title") && (
@@ -1024,6 +1304,8 @@ export default function TicketsBacklogPage() {
             productName={product?.name ?? ""}
             funTicketIds={product?.funTicketIds ?? false}
             basePath={basePath}
+            selection={{ isSelected: sel.isSelected, toggle: sel.toggle }}
+            onOpenTicket={(id) => setPeek(id)}
           />
         ) : view === "list" ? (
           <div className="border border-border-primary rounded-lg overflow-hidden">
@@ -1033,14 +1315,10 @@ export default function TicketsBacklogPage() {
               ) : (
                 <React.Fragment key={`group-${group.key}`}>
                   <div
-                    className="bg-surface-secondary/50 px-3 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
+                    className="group/row bg-surface-secondary/50 px-3 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
                     onClick={() => toggleCollapsed(group.key)}
                   >
-                    {collapsed.has(group.key) ? (
-                      <IconChevronRight size={14} className="text-text-muted" />
-                    ) : (
-                      <IconChevronDown size={14} className="text-text-muted" />
-                    )}
+                    {renderGroupChevron(group.items.map((t) => t.id), group.key)}
                     <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
                       {group.label}
                     </Text>
@@ -1053,14 +1331,10 @@ export default function TicketsBacklogPage() {
             {completedTickets.length > 0 && (
               <>
                 <div
-                  className="bg-surface-secondary/50 px-3 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
+                  className="group/row bg-surface-secondary/50 px-3 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
                   onClick={() => toggleCollapsed("__completed")}
                 >
-                  {collapsed.has("__completed") ? (
-                    <IconChevronRight size={14} className="text-text-muted" />
-                  ) : (
-                    <IconChevronDown size={14} className="text-text-muted" />
-                  )}
+                  {renderGroupChevron(completedTickets.map((t) => t.id), "__completed")}
                   <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">Completed</Text>
                   <Badge size="xs" variant="light">{completedTickets.length}</Badge>
                 </div>
@@ -1083,7 +1357,22 @@ export default function TicketsBacklogPage() {
           >
             <Table.Thead>
               <Table.Tr>
-                {vc.has("id") && <Table.Th style={{ width: 70 }}><span className="text-text-muted">ID</span></Table.Th>}
+                {vc.has("id") && (
+                  <Table.Th style={{ width: 70 }} className="group/row">
+                    <SelectSlot
+                      selected={visibleIds.length > 0 && visibleIds.every((id) => sel.selected.has(id))}
+                      indeterminate={sel.anySelected && !visibleIds.every((id) => sel.selected.has(id))}
+                      onToggle={() =>
+                        sel.setMany(
+                          visibleIds,
+                          !(visibleIds.length > 0 && visibleIds.every((id) => sel.selected.has(id))),
+                        )
+                      }
+                    >
+                      <span className="text-text-muted">ID</span>
+                    </SelectSlot>
+                  </Table.Th>
+                )}
                 {vc.has("status") && <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
                 {vc.has("title") && <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
                 {vc.has("priority") && <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />}
@@ -1101,7 +1390,7 @@ export default function TicketsBacklogPage() {
                 ) : (
                   <React.Fragment key={`group-${group.key}`}>
                     <Table.Tr
-                      className="cursor-pointer select-none"
+                      className="group/row cursor-pointer select-none"
                       onClick={() => toggleCollapsed(group.key)}
                     >
                       <Table.Td
@@ -1110,11 +1399,7 @@ export default function TicketsBacklogPage() {
                         style={{ paddingTop: 16, paddingBottom: 8 }}
                       >
                         <div className="flex items-center gap-1.5">
-                          {collapsed.has(group.key) ? (
-                            <IconChevronRight size={14} className="text-text-muted" />
-                          ) : (
-                            <IconChevronDown size={14} className="text-text-muted" />
-                          )}
+                          {renderGroupChevron(group.items.map((t) => t.id), group.key)}
                           <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
                             {group.label}
                           </Text>
@@ -1131,7 +1416,7 @@ export default function TicketsBacklogPage() {
               {completedTickets.length > 0 && (
                 <>
                   <Table.Tr
-                    className="cursor-pointer select-none"
+                    className="group/row cursor-pointer select-none"
                     onClick={() => toggleCollapsed("__completed")}
                   >
                     <Table.Td
@@ -1140,11 +1425,7 @@ export default function TicketsBacklogPage() {
                       style={{ paddingTop: 16, paddingBottom: 8 }}
                     >
                       <div className="flex items-center gap-1.5">
-                        {collapsed.has("__completed") ? (
-                          <IconChevronRight size={14} className="text-text-muted" />
-                        ) : (
-                          <IconChevronDown size={14} className="text-text-muted" />
-                        )}
+                        {renderGroupChevron(completedTickets.map((t) => t.id), "__completed")}
                         <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
                           Completed
                         </Text>
@@ -1182,6 +1463,104 @@ export default function TicketsBacklogPage() {
         />
       )}
 
+      {entity === "tickets" && (
+        <BulkActionBar count={sel.count} onClear={sel.clear}>
+          <BulkActionMenu label="Status">
+            {TICKET_STATUSES.map((s) => (
+              <Menu.Item key={s.value} onClick={() => applyBulk({ status: s.value })}>
+                <div className="flex items-center gap-2">
+                  <Badge size="xs" variant="filled" color={s.color} styles={{ label: { color: "var(--mantine-color-dark-9)" } }} />
+                  {s.label}
+                </div>
+              </Menu.Item>
+            ))}
+          </BulkActionMenu>
+          <BulkActionMenu label="Priority">
+            {[0, 1, 2, 3, 4].map((p) => (
+              <Menu.Item
+                key={p}
+                leftSection={<PriorityIcon priority={p} size={14} />}
+                onClick={() => applyBulk({ priority: p })}
+              >
+                {PRIORITY_LABELS[p]}
+              </Menu.Item>
+            ))}
+            <Menu.Divider />
+            <Menu.Item onClick={() => applyBulk({ priority: null })}>No priority</Menu.Item>
+          </BulkActionMenu>
+          <BulkActionMenu label="Type">
+            {(["BUG", "FEATURE", "CHORE", "IMPROVEMENT", "SPIKE", "RESEARCH"] as const).map((t) => (
+              <Menu.Item key={t} onClick={() => applyBulk({ type: t })}>
+                <Badge size="xs" variant="light" color={TYPE_COLORS[t] ?? "gray"}>
+                  {t.toLowerCase()}
+                </Badge>
+              </Menu.Item>
+            ))}
+          </BulkActionMenu>
+          <BulkActionMenu label="DRI">
+            {members.map((m) => (
+              <Menu.Item key={m.id} onClick={() => applyBulk({ assigneeId: m.id })}>
+                {m.name ?? "Unnamed"}
+              </Menu.Item>
+            ))}
+            <Menu.Divider />
+            <Menu.Item onClick={() => applyBulk({ assigneeId: null })}>Unassigned</Menu.Item>
+          </BulkActionMenu>
+          <BulkActionMenu label="Epic">
+            {(epics ?? []).map((e) => (
+              <Menu.Item key={e.id} onClick={() => applyBulk({ epicId: e.id })}>
+                {e.name}
+              </Menu.Item>
+            ))}
+            <Menu.Divider />
+            <Menu.Item onClick={() => applyBulk({ epicId: null })}>No epic</Menu.Item>
+          </BulkActionMenu>
+          <BulkActionMenu label="Cycle">
+            {(cycles ?? []).map((c) => (
+              <Menu.Item key={c.id} onClick={() => applyBulk({ cycleId: c.id })}>
+                {c.name}
+              </Menu.Item>
+            ))}
+            <Menu.Divider />
+            <Menu.Item onClick={() => applyBulk({ cycleId: null })}>No cycle</Menu.Item>
+          </BulkActionMenu>
+          <div className="h-4 w-px bg-border-primary" />
+          <Button
+            variant="subtle"
+            size="compact-xs"
+            color="red"
+            onClick={() => setConfirmDeleteOpen(true)}
+          >
+            Delete
+          </Button>
+        </BulkActionBar>
+      )}
+
+      <Modal
+        opened={confirmDeleteOpen}
+        onClose={() => setConfirmDeleteOpen(false)}
+        title={`Delete ${sel.count} ticket${sel.count === 1 ? "" : "s"}?`}
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm" className="text-text-secondary">
+            This permanently deletes the selected ticket{sel.count === 1 ? "" : "s"}, including comments and dependencies. This cannot be undone.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setConfirmDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              loading={bulkDelete.isPending}
+              onClick={() => bulkDelete.mutate({ ids: Array.from(sel.selected) })}
+            >
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
       {product && (
         <CreateTicketModal
           opened={modalOpened}
@@ -1212,6 +1591,18 @@ export default function TicketsBacklogPage() {
         onClose={() => setEpicModalOpened(false)}
         workspaceId={workspaceId ?? ""}
       />
+
+      {/* Peek drawer - detail over the list, list stays mounted */}
+      <PeekDrawer
+        label="Ticket details"
+        opened={!!peekId}
+        onClose={() => setPeek(null)}
+        fullPageHref={peekId ? `${basePath}/${peekId}` : null}
+        onPrev={peekPrev}
+        onNext={peekNext}
+      >
+        {peekId && <TicketPeek ticketId={peekId} basePath={basePath} />}
+      </PeekDrawer>
     </Stack>
   );
 }

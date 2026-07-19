@@ -21,7 +21,7 @@ interface CommentInputProps {
 }
 
 /**
- * Input for adding comments — the canonical Markdown input (toolbar +
+ * Input for adding comments - the canonical Markdown input (toolbar +
  * Write/Preview) plus @mention autocomplete and image paste (ADR-0017).
  * Always emits Markdown.
  */
@@ -98,13 +98,21 @@ export function CommentInput({
     [hasMentions, mention, handleSubmit],
   );
 
-  // After mention selection, restore cursor position in textarea
+  // After mention selection, restore cursor position in textarea. Skipped on
+  // mount: running then steals focus from the host surface (e.g. a freshly
+  // opened peek drawer) into the composer.
+  const lastCursorRef = useRef<number | null>(null);
   useEffect(() => {
-    if (hasMentions && textareaRef.current) {
-      const pos = mention.cursorPosition;
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(pos, pos);
+    if (!hasMentions || !textareaRef.current) return;
+    const pos = mention.cursorPosition;
+    if (lastCursorRef.current === null) {
+      lastCursorRef.current = pos;
+      return;
     }
+    if (lastCursorRef.current === pos) return;
+    lastCursorRef.current = pos;
+    textareaRef.current.focus();
+    textareaRef.current.setSelectionRange(pos, pos);
     // Only run when cursorPosition changes from mention selection
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mention.cursorPosition]);

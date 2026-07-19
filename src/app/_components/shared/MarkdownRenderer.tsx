@@ -189,7 +189,7 @@ function buildComponents(
       ),
       li: ({ children }) => <li className="leading-6">{children}</li>,
       blockquote: ({ children }) => (
-        <blockquote className="my-2 border-l-2 border-blue-500/50 bg-surface-secondary py-1 pl-3 text-sm italic text-text-secondary">
+        <blockquote className="my-2 border-l-2 border-border-focus bg-surface-secondary py-1 pl-3 text-sm italic text-text-secondary">
           {children}
         </blockquote>
       ),
@@ -269,7 +269,7 @@ function buildComponents(
     ),
     li: ({ children }) => <li className="pl-1 leading-7">{children}</li>,
     blockquote: ({ children }) => (
-      <blockquote className="my-4 border-l-4 border-blue-500/50 bg-surface-secondary py-2 pl-4 italic text-text-secondary">
+      <blockquote className="my-4 border-l-4 border-border-focus bg-surface-secondary py-2 pl-4 italic text-text-secondary">
         {children}
       </blockquote>
     ),

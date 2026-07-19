@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ActionIcon,
+  Button,
   Combobox,
+  Group,
   Loader,
   Text,
   TextInput,
@@ -12,6 +14,7 @@ import {
   UnstyledButton,
   useCombobox,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconAlertTriangle,
   IconArrowNarrowLeft,
@@ -20,6 +23,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { generateLinearId } from "~/lib/fun-ids";
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -42,6 +46,12 @@ interface Props {
   basePath: string;
   dependsOn: LinkedTicket[];
   requiredFor: LinkedTicket[];
+  /** "sidebar" (default) keeps the dense PropertiesSidebar layout;
+   *  "wide" adds shortId + status labels for the peek's full-width body. */
+  variant?: "sidebar" | "wide";
+  /** Enable display IDs (PPV-12 / fun shortId) on rows and search results. */
+  productName?: string;
+  funTicketIds?: boolean;
 }
 
 /**
@@ -62,7 +72,7 @@ export function BlockedIndicator({
   return (
     <Tooltip label={label} position="top" withArrow>
       <div
-        className={`inline-flex items-center gap-0.5 shrink-0 ${isBlocked ? "text-red-400" : "text-text-muted"}`}
+        className={`inline-flex items-center gap-0.5 shrink-0 ${isBlocked ? "text-brand-error" : "text-text-muted"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <IconAlertTriangle size={12} />
@@ -75,8 +85,11 @@ export function BlockedIndicator({
 }
 
 /**
- * Two dependency sections - "Depends on" and "Required for" - for use inside
- * `PropertiesSidebar`. Label sits on its own row, list + add button below.
+ * Two dependency groups - "Depends on" and "Required for" - shared by the
+ * ticket detail PropertiesSidebar (variant="sidebar") and the peek drawer
+ * body (variant="wide"). Each group ends with the same ghost "+ Add"
+ * affordance; adding swaps it for an inline search while the existing rows
+ * stay visible.
  */
 export function TicketDependenciesSection({
   ticketId,
@@ -84,16 +97,28 @@ export function TicketDependenciesSection({
   basePath,
   dependsOn,
   requiredFor,
+  variant = "sidebar",
+  productName,
+  funTicketIds,
 }: Props) {
   const alreadyLinkedIds = new Set([
     ...dependsOn.map((t) => t.id),
     ...requiredFor.map((t) => t.id),
   ]);
 
+  const getDisplayId = (t: { number: number; shortId: string | null }) => {
+    if (funTicketIds && t.shortId) return t.shortId;
+    if (productName && t.number > 0) return generateLinearId(productName, t.number);
+    return null;
+  };
+
   return (
-    <div className="flex flex-col gap-3 py-1.5">
+    // Wide (peek body): the 16px content inset comes from CollapsibleSection
+    // (the section anatomy rule); groups separate at 16px while label-to-rows
+    // stays 4px. Sidebar keeps the flush dense layout.
+    <div className={variant === "wide" ? "flex flex-col gap-4" : "flex flex-col gap-3"}>
       <DependencySection
-        icon={<IconArrowNarrowLeft size={14} />}
+        icon={<IconArrowNarrowLeft size={13} />}
         label="Depends on"
         direction="out"
         tickets={dependsOn}
@@ -101,9 +126,11 @@ export function TicketDependenciesSection({
         productId={productId}
         basePath={basePath}
         alreadyLinkedIds={alreadyLinkedIds}
+        wide={variant === "wide"}
+        getDisplayId={getDisplayId}
       />
       <DependencySection
-        icon={<IconArrowNarrowRight size={14} />}
+        icon={<IconArrowNarrowRight size={13} />}
         label="Required for"
         direction="in"
         tickets={requiredFor}
@@ -111,10 +138,14 @@ export function TicketDependenciesSection({
         productId={productId}
         basePath={basePath}
         alreadyLinkedIds={alreadyLinkedIds}
+        wide={variant === "wide"}
+        getDisplayId={getDisplayId}
       />
     </div>
   );
 }
+
+type GetDisplayId = (t: { number: number; shortId: string | null }) => string | null;
 
 function DependencySection({
   icon,
@@ -125,6 +156,8 @@ function DependencySection({
   productId,
   basePath,
   alreadyLinkedIds,
+  wide,
+  getDisplayId,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -134,95 +167,84 @@ function DependencySection({
   productId: string;
   basePath: string;
   alreadyLinkedIds: Set<string>;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-text-muted">{icon}</span>
-        <Text size="xs" className="text-text-muted">
-          {label}
-        </Text>
-      </div>
-      <DependencyListContent
-        direction={direction}
-        tickets={tickets}
-        ticketId={ticketId}
-        productId={productId}
-        basePath={basePath}
-        alreadyLinkedIds={alreadyLinkedIds}
-      />
-    </div>
-  );
-}
-
-function DependencyListContent({
-  direction,
-  tickets,
-  ticketId,
-  productId,
-  basePath,
-  alreadyLinkedIds,
-}: {
-  direction: "out" | "in";
-  tickets: LinkedTicket[];
-  ticketId: string;
-  productId: string;
-  basePath: string;
-  alreadyLinkedIds: Set<string>;
+  wide: boolean;
+  getDisplayId: GetDisplayId;
 }) {
   const [isAdding, setIsAdding] = useState(false);
 
-  if (isAdding) {
-    return (
-      <AddDependencyCombobox
-        ticketId={ticketId}
-        productId={productId}
-        direction={direction}
-        excludedIds={alreadyLinkedIds}
-        onDone={() => setIsAdding(false)}
-      />
-    );
-  }
-
-  const addButton = (
-    <ActionIcon
-      variant="subtle"
-      size="xs"
-      onClick={() => setIsAdding(true)}
-      title="Add dependency"
-      className="shrink-0 text-text-muted hover:text-text-primary"
-    >
-      <IconPlus size={14} />
-    </ActionIcon>
-  );
-
-  if (tickets.length === 0) {
-    return (
-      <div className="flex items-center">
-        <UnstyledButton
-          onClick={() => setIsAdding(true)}
-          className="inline-flex items-center gap-1 text-text-muted hover:text-text-primary transition-colors"
-        >
-          <IconPlus size={12} />
-          <Text size="xs">Add</Text>
-        </UnstyledButton>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-0.5">
-      {tickets.map((t, i) => (
-        <DependencyRow
-          key={t.id}
-          ticket={t}
-          ticketId={ticketId}
-          productId={productId}
-          basePath={basePath}
-          direction={direction}
-          trailing={i === tickets.length - 1 ? addButton : null}
-        />
-      ))}
+    <div>
+      {/* Icon sits in the same 14px column as the row dots and the Add plus,
+          so label, ID, and Add text share one left rail. */}
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="inline-flex w-3.5 justify-center text-text-muted">{icon}</span>
+        <Text fz={11} fw={600} className="text-text-muted uppercase tracking-wider">
+          {label}
+        </Text>
+      </div>
+      <div className="flex flex-col gap-1">
+        {tickets.length > 0 &&
+          (wide ? (
+            // The container-list grammar (see DESIGN.md): one bordered
+            // container, divider-separated rows - same as Actions, Scopes,
+            // Requirements, and Docs.
+            <div className="border border-border-primary rounded-lg overflow-hidden">
+              {tickets.map((t, i) => (
+                <DependencyRow
+                  key={t.id}
+                  ticket={t}
+                  ticketId={ticketId}
+                  productId={productId}
+                  basePath={basePath}
+                  direction={direction}
+                  wide={wide}
+                  withDivider={i < tickets.length - 1}
+                  getDisplayId={getDisplayId}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {tickets.map((t) => (
+                <DependencyRow
+                  key={t.id}
+                  ticket={t}
+                  ticketId={ticketId}
+                  productId={productId}
+                  basePath={basePath}
+                  direction={direction}
+                  wide={wide}
+                  getDisplayId={getDisplayId}
+                />
+              ))}
+            </div>
+          ))}
+        {isAdding ? (
+          <AddDependencyCombobox
+            ticketId={ticketId}
+            productId={productId}
+            direction={direction}
+            excludedIds={alreadyLinkedIds}
+            onDone={() => setIsAdding(false)}
+            getDisplayId={getDisplayId}
+          />
+        ) : (
+          <UnstyledButton
+            onClick={() => setIsAdding(true)}
+            // Wide mode: 12px left pad so the + column lines up with the
+            // container rows' px-3 content (dots above, Actions input icon).
+            // Via prop, not a pl-3 class - Mantine's UnstyledButton padding
+            // reset wins the cascade over Tailwind utilities.
+            pl={wide ? 12 : 0}
+            className="inline-flex items-center gap-1.5 self-start py-0.5 text-text-muted hover:text-text-primary transition-colors"
+          >
+            <span className="inline-flex w-3.5 justify-center">
+              <IconPlus size={12} />
+            </span>
+            <Text size="xs">Add</Text>
+          </UnstyledButton>
+        )}
+      </div>
     </div>
   );
 }
@@ -233,53 +255,110 @@ function DependencyRow({
   productId,
   basePath,
   direction,
-  trailing,
+  wide,
+  withDivider = false,
+  getDisplayId,
 }: {
   ticket: LinkedTicket;
   ticketId: string;
   productId: string;
   basePath: string;
   direction: "out" | "in";
-  trailing: React.ReactNode;
+  wide: boolean;
+  withDivider?: boolean;
+  getDisplayId: GetDisplayId;
 }) {
   const utils = api.useUtils();
 
+  const invalidatePair = async () => {
+    await Promise.all([
+      utils.product.ticket.getById.invalidate({ id: ticketId }),
+      utils.product.ticket.getById.invalidate({ id: ticket.id }),
+      utils.product.ticket.list.invalidate({ productId }),
+    ]);
+  };
+
+  const restore = api.product.ticket.addDependency.useMutation({
+    onSuccess: invalidatePair,
+  });
+
+  // Removal is one unconfirmed click - the undo toast closes the loop
+  // (re-adding is idempotent), matching the list's bulk-edit undo pattern.
   const remove = api.product.ticket.removeDependency.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.product.ticket.getById.invalidate({ id: ticketId }),
-        utils.product.ticket.getById.invalidate({ id: ticket.id }),
-        utils.product.ticket.list.invalidate({ productId }),
-      ]);
+    onSuccess: async (_data, vars) => {
+      await invalidatePair();
+      const nid = `dep-removed-${vars.ticketId}-${vars.dependsOnId}`;
+      notifications.show({
+        id: nid,
+        message: (
+          <Group justify="space-between" gap="sm" wrap="nowrap">
+            <Text size="sm">Dependency removed</Text>
+            <Button
+              size="compact-xs"
+              variant="light"
+              onClick={() => {
+                notifications.hide(nid);
+                restore.mutate(vars);
+              }}
+            >
+              Undo
+            </Button>
+          </Group>
+        ),
+      });
     },
   });
 
   const statusLabel = STATUS_LABELS[ticket.status] ?? ticket.status;
   const statusColor = STATUS_COLORS[ticket.status] ?? "gray";
+  const displayId = wide ? getDisplayId(ticket) : null;
 
   return (
-    <div className="group flex items-center gap-1.5 py-0.5">
+    <div
+      className={
+        wide
+          ? `group flex items-center gap-1.5 px-3 py-2 ${withDivider ? "border-b border-border-primary" : ""}`
+          : "group flex items-center gap-1.5 py-1"
+      }
+    >
       <Tooltip label={statusLabel} position="top" withArrow>
-        <span
-          role="img"
-          aria-label={`Status: ${statusLabel}`}
-          className="inline-block rounded-full shrink-0"
-          style={{
-            width: 8,
-            height: 8,
-            backgroundColor: `var(--mantine-color-${statusColor}-6)`,
-          }}
-        />
+        <span className="inline-flex w-3.5 justify-center shrink-0">
+          <span
+            role="img"
+            aria-label={`Status: ${statusLabel}`}
+            className="inline-block rounded-full"
+            style={{
+              width: 8,
+              height: 8,
+              backgroundColor: `var(--mantine-color-${statusColor}-6)`,
+            }}
+          />
+        </span>
       </Tooltip>
+      {displayId && (
+        <Text size="xs" className="text-text-muted font-mono shrink-0">
+          {displayId}
+        </Text>
+      )}
+      {/* Direct flex child: the click zone is the title text itself (no
+          flex-grow), it truncates via min-w-0, and it centers on the row
+          axis like its siblings - a wrapper div inherited the 16px body
+          font and its 24.8px line-box strut pushed the title 4px off the
+          shared baseline. Status stays clustered next to the title instead
+          of stranded at the drawer's far edge. */}
       <Text
         size="xs"
         component={Link}
         href={`${basePath}/${ticket.id}`}
-        className="text-text-primary flex-1 min-w-0 hover:text-blue-400 transition-colors"
-        lineClamp={1}
+        className="min-w-0 truncate text-text-primary hover:text-brand-primary transition-colors"
       >
         {ticket.title}
       </Text>
+      {wide && (
+        <Text size="xs" className="text-text-muted shrink-0">
+          {statusLabel}
+        </Text>
+      )}
       <ActionIcon
         variant="subtle"
         size="xs"
@@ -297,7 +376,6 @@ function DependencyRow({
       >
         <IconX size={12} />
       </ActionIcon>
-      {trailing}
     </div>
   );
 }
@@ -308,12 +386,14 @@ function AddDependencyCombobox({
   direction,
   excludedIds,
   onDone,
+  getDisplayId,
 }: {
   ticketId: string;
   productId: string;
   direction: "out" | "in";
   excludedIds: Set<string>;
   onDone: () => void;
+  getDisplayId: GetDisplayId;
 }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -406,6 +486,7 @@ function AddDependencyCombobox({
             {!isLoading &&
               filtered.map((t) => {
                 const color = STATUS_COLORS[t.status] ?? "gray";
+                const optionId = getDisplayId(t);
                 return (
                   <Combobox.Option value={t.id} key={t.id}>
                     <div className="flex items-center gap-2">
@@ -417,8 +498,16 @@ function AddDependencyCombobox({
                           backgroundColor: `var(--mantine-color-${color}-6)`,
                         }}
                       />
+                      {optionId && (
+                        <Text size="xs" className="text-text-muted font-mono shrink-0">
+                          {optionId}
+                        </Text>
+                      )}
                       <Text size="xs" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
                         {t.title}
+                      </Text>
+                      <Text size="xs" className="text-text-muted shrink-0">
+                        {STATUS_LABELS[t.status] ?? t.status}
                       </Text>
                     </div>
                   </Combobox.Option>

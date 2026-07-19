@@ -101,8 +101,11 @@ export function CommentThread({
       ? "group p-3 rounded-lg bg-surface-secondary hover:bg-surface-hover transition-colors"
       : "group px-4 py-3 hover:bg-surface-hover/50 transition-colors";
 
+  // The trailing margin separates the list from a composer in standalone
+  // "card" usage; inside ActivityFeed's per-comment Cards ("inline") it only
+  // inflates every card's bottom whitespace.
   return (
-    <div className="space-y-3 mb-4">
+    <div className={variant === "card" ? "space-y-3 mb-4" : "space-y-3"}>
       {comments.map((comment) => {
         const author = comment.author;
         const colorSeed = getColorSeed(author.name, null);

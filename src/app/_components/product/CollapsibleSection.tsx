@@ -9,7 +9,14 @@ interface CollapsibleSectionProps {
   icon?: React.ReactNode;
   /** Small dimmed text next to the title (e.g. "3/5 met"). */
   meta?: string;
+  /** Right-aligned header control (e.g. a filter menu). Clicks on it do not
+   *  toggle the section. */
+  action?: React.ReactNode;
   defaultOpen?: boolean;
+  /** Section anatomy rule (design/DESIGN.md): the chevron owns the left
+   *  edge, content insets 16px under it. Default on; legacy surfaces (CRM)
+   *  opt out until they get their own pass. */
+  inset?: boolean;
   children: React.ReactNode;
 }
 
@@ -22,16 +29,19 @@ export function CollapsibleSection({
   title,
   icon,
   meta,
+  action,
   defaultOpen = true,
+  inset = true,
   children,
 }: CollapsibleSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
   return (
     <div>
+      <div className="flex items-center justify-between mb-2">
       <button
         type="button"
-        className="flex items-center gap-1.5 mb-2 bg-transparent border-0 p-0 cursor-pointer"
+        className="flex items-center gap-1.5 bg-transparent border-0 p-0 cursor-pointer"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -45,12 +55,16 @@ export function CollapsibleSection({
           {title}
         </Text>
         {meta && (
-          <Text size="xs" className="text-text-muted">
+          // One tier below the title (11px vs 12px caps) so the count reads
+          // as an annotation, not part of the section name.
+          <Text fz={11} className="text-text-muted">
             {meta}
           </Text>
         )}
       </button>
-      {open && children}
+      {action && <div onClick={(e) => e.stopPropagation()}>{action}</div>}
+      </div>
+      {open && (inset ? <div className="pl-4">{children}</div> : children)}
     </div>
   );
 }
