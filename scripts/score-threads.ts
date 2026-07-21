@@ -16,8 +16,14 @@
  *   npm run score-threads -- --limit 25        # cap this run
  *   npm run score-threads -- --yes             # required for a non-local DB host
  *
- * Requires ANTHROPIC_API_KEY for the judge.
+ * Requires ANTHROPIC_API_KEY for the judge. Prisma auto-loads .env (where
+ * DATABASE_URL lives), but not .env.local — so this script loads .env.local
+ * (then .env) itself before anything reads the environment. Values already set
+ * in the shell win, so `DATABASE_URL=… npm run score-threads` still overrides.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { PrismaClient } from "@prisma/client";
 
 import {
@@ -28,6 +34,37 @@ import {
 } from "../src/server/services/AgentEvalService";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "host.docker.internal"]);
+
+/**
+ * Load .env.local then .env into process.env without overriding anything the
+ * shell already set. Mirrors Next.js precedence (.env.local wins over .env)
+ * while leaving explicit shell/inline vars untouched. Kept dependency-free on
+ * purpose: dotenv is only a transitive dep here.
+ */
+function loadEnvFiles(): void {
+  for (const file of [".env.local", ".env"]) {
+    let contents: string;
+    try {
+      contents = readFileSync(resolve(process.cwd(), file), "utf8");
+    } catch {
+      continue; // absent file is fine
+    }
+    for (const line of contents.split("\n")) {
+      const match = /^\s*(?:export\s+)?([\w.-]+)\s*=\s*(.*)$/.exec(line);
+      const key = match?.[1];
+      if (key === undefined || process.env[key] !== undefined) continue;
+      let value = (match?.[2] ?? "").trim();
+      if (
+        value.length >= 2 &&
+        ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'")))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  }
+}
 
 function parseArgs(argv: string[]): { limit: number | undefined; yes: boolean } {
   const yes = argv.includes("--yes");
@@ -59,6 +96,7 @@ function oneLine(text: string, max = 160): string {
 }
 
 async function main(): Promise<void> {
+  loadEnvFiles();
   const { limit, yes } = parseArgs(process.argv.slice(2));
 
   const databaseUrl = process.env.DATABASE_URL;
