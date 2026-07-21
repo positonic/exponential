@@ -296,7 +296,7 @@ export function RichDocEditor({
         }
         lastSavedRef.current = serialized;
       })
-      .catch((err: { data?: { code?: string } }) => {
+      .catch((err: { data?: { code?: string }; message?: string }) => {
         if (err?.data?.code === "CONFLICT") {
           if (conflictShown.current) return;
           conflictShown.current = true;
@@ -316,9 +316,14 @@ export function RichDocEditor({
           });
           return;
         }
+        // Stable id so a persistent failure (e.g. content over the server's
+        // length cap) updates one toast instead of stacking a new one on
+        // every autosave retry.
         notifications.show({
+          id: "richdoc-save-error",
           title: "Couldn't save changes",
           message:
+            err?.message ||
             "Your edits haven't been saved. Check your connection and try again.",
           color: "red",
         });
