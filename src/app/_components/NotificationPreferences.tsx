@@ -79,6 +79,12 @@ export function NotificationPreferences({ opened, onClose }: NotificationPrefere
     { enabled: opened }
   );
 
+  // Matrix opt-in: offered only when the user has paired a Matrix account.
+  const { data: matrixOptIn } = api.notification.getMatrixOptIn.useQuery(
+    undefined,
+    { enabled: opened }
+  );
+
   // Update preferences mutation
   const updatePreferences = api.notification.updatePreferences.useMutation({
     onSuccess: () => {
@@ -148,7 +154,7 @@ export function NotificationPreferences({ opened, onClose }: NotificationPrefere
             icon={<IconBell size={16} />}
             color="blue"
           >
-            Configure how and when you receive notifications via WhatsApp. 
+            Configure how and when you receive notifications on your connected channels.
             All times are in your selected timezone.
           </Alert>
 
@@ -163,15 +169,18 @@ export function NotificationPreferences({ opened, onClose }: NotificationPrefere
               />
 
               <Select
-                label="WhatsApp Integration"
-                placeholder="Select integration to use"
-                description="Choose which WhatsApp number to send from"
+                label="Notification channel"
+                placeholder="Select where notifications are delivered"
+                description="Where scheduled summaries are delivered"
                 data={[
                   { value: '', label: 'Use default' },
                   ...(integrations?.map(i => ({
                     value: i.id,
                     label: i.name,
                   })) || []),
+                  ...(matrixOptIn?.available && matrixOptIn.integrationId
+                    ? [{ value: matrixOptIn.integrationId, label: 'Matrix (Zoe DM)' }]
+                    : []),
                 ]}
                 {...form.getInputProps('integrationId')}
               />

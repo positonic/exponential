@@ -32,6 +32,26 @@ export const notificationRouter = createTRPCRouter({
     return preferences;
   }),
 
+  // Whether the user can pick Matrix as their notification channel — true only
+  // when they've paired a Matrix account (a mapping under the shared system
+  // "matrix" Integration). Returns that integration's id to set as the
+  // preference's integrationId. Opt-in: pairing for chat does not enable this
+  // by itself; the user must choose Matrix here. (V2, ADR-0043)
+  getMatrixOptIn: protectedProcedure.query(async ({ ctx }) => {
+    const integration = await ctx.db.integration.findFirst({
+      where: { provider: "matrix", status: "ACTIVE", userId: null },
+    });
+    if (!integration) return { available: false, integrationId: null };
+
+    const mapping = await ctx.db.integrationUserMapping.findFirst({
+      where: { userId: ctx.session.user.id, integrationId: integration.id },
+    });
+    return {
+      available: !!mapping,
+      integrationId: mapping ? integration.id : null,
+    };
+  }),
+
   // Update notification preferences
   updatePreferences: protectedProcedure
     .input(

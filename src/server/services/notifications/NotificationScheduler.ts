@@ -2,6 +2,7 @@ import { db } from '~/server/db';
 import { type Prisma } from '@prisma/client';
 import { WhatsAppNotificationService } from './WhatsAppNotificationService';
 import { ZulipNotificationService } from './ZulipNotificationService';
+import { MatrixNotificationService } from './MatrixNotificationService';
 import { NotificationTemplates } from './NotificationTemplates';
 import { sendPushToUser } from './WebPushService';
 import { notificationDeepLink } from './notificationDeepLink';
@@ -209,6 +210,30 @@ export class NotificationScheduler {
           }
         } catch (zulipError) {
           console.error(`[Zulip] Failed for notification ${notification.id}:`, zulipError);
+        }
+      }
+
+      // Also send via Matrix if the user chose it as their channel (V2, ADR-0043).
+      // The MatrixNotificationService posts { userId } to the gateway, which
+      // resolves the user's canonical DM room — no per-user credential here.
+      if (notification.integration?.provider === 'matrix') {
+        try {
+          const matrixService = new MatrixNotificationService({
+            userId: notification.userId,
+            integrationId: notification.integrationId!,
+          });
+          const matrixResult = await matrixService.sendNotification({
+            title: notification.title,
+            message: notification.message,
+          });
+          if (matrixResult.success) {
+            delivered = true;
+            console.log(`💬 Matrix sent for notification ${notification.id}`);
+          } else {
+            console.error(`[Matrix] Not delivered for ${notification.id}: ${matrixResult.error}`);
+          }
+        } catch (matrixError) {
+          console.error(`[Matrix] Failed for notification ${notification.id}:`, matrixError);
         }
       }
 
