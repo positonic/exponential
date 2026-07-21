@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { MatrixNotificationService } from "~/server/services/notifications/MatrixNotificationService";
 
 export const notificationRouter = createTRPCRouter({
   // Get user notification preferences
@@ -50,6 +51,41 @@ export const notificationRouter = createTRPCRouter({
       available: !!mapping,
       integrationId: mapping ? integration.id : null,
     };
+  }),
+
+  // Deliver a test message to the user's Matrix DM *immediately* (bypasses the
+  // scheduler), so opt-in can be verified on the spot. Requires a Matrix mapping.
+  sendMatrixTest: protectedProcedure.mutation(async ({ ctx }) => {
+    const integration = await ctx.db.integration.findFirst({
+      where: { provider: "matrix", status: "ACTIVE", userId: null },
+    });
+    const mapping = integration
+      ? await ctx.db.integrationUserMapping.findFirst({
+          where: { userId: ctx.session.user.id, integrationId: integration.id },
+        })
+      : null;
+    if (!mapping) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Connect Matrix first (Settings → Assistant → Connect Matrix).",
+      });
+    }
+
+    const service = new MatrixNotificationService({
+      userId: ctx.session.user.id,
+      integrationId: integration!.id,
+    });
+    const result = await service.sendNotification({
+      title: "Test notification",
+      message: "✅ Your Exponential notifications are wired up to Matrix.",
+    });
+    if (!result.success) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: result.error ?? "Failed to deliver to Matrix",
+      });
+    }
+    return { success: true };
   }),
 
   // Update notification preferences
