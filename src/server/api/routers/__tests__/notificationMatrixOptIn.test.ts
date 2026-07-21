@@ -111,3 +111,19 @@ describe("notification.getMatrixOptIn", () => {
     });
   });
 });
+
+describe("notification.sendMatrixTest", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  it("refuses (PRECONDITION_FAILED) when the user has not paired Matrix", async () => {
+    dbMock.integration.findFirst.mockResolvedValue(MATRIX_INT as never);
+    dbMock.integrationUserMapping.findFirst.mockResolvedValue(null as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(caller.notification.sendMatrixTest()).rejects.toThrow(/Connect Matrix first/);
+  });
+});
