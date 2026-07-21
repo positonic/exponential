@@ -2,9 +2,10 @@ import { type NotificationService, type NotificationConfig } from './Notificatio
 import { SlackNotificationService } from './SlackNotificationService';
 import { WhatsAppNotificationService } from './WhatsAppNotificationService';
 import { ZulipNotificationService } from './ZulipNotificationService';
+import { MatrixNotificationService } from './MatrixNotificationService';
 import { db } from '~/server/db';
 
-export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp' | 'zulip';
+export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp' | 'zulip' | 'matrix';
 
 export class NotificationServiceFactory {
   /**
@@ -61,6 +62,8 @@ export class NotificationServiceFactory {
         return new WhatsAppNotificationService(config);
       case 'zulip':
         return new ZulipNotificationService(config);
+      case 'matrix':
+        return new MatrixNotificationService(config);
       case 'email':
         // TODO: Implement EmailNotificationService
         return null;
