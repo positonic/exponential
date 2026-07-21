@@ -277,7 +277,8 @@ export function RichDocEditor({
 
   // Latest save fn behind a ref so the queue's closure never goes stale. It
   // reads the editor, content and version base at execution time, and never
-  // rejects (the conflict modal handles the error) — the queue relies on that.
+  // rejects (errors surface via the conflict modal or an error notification
+  // instead) — the queue relies on that.
   const saveRef = useRef<() => Promise<void>>(() => Promise.resolve());
   saveRef.current = () => {
     const editor = editorRef.current;
@@ -295,8 +296,9 @@ export function RichDocEditor({
         }
         lastSavedRef.current = serialized;
       })
-      .catch((err: { data?: { code?: string } }) => {
-        if (err?.data?.code === "CONFLICT" && !conflictShown.current) {
+      .catch((err: { data?: { code?: string }; message?: string }) => {
+        if (err?.data?.code === "CONFLICT") {
+          if (conflictShown.current) return;
           conflictShown.current = true;
           modals.openConfirmModal({
             title: conflict?.title ?? "This document changed",
@@ -312,7 +314,19 @@ export function RichDocEditor({
               conflictShown.current = false;
             },
           });
+          return;
         }
+        // Stable id so a persistent failure (e.g. content over the server's
+        // length cap) updates one toast instead of stacking a new one on
+        // every autosave retry.
+        notifications.show({
+          id: "richdoc-save-error",
+          title: "Couldn't save changes",
+          message:
+            err?.message ||
+            "Your edits haven't been saved. Check your connection and try again.",
+          color: "red",
+        });
       });
   };
 
