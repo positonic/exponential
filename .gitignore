@@ -95,6 +95,7 @@ db-backups/
 
 # Electron
 /dist-electron/
+/dist-installers/
 /release/
 
 .exponential/

@@ -30,7 +30,7 @@
     "prepare": "husky",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && npm run electron:start\"",
     "electron:start": "tsc -p electron/tsconfig.json && electron .",
-    "electron:build": "tsc -p electron/tsconfig.json && electron-builder",
+    "electron:build": "tsc -p electron/tsconfig.json && node electron/make-app-package.cjs && electron-builder",
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",
     "electron:build:linux": "npm run electron:build -- --linux",

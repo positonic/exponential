@@ -10,6 +10,10 @@
     <key>com.apple.security.network.server</key>
     <true/>
 
+    <!-- Allow JIT-compiled executable memory (required for V8/Electron on Apple Silicon) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
     <!-- Allow unsigned executable memory (required for V8/Electron) -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
