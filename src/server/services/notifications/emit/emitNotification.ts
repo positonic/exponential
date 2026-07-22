@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client";
-import { DELIVERY_STATUS, NOTIFICATION_CHANNELS, type NotificationChannel } from "./constants";
+import { DELIVERY_STATUS } from "./constants";
 import { deliverToChannel } from "./channels";
 import { buildContent } from "./content";
+import { resolveEnabledChannels } from "./preferences";
 import { resolveRecipients } from "./recipients";
 import type { EmitNotificationInput } from "./types";
 
@@ -63,9 +64,15 @@ async function emitForRecipient(
     },
   });
 
-  // TRACER (V1 action 1): Push only. Action 2 replaces this with the
-  // category × channel matrix resolution for `recipientId`.
-  const channels: NotificationChannel[] = [NOTIFICATION_CHANNELS.PUSH];
+  // Resolve the recipient's enabled channels from their category × channel
+  // matrix (seeded defaults + per-workspace email override). Only enabled
+  // channels get a delivery row.
+  const channels = await resolveEnabledChannels(
+    db,
+    recipientId,
+    content.category,
+    content.workspaceId,
+  );
 
   const isFuture =
     notification.scheduledFor != null &&
