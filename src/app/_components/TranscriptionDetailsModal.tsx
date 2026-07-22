@@ -22,10 +22,13 @@ import {
 } from "~/lib/fireflies-summary";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import {
+  ParticipantPicker,
+  type PendingParticipant,
+} from "./meeting/ParticipantPicker";
 import { ActionsPane } from "./transcription-detail/ActionsPane";
 import { MeetingHeader } from "./transcription-detail/MeetingHeader";
 import { NotesPane } from "./transcription-detail/NotesPane";
-import { ParticipantPicker } from "./transcription-detail/ParticipantPicker";
 import { Rail } from "./transcription-detail/Rail";
 import { ScreenshotsPane } from "./transcription-detail/ScreenshotsPane";
 import { SummaryPane } from "./transcription-detail/SummaryPane";
@@ -101,6 +104,23 @@ export function TranscriptionDetailsModal({
   // ---------- mutations ----------
   const utils = api.useUtils();
 
+  const addParticipantMutation =
+    api.transcription.addParticipant.useMutation({
+      onSuccess: () => {
+        void refetch();
+        // A free-text email may have inline-created a CRM contact; refresh the
+        // contact list so subsequent adds this session reflect reality.
+        void utils.crmContact.getAll.invalidate();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Couldn't add participant",
+          message: error.message,
+          color: "red",
+        });
+      },
+    });
+
   const removeParticipantMutation =
     api.transcription.removeParticipant.useMutation({
       onSuccess: () => {
@@ -114,6 +134,14 @@ export function TranscriptionDetailsModal({
         });
       },
     });
+
+  const handleAddParticipant = (person: PendingParticipant) => {
+    if (!data?.id) return;
+    addParticipantMutation.mutate({
+      transcriptionSessionId: data.id,
+      ...person.payload,
+    });
+  };
 
   const updateTitleMutation = api.transcription.updateTitle.useMutation({
     onSuccess: (updated) => {
@@ -712,10 +740,10 @@ export function TranscriptionDetailsModal({
           <ParticipantPicker
             opened={participantPickerOpen}
             onClose={() => setParticipantPickerOpen(false)}
-            sessionId={data?.id ?? ""}
             workspaceId={participantWorkspaceId}
             existing={existingParticipantKeys}
-            onAdded={() => void refetch()}
+            onAdd={handleAddParticipant}
+            busy={addParticipantMutation.isPending}
           />
         )}
 

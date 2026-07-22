@@ -16,7 +16,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
-import { IconPlus, IconUserPlus } from "@tabler/icons-react";
+import { IconBell, IconPlus, IconUserPlus } from "@tabler/icons-react";
 import {
   ParticipantPicker,
   type PendingParticipant,
@@ -117,7 +117,13 @@ export function CreateTranscriptionModal({
   };
 
   const isValid = title.trim() && transcription.trim();
-  const existingParticipants = new Set(pendingParticipants.map((p) => p.key));
+  // Hide already-staged people from the picker — by their identity key and by
+  // email, so a staged team member also masks a matching CRM contact.
+  const existingParticipants = new Set<string>();
+  for (const p of pendingParticipants) {
+    existingParticipants.add(p.key);
+    if (p.email) existingParticipants.add(`email:${p.email.toLowerCase()}`);
+  }
 
   return (
     <>
@@ -172,7 +178,7 @@ export function CreateTranscriptionModal({
 
             <Input.Wrapper
               label="Participants"
-              description="Link CRM contacts or add new people by name and email."
+              description="Add teammates, link CRM contacts, or add new people by name and email."
             >
               <Stack gap="xs" mt={4}>
                 {pendingParticipants.length > 0 && (
@@ -182,9 +188,16 @@ export function CreateTranscriptionModal({
                         key={p.key}
                         withRemoveButton
                         onRemove={() => handleRemovePending(p.key)}
-                        title={p.email}
+                        title={
+                          p.kind === "member"
+                            ? `${p.email} · will be notified`
+                            : p.email
+                        }
                       >
-                        {p.name}
+                        <span className="inline-flex items-center gap-1">
+                          {p.kind === "member" && <IconBell size={11} />}
+                          {p.name}
+                        </span>
                       </Pill>
                     ))}
                   </Pill.Group>

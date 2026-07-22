@@ -10,10 +10,12 @@ import {
   Stack,
   Text,
   TextInput,
+  Tooltip,
   UnstyledButton,
 } from "@mantine/core";
 import {
   IconArrowLeft,
+  IconBell,
   IconPlus,
   IconSearch,
   IconUserPlus,
@@ -53,12 +55,16 @@ function avatarColor(seed: string): string {
  * (meeting detail page) or stage it for an atomic save (create-meeting modal).
  */
 export interface PendingParticipant {
-  /** Stable identity key — `contact:<id>` or `email:<addr>` — for deduping a
-   *  pending list and hiding people already on the meeting. */
+  /** Stable identity key — `user:<id>`, `contact:<id>`, or `email:<addr>` — for
+   *  deduping a pending list and hiding people already on the meeting. */
   key: string;
   name: string;
   email: string;
+  /** How the person was picked. `member` participants link to a workspace User
+   *  and are notifiable, so callers can style their chips distinctly. */
+  kind: "member" | "contact" | "new";
   payload:
+    | { userId: string }
     | { contactId: string; email?: string }
     | { email: string; name?: string };
 }
@@ -66,13 +72,13 @@ export interface PendingParticipant {
 interface ParticipantPickerProps {
   opened: boolean;
   onClose: () => void;
-  /** The meeting's workspace. CRM contacts are workspace-scoped, so the picker
-   *  is inert without one. */
+  /** The meeting's workspace. Members and CRM contacts are workspace-scoped, so
+   *  the picker is inert without one. */
   workspaceId: string | null;
-  /** Identity keys already on the meeting (`contact:<id>` and lowercased
-   *  `email:<addr>`) so existing participants are hidden from the results. */
+  /** Identity keys already on the meeting (`user:<id>`, `contact:<id>`, and
+   *  lowercased `email:<addr>`) so existing participants are hidden. */
   existing: Set<string>;
-  /** Emitted when the user links a contact or adds a new person. */
+  /** Emitted when the user links a member/contact or adds a new person. */
   onAdd: (participant: PendingParticipant) => void;
   /** Disables interaction while the parent persists an add. */
   busy?: boolean;
@@ -102,13 +108,49 @@ export function ParticipantPicker({
     return () => clearTimeout(t);
   }, [query]);
 
-  const { data, isLoading } = api.crmContact.getAll.useQuery(
+  // Workspace team members. Sourced by workspaceId (not the route's workspace
+  // context) so the picker works on the /recording/[id] detail page too, which
+  // is not mounted under a /w/[slug] route. The server already resolves a
+  // `{ userId }` payload against workspace membership.
+  const { data: membersData, isLoading: membersLoading } =
+    api.action.getAssignableUsersForContext.useQuery(
+      { workspaceId: workspaceId ?? undefined },
+      { enabled: opened && !!workspaceId },
+    );
+
+  const { data, isLoading: contactsLoading } = api.crmContact.getAll.useQuery(
     {
       workspaceId: workspaceId ?? "",
       search: debouncedQuery || undefined,
       limit: 20,
     },
     { enabled: opened && !!workspaceId },
+  );
+
+  const members = useMemo(() => {
+    const rows = membersData?.assignableUsers ?? [];
+    return rows
+      // A participant row requires an email (the server copies it from the
+      // user), so members without one can't be added — hide them.
+      .filter((u): u is typeof u & { email: string } => !!u.email)
+      .filter(
+        (u) =>
+          !existing.has(`user:${u.id}`) &&
+          !existing.has(`email:${u.email.toLowerCase()}`),
+      )
+      .map((u) => ({
+        id: u.id,
+        name: u.name ?? u.email,
+        email: u.email,
+        image: u.image,
+      }));
+  }, [membersData?.assignableUsers, existing]);
+
+  // Emails already claimed by a member, so the same person doesn't appear again
+  // under CRM contacts.
+  const memberEmails = useMemo(
+    () => new Set(members.map((m) => m.email.toLowerCase())),
+    [members],
   );
 
   const contacts = useMemo(() => {
@@ -125,19 +167,38 @@ export function ParticipantPicker({
       .filter(
         (c) =>
           !existing.has(`contact:${c.id}`) &&
-          !(c.email && existing.has(`email:${c.email.toLowerCase()}`)),
+          !(c.email && existing.has(`email:${c.email.toLowerCase()}`)) &&
+          !(c.email && memberEmails.has(c.email.toLowerCase())),
       );
-  }, [data?.contacts, existing]);
+  }, [data?.contacts, existing, memberEmails]);
 
   const trimmed = query.trim();
   const q = trimmed.toLowerCase();
   const isEmail = EMAIL_RE.test(trimmed);
-  // Offer "add new" only when the search doesn't already name an existing,
-  // not-yet-added contact.
-  const exactMatch = contacts.some(
-    (c) => c.name.toLowerCase() === q || (c.email?.toLowerCase() ?? "") === q,
+  // Members come from workspace context (not a server search), so filter them
+  // client-side by the same query text used for the contact search.
+  const filteredMembers = useMemo(
+    () =>
+      members.filter(
+        (m) =>
+          !q ||
+          m.name.toLowerCase().includes(q) ||
+          m.email.toLowerCase().includes(q),
+      ),
+    [members, q],
   );
+
+  // Offer "add new" only when the search doesn't already name an existing,
+  // not-yet-added member or contact.
+  const exactMatch =
+    filteredMembers.some(
+      (m) => m.name.toLowerCase() === q || m.email.toLowerCase() === q,
+    ) ||
+    contacts.some(
+      (c) => c.name.toLowerCase() === q || (c.email?.toLowerCase() ?? "") === q,
+    );
   const showAddNew = trimmed.length > 0 && !exactMatch;
+  const isLoading = membersLoading || contactsLoading;
 
   function resetAndClose() {
     setQuery("");
@@ -151,12 +212,23 @@ export function ParticipantPicker({
     setCapture(null);
   }
 
+  function pickMember(m: { id: string; name: string; email: string }) {
+    emit({
+      key: `user:${m.id}`,
+      name: m.name,
+      email: m.email,
+      kind: "member",
+      payload: { userId: m.id },
+    });
+  }
+
   function pickContact(c: { id: string; name: string; email: string | null }) {
     if (c.email) {
       emit({
         key: `contact:${c.id}`,
         name: c.name,
         email: c.email,
+        kind: "contact",
         payload: { contactId: c.id },
       });
     } else {
@@ -184,6 +256,7 @@ export function ParticipantPicker({
         key: `contact:${capture.contactId}`,
         name: capture.name,
         email: captureEmail,
+        kind: "contact",
         payload: { contactId: capture.contactId, email: captureEmail },
       });
     } else {
@@ -192,10 +265,13 @@ export function ParticipantPicker({
         key: `email:${captureEmail.toLowerCase()}`,
         name: name || captureEmail,
         email: captureEmail,
+        kind: "new",
         payload: { email: captureEmail, name: name || undefined },
       });
     }
   }
+
+  const hasResults = filteredMembers.length > 0 || contacts.length > 0;
 
   return (
     <Modal
@@ -273,7 +349,7 @@ export function ParticipantPicker({
       ) : (
         <Stack gap="sm">
           <TextInput
-            placeholder="Search contacts by name, or type a new email"
+            placeholder="Search teammates and contacts, or type a new email"
             leftSection={<IconSearch size={16} />}
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
@@ -289,27 +365,96 @@ export function ParticipantPicker({
                 </Group>
               )}
 
-              {contacts.map((c) => (
-                <UnstyledButton
-                  key={c.id}
-                  onClick={() => pickContact(c)}
-                  disabled={busy}
-                  className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-surface-hover disabled:opacity-50"
-                >
-                  <Avatar radius="xl" size="sm" color={avatarColor(c.id)}>
-                    {getInitial(c.name, c.email)}
-                  </Avatar>
-                  <div className="min-w-0 flex-1">
-                    <Text size="sm" truncate>
-                      {c.name}
+              {filteredMembers.length > 0 && (
+                <>
+                  <Text
+                    size="xs"
+                    fw={600}
+                    c="dimmed"
+                    tt="uppercase"
+                    px={2}
+                    pt={4}
+                  >
+                    Team members
+                  </Text>
+                  {filteredMembers.map((m) => (
+                    <UnstyledButton
+                      key={m.id}
+                      onClick={() => pickMember(m)}
+                      disabled={busy}
+                      className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-surface-hover disabled:opacity-50"
+                    >
+                      <Avatar
+                        radius="xl"
+                        size="sm"
+                        src={m.image ?? undefined}
+                        color={avatarColor(m.id)}
+                      >
+                        {getInitial(m.name, m.email)}
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <Text size="sm" truncate>
+                          {m.name}
+                        </Text>
+                        <Text size="xs" c="dimmed" truncate>
+                          {m.email}
+                        </Text>
+                      </div>
+                      <Tooltip
+                        label="Team members are notified when added"
+                        withArrow
+                      >
+                        <Text
+                          span
+                          c="dimmed"
+                          className="flex items-center gap-1"
+                        >
+                          <IconBell size={13} />
+                        </Text>
+                      </Tooltip>
+                      <IconPlus size={14} />
+                    </UnstyledButton>
+                  ))}
+                </>
+              )}
+
+              {contacts.length > 0 && (
+                <>
+                  {filteredMembers.length > 0 && (
+                    <Text
+                      size="xs"
+                      fw={600}
+                      c="dimmed"
+                      tt="uppercase"
+                      px={2}
+                      pt={4}
+                    >
+                      CRM contacts
                     </Text>
-                    <Text size="xs" c="dimmed" truncate>
-                      {c.email ?? "No email on file"}
-                    </Text>
-                  </div>
-                  <IconPlus size={14} />
-                </UnstyledButton>
-              ))}
+                  )}
+                  {contacts.map((c) => (
+                    <UnstyledButton
+                      key={c.id}
+                      onClick={() => pickContact(c)}
+                      disabled={busy}
+                      className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left hover:bg-surface-hover disabled:opacity-50"
+                    >
+                      <Avatar radius="xl" size="sm" color={avatarColor(c.id)}>
+                        {getInitial(c.name, c.email)}
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <Text size="sm" truncate>
+                          {c.name}
+                        </Text>
+                        <Text size="xs" c="dimmed" truncate>
+                          {c.email ?? "No email on file"}
+                        </Text>
+                      </div>
+                      <IconPlus size={14} />
+                    </UnstyledButton>
+                  ))}
+                </>
+              )}
 
               {showAddNew && (
                 <UnstyledButton
@@ -334,10 +479,10 @@ export function ParticipantPicker({
                 </UnstyledButton>
               )}
 
-              {!isLoading && contacts.length === 0 && !showAddNew && (
+              {!isLoading && !hasResults && !showAddNew && (
                 <Text size="sm" c="dimmed" ta="center" py="md">
                   {workspaceId
-                    ? "No contacts found. Type a name or email to add someone."
+                    ? "No people found. Type a name or email to add someone."
                     : "This meeting has no workspace, so participants can't be managed."}
                 </Text>
               )}
