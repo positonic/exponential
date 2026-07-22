@@ -10,12 +10,10 @@ import {
   Stack,
   Text,
   TextInput,
-  Tooltip,
   UnstyledButton,
 } from "@mantine/core";
 import {
   IconArrowLeft,
-  IconBell,
   IconPlus,
   IconSearch,
   IconUserPlus,
@@ -60,8 +58,8 @@ export interface PendingParticipant {
   key: string;
   name: string;
   email: string;
-  /** How the person was picked. `member` participants link to a workspace User
-   *  and are notifiable, so callers can style their chips distinctly. */
+  /** How the person was picked. `member` participants link to a workspace User,
+   *  so callers can style their chips distinctly. */
   kind: "member" | "contact" | "new";
   payload:
     | { userId: string }
@@ -400,18 +398,6 @@ export function ParticipantPicker({
                           {m.email}
                         </Text>
                       </div>
-                      <Tooltip
-                        label="Team members are notified when added"
-                        withArrow
-                      >
-                        <Text
-                          span
-                          c="dimmed"
-                          className="flex items-center gap-1"
-                        >
-                          <IconBell size={13} />
-                        </Text>
-                      </Tooltip>
                       <IconPlus size={14} />
                     </UnstyledButton>
                   ))}

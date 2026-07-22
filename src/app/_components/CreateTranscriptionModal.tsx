@@ -13,10 +13,10 @@ import {
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { useDisclosure } from "@mantine/hooks";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
-import { IconBell, IconPlus, IconUserPlus } from "@tabler/icons-react";
+import { IconPlus, IconUserPlus, IconUsers } from "@tabler/icons-react";
 import {
   ParticipantPicker,
   type PendingParticipant,
@@ -118,12 +118,17 @@ export function CreateTranscriptionModal({
 
   const isValid = title.trim() && transcription.trim();
   // Hide already-staged people from the picker — by their identity key and by
-  // email, so a staged team member also masks a matching CRM contact.
-  const existingParticipants = new Set<string>();
-  for (const p of pendingParticipants) {
-    existingParticipants.add(p.key);
-    if (p.email) existingParticipants.add(`email:${p.email.toLowerCase()}`);
-  }
+  // email, so a staged team member also masks a matching CRM contact. Memoized
+  // so its Set identity is stable across renders (the picker's members memo
+  // depends on it and would otherwise recompute every render).
+  const existingParticipants = useMemo(() => {
+    const keys = new Set<string>();
+    for (const p of pendingParticipants) {
+      keys.add(p.key);
+      if (p.email) keys.add(`email:${p.email.toLowerCase()}`);
+    }
+    return keys;
+  }, [pendingParticipants]);
 
   return (
     <>
@@ -190,12 +195,12 @@ export function CreateTranscriptionModal({
                         onRemove={() => handleRemovePending(p.key)}
                         title={
                           p.kind === "member"
-                            ? `${p.email} · will be notified`
+                            ? `${p.email} · team member`
                             : p.email
                         }
                       >
                         <span className="inline-flex items-center gap-1">
-                          {p.kind === "member" && <IconBell size={11} />}
+                          {p.kind === "member" && <IconUsers size={11} />}
                           {p.name}
                         </span>
                       </Pill>
