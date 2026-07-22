@@ -4811,12 +4811,37 @@ model TicketSync {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  config TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
-  ticket Ticket           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  config    TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
+  ticket    Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  pushJobs  TicketSyncPushJob[]
 
   @@unique([ticketId, provider])
   @@unique([configId, externalId])
   @@index([provider, externalId])
+}
+
+/// Durable outbound-push queue entry (ADR-0046). A synced-ticket mutation
+/// enqueues one of these; a drain (immediate best-effort kick + cron safety
+/// net) runs the outbound merge and writes to Notion. A durable row rather
+/// than fire-and-forget so retry survives a serverless freeze — same pattern
+/// as CrmContactEnrichment.
+model TicketSyncPushJob {
+  id            String    @id @default(cuid())
+  syncId        String
+  /// PENDING | RUNNING | COMPLETED | FAILED
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  lastError     String?
+  /// Earliest time the drain may (re)claim this job — backoff after a failure.
+  nextAttemptAt DateTime  @default(now())
+  startedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sync TicketSync @relation(fields: [syncId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([syncId])
 }
 
 model TicketSyncRun {
