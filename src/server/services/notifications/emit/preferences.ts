@@ -1,39 +1,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { shouldSendEmailNotification } from "~/server/services/notifications/EmailNotificationService";
 import {
-  NOTIFICATION_CATEGORIES,
+  CHANNEL_LIST,
+  DEFAULT_MATRIX,
   NOTIFICATION_CHANNELS,
   type NotificationCategory,
   type NotificationChannel,
 } from "./constants";
-
-/** Every channel, in stable delivery order. */
-const ALL_CHANNELS: readonly NotificationChannel[] = [
-  NOTIFICATION_CHANNELS.PUSH,
-  NOTIFICATION_CHANNELS.EMAIL,
-  NOTIFICATION_CHANNELS.MATRIX,
-  NOTIFICATION_CHANNELS.WHATSAPP,
-  NOTIFICATION_CHANNELS.ZULIP,
-];
-
-/**
- * Seeded fallback for the category × channel matrix — used when a user has no
- * explicit {@link NotificationChannelPreference} row for a cell. Always-on
- * channels (Push, Email) default on for high-signal categories; Summary keeps
- * push quiet. Opt-in channels (Matrix, WhatsApp, Zulip) default off everywhere,
- * so connecting a chat channel never auto-starts pings (CONTEXT: Notification
- * channel).
- */
-export const DEFAULT_MATRIX: Record<
-  NotificationCategory,
-  Record<NotificationChannel, boolean>
-> = {
-  [NOTIFICATION_CATEGORIES.ASSIGNMENT]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
-  [NOTIFICATION_CATEGORIES.MENTION]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
-  [NOTIFICATION_CATEGORIES.DUE_DATE]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
-  [NOTIFICATION_CATEGORIES.SUMMARY]: { push: false, email: true, matrix: false, whatsapp: false, zulip: false },
-  [NOTIFICATION_CATEGORIES.MEETING_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
-};
 
 /**
  * Resolve the channels a recipient should receive a given category on, from
@@ -57,7 +30,7 @@ export async function resolveEnabledChannels(
   const defaults = DEFAULT_MATRIX[category];
 
   const enabled: NotificationChannel[] = [];
-  for (const channel of ALL_CHANNELS) {
+  for (const channel of CHANNEL_LIST) {
     const isEnabled = byChannel.get(channel) ?? defaults?.[channel] ?? false;
     if (!isEnabled) continue;
 

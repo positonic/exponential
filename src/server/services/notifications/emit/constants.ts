@@ -52,3 +52,40 @@ export const DELIVERY_STATUS = {
 
 export type DeliveryStatus =
   (typeof DELIVERY_STATUS)[keyof typeof DELIVERY_STATUS];
+
+/** All categories, in preference-matrix row order. */
+export const CATEGORY_LIST = [
+  NOTIFICATION_CATEGORIES.ASSIGNMENT,
+  NOTIFICATION_CATEGORIES.MENTION,
+  NOTIFICATION_CATEGORIES.DUE_DATE,
+  NOTIFICATION_CATEGORIES.SUMMARY,
+  NOTIFICATION_CATEGORIES.MEETING_READY,
+] as const;
+
+/** All channels, in stable delivery / matrix-column order. */
+export const CHANNEL_LIST = [
+  NOTIFICATION_CHANNELS.PUSH,
+  NOTIFICATION_CHANNELS.EMAIL,
+  NOTIFICATION_CHANNELS.MATRIX,
+  NOTIFICATION_CHANNELS.WHATSAPP,
+  NOTIFICATION_CHANNELS.ZULIP,
+] as const;
+
+/**
+ * Seeded fallback for the category × channel matrix — used when a user has no
+ * explicit {@link NotificationChannelPreference} row for a cell. Always-on
+ * channels (Push, Email) default on for high-signal categories; Summary keeps
+ * push quiet. Opt-in channels (Matrix, WhatsApp, Zulip) default off everywhere,
+ * so connecting a chat channel never auto-starts pings (CONTEXT: Notification
+ * channel).
+ */
+export const DEFAULT_MATRIX: Record<
+  NotificationCategory,
+  Record<NotificationChannel, boolean>
+> = {
+  [NOTIFICATION_CATEGORIES.ASSIGNMENT]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.MENTION]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.DUE_DATE]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.SUMMARY]: { push: false, email: true, matrix: false, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.MEETING_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+};

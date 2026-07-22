@@ -214,6 +214,27 @@ describe("emitNotification — channel resolution", () => {
     );
   });
 
+  it("delivers to Matrix when the opt-in cell is enabled for the category", async () => {
+    db.notificationChannelPreference.findMany.mockResolvedValue([
+      { channel: "push", enabled: false },
+      { channel: "matrix", enabled: true },
+    ] as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: "actor1",
+      subject: { actionId: "a1", assignedUserIds: ["assignee1"] },
+      db,
+    });
+
+    expect(NotificationServiceFactory.createService).toHaveBeenCalledWith("matrix", {
+      userId: "assignee1",
+    });
+    expect(db.notificationDelivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ channel: "matrix" }) }),
+    );
+  });
+
   it("suppresses Email when the per-workspace override is off, even if the matrix enables it", async () => {
     db.notificationChannelPreference.findMany.mockResolvedValue([
       { channel: "push", enabled: true },
