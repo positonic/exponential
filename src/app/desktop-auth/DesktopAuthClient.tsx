@@ -1,43 +1,44 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+
+import { getElectronAPI } from "~/lib/platform";
 
 /**
  * Desktop sign-in bridge (Electron only). After the user completes OAuth in the
- * system browser, the Electron main process loads this page with the one-time
- * PKCE auth code and its matching verifier:
- *
- *   /desktop-auth?code=<auth code>&verifier=<pkce verifier>
- *
- * We hand both to the `desktop` Credentials provider, which verifies them
- * (reusing the native-auth handshake) and establishes the NextAuth session
- * cookie for this in-app web view, then we land the user on /home.
+ * system browser, the Electron main process loads this page and holds the
+ * one-time PKCE auth code + verifier. We fetch that pair **over IPC**, never
+ * from the URL — a query string would leak the verifier (the secret that
+ * protects the code) into server access logs, browser history, and Referer
+ * headers. We then hand it to the `desktop` Credentials provider, which
+ * verifies it and establishes the NextAuth session cookie for this in-app web
+ * view, and land the user on /home.
  */
 export function DesktopAuthClient() {
-  const params = useSearchParams();
   const started = useRef(false);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    // Guard against React 18 double-invoke — this must run exactly once.
+    // Guard against React 18 double-invoke — this must run exactly once (the
+    // IPC read is one-shot and clears the pending credentials on the main side).
     if (started.current) return;
     started.current = true;
 
-    const code = params.get("code");
-    const verifier = params.get("verifier");
-    if (!code || !verifier) {
-      setFailed(true);
-      return;
-    }
-
     void (async () => {
+      const api = getElectronAPI();
+      const pending = api ? await api.getPendingAuth() : null;
+      if (!pending?.code || !pending?.verifier) {
+        setFailed(true);
+        return;
+      }
+
       // redirect:false so we can distinguish success from failure instead of
-      // NextAuth bouncing us to /signin?error and losing the reason.
+      // NextAuth bouncing us to /signin?error and losing the reason. The code +
+      // verifier travel only in this POST body, never in a URL.
       const res = await signIn("desktop", {
-        code,
-        code_verifier: verifier,
+        code: pending.code,
+        code_verifier: pending.verifier,
         redirect: false,
       });
       if (res?.ok && !res.error) {
@@ -46,7 +47,7 @@ export function DesktopAuthClient() {
         setFailed(true);
       }
     })();
-  }, [params]);
+  }, []);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background-primary text-text-primary">

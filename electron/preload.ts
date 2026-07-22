@@ -54,6 +54,12 @@ contextBridge.exposeInMainWorld("electron", {
   startLogin: (): Promise<void> => {
     return ipcRenderer.invoke("desktop:start-login");
   },
+
+  // One-shot fetch of the {code, verifier} pair after the deep-link callback.
+  // Delivered over IPC (not the page URL) so the verifier never leaks.
+  getPendingAuth: (): Promise<{ code: string; verifier: string } | null> => {
+    return ipcRenderer.invoke("desktop:get-pending-auth");
+  },
 });
 
 // Type declaration for the exposed API
@@ -70,6 +76,7 @@ declare global {
       close: () => void;
       getAppVersion: () => Promise<string>;
       startLogin: () => Promise<void>;
+      getPendingAuth: () => Promise<{ code: string; verifier: string } | null>;
     };
   }
 }

@@ -61,6 +61,11 @@ function isOAuthProviderUrl(url: string): boolean {
 // useless. One login may be in flight at a time.
 // ---------------------------------------------------------------------------
 let pendingLogin: { verifier: string; state: string } | null = null;
+// The redeemable {code, verifier} pair, held between the deep-link callback and
+// the /desktop-auth page picking it up over IPC. Kept out of the page URL on
+// purpose so the verifier never lands in access logs, history, or Referer
+// headers. One-shot: cleared on first read.
+let pendingAuth: { code: string; verifier: string } | null = null;
 
 /** Base URL the app is running against — sign-in must use the same origin. */
 function appBaseUrl(): string {
@@ -205,13 +210,12 @@ function handleOAuthCallback(url: string): void {
   const { verifier } = pendingLogin;
   pendingLogin = null;
 
-  const target =
-    `${appBaseUrl()}/desktop-auth` +
-    `?code=${encodeURIComponent(code)}` +
-    `&verifier=${encodeURIComponent(verifier)}`;
+  // Stash the redeemable pair for the page to fetch over IPC — deliberately NOT
+  // in the URL (keeps the verifier out of access logs / history / Referer).
+  pendingAuth = { code, verifier };
 
   if (mainWindow) {
-    void mainWindow.loadURL(target);
+    void mainWindow.loadURL(`${appBaseUrl()}/desktop-auth`);
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
@@ -238,6 +242,14 @@ void app.whenReady().then(() => {
   // Renderer asks us to start sign-in (see preload `startLogin`).
   ipcMain.handle("desktop:start-login", () => {
     startDesktopLogin();
+  });
+
+  // The /desktop-auth page fetches the one-time {code, verifier} here instead of
+  // reading it from its URL. One-shot: hand it over once, then drop it.
+  ipcMain.handle("desktop:get-pending-auth", () => {
+    const pair = pendingAuth;
+    pendingAuth = null;
+    return pair;
   });
 
   createWindow();
