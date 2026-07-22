@@ -35,6 +35,22 @@ export interface MentionSubject {
 }
 
 /**
+ * Due-date reminder (V3): a specific owned action, a single reminder offset, and
+ * the owner it fires for. The cron computes the (action, offset, owner) tuple
+ * and its crossing; emit just delivers to that owner.
+ */
+export interface DueDateSubject {
+  actionId: string;
+  actionName: string;
+  ownerUserId: string;
+  /** Which reminderMinutesBefore offset this reminder is for (part of the dedup key). */
+  offsetMinutes: number;
+  dueDate: Date;
+  workspaceId: string;
+  workspaceSlug: string;
+}
+
+/**
  * Discriminated union pairing each category with its subject. `emitNotification`
  * narrows on `category`, so recipient resolvers and content builders get a
  * fully-typed subject with no casts.
@@ -53,6 +69,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.MENTION;
       subject: MentionSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.DUE_DATE;
+      subject: DueDateSubject;
     }
 );
 

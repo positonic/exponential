@@ -71,9 +71,42 @@ export async function buildContent(
         dedupeKey: `assignment:${actionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.DUE_DATE: {
+      const { actionId, actionName, offsetMinutes, workspaceSlug, workspaceId } =
+        input.subject;
+      return {
+        category: NOTIFICATION_CATEGORIES.DUE_DATE,
+        title: `Reminder: ${actionName}`,
+        message: `Due ${dueLabel(offsetMinutes)}`,
+        deeplink: `/w/${workspaceSlug}/actions/${actionId}`,
+        metadata: {
+          actionId,
+          workspaceId,
+          workspaceSlug,
+          offsetMinutes,
+          dueDate: input.subject.dueDate.toISOString(),
+        },
+        workspaceId,
+        // Per (action, offset); combined with the recipient (owner) via the
+        // unique (dedupeKey, userId) index → one reminder per action/offset/owner.
+        dedupeKey: `due_date:${actionId}:${offsetMinutes}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.MENTION:
       return buildMentionContent(input, recipientId);
     default:
       return null;
   }
+}
+
+/** Human label for a reminder offset, e.g. 60 → "in 1 hour". */
+function dueLabel(offsetMinutes: number): string {
+  if (offsetMinutes <= 0) return "now";
+  if (offsetMinutes < 60) return `in ${offsetMinutes} minutes`;
+  if (offsetMinutes < 1440) {
+    const hours = Math.round(offsetMinutes / 60);
+    return `in ${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  const days = Math.round(offsetMinutes / 1440);
+  return `in ${days} day${days === 1 ? "" : "s"}`;
 }

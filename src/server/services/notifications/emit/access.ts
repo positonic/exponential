@@ -14,6 +14,9 @@ function resolveResource(
   switch (input.category) {
     case NOTIFICATION_CATEGORIES.ASSIGNMENT:
       return { type: "action", id: input.subject.actionId };
+    case NOTIFICATION_CATEGORIES.DUE_DATE:
+      // Don't remind an owner who has lost access to the action.
+      return { type: "action", id: input.subject.actionId };
     default:
       return null;
   }

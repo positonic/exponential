@@ -17,6 +17,9 @@ export async function resolveRecipients(
     case NOTIFICATION_CATEGORIES.MENTION:
       // Mention → parsed, membership-filtered mentioned users.
       return resolveMentionRecipients(input);
+    case NOTIFICATION_CATEGORIES.DUE_DATE:
+      // Due-date → the single owner the cron computed the crossing for.
+      return Promise.resolve([input.subject.ownerUserId]);
     default:
       return Promise.resolve([]);
   }
