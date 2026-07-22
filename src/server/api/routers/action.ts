@@ -14,7 +14,8 @@ import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/ser
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
-import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
@@ -1664,11 +1665,18 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      // Fire-and-forget email notifications for newly assigned users
-      void sendAssignmentNotifications(ctx.db, {
-        actionId: input.actionId,
-        assignedUserIds: input.userIds,
-        assignerId: ctx.session.user.id,
+      // Unified notification pipeline (ADR-0045): emit an Assignment notification.
+      // Resolves recipients + enabled channels, persists a durable Notification
+      // record, and delivers best-effort synchronously; the cron worker retries
+      // any channel that failed. Never notifies the assigner about their own action.
+      void emitNotification({
+        category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+        actorUserId: ctx.session.user.id,
+        subject: {
+          actionId: input.actionId,
+          assignedUserIds: input.userIds,
+        },
+        db: ctx.db,
       });
 
       // Return updated action with assignees
