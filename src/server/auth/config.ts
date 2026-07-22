@@ -1,5 +1,6 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { type DefaultSession, type NextAuthConfig } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
 import DiscordProvider from "next-auth/providers/discord";
 import GoogleProvider from "next-auth/providers/google";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
@@ -8,6 +9,7 @@ import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
+import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
 /**
  * Kill switch for Microsoft Entra ID sign-in. Set to `false` to disable the
@@ -221,6 +223,54 @@ export const authConfig = {
           );
           throw error;
         }
+      },
+    }),
+    /**
+     * Desktop (Electron) sign-in bridge. The Electron app can't run Google/
+     * passkey OAuth inside its window (Chromium has no platform authenticator),
+     * so it runs the sign-in in the *system browser* via
+     * `/api/auth/native/start`, receives a short-lived PKCE auth code on the
+     * `exponential://auth/callback` deep link, then loads `/desktop-auth`, which
+     * calls `signIn("desktop", { code, code_verifier })`. This provider verifies
+     * that handshake and lets NextAuth mint a normal session cookie for the
+     * in-app web view.
+     *
+     * SECURITY — this reuses the exact native-auth checks (no new trust):
+     *   • `verifyAuthCode` requires a code signed by our domain-separated
+     *     codeSecret, i.e. one issued by `/native/start` to an already-
+     *     authenticated user, within its 60s TTL.
+     *   • `verifyPkce` requires the caller to prove the `code_verifier` for the
+     *     challenge baked into the code. That verifier never leaves the Electron
+     *     main process, so an intercepted code is inert.
+     * It never accepts an email/password or any long-lived secret.
+     */
+    CredentialsProvider({
+      id: "desktop",
+      name: "Desktop",
+      credentials: {
+        code: { label: "Auth code", type: "text" },
+        code_verifier: { label: "PKCE verifier", type: "text" },
+      },
+      authorize: async (credentials) => {
+        const code = credentials?.code;
+        const verifier = credentials?.code_verifier;
+        if (typeof code !== "string" || typeof verifier !== "string") return null;
+
+        let claims;
+        try {
+          claims = verifyAuthCode(code);
+        } catch {
+          return null; // bad signature, expired, or wrong purpose
+        }
+        if (!verifyPkce(verifier, claims.codeChallenge)) return null;
+
+        const user = await db.user.findUnique({
+          where: { id: claims.sub },
+          select: { id: true, email: true, name: true, image: true },
+        });
+        if (!user) return null;
+
+        return { id: user.id, email: user.email, name: user.name, image: user.image };
       },
     }),
   ],

@@ -4,8 +4,10 @@ import {
   shell,
   protocol,
   session,
+  ipcMain,
 } from "electron";
 import path from "path";
+import crypto from "crypto";
 import { electronColors } from "./colors";
 
 // Custom protocol for OAuth callbacks
@@ -46,6 +48,52 @@ function isOAuthProviderUrl(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Desktop sign-in (system-browser OAuth + exponential:// deep link).
+//
+// Chromium in Electron has no platform authenticator, so Google passkeys can't
+// complete in-window. Instead we run the whole sign-in in the system browser
+// via `/api/auth/native/start` (the existing native handshake) and return via
+// the exponential:// deep link. PKCE binds the flow: the verifier lives only
+// here in the main process and never leaves it, so an intercepted auth code is
+// useless. One login may be in flight at a time.
+// ---------------------------------------------------------------------------
+let pendingLogin: { verifier: string; state: string } | null = null;
+// The redeemable {code, verifier} pair, held between the deep-link callback and
+// the /desktop-auth page picking it up over IPC. Kept out of the page URL on
+// purpose so the verifier never lands in access logs, history, or Referer
+// headers. One-shot: cleared on first read.
+let pendingAuth: { code: string; verifier: string } | null = null;
+
+/** Base URL the app is running against — sign-in must use the same origin. */
+function appBaseUrl(): string {
+  return isDev ? DEV_URL : PROD_URL;
+}
+
+/** 32 random bytes → 43 base64url chars (matches the server's PKCE sizing). */
+function randomToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+/** PKCE S256: base64url(sha256(verifier)). */
+function pkceChallenge(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function startDesktopLogin(): void {
+  const verifier = randomToken();
+  const state = randomToken();
+  pendingLogin = { verifier, state };
+
+  const authUrl =
+    `${appBaseUrl()}/api/auth/native/start` +
+    `?code_challenge=${encodeURIComponent(pkceChallenge(verifier))}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&redirect_uri=${encodeURIComponent(`${PROTOCOL_NAME}://auth/callback`)}`;
+
+  void shell.openExternal(authUrl);
 }
 
 function createWindow(): void {
@@ -135,22 +183,41 @@ function setupProtocolHandler(): void {
   });
 }
 
-// Handle OAuth callback URLs
+// Handle the exponential://auth/callback?code&state deep link that closes the
+// system-browser sign-in. We validate `state` against the login we started,
+// then hand the one-time code + our PKCE verifier to the in-app /desktop-auth
+// page, which exchanges them for a session cookie via the `desktop` provider.
 function handleOAuthCallback(url: string): void {
-  // Check if this is an OAuth callback
-  if (url.startsWith(`${PROTOCOL_NAME}://`) || url.includes("/auth/callback")) {
-    console.log("[Electron] OAuth callback received:", url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.protocol !== `${PROTOCOL_NAME}:`) return;
 
-    // Extract the callback path and query params
-    const urlObj = new URL(url.replace(`${PROTOCOL_NAME}://`, "https://"));
-    const callbackPath = urlObj.pathname + urlObj.search;
+  const code = parsed.searchParams.get("code");
+  const state = parsed.searchParams.get("state");
 
-    // Navigate to the callback URL in the app
-    if (mainWindow) {
-      const baseUrl = isDev ? DEV_URL : PROD_URL;
-      void mainWindow.loadURL(`${baseUrl}${callbackPath}`);
-      mainWindow.focus();
-    }
+  // Reject unless it matches an in-flight login. `state` is anti-forgery only
+  // (not a secret), so a plain compare is fine; the real protection is PKCE.
+  if (!pendingLogin || !code || !state || state !== pendingLogin.state) {
+    console.error("[Electron] Rejected auth callback: no matching pending login");
+    pendingLogin = null;
+    return;
+  }
+
+  const { verifier } = pendingLogin;
+  pendingLogin = null;
+
+  // Stash the redeemable pair for the page to fetch over IPC — deliberately NOT
+  // in the URL (keeps the verifier out of access logs / history / Referer).
+  pendingAuth = { code, verifier };
+
+  if (mainWindow) {
+    void mainWindow.loadURL(`${appBaseUrl()}/desktop-auth`);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
   }
 }
 
@@ -168,9 +235,23 @@ function setupSession(): void {
 }
 
 // App lifecycle
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   setupProtocolHandler();
   setupSession();
+
+  // Renderer asks us to start sign-in (see preload `startLogin`).
+  ipcMain.handle("desktop:start-login", () => {
+    startDesktopLogin();
+  });
+
+  // The /desktop-auth page fetches the one-time {code, verifier} here instead of
+  // reading it from its URL. One-shot: hand it over once, then drop it.
+  ipcMain.handle("desktop:get-pending-auth", () => {
+    const pair = pendingAuth;
+    pendingAuth = null;
+    return pair;
+  });
+
   createWindow();
 
   app.on("activate", () => {
