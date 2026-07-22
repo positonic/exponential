@@ -75,141 +75,143 @@ model Session {
 }
 
 model User {
-  id                          String                      @id @default(cuid())
-  name                        String?
-  email                       String?                     @unique
-  emailVerified               DateTime?
-  image                       String?
+  id                             String                          @id @default(cuid())
+  name                           String?
+  email                          String?                         @unique
+  emailVerified                  DateTime?
+  image                          String?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  onboardingCompletedAt       DateTime?
+  onboardingCompletedAt          DateTime?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  onboardingStep              Int                         @default(1)
-  welcomeCompletedAt          DateTime?
-  welcomeSetupState           Json?
+  onboardingStep                 Int                             @default(1)
+  welcomeCompletedAt             DateTime?
+  welcomeSetupState              Json?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  projectSetupCompletedAt     DateTime?
+  projectSetupCompletedAt        DateTime?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  onboardingProjectId         String?
+  onboardingProjectId            String?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  selectedTools               String[]
-  usageType                   String?
-  userRole                    String?
-  isAdmin                     Boolean                     @default(false)
+  selectedTools                  String[]
+  usageType                      String?
+  userRole                       String?
+  isAdmin                        Boolean                         @default(false)
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  emailMarketingOptIn         Boolean                     @default(true)
+  emailMarketingOptIn            Boolean                         @default(true)
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  workRole                    String?
+  workRole                       String?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  workFunction                String[]
+  workFunction                   String[]
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
-  usagePurposes               String[]
-  lastLogin                   DateTime?
-  defaultWorkspaceId          String?
-  accounts                    Account[]
-  connectedAccounts           ConnectedAccount[]
-  actions                     Action[]
-  actionAssignees             ActionAssignee[]            @relation("ActionAssignees")
-  timeEntries                 TimeEntry[]
-  aiInteractionHistory        AiInteractionHistory[]
-  feedback                    Feedback[]
-  goals                       Goal[]
-  integrations                Integration[]
-  workspaceRepositoriesAdded  WorkspaceRepository[]       @relation("WorkspaceRepositoryAddedBy")
-  permissionsGrantedBy        IntegrationPermission[]     @relation("PermissionGrantedBy")
-  permissionsGrantedTo        IntegrationPermission[]     @relation("PermissionGrantedTo")
-  permissionsRevokedBy        IntegrationPermission[]     @relation("PermissionRevokedBy")
-  integrationMappings         IntegrationUserMapping[]
-  notes                       Note[]
-  notificationPreferences     NotificationPreference?
-  navigationPreference        NavigationPreference?
-  calendarPreferences         CalendarPreference[]
-  outcomes                    Outcome[]
-  posts                       Post[]
-  projects                    Project[]
-  projectMemberships          ProjectMember[]
-  scheduledNotifications      ScheduledNotification[]
-  sessions                    Session[]
-  slackChannelsConfigured     SlackChannelConfig[]
-  slackMessageHistory         SlackMessageHistory[]
-  slackRegistrations          SlackRegistrationToken[]
-  teams                       TeamUser[]
-  transcriptionSessions       TranscriptionSession[]
-  exercises                   UserExercise[]
-  verificationTokens          VerificationToken[]
-  whatsappConversations       WhatsAppConversation[]
-  whatsappGatewaySessions     WhatsAppGatewaySession[]
-  workflows                   Workflow[]
-  weeklyOutcomesCreated       WeeklyOutcome[]             @relation("WeeklyOutcomeCreated")
-  weeklyOutcomeAssignees      WeeklyOutcomeAssignee[]     @relation("WeeklyOutcomeAssignee")
-  teamCapacities              TeamMemberWeeklyCapacity[]  @relation("TeamMemberCapacity")
-  weeklyReviewSharing         WeeklyReviewSharing[]
-  weeklyReviewCompletions     WeeklyReviewCompletion[]
-  weeklyWorkDigests           WeeklyWorkDigest[]
-  portfolioReviewCompletions  PortfolioReviewCompletion[]
-  workspaceWeeklyFocuses      WorkspaceWeeklyFocus[]
-  wheelOfLifeAssessments      WheelOfLifeAssessment[]
-  habits                      Habit[]
-  ownedWorkspaces             Workspace[]                 @relation("WorkspaceOwner")
-  workspaceMemberships        WorkspaceUser[]
-  resources                   Resource[]
-  knowledgePages              KnowledgePage[]
-  workspaceInvitationsCreated WorkspaceInvitation[]       @relation("InvitationCreator")
+  usagePurposes                  String[]
+  lastLogin                      DateTime?
+  defaultWorkspaceId             String?
+  accounts                       Account[]
+  connectedAccounts              ConnectedAccount[]
+  actions                        Action[]
+  actionAssignees                ActionAssignee[]                @relation("ActionAssignees")
+  timeEntries                    TimeEntry[]
+  aiInteractionHistory           AiInteractionHistory[]
+  feedback                       Feedback[]
+  goals                          Goal[]
+  integrations                   Integration[]
+  workspaceRepositoriesAdded     WorkspaceRepository[]           @relation("WorkspaceRepositoryAddedBy")
+  permissionsGrantedBy           IntegrationPermission[]         @relation("PermissionGrantedBy")
+  permissionsGrantedTo           IntegrationPermission[]         @relation("PermissionGrantedTo")
+  permissionsRevokedBy           IntegrationPermission[]         @relation("PermissionRevokedBy")
+  integrationMappings            IntegrationUserMapping[]
+  notes                          Note[]
+  notificationPreferences        NotificationPreference?
+  notifications                  Notification[]
+  notificationChannelPreferences NotificationChannelPreference[]
+  navigationPreference           NavigationPreference?
+  calendarPreferences            CalendarPreference[]
+  outcomes                       Outcome[]
+  posts                          Post[]
+  projects                       Project[]
+  projectMemberships             ProjectMember[]
+  scheduledNotifications         ScheduledNotification[]
+  sessions                       Session[]
+  slackChannelsConfigured        SlackChannelConfig[]
+  slackMessageHistory            SlackMessageHistory[]
+  slackRegistrations             SlackRegistrationToken[]
+  teams                          TeamUser[]
+  transcriptionSessions          TranscriptionSession[]
+  exercises                      UserExercise[]
+  verificationTokens             VerificationToken[]
+  whatsappConversations          WhatsAppConversation[]
+  whatsappGatewaySessions        WhatsAppGatewaySession[]
+  workflows                      Workflow[]
+  weeklyOutcomesCreated          WeeklyOutcome[]                 @relation("WeeklyOutcomeCreated")
+  weeklyOutcomeAssignees         WeeklyOutcomeAssignee[]         @relation("WeeklyOutcomeAssignee")
+  teamCapacities                 TeamMemberWeeklyCapacity[]      @relation("TeamMemberCapacity")
+  weeklyReviewSharing            WeeklyReviewSharing[]
+  weeklyReviewCompletions        WeeklyReviewCompletion[]
+  weeklyWorkDigests              WeeklyWorkDigest[]
+  portfolioReviewCompletions     PortfolioReviewCompletion[]
+  workspaceWeeklyFocuses         WorkspaceWeeklyFocus[]
+  wheelOfLifeAssessments         WheelOfLifeAssessment[]
+  habits                         Habit[]
+  ownedWorkspaces                Workspace[]                     @relation("WorkspaceOwner")
+  workspaceMemberships           WorkspaceUser[]
+  resources                      Resource[]
+  knowledgePages                 KnowledgePage[]
+  workspaceInvitationsCreated    WorkspaceInvitation[]           @relation("InvitationCreator")
   // CRM relations
-  crmContactsCreated          CrmContact[]                @relation("CrmContactCreatedBy")
-  crmOrganizationsCreated     CrmOrganization[]           @relation("CrmOrganizationCreatedBy")
-  formsCreated                Form[]                      @relation("FormCreatedBy")
-  crmInteractions             CrmContactInteraction[]     @relation("CrmInteractionUser")
-  crmCommunicationsCreated    CrmCommunication[]          @relation("CrmCommunicationCreatedBy")
-  crmTemplatesCreated         CrmCommunicationTemplate[]  @relation("CrmTemplateCreatedBy")
-  crmImportBatchesCreated     ContactImportBatch[]        @relation("CrmImportBatchCreatedBy")
+  crmContactsCreated             CrmContact[]                    @relation("CrmContactCreatedBy")
+  crmOrganizationsCreated        CrmOrganization[]               @relation("CrmOrganizationCreatedBy")
+  formsCreated                   Form[]                          @relation("FormCreatedBy")
+  crmInteractions                CrmContactInteraction[]         @relation("CrmInteractionUser")
+  crmCommunicationsCreated       CrmCommunication[]              @relation("CrmCommunicationCreatedBy")
+  crmTemplatesCreated            CrmCommunicationTemplate[]      @relation("CrmTemplateCreatedBy")
+  crmImportBatchesCreated        ContactImportBatch[]            @relation("CrmImportBatchCreatedBy")
   // Plugin and OKR relations
-  pluginConfigs               PluginConfig[]
-  keyResults                  KeyResult[]
-  keyResultCheckIns           KeyResultCheckIn[]          @relation("KeyResultCheckInCreator")
-  driGoals                    Goal[]                      @relation("GoalDRI")
-  driKeyResults               KeyResult[]                 @relation("KeyResultDRI")
+  pluginConfigs                  PluginConfig[]
+  keyResults                     KeyResult[]
+  keyResultCheckIns              KeyResultCheckIn[]              @relation("KeyResultCheckInCreator")
+  driGoals                       Goal[]                          @relation("GoalDRI")
+  driKeyResults                  KeyResult[]                     @relation("KeyResultDRI")
   // Tag relations
-  tagsCreated                 Tag[]                       @relation("TagCreator")
+  tagsCreated                    Tag[]                           @relation("TagCreator")
   // View relations
-  viewsCreated                View[]                      @relation("ViewsCreated")
+  viewsCreated                   View[]                          @relation("ViewsCreated")
   // List relations
-  listsCreated                List[]                      @relation("ListsCreated")
-  collectionsCreated          Collection[]                @relation("CollectionCreatedBy")
+  listsCreated                   List[]                          @relation("ListsCreated")
+  collectionsCreated             Collection[]                    @relation("CollectionCreatedBy")
   // Epic relations
-  epicsOwned                  Epic[]                      @relation("EpicOwner")
+  epicsOwned                     Epic[]                          @relation("EpicOwner")
   // OKR Check-in relations
-  facilitatedOkrCheckins      OkrCheckin[]                @relation("OkrCheckinFacilitator")
-  okrCheckinUpdates           OkrCheckinUpdate[]          @relation("OkrCheckinUpdateUser")
-  okrCheckinComments          OkrCheckinComment[]         @relation("OkrCheckinCommentAuthor")
+  facilitatedOkrCheckins         OkrCheckin[]                    @relation("OkrCheckinFacilitator")
+  okrCheckinUpdates              OkrCheckinUpdate[]              @relation("OkrCheckinUpdateUser")
+  okrCheckinComments             OkrCheckinComment[]             @relation("OkrCheckinCommentAuthor")
   // OKR Discussion relations
-  goalComments                GoalComment[]               @relation("GoalCommentAuthor")
-  goalUpdates                 GoalUpdate[]                @relation("GoalUpdateAuthor")
-  keyResultComments           KeyResultComment[]          @relation("KeyResultCommentAuthor")
+  goalComments                   GoalComment[]                   @relation("GoalCommentAuthor")
+  goalUpdates                    GoalUpdate[]                    @relation("GoalUpdateAuthor")
+  keyResultComments              KeyResultComment[]              @relation("KeyResultCommentAuthor")
   // Action Discussion relations
-  actionComments              ActionComment[]             @relation("ActionCommentAuthor")
-  featureComments             FeatureComment[]            @relation("FeatureCommentAuthor")
-  knowledgePageComments       KnowledgePageComment[]      @relation("KnowledgePageCommentAuthor")
+  actionComments                 ActionComment[]                 @relation("ActionCommentAuthor")
+  featureComments                FeatureComment[]                @relation("FeatureCommentAuthor")
+  knowledgePageComments          KnowledgePageComment[]          @relation("KnowledgePageCommentAuthor")
   // Blog Discussion relations
-  blogComments                BlogComment[]               @relation("BlogCommentAuthor")
+  blogComments                   BlogComment[]                   @relation("BlogCommentAuthor")
   // Daily Planning relations
-  dailyPlans                  DailyPlan[]
+  dailyPlans                     DailyPlan[]
   // Zoe daily briefing
-  dailyBriefings              DailyBriefing[]
+  dailyBriefings                 DailyBriefing[]
   // Push notification subscriptions
-  pushSubscriptions           PushSubscription[]
+  pushSubscriptions              PushSubscription[]
   // Webhook activity logs
-  webhookLogs                 WebhookLog[]
+  webhookLogs                    WebhookLog[]
   // Auto-scheduling relations
-  taskSchedulesCreated        TaskSchedule[]              @relation("TaskScheduleCreator")
-  recurringTasksCreated       RecurringTask[]             @relation("RecurringTaskCreator")
+  taskSchedulesCreated           TaskSchedule[]                  @relation("TaskScheduleCreator")
+  recurringTasksCreated          RecurringTask[]                 @relation("RecurringTaskCreator")
   // Project activity audit log
-  projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
+  projectActivitiesAuthored      ProjectActivity[]               @relation("ProjectActivityAuthor")
   // Workspace home activity feed
-  workspaceActivityEvents     WorkspaceActivityEvent[]
+  workspaceActivityEvents        WorkspaceActivityEvent[]
   // Inbound channel links created by this user
-  channelLinksCreated         ChannelLink[]               @relation("ChannelLinkCreatedBy")
+  channelLinksCreated            ChannelLink[]                   @relation("ChannelLinkCreatedBy")
   // Per-user favourites (polymorphic pins)
-  favorites                   Favorite[]
+  favorites                      Favorite[]
 
   // Onboarding: Attribution
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
@@ -1920,6 +1922,70 @@ model ScheduledNotification {
   @@index([status])
   @@index([type])
   @@index([userId, scheduledFor])
+}
+
+/// Unified notification dispatch (ADR-0045). One durable record per (recipient,
+/// event); `scheduledFor` null = immediate, future = fired by the cron worker.
+/// Dedup: unique (dedupeKey, userId) collapses replays/double-fires.
+model Notification {
+  id           String                 @id @default(cuid())
+  userId       String
+  category     String // assignment | mention | due_date | summary | meeting_ready
+  title        String
+  message      String
+  metadata     Json?
+  deeplink     String?
+  dedupeKey    String
+  scheduledFor DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries   NotificationDelivery[]
+
+  @@unique([dedupeKey, userId])
+  @@index([userId])
+  @@index([category])
+  @@index([scheduledFor])
+  @@index([createdAt])
+}
+
+/// Per-channel delivery status for a Notification. A child table (not a JSON
+/// blob) so the cron can query pending/failed deliveries cheaply. Unique
+/// (notificationId, channel) guarantees the same (event, recipient, channel) is
+/// never delivered twice.
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  channel        String // push | email | matrix | whatsapp | zulip
+  status         String       @default("pending") // pending | sent | failed
+  attempts       Int          @default(0)
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, channel])
+  @@index([status])
+  @@index([status, attempts])
+  @@index([notificationId])
+}
+
+/// One cell of a user's category × channel preference matrix. Absence of a row
+/// falls back to the seeded default for that (category, channel).
+model NotificationChannelPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  category  String
+  channel   String
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, channel])
+  @@index([userId])
+  @@index([userId, category])
 }
 
 model PushSubscription {
@@ -4779,26 +4845,26 @@ model TicketSyncPushJob {
 }
 
 model TicketSyncRun {
-  id         String    @id @default(cuid())
-  configId   String
+  id              String    @id @default(cuid())
+  configId        String
   /// manual | cron | agent
-  trigger    String
+  trigger         String
   /// pull | push | backfill | revert
-  direction  String    @default("pull")
-  dryRun     Boolean   @default(false)
+  direction       String    @default("pull")
+  dryRun          Boolean   @default(false)
   /// running | success | error
-  status     String    @default("running")
-  startedAt  DateTime  @default(now())
-  finishedAt DateTime?
-  error      String?
-  created    Int       @default(0)
-  updated    Int       @default(0)
-  skipped    Int       @default(0)
-  conflicts  Int       @default(0)
-  archived   Int       @default(0)
-  failed     Int       @default(0)
+  status          String    @default("running")
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  error           String?
+  created         Int       @default(0)
+  updated         Int       @default(0)
+  skipped         Int       @default(0)
+  conflicts       Int       @default(0)
+  archived        Int       @default(0)
+  failed          Int       @default(0)
   /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
-  items      Json?
+  items           Json?
   /// Who triggered the run; null for cron/agent runs with no acting user.
   triggeredById   String?
   /// Stamped when this run has been reverted — a run is revertible at most once.

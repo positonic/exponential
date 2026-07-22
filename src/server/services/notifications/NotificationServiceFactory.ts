@@ -3,9 +3,11 @@ import { SlackNotificationService } from './SlackNotificationService';
 import { WhatsAppNotificationService } from './WhatsAppNotificationService';
 import { ZulipNotificationService } from './ZulipNotificationService';
 import { MatrixNotificationService } from './MatrixNotificationService';
+import { PushNotificationService } from './PushNotificationService';
+import { EmailChannelNotificationService } from './EmailChannelNotificationService';
 import { db } from '~/server/db';
 
-export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp' | 'zulip' | 'matrix';
+export type NotificationServiceType = 'slack' | 'email' | 'discord' | 'whatsapp' | 'zulip' | 'matrix' | 'push';
 
 export class NotificationServiceFactory {
   /**
@@ -64,9 +66,10 @@ export class NotificationServiceFactory {
         return new ZulipNotificationService(config);
       case 'matrix':
         return new MatrixNotificationService(config);
+      case 'push':
+        return new PushNotificationService(config);
       case 'email':
-        // TODO: Implement EmailNotificationService
-        return null;
+        return new EmailChannelNotificationService(config);
       case 'discord':
         // TODO: Implement DiscordNotificationService
         return null;

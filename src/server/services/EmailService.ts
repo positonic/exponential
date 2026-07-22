@@ -825,6 +825,115 @@ ${footer.text}
 }
 
 /**
+ * Generic, category-agnostic notification email used by the unified dispatch
+ * Email channel (ADR-0045). Renders a title, a message line, and an optional CTA
+ * button; includes the workspace footer when workspace context is supplied.
+ */
+export async function sendNotificationEmail(params: {
+  to: string;
+  title: string;
+  message: string;
+  actionUrl?: string;
+  workspaceName?: string;
+  personalSettingsUrl?: string;
+  workspaceSettingsUrl?: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const {
+    to,
+    title,
+    message,
+    actionUrl,
+    workspaceName,
+    personalSettingsUrl,
+    workspaceSettingsUrl,
+    workspaceId,
+  } = params;
+  const brandColor = EMAIL_BRAND_COLOR;
+  const appName = PRODUCT_NAME;
+
+  const footer =
+    workspaceName && personalSettingsUrl && workspaceSettingsUrl
+      ? generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl })
+      : { html: "", text: "" };
+
+  const ctaHtml = actionUrl
+    ? `
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      View in ${appName}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
+                Or copy and paste this link into your browser:
+              </p>
+              <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
+                ${actionUrl}
+              </p>`
+    : "";
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>${title}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <tr>
+            <td style="padding: 32px 32px 24px; text-align: center;">
+              <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
+                ${title}
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px;">
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                ${message}
+              </p>
+              ${ctaHtml}
+            </td>
+          </tr>
+          ${footer.html}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`.trim();
+
+  const textBody = `
+${title}
+
+${message}
+${actionUrl ? `\nView in ${appName}: ${actionUrl}\n` : ""}
+${footer.text}
+`.trim();
+
+  await sendEmail({
+    to,
+    subject: `[${appName}] ${title}`,
+    htmlBody,
+    textBody,
+    workspaceId,
+  });
+}
+
+/**
  * Send email notification when a user is mentioned in a comment
  */
 export async function sendMentionNotificationEmail(params: {

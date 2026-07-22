@@ -1,8 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import {
-  sendAssignmentNotificationEmail,
-  sendMentionNotificationEmail,
-} from "~/server/services/EmailService";
+import { sendMentionNotificationEmail } from "~/server/services/EmailService";
 import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 import { ZulipNotificationService } from "~/server/services/notifications/ZulipNotificationService";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
@@ -124,111 +121,11 @@ async function resolveActionWorkspace(
 }
 
 /**
- * Build notification URLs for the email footer.
+ * NOTE: Assignment notifications now flow through the unified dispatch pipeline
+ * (`emitNotification({ category: 'assignment' })`, ADR-0045). The former
+ * `sendAssignmentNotifications` fan-out and its `buildNotificationUrls` helper
+ * were removed here; Mention still uses the fan-out below (migrated in V2).
  */
-function buildNotificationUrls(workspaceSlug: string, actionId: string) {
-  return {
-    actionUrl: `${BASE_URL}/w/${workspaceSlug}/actions/${actionId}`,
-    personalSettingsUrl: `${BASE_URL}/settings/notifications`,
-    workspaceSettingsUrl: `${BASE_URL}/w/${workspaceSlug}/settings`,
-  };
-}
-
-/**
- * Fire-and-forget: Send email notifications to newly assigned users.
- * Call this after creating ActionAssignee records.
- */
-export async function sendAssignmentNotifications(
-  db: PrismaClient,
-  params: {
-    actionId: string;
-    assignedUserIds: string[];
-    assignerId: string;
-  },
-): Promise<void> {
-  try {
-    const { actionId, assignedUserIds, assignerId } = params;
-
-    const [action, assigner] = await Promise.all([
-      db.action.findUnique({
-        where: { id: actionId },
-        select: { name: true },
-      }),
-      db.user.findUnique({
-        where: { id: assignerId },
-        select: { name: true, email: true },
-      }),
-    ]);
-    if (!action || !assigner) return;
-
-    const ws = await resolveActionWorkspace(db, actionId);
-    if (!ws) return;
-
-    const urls = buildNotificationUrls(ws.workspaceSlug, actionId);
-    const assignerName = assigner.name ?? assigner.email ?? "Someone";
-
-    const recipients = await db.user.findMany({
-      where: {
-        id: { in: assignedUserIds },
-      },
-      select: { id: true, name: true, email: true },
-    });
-
-    await Promise.allSettled(
-      recipients.map(async (recipient) => {
-        const isSelfAssign = recipient.id === assignerId;
-        const notifTitle = isSelfAssign
-          ? "You assigned yourself a task"
-          : `${assignerName} assigned you a task`;
-
-        // Send Zulip DM (always, including self-assign)
-        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
-          title: notifTitle,
-          message: `**${action.name}**\n\n[View task](${urls.actionUrl})`,
-          priority: "normal",
-        });
-
-        // Skip push/email for self-assignment
-        if (isSelfAssign) return;
-
-        const shouldSend = await shouldSendEmailNotification(
-          db,
-          recipient.id,
-          ws.workspaceId,
-        );
-        if (!shouldSend) return;
-
-        // Send push notification
-        void sendPushToUser(
-          recipient.id,
-          {
-            title: notifTitle,
-            body: action.name,
-            tag: "assignment",
-            url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
-          },
-          db,
-        );
-
-        if (!recipient.email) return;
-
-        await sendAssignmentNotificationEmail({
-          to: recipient.email,
-          assigneeName: recipient.name ?? "",
-          assignerName,
-          actionName: action.name,
-          actionUrl: urls.actionUrl,
-          workspaceName: ws.workspaceName,
-          personalSettingsUrl: urls.personalSettingsUrl,
-          workspaceSettingsUrl: urls.workspaceSettingsUrl,
-          workspaceId: ws.workspaceId,
-        });
-      }),
-    );
-  } catch (error) {
-    console.error("[EmailNotificationService] Failed to send assignment notifications:", error);
-  }
-}
 
 /** Regex to parse mentions in format @[Name](userId) or legacy @[Name] */
 const MENTION_WITH_ID_REGEX = /@\[([^\]]+)\](?:\(([^)]+)\))?/g;
