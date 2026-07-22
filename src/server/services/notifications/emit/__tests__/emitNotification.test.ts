@@ -7,6 +7,13 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
 import { NotificationServiceFactory } from "~/server/services/notifications/NotificationServiceFactory";
 import { shouldSendEmailNotification } from "~/server/services/notifications/EmailNotificationService";
 
+// Access gate is mocked so we can drive allow/deny without real membership data.
+const { canAccessMock } = vi.hoisted(() => ({ canAccessMock: vi.fn() }));
+vi.mock("~/server/services/access/AccessControlService", () => ({
+  AccessControlService: class {
+    canAccess = canAccessMock;
+  },
+}));
 // Mock the factory: every emit delivery goes through createService, so a fake
 // service lets us assert channel dispatch without real push/email I/O.
 vi.mock("~/server/services/notifications/NotificationServiceFactory", () => ({
@@ -48,6 +55,7 @@ function stubAssignmentLookups() {
     name: "Actor",
     email: "actor@acme.test",
   } as never);
+  db.notification.findUnique.mockResolvedValue(null as never);
   db.notification.create.mockResolvedValue({ id: "n1", scheduledFor: null } as never);
   db.notificationDelivery.create.mockResolvedValue({ id: "d1" } as never);
   db.notificationDelivery.update.mockResolvedValue({ id: "d1" } as never);
@@ -69,6 +77,7 @@ beforeEach(() => {
     (type: string) => Promise.resolve(fakeServiceFor(type) as never),
   );
   vi.mocked(shouldSendEmailNotification).mockResolvedValue(true);
+  canAccessMock.mockResolvedValue({ allowed: true });
   stubAssignmentLookups();
 });
 
@@ -174,6 +183,40 @@ describe("emitNotification — Assignment tracer", () => {
 
     expect(db.notification.create).not.toHaveBeenCalled();
     expect(NotificationServiceFactory.createService).not.toHaveBeenCalled();
+  });
+
+  it("does not create a second notification when one already exists for (dedupeKey, recipient)", async () => {
+    db.notification.findUnique.mockResolvedValue({ id: "existing" } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: "actor1",
+      subject: { actionId: "a1", assignedUserIds: ["assignee1"] },
+      db,
+    });
+
+    expect(db.notification.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          dedupeKey_userId: { dedupeKey: "assignment:a1:assignee1", userId: "assignee1" },
+        },
+      }),
+    );
+    expect(db.notification.create).not.toHaveBeenCalled();
+    expect(NotificationServiceFactory.createService).not.toHaveBeenCalled();
+  });
+
+  it("drops a recipient who can no longer view the action", async () => {
+    canAccessMock.mockResolvedValue({ allowed: false, reason: "no access" });
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: "actor1",
+      subject: { actionId: "a1", assignedUserIds: ["assignee1"] },
+      db,
+    });
+
+    expect(db.notification.create).not.toHaveBeenCalled();
   });
 });
 

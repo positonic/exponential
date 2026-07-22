@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { DELIVERY_STATUS } from "./constants";
+import { filterRecipientsByAccess } from "./access";
 import { deliverToChannel } from "./channels";
 import { buildContent } from "./content";
 import { resolveEnabledChannels } from "./preferences";
@@ -23,9 +24,12 @@ export async function emitNotification(input: EmitNotificationInput): Promise<vo
   const { actorUserId } = input;
 
   try {
-    const recipientIds = (await resolveRecipients(input)).filter(
+    // Never notify the acting user about their own action, and never notify a
+    // recipient who can no longer access the item.
+    const candidates = (await resolveRecipients(input)).filter(
       (id) => id !== actorUserId,
     );
+    const recipientIds = await filterRecipientsByAccess(input, candidates);
 
     for (const recipientId of recipientIds) {
       try {
@@ -50,6 +54,17 @@ async function emitForRecipient(
 
   const content = await buildContent(input, recipientId);
   if (!content) return;
+
+  // Dedup: the same (event, recipient) never notifies twice. The unique index
+  // on (dedupeKey, userId) is the backstop against races; this guard skips the
+  // common replay/double-fire case cleanly without throwing.
+  const existing = await db.notification.findUnique({
+    where: {
+      dedupeKey_userId: { dedupeKey: content.dedupeKey, userId: recipientId },
+    },
+    select: { id: true },
+  });
+  if (existing) return;
 
   const notification = await db.notification.create({
     data: {
