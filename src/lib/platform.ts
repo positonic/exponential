@@ -65,6 +65,12 @@ export interface ElectronAPI {
   maximize: () => void;
   close: () => void;
   getAppVersion: () => Promise<string>;
+  /**
+   * Start the desktop sign-in flow: opens the system browser to complete OAuth
+   * (where passkeys work) and returns to the app via the exponential:// deep
+   * link. Resolves once the browser has been opened, not when sign-in finishes.
+   */
+  startLogin: () => Promise<void>;
 }
 
 /**

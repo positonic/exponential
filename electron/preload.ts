@@ -48,6 +48,12 @@ contextBridge.exposeInMainWorld("electron", {
   getAppVersion: (): Promise<string> => {
     return ipcRenderer.invoke("get-app-version");
   },
+
+  // Desktop sign-in: run OAuth in the system browser (passkeys work there) and
+  // return to the app via the exponential:// deep link. See main.ts.
+  startLogin: (): Promise<void> => {
+    return ipcRenderer.invoke("desktop:start-login");
+  },
 });
 
 // Type declaration for the exposed API
@@ -63,6 +69,7 @@ declare global {
       maximize: () => void;
       close: () => void;
       getAppVersion: () => Promise<string>;
+      startLogin: () => Promise<void>;
     };
   }
 }
