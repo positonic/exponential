@@ -94,37 +94,10 @@ export async function shouldSendEmailNotification(
 }
 
 /**
- * Resolve the workspaceId and workspace slug for an action.
- * Actions may have a direct workspaceId or inherit via their project.
- */
-async function resolveActionWorkspace(
-  db: PrismaClient,
-  actionId: string,
-): Promise<{ workspaceId: string; workspaceSlug: string; workspaceName: string } | null> {
-  const action = await db.action.findUnique({
-    where: { id: actionId },
-    include: {
-      workspace: { select: { id: true, slug: true, name: true } },
-      project: {
-        include: {
-          workspace: { select: { id: true, slug: true, name: true } },
-        },
-      },
-    },
-  });
-  if (!action) return null;
-
-  const ws = action.workspace ?? action.project?.workspace;
-  if (!ws) return null;
-
-  return { workspaceId: ws.id, workspaceSlug: ws.slug, workspaceName: ws.name };
-}
-
-/**
- * NOTE: Assignment notifications now flow through the unified dispatch pipeline
- * (`emitNotification({ category: 'assignment' })`, ADR-0045). The former
- * `sendAssignmentNotifications` fan-out and its `buildNotificationUrls` helper
- * were removed here; Mention still uses the fan-out below (migrated in V2).
+ * NOTE: Assignment + ActionComment/FeatureComment @mentions now flow through the
+ * unified dispatch pipeline (ADR-0045). Their former fan-out wrappers and the
+ * `resolveActionWorkspace` / `resolveFeatureWorkspace` helpers were removed.
+ * Only KnowledgePage mentions still use the fan-out below (migrated later).
  */
 
 /** Regex to parse mentions in format @[Name](userId) or legacy @[Name] */
@@ -171,48 +144,6 @@ async function extractMentionedUserIds(
   }
 
   return [...new Set(userIds)];
-}
-
-/**
- * Resolve the workspace + product slug + name for a feature (PRD). Features
- * inherit their workspace via their product; there is no direct workspaceId.
- */
-async function resolveFeatureWorkspace(
-  db: PrismaClient,
-  featureId: string,
-): Promise<
-  | {
-      workspaceId: string;
-      workspaceSlug: string;
-      workspaceName: string;
-      productSlug: string;
-      featureName: string;
-    }
-  | null
-> {
-  const feature = await db.feature.findUnique({
-    where: { id: featureId },
-    select: {
-      name: true,
-      product: {
-        select: {
-          slug: true,
-          workspace: { select: { id: true, slug: true, name: true } },
-        },
-      },
-    },
-  });
-
-  const ws = feature?.product?.workspace;
-  if (!feature || !ws) return null;
-
-  return {
-    workspaceId: ws.id,
-    workspaceSlug: ws.slug,
-    workspaceName: ws.name,
-    productSlug: feature.product.slug,
-    featureName: feature.name,
-  };
 }
 
 /**
@@ -352,83 +283,12 @@ async function fanOutMentionNotifications(
 }
 
 /**
- * Fire-and-forget: Send notifications to users mentioned in an ActionComment.
- * Thin wrapper over {@link fanOutMentionNotifications}.
+ * NOTE: ActionComment and FeatureComment @mentions now flow through the unified
+ * dispatch pipeline (`emitActionCommentMention` / `emitFeatureCommentMention`,
+ * ADR-0045). Their former wrappers — and the `resolveActionWorkspace` /
+ * `resolveFeatureWorkspace` helpers they used — were removed here. KnowledgePage
+ * comments still use the fan-out below (migrated later).
  */
-export async function sendMentionNotifications(
-  db: PrismaClient,
-  params: {
-    actionId: string;
-    commentContent: string;
-    commentAuthorId: string;
-  },
-): Promise<void> {
-  try {
-    const { actionId, commentContent, commentAuthorId } = params;
-
-    const [ws, action] = await Promise.all([
-      resolveActionWorkspace(db, actionId),
-      db.action.findUnique({
-        where: { id: actionId },
-        select: { name: true },
-      }),
-    ]);
-    if (!ws || !action) return;
-
-    await fanOutMentionNotifications(db, {
-      workspaceId: ws.workspaceId,
-      workspaceSlug: ws.workspaceSlug,
-      workspaceName: ws.workspaceName,
-      targetName: action.name,
-      targetPath: `/w/${ws.workspaceSlug}/actions/${actionId}`,
-      viewLabel: "View task",
-      commentContent,
-      commentAuthorId,
-    });
-  } catch (error) {
-    console.error("[EmailNotificationService] Failed to send mention notifications:", error);
-  }
-}
-
-/**
- * Fire-and-forget: Send notifications to users mentioned in a FeatureComment
- * (PRD or one of its scopes). Thin wrapper over {@link fanOutMentionNotifications}.
- */
-export async function sendFeatureMentionNotifications(
-  db: PrismaClient,
-  params: {
-    featureId: string;
-    scopeId?: string;
-    commentContent: string;
-    commentAuthorId: string;
-    /** Pre-edit body — see {@link fanOutMentionNotifications}. */
-    previousContent?: string;
-  },
-): Promise<void> {
-  try {
-    const { featureId, scopeId, commentContent, commentAuthorId, previousContent } =
-      params;
-
-    const info = await resolveFeatureWorkspace(db, featureId);
-    if (!info) return;
-
-    const basePath = `/w/${info.workspaceSlug}/products/${info.productSlug}/features/${featureId}`;
-
-    await fanOutMentionNotifications(db, {
-      workspaceId: info.workspaceId,
-      workspaceSlug: info.workspaceSlug,
-      workspaceName: info.workspaceName,
-      targetName: info.featureName,
-      targetPath: scopeId ? `${basePath}/scopes/${scopeId}` : basePath,
-      viewLabel: "View PRD",
-      commentContent,
-      commentAuthorId,
-      previousContent,
-    });
-  } catch (error) {
-    console.error("[EmailNotificationService] Failed to send feature mention notifications:", error);
-  }
-}
 
 /**
  * Fire-and-forget: Send notifications to users mentioned in a

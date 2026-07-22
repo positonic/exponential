@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadFeatureWithAccess } from "./feature";
-import { sendFeatureMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { emitFeatureCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 
 const authorSelect = {
   id: true,
@@ -74,10 +74,11 @@ export const featureCommentRouter = createTRPCRouter({
         include: { createdBy: { select: authorSelect } },
       });
 
-      // Fire-and-forget: notify mentioned workspace members.
-      void sendFeatureMentionNotifications(ctx.db, {
+      // Fire-and-forget: notify mentioned workspace members via the pipeline.
+      void emitFeatureCommentMention(ctx.db, {
         featureId: input.featureId,
         scopeId: input.scopeId,
+        commentId: comment.id,
         commentContent: input.body,
         commentAuthorId: ctx.session.user.id,
       });
@@ -116,9 +117,10 @@ export const featureCommentRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentioned workspace members. Deep-link to the
       // parent's scope thread when the conversation lives on a scope.
-      void sendFeatureMentionNotifications(ctx.db, {
+      void emitFeatureCommentMention(ctx.db, {
         featureId: parent.featureId,
         scopeId: parent.scopeId ?? undefined,
+        commentId: comment.id,
         commentContent: input.body,
         commentAuthorId: ctx.session.user.id,
       });
@@ -152,9 +154,10 @@ export const featureCommentRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentions added by the edit. Passing the old
       // body means already-notified users aren't pinged again.
-      void sendFeatureMentionNotifications(ctx.db, {
+      void emitFeatureCommentMention(ctx.db, {
         featureId: existing.featureId,
         scopeId: existing.scopeId ?? undefined,
+        commentId: input.commentId,
         commentContent: input.body,
         commentAuthorId: ctx.session.user.id,
         previousContent: existing.body,
