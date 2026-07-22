@@ -364,6 +364,25 @@ _Avoid_: Inline chat, inline mode (position, not identity), embedded drawer, ans
 A reference to a workspace **member** (or an **agent**) written inside a comment by typing `@` and picking from the autocomplete. Canonically serialized in the stored comment body as `@[Name](id)`, rendered as a badge on read. A member mention **notifies** the referenced person (push, email, Zulip DM); an agent mention is a **visual tag only** — it neither triggers the agent nor notifies anyone, and non-member ids are silently ignored by delivery. The same mention affordance is meant to work identically on every commentable surface — **Actions**, **Features/PRDs**, and their **scopes** — not just tasks.
 _Avoid_: Tag (the verb "tag" is fine in UI copy, but the concept is a "mention"), @-ref, at-mention (one word: mention).
 
+### Notifications
+
+> The unified dispatch design (durable record + category×channel matrix + cron worker) is [ADR-0045](docs/adr/0045-unified-notification-dispatch.md). Historically three disjoint paths coexisted — event/direct (assignment, mention → hardcoded push+email), the `setInterval` **scheduler** (summaries; effectively dead — never started, and serverless-incompatible), and the factory `sendToAll` fan-out (meeting-ready) — with no shared preference model. The unified layer replaces all three.
+
+**Notification**:
+A single durable record that *one* thing happened that *one* recipient may want to know about — persisted (generalizing `ScheduledNotification` to every notification, not just scheduled ones), then delivered to that recipient's enabled **channels**. The record is the backbone: it carries per-channel **Delivery** status, enabling retry, dedup (the same event never notifies a recipient twice), audit, and a future in-app inbox. Deliberately **outbound + personal** — one event, one user, their channels. Strictly distinct from an **Activity event** (a workspace-scoped, read-side feed row, pulled not pushed) and from a **Channel activity summary** (inbound room→feed synthesis). _Avoid_: alert, message, ping (UI copy only).
+
+**Notification category**:
+The *kind* of thing that happened — the rows of the preference matrix. v1 set: **Assignment** (you're assigned an action), **Mention** (you're @mentioned in a comment), **Due-date reminder** (an action you **own** is due soon), **Summary/digest** (your daily/weekly roll-up), **Meeting-ready** (a transcript/summary you own has landed). *Status change* and *Comment* are anticipated, not v1. Each category has a fixed **recipient rule** (assignee(s) / mentioned user(s) / owner / subject user / meeting owner) and never notifies the **acting user** about their own action. _Avoid_: type, event type (reserve "event" for the activity feed), trigger.
+
+**Notification channel**:
+A delivery destination a **Notification** can be sent to — Push, Email, Matrix, WhatsApp, Zulip (Slack anticipated). Two classes: **always-on** (Push, Email — every user has them; seeded on by default for high-signal categories) and **opt-in** (Matrix, WhatsApp, Zulip — must be connected; default **off** for every category, so connecting for chat never auto-starts pings). Each channel is a `NotificationService` plug-in behind the factory. _Avoid_: integration (a channel is *backed by* an Integration but is not one), provider (that's the wire-level string).
+
+**Notification preference**:
+A user's **category × channel** matrix — which categories reach which channels for them — with seeded defaults so zero-config still behaves. Presented **channel-first** in the UI ("For Matrix, send me ☑ assignments ☐ summaries"). Supersedes the old coarse model (category booleans + a single `integrationId`). The **per-workspace email override** still applies on top (a workspace can force email off regardless of the matrix). _Avoid_: settings, subscription.
+
+**Owner** (of an action):
+The person(s) on the hook for an action — its **assignee(s) if any, else its creator**. The reusable recipient rule for owner-scoped notifications (Due-date reminder today; Status change later) and the same ownership the **Today's actions** set uses. _Avoid_: assignee (narrower — owner falls back to creator), responsible party.
+
 ### Agent quality
 
 _Operations (what to run, when, in what order): [dev-docs/AGENT_QUALITY_RUNBOOK.md](dev-docs/AGENT_QUALITY_RUNBOOK.md)._
