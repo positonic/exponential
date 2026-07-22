@@ -301,3 +301,54 @@ describe("emitNotification — channel resolution", () => {
     });
   });
 });
+
+describe("emitNotification — Due-date reminder dedup", () => {
+  const dueSubject = {
+    actionId: "a1",
+    actionName: "Ship the thing",
+    ownerUserId: "owner1",
+    offsetMinutes: 60,
+    dueDate: new Date("2026-07-22T13:00:00.000Z"),
+    workspaceId: "ws1",
+    workspaceSlug: "acme",
+  };
+
+  it("emits one reminder to the owner keyed per (action, offset)", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.DUE_DATE,
+      actorUserId: null,
+      subject: dueSubject,
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "owner1",
+          category: "due_date",
+          dedupeKey: "due_date:a1:60",
+        }),
+      }),
+    );
+  });
+
+  it("does not re-send on the next cron tick (same action+offset already emitted)", async () => {
+    db.notification.findUnique.mockResolvedValue({ id: "existing" } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.DUE_DATE,
+      actorUserId: null,
+      subject: dueSubject,
+      db,
+    });
+
+    expect(db.notification.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          dedupeKey_userId: { dedupeKey: "due_date:a1:60", userId: "owner1" },
+        },
+      }),
+    );
+    expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});
