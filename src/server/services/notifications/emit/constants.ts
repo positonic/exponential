@@ -53,6 +53,15 @@ export const DELIVERY_STATUS = {
 export type DeliveryStatus =
   (typeof DELIVERY_STATUS)[keyof typeof DELIVERY_STATUS];
 
+/** Max delivery attempts before the cron stops retrying a failed channel. */
+export const MAX_DELIVERY_ATTEMPTS = 5;
+
+/**
+ * A pending delivery older than this is treated as orphaned (the synchronous
+ * emit likely crashed before completing it) and becomes eligible for cron retry.
+ */
+export const STALE_PENDING_MS = 2 * 60 * 1000;
+
 /** All categories, in preference-matrix row order. */
 export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.ASSIGNMENT,
