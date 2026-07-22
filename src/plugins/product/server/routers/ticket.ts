@@ -7,6 +7,10 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
+  dispatchTicketPush,
+  PUSH_RELEVANT_TICKET_FIELDS,
+} from "~/server/services/ticketSync/pushRunner";
+import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
 } from "~/lib/ticket-statuses";
@@ -475,6 +479,21 @@ export const ticketRouter = createTRPCRouter({
         }
       }
 
+      // Outbound Notion push (ADR-0046): if a synced-relevant field moved and
+      // the ticket has a push-enabled Notion sync, enqueue an outbound push.
+      // Never throws — a push must not break a ticket edit.
+      const pushChanged = PUSH_RELEVANT_TICKET_FIELDS.filter((field) => {
+        const incoming = (input as Record<string, unknown>)[field];
+        if (incoming === undefined) return false;
+        return incoming !== (previousTicket as Record<string, unknown>)[field];
+      });
+      if (pushChanged.length > 0) {
+        await dispatchTicketPush(ctx.db, {
+          ticketId: id,
+          changedFields: pushChanged,
+        });
+      }
+
       return updatedTicket;
     }),
 
@@ -562,6 +581,23 @@ export const ticketRouter = createTRPCRouter({
           });
         }),
       );
+
+      // Outbound Notion push (ADR-0046): enqueue per ticket when the bulk patch
+      // touches a synced-relevant field. The push engine no-ops any ticket
+      // whose values didn't actually diverge, so over-enqueuing is safe.
+      const relevantPatchKeys = Object.keys(data).filter((field) =>
+        (PUSH_RELEVANT_TICKET_FIELDS as readonly string[]).includes(field),
+      );
+      if (relevantPatchKeys.length > 0) {
+        await Promise.all(
+          tickets.map((t) =>
+            dispatchTicketPush(ctx.db, {
+              ticketId: t.id,
+              changedFields: relevantPatchKeys,
+            }),
+          ),
+        );
+      }
 
       return { count: uniqueIds.length };
     }),

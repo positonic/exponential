@@ -8,7 +8,6 @@ import {
   Select,
   Switch,
   Text,
-  Tooltip,
 } from "@mantine/core";
 import {
   IconBrandNotion,
@@ -159,6 +158,11 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
   });
 
   const setEnabled = api.product.ticketSync.setEnabled.useMutation({
+    onSuccess: invalidate,
+    onError: (err) => setError(err.message),
+  });
+
+  const setPushEnabled = api.product.ticketSync.setPushEnabled.useMutation({
     onSuccess: invalidate,
     onError: (err) => setError(err.message),
   });
@@ -390,15 +394,22 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
                 Push changes to Notion
               </Text>
               <Text size="xs" className="text-text-muted mt-0.5">
-                Outbound sync is not available yet — the sync is currently
-                read-only against Notion.
+                When on, editing a linked ticket writes the change back to its
+                Notion page. There is no undo for pushed changes — they land in
+                your live Notion workspace.
               </Text>
             </div>
-            <Tooltip label="Coming soon — inbound sync ships first" withArrow>
-              <span>
-                <Switch size="sm" checked={config.pushEnabled} disabled />
-              </span>
-            </Tooltip>
+            <Switch
+              size="sm"
+              checked={config.pushEnabled}
+              disabled={setPushEnabled.isPending}
+              onChange={(e) =>
+                setPushEnabled.mutate({
+                  productId,
+                  pushEnabled: e.currentTarget.checked,
+                })
+              }
+            />
           </div>
         </div>
 
