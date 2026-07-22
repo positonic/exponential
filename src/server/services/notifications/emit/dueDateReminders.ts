@@ -15,9 +15,40 @@ const LOOKBACK_MS = 15 * 60 * 1000;
 
 const TERMINAL_STATUSES = ["COMPLETED", "DONE", "CANCELLED"];
 
-// V3 action 1 tracer: a single offset. Action 2 replaces this with each owner's
-// configured reminderMinutesBefore.
-const TRACER_OFFSETS = [60];
+/** Fallback reminder offsets (minutes) when a user has no NotificationPreference. */
+const DEFAULT_OFFSETS = [15, 60, 1440];
+
+/**
+ * The Owner of an action — its assignees if any, else its creator (CONTEXT:
+ * Owner). The reusable recipient rule for owner-scoped notifications.
+ */
+export function resolveOwnerIds(action: {
+  createdById: string;
+  assignees: { userId: string }[];
+}): string[] {
+  return action.assignees.length > 0
+    ? [...new Set(action.assignees.map((a) => a.userId))]
+    : [action.createdById];
+}
+
+/** A user's configured reminder offsets, cached within a cron run. */
+async function getUserOffsets(
+  db: PrismaClient,
+  userId: string,
+  cache: Map<string, number[]>,
+): Promise<number[]> {
+  const cached = cache.get(userId);
+  if (cached) return cached;
+
+  const pref = await db.notificationPreference.findUnique({
+    where: { userId },
+    select: { reminderMinutesBefore: true },
+  });
+  // A row with an explicit (even empty) list wins; no row → defaults.
+  const offsets = pref?.reminderMinutesBefore ?? DEFAULT_OFFSETS;
+  cache.set(userId, offsets);
+  return offsets;
+}
 
 /**
  * Cron scheduled-generation (ADR-0045, V3): scan upcoming owned actions and emit
@@ -47,20 +78,18 @@ export async function generateDueDateReminders(
   });
 
   let emitted = 0;
+  const offsetCache = new Map<string, number[]>();
 
   for (const action of actions) {
     if (!action.dueDate) continue;
     const ws = action.workspace ?? action.project?.workspace;
     if (!ws) continue;
 
-    // Owner = assignees if any, else the creator.
-    const ownerIds =
-      action.assignees.length > 0
-        ? [...new Set(action.assignees.map((a) => a.userId))]
-        : [action.createdById];
+    const ownerIds = resolveOwnerIds(action);
 
     for (const ownerId of ownerIds) {
-      for (const offset of TRACER_OFFSETS) {
+      const offsets = await getUserOffsets(db, ownerId, offsetCache);
+      for (const offset of offsets) {
         const reminderMs = action.dueDate.getTime() - offset * 60_000;
         // Fire only as the boundary is crossed (within the last window).
         if (reminderMs > now.getTime()) continue;

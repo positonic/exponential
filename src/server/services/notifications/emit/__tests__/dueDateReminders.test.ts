@@ -77,14 +77,35 @@ describe("generateDueDateReminders", () => {
   });
 
   it("does not back-fill an offset that elapsed long before now", async () => {
-    // Due in 5 min → the 60-min reminder time is 55 min in the past (outside the
-    // lookback window), so we don't belatedly fire it.
+    // Owner configured only the 60-min offset; the action is due in 5 min, so
+    // that offset's reminder time is 55 min in the past (outside the lookback
+    // window) and must not be belatedly fired.
+    db.notificationPreference.findUnique.mockResolvedValue({
+      reminderMinutesBefore: [60],
+    } as never);
     db.action.findMany.mockResolvedValue([action({ dueDate: inMinutes(5) })] as never);
 
     const result = await generateDueDateReminders(db, NOW);
 
     expect(emitNotification).not.toHaveBeenCalled();
     expect(result.emitted).toBe(0);
+  });
+
+  it("uses the owner's configured reminderMinutesBefore offsets", async () => {
+    // Owner wants a single 30-min reminder; action due in 30 min → fires it.
+    db.notificationPreference.findUnique.mockResolvedValue({
+      reminderMinutesBefore: [30],
+    } as never);
+    db.action.findMany.mockResolvedValue([action({ dueDate: inMinutes(30) })] as never);
+
+    await generateDueDateReminders(db, NOW);
+
+    expect(emitNotification).toHaveBeenCalledTimes(1);
+    expect(emitNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: expect.objectContaining({ offsetMinutes: 30 }),
+      }),
+    );
   });
 
   it("resolves the workspace via the project when the action has none directly", async () => {
