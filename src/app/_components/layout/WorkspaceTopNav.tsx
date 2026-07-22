@@ -31,7 +31,7 @@ const NAV_ITEMS: readonly NavItem[] = [
     label: 'Goals',
     icon: IconTarget,
     segment: 'goals',
-    href: 'goals?tab=okrs',
+    href: 'goals?tab=goals',
     matchSegments: ['goals', 'okrs'],
   },
   { label: 'Projects', icon: IconStack2, segment: 'projects' },
