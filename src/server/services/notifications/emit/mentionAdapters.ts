@@ -67,3 +67,83 @@ export async function emitActionCommentMention(
     console.error("[emit/mentionAdapters] action comment mention failed:", error);
   }
 }
+
+/**
+ * Resolve a feature's workspace (via its product) plus its name and product
+ * slug — features have no direct workspaceId.
+ */
+async function resolveFeatureTarget(
+  db: PrismaClient,
+  featureId: string,
+): Promise<{
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  productSlug: string;
+  featureName: string;
+} | null> {
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: {
+      name: true,
+      product: {
+        select: {
+          slug: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      },
+    },
+  });
+  const ws = feature?.product?.workspace;
+  if (!feature || !ws) return null;
+  return {
+    workspaceId: ws.id,
+    workspaceSlug: ws.slug,
+    workspaceName: ws.name,
+    productSlug: feature.product.slug,
+    featureName: feature.name,
+  };
+}
+
+/**
+ * Emit a Mention notification for a FeatureComment (PRD body or one of its
+ * scopes). Replaces the legacy `sendFeatureMentionNotifications`.
+ */
+export async function emitFeatureCommentMention(
+  db: PrismaClient,
+  params: {
+    featureId: string;
+    scopeId?: string;
+    commentId: string;
+    commentContent: string;
+    commentAuthorId: string;
+    previousContent?: string;
+  },
+): Promise<void> {
+  try {
+    const target = await resolveFeatureTarget(db, params.featureId);
+    if (!target) return;
+
+    const basePath = `/w/${target.workspaceSlug}/products/${target.productSlug}/features/${params.featureId}`;
+
+    const subject: MentionSubject = {
+      commentId: params.commentId,
+      commentContent: params.commentContent,
+      previousContent: params.previousContent,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      workspaceName: target.workspaceName,
+      targetName: target.featureName,
+      targetPath: params.scopeId ? `${basePath}/scopes/${params.scopeId}` : basePath,
+    };
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      actorUserId: params.commentAuthorId,
+      subject,
+      db,
+    });
+  } catch (error) {
+    console.error("[emit/mentionAdapters] feature comment mention failed:", error);
+  }
+}
