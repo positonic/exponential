@@ -3,6 +3,8 @@ import { NotionService } from "../NotionService";
 import { getDecryptedKey } from "~/server/utils/credentialHelper";
 import { firstOptionName, readOptionNames } from "./mapping";
 import type { RemoteTicketRow, TicketSyncRemoteAdapter } from "./engine";
+import type { TicketPushAdapter } from "./push";
+import type { NotionDbSchema } from "./outboundMapping";
 
 /**
  * ticketSync/notionAdapter — the real {@link TicketSyncRemoteAdapter}.
@@ -78,7 +80,9 @@ function firstPersonEmail(
   return prop.people?.[0]?.person?.email ?? null;
 }
 
-export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
+export class NotionTicketSyncAdapter
+  implements TicketSyncRemoteAdapter, TicketPushAdapter
+{
   constructor(
     private readonly notion: NotionService,
     private readonly propertyNames: PropertyNames,
@@ -203,6 +207,113 @@ export class NotionTicketSyncAdapter implements TicketSyncRemoteAdapter {
       return null;
     }
   }
+
+  // ── Outbound (TicketPushAdapter) ────────────────────────────────────────
+
+  /** Current remote state of one page; null when it 404s (page deleted). */
+  async getRow(externalId: string): Promise<RemoteTicketRow | null> {
+    let page: RawNotionPage;
+    try {
+      page = (await this.notion.getPage(externalId)) as RawNotionPage;
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+    const row = this.projectRow(page);
+    if (row.cycleRelationId) {
+      row.cycleName = await this.resolvePageTitle(row.cycleRelationId);
+    }
+    const { cycleRelationId: _cycleRelationId, ...rest } = row;
+    return rest;
+  }
+
+  /** The target database's property schema: type + option names per property. */
+  async getWriteSchema(databaseId: string): Promise<NotionDbSchema> {
+    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const schema: NotionDbSchema = {};
+    for (const [name, raw] of Object.entries(properties)) {
+      const prop = raw as {
+        type?: string;
+        select?: { options?: Array<{ name?: string }> };
+        status?: { options?: Array<{ name?: string }> };
+        multi_select?: { options?: Array<{ name?: string }> };
+      };
+      const type = prop.type ?? "unknown";
+      const optionSource =
+        prop.select ?? prop.status ?? prop.multi_select ?? null;
+      const options = (optionSource?.options ?? [])
+        .map((o) => o.name)
+        .filter((n): n is string => Boolean(n));
+      schema[name] = { type, options };
+    }
+    return schema;
+  }
+
+  async updatePage(
+    externalId: string,
+    properties: Record<string, unknown>,
+  ): Promise<void> {
+    await this.notion.updatePage({ pageId: externalId, properties });
+  }
+
+  /**
+   * Resolve a cycle page id by title within the cycle relation's target
+   * database. Never creates a page (ADR-0046 defers Exponential-born cycles);
+   * returns null when nothing matches, so the caller warns and skips.
+   */
+  async findCyclePageIdByName(
+    databaseId: string,
+    cycleProperty: string,
+    name: string,
+  ): Promise<string | null> {
+    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const relation = (properties as Record<string, unknown>)[cycleProperty] as
+      | { type?: string; relation?: { database_id?: string } }
+      | undefined;
+    const targetDbId = relation?.relation?.database_id;
+    if (relation?.type !== "relation" || !targetDbId) return null;
+
+    const target = await this.notion.getRawDatabaseById(targetDbId);
+    const titleProp = Object.entries(target.properties).find(
+      ([, p]) => (p as { type?: string }).type === "title",
+    )?.[0];
+
+    const page = await this.notion.queryDatabase({
+      databaseId: targetDbId,
+      filter: titleProp
+        ? { property: titleProp, title: { equals: name } }
+        : undefined,
+      pageSize: 25,
+    });
+    const wanted = name.trim().toLowerCase();
+    const match = (page.results as RawNotionPage[]).find(
+      (p) =>
+        NotionService.extractTitleFromProperties(p.properties ?? {})
+          .trim()
+          .toLowerCase() === wanted,
+    );
+    return match?.id ?? null;
+  }
+
+  /** Resolve a Notion workspace person id by email, or null when unmatched. */
+  async findPersonIdByEmail(email: string): Promise<string | null> {
+    const wanted = email.trim().toLowerCase();
+    const users = await this.notion.getWorkspaceUsers();
+    const match = users.find(
+      (u) => (u.email ?? "").trim().toLowerCase() === wanted,
+    );
+    return match?.id ?? null;
+  }
+}
+
+/** A Notion API "object not found" error (a deleted/moved page). */
+function isNotFound(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: string }).code === "object_not_found"
+  );
 }
 
 interface RichTextItem {

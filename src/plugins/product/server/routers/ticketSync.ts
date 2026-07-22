@@ -132,6 +132,50 @@ export const ticketSyncRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Enable/disable OUTBOUND push (ADR-0046). Off by default; turning it on is
+   * the moment the sync may write to the customer's live Notion. Enabling only
+   * flips the flag — the first push fires on the next synced-ticket mutation
+   * (or backfill, ticket 264). A disconnected connection can't push, so
+   * enabling it there is refused.
+   */
+  setPushEnabled: protectedProcedure
+    .input(z.object({ productId: z.string(), pushEnabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      if (input.pushEnabled) {
+        const config = await ctx.db.ticketSyncConfig.findUnique({
+          where: {
+            productId_provider: {
+              productId: input.productId,
+              provider: "notion",
+            },
+          },
+          select: { integrationId: true },
+        });
+        if (!config) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "No Notion sync configured for this product",
+          });
+        }
+        if (!config.integrationId) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Reconnect Notion before enabling push",
+          });
+        }
+      }
+
+      return ctx.db.ticketSyncConfig.update({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        data: { pushEnabled: input.pushEnabled },
+      });
+    }),
+
   disconnect: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .mutation(async ({ ctx, input }) => {

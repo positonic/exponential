@@ -80,6 +80,7 @@ function RunRow({
   const adopted = items.filter((i) => i.action === "adopted").length;
   const deleted = items.filter((i) => i.action === "deleted").length;
   const isRevert = run.direction === "revert";
+  const isPush = run.direction === "push";
 
   const counts: Array<{ label: string; value: number; color: string }> = [
     { label: "deleted", value: deleted, color: "red" },
@@ -123,6 +124,11 @@ function RunRow({
           {isRevert && (
             <Badge size="xs" variant="light" color="orange">
               revert
+            </Badge>
+          )}
+          {isPush && (
+            <Badge size="xs" variant="light" color="grape">
+              push
             </Badge>
           )}
           {run.dryRun && (
