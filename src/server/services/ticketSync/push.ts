@@ -12,8 +12,30 @@ import {
   type NotionDbSchema,
   type OutboundPropertyNames,
 } from "./outboundMapping";
+import {
+  buildBacklinkProperty,
+  buildBodyBlocks,
+  buildSourceProperty,
+  DEFAULT_CREATE_MARKER_NAMES,
+  type CreateMarkerNames,
+} from "./outboundCreate";
 import type { RemoteTicketRow } from "./engine";
 import { REVERT_TOMBSTONE_KEY } from "./revert";
+import { COMPLETED_STATUSES } from "~/lib/ticket-statuses";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+
+/**
+ * Sentinel `TicketSync.externalId` for a ticket born in Exponential whose
+ * Notion mirror has not been created yet. The drain turns it into a real page
+ * id on first push (creation branch). `pending:<ticketId>` stays unique per
+ * ticket, so the `[configId, externalId]` and `[ticketId, provider]` uniqueness
+ * both hold, and it never matches a real Notion page id on the inbound side.
+ */
+export const PENDING_EXTERNAL_PREFIX = "pending:";
+
+export function isPendingExternalId(externalId: string): boolean {
+  return externalId.startsWith(PENDING_EXTERNAL_PREFIX);
+}
 
 /**
  * ticketSync/push — the outbound (Exponential → Notion) engine seam (ADR-0046).
@@ -55,9 +77,24 @@ export interface TicketPushAdapter {
   ): Promise<string | null>;
   /** Resolve a Notion workspace person id by email, or null when unmatched. */
   findPersonIdByEmail(email: string): Promise<string | null>;
+  /** Create a new page (full-mirror creation); returns the new page id + url. */
+  createPage(params: {
+    databaseId: string;
+    titleProperty: string | null;
+    properties: Record<string, unknown>;
+    children: unknown[];
+  }): Promise<{ externalId: string; url: string | null }>;
+  /** Trash (archive) a page — the outbound half of archive ↔ archive. */
+  archivePage(externalId: string): Promise<void>;
 }
 
-export type PushAction = "pushed" | "skipped" | "conflict" | "failed";
+export type PushAction =
+  | "pushed"
+  | "created"
+  | "archived"
+  | "skipped"
+  | "conflict"
+  | "failed";
 
 export interface OutboundPushItem {
   syncId: string;
@@ -77,7 +114,11 @@ interface PushConfig {
   integrationId: string | null;
   statusMap: Prisma.JsonValue | null;
   propertyNames: Prisma.JsonValue | null;
-  product: { workspaceId: string };
+  product: {
+    workspaceId: string;
+    slug: string;
+    workspace: { slug: string };
+  };
 }
 
 interface LoadedSync {
@@ -89,6 +130,8 @@ interface LoadedSync {
   ticket: {
     id: string;
     title: string;
+    body: string | null;
+    number: number;
     status: TicketStatus;
     type: TicketType;
     priority: number | null;
@@ -98,6 +141,19 @@ interface LoadedSync {
     assignee: { email: string | null } | null;
     tags: { tag: { name: string } }[];
   };
+}
+
+function resolveMarkerNames(raw: Prisma.JsonValue | null): CreateMarkerNames {
+  const overrides =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Partial<CreateMarkerNames>)
+      : {};
+  return { ...DEFAULT_CREATE_MARKER_NAMES, ...overrides };
+}
+
+/** The Exponential ticket URL used as the Notion back-link. */
+function ticketUrl(config: PushConfig, ticketNumber: number): string {
+  return `${getPublicBaseUrlFromEnv()}/w/${config.product.workspace.slug}/products/${config.product.slug}/tickets/${ticketNumber}`;
 }
 
 const DEFAULT_PROPERTY_NAMES: OutboundPropertyNames = {
@@ -207,11 +263,23 @@ export async function runOutboundTicketPush(
   const sync = (await db.ticketSync.findUnique({
     where: { id: params.syncId },
     include: {
-      config: { include: { product: { select: { workspaceId: true } } } },
+      config: {
+        include: {
+          product: {
+            select: {
+              workspaceId: true,
+              slug: true,
+              workspace: { select: { slug: true } },
+            },
+          },
+        },
+      },
       ticket: {
         select: {
           id: true,
           title: true,
+          body: true,
+          number: true,
           status: true,
           type: true,
           priority: true,
@@ -249,13 +317,34 @@ export async function runOutboundTicketPush(
   }
   if (sync.tombstonedAt) {
     // Archive-mirror tombstone: the ticket is archived and the page trashed;
-    // there is nothing to push. (Outbound archive itself lives in ticket 264.)
+    // there is nothing to push.
     return { ...base, action: "skipped", reason: "link archived — nothing to push" };
   }
 
   const statusMap = (config.statusMap ?? null) as Record<string, TicketStatus> | null;
   const propertyNames = resolvePropertyNames(config.propertyNames);
   const local = ticketToLocalFields(sync.ticket);
+
+  // ── Full-mirror creation: a sentinel externalId means the Notion row does
+  //    not exist yet. Create it (unless the ticket is terminal — mirror only
+  //    non-terminal work, matching the backfill exclusion) and turn the
+  //    sentinel into the real page id + snapshot.
+  if (isPendingExternalId(sync.externalId)) {
+    return runOutboundCreate(db, adapter, {
+      sync,
+      config,
+      statusMap,
+      propertyNames,
+      local,
+      dryRun,
+    });
+  }
+
+  // ── Outbound archive: a synced ticket set to ARCHIVED trashes its Notion
+  //    page and tombstones the link (never a hard-delete). Mirror of inbound.
+  if (sync.ticket.status === "ARCHIVED") {
+    return runOutboundArchive(db, adapter, { sync, dryRun });
+  }
 
   const row = await adapter.getRow(sync.externalId);
   if (!row) {
@@ -405,4 +494,170 @@ export async function runOutboundTicketPush(
         : "skipped";
 
   return { ...base, action, reason, wrote };
+}
+
+/**
+ * Full-mirror creation: create the Notion row for a ticket born in Exponential
+ * (sentinel externalId), then rewrite the sync record with the real page id and
+ * the converged snapshot — so the next inbound poll adopts, never re-imports.
+ * Terminal tickets are not mirrored (matching the backfill exclusion); the
+ * sentinel is deleted so it doesn't linger as a phantom link.
+ */
+async function runOutboundCreate(
+  db: PrismaClient,
+  adapter: TicketPushAdapter,
+  args: {
+    sync: LoadedSync & { config: PushConfig };
+    config: PushConfig;
+    statusMap: Record<string, TicketStatus> | null;
+    propertyNames: OutboundPropertyNames;
+    local: SyncedFields;
+    dryRun: boolean;
+  },
+): Promise<OutboundPushItem> {
+  const { sync, config, statusMap, propertyNames, local, dryRun } = args;
+  const base = {
+    syncId: sync.id,
+    externalId: null,
+    ticketId: sync.ticketId,
+    title: sync.ticket.title,
+  };
+
+  if (COMPLETED_STATUSES.has(sync.ticket.status)) {
+    if (!dryRun) {
+      // Drop the sentinel — a terminal ticket is never mirrored, and leaving
+      // the placeholder link would block a later legitimate adoption.
+      await db.ticketSync.delete({ where: { id: sync.id } });
+    }
+    return {
+      ...base,
+      action: "skipped",
+      reason: "ticket is terminal — not mirrored to Notion",
+    };
+  }
+
+  const schema = await adapter.getWriteSchema(config.databaseId);
+  const titleProperty = findTitleProperty(schema);
+
+  // Every local field is a creation property (currentRemoteStatusRaw = null:
+  // no page yet, so sticky-collapse just picks the first matching option).
+  const scalar = mapFieldsToNotion(local, {
+    schema,
+    propertyNames,
+    statusMap,
+    titleProperty,
+    currentRemoteStatusRaw: null,
+  });
+  const properties: Record<string, unknown> = { ...scalar.properties };
+  const warnings = [...scalar.warnings];
+
+  if (local.cycleName) {
+    const pageId = await adapter.findCyclePageIdByName(
+      config.databaseId,
+      propertyNames.cycle,
+      local.cycleName,
+    );
+    if (pageId) properties[propertyNames.cycle] = { relation: [{ id: pageId }] };
+    else warnings.push(`no Notion cycle page named "${local.cycleName}" — cycle not set`);
+  }
+  if (local.assigneeEmail) {
+    const personId = await adapter.findPersonIdByEmail(local.assigneeEmail);
+    if (personId) properties[propertyNames.assignee] = { people: [{ id: personId }] };
+    else
+      warnings.push(
+        `no Notion workspace member with email ${local.assigneeEmail} — assignee not set`,
+      );
+  }
+
+  const markerNames = resolveMarkerNames(config.propertyNames);
+  const source = buildSourceProperty(schema, markerNames.source);
+  if (source.property) Object.assign(properties, source.property);
+  if (source.warning) warnings.push(source.warning);
+
+  const backlinkUrl = ticketUrl(config, sync.ticket.number);
+  const backlink = buildBacklinkProperty(schema, markerNames.backlink, backlinkUrl);
+  if (backlink) Object.assign(properties, backlink);
+
+  const children = buildBodyBlocks(sync.ticket.body, backlinkUrl);
+
+  if (dryRun) {
+    return {
+      ...base,
+      action: "created",
+      reason: ["would create Notion row", ...warnings].join("; "),
+    };
+  }
+
+  const { externalId, url } = await adapter.createPage({
+    databaseId: config.databaseId,
+    titleProperty,
+    properties,
+    children,
+  });
+
+  // Rewrite the sentinel into a real link with the converged snapshot.
+  await db.ticketSync.update({
+    where: { id: sync.id },
+    data: {
+      externalId,
+      externalUrl: url,
+      snapshot: local as unknown as Prisma.InputJsonValue,
+      lastSyncedAt: new Date(),
+    },
+  });
+
+  return {
+    ...base,
+    externalId,
+    action: "created",
+    reason: warnings.length > 0 ? warnings.join("; ") : undefined,
+  };
+}
+
+/**
+ * Outbound archive: trash the Notion page and tombstone the link (never a hard
+ * delete). Snapshot status is advanced to ARCHIVED, mirroring the inbound
+ * archive path so a later restore lets the remote status win.
+ */
+async function runOutboundArchive(
+  db: PrismaClient,
+  adapter: TicketPushAdapter,
+  args: { sync: LoadedSync & { config: PushConfig }; dryRun: boolean },
+): Promise<OutboundPushItem> {
+  const { sync, dryRun } = args;
+  const base = {
+    syncId: sync.id,
+    externalId: sync.externalId,
+    ticketId: sync.ticketId,
+    title: sync.ticket.title,
+  };
+
+  if (dryRun) {
+    return {
+      ...base,
+      action: "archived",
+      reason: "would archive the Notion page (ticket is ARCHIVED)",
+    };
+  }
+
+  await adapter.archivePage(sync.externalId);
+
+  const priorSnapshot = (sync.snapshot as Partial<SyncedFields> | null) ?? {};
+  await db.ticketSync.update({
+    where: { id: sync.id },
+    data: {
+      tombstonedAt: new Date(),
+      snapshot: {
+        ...priorSnapshot,
+        status: "ARCHIVED",
+      } as unknown as Prisma.InputJsonValue,
+      lastSyncedAt: new Date(),
+    },
+  });
+
+  return {
+    ...base,
+    action: "archived",
+    reason: "archived the Notion page (ticket ARCHIVED)",
+  };
 }

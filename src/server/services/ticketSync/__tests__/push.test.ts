@@ -46,6 +46,8 @@ const SCHEMA: NotionDbSchema = {
   Label: { type: "multi_select", options: [] },
   Cycles: { type: "relation", options: [] },
   Assignee: { type: "people", options: [] },
+  Source: { type: "select", options: [] },
+  "Exponential URL": { type: "url", options: [] },
 };
 
 function snapshotFor(overrides: Partial<SyncedFields> = {}): SyncedFields {
@@ -65,6 +67,8 @@ function snapshotFor(overrides: Partial<SyncedFields> = {}): SyncedFields {
 const TICKET = {
   id: "t1",
   title: "Title",
+  body: "Ticket body." as string | null,
+  number: 42,
   status: "IN_PROGRESS" as TicketStatus,
   type: "BUG" as TicketType,
   priority: 1,
@@ -98,6 +102,7 @@ function syncRecord(
   overrides: {
     snapshot?: SyncedFields | null;
     tombstonedAt?: Date | null;
+    externalId?: string;
     config?: Partial<{
       pushEnabled: boolean;
       integrationId: string | null;
@@ -109,7 +114,7 @@ function syncRecord(
   return {
     id: "s1",
     ticketId: "t1",
-    externalId: "page-1",
+    externalId: overrides.externalId ?? "page-1",
     snapshot: overrides.snapshot === undefined ? snapshotFor() : overrides.snapshot,
     tombstonedAt: overrides.tombstonedAt ?? null,
     config: {
@@ -122,33 +127,65 @@ function syncRecord(
           : overrides.config.integrationId,
       statusMap: overrides.config?.statusMap ?? null,
       propertyNames: null,
-      product: { workspaceId: "ws1" },
+      product: {
+        workspaceId: "ws1",
+        slug: "prod",
+        workspace: { slug: "ws" },
+      },
     },
     ticket: { ...TICKET, ...overrides.ticket },
   };
 }
 
+interface FakeAdapter extends TicketPushAdapter {
+  updates: Array<{ id: string; props: Record<string, unknown> }>;
+  creates: Array<{
+    databaseId: string;
+    titleProperty: string | null;
+    properties: Record<string, unknown>;
+    children: unknown[];
+  }>;
+  archives: string[];
+}
+
 function fakeAdapter(
   row: RemoteTicketRow | null,
-  opts: { cyclePageId?: string | null; personId?: string | null } = {},
-): TicketPushAdapter & { updates: Array<{ id: string; props: Record<string, unknown> }> } {
-  const updates: Array<{ id: string; props: Record<string, unknown> }> = [];
+  opts: {
+    cyclePageId?: string | null;
+    personId?: string | null;
+    schema?: NotionDbSchema;
+  } = {},
+): FakeAdapter {
+  const updates: FakeAdapter["updates"] = [];
+  const creates: FakeAdapter["creates"] = [];
+  const archives: string[] = [];
   return {
     updates,
+    creates,
+    archives,
     getRow: () => Promise.resolve(row),
-    getWriteSchema: () => Promise.resolve(SCHEMA),
+    getWriteSchema: () => Promise.resolve(opts.schema ?? SCHEMA),
     updatePage: (id, props) => {
       updates.push({ id, props });
       return Promise.resolve();
     },
     findCyclePageIdByName: () => Promise.resolve(opts.cyclePageId ?? null),
     findPersonIdByEmail: () => Promise.resolve(opts.personId ?? null),
+    createPage: (params) => {
+      creates.push(params);
+      return Promise.resolve({ externalId: "new-page-id", url: "https://notion.so/new" });
+    },
+    archivePage: (id) => {
+      archives.push(id);
+      return Promise.resolve();
+    },
   };
 }
 
 beforeEach(() => {
   mockReset(db);
   db.ticketSync.update.mockResolvedValue({} as never);
+  db.ticketSync.delete.mockResolvedValue({} as never);
 });
 
 describe("runOutboundTicketPush — toggle guard", () => {
@@ -437,5 +474,127 @@ describe("runOutboundTicketPush — idempotency / ping-pong", () => {
     expect(db.ticket.update).not.toHaveBeenCalled();
     expect(createTicketMock).not.toHaveBeenCalled();
     expect(result.updated).toBe(0);
+  });
+});
+
+describe("runOutboundTicketPush — full-mirror creation", () => {
+  it("creates a Notion page for a sentinel link and stores the real page id", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({
+        snapshot: null,
+        // sentinel externalId = mirror not yet created
+        externalId: "pending:t1",
+      }) as never,
+    );
+    const adapter = fakeAdapter(null);
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("created");
+    expect(item.externalId).toBe("new-page-id");
+    expect(adapter.creates).toHaveLength(1);
+    // Title, status, Source marker and back-link URL all in the payload.
+    const props = adapter.creates[0]!.properties;
+    expect(props.Name).toEqual({ title: [{ text: { content: "Title" } }] });
+    expect(props.Source).toEqual({ select: { name: "Exponential" } });
+    expect(props["Exponential URL"]).toEqual({
+      url: "https://www.exponential.im/w/ws/products/prod/tickets/42",
+    });
+    // Body copied as page content (callout back-link + a paragraph).
+    expect(adapter.creates[0]!.children.length).toBeGreaterThanOrEqual(2);
+    // Sentinel rewritten to the real page id + converged snapshot.
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "s1" },
+        data: expect.objectContaining({
+          externalId: "new-page-id",
+          snapshot: expect.objectContaining({ title: "Title" }),
+        }),
+      }),
+    );
+  });
+
+  it("does not mirror a terminal ticket and drops the sentinel", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1", ticket: { status: "DONE" } }) as never,
+    );
+    const adapter = fakeAdapter(null);
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("skipped");
+    expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.delete).toHaveBeenCalledWith({ where: { id: "s1" } });
+  });
+
+  it("warns but still creates when the database has no Source property", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const schemaNoSource: NotionDbSchema = { ...SCHEMA };
+    delete schemaNoSource.Source;
+    const adapter = fakeAdapter(null, { schema: schemaNoSource });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("created");
+    expect(item.reason).toContain('no "Source" property');
+    expect(adapter.creates[0]!.properties.Source).toBeUndefined();
+  });
+
+  it("dry run previews a creation without writing", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null);
+
+    const item = await runOutboundTicketPush(db, adapter, {
+      syncId: "s1",
+      dryRun: true,
+    });
+
+    expect(item.action).toBe("created");
+    expect(item.reason).toContain("would create");
+    expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("runOutboundTicketPush — outbound archive", () => {
+  it("trashes the Notion page and tombstones the link", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ ticket: { status: "ARCHIVED" } }) as never,
+    );
+    const adapter = fakeAdapter(remoteRow());
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("archived");
+    expect(adapter.archives).toEqual(["page-1"]);
+    expect(adapter.updates).toHaveLength(0); // no property push
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tombstonedAt: expect.any(Date),
+          snapshot: expect.objectContaining({ status: "ARCHIVED" }),
+        }),
+      }),
+    );
+  });
+
+  it("dry run reports the would-be archive without trashing", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ ticket: { status: "ARCHIVED" } }) as never,
+    );
+    const adapter = fakeAdapter(remoteRow());
+
+    const item = await runOutboundTicketPush(db, adapter, {
+      syncId: "s1",
+      dryRun: true,
+    });
+
+    expect(item.action).toBe("archived");
+    expect(adapter.archives).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
   });
 });

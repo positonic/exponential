@@ -9,6 +9,10 @@ import {
   planTicketSyncRevert,
 } from "~/server/services/ticketSync/revert";
 import { createNotionTicketSyncAdapter } from "~/server/services/ticketSync/notionAdapter";
+import {
+  enqueueBackfill,
+  planBackfill,
+} from "~/server/services/ticketSync/pushRunner";
 
 /**
  * ticketSync — configuration surface for the product ↔ Notion backlog sync.
@@ -191,6 +195,74 @@ export const ticketSyncRouter = createTRPCRouter({
         data: { integrationId: null },
       });
       return { ok: true };
+    }),
+
+  /**
+   * Backfill preview (ADR-0046): the non-terminal, not-yet-synced tickets a
+   * real backfill would mirror to Notion. Read-only — the mandatory dry-run
+   * gate shown before {@link runBackfill}. UI-level gate, like the inbound
+   * first-sync preview (ADR-0042).
+   */
+  backfillPreview: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true, integrationId: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+      if (!config.integrationId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Notion sync is disconnected for this product",
+        });
+      }
+      const items = await planBackfill(ctx.db, { configId: config.id });
+      return { count: items.length, sample: items.slice(0, 20) };
+    }),
+
+  /**
+   * Run the one-time backfill: enqueue an outbound create for every
+   * non-terminal, not-yet-synced ticket. Requires push enabled (a real Notion
+   * write). Idempotent — re-running mirrors nothing already synced.
+   */
+  runBackfill: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true, integrationId: true, pushEnabled: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+      if (!config.integrationId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Notion sync is disconnected for this product",
+        });
+      }
+      if (!config.pushEnabled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Enable push before backfilling to Notion",
+        });
+      }
+      return enqueueBackfill(ctx.db, { configId: config.id });
     }),
 
   syncNow: protectedProcedure

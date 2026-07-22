@@ -7,6 +7,7 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
+  dispatchTicketCreate,
   dispatchTicketPush,
   PUSH_RELEVANT_TICKET_FIELDS,
 } from "~/server/services/ticketSync/pushRunner";
@@ -359,7 +360,7 @@ export const ticketRouter = createTRPCRouter({
       // Counter increment, shortId, create, and activity-feed write all live
       // in the shared service (ADR-0016). Access was already verified by
       // loadProductWithAccess above; the service trusts the caller.
-      return createTicketWithNumber(ctx.db, {
+      const ticket = await createTicketWithNumber(ctx.db, {
         productId: input.productId,
         workspaceId: product.workspaceId,
         createdById: ctx.session.user.id,
@@ -380,6 +381,15 @@ export const ticketRouter = createTRPCRouter({
         scopeId: input.scopeId,
         assigneeId: input.assigneeId,
       });
+
+      // Outbound Notion full-mirror (ADR-0046): a ticket born in Exponential
+      // gets a Notion row when its product has push enabled. Never throws — a
+      // push must not break ticket creation. (The inbound engine creates
+      // tickets via the service directly, bypassing this router, so
+      // Notion-born tickets are never mirrored back.)
+      await dispatchTicketCreate(ctx.db, { ticketId: ticket.id });
+
+      return ticket;
     }),
 
   update: protectedProcedure

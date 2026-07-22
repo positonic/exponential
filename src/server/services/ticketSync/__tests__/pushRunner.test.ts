@@ -9,8 +9,11 @@ import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
 import {
+  dispatchTicketCreate,
   dispatchTicketPush,
+  enqueueBackfill,
   enqueueTicketPush,
+  planBackfill,
   runOutboundPushSweep,
 } from "../pushRunner";
 import type { OutboundPushItem, TicketPushAdapter } from "../push";
@@ -24,6 +27,9 @@ beforeEach(() => {
   db.ticketSyncPushJob.updateMany.mockResolvedValue({ count: 1 } as never);
   db.ticketSyncPushJob.update.mockResolvedValue({} as never);
   db.ticketSyncPushJob.create.mockResolvedValue({ id: "job1" } as never);
+  // Default: the fire-and-forget immediate-kick sweep finds no due jobs.
+  db.ticketSyncPushJob.findMany.mockResolvedValue([] as never);
+  db.ticketSync.create.mockResolvedValue({ id: "s1" } as never);
   db.ticketSyncRun.create.mockResolvedValue({ id: "run1" } as never);
   db.ticketSyncRun.update.mockResolvedValue({} as never);
 });
@@ -241,5 +247,123 @@ describe("runOutboundPushSweep", () => {
 
     expect(runPush).not.toHaveBeenCalled();
     expect(result.processed).toBe(0);
+  });
+});
+
+describe("dispatchTicketCreate", () => {
+  it("writes a sentinel sync + job for a non-terminal, unsynced ticket", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      _count: { syncs: 0 },
+    } as never);
+    db.ticketSyncConfig.findFirst.mockResolvedValue({ id: "cfg1" } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSync.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          ticketId: "t1",
+          externalId: "pending:t1",
+        }),
+      }),
+    );
+    expect(db.ticketSyncPushJob.create).toHaveBeenCalled();
+  });
+
+  it("does not mirror a terminal ticket", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "DONE",
+      productId: "p1",
+      _count: { syncs: 0 },
+    } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSyncConfig.findFirst).not.toHaveBeenCalled();
+    expect(db.ticketSync.create).not.toHaveBeenCalled();
+  });
+
+  it("does not mirror a ticket that already has a sync", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      _count: { syncs: 1 },
+    } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSync.create).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the product has no push-enabled sync", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      _count: { syncs: 0 },
+    } as never);
+    db.ticketSyncConfig.findFirst.mockResolvedValue(null);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSync.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("planBackfill / enqueueBackfill", () => {
+  it("plans exactly the non-terminal, unsynced tickets", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({ productId: "p1" } as never);
+    db.ticket.findMany.mockResolvedValue([
+      { id: "t1", title: "A", number: 1 },
+      { id: "t2", title: "B", number: 2 },
+    ] as never);
+
+    const plan = await planBackfill(db, { configId: "cfg1" });
+
+    expect(plan).toHaveLength(2);
+    expect(db.ticket.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          productId: "p1",
+          syncs: { none: {} },
+          status: expect.objectContaining({ notIn: expect.any(Array) }),
+        }),
+      }),
+    );
+  });
+
+  it("enqueues a create job per unsynced ticket", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue([{ id: "t1" }, { id: "t2" }] as never);
+
+    const result = await enqueueBackfill(db, { configId: "cfg1" });
+
+    expect(result.enqueued).toBe(2);
+    expect(db.ticketSync.create).toHaveBeenCalledTimes(2);
+    expect(db.ticketSyncPushJob.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses to backfill when push is disabled", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      pushEnabled: false,
+      integrationId: "int1",
+    } as never);
+
+    const result = await enqueueBackfill(db, { configId: "cfg1" });
+
+    expect(result.enqueued).toBe(0);
+    expect(db.ticket.findMany).not.toHaveBeenCalled();
   });
 });

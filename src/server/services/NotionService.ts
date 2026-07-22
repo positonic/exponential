@@ -382,6 +382,32 @@ export class NotionService {
     }
   }
 
+  /**
+   * Create a page from a pre-built properties payload, optionally with body
+   * `children` blocks, in one `pages.create` call. Unlike {@link createPage}
+   * this does no title-string cleaning or property inference — the caller
+   * (the ticket-sync outbound creator) owns the exact Notion shapes.
+   */
+  async createPageWithContent(params: {
+    databaseId: string;
+    properties: Record<string, any>;
+    children?: any[];
+  }): Promise<{ id: string; url: string | null }> {
+    try {
+      const response = await this.client.pages.create({
+        parent: { database_id: params.databaseId },
+        properties: params.properties,
+        ...(params.children && params.children.length > 0
+          ? { children: params.children }
+          : {}),
+      } as any);
+      return { id: response.id, url: (response as any).url ?? null };
+    } catch (error) {
+      console.error('❌ Failed to create Notion page (with content):', error);
+      throw new Error('Failed to create page in Notion');
+    }
+  }
+
   private formatProperties(properties: Record<string, any>): Record<string, NotionProperty> {
     const formatted: Record<string, NotionProperty> = {};
 

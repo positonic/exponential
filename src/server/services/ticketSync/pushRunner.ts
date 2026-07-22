@@ -1,10 +1,13 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import {
   runOutboundTicketPush,
+  PENDING_EXTERNAL_PREFIX,
   type OutboundPushItem,
   type TicketPushAdapter,
 } from "./push";
 import { createNotionTicketSyncAdapter } from "./notionAdapter";
+import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 
 /**
  * ticketSync/pushRunner — the durable outbound-push queue drain (ADR-0046).
@@ -124,6 +127,176 @@ export async function dispatchTicketPush(
   } catch (err) {
     console.error("[ticketSync push] dispatch failed", err);
   }
+}
+
+/**
+ * Fire-and-forget outbound CREATE dispatch for a ticket born in Exponential
+ * (the `ticket.create` path — human or agent). Writes a sentinel `TicketSync`
+ * (`externalId: "pending:<ticketId>"`) so the durable queue can turn it into a
+ * real Notion page on drain, then kicks the drain. Never throws.
+ *
+ * Skips terminal tickets (mirror only non-terminal work, matching backfill) and
+ * tickets that already carry a sync (inbound-born, or already mirrored) — the
+ * `[ticketId, provider]` uniqueness is the final idempotency guard.
+ */
+export async function dispatchTicketCreate(
+  db: PrismaClient,
+  params: { ticketId: string },
+): Promise<void> {
+  try {
+    const configId = await ensureCreateSentinel(db, params.ticketId);
+    if (!configId) return;
+    void runOutboundPushSweep(db, new Date(), { configId, trigger: "manual" }).catch(
+      (err) => {
+        console.error("[ticketSync push] immediate create drain failed", err);
+      },
+    );
+  } catch (err) {
+    console.error("[ticketSync push] create dispatch failed", err);
+  }
+}
+
+async function ensureCreateSentinel(
+  db: PrismaClient,
+  ticketId: string,
+): Promise<string | null> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: {
+      id: true,
+      status: true,
+      productId: true,
+      _count: { select: { syncs: true } },
+    },
+  });
+  if (!ticket) return null;
+  if (COMPLETED_TICKET_STATUSES.includes(ticket.status)) return null;
+  if (ticket._count.syncs > 0) return null;
+
+  const config = await db.ticketSyncConfig.findFirst({
+    where: {
+      productId: ticket.productId,
+      provider: "notion",
+      pushEnabled: true,
+      integrationId: { not: null },
+    },
+    select: { id: true },
+  });
+  if (!config) return null;
+
+  try {
+    const sync = await db.ticketSync.create({
+      data: {
+        configId: config.id,
+        ticketId,
+        provider: "notion",
+        externalId: `${PENDING_EXTERNAL_PREFIX}${ticketId}`,
+        snapshot: Prisma.DbNull,
+      },
+    });
+    await db.ticketSyncPushJob.create({
+      data: { syncId: sync.id, status: "PENDING", nextAttemptAt: new Date() },
+    });
+    return config.id;
+  } catch {
+    // Unique collision on [ticketId, provider] — a sync already exists.
+    return null;
+  }
+}
+
+export interface BackfillPlanItem {
+  ticketId: string;
+  title: string;
+  number: number;
+}
+
+/**
+ * The one-time backfill manifest: the non-terminal tickets in a config's
+ * product that have no sync record yet (exactly what a real backfill would
+ * mirror). Read-only — the dry-run gate the UI shows before the real run.
+ */
+export async function planBackfill(
+  db: PrismaClient,
+  params: { configId: string },
+): Promise<BackfillPlanItem[]> {
+  const config = await db.ticketSyncConfig.findUnique({
+    where: { id: params.configId },
+    select: { productId: true },
+  });
+  if (!config) return [];
+
+  const tickets = await db.ticket.findMany({
+    where: {
+      productId: config.productId,
+      status: { notIn: [...COMPLETED_TICKET_STATUSES] },
+      syncs: { none: {} },
+    },
+    select: { id: true, title: true, number: true },
+    orderBy: { createdAt: "asc" },
+    take: 500,
+  });
+  return tickets.map((t) => ({ ticketId: t.id, title: t.title, number: t.number }));
+}
+
+/**
+ * Run the backfill: enqueue a create job (via a sentinel sync) for every
+ * non-terminal, unsynced ticket. Idempotent — a ticket that already has a sync
+ * is skipped, so re-running creates nothing new. The Notion pages themselves
+ * are written by the durable drain, so a large backfill can't time out the
+ * request and each row retries independently.
+ */
+export async function enqueueBackfill(
+  db: PrismaClient,
+  params: { configId: string },
+): Promise<{ enqueued: number }> {
+  const config = await db.ticketSyncConfig.findUnique({
+    where: { id: params.configId },
+    select: { id: true, productId: true, pushEnabled: true, integrationId: true },
+  });
+  if (!config || !config.pushEnabled || !config.integrationId) {
+    return { enqueued: 0 };
+  }
+
+  const tickets = await db.ticket.findMany({
+    where: {
+      productId: config.productId,
+      status: { notIn: [...COMPLETED_TICKET_STATUSES] },
+      syncs: { none: {} },
+    },
+    select: { id: true },
+    take: 500,
+  });
+
+  let enqueued = 0;
+  for (const t of tickets) {
+    try {
+      const sync = await db.ticketSync.create({
+        data: {
+          configId: config.id,
+          ticketId: t.id,
+          provider: "notion",
+          externalId: `${PENDING_EXTERNAL_PREFIX}${t.id}`,
+          snapshot: Prisma.DbNull,
+        },
+      });
+      await db.ticketSyncPushJob.create({
+        data: { syncId: sync.id, status: "PENDING", nextAttemptAt: new Date() },
+      });
+      enqueued++;
+    } catch {
+      // Raced with another backfill / a sync appeared — skip, stay idempotent.
+    }
+  }
+  // Kick an immediate drain so the first rows appear without waiting for cron.
+  if (enqueued > 0) {
+    void runOutboundPushSweep(db, new Date(), {
+      configId: config.id,
+      trigger: "manual",
+    }).catch((err) => {
+      console.error("[ticketSync push] backfill drain failed", err);
+    });
+  }
+  return { enqueued };
 }
 
 type AdapterFactory = (

@@ -17,6 +17,7 @@ import {
   IconPlugConnected,
   IconRefresh,
   IconUnlink,
+  IconUpload,
 } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
@@ -166,6 +167,38 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
     onSuccess: invalidate,
     onError: (err) => setError(err.message),
   });
+
+  // Backfill (ADR-0046): mirror existing non-terminal tickets to Notion. A
+  // dry-run preview is mandatory before the real run (UI-level gate, like the
+  // inbound first-sync preview).
+  const [backfillPreview, setBackfillPreview] = useState<{
+    count: number;
+    sample: { ticketId: string; title: string; number: number }[];
+  } | null>(null);
+  const [backfillLoading, setBackfillLoading] = useState(false);
+
+  const runBackfill = api.product.ticketSync.runBackfill.useMutation({
+    onSuccess: async () => {
+      setBackfillPreview(null);
+      await invalidate();
+    },
+    onError: (err) => setError(err.message),
+  });
+
+  const onBackfill = async () => {
+    setError(null);
+    setBackfillLoading(true);
+    try {
+      const preview = await utils.product.ticketSync.backfillPreview.fetch({
+        productId,
+      });
+      setBackfillPreview(preview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to preview backfill");
+    } finally {
+      setBackfillLoading(false);
+    }
+  };
 
   const disconnect = api.product.ticketSync.disconnect.useMutation({
     onSuccess: invalidate,
@@ -411,7 +444,88 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
               }
             />
           </div>
+          {config.pushEnabled && (
+            <div className="flex items-center justify-between border-t border-border-primary py-3.5">
+              <div>
+                <Text size="sm" fw={600} className="text-text-primary">
+                  Backfill existing tickets
+                </Text>
+                <Text size="xs" className="text-text-muted mt-0.5">
+                  Mirror this product&apos;s open tickets to Notion. You&apos;ll
+                  see exactly what would be created before anything is written.
+                </Text>
+              </div>
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconUpload size={14} />}
+                onClick={onBackfill}
+                loading={backfillLoading}
+              >
+                Backfill to Notion
+              </Button>
+            </div>
+          )}
         </div>
+
+        {backfillPreview && (
+          <Modal
+            opened
+            onClose={() => setBackfillPreview(null)}
+            title="Backfill tickets to Notion"
+            size="lg"
+          >
+            <div className="space-y-4">
+              <Text size="sm" className="text-text-primary">
+                This will create <b>{backfillPreview.count}</b> Notion row
+                {backfillPreview.count === 1 ? "" : "s"} for open tickets that
+                aren&apos;t linked yet. Terminal tickets (done, deployed,
+                archived) are excluded, and tickets already synced are skipped.
+              </Text>
+              {backfillPreview.sample.length > 0 && (
+                <div>
+                  <Text size="xs" fw={600} className="text-text-secondary mb-1">
+                    Sample of what would be created
+                  </Text>
+                  <div className="max-h-48 space-y-0.5 overflow-y-auto rounded border border-border-primary p-2">
+                    {backfillPreview.sample.map((item) => (
+                      <Text
+                        key={item.ticketId}
+                        size="xs"
+                        className="text-text-primary truncate"
+                      >
+                        #{item.number} · {item.title}
+                      </Text>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <Text size="xs" className="text-text-muted">
+                There is no undo for pushed changes — the rows land in your live
+                Notion workspace.
+              </Text>
+              <div className="flex justify-end gap-2">
+                <Button
+                  size="xs"
+                  variant="default"
+                  onClick={() => setBackfillPreview(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="xs"
+                  color="brand"
+                  loading={runBackfill.isPending}
+                  disabled={backfillPreview.count === 0}
+                  onClick={() => runBackfill.mutate({ productId })}
+                >
+                  Create {backfillPreview.count} row
+                  {backfillPreview.count === 1 ? "" : "s"}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+        )}
 
         <SyncRunHistory productId={productId} />
 
