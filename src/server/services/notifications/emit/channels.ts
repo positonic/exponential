@@ -1,6 +1,8 @@
-import type { PrismaClient } from "@prisma/client";
-import { sendPushToUser } from "~/server/services/notifications/WebPushService";
-import { NOTIFICATION_CHANNELS, type NotificationChannel } from "./constants";
+import {
+  NotificationServiceFactory,
+  type NotificationServiceType,
+} from "~/server/services/notifications/NotificationServiceFactory";
+import type { NotificationChannel } from "./constants";
 import type { NotificationContent } from "./types";
 
 export interface DeliveryOutcome {
@@ -10,38 +12,43 @@ export interface DeliveryOutcome {
 
 /**
  * Deliver one notification to one channel for one recipient, best-effort and
- * synchronously. Returns the outcome so the caller can record delivery status.
- *
- * V1 handles Push inline; action 3 brings Push + Email under the
- * NotificationService factory so this becomes a uniform, branch-free loop.
+ * synchronously. Every channel — Push, Email, Matrix, WhatsApp, Zulip — is a
+ * NotificationService behind the factory, so this loop has no per-channel
+ * branches. Returns the outcome so the caller records delivery status.
  */
 export async function deliverToChannel(params: {
-  db: PrismaClient;
   channel: NotificationChannel;
   recipientId: string;
   content: NotificationContent;
 }): Promise<DeliveryOutcome> {
-  const { db, channel, recipientId, content } = params;
+  const { channel, recipientId, content } = params;
 
-  switch (channel) {
-    case NOTIFICATION_CHANNELS.PUSH: {
-      const { failed } = await sendPushToUser(
-        recipientId,
-        {
-          title: content.title,
-          body: content.message,
-          tag: content.category,
-          url: content.deeplink,
-        },
-        db,
-      );
-      // No subscriptions (0/0) is a no-op success, not a retryable failure.
-      // A genuine send error (non-410) marks the delivery for cron retry.
-      return failed === 0
-        ? { success: true }
-        : { success: false, error: `${failed} push endpoint(s) failed` };
+  try {
+    const service = await NotificationServiceFactory.createService(
+      channel as NotificationServiceType,
+      { userId: recipientId },
+    );
+    if (!service) {
+      return { success: false, error: `no service for channel '${channel}'` };
     }
-    default:
-      return { success: false, error: `channel '${channel}' not yet implemented` };
+
+    const result = await service.sendNotification({
+      title: content.title,
+      message: content.message,
+      priority: "normal",
+      metadata: {
+        ...content.metadata,
+        category: content.category,
+        deeplink: content.deeplink,
+        workspaceId: content.workspaceId,
+      },
+    });
+
+    return { success: result.success, error: result.error };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
   }
 }

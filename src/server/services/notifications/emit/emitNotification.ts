@@ -91,7 +91,6 @@ async function emitForRecipient(
     if (isFuture) continue;
 
     const outcome = await deliverToChannel({
-      db,
       channel,
       recipientId,
       content,

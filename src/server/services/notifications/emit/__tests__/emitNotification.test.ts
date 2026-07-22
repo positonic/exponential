@@ -4,11 +4,13 @@ import type { PrismaClient } from "@prisma/client";
 
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { sendPushToUser } from "~/server/services/notifications/WebPushService";
+import { NotificationServiceFactory } from "~/server/services/notifications/NotificationServiceFactory";
 import { shouldSendEmailNotification } from "~/server/services/notifications/EmailNotificationService";
 
-vi.mock("~/server/services/notifications/WebPushService", () => ({
-  sendPushToUser: vi.fn().mockResolvedValue({ sent: 1, failed: 0 }),
+// Mock the factory: every emit delivery goes through createService, so a fake
+// service lets us assert channel dispatch without real push/email I/O.
+vi.mock("~/server/services/notifications/NotificationServiceFactory", () => ({
+  NotificationServiceFactory: { createService: vi.fn() },
 }));
 // Mock the whole module so the real EmailService → db.ts → env chain isn't
 // pulled into this unit test; the email override is a boolean gate we drive.
@@ -20,29 +22,36 @@ const db = mockDeep<PrismaClient>();
 
 const WORKSPACE = { id: "ws1", slug: "acme", name: "Acme" };
 
+/** Shared spy standing in for any channel service's sendNotification. */
+const sendNotificationSpy = vi.fn().mockResolvedValue({ success: true });
+
+function fakeServiceFor(type: string) {
+  return {
+    name: type,
+    type,
+    sendNotification: sendNotificationSpy,
+    validateConfig: vi.fn(),
+    testConnection: vi.fn(),
+  };
+}
+
 /** Happy-path DB fixtures for an assignment emit. */
 function stubAssignmentLookups() {
-  // Both the name lookup and resolveActionWorkspace read from action.findUnique.
   db.action.findUnique.mockResolvedValue({
     id: "a1",
     name: "Ship the thing",
     workspace: WORKSPACE,
     project: null,
   } as never);
-  // Actor (assigner) lookup for the notification title.
   db.user.findUnique.mockResolvedValue({
     id: "actor1",
     name: "Actor",
     email: "actor@acme.test",
   } as never);
-  db.notification.create.mockResolvedValue({
-    id: "n1",
-    scheduledFor: null,
-  } as never);
+  db.notification.create.mockResolvedValue({ id: "n1", scheduledFor: null } as never);
   db.notificationDelivery.create.mockResolvedValue({ id: "d1" } as never);
   db.notificationDelivery.update.mockResolvedValue({ id: "d1" } as never);
-  // Matrix: only Push enabled for assignment (deterministic, avoids the
-  // not-yet-wired Email channel). Individual tests override as needed.
+  // Matrix: only Push enabled for assignment (deterministic). Tests override.
   db.notificationChannelPreference.findMany.mockResolvedValue([
     { channel: "push", enabled: true },
     { channel: "email", enabled: false },
@@ -55,7 +64,10 @@ function stubAssignmentLookups() {
 beforeEach(() => {
   mockReset(db);
   vi.clearAllMocks();
-  vi.mocked(sendPushToUser).mockResolvedValue({ sent: 1, failed: 0 });
+  sendNotificationSpy.mockResolvedValue({ success: true });
+  vi.mocked(NotificationServiceFactory.createService).mockImplementation(
+    (type: string) => Promise.resolve(fakeServiceFor(type) as never),
+  );
   vi.mocked(shouldSendEmailNotification).mockResolvedValue(true);
   stubAssignmentLookups();
 });
@@ -83,30 +95,19 @@ describe("emitNotification — Assignment tracer", () => {
       }),
     );
 
-    // A pending push delivery is written...
-    expect(db.notificationDelivery.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          notificationId: "n1",
-          channel: "push",
-          status: "pending",
-        }),
-      }),
-    );
-
-    // ...delivered synchronously to the assignee...
-    expect(sendPushToUser).toHaveBeenCalledWith(
-      "assignee1",
+    // Delivered through the Push channel service for that recipient.
+    expect(NotificationServiceFactory.createService).toHaveBeenCalledWith("push", {
+      userId: "assignee1",
+    });
+    expect(sendNotificationSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Actor assigned you a task",
-        body: "Ship the thing",
-        tag: "assignment",
-        url: "/w/acme/actions/a1",
+        message: "Ship the thing",
+        metadata: expect.objectContaining({ deeplink: "/w/acme/actions/a1" }),
       }),
-      db,
     );
 
-    // ...and marked sent.
+    // Delivery recorded as sent.
     expect(db.notificationDelivery.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "d1" },
@@ -124,11 +125,28 @@ describe("emitNotification — Assignment tracer", () => {
     });
 
     expect(db.notification.create).not.toHaveBeenCalled();
-    expect(sendPushToUser).not.toHaveBeenCalled();
+    expect(NotificationServiceFactory.createService).not.toHaveBeenCalled();
   });
 
-  it("marks the delivery failed when a push endpoint errors (for the cron to retry)", async () => {
-    vi.mocked(sendPushToUser).mockResolvedValue({ sent: 0, failed: 1 });
+  it("marks the delivery failed when the channel service reports failure (for the cron to retry)", async () => {
+    sendNotificationSpy.mockResolvedValue({ success: false, error: "push failed" });
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: "actor1",
+      subject: { actionId: "a1", assignedUserIds: ["assignee1"] },
+      db,
+    });
+
+    expect(db.notificationDelivery.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "failed", lastError: "push failed" }),
+      }),
+    );
+  });
+
+  it("marks the delivery failed when no service exists for the channel", async () => {
+    vi.mocked(NotificationServiceFactory.createService).mockResolvedValue(null);
 
     await emitNotification({
       category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
@@ -144,23 +162,6 @@ describe("emitNotification — Assignment tracer", () => {
     );
   });
 
-  it("treats no push subscriptions (0 sent / 0 failed) as a delivered no-op", async () => {
-    vi.mocked(sendPushToUser).mockResolvedValue({ sent: 0, failed: 0 });
-
-    await emitNotification({
-      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
-      actorUserId: "actor1",
-      subject: { actionId: "a1", assignedUserIds: ["assignee1"] },
-      db,
-    });
-
-    expect(db.notificationDelivery.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: "sent" }),
-      }),
-    );
-  });
-
   it("skips the emit when the action can no longer be resolved", async () => {
     db.action.findUnique.mockResolvedValue(null as never);
 
@@ -172,7 +173,7 @@ describe("emitNotification — Assignment tracer", () => {
     });
 
     expect(db.notification.create).not.toHaveBeenCalled();
-    expect(sendPushToUser).not.toHaveBeenCalled();
+    expect(NotificationServiceFactory.createService).not.toHaveBeenCalled();
   });
 });
 
@@ -187,13 +188,11 @@ describe("emitNotification — channel resolution", () => {
 
     expect(db.notificationDelivery.create).toHaveBeenCalledTimes(1);
     expect(db.notificationDelivery.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ channel: "push" }),
-      }),
+      expect.objectContaining({ data: expect.objectContaining({ channel: "push" }) }),
     );
   });
 
-  it("writes an Email delivery when the matrix enables it and the workspace allows email", async () => {
+  it("delivers to Email too when the matrix enables it and the workspace allows email", async () => {
     db.notificationChannelPreference.findMany.mockResolvedValue([
       { channel: "push", enabled: true },
       { channel: "email", enabled: true },
@@ -207,10 +206,11 @@ describe("emitNotification — channel resolution", () => {
       db,
     });
 
+    expect(NotificationServiceFactory.createService).toHaveBeenCalledWith("email", {
+      userId: "assignee1",
+    });
     expect(db.notificationDelivery.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ channel: "email" }),
-      }),
+      expect.objectContaining({ data: expect.objectContaining({ channel: "email" }) }),
     );
   });
 
@@ -219,7 +219,6 @@ describe("emitNotification — channel resolution", () => {
       { channel: "push", enabled: true },
       { channel: "email", enabled: true },
     ] as never);
-    // Override off → the email gate returns false.
     vi.mocked(shouldSendEmailNotification).mockResolvedValue(false);
 
     await emitNotification({
@@ -233,5 +232,8 @@ describe("emitNotification — channel resolution", () => {
       ([arg]) => (arg as { data?: { channel?: string } })?.data?.channel === "email",
     );
     expect(emailDeliveryCreated).toBe(false);
+    expect(NotificationServiceFactory.createService).not.toHaveBeenCalledWith("email", {
+      userId: "assignee1",
+    });
   });
 });
