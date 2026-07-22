@@ -304,6 +304,26 @@ export class NotionTicketSyncAdapter
     );
     return match?.id ?? null;
   }
+
+  /** Create a new page (full-mirror creation) with body `children` blocks. */
+  async createPage(params: {
+    databaseId: string;
+    titleProperty: string | null;
+    properties: Record<string, unknown>;
+    children: unknown[];
+  }): Promise<{ externalId: string; url: string | null }> {
+    const { id, url } = await this.notion.createPageWithContent({
+      databaseId: params.databaseId,
+      properties: params.properties,
+      children: params.children,
+    });
+    return { externalId: id, url };
+  }
+
+  /** Trash (archive) a page — the outbound half of archive ↔ archive. */
+  async archivePage(externalId: string): Promise<void> {
+    await this.notion.archivePage(externalId);
+  }
 }
 
 /** A Notion API "object not found" error (a deleted/moved page). */
