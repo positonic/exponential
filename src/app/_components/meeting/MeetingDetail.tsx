@@ -81,6 +81,7 @@ export function MeetingDetail({
   const existingParticipants = useMemo(() => {
     const keys = new Set<string>();
     for (const p of session.participants) {
+      if (p.userId) keys.add(`user:${p.userId}`);
       if (p.contactId) keys.add(`contact:${p.contactId}`);
       if (p.email?.includes("@")) keys.add(`email:${p.email.toLowerCase()}`);
     }
