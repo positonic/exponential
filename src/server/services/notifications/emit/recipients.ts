@@ -1,4 +1,5 @@
 import { NOTIFICATION_CATEGORIES } from "./constants";
+import { resolveMentionRecipients } from "./mention";
 import type { EmitNotificationInput } from "./types";
 
 /**
@@ -13,6 +14,9 @@ export async function resolveRecipients(
     case NOTIFICATION_CATEGORIES.ASSIGNMENT:
       // Assignment → the users just assigned. De-duplicate defensively.
       return Promise.resolve(Array.from(new Set(input.subject.assignedUserIds)));
+    case NOTIFICATION_CATEGORIES.MENTION:
+      // Mention → parsed, membership-filtered mentioned users.
+      return resolveMentionRecipients(input);
     default:
       return Promise.resolve([]);
   }

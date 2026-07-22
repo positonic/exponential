@@ -15,6 +15,26 @@ export interface AssignmentSubject {
 }
 
 /**
+ * Mention (V2): a comment on some target (action / feature / scope), already
+ * resolved to its workspace + display name + deep-link. Recipients are parsed
+ * from the `@[Name](id)` markup and membership-filtered by the resolver.
+ */
+export interface MentionSubject {
+  /** Comment id — stabilises the dedup key per (comment, recipient). */
+  commentId: string;
+  commentContent: string;
+  /** Pre-edit body: users already mentioned in it are skipped (no re-spam on edit). */
+  previousContent?: string;
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  /** Display name of the thing the comment is on (action name, feature name). */
+  targetName: string;
+  /** Workspace-relative deep link to the comment thread. */
+  targetPath: string;
+}
+
+/**
  * Discriminated union pairing each category with its subject. `emitNotification`
  * narrows on `category`, so recipient resolvers and content builders get a
  * fully-typed subject with no casts.
@@ -25,10 +45,16 @@ export type EmitNotificationInput = {
   actorUserId: string | null;
   /** When null/absent → immediate best-effort send. Future date → cron fires it. */
   scheduledFor?: Date | null;
-} & {
-  category: typeof NOTIFICATION_CATEGORIES.ASSIGNMENT;
-  subject: AssignmentSubject;
-};
+} & (
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.ASSIGNMENT;
+      subject: AssignmentSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.MENTION;
+      subject: MentionSubject;
+    }
+);
 
 /**
  * The rendered, channel-agnostic body of one notification for one recipient.

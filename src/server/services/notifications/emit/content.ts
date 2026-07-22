@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { NOTIFICATION_CATEGORIES } from "./constants";
+import { buildMentionContent } from "./mention";
 import type { EmitNotificationInput, NotificationContent } from "./types";
 
 /**
@@ -70,6 +71,8 @@ export async function buildContent(
         dedupeKey: `assignment:${actionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.MENTION:
+      return buildMentionContent(input, recipientId);
     default:
       return null;
   }
