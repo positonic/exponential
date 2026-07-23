@@ -1,0 +1,80 @@
+# Marks a merged scope's Exponential feature requirements as met.
+#
+# Semantics: a requirement says "the system shall...". This hook ticks a scope's
+# requirements because that scope's PR merged into main green -- i.e.
+# verified-shipped, not merely written. That is the intended meaning of "met".
+#
+# ASSUMPTION: ticket = one scope = one PR. If a scope ever spans multiple PRs,
+# the FIRST of them to merge ticks the whole scope and over-claims. There is no
+# signal in the merge event to detect that -- if you start splitting scopes
+# across PRs, either split the scope in Exponential too, or drop this hook for
+# that feature and tick by hand.
+#
+# This workflow never changes Ticket status. Promotion is a separate concern
+# (see exponential-promote.yml) and is deliberately not wired up here.
+name: Tick Exponential Requirements
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+env:
+  EXPO_API_URL: https://www.exponential.im
+  EXPO_PRODUCT: exponential
+  EXPO_WORKSPACE: syntrofi
+jobs:
+  tick-requirements:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm i -g exponential-cli
+      - name: Auth
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+        run: exponential auth login --token "$EXPO_TOKEN" --api-url "$EXPO_API_URL"
+
+      - name: Resolve merged PR -> Tickets
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: ${{ github.event.pull_request.base.repo.html_url }}
+        run: |
+          set -euo pipefail
+          # This PR, plus any child feature PRs referenced from a Rollup PR's
+          # commit log (a Rollup PR promotes already-merged work along the chain,
+          # so its own URL is on no Ticket -- its children's URLs are).
+          {
+            echo "$PR_URL"
+            git log "$BASE_SHA..$HEAD_SHA" --format=%B \
+              | grep -oE '#[0-9]+' | tr -d '#' | sort -u \
+              | sed "s@^@${REPO_URL}/pull/@"
+          } | sort -u > /tmp/prs
+          jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/prs > /tmp/prs.json
+          exponential tickets list \
+            --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" --json > /tmp/all.json
+          jq --slurpfile prs /tmp/prs.json \
+            '[.tickets[] | select(.prUrl != null and (.prUrl as $u | $prs[0] | index($u)))]' \
+            /tmp/all.json > /tmp/tickets.json
+          echo "Matched $(jq length /tmp/tickets.json) ticket(s)."
+
+      - name: Tick requirements for each merged scope
+        run: |
+          set -euo pipefail
+          jq -r '.[]
+                 | select(.featureId != null and .scopeId != null)
+                 | [.id, .shortId, .featureId, .scopeId] | @tsv' /tmp/tickets.json \
+          | while IFS=$'\t' read -r tid shortid fid sid; do
+              echo "::group::$shortid ($tid) scope $sid"
+              # Already-met requirements are skipped, so re-runs are idempotent.
+              exponential features requirements list --feature "$fid" --scope "$sid" \
+                | jq -r '.requirements[] | select(.checkedAt == null) | .id' \
+                | while read -r rid; do
+                    echo "check $rid"
+                    exponential features requirements check --id "$rid"
+                  done
+              echo "::endgroup::"
+            done
