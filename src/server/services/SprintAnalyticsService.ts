@@ -41,6 +41,15 @@ export interface DailySnapshotResult {
   actionsCompleted: number;
 }
 
+export interface PrTurnaroundResult {
+  /** PRs merged within the cycle window (deduped by repo + PR number). */
+  mergedPrCount: number;
+  /** Avg opened→merged time in hours, over PRs with a known opened event. Null when none are measurable. */
+  avgHours: number | null;
+  /** Median opened→merged time in hours. Null when none are measurable. */
+  medianHours: number | null;
+}
+
 export interface VelocityHistoryPoint {
   sprintId: string;
   sprintName: string;
@@ -450,6 +459,120 @@ export class SprintAnalyticsService {
       velocity: m.velocity,
       completionRate: m.completionRate,
     }));
+  }
+
+  /**
+   * Merged-PR turnaround for a cycle: average (and median) opened→merged time
+   * for PRs merged within the cycle's [startDate, endDate] window.
+   *
+   * Computed **live** from the webhook-fed `GitHubActivity` event log — a PR's
+   * `opened`-event `eventTimestamp` joined to its `prMergedAt`. Nothing is
+   * persisted; `SprintMetrics.avgPrTurnaround` stays dormant per ADR-0047.
+   * Merged-PR turnaround only (no open-PR-age panel).
+   *
+   * Returns zeros/nulls gracefully when the cycle has no window or no merged
+   * PRs (no NaN from an empty average).
+   */
+  async getPrTurnaround(listId: string): Promise<PrTurnaroundResult> {
+    const empty: PrTurnaroundResult = {
+      mergedPrCount: 0,
+      avgHours: null,
+      medianHours: null,
+    };
+
+    const list = await this.prisma.list.findUniqueOrThrow({
+      where: { id: listId },
+      select: { startDate: true, endDate: true, workspaceId: true },
+    });
+
+    if (!list.startDate || !list.endDate || !list.workspaceId) return empty;
+
+    // PRs merged within the cycle window.
+    const mergedRows = await this.prisma.gitHubActivity.findMany({
+      where: {
+        workspaceId: list.workspaceId,
+        eventType: "pull_request",
+        prNumber: { not: null },
+        prMergedAt: { gte: list.startDate, lte: list.endDate },
+      },
+      select: { prNumber: true, repoFullName: true, prMergedAt: true },
+    });
+
+    // Dedup to one merged timestamp per (repo, PR number).
+    const mergedByPr = new Map<
+      string,
+      { prNumber: number; repoFullName: string; mergedAt: Date }
+    >();
+    for (const row of mergedRows) {
+      if (row.prNumber == null || !row.prMergedAt) continue;
+      const key = `${row.repoFullName}#${row.prNumber}`;
+      const existing = mergedByPr.get(key);
+      if (!existing || row.prMergedAt > existing.mergedAt) {
+        mergedByPr.set(key, {
+          prNumber: row.prNumber,
+          repoFullName: row.repoFullName,
+          mergedAt: row.prMergedAt,
+        });
+      }
+    }
+
+    if (mergedByPr.size === 0) return empty;
+
+    const merged = [...mergedByPr.values()];
+    const prNumbers = [...new Set(merged.map((m) => m.prNumber))];
+    const repoNames = [...new Set(merged.map((m) => m.repoFullName))];
+
+    // Opened events for those PRs → earliest opened timestamp per PR.
+    const openedRows = await this.prisma.gitHubActivity.findMany({
+      where: {
+        workspaceId: list.workspaceId,
+        eventType: "pull_request",
+        eventAction: "opened",
+        prNumber: { in: prNumbers },
+        repoFullName: { in: repoNames },
+      },
+      select: { prNumber: true, repoFullName: true, eventTimestamp: true },
+    });
+
+    const openedByPr = new Map<string, Date>();
+    for (const row of openedRows) {
+      if (row.prNumber == null) continue;
+      const key = `${row.repoFullName}#${row.prNumber}`;
+      const existing = openedByPr.get(key);
+      if (!existing || row.eventTimestamp < existing) {
+        openedByPr.set(key, row.eventTimestamp);
+      }
+    }
+
+    const durationsHours: number[] = [];
+    for (const [key, { mergedAt }] of mergedByPr) {
+      const openedAt = openedByPr.get(key);
+      if (!openedAt) continue; // no opened event captured → not measurable
+      const ms = mergedAt.getTime() - openedAt.getTime();
+      if (ms < 0) continue;
+      durationsHours.push(ms / (1000 * 60 * 60));
+    }
+
+    if (durationsHours.length === 0) {
+      // PRs merged in-window, but none had a captured opened event to measure.
+      return { mergedPrCount: mergedByPr.size, avgHours: null, medianHours: null };
+    }
+
+    const avgHours =
+      durationsHours.reduce((sum, h) => sum + h, 0) / durationsHours.length;
+
+    const sorted = [...durationsHours].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const medianHours =
+      sorted.length % 2 === 0
+        ? (sorted[mid - 1]! + sorted[mid]!) / 2
+        : sorted[mid]!;
+
+    return {
+      mergedPrCount: mergedByPr.size,
+      avgHours,
+      medianHours,
+    };
   }
 }
 
