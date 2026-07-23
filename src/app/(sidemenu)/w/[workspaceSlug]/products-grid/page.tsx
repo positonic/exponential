@@ -68,9 +68,18 @@ export default function ProductsGridPage() {
                 <Card className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors h-full">
                   <Stack gap="sm">
                     <Group gap="sm" align="center">
-                      <div className="rounded-lg bg-background-primary p-2 text-text-muted">
-                        <IconLayoutGrid size={20} />
-                      </div>
+                      {product.logoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={product.logoUrl}
+                          alt=""
+                          className="h-9 w-9 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="rounded-lg bg-background-primary p-2 text-text-muted">
+                          <IconLayoutGrid size={20} />
+                        </div>
+                      )}
                       <Text fw={600} className="text-text-primary truncate">
                         {product.name}
                       </Text>
