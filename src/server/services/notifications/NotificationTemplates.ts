@@ -1,4 +1,3 @@
-import { format } from 'date-fns';
 import type { Action, Project, User } from '@prisma/client';
 
 export interface TemplateContext {
@@ -16,33 +15,11 @@ export interface TemplateContext {
   customData?: Record<string, any>;
 }
 
+// NOTE: The dead setInterval scheduler's task-reminder and project-update
+// templates (and their helpers) were retired with the unified pipeline
+// (ADR-0045). Due-date reminders build their own content in emit/content.ts;
+// only the daily/weekly summary templates below are still used (by emit/summaries.ts).
 export class NotificationTemplates {
-  /**
-   * Task reminder template
-   */
-  static taskReminder(
-    task: Pick<Action, 'name' | 'description' | 'dueDate' | 'priority'>,
-    minutesBefore: number
-  ): { title: string; message: string } {
-    const dueTime = this.formatDueTime(minutesBefore);
-    const priorityEmoji = this.getPriorityEmoji(task.priority);
-    
-    let message = `${priorityEmoji} Reminder: "${task.name}" is due ${dueTime}`;
-    
-    if (task.description) {
-      message += `\n\n📝 ${task.description}`;
-    }
-    
-    if (task.dueDate) {
-      message += `\n\n⏰ Due: ${format(task.dueDate, 'PPp')}`;
-    }
-
-    return {
-      title: '⏰ Task Reminder',
-      message,
-    };
-  }
-
   /**
    * Daily summary template
    */
@@ -137,46 +114,6 @@ export class NotificationTemplates {
   }
 
   /**
-   * Project update template
-   */
-  static projectUpdate(
-    project: Pick<Project, 'name' | 'status' | 'progress'>,
-    context: TemplateContext
-  ): { title: string; message: string } {
-    const { tasks = [] } = context;
-    const statusEmoji = this.getProjectStatusEmoji(project.status);
-    
-    let message = `${statusEmoji} *Project Update: ${project.name}*\n\n`;
-    
-    message += `📊 *Status:* ${this.formatProjectStatus(project.status)}\n`;
-    message += `📈 *Progress:* ${project.progress}%\n`;
-    
-    const projectTasks = tasks.filter(t => t.status !== 'COMPLETED');
-    
-    if (projectTasks.length > 0) {
-      message += `\n📋 *Pending Tasks:* ${projectTasks.length}\n`;
-      
-      const urgentTasks = projectTasks.filter(t => t.priority === 'HIGH');
-      if (urgentTasks.length > 0) {
-        message += `⚡ *Urgent:* ${urgentTasks.length}\n`;
-      }
-    } else {
-      message += `\n✅ All tasks completed!`;
-    }
-    
-    if (project.progress === 100) {
-      message += `\n\n🎉 Congratulations! Project completed!`;
-    } else if (project.progress >= 80) {
-      message += `\n\n🏁 Almost there! Final push!`;
-    }
-
-    return {
-      title: '📋 Project Update',
-      message,
-    };
-  }
-
-  /**
    * Custom template
    */
   static custom(title: string, template: string, context: TemplateContext): { title: string; message: string } {
@@ -208,20 +145,6 @@ export class NotificationTemplates {
   /**
    * Helper methods
    */
-  private static formatDueTime(minutesBefore: number): string {
-    if (minutesBefore === 0) {
-      return 'now';
-    } else if (minutesBefore < 60) {
-      return `in ${minutesBefore} minutes`;
-    } else if (minutesBefore < 1440) {
-      const hours = Math.floor(minutesBefore / 60);
-      return `in ${hours} hour${hours > 1 ? 's' : ''}`;
-    } else {
-      const days = Math.floor(minutesBefore / 1440);
-      return `in ${days} day${days > 1 ? 's' : ''}`;
-    }
-  }
-
   private static getPriorityEmoji(priority?: string | null): string {
     switch (priority) {
       case 'HIGH':
@@ -247,21 +170,6 @@ export class NotificationTemplates {
         return '❌';
       default:
         return '📁';
-    }
-  }
-
-  private static formatProjectStatus(status?: string): string {
-    switch (status) {
-      case 'ACTIVE':
-        return 'Active';
-      case 'COMPLETED':
-        return 'Completed';
-      case 'ON_HOLD':
-        return 'On Hold';
-      case 'CANCELLED':
-        return 'Cancelled';
-      default:
-        return 'Unknown';
     }
   }
 
