@@ -32,6 +32,7 @@ interface PullRequestEventData {
     title: string;
     state: string;
     html_url: string;
+    created_at: string;
     merged_at: string | null;
     user: {
       login: string;
@@ -85,6 +86,25 @@ async function findIntegrationForRepo(
   prisma: PrismaClient,
   repoFullName: string,
 ): Promise<{ integrationId: string; workspaceId: string } | null> {
+  // Preferred: the workspace GitHub App install (ADR-0020) tracks which repos a
+  // workspace follows in the WorkspaceRepository table. This is how repos
+  // connected via /settings/integrations are registered — the legacy
+  // github_metadata credential below is NOT written by that flow, so without
+  // this lookup every PR/push webhook for an App-installed repo was dropped and
+  // no GitHubActivity was ever recorded.
+  const tracked = await prisma.workspaceRepository.findFirst({
+    where: { fullName: repoFullName },
+    select: { workspaceId: true, integrationId: true },
+  });
+  if (tracked) {
+    return {
+      integrationId: tracked.integrationId,
+      workspaceId: tracked.workspaceId,
+    };
+  }
+
+  // Legacy fallback: per-repo github_metadata credential from the older
+  // project-level GitHub integration (issue-sync) flow.
   const integrations = await prisma.integration.findMany({
     where: { provider: "github", status: "ACTIVE" },
     include: {
@@ -135,7 +155,7 @@ function extractActionIdFromBranch(branchName: string): string | null {
 
 /**
  * Attempts to map an activity to an action via issue references in commit messages.
- * Looks for patterns like: fixes #123, closes #456, refs #789
+ * Looks for patterns like: "fixes #<n>", "closes #<n>", "refs #<n>".
  */
 function extractIssueNumbersFromMessage(message: string): number[] {
   const pattern = /(?:fix(?:es|ed)?|close[sd]?|resolve[sd]?|refs?)\s+#(\d+)/gi;
@@ -264,7 +284,15 @@ export class GitHubActivityService {
         prMergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
         repoFullName,
         repoUrl: data.repository.html_url,
-        eventTimestamp: new Date(),
+        // Use the PR's real timestamps, not webhook-receipt time, so
+        // opened→merged turnaround (getPrTurnaround) is measured accurately
+        // even if a webhook is delivered late or replayed.
+        eventTimestamp:
+          data.action === "opened" && pr.created_at
+            ? new Date(pr.created_at)
+            : pr.merged_at
+              ? new Date(pr.merged_at)
+              : new Date(),
         actionId: mapping?.actionId ?? null,
         mappingMethod: mapping?.method ?? null,
         mappingConfidence: mapping?.confidence ?? null,
