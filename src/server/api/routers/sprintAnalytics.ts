@@ -6,8 +6,8 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   sprintAnalyticsService,
-  type SprintMetricsResult,
-  type VelocityHistoryPoint,
+  type CycleTicketMetricsResult,
+  type CycleVelocityPoint,
   type PrTurnaroundResult,
 } from "~/server/services/SprintAnalyticsService";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
@@ -52,13 +52,15 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    * Metrics page (UI): active-cycle metrics for a workspace.
    *
    * Enforces workspace membership, resolves the workspace's active cycle
-   * (List with listType=SPRINT, status=ACTIVE), and returns its live metrics
-   * from SprintAnalyticsService.getSprintMetrics. Returns `null` when the
-   * workspace has no active cycle so the UI can render an empty state.
+   * (List with listType=SPRINT, status=ACTIVE), and returns its live
+   * **Ticket-based** metrics (velocity/completion over the cycle's tickets).
+   * Returns `null` when the workspace has no active cycle so the UI can render
+   * an empty state. See ADR-0047 for why this is Ticket-based rather than
+   * Action-based like the agent-facing `getMetrics`.
    */
   getActiveCycleMetrics: protectedProcedure
     .input(z.object({ workspaceId: z.string().min(1) }))
-    .query(async ({ ctx, input }): Promise<SprintMetricsResult | null> => {
+    .query(async ({ ctx, input }): Promise<CycleTicketMetricsResult | null> => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
 
       const activeSprint = await sprintAnalyticsService.getActiveSprint(
@@ -66,15 +68,16 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       );
       if (!activeSprint) return null;
 
-      return sprintAnalyticsService.getSprintMetrics(activeSprint.id);
+      return sprintAnalyticsService.getCycleTicketMetrics(activeSprint.id);
     }),
 
   /**
-   * Metrics page (UI): velocity trend across recent completed cycles.
+   * Metrics page (UI): Ticket-based velocity trend across recent completed
+   * cycles.
    *
    * Enforces workspace membership and returns the last N completed cycles with
-   * velocity (count + points) and completion, each recomputed live. Returned
-   * most-recent-first.
+   * velocity (completed-ticket count + points) and completion, each recomputed
+   * live from the cycle's tickets. Returned most-recent-first.
    */
   getVelocityTrend: protectedProcedure
     .input(
@@ -83,10 +86,10 @@ export const sprintAnalyticsRouter = createTRPCRouter({
         count: z.number().int().min(1).max(20).optional(),
       }),
     )
-    .query(async ({ ctx, input }): Promise<VelocityHistoryPoint[]> => {
+    .query(async ({ ctx, input }): Promise<CycleVelocityPoint[]> => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
 
-      return sprintAnalyticsService.getVelocityHistory(
+      return sprintAnalyticsService.getTicketVelocityHistory(
         input.workspaceId,
         input.count,
       );
