@@ -6,6 +6,7 @@ import {
   IconCircleCheck,
   IconBolt,
   IconTrendingUp,
+  IconGitPullRequest,
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -166,7 +167,7 @@ function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
         <span className="text-text-secondary font-medium">{data.sprintName}</span>
       </Text>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* Velocity — completed-action COUNT is the headline, points alongside */}
         <Card
           withBorder
@@ -224,8 +225,103 @@ function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
             />
           </Stack>
         </Card>
+
+        {/* Merged-PR turnaround */}
+        <PrTurnaroundCard />
       </div>
     </Stack>
+  );
+}
+
+/** Format a duration in hours as a compact, sensible unit. */
+function formatHours(hours: number): { value: string; unit: string } {
+  if (hours < 1) return { value: String(Math.max(1, Math.round(hours * 60))), unit: 'min' };
+  if (hours < 48) return { value: String(Math.round(hours)), unit: 'h' };
+  return { value: (hours / 24).toFixed(1), unit: 'd' };
+}
+
+function PrTurnaroundCard() {
+  const { workspaceId } = useWorkspace();
+  const { data, isLoading } =
+    api.sprintAnalytics.getActiveCyclePrTurnaround.useQuery(
+      { workspaceId: workspaceId ?? '' },
+      { enabled: !!workspaceId },
+    );
+
+  const header = (
+    <Group gap="xs">
+      <IconGitPullRequest size={16} className="text-text-muted" />
+      <Text size="sm" fw={500} className="text-text-secondary">
+        PR turnaround
+      </Text>
+    </Group>
+  );
+
+  let body: React.ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="animate-pulse space-y-2">
+        <div className="h-10 w-1/2 rounded bg-surface-hover" />
+        <div className="h-3 w-2/3 rounded bg-surface-hover" />
+      </div>
+    );
+  } else if (!data || data.mergedPrCount === 0) {
+    body = (
+      <Text size="sm" className="text-text-muted">
+        No PRs merged this cycle yet.
+      </Text>
+    );
+  } else if (data.avgHours == null) {
+    // PRs merged, but no captured opened event to measure against.
+    body = (
+      <Stack gap="xs">
+        <Text className="text-4xl font-bold text-accent-indigo">
+          {data.mergedPrCount}
+        </Text>
+        <Text size="xs" className="text-text-muted">
+          {data.mergedPrCount === 1 ? 'PR' : 'PRs'} merged · turnaround
+          unavailable
+        </Text>
+      </Stack>
+    );
+  } else {
+    const avg = formatHours(data.avgHours);
+    body = (
+      <Stack gap="xs">
+        <Group align="baseline" gap={4}>
+          <Text className="text-4xl font-bold text-accent-indigo">
+            {avg.value}
+          </Text>
+          <Text size="lg" fw={600} className="text-accent-indigo">
+            {avg.unit}
+          </Text>
+          <Text size="sm" className="text-text-muted">
+            avg
+          </Text>
+        </Group>
+        <Text size="xs" className="text-text-muted">
+          {data.medianHours != null &&
+            (() => {
+              const med = formatHours(data.medianHours);
+              return `${med.value}${med.unit} median · `;
+            })()}
+          {data.mergedPrCount} {data.mergedPrCount === 1 ? 'PR' : 'PRs'} merged
+        </Text>
+      </Stack>
+    );
+  }
+
+  return (
+    <Card
+      withBorder
+      radius="md"
+      className="border-border-primary bg-surface-secondary"
+    >
+      <Stack gap="xs">
+        {header}
+        {body}
+      </Stack>
+    </Card>
   );
 }
 

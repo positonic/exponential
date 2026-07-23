@@ -8,6 +8,7 @@ import {
   sprintAnalyticsService,
   type SprintMetricsResult,
   type VelocityHistoryPoint,
+  type PrTurnaroundResult,
 } from "~/server/services/SprintAnalyticsService";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
 
@@ -89,6 +90,27 @@ export const sprintAnalyticsRouter = createTRPCRouter({
         input.workspaceId,
         input.count,
       );
+    }),
+
+  /**
+   * Metrics page (UI): merged-PR turnaround for the workspace's active cycle.
+   *
+   * Enforces workspace membership, resolves the active cycle, and returns the
+   * average/median opened→merged time for PRs merged in the cycle window
+   * (computed live from GitHubActivity). Returns `null` when there is no active
+   * cycle so the UI can render an empty state.
+   */
+  getActiveCyclePrTurnaround: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1) }))
+    .query(async ({ ctx, input }): Promise<PrTurnaroundResult | null> => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+
+      const activeSprint = await sprintAnalyticsService.getActiveSprint(
+        input.workspaceId,
+      );
+      if (!activeSprint) return null;
+
+      return sprintAnalyticsService.getPrTurnaround(activeSprint.id);
     }),
 
   /**
