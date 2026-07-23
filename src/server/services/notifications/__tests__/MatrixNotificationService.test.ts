@@ -41,6 +41,43 @@ describe("MatrixNotificationService", () => {
     });
   });
 
+  it("appends the deeplink as an absolute URL to the message body", async () => {
+    fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
+    const svc = new MatrixNotificationService({ userId: "u1" });
+
+    await svc.sendNotification({
+      title: "Reminder: Gather medical bills",
+      message: "Due in 1 hour",
+      metadata: { deeplink: "/w/acme/actions/a1" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      message: string;
+    };
+    // Original message is preserved and the workspace-relative path is turned
+    // into an absolute, clickable link. Origin comes from env-based resolution.
+    expect(body.message.startsWith("Due in 1 hour")).toBe(true);
+    expect(body.message).toMatch(/View action: https?:\/\/\S+\/w\/acme\/actions\/a1$/);
+  });
+
+  it("leaves the message untouched when there is no deeplink", async () => {
+    fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
+    const svc = new MatrixNotificationService({ userId: "u1" });
+
+    await svc.sendNotification({
+      title: "t",
+      message: "Due in 1 hour",
+      metadata: { category: "due_date" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      message: string;
+    };
+    expect(body.message).toBe("Due in 1 hour");
+  });
+
   it("fails cleanly when the gateway secret is missing (no fetch)", async () => {
     delete process.env.GATEWAY_SECRET;
     const svc = new MatrixNotificationService({ userId: "u1" });

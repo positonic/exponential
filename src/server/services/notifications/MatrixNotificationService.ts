@@ -1,9 +1,26 @@
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 import {
   NotificationService,
   type NotificationPayload,
   type NotificationResult,
   type NotificationConfig,
 } from './NotificationService';
+
+// Same base-URL resolution the email channel uses, so deep links point at the
+// same origin in every channel. Safe outside a request scope (cron/workers).
+const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
+
+/**
+ * Append the absolute deep link to the message body so the Matrix DM is
+ * actionable — the gateway only forwards { title, message }, so the link has to
+ * ride along in the text (Matrix clients auto-linkify a bare URL). `deeplink` is
+ * a workspace-relative path (e.g. `/w/acme/actions/123`); no-op when absent.
+ */
+function appendDeeplink(message: string, meta: NotificationPayload['metadata']): string {
+  const deeplink = typeof meta?.deeplink === 'string' ? meta.deeplink : undefined;
+  if (!deeplink) return message;
+  return `${message}\n\nView action: ${BASE_URL}${deeplink}`;
+}
 
 /**
  * Delivers notifications to a user's Matrix DM with the Zoe bot (V2, ADR-0043).
@@ -46,7 +63,7 @@ export class MatrixNotificationService extends NotificationService {
         body: JSON.stringify({
           userId: this.config.userId,
           title: payload.title,
-          message: payload.message,
+          message: appendDeeplink(payload.message, payload.metadata),
         }),
       });
 
