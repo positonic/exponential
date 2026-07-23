@@ -16,6 +16,9 @@ function pref(overrides: Record<string, unknown> = {}) {
     userId: "u1",
     timezone: "UTC",
     dailySummaryTime: "09:00",
+    dailySummary: true,
+    weeklySummary: false,
+    weeklyDayOfWeek: 1,
     ...overrides,
   };
 }
@@ -27,6 +30,7 @@ beforeEach(() => {
   db.user.findUnique.mockResolvedValue({ id: "u1", name: "Ada", email: "ada@acme.test" } as never);
   db.action.findMany.mockResolvedValue([] as never);
   db.action.count.mockResolvedValue(0 as never);
+  db.project.findMany.mockResolvedValue([] as never);
 });
 
 describe("generateScheduledSummaries", () => {
@@ -78,5 +82,32 @@ describe("generateScheduledSummaries", () => {
         subject: expect.objectContaining({ kind: "daily", periodKey: "2026-07-23" }),
       }),
     );
+  });
+
+  it("emits a weekly summary only on the configured weekday, keyed per ISO week", async () => {
+    // 2026-07-23 is a Thursday (getDay = 4).
+    db.notificationPreference.findMany.mockResolvedValue([
+      pref({ dailySummary: false, weeklySummary: true, weeklyDayOfWeek: 4 }),
+    ] as never);
+
+    await generateScheduledSummaries(db, new Date("2026-07-23T09:05:00.000Z"));
+
+    expect(emitNotification).toHaveBeenCalledTimes(1);
+    expect(emitNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: expect.objectContaining({ kind: "weekly", periodKey: "2026-W30" }),
+      }),
+    );
+  });
+
+  it("does not emit the weekly summary on other weekdays", async () => {
+    // Thursday now, but the user's weekly day is Monday (1).
+    db.notificationPreference.findMany.mockResolvedValue([
+      pref({ dailySummary: false, weeklySummary: true, weeklyDayOfWeek: 1 }),
+    ] as never);
+
+    await generateScheduledSummaries(db, new Date("2026-07-23T09:05:00.000Z"));
+
+    expect(emitNotification).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { startOfDay, setHours, setMinutes, addDays, format } from "date-fns";
+import { startOfDay, setHours, setMinutes, addDays, format, getDay } from "date-fns";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { NotificationTemplates } from "~/server/services/notifications/NotificationTemplates";
 import { emitNotification } from "./emitNotification";
@@ -86,44 +86,113 @@ async function buildDailyDigest(
   });
 }
 
+/** True when today (local) is the user's weekly day and we're in the fire window. */
+function isWeeklyDue(
+  now: Date,
+  tz: string,
+  weeklyDayOfWeek: number,
+  timeStr: string,
+): boolean {
+  // weeklyDayOfWeek is 1=Mon…7=Sun; getDay is 0=Sun…6=Sat → map Sunday to 7.
+  const localDay = getDay(toZonedTime(now, tz)) || 7;
+  if (localDay !== weeklyDayOfWeek) return false;
+  return isWithinFireWindow(now, tz, timeStr);
+}
+
+/** Build the rendered weekly digest for a user, or null if the user is gone. */
+async function buildWeeklyDigest(
+  db: PrismaClient,
+  userId: string,
+): Promise<{ title: string; message: string } | null> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true },
+  });
+  if (!user) return null;
+
+  const tasks = await db.action.findMany({
+    where: { createdById: userId },
+    select: { status: true },
+  });
+  const completedTasks = tasks.filter((t) => DONE_STATUSES.includes(t.status)).length;
+
+  const projects = await db.project.findMany({
+    where: { createdById: userId, status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    select: { id: true, name: true, status: true, progress: true },
+  });
+
+  return NotificationTemplates.weeklySummary({
+    user,
+    projects,
+    stats: { totalTasks: tasks.length, completedTasks },
+  });
+}
+
+/** Emit one pre-rendered summary through the pipeline. */
+async function emitSummary(
+  db: PrismaClient,
+  userId: string,
+  kind: "daily" | "weekly",
+  digest: { title: string; message: string },
+  periodKey: string,
+): Promise<void> {
+  await emitNotification({
+    category: NOTIFICATION_CATEGORIES.SUMMARY,
+    actorUserId: null,
+    subject: { userId, kind, title: digest.title, message: digest.message, periodKey },
+    db,
+  });
+}
+
 /**
- * Cron scheduled-generation (ADR-0045, V4): emit each user's daily digest at
- * their configured local time, through the pipeline so it honours the Summary
- * row of the matrix. Replaces the dead scheduler's `scheduleRecurringNotifications`.
- * Weekly digests are added in action 2.
+ * Cron scheduled-generation (ADR-0045, V4): emit each user's daily and weekly
+ * digests at their configured local time (weekly also on their configured day),
+ * through the pipeline so they honour the Summary row of the matrix. Deduped per
+ * user+period. Replaces the dead scheduler's `scheduleRecurringNotifications`.
  */
 export async function generateScheduledSummaries(
   db: PrismaClient,
   now: Date = new Date(),
 ): Promise<{ emitted: number }> {
   const prefs = await db.notificationPreference.findMany({
-    where: { enabled: true, dailySummary: true },
-    select: { userId: true, timezone: true, dailySummaryTime: true },
+    where: {
+      enabled: true,
+      OR: [{ dailySummary: true }, { weeklySummary: true }],
+    },
+    select: {
+      userId: true,
+      timezone: true,
+      dailySummaryTime: true,
+      dailySummary: true,
+      weeklySummary: true,
+      weeklyDayOfWeek: true,
+    },
   });
 
   let emitted = 0;
 
   for (const pref of prefs) {
     const tz = pref.timezone ?? "UTC";
+    const time = pref.dailySummaryTime ?? DEFAULT_TIME;
 
-    if (isWithinFireWindow(now, tz, pref.dailySummaryTime ?? DEFAULT_TIME)) {
+    if (pref.dailySummary && isWithinFireWindow(now, tz, time)) {
       const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
       const digest = await buildDailyDigest(db, pref.userId, now, tz);
-      if (!digest) continue;
+      if (digest) {
+        await emitSummary(db, pref.userId, "daily", digest, periodKey);
+        emitted++;
+      }
+    }
 
-      await emitNotification({
-        category: NOTIFICATION_CATEGORIES.SUMMARY,
-        actorUserId: null,
-        subject: {
-          userId: pref.userId,
-          kind: "daily",
-          title: digest.title,
-          message: digest.message,
-          periodKey,
-        },
-        db,
-      });
-      emitted++;
+    if (pref.weeklySummary && isWeeklyDue(now, tz, pref.weeklyDayOfWeek ?? 1, time)) {
+      const periodKey = format(toZonedTime(now, tz), "RRRR-'W'II");
+      const digest = await buildWeeklyDigest(db, pref.userId);
+      if (digest) {
+        await emitSummary(db, pref.userId, "weekly", digest, periodKey);
+        emitted++;
+      }
     }
   }
 
