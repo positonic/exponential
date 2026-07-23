@@ -6,6 +6,20 @@ Accepted — 2026-07-23. Decided while scoping the new workspace **Metrics page*
 (`/w/[workspaceSlug]/metrics`), a read-only, cycle-scoped delivery dashboard showing velocity and
 merged-PR turnaround. Tickets tracked in Exponential (workspace `syntrofi` / product `exponential`).
 
+**Amended — 2026-07-23 (same day, post-ship).** The original decision computed the page from
+`SprintAnalyticsService.getSprintMetrics`, which counts a cycle's **Actions** (the `ActionList`
+join, `kanbanStatus === "DONE"`). In production (CLEAR workspace) this returned **all-zeros**: cycle
+work is assigned as **Tickets** (`Ticket.cycleId` / `Ticket.status` / `Ticket.points`), not Actions —
+CLEAR had 0 Actions in its cycles and 146 tickets across 13 cycles (107 DONE/DEPLOYED). The Metrics
+page is therefore **Ticket-based**: velocity/completion/trend compute over the cycle's tickets, with
+"completed" = `DONE` or `DEPLOYED`, the completed-ticket **count** as the headline and summed
+`Ticket.points` alongside. New service methods `getCycleTicketMetrics` / `getTicketVelocityHistory`
+back the UI procedures. The Action-based `getSprintMetrics` / `getVelocityHistory` remain for the
+agent-facing `apiKeyMiddleware` procedures **unchanged in this fix** — so the "one service, no drift"
+goal below is temporarily unmet on the agent side; realigning the agent onto the Ticket-based path
+(or confirming it should stay Action-based) is a tracked follow-up. Everything else below stands:
+still live-computed, still no `SprintMetrics` persistence, still merged-PR-turnaround-only.
+
 ## Context
 
 The app already has a sprint-analytics backend built for the Mastra PM agent, reached

@@ -41,6 +41,44 @@ export interface DailySnapshotResult {
   actionsCompleted: number;
 }
 
+/**
+ * Cycle metrics computed over the cycle's **Tickets** (`Ticket.cycleId`) — the
+ * entity the product workflow actually tracks cycle work with. Distinct from
+ * the Action-based {@link SprintMetricsResult} the Mastra PM agent reads; see
+ * ADR-0047 for why the Metrics page is Ticket-based.
+ */
+export interface CycleTicketMetricsResult {
+  cycleId: string;
+  cycleName: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  totalTickets: number;
+  /** Tickets in a completed state ({@link COMPLETED_TICKET_STATUSES}). */
+  completedTickets: number;
+  /** Summed `Ticket.points` for completed tickets (points are optional/sparse). */
+  completedPoints: number;
+  totalPoints: number;
+  /** completedTickets / totalTickets, as a percentage. */
+  completionRate: number;
+  /** Count of tickets by `TicketStatus`. */
+  statusCounts: Record<string, number>;
+}
+
+export interface CycleVelocityPoint {
+  cycleId: string;
+  cycleName: string;
+  endDate: Date | null;
+  completedTickets: number;
+  completedPoints: number;
+  completionRate: number;
+}
+
+/**
+ * Ticket statuses that count as delivered work for velocity/completion.
+ * Both are terminal/shipped states in the product workflow.
+ */
+const COMPLETED_TICKET_STATUSES = new Set<string>(["DONE", "DEPLOYED"]);
+
 export interface PrTurnaroundResult {
   /** PRs merged within the cycle window (deduped by repo + PR number). */
   mergedPrCount: number;
@@ -573,6 +611,94 @@ export class SprintAnalyticsService {
       avgHours,
       medianHours,
     };
+  }
+
+  /**
+   * Ticket-based cycle metrics for the Metrics page.
+   *
+   * Computes velocity and completion over the cycle's **Tickets**
+   * (`Ticket.cycleId`), not its Actions — the product workflow assigns cycle
+   * work as Tickets, so the Action-based {@link getSprintMetrics} returns zeros
+   * for these cycles. Velocity is a completed-ticket count (headline) plus
+   * summed points; "completed" = {@link COMPLETED_TICKET_STATUSES}. Computed
+   * live; nothing persisted. See ADR-0047.
+   */
+  async getCycleTicketMetrics(
+    listId: string,
+  ): Promise<CycleTicketMetricsResult> {
+    const list = await this.prisma.list.findUniqueOrThrow({
+      where: { id: listId },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    });
+
+    const tickets = await this.prisma.ticket.findMany({
+      where: { cycleId: listId },
+      select: { status: true, points: true },
+    });
+
+    const statusCounts: Record<string, number> = {};
+    for (const ticket of tickets) {
+      statusCounts[ticket.status] = (statusCounts[ticket.status] ?? 0) + 1;
+    }
+
+    const completed = tickets.filter((t) =>
+      COMPLETED_TICKET_STATUSES.has(t.status),
+    );
+    const completedTickets = completed.length;
+    const totalTickets = tickets.length;
+    const completedPoints = completed.reduce(
+      (sum, t) => sum + (t.points ?? 0),
+      0,
+    );
+    const totalPoints = tickets.reduce((sum, t) => sum + (t.points ?? 0), 0);
+    const completionRate =
+      totalTickets > 0 ? (completedTickets / totalTickets) * 100 : 0;
+
+    return {
+      cycleId: list.id,
+      cycleName: list.name,
+      startDate: list.startDate,
+      endDate: list.endDate,
+      totalTickets,
+      completedTickets,
+      completedPoints,
+      totalPoints,
+      completionRate,
+      statusCounts,
+    };
+  }
+
+  /**
+   * Ticket-based velocity trend across recent completed cycles. Each cycle is
+   * recomputed live via {@link getCycleTicketMetrics}. Returned most-recent-first.
+   */
+  async getTicketVelocityHistory(
+    workspaceId: string,
+    count = 5,
+  ): Promise<CycleVelocityPoint[]> {
+    const cycles = await this.prisma.list.findMany({
+      where: {
+        workspaceId,
+        listType: "SPRINT",
+        status: "COMPLETED",
+      },
+      orderBy: { endDate: "desc" },
+      take: count,
+      select: { id: true },
+    });
+
+    const metrics = await Promise.all(
+      cycles.map((cycle) => this.getCycleTicketMetrics(cycle.id)),
+    );
+
+    return metrics.map((m) => ({
+      cycleId: m.cycleId,
+      cycleName: m.cycleName,
+      endDate: m.endDate,
+      completedTickets: m.completedTickets,
+      completedPoints: m.completedPoints,
+      completionRate: m.completionRate,
+    }));
   }
 }
 

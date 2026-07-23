@@ -105,7 +105,7 @@ function VelocityTrend({ workspaceId }: { workspaceId: string | null }) {
 
   // Service returns most-recent-first; show oldest → newest for a trend read.
   const cycles = [...data].reverse();
-  const maxActions = Math.max(...cycles.map((c) => c.completedActions), 1);
+  const maxTickets = Math.max(...cycles.map((c) => c.completedTickets), 1);
 
   return (
     <Card
@@ -126,21 +126,21 @@ function VelocityTrend({ workspaceId }: { workspaceId: string | null }) {
 
         <Stack gap="sm">
           {cycles.map((cycle) => (
-            <div key={cycle.sprintId}>
+            <div key={cycle.cycleId}>
               <Group justify="space-between" gap="xs" className="mb-1">
                 <Text size="xs" className="truncate text-text-secondary">
-                  {cycle.sprintName}
+                  {cycle.cycleName}
                 </Text>
                 <Text size="xs" className="text-text-muted">
                   <span className="font-semibold text-text-primary">
-                    {cycle.completedActions}
+                    {cycle.completedTickets}
                   </span>{' '}
-                  {cycle.completedActions === 1 ? 'action' : 'actions'} ·{' '}
-                  {cycle.completedEffort} pts
+                  {cycle.completedTickets === 1 ? 'ticket' : 'tickets'} ·{' '}
+                  {cycle.completedPoints} pts
                 </Text>
               </Group>
               <Progress
-                value={(cycle.completedActions / maxActions) * 100}
+                value={(cycle.completedTickets / maxTickets) * 100}
                 size="lg"
                 radius="sm"
                 color="indigo"
@@ -164,11 +164,11 @@ function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
     <Stack gap="md">
       <Text size="sm" className="text-text-muted">
         Active cycle:{' '}
-        <span className="text-text-secondary font-medium">{data.sprintName}</span>
+        <span className="text-text-secondary font-medium">{data.cycleName}</span>
       </Text>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {/* Velocity — completed-action COUNT is the headline, points alongside */}
+        {/* Velocity — completed-ticket COUNT is the headline, points alongside */}
         <Card
           withBorder
           radius="md"
@@ -183,15 +183,14 @@ function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
             </Group>
             <Group align="baseline" gap="xs">
               <Text className="text-4xl font-bold text-accent-indigo">
-                {data.completedActions}
+                {data.completedTickets}
               </Text>
               <Text size="sm" className="text-text-muted">
-                {data.completedActions === 1 ? 'action' : 'actions'} completed
+                {data.completedTickets === 1 ? 'ticket' : 'tickets'} completed
               </Text>
             </Group>
             <Text size="xs" className="text-text-muted">
-              {data.completedEffort} of {data.plannedEffort + data.completedEffort}{' '}
-              points delivered
+              {data.completedPoints} of {data.totalPoints} points delivered
             </Text>
           </Stack>
         </Card>
@@ -214,7 +213,7 @@ function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
                 {completionRate}%
               </Text>
               <Text size="sm" className="text-text-muted">
-                {data.completedActions}/{data.plannedActions} planned
+                {data.completedTickets}/{data.totalTickets} tickets
               </Text>
             </Group>
             <Progress
