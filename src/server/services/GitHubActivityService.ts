@@ -154,6 +154,75 @@ function extractActionIdFromBranch(branchName: string): string | null {
 }
 
 /**
+ * Extract candidate Exponential Ticket **numbers** referenced by a PR's branch
+ * and/or title. Teams commonly encode the ticket number in the branch
+ * (`296-fix-…`, `clear-291-…`, `feat/274-…`) or the title (e.g. "(#N)" or
+ * "#N/#N"). We match a maximal digit run only when it is delimited on both
+ * sides by a non-alphanumeric boundary, so version-ish tokens like `v2`, `A0`,
+ * or `60s` are ignored. Callers must still confirm each number is a real Ticket
+ * before acting, so over-extraction is harmless.
+ */
+export function extractTicketNumbers(
+  branchName: string | null | undefined,
+  title: string | null | undefined,
+): number[] {
+  const found = new Set<number>();
+  const pattern = /(?:^|[^a-zA-Z0-9])(\d{1,6})(?=$|[^a-zA-Z0-9])/g;
+  for (const source of [branchName ?? "", title ?? ""]) {
+    for (const match of source.matchAll(pattern)) {
+      const n = Number.parseInt(match[1]!, 10);
+      if (n > 0) found.add(n);
+    }
+  }
+  return [...found];
+}
+
+/**
+ * Best-effort: link a PR to its Exponential Ticket(s) by number, writing
+ * `prUrl` + `branchName` back so the merge-hook (which matches merged-PR-URL →
+ * ticket.prUrl) can promote it and the ticket carries its PR for traceability.
+ * A number is only acted on when it resolves to exactly one Ticket across the
+ * workspace's products (Ticket.number is unique per product, so a single-
+ * product workspace like CLEAR is always unambiguous). Never throws.
+ */
+async function linkPrToTickets(
+  prisma: PrismaClient,
+  workspaceId: string,
+  pr: { number: number; title: string; html_url: string; head: { ref: string } },
+): Promise<void> {
+  try {
+    const numbers = extractTicketNumbers(pr.head.ref, pr.title);
+    if (numbers.length === 0) return;
+
+    const products = await prisma.product.findMany({
+      where: { workspaceId },
+      select: { id: true },
+    });
+    if (products.length === 0) return;
+    const productIds = products.map((p) => p.id);
+
+    for (const number of numbers) {
+      const matches = await prisma.ticket.findMany({
+        where: { number, productId: { in: productIds } },
+        select: { id: true },
+      });
+      // 0 = not a ticket number here; >1 = ambiguous across products → skip.
+      if (matches.length !== 1) continue;
+
+      await prisma.ticket.update({
+        where: { id: matches[0]!.id },
+        data: { prUrl: pr.html_url, branchName: pr.head.ref },
+      });
+      console.log(
+        `[GitHubActivity] Linked PR #${pr.number} → ticket #${number} (${pr.html_url})`,
+      );
+    }
+  } catch (error) {
+    console.error("[GitHubActivity] linkPrToTickets failed (non-fatal):", error);
+  }
+}
+
+/**
  * Attempts to map an activity to an action via issue references in commit messages.
  * Looks for patterns like: "fixes #<n>", "closes #<n>", "refs #<n>".
  */
@@ -245,6 +314,11 @@ export class GitHubActivityService {
 
     const ctx = await findIntegrationForRepo(this.prisma, repoFullName);
     if (!ctx) return;
+
+    // Link the PR back to its Ticket(s) by number (branch/title). Runs before
+    // the activity-dedup early-return so re-delivered events still (re)link, and
+    // on every action so an opened PR is linked well before it merges.
+    await linkPrToTickets(this.prisma, ctx.workspaceId, pr);
 
     // Use PR node_id + action as unique key
     const externalId = `${pr.node_id}:${data.action}`;
