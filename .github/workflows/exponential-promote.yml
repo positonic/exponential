@@ -1,0 +1,63 @@
+# Promotes merged Exponential Tickets from QA -> DONE.
+#
+# When a feature PR (or a Rollup PR promoting already-merged work along the
+# chain) merges into main, this resolves the merged PR back to its Exponential
+# Ticket(s) via prUrl and transitions each one to DONE with a "Shipped" comment.
+name: Promote Exponential Tickets
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+env:
+  EXPO_API_URL: https://www.exponential.im
+  EXPO_PRODUCT: exponential
+  EXPO_WORKSPACE: syntrofi
+jobs:
+  promote:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm i -g exponential-cli
+      - name: Auth
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+        run: exponential auth login --token "$EXPO_TOKEN" --api-url "$EXPO_API_URL"
+
+      - name: Resolve merged PR -> Tickets
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: ${{ github.event.pull_request.base.repo.html_url }}
+        run: |
+          set -euo pipefail
+          # This PR, plus any child feature PRs referenced from a Rollup PR's
+          # commit log (a Rollup PR promotes already-merged work along the chain,
+          # so its own URL is on no Ticket -- its children's URLs are).
+          {
+            echo "$PR_URL"
+            git log "$BASE_SHA..$HEAD_SHA" --format=%B \
+              | grep -oE '#[0-9]+' | tr -d '#' | sort -u \
+              | sed "s@^@${REPO_URL}/pull/@"
+          } | sort -u > /tmp/prs
+          jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/prs > /tmp/prs.json
+          exponential tickets list \
+            --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" --json > /tmp/all.json
+          jq --slurpfile prs /tmp/prs.json \
+            '[.tickets[] | select(.prUrl != null and (.prUrl as $u | $prs[0] | index($u)))]' \
+            /tmp/all.json > /tmp/tickets.json
+          echo "Matched $(jq length /tmp/tickets.json) ticket(s)."
+
+      - name: Promote
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          jq -r '.[].id' /tmp/tickets.json | while read -r cuid; do
+            exponential tickets update --id "$cuid" --status DONE
+            exponential tickets comment add --id "$cuid" -m "Shipped: $PR_URL"
+          done

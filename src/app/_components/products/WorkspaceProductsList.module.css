@@ -74,6 +74,15 @@
   flex-shrink: 0;
 }
 
+.logoImg {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}
+
 .nameText {
   font-weight: 500;
   color: var(--color-text-primary);

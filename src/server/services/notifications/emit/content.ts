@@ -92,6 +92,80 @@ export async function buildContent(
         dedupeKey: `due_date:${actionId}:${offsetMinutes}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED: {
+      const { sessionId } = input.subject;
+
+      const [session, actor] = await Promise.all([
+        db.transcriptionSession.findUnique({
+          where: { id: sessionId },
+          select: {
+            title: true,
+            workspace: { select: { id: true, slug: true, name: true } },
+          },
+        }),
+        input.actorUserId
+          ? db.user.findUnique({
+              where: { id: input.actorUserId },
+              select: { name: true, email: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
+      // Participants require a workspace (see createManualTranscription), so a
+      // meeting with none can't have members to notify — skip if it's gone.
+      if (!session?.workspace) return null;
+
+      const adderName = actor?.name ?? actor?.email ?? "Someone";
+      const meetingTitle = session.title ?? "a meeting";
+
+      return {
+        category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+        title: `${adderName} added you to a meeting`,
+        message: meetingTitle,
+        deeplink: `/recording/${sessionId}`,
+        metadata: {
+          sessionId,
+          // Mirrors the notificationDeepLink metadata shape used elsewhere.
+          transcriptionId: sessionId,
+          workspaceId: session.workspace.id,
+          workspaceSlug: session.workspace.slug,
+          workspaceName: session.workspace.name,
+          adderName,
+        },
+        workspaceId: session.workspace.id,
+        dedupeKey: `meeting_participant_added:${sessionId}:${recipientId}`,
+      };
+    }
+    case NOTIFICATION_CATEGORIES.MEETING_READY: {
+      const { sessionId } = input.subject;
+
+      const session = await db.transcriptionSession.findUnique({
+        where: { id: sessionId },
+        select: {
+          title: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      });
+      if (!session?.workspace) return null;
+
+      const meetingTitle = session.title ?? "a meeting";
+
+      return {
+        category: NOTIFICATION_CATEGORIES.MEETING_READY,
+        title: "Meeting notes are ready",
+        message: meetingTitle,
+        deeplink: `/recording/${sessionId}`,
+        metadata: {
+          sessionId,
+          transcriptionId: sessionId,
+          workspaceId: session.workspace.id,
+          workspaceSlug: session.workspace.slug,
+          workspaceName: session.workspace.name,
+        },
+        workspaceId: session.workspace.id,
+        dedupeKey: `meeting_ready:${sessionId}:${recipientId}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.MENTION:
       return buildMentionContent(input, recipientId);
     default:

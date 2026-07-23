@@ -14,6 +14,7 @@ export const NOTIFICATION_CATEGORIES = {
   DUE_DATE: "due_date",
   SUMMARY: "summary",
   MEETING_READY: "meeting_ready",
+  MEETING_PARTICIPANT_ADDED: "meeting_participant_added",
 } as const;
 
 export type NotificationCategory =
@@ -69,6 +70,7 @@ export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.DUE_DATE,
   NOTIFICATION_CATEGORIES.SUMMARY,
   NOTIFICATION_CATEGORIES.MEETING_READY,
+  NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
 ] as const;
 
 /** All channels, in stable delivery / matrix-column order. */
@@ -97,4 +99,5 @@ export const DEFAULT_MATRIX: Record<
   [NOTIFICATION_CATEGORIES.DUE_DATE]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.SUMMARY]: { push: false, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.MEETING_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
 };

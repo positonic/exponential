@@ -3984,6 +3984,7 @@ model Product {
   description   String?
   icon          String?
   color         String?
+  logoUrl       String?
   funTicketIds  Boolean  @default(false)
   ticketCounter Int      @default(0)
   workspaceId   String
