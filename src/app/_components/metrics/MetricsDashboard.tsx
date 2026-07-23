@@ -1,6 +1,15 @@
 'use client';
 
-import { Card, Text, Group, Stack, Progress, Container } from '@mantine/core';
+import { useMemo, useState } from 'react';
+import {
+  Card,
+  Text,
+  Group,
+  Stack,
+  Progress,
+  Container,
+  Select,
+} from '@mantine/core';
 import {
   IconChartBar,
   IconCircleCheck,
@@ -12,38 +21,79 @@ import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 /**
- * Metrics page dashboard (v1 tracer bullet).
+ * Metrics page dashboard.
  *
- * Renders the workspace's ACTIVE cycle: velocity (completed-action **count** as
- * the headline, summed effort/points alongside) and completion. All numbers are
- * computed live by `sprintAnalytics.getActiveCycleMetrics` — nothing is read
- * from the dormant `SprintMetrics` table. See ADR-0047.
- *
- * Trend across cycles (#2) and merged-PR turnaround (#3) are out of scope here.
+ * Renders the selected cycle (default: the workspace's ACTIVE cycle) — velocity
+ * (completed-ticket **count** as the headline, summed points alongside),
+ * completion, and merged-PR turnaround — plus a workspace-wide velocity trend.
+ * A cycle selector lets the user view any cycle. All numbers are computed live
+ * over the cycle's Tickets; nothing is read from the dormant `SprintMetrics`
+ * table. See ADR-0047 (incl. the Ticket-based amendment).
  */
 export function MetricsDashboard() {
   const { workspace, workspaceId } = useWorkspace();
 
-  const { data, isLoading } = api.sprintAnalytics.getActiveCycleMetrics.useQuery(
+  const { data: cycles } = api.sprintAnalytics.getCycles.useQuery(
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId },
+  );
+
+  const [picked, setPicked] = useState<string | null>(null);
+
+  // Default the selection to the active cycle (else the most recent), but let
+  // an explicit pick win.
+  const defaultCycleId = useMemo(() => {
+    if (!cycles?.length) return null;
+    return (cycles.find((c) => c.status === 'ACTIVE') ?? cycles[0])?.id ?? null;
+  }, [cycles]);
+
+  const selectedCycleId = picked ?? defaultCycleId;
+
+  const { data, isLoading } = api.sprintAnalytics.getActiveCycleMetrics.useQuery(
+    { workspaceId: workspaceId ?? '', cycleId: selectedCycleId ?? undefined },
+    { enabled: !!workspaceId },
+  );
+
+  const cycleOptions = useMemo(
+    () =>
+      (cycles ?? []).map((c) => ({
+        value: c.id,
+        label:
+          c.status === 'ACTIVE' ? `${c.name} (active)` : c.name,
+      })),
+    [cycles],
   );
 
   return (
     <Container size="lg" className="w-full py-6">
       <Stack gap="lg">
-        <Group gap="sm">
-          <IconChartBar size={24} className="text-text-secondary" />
-          <div>
-            <Text fw={600} size="xl" className="text-text-primary">
-              Metrics
-            </Text>
-            <Text size="sm" className="text-text-secondary">
-              {workspace?.name
-                ? `Delivery metrics for ${workspace.name}`
-                : 'Delivery metrics'}
-            </Text>
-          </div>
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
+          <Group gap="sm">
+            <IconChartBar size={24} className="text-text-secondary" />
+            <div>
+              <Text fw={600} size="xl" className="text-text-primary">
+                Metrics
+              </Text>
+              <Text size="sm" className="text-text-secondary">
+                {workspace?.name
+                  ? `Delivery metrics for ${workspace.name}`
+                  : 'Delivery metrics'}
+              </Text>
+            </div>
+          </Group>
+
+          {cycleOptions.length > 0 && (
+            <Select
+              aria-label="Select cycle"
+              data={cycleOptions}
+              value={selectedCycleId}
+              onChange={setPicked}
+              allowDeselect={false}
+              checkIconPosition="right"
+              w={220}
+              size="sm"
+            />
+          )}
         </Group>
 
         {isLoading || !workspaceId ? (
@@ -51,7 +101,7 @@ export function MetricsDashboard() {
         ) : !data ? (
           <EmptyState />
         ) : (
-          <ActiveCycleMetrics data={data} />
+          <ActiveCycleMetrics data={data} cycleId={selectedCycleId ?? undefined} />
         )}
 
         <VelocityTrend workspaceId={workspaceId} />
@@ -157,7 +207,13 @@ type CycleMetrics = NonNullable<
   RouterOutputs['sprintAnalytics']['getActiveCycleMetrics']
 >;
 
-function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
+function ActiveCycleMetrics({
+  data,
+  cycleId,
+}: {
+  data: CycleMetrics;
+  cycleId: string | undefined;
+}) {
   const completionRate = Math.round(data.completionRate);
 
   return (
@@ -226,7 +282,7 @@ function ActiveCycleMetrics({ data }: { data: CycleMetrics }) {
         </Card>
 
         {/* Merged-PR turnaround */}
-        <PrTurnaroundCard />
+        <PrTurnaroundCard cycleId={cycleId} />
       </div>
     </Stack>
   );
@@ -239,11 +295,11 @@ function formatHours(hours: number): { value: string; unit: string } {
   return { value: (hours / 24).toFixed(1), unit: 'd' };
 }
 
-function PrTurnaroundCard() {
+function PrTurnaroundCard({ cycleId }: { cycleId: string | undefined }) {
   const { workspaceId } = useWorkspace();
   const { data, isLoading } =
     api.sprintAnalytics.getActiveCyclePrTurnaround.useQuery(
-      { workspaceId: workspaceId ?? '' },
+      { workspaceId: workspaceId ?? '', cycleId },
       { enabled: !!workspaceId },
     );
 
@@ -267,7 +323,8 @@ function PrTurnaroundCard() {
   } else if (!data || data.mergedPrCount === 0) {
     body = (
       <Text size="sm" className="text-text-muted">
-        No PRs merged this cycle yet.
+        No merged-PR data for this cycle. Turnaround is computed from GitHub PR
+        webhook events; it stays empty until a connected repo sends them.
       </Text>
     );
   } else if (data.avgHours == null) {

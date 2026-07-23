@@ -6,6 +6,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   sprintAnalyticsService,
+  type CycleSummary,
   type CycleTicketMetricsResult,
   type CycleVelocityPoint,
   type PrTurnaroundResult,
@@ -37,6 +38,35 @@ async function assertWorkspaceMember(
 }
 
 /**
+ * Resolve which cycle the Metrics page should show: an explicit `cycleId`
+ * (verified to be a SPRINT list in this workspace, so no cross-workspace read),
+ * or the workspace's active cycle when none is given. Returns `null` when there
+ * is nothing to show (no active cycle and no explicit id).
+ */
+async function resolveCycleId(
+  db: Prisma.TransactionClient | typeof dbInstance,
+  workspaceId: string,
+  cycleId: string | undefined,
+): Promise<string | null> {
+  if (cycleId) {
+    const cycle = await db.list.findFirst({
+      where: { id: cycleId, workspaceId, listType: "SPRINT" },
+      select: { id: true },
+    });
+    if (!cycle) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Cycle not found in this workspace",
+      });
+    }
+    return cycle.id;
+  }
+
+  const active = await sprintAnalyticsService.getActiveSprint(workspaceId);
+  return active?.id ?? null;
+}
+
+/**
  * Sprint analytics tRPC router.
  *
  * Exposes SprintAnalyticsService + GitHubActivityService as API endpoints.
@@ -49,26 +79,44 @@ async function assertWorkspaceMember(
  */
 export const sprintAnalyticsRouter = createTRPCRouter({
   /**
-   * Metrics page (UI): active-cycle metrics for a workspace.
+   * Metrics page (UI): the workspace's cycles, for the cycle selector.
+   * Enforces workspace membership.
+   */
+  getCycles: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1) }))
+    .query(async ({ ctx, input }): Promise<CycleSummary[]> => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      return sprintAnalyticsService.getWorkspaceCycles(input.workspaceId);
+    }),
+
+  /**
+   * Metrics page (UI): cycle metrics for a workspace.
    *
-   * Enforces workspace membership, resolves the workspace's active cycle
-   * (List with listType=SPRINT, status=ACTIVE), and returns its live
-   * **Ticket-based** metrics (velocity/completion over the cycle's tickets).
-   * Returns `null` when the workspace has no active cycle so the UI can render
-   * an empty state. See ADR-0047 for why this is Ticket-based rather than
-   * Action-based like the agent-facing `getMetrics`.
+   * Enforces workspace membership, then resolves the target cycle — an explicit
+   * `cycleId` (workspace-verified) or the active cycle when omitted — and
+   * returns its live **Ticket-based** metrics (velocity/completion over the
+   * cycle's tickets). Returns `null` when there is no cycle to show so the UI
+   * can render an empty state. See ADR-0047 for why this is Ticket-based rather
+   * than Action-based like the agent-facing `getMetrics`.
    */
   getActiveCycleMetrics: protectedProcedure
-    .input(z.object({ workspaceId: z.string().min(1) }))
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        cycleId: z.string().optional(),
+      }),
+    )
     .query(async ({ ctx, input }): Promise<CycleTicketMetricsResult | null> => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
 
-      const activeSprint = await sprintAnalyticsService.getActiveSprint(
+      const cycleId = await resolveCycleId(
+        ctx.db,
         input.workspaceId,
+        input.cycleId,
       );
-      if (!activeSprint) return null;
+      if (!cycleId) return null;
 
-      return sprintAnalyticsService.getCycleTicketMetrics(activeSprint.id);
+      return sprintAnalyticsService.getCycleTicketMetrics(cycleId);
     }),
 
   /**
@@ -98,22 +146,30 @@ export const sprintAnalyticsRouter = createTRPCRouter({
   /**
    * Metrics page (UI): merged-PR turnaround for the workspace's active cycle.
    *
-   * Enforces workspace membership, resolves the active cycle, and returns the
-   * average/median opened→merged time for PRs merged in the cycle window
-   * (computed live from GitHubActivity). Returns `null` when there is no active
-   * cycle so the UI can render an empty state.
+   * Enforces workspace membership, resolves the target cycle (explicit
+   * `cycleId` or the active cycle), and returns the average/median opened→merged
+   * time for PRs merged in the cycle window (computed live from GitHubActivity).
+   * Returns `null` when there is no cycle to show so the UI can render an empty
+   * state.
    */
   getActiveCyclePrTurnaround: protectedProcedure
-    .input(z.object({ workspaceId: z.string().min(1) }))
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        cycleId: z.string().optional(),
+      }),
+    )
     .query(async ({ ctx, input }): Promise<PrTurnaroundResult | null> => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
 
-      const activeSprint = await sprintAnalyticsService.getActiveSprint(
+      const cycleId = await resolveCycleId(
+        ctx.db,
         input.workspaceId,
+        input.cycleId,
       );
-      if (!activeSprint) return null;
+      if (!cycleId) return null;
 
-      return sprintAnalyticsService.getPrTurnaround(activeSprint.id);
+      return sprintAnalyticsService.getPrTurnaround(cycleId);
     }),
 
   /**

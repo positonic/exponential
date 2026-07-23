@@ -64,6 +64,14 @@ export interface CycleTicketMetricsResult {
   statusCounts: Record<string, number>;
 }
 
+export interface CycleSummary {
+  id: string;
+  name: string;
+  status: string; // ListStatus (ACTIVE / COMPLETED / PLANNED / …)
+  startDate: Date | null;
+  endDate: Date | null;
+}
+
 export interface CycleVelocityPoint {
   cycleId: string;
   cycleName: string;
@@ -611,6 +619,32 @@ export class SprintAnalyticsService {
       avgHours,
       medianHours,
     };
+  }
+
+  /**
+   * List a workspace's cycles (SPRINT lists) for the Metrics page selector.
+   * Ordered most-recent-first by start date (undated cycles last, by recency).
+   */
+  async getWorkspaceCycles(workspaceId: string): Promise<CycleSummary[]> {
+    const cycles = await this.prisma.list.findMany({
+      where: { workspaceId, listType: "SPRINT" },
+      orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+
+    return cycles.map((c) => ({
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      startDate: c.startDate,
+      endDate: c.endDate,
+    }));
   }
 
   /**
