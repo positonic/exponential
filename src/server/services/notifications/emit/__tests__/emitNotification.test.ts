@@ -368,3 +368,54 @@ describe("emitNotification — Meeting participant added", () => {
     expect(db.notification.create).not.toHaveBeenCalled();
   });
 });
+
+describe("emitNotification — Meeting notes ready", () => {
+  beforeEach(() => {
+    // Recipients are the meeting's member (userId) participants.
+    db.transcriptionSessionParticipant.findMany.mockResolvedValue([
+      { userId: "member1" },
+      { userId: "member2" },
+    ] as never);
+    // Content resolves the meeting to a title + workspace.
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      title: "Weekly sync",
+      workspace: WORKSPACE,
+    } as never);
+  });
+
+  it("notifies member participants (excluding the actor/owner) when notes land", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: "member2", // the owner/actor is dropped
+      subject: { sessionId: "m1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledTimes(1);
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "member1",
+          category: "meeting_ready",
+          title: "Meeting notes are ready",
+          message: "Weekly sync",
+          deeplink: "/recording/m1",
+          dedupeKey: "meeting_ready:m1:member1",
+        }),
+      }),
+    );
+  });
+
+  it("is a no-op when the meeting has no member participants", async () => {
+    db.transcriptionSessionParticipant.findMany.mockResolvedValue([] as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: null,
+      subject: { sessionId: "m1" },
+      db,
+    });
+
+    expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});

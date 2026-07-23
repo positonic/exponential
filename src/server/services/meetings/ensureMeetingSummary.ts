@@ -4,6 +4,8 @@ import {
   SummarizationNotConfiguredError,
 } from "~/server/services/TranscriptSummarizerService";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import {
   extractReadableTranscript,
   MAX_SUMMARY_TRANSCRIPT_CHARS,
@@ -142,6 +144,20 @@ export async function summarizeMeetingRow(
       entityId: meeting.id,
       action: "summarized",
       metadata: { title: meeting.title ?? undefined },
+    });
+  }
+
+  // Notify the meeting's team-member participants that the notes are ready
+  // (ADR-0045). Fires on the same idempotent null → value transition as the
+  // activity event, so a re-summarize/overwrite never re-notifies. The meeting
+  // owner is the actor and is dropped downstream — they don't need telling their
+  // own notes are ready. Fire-and-forget: never blocks summarization.
+  if (meeting.workspaceId) {
+    void emitNotification({
+      db,
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: meeting.userId ?? null,
+      subject: { sessionId: meeting.id },
     });
   }
 

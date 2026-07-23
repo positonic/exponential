@@ -115,6 +115,36 @@ export async function buildContent(
         dedupeKey: `meeting_participant_added:${sessionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.MEETING_READY: {
+      const { sessionId } = input.subject;
+
+      const session = await db.transcriptionSession.findUnique({
+        where: { id: sessionId },
+        select: {
+          title: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      });
+      if (!session?.workspace) return null;
+
+      const meetingTitle = session.title ?? "a meeting";
+
+      return {
+        category: NOTIFICATION_CATEGORIES.MEETING_READY,
+        title: "Meeting notes are ready",
+        message: meetingTitle,
+        deeplink: `/recording/${sessionId}`,
+        metadata: {
+          sessionId,
+          transcriptionId: sessionId,
+          workspaceId: session.workspace.id,
+          workspaceSlug: session.workspace.slug,
+          workspaceName: session.workspace.name,
+        },
+        workspaceId: session.workspace.id,
+        dedupeKey: `meeting_ready:${sessionId}:${recipientId}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.MENTION:
       return buildMentionContent(input, recipientId);
     default:
