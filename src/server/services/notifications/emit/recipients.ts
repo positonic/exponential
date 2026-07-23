@@ -20,6 +20,9 @@ export async function resolveRecipients(
     case NOTIFICATION_CATEGORIES.DUE_DATE:
       // Due-date → the single owner the cron computed the crossing for.
       return Promise.resolve([input.subject.ownerUserId]);
+    case NOTIFICATION_CATEGORIES.SUMMARY:
+      // Summary → the subject user their digest was built for.
+      return Promise.resolve([input.subject.userId]);
     case NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED:
       // Meeting participant added → the members just linked. De-dup defensively.
       return Promise.resolve(

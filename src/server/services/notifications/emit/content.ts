@@ -92,6 +92,21 @@ export async function buildContent(
         dedupeKey: `due_date:${actionId}:${offsetMinutes}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.SUMMARY: {
+      // The cron pre-rendered the digest; a summary is personal, not
+      // workspace-scoped, so no per-workspace email override applies.
+      return {
+        category: NOTIFICATION_CATEGORIES.SUMMARY,
+        title: input.subject.title,
+        message: input.subject.message,
+        metadata: {
+          kind: input.subject.kind,
+          periodKey: input.subject.periodKey,
+        },
+        workspaceId: "",
+        dedupeKey: `summary:${input.subject.kind}:${input.subject.periodKey}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED: {
       const { sessionId } = input.subject;
 
