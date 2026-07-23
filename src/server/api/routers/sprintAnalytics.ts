@@ -7,6 +7,7 @@ import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   sprintAnalyticsService,
   type SprintMetricsResult,
+  type VelocityHistoryPoint,
 } from "~/server/services/SprintAnalyticsService";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
 
@@ -65,6 +66,29 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       if (!activeSprint) return null;
 
       return sprintAnalyticsService.getSprintMetrics(activeSprint.id);
+    }),
+
+  /**
+   * Metrics page (UI): velocity trend across recent completed cycles.
+   *
+   * Enforces workspace membership and returns the last N completed cycles with
+   * velocity (count + points) and completion, each recomputed live. Returned
+   * most-recent-first.
+   */
+  getVelocityTrend: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        count: z.number().int().min(1).max(20).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }): Promise<VelocityHistoryPoint[]> => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+
+      return sprintAnalyticsService.getVelocityHistory(
+        input.workspaceId,
+        input.count,
+      );
     }),
 
   /**

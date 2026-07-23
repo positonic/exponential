@@ -1,7 +1,12 @@
 'use client';
 
 import { Card, Text, Group, Stack, Progress, Container } from '@mantine/core';
-import { IconChartBar, IconCircleCheck, IconBolt } from '@tabler/icons-react';
+import {
+  IconChartBar,
+  IconCircleCheck,
+  IconBolt,
+  IconTrendingUp,
+} from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
@@ -47,8 +52,103 @@ export function MetricsDashboard() {
         ) : (
           <ActiveCycleMetrics data={data} />
         )}
+
+        <VelocityTrend workspaceId={workspaceId} />
       </Stack>
     </Container>
+  );
+}
+
+function VelocityTrend({ workspaceId }: { workspaceId: string | null }) {
+  const { data, isLoading } = api.sprintAnalytics.getVelocityTrend.useQuery(
+    { workspaceId: workspaceId ?? '', count: 8 },
+    { enabled: !!workspaceId },
+  );
+
+  if (isLoading || !workspaceId) {
+    return (
+      <Card
+        withBorder
+        radius="md"
+        className="border-border-primary bg-surface-secondary"
+      >
+        <div className="animate-pulse space-y-3">
+          <div className="h-4 w-1/4 rounded bg-surface-hover" />
+          <div className="h-24 rounded bg-surface-hover" />
+        </div>
+      </Card>
+    );
+  }
+
+  // Trend needs at least 2 completed cycles to be meaningful.
+  if (!data || data.length < 2) {
+    return (
+      <Card
+        withBorder
+        radius="md"
+        className="border-border-primary bg-surface-secondary"
+      >
+        <Group gap="xs" className="mb-2">
+          <IconTrendingUp size={16} className="text-text-muted" />
+          <Text size="sm" fw={500} className="text-text-secondary">
+            Velocity trend
+          </Text>
+        </Group>
+        <Text size="sm" className="text-text-muted">
+          Not enough completed cycles yet — the trend appears once at least two
+          cycles have completed.
+        </Text>
+      </Card>
+    );
+  }
+
+  // Service returns most-recent-first; show oldest → newest for a trend read.
+  const cycles = [...data].reverse();
+  const maxActions = Math.max(...cycles.map((c) => c.completedActions), 1);
+
+  return (
+    <Card
+      withBorder
+      radius="md"
+      className="border-border-primary bg-surface-secondary"
+    >
+      <Stack gap="md">
+        <Group gap="xs">
+          <IconTrendingUp size={16} className="text-text-muted" />
+          <Text size="sm" fw={500} className="text-text-secondary">
+            Velocity trend
+          </Text>
+          <Text size="xs" className="text-text-muted">
+            (last {cycles.length} completed cycles)
+          </Text>
+        </Group>
+
+        <Stack gap="sm">
+          {cycles.map((cycle) => (
+            <div key={cycle.sprintId}>
+              <Group justify="space-between" gap="xs" className="mb-1">
+                <Text size="xs" className="truncate text-text-secondary">
+                  {cycle.sprintName}
+                </Text>
+                <Text size="xs" className="text-text-muted">
+                  <span className="font-semibold text-text-primary">
+                    {cycle.completedActions}
+                  </span>{' '}
+                  {cycle.completedActions === 1 ? 'action' : 'actions'} ·{' '}
+                  {cycle.completedEffort} pts
+                </Text>
+              </Group>
+              <Progress
+                value={(cycle.completedActions / maxActions) * 100}
+                size="lg"
+                radius="sm"
+                color="indigo"
+              />
+            </div>
+          ))}
+        </Stack>
+      </Stack>
+    </Card>
   );
 }
 
