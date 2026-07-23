@@ -17,6 +17,11 @@ export async function resolveRecipients(
     case NOTIFICATION_CATEGORIES.MENTION:
       // Mention → parsed, membership-filtered mentioned users.
       return resolveMentionRecipients(input);
+    case NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED:
+      // Meeting participant added → the members just linked. De-dup defensively.
+      return Promise.resolve(
+        Array.from(new Set(input.subject.participantUserIds)),
+      );
     default:
       return Promise.resolve([]);
   }
