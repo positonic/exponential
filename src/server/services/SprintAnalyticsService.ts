@@ -41,6 +41,18 @@ export interface DailySnapshotResult {
   actionsCompleted: number;
 }
 
+export interface VelocityHistoryPoint {
+  sprintId: string;
+  sprintName: string;
+  endDate: Date | null;
+  // Velocity, reported as both a count (headline) and points, consistent
+  // with the active-cycle metrics.
+  completedActions: number;
+  completedEffort: number;
+  velocity: number; // = completedEffort (points); kept for agent compatibility
+  completionRate: number;
+}
+
 const KANBAN_STATUSES: ActionStatus[] = [
   "BACKLOG",
   "TODO",
@@ -398,12 +410,22 @@ export class SprintAnalyticsService {
   }
 
   /**
-   * Get velocity history across past sprints for trend analysis.
+   * Get velocity history across recent completed sprints for trend analysis.
+   *
+   * Each cycle is **recomputed live** from its actions' current (final)
+   * kanbanStatus — the same computation as {@link getSprintMetrics} — rather
+   * than reading the dormant, never-written `SprintMetrics` rows (which made
+   * this method return all-zeros in practice). A completed cycle's actions are
+   * effectively immutable, so a live recompute is accurate and needs no stored
+   * snapshot. No `SprintMetrics` row is written and no cron is introduced.
+   * See ADR-0047.
+   *
+   * Returned most-recent-first (by `endDate` desc).
    */
   async getVelocityHistory(
     workspaceId: string,
     count = 5,
-  ): Promise<Array<{ sprintName: string; velocity: number; completionRate: number }>> {
+  ): Promise<VelocityHistoryPoint[]> {
     const completedSprints = await this.prisma.list.findMany({
       where: {
         workspaceId,
@@ -412,15 +434,21 @@ export class SprintAnalyticsService {
       },
       orderBy: { endDate: "desc" },
       take: count,
-      include: {
-        metrics: true,
-      },
+      select: { id: true },
     });
 
-    return completedSprints.map((sprint) => ({
-      sprintName: sprint.name,
-      velocity: sprint.metrics?.velocity ?? 0,
-      completionRate: sprint.metrics?.completionRate ?? 0,
+    const metrics = await Promise.all(
+      completedSprints.map((sprint) => this.getSprintMetrics(sprint.id)),
+    );
+
+    return metrics.map((m) => ({
+      sprintId: m.sprintId,
+      sprintName: m.sprintName,
+      endDate: m.endDate,
+      completedActions: m.completedActions,
+      completedEffort: m.completedEffort,
+      velocity: m.velocity,
+      completionRate: m.completionRate,
     }));
   }
 }
