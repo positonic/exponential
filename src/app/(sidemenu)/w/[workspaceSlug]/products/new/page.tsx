@@ -73,73 +73,75 @@ export default function NewProductPage() {
   };
 
   return (
-    <Stack gap="lg" maw={640}>
-      <div>
-        <Title order={2} className="text-text-primary">
-          New product
-        </Title>
-        <Text className="text-text-muted">
-          A product is a container for features, tickets, research, and cycles.
-        </Text>
-      </div>
+    <div className="px-8 py-6">
+      <Stack gap="lg" maw={640}>
+        <div>
+          <Title order={2} className="text-text-primary">
+            New product
+          </Title>
+          <Text className="text-text-muted">
+            A product is a container for features, tickets, research, and cycles.
+          </Text>
+        </div>
 
-      <Card className="border border-border-primary bg-surface-secondary">
-        <form onSubmit={onSubmit}>
-          <Stack gap="md">
-            <TextInput
-              label="Name"
-              placeholder={`e.g. ${PRODUCT_NAME} Core`}
-              value={name}
-              onChange={(e) => onNameChange(e.currentTarget.value)}
-              required
-              maxLength={120}
-            />
-            <TextInput
-              label="Slug"
-              placeholder="exponential-core"
-              description="URL-safe identifier. Lowercase letters, numbers, and hyphens only."
-              value={slug}
-              onChange={(e) => {
-                setSlug(e.currentTarget.value);
-                setSlugEdited(true);
-              }}
-              required
-              maxLength={60}
-            />
-            <Textarea
-              label="Description"
-              placeholder="Briefly describe what this product is and who it's for."
-              value={description}
-              onChange={(e) => setDescription(e.currentTarget.value)}
-              autosize
-              minRows={3}
-              maxLength={2000}
-            />
-            {error && (
-              <Text size="sm" className="text-text-error">
-                {error}
-              </Text>
-            )}
-            <Group justify="flex-end">
-              <Button
-                variant="subtle"
-                component={Link}
-                href={`/w/${workspace.slug}/products`}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                color="brand"
-                loading={createProduct.isPending}
-                disabled={!name.trim() || !slug.trim()}
-              >
-                Create product
-              </Button>
-            </Group>
-          </Stack>
-        </form>
-      </Card>
-    </Stack>
+        <Card className="border border-border-primary bg-surface-secondary">
+          <form onSubmit={onSubmit}>
+            <Stack gap="md">
+              <TextInput
+                label="Name"
+                placeholder={`e.g. ${PRODUCT_NAME} Core`}
+                value={name}
+                onChange={(e) => onNameChange(e.currentTarget.value)}
+                required
+                maxLength={120}
+              />
+              <TextInput
+                label="Slug"
+                placeholder="exponential-core"
+                description="URL-safe identifier. Lowercase letters, numbers, and hyphens only."
+                value={slug}
+                onChange={(e) => {
+                  setSlug(e.currentTarget.value);
+                  setSlugEdited(true);
+                }}
+                required
+                maxLength={60}
+              />
+              <Textarea
+                label="Description"
+                placeholder="Briefly describe what this product is and who it's for."
+                value={description}
+                onChange={(e) => setDescription(e.currentTarget.value)}
+                autosize
+                minRows={3}
+                maxLength={2000}
+              />
+              {error && (
+                <Text size="sm" className="text-text-error">
+                  {error}
+                </Text>
+              )}
+              <Group justify="flex-end">
+                <Button
+                  variant="subtle"
+                  component={Link}
+                  href={`/w/${workspace.slug}/products`}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  color="brand"
+                  loading={createProduct.isPending}
+                  disabled={!name.trim() || !slug.trim()}
+                >
+                  Create product
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        </Card>
+      </Stack>
+    </div>
   );
 }
