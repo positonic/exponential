@@ -70,6 +70,20 @@ export interface DueDateSubject {
 }
 
 /**
+ * Summary / digest (V4): a user's daily or weekly roll-up. The cron builds the
+ * rendered digest (title + message) and passes it here; emit delivers it to the
+ * subject user's enabled Summary channels. Not workspace-scoped.
+ */
+export interface SummarySubject {
+  userId: string;
+  kind: "daily" | "weekly";
+  title: string;
+  message: string;
+  /** Period id for dedup — e.g. "2026-07-23" (daily) or "2026-W30" (weekly). */
+  periodKey: string;
+}
+
+/**
  * Discriminated union pairing each category with its subject. `emitNotification`
  * narrows on `category`, so recipient resolvers and content builders get a
  * fully-typed subject with no casts.
@@ -92,6 +106,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.DUE_DATE;
       subject: DueDateSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.SUMMARY;
+      subject: SummarySubject;
     }
   | {
       category: typeof NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED;

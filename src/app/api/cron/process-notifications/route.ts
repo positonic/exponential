@@ -3,12 +3,13 @@ import { headers } from "next/headers";
 import { db } from "~/server/db";
 import { retryPendingDeliveries } from "~/server/services/notifications/emit/processNotifications";
 import { generateDueDateReminders } from "~/server/services/notifications/emit/dueDateReminders";
+import { generateScheduledSummaries } from "~/server/services/notifications/emit/summaries";
 
 /**
  * Cron endpoint (ADR-0045) for the unified notification pipeline. Generates
- * scheduled notifications as they come due (V3: due-date reminders; summaries in
- * V4) and retries any NotificationDelivery that hasn't succeeded (failed, or
- * orphaned-pending) under the attempt cap.
+ * scheduled notifications as they come due (due-date reminders, daily/weekly
+ * summaries) and retries any NotificationDelivery that hasn't succeeded (failed,
+ * or orphaned-pending) under the attempt cap.
  *
  * Call via: GET /api/cron/process-notifications — Vercel cron, CRON_SECRET-protected.
  */
@@ -22,12 +23,14 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Scheduled generation: emit due-date reminders as their offsets are crossed.
+    // Scheduled generation: due-date reminders as offsets cross, and daily/weekly
+    // summaries at their configured local times.
     const dueDate = await generateDueDateReminders(db);
+    const summaries = await generateScheduledSummaries(db);
     // Retry backstop: re-attempt any delivery that hasn't succeeded.
     const retry = await retryPendingDeliveries(db);
 
-    return NextResponse.json({ ok: true, dueDate, retry });
+    return NextResponse.json({ ok: true, dueDate, summaries, retry });
   } catch (error) {
     console.error("[cron/process-notifications] failed:", error);
     return NextResponse.json(
