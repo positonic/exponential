@@ -35,6 +35,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
       { id: 'actions', hidden: false },
       { id: 'projects', hidden: false },
       { id: 'products', hidden: false },
+      { id: 'metrics', hidden: false },
       { id: 'pages', hidden: false },
     ],
   },
@@ -86,6 +87,11 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
   products: {
     label: 'Products',
     href: (s) => `/w/${s}/products`,
+    requiresPlugin: 'product',
+  },
+  metrics: {
+    label: 'Metrics',
+    href: (s) => `/w/${s}/metrics`,
     requiresPlugin: 'product',
   },
   pages: {

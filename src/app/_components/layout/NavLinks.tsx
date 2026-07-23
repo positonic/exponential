@@ -15,6 +15,7 @@ import {
   IconRoute,
   IconBriefcase,
   IconFileText,
+  IconChartBar,
   type Icon,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
@@ -29,6 +30,7 @@ const ITEM_ICONS: Record<string, Icon> = {
   actions: IconBriefcase,
   projects: IconStack2,
   products: IconLayoutGrid,
+  metrics: IconChartBar,
   pages: IconFileText,
   crm: IconUsers,
   agents: IconMessageChatbot,

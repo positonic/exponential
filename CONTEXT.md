@@ -170,6 +170,10 @@ _Avoid_: Review session (only in code), wizard state (it is no longer client-onl
 A unit of work delivery owned by a workspace — has its own backlog, features, cycles, retros. Stored as `Product`. Routes live under `/w/[slug]/products/[productSlug]`. A Product also **owns zero or more Projects** (`Project.productId`, nullable) — so a Product spans two parallel work hierarchies: Feature→Ticket (product-management work) and Project→Action (delivery work). The product list, a Products & Projects view, and the cross-product **Product Roadmap** live as sibling routes (`/products`, `/products-grid`, `/products-projects`, `/products-roadmap`).
 _Avoid_: App, service, module.
 
+**Metrics page**:
+A read-only, **Cycle-scoped** delivery dashboard at `/w/[slug]/metrics`, gated to workspaces running the `product` plugin (nav item in the "Deliver" section). Shows, per cycle: **velocity** (completed-action **count** as the headline, summed `effortEstimate`/points alongside), completion, and **merged-PR turnaround** (average opened→merged time for PRs merged in the cycle window, from the `GitHubActivity` event log), plus a velocity trend across recent completed cycles. **All numbers are computed live on request** — the page deliberately does **not** read the `SprintMetrics`/`SprintSnapshot` tables (whose `velocity`/`avgPrTurnaround`/… columns exist but are never written and stay dormant in v1), so it never drifts from the Mastra PM agent's view of the same `SprintAnalyticsService`. Workspace-wide roll-up only in v1 (no per-project/per-person slice; no live open-PR-age panel). See [ADR-0047](docs/adr/0047-metrics-page-live-computation.md).
+_Avoid_: Analytics/Insights (Insights is the customer-feedback product surface — a different thing), Dashboard, Reports.
+
 **Unassigned project**:
 A Project with `productId = null` — it belongs to a workspace but not to any Product. The default state for every project (the link is opt-in), and where a project lands when its Product is deleted (`onDelete: SetNull`). Surfaced as an "Unassigned" group in the Products & Projects view.
 _Avoid_: Orphan project (only in conversation/code, never UI copy).

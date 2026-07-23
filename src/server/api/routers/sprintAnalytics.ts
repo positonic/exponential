@@ -1,18 +1,72 @@
 import { z } from "zod";
-import { createTRPCRouter } from "~/server/api/trpc";
+import type { Prisma } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
+import type { db as dbInstance } from "~/server/db";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
-import { sprintAnalyticsService } from "~/server/services/SprintAnalyticsService";
+import {
+  sprintAnalyticsService,
+  type SprintMetricsResult,
+} from "~/server/services/SprintAnalyticsService";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
+
+/**
+ * Verify the caller is a member of the workspace. Throws FORBIDDEN if not.
+ * Mirrors the helper in document.ts — the Metrics page is read-only and
+ * visible to any workspace member.
+ */
+async function assertWorkspaceMember(
+  db: Prisma.TransactionClient | typeof dbInstance,
+  userId: string,
+  workspaceId: string,
+): Promise<void> {
+  const membership = await db.workspaceUser.findUnique({
+    where: {
+      userId_workspaceId: { userId, workspaceId },
+    },
+    select: { userId: true },
+  });
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace",
+    });
+  }
+}
 
 /**
  * Sprint analytics tRPC router.
  *
  * Exposes SprintAnalyticsService + GitHubActivityService as API endpoints.
- * Used by Mastra PM agent to gather project data server-to-server.
+ * Two audiences share ONE service so their numbers can never drift:
+ *  - `apiKeyMiddleware` procedures: Mastra PM agent, server-to-server.
+ *  - `protectedProcedure` procedures: the read-only Metrics page UI
+ *    (`/w/[slug]/metrics`), gated by workspace membership.
  *
  * Auth: session (cookie/JWT) OR API key (x-api-key header).
  */
 export const sprintAnalyticsRouter = createTRPCRouter({
+  /**
+   * Metrics page (UI): active-cycle metrics for a workspace.
+   *
+   * Enforces workspace membership, resolves the workspace's active cycle
+   * (List with listType=SPRINT, status=ACTIVE), and returns its live metrics
+   * from SprintAnalyticsService.getSprintMetrics. Returns `null` when the
+   * workspace has no active cycle so the UI can render an empty state.
+   */
+  getActiveCycleMetrics: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1) }))
+    .query(async ({ ctx, input }): Promise<SprintMetricsResult | null> => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+
+      const activeSprint = await sprintAnalyticsService.getActiveSprint(
+        input.workspaceId,
+      );
+      if (!activeSprint) return null;
+
+      return sprintAnalyticsService.getSprintMetrics(activeSprint.id);
+    }),
+
   /**
    * Find the active sprint for a workspace.
    */
