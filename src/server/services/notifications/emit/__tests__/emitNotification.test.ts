@@ -301,3 +301,70 @@ describe("emitNotification — channel resolution", () => {
     });
   });
 });
+
+describe("emitNotification — Meeting participant added", () => {
+  beforeEach(() => {
+    // The content builder resolves the meeting to a title + workspace.
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      title: "Weekly sync",
+      workspace: WORKSPACE,
+    } as never);
+  });
+
+  it("notifies each tagged member (excluding the actor) with a /recording deeplink", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+      actorUserId: "actor1",
+      subject: { sessionId: "m1", participantUserIds: ["member1", "actor1"] },
+      db,
+    });
+
+    // Actor excluded → exactly one recipient.
+    expect(db.notification.create).toHaveBeenCalledTimes(1);
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "member1",
+          category: "meeting_participant_added",
+          message: "Weekly sync",
+          deeplink: "/recording/m1",
+          dedupeKey: "meeting_participant_added:m1:member1",
+        }),
+      }),
+    );
+    expect(sendNotificationSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Actor added you to a meeting" }),
+    );
+  });
+
+  it("delivers to Matrix when the opt-in cell is enabled for the category", async () => {
+    db.notificationChannelPreference.findMany.mockResolvedValue([
+      { channel: "push", enabled: false },
+      { channel: "matrix", enabled: true },
+    ] as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+      actorUserId: "actor1",
+      subject: { sessionId: "m1", participantUserIds: ["member1"] },
+      db,
+    });
+
+    expect(NotificationServiceFactory.createService).toHaveBeenCalledWith("matrix", {
+      userId: "member1",
+    });
+  });
+
+  it("skips the emit when the meeting can no longer be resolved", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue(null as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+      actorUserId: "actor1",
+      subject: { sessionId: "gone", participantUserIds: ["member1"] },
+      db,
+    });
+
+    expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});

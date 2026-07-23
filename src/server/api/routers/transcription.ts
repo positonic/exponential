@@ -28,6 +28,8 @@ import {
   requireProjectAccess,
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { encryptString, decryptBuffer } from "~/server/utils/encryption";
 import { createHash } from "crypto";
 
@@ -914,6 +916,21 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
+      // Notify workspace members tagged as participants (ADR-0045 pipeline).
+      // Only member (userId) participants are notifiable — CRM-contact /
+      // free-text people have no User account. The actor is dropped downstream.
+      const memberUserIds = participants
+        .map((p) => p.userId)
+        .filter((id): id is string => !!id);
+      if (session.workspaceId && memberUserIds.length > 0) {
+        void emitNotification({
+          db: ctx.db,
+          category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+          actorUserId: ctx.session.user.id,
+          subject: { sessionId: session.id, participantUserIds: memberUserIds },
+        });
+      }
+
       return session;
     }),
 
@@ -974,6 +991,23 @@ export const transcriptionRouter = createTRPCRouter({
         await syncParticipantCount(tx, session.id);
         return row;
       });
+
+      // Notify the tagged workspace member (ADR-0045 pipeline). Only the member
+      // (userId) path is notifiable; CRM-contact / free-text adds resolve to a
+      // contact with no User account. Fire-and-forget; the actor is dropped
+      // downstream (self-adds don't self-notify).
+      if (input.userId) {
+        void emitNotification({
+          db: ctx.db,
+          category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+          actorUserId: ctx.session.user.id,
+          subject: {
+            sessionId: session.id,
+            participantUserIds: [input.userId],
+          },
+        });
+      }
+
       return participant;
     }),
 

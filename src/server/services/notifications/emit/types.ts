@@ -15,6 +15,16 @@ export interface AssignmentSubject {
 }
 
 /**
+ * Meeting participant added: a meeting (TranscriptionSession) and the workspace
+ * members just linked to it as participants. Only member (userId) participants
+ * are notifiable — CRM-contact / free-text people have no User account.
+ */
+export interface MeetingParticipantAddedSubject {
+  sessionId: string;
+  participantUserIds: string[];
+}
+
+/**
  * Mention (V2): a comment on some target (action / feature / scope), already
  * resolved to its workspace + display name + deep-link. Recipients are parsed
  * from the `@[Name](id)` markup and membership-filtered by the resolver.
@@ -53,6 +63,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.MENTION;
       subject: MentionSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED;
+      subject: MeetingParticipantAddedSubject;
     }
 );
 
