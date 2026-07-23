@@ -61,9 +61,18 @@ export function WorkspaceProductsList() {
               <tr key={product.id} className={styles.tableRow}>
                 <td>
                   <div className={styles.nameCell}>
-                    <div className={styles.iconBox}>
-                      <IconLayoutGrid size={18} />
-                    </div>
+                    {product.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={product.logoUrl}
+                        alt=""
+                        className={styles.logoImg}
+                      />
+                    ) : (
+                      <div className={styles.iconBox}>
+                        <IconLayoutGrid size={18} />
+                      </div>
+                    )}
                     <div style={{ minWidth: 0 }}>
                       <Link
                         href={`${basePath}/${product.slug}`}

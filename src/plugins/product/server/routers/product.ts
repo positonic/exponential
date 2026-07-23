@@ -6,6 +6,7 @@ import { buildProjectAccessWhere } from "~/server/services/access";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import {
   COMPLETED_TICKET_STATUSES,
   STATUS_ORDER,
@@ -557,6 +558,82 @@ export const productRouter = createTRPCRouter({
         where: { id },
         data,
       });
+    }),
+
+  // Upload a product logo (base64-encoded image -> Vercel Blob -> Product.logoUrl)
+  uploadLogo: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        base64Data: z.string().min(1),
+        contentType: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
+
+      // Cache-bust by including a timestamp so the new URL replaces the old one in CDN/clients
+      const filename = `product-logos/${product.id}-${Date.now()}.png`;
+      const blob = await uploadToBlob(
+        input.base64Data,
+        filename,
+        input.contentType,
+      );
+
+      const previous = await ctx.db.product.findUnique({
+        where: { id: product.id },
+        select: { logoUrl: true },
+      });
+
+      const updated = await ctx.db.product.update({
+        where: { id: product.id },
+        data: { logoUrl: blob.url },
+      });
+
+      if (previous?.logoUrl && previous.logoUrl !== blob.url) {
+        try {
+          await deleteFromBlob(previous.logoUrl);
+        } catch {
+          // Best-effort cleanup; do not fail the upload if the old blob can't be deleted
+        }
+      }
+
+      return { logoUrl: updated.logoUrl };
+    }),
+
+  // Remove the product logo (clears logoUrl, deletes underlying blob)
+  removeLogo: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
+
+      const previous = await ctx.db.product.findUnique({
+        where: { id: product.id },
+        select: { logoUrl: true },
+      });
+
+      await ctx.db.product.update({
+        where: { id: product.id },
+        data: { logoUrl: null },
+      });
+
+      if (previous?.logoUrl) {
+        try {
+          await deleteFromBlob(previous.logoUrl);
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+
+      return { logoUrl: null };
     }),
 
   delete: protectedProcedure

@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ActionIcon,
+  Avatar,
   Badge,
   Button,
+  Group,
   Select,
   Switch,
   Text,
   TextInput,
   Textarea,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconArrowLeft,
   IconArrowsExchange,
@@ -42,6 +45,7 @@ import {
   SettingsSidebar,
   SettingsSection,
   SettingsField,
+  SettingsFieldButton,
   SettingsDangerRow,
   SettingsDangerZone,
   type SidebarGroup,
@@ -425,6 +429,8 @@ export default function ProductSettingsPage() {
     null,
   );
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: workspaces } = api.workspace.list.useQuery();
 
@@ -454,6 +460,54 @@ export default function ProductSettingsPage() {
       }
     },
     onError: (err) => setError(err.message),
+  });
+
+  const invalidateProduct = async () => {
+    if (workspaceId) {
+      await utils.product.product.list.invalidate({ workspaceId });
+      await utils.product.product.getBySlug.invalidate({
+        workspaceId,
+        slug: productSlug,
+      });
+    }
+  };
+
+  const uploadLogo = api.product.product.uploadLogo.useMutation({
+    onSuccess: async () => {
+      await invalidateProduct();
+      notifications.show({
+        title: "Logo updated",
+        message: "Product logo has been saved.",
+        color: "green",
+        autoClose: 3000,
+      });
+    },
+    onError: (err) =>
+      notifications.show({
+        title: "Upload failed",
+        message: err.message,
+        color: "red",
+        autoClose: 5000,
+      }),
+  });
+
+  const removeLogo = api.product.product.removeLogo.useMutation({
+    onSuccess: async () => {
+      await invalidateProduct();
+      notifications.show({
+        title: "Logo removed",
+        message: "Product will use the default icon.",
+        color: "blue",
+        autoClose: 3000,
+      });
+    },
+    onError: (err) =>
+      notifications.show({
+        title: "Remove failed",
+        message: err.message,
+        color: "red",
+        autoClose: 5000,
+      }),
   });
 
   const deleteProduct = api.product.product.delete.useMutation({
@@ -497,6 +551,53 @@ export default function ProductSettingsPage() {
       description: description.trim() || undefined,
       funTicketIds,
     });
+  };
+
+  const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      notifications.show({
+        title: "Invalid file",
+        message: "Please select an image file.",
+        color: "red",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      notifications.show({
+        title: "File too large",
+        message: "Please select an image under 5MB.",
+        color: "red",
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string | null)?.split(",")[1];
+      if (!base64) {
+        setIsUploadingLogo(false);
+        return;
+      }
+      uploadLogo.mutate(
+        { id: product.id, base64Data: base64, contentType: file.type },
+        { onSettled: () => setIsUploadingLogo(false) },
+      );
+    };
+    reader.onerror = () => {
+      setIsUploadingLogo(false);
+      notifications.show({
+        title: "Upload failed",
+        message: "Could not read the selected file.",
+        color: "red",
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const onDelete = () => {
@@ -607,6 +708,53 @@ export default function ProductSettingsPage() {
             title="General"
             description="Basic product information."
           >
+            <SettingsField
+              label="Logo"
+              sublabel="Shown in the products list. PNG or JPG, up to 5MB."
+              action={
+                <Group gap="xs">
+                  <SettingsFieldButton
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    {isUploadingLogo
+                      ? "Uploading…"
+                      : product.logoUrl
+                        ? "Replace"
+                        : "Upload"}
+                  </SettingsFieldButton>
+                  {product.logoUrl && (
+                    <SettingsFieldButton
+                      onClick={() => removeLogo.mutate({ id: product.id })}
+                    >
+                      Remove
+                    </SettingsFieldButton>
+                  )}
+                </Group>
+              }
+            >
+              <Group gap="sm" align="center">
+                <Avatar
+                  src={product.logoUrl ?? null}
+                  size={48}
+                  radius="md"
+                  color="brand"
+                  className="bg-surface-tertiary text-text-primary"
+                >
+                  {product.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <span className="text-text-muted text-[12px]">
+                  {product.logoUrl ? "Custom logo" : "Using the default icon"}
+                </span>
+              </Group>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoFileChange}
+              />
+            </SettingsField>
+
             <SettingsField
               label="Name"
               sublabel="The display name for this product."
