@@ -41,7 +41,7 @@ jobs:
           {
             echo "$PR_URL"
             git log "$BASE_SHA..$HEAD_SHA" --format=%B \
-              | grep -oE '#[0-9]+' | tr -d '#' | sort -u \
+              | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -u \
               | sed "s@^@${REPO_URL}/pull/@"
           } | sort -u > /tmp/prs
           jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/prs > /tmp/prs.json
