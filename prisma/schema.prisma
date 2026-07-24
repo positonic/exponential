@@ -261,19 +261,20 @@ model User {
   workspaceNotificationOverrides WorkspaceNotificationOverride[]
 
   // Product Management plugin relations
-  productsCreated       Product[]          @relation("ProductCreatedBy")
-  featuresCreated       Feature[]          @relation("FeatureCreatedBy")
-  researchesCreated     Research[]         @relation("ResearchCreatedBy")
-  ticketsCreated        Ticket[]           @relation("TicketCreatedBy")
-  ticketsAssigned       Ticket[]           @relation("TicketAssignee")
-  retrospectivesCreated Retrospective[]    @relation("RetrospectiveCreatedBy")
-  ticketComments        TicketComment[]    @relation("TicketCommentAuthor")
-  ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
-  insightsCreated       Insight[]          @relation("InsightCreatedBy")
-  insightComments       InsightComment[]   @relation("InsightCommentAuthor")
-  requirementsChecked   Requirement[]      @relation("RequirementCheckedBy")
-  ticketSyncConfigs     TicketSyncConfig[] @relation("TicketSyncConfigCreatedBy")
-  ticketSyncRuns        TicketSyncRun[]    @relation("TicketSyncRunTriggeredBy")
+  productsCreated       Product[]             @relation("ProductCreatedBy")
+  featuresCreated       Feature[]             @relation("FeatureCreatedBy")
+  featureDraftsCreated  MeetingFeatureDraft[] @relation("MeetingFeatureDraftCreatedBy")
+  researchesCreated     Research[]            @relation("ResearchCreatedBy")
+  ticketsCreated        Ticket[]              @relation("TicketCreatedBy")
+  ticketsAssigned       Ticket[]              @relation("TicketAssignee")
+  retrospectivesCreated Retrospective[]       @relation("RetrospectiveCreatedBy")
+  ticketComments        TicketComment[]       @relation("TicketCommentAuthor")
+  ticketDepsCreated     TicketDependency[]    @relation("TicketDependencyCreatedBy")
+  insightsCreated       Insight[]             @relation("InsightCreatedBy")
+  insightComments       InsightComment[]      @relation("InsightCommentAuthor")
+  requirementsChecked   Requirement[]         @relation("RequirementCheckedBy")
+  ticketSyncConfigs     TicketSyncConfig[]    @relation("TicketSyncConfigCreatedBy")
+  ticketSyncRuns        TicketSyncRun[]       @relation("TicketSyncRunTriggeredBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -1287,6 +1288,7 @@ model TranscriptionSession {
   participantCount Int?
 
   actions           Action[]
+  featureDrafts     MeetingFeatureDraft[]
   screenshots       Screenshot[]
   project           Project?                          @relation(fields: [projectId], references: [id])
   sourceIntegration Integration?                      @relation(fields: [sourceIntegrationId], references: [id])
@@ -3992,8 +3994,8 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy         User               @relation("ProductCreatedBy", fields: [createdById], references: [id])
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User                  @relation("ProductCreatedBy", fields: [createdById], references: [id])
   features          Feature[]
   areas             Area[]
   tickets           Ticket[]
@@ -4003,6 +4005,7 @@ model Product {
   ticketTemplates   TicketTemplate[]
   projects          Project[]
   ticketSyncConfigs TicketSyncConfig[]
+  featureDrafts     MeetingFeatureDraft[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -4089,6 +4092,39 @@ model Feature {
   @@index([createdById])
   @@index([status])
   @@index([areaId])
+}
+
+/// A candidate Feature ideated from a meeting, held OUTSIDE the feature registry
+/// until a human accepts it. `FeatureStatus` has no DRAFT member on purpose -
+/// parking rejects in `Feature` would pollute the registry and force a status
+/// filter into every existing feature query - so drafts get their own table,
+/// written by the ideation service and drained on accept (deleted after the real
+/// Feature is created) or on discard. That keeps the review card alive across a
+/// page reload while nothing lands in `Feature` without human review.
+///
+/// `tickets` is the proposed breakdown, `[{ title, body, type }]`, materialised
+/// through `createTicketWithNumber` (ADR-0016) at accept time. `productId` is the
+/// last product the user had selected in the card - advisory only; the accept
+/// mutation takes the target product explicitly.
+model MeetingFeatureDraft {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  productId              String?
+  createdById            String
+  name                   String
+  description            String?
+  vision                 String?
+  tickets                Json     @default("[]")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  product              Product?             @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdBy            User                 @relation("MeetingFeatureDraftCreatedBy", fields: [createdById], references: [id])
+
+  @@index([transcriptionSessionId])
+  @@index([productId])
+  @@index([createdById])
 }
 
 /// Discussion note on a PRD body (ADR-0024). Either anchored - pinned via a
@@ -4812,9 +4848,9 @@ model TicketSync {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  config    TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
-  ticket    Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  pushJobs  TicketSyncPushJob[]
+  config   TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
+  ticket   Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  pushJobs TicketSyncPushJob[]
 
   @@unique([ticketId, provider])
   @@unique([configId, externalId])

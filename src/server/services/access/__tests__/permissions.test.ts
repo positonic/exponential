@@ -43,6 +43,8 @@ import {
   buildProjectAccessWhere,
 } from "../resolvers/projectResolver";
 
+import { canEditWorkspaceContent } from "../resolvers/workspaceResolver";
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeActionAccess(overrides: Partial<{
@@ -680,5 +682,46 @@ describe("canManageProjectMembers", () => {
         makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "member" })
       )
     ).toBe(false);
+  });
+});
+
+// ── canEditWorkspaceContent ──────────────────────────────────────────
+//
+// The distinction membership checks miss: belonging to a workspace is not
+// permission to write to it.
+
+describe("canEditWorkspaceContent", () => {
+  it("admits member and above", () => {
+    expect(canEditWorkspaceContent("member")).toBe(true);
+    expect(canEditWorkspaceContent("admin")).toBe(true);
+    expect(canEditWorkspaceContent("owner")).toBe(true);
+  });
+
+  it("refuses the read-only roles", () => {
+    expect(canEditWorkspaceContent("viewer")).toBe(false);
+    expect(canEditWorkspaceContent("guest")).toBe(false);
+  });
+
+  it("refuses a non-member", () => {
+    expect(canEditWorkspaceContent(null)).toBe(false);
+  });
+
+  it("agrees with the role hierarchy for every role", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom<WorkspaceRole>(
+          "owner",
+          "admin",
+          "member",
+          "viewer",
+          "guest",
+        ),
+        (role) => {
+          expect(canEditWorkspaceContent(role)).toBe(
+            WORKSPACE_ROLE_HIERARCHY[role] >= WORKSPACE_ROLE_HIERARCHY.member,
+          );
+        },
+      ),
+    );
   });
 });

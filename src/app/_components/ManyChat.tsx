@@ -25,6 +25,7 @@ import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
 import { ThinkingStatus } from './agent/ThinkingStatus';
 import { DraftActionsReviewCard } from './DraftActionsReviewCard';
+import { DraftFeaturesReviewCard } from './DraftFeaturesReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
@@ -381,6 +382,9 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   )}
                   {message.card?.kind === 'draft-actions' && (
                     <DraftActionsReviewCard transcriptionId={message.card.transcriptionId} />
+                  )}
+                  {message.card?.kind === 'draft-features' && (
+                    <DraftFeaturesReviewCard transcriptionId={message.card.transcriptionId} />
                   )}
                   {message.interactionId && (
                     <AgentMessageFeedback

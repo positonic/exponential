@@ -28,6 +28,8 @@ interface MeetingDetailProps {
   /** Candidate projects for placement (edit-scoped, across workspaces). */
   assignableProjects: MeetingProjectOption[];
   isCreatingActions: boolean;
+  /** True while feature ideation is running for this meeting. */
+  isIdeatingFeatures: boolean;
   /** True while a summary is being auto-generated on view for this meeting. */
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
@@ -35,6 +37,8 @@ interface MeetingDetailProps {
   /** Place the meeting onto a project (null clears placement). */
   onProjectChange: (projectId: string | null) => void;
   onCreateActions: () => void;
+  /** Turn the transcript into reviewable draft product features. */
+  onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
   onRegenerateSummary: () => void;
   onArchive: () => void;
@@ -64,11 +68,13 @@ export function MeetingDetail({
   isActionsLoading,
   assignableProjects,
   isCreatingActions,
+  isIdeatingFeatures,
   isGeneratingSummary,
   onSaveSummary,
   onMeetingDateChange,
   onProjectChange,
   onCreateActions,
+  onIdeateFeatures,
   onRegenerateSummary,
   onArchive,
 }: MeetingDetailProps) {
@@ -229,9 +235,11 @@ export function MeetingDetail({
                 isActionsLoading={isActionsLoading}
                 hasTranscript={Boolean(session.transcription)}
                 isCreatingActions={isCreatingActions}
+                isIdeatingFeatures={isIdeatingFeatures}
                 isGeneratingSummary={isGeneratingSummary}
                 onSaveSummary={onSaveSummary}
                 onCreateActions={onCreateActions}
+                onIdeateFeatures={onIdeateFeatures}
                 onRegenerate={onRegenerateSummary}
               />
             )}

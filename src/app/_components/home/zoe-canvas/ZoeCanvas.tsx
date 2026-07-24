@@ -7,6 +7,7 @@ import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import { ToolActivity } from '~/app/_components/agent/ToolActivity';
 import { ThinkingStatus } from '~/app/_components/agent/ThinkingStatus';
 import { DraftActionsReviewCard } from '~/app/_components/DraftActionsReviewCard';
+import { DraftFeaturesReviewCard } from '~/app/_components/DraftFeaturesReviewCard';
 import { failureCopy } from '~/lib/chat/failureCopy';
 import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import classes from './ZoeCanvas.module.css';
@@ -117,6 +118,9 @@ export function ZoeCanvas({ messages, isStreaming, onDismiss, onRetry }: ZoeCanv
               )}
               {message.card?.kind === 'draft-actions' && (
                 <DraftActionsReviewCard transcriptionId={message.card.transcriptionId} />
+              )}
+              {message.card?.kind === 'draft-features' && (
+                <DraftFeaturesReviewCard transcriptionId={message.card.transcriptionId} />
               )}
             </div>
           ),

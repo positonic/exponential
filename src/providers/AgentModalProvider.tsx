@@ -34,9 +34,15 @@ export interface ChatMessage {
   voiceTurnId?: string;
   /**
    * Structured, interactive payload rendered below this message's text instead of
-   * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007).
+   * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007);
+   * `draft-features` is the same pattern for meeting-ideated product Features.
+   *
+   * Every arm must be rendered on BOTH chat surfaces — the ManyChat drawer and
+   * ZoeCanvas — or the card silently vanishes on one of them.
    */
-  card?: { kind: 'draft-actions'; transcriptionId: string };
+  card?:
+    | { kind: 'draft-actions'; transcriptionId: string }
+    | { kind: 'draft-features'; transcriptionId: string };
   /**
    * Set on an assistant turn that failed or ended early, to drive the Retry UI.
    * `severity: 'error'`      — nothing usable streamed; render the red error bubble.
