@@ -175,8 +175,14 @@ jobs:
 
       - name: Render fix brief
         run: |
-          exponential tickets get "$TICKET_ID" --json > ticket.json
-          node scripts/ai-bug-fixer/render-prompt.mjs --ticket ticket.json --out .ai-bug-fixer/prompt.md
+          # Everything scratch lives under .ai-bug-fixer/ so the single `rm -rf`
+          # in Finalize cleans it all up. ticket.json used to be written to the
+          # repo root, where `git add -A` swept it into the commit — polluting
+          # the PR and, worse, making HAS_CHANGES true even when the agent had
+          # changed nothing.
+          mkdir -p .ai-bug-fixer
+          exponential tickets get "$TICKET_ID" --json > .ai-bug-fixer/ticket.json
+          node scripts/ai-bug-fixer/render-prompt.mjs --ticket .ai-bug-fixer/ticket.json --out .ai-bug-fixer/prompt.md
           git checkout -b "$BRANCH"
 
       - name: Run coding agent
@@ -239,15 +245,29 @@ jobs:
           if ! git diff --quiet main...HEAD; then HAS_CHANGES="yes"; fi
 
           # `if` guards (not `[ ] && cmd`) so a false condition can't trip set -e.
-          fail() {
+          #
+          # `fail` = the agent couldn't do the job. Expected, not our problem to
+          # debug, so the run stays green. `abort` = OUR machinery broke (push,
+          # PR creation). That must go RED — a broken worker silently reporting
+          # success is how this workflow hid a total failure for five weeks.
+          # Both release the ticket; neither may leave it stranded IN_PROGRESS.
+          release_ticket() {
             reason="$1"
-            echo "::warning::AI fix did not produce a PR: $reason"
             exponential tickets comment add --id "$TICKET_ID" \
               -m "🤖 Couldn't open a PR automatically: ${reason}. Releasing the ticket for a human. [Run log]($RUN_URL)." || true
             # Releasing the status is essential; dropping the label is cosmetic.
-            exponential tickets update --id "$TICKET_ID" --status READY_TO_PLAN --json
+            exponential tickets update --id "$TICKET_ID" --status READY_TO_PLAN --json || true
             exponential tickets update --id "$TICKET_ID" --remove-label ai-in-progress --json || true
+          }
+          fail() {
+            echo "::warning::AI fix did not produce a PR: $1"
+            release_ticket "$1"
             exit 0
+          }
+          abort() {
+            echo "::error::AI bug-fixer broke: $1"
+            release_ticket "$1"
+            exit 1
           }
 
           if [ -n "$BAILED" ]; then fail "the agent flagged this as needing a human — ${BAILED}"; fi
@@ -269,7 +289,17 @@ jobs:
             git commit -F .git-commit-msg
             rm -f .git-commit-msg
           fi
-          git push origin "$BRANCH"
+
+          # claude-code-action rewrites remote.origin.url to embed its OWN
+          # (claude[bot]) token — it logs "Updating remote URL with
+          # authentication". That silently replaces the PAT credential
+          # actions/checkout installed, so this push authenticates as the bot
+          # and dies with "Invalid username or token". Restore our own remote
+          # before pushing. Checked out with the same token, so read already
+          # worked — it is only the write that was being hijacked.
+          git remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if ! git push origin "$BRANCH"; then abort "could not push the branch"; fi
 
           cat > .pr-body.md <<EOF
           ## 🤖 Autonomous bug fix — needs human review
@@ -283,11 +313,13 @@ jobs:
           webhook (ADR-0021) promotes the ticket from QA to DONE.
           EOF
 
-          PR_URL=$(gh pr create \
+          if ! PR_URL=$(gh pr create \
             --base main --head "$BRANCH" \
             --title "fix: ${TICKET_TITLE} (bug #${TICKET_NUMBER})" \
             --label ai-bug-fixer \
-            --body-file .pr-body.md)
+            --body-file .pr-body.md); then
+            abort "pushed the branch but could not open the PR"
+          fi
           rm -f .pr-body.md
           echo "Opened: $PR_URL"
           # Linking the PR + moving to QA is essential; dropping the label is cosmetic.
