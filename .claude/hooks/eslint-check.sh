@@ -21,13 +21,18 @@ if [[ "$FILE_PATH" =~ (node_modules|\.next|dist-electron) ]]; then
   exit 0
 fi
 
-# Run ESLint on just this file (fast: ~1-2 seconds)
-OUTPUT=$(npx eslint "$FILE_PATH" 2>&1)
+# Run ESLint on just this file.
+#
+# The 8GB heap is required, not defensive: at node's default ~4GB this repo's
+# TS project graph OOMs before ESLint reports anything, and the hook then blocks
+# every edit with a V8 fatal-error dump instead of a lint result.
+OUTPUT=$(NODE_OPTIONS="--max-old-space-size=8192" npx eslint "$FILE_PATH" 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
   echo "ESLint errors in $FILE_PATH:" >&2
-  echo "$OUTPUT" >&2
+  # Cap the payload — a crashing eslint can emit hundreds of stack frames.
+  echo "$OUTPUT" | head -60 >&2
   exit 2
 fi
 
