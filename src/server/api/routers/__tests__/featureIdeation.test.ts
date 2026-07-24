@@ -176,14 +176,17 @@ function stubOwnedSession(
 }
 
 /** Product lookup + workspace membership probe that publish runs. */
-function stubProductAccess(dbMock: DeepMockProxy<PrismaClient>) {
+function stubProductAccess(
+  dbMock: DeepMockProxy<PrismaClient>,
+  role = "member",
+) {
   dbMock.product.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { id: productId, workspaceId, slug: "p" } as any,
   );
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    { userId: callerId, workspaceId, role: "member" } as any,
+    { userId: callerId, workspaceId, role } as any,
   );
 }
 
@@ -412,6 +415,51 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
     expect(dbMock.meetingFeatureDraft.deleteMany).toHaveBeenCalledWith({
       where: { id: { in: ["draft-1"] } },
     });
+  });
+
+  // ── Role gate: membership is not permission to write ──────────────
+  //
+  // `assertWorkspaceMember` admits viewers, so without the explicit editor
+  // check a read-only member of the workspace could create Features and
+  // Tickets by accepting a draft.
+  it("refuses a workspace viewer accepting a draft, and writes nothing", async () => {
+    stubOwnedSession(dbMock);
+    stubProductAccess(dbMock, "viewer");
+    dbMock.meetingFeatureDraft.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "draft-1", name: "CSV import", tickets: [] } as any,
+    ]);
+
+    await expect(
+      caller.transcription.publishSelectedDraftFeatures({
+        transcriptionId,
+        draftIds: ["draft-1"],
+        productId,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.feature.create).not.toHaveBeenCalled();
+    expect(createTicketWithNumber).not.toHaveBeenCalled();
+    expect(dbMock.meetingFeatureDraft.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-member accepting a draft", async () => {
+    stubOwnedSession(dbMock);
+    dbMock.product.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: productId, workspaceId, slug: "p" } as any,
+    );
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+
+    await expect(
+      caller.transcription.publishSelectedDraftFeatures({
+        transcriptionId,
+        draftIds: ["draft-1"],
+        productId,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.feature.create).not.toHaveBeenCalled();
   });
 
   // ── Guard rail 7: discarding writes nothing to the registry ───────

@@ -11,6 +11,20 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { WorkspaceMembership, WorkspaceRole } from "../types";
+import { WORKSPACE_ROLE_HIERARCHY } from "../types";
+
+/**
+ * Can this workspace role create or modify workspace content?
+ *
+ * Membership alone is NOT the answer: `viewer` is a read-only role and `guest`
+ * is synthesized for project-only access, so both must be refused. Callers that
+ * merely assert membership (e.g. `assertWorkspaceMember`) let a viewer write —
+ * use this wherever a write is about to happen.
+ */
+export function canEditWorkspaceContent(role: WorkspaceRole | null): boolean {
+  if (!role) return false;
+  return WORKSPACE_ROLE_HIERARCHY[role] >= WORKSPACE_ROLE_HIERARCHY.member;
+}
 
 export async function getWorkspaceMembership(
   db: PrismaClient,
