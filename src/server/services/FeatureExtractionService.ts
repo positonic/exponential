@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { TicketType } from "@prisma/client";
+import { TICKET_TYPES } from "~/lib/ticket-types";
 
 /**
  * Deterministic extraction of candidate *product features* from a meeting.
@@ -19,14 +20,6 @@ import type { TicketType } from "@prisma/client";
  * a real Feature without human review.
  */
 
-const TICKET_TYPES = [
-  "BUG",
-  "FEATURE",
-  "CHORE",
-  "IMPROVEMENT",
-  "SPIKE",
-  "RESEARCH",
-] as const;
 
 const extractionSchema = z.object({
   features: z.array(

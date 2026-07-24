@@ -13,8 +13,12 @@ import {
   Text,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconTrash } from "@tabler/icons-react";
-import { api } from "~/trpc/react";
+import { IconPencil, IconTrash } from "@tabler/icons-react";
+import { api, type RouterOutputs } from "~/trpc/react";
+import { EditDraftFeatureModal } from "./EditDraftFeatureModal";
+
+type DraftFeature =
+  RouterOutputs["transcription"]["getDraftFeaturesByTranscription"][number];
 
 interface DraftFeaturesReviewCardProps {
   transcriptionId: string;
@@ -39,6 +43,7 @@ export function DraftFeaturesReviewCard({
   const utils = api.useUtils();
   const [productId, setProductId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [editingDraft, setEditingDraft] = useState<DraftFeature | null>(null);
 
   const { data: drafts = [], isLoading } =
     api.transcription.getDraftFeaturesByTranscription.useQuery({
@@ -144,7 +149,13 @@ export function DraftFeaturesReviewCard({
 
   if (isLoading) {
     return (
-      <Paper p="sm" radius="md" withBorder mt="xs" className="bg-surface-secondary">
+      <Paper
+        p="sm"
+        radius="md"
+        withBorder
+        mt="xs"
+        className="bg-surface-secondary"
+      >
         <Text size="sm" c="dimmed">
           Loading draft features…
         </Text>
@@ -154,7 +165,13 @@ export function DraftFeaturesReviewCard({
 
   if (drafts.length === 0) {
     return (
-      <Paper p="sm" radius="md" withBorder mt="xs" className="bg-surface-secondary">
+      <Paper
+        p="sm"
+        radius="md"
+        withBorder
+        mt="xs"
+        className="bg-surface-secondary"
+      >
         <Text size="sm" c="dimmed">
           All set — no draft features left to review.
         </Text>
@@ -163,130 +180,164 @@ export function DraftFeaturesReviewCard({
   }
 
   return (
-    <Paper p="sm" radius="md" withBorder mt="xs" className="bg-surface-secondary">
-      <Stack gap="sm">
-        <Group gap="xs">
-          <Checkbox
-            size="sm"
-            checked={allSelected}
-            indeterminate={someSelected}
-            onChange={toggleAll}
-            label={`Select all (${drafts.length})`}
-          />
-        </Group>
+    <>
+      <Paper
+        p="sm"
+        radius="md"
+        withBorder
+        mt="xs"
+        className="bg-surface-secondary"
+      >
+        <Stack gap="sm">
+          <Group gap="xs">
+            <Checkbox
+              size="sm"
+              checked={allSelected}
+              indeterminate={someSelected}
+              onChange={toggleAll}
+              label={`Select all (${drafts.length})`}
+            />
+          </Group>
 
-        {drafts.map((draft) => (
-          <Paper key={draft.id} p="sm" radius="sm" withBorder>
-            <Group gap="sm" wrap="nowrap" align="flex-start">
-              <Checkbox
-                size="sm"
-                checked={selectedIds.has(draft.id)}
-                onChange={() => toggleSelection(draft.id)}
-                className="mt-1"
-                aria-label={`Select ${draft.name}`}
-              />
-              <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
-                <Text fw={500}>{draft.name}</Text>
-                {draft.description && (
-                  <Text size="sm" c="dimmed">
-                    {draft.description}
-                  </Text>
-                )}
-                {draft.vision && (
-                  <Text size="sm" fs="italic" c="dimmed">
-                    {draft.vision}
-                  </Text>
-                )}
-                {draft.tickets.length > 0 && (
-                  <Stack gap={4} mt={4}>
-                    <Text size="xs" c="dimmed" fw={500}>
-                      Proposed tickets ({draft.tickets.length})
+          {drafts.map((draft) => (
+            <Paper key={draft.id} p="sm" radius="sm" withBorder>
+              <Group gap="sm" wrap="nowrap" align="flex-start">
+                <Checkbox
+                  size="sm"
+                  checked={selectedIds.has(draft.id)}
+                  onChange={() => toggleSelection(draft.id)}
+                  className="mt-1"
+                  aria-label={`Select ${draft.name}`}
+                />
+                <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
+                  <Text fw={500}>{draft.name}</Text>
+                  {draft.description && (
+                    <Text size="sm" c="dimmed">
+                      {draft.description}
                     </Text>
-                    {draft.tickets.map((ticket, index) => (
-                      <Group key={`${draft.id}-${index}`} gap="xs" wrap="nowrap">
-                        <Badge size="xs" variant="light">
-                          {ticket.type}
-                        </Badge>
-                        <Text size="sm" style={{ minWidth: 0 }}>
-                          {ticket.title}
-                        </Text>
-                      </Group>
-                    ))}
-                  </Stack>
-                )}
-              </Stack>
-              <ActionIcon
-                size="sm"
+                  )}
+                  {draft.vision && (
+                    <Text size="sm" fs="italic" c="dimmed">
+                      {draft.vision}
+                    </Text>
+                  )}
+                  {draft.tickets.length > 0 && (
+                    <Stack gap={4} mt={4}>
+                      <Text size="xs" c="dimmed" fw={500}>
+                        Proposed tickets ({draft.tickets.length})
+                      </Text>
+                      {draft.tickets.map((ticket, index) => (
+                        <Group
+                          key={`${draft.id}-${index}`}
+                          gap="xs"
+                          wrap="nowrap"
+                        >
+                          <Badge size="xs" variant="light">
+                            {ticket.type}
+                          </Badge>
+                          <Text size="sm" style={{ minWidth: 0 }}>
+                            {ticket.title}
+                          </Text>
+                        </Group>
+                      ))}
+                    </Stack>
+                  )}
+                </Stack>
+                <Group gap={4} wrap="nowrap">
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    aria-label={`Edit ${draft.name}`}
+                    onClick={() => setEditingDraft(draft)}
+                  >
+                    <IconPencil size={14} />
+                  </ActionIcon>
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    color="red"
+                    aria-label={`Discard ${draft.name}`}
+                    onClick={() => discard([draft.id])}
+                    loading={discardMutation.isPending}
+                  >
+                    <IconTrash size={14} />
+                  </ActionIcon>
+                </Group>
+              </Group>
+            </Paper>
+          ))}
+
+          {workspaceId ? (
+            <Select
+              size="xs"
+              label="Target product"
+              placeholder="Choose a product"
+              data={products.map((product) => ({
+                value: product.id,
+                label: product.name,
+              }))}
+              value={productId}
+              onChange={setProductId}
+              searchable
+              nothingFoundMessage="No products in this workspace"
+            />
+          ) : (
+            <Text size="xs" c="dimmed">
+              This meeting isn&apos;t in a workspace yet — assign it to a
+              project first so its features have somewhere to go.
+            </Text>
+          )}
+
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed">
+              {productId
+                ? "Nothing is added to the product until you accept."
+                : "Pick a target product to accept into."}
+            </Text>
+            <Group gap="xs">
+              <Button
+                size="xs"
                 variant="subtle"
                 color="red"
-                aria-label={`Discard ${draft.name}`}
-                onClick={() => discard([draft.id])}
+                onClick={() => discard(Array.from(selectedIds))}
                 loading={discardMutation.isPending}
+                disabled={selectedIds.size === 0 || isBusy}
               >
-                <IconTrash size={14} />
-              </ActionIcon>
+                Discard ({selectedIds.size})
+              </Button>
+              <Button
+                size="xs"
+                variant="light"
+                onClick={() => accept(Array.from(selectedIds))}
+                loading={publishMutation.isPending}
+                disabled={!productId || selectedIds.size === 0 || isBusy}
+              >
+                Accept selected ({selectedIds.size})
+              </Button>
+              <Button
+                size="xs"
+                onClick={() => accept(drafts.map((draft) => draft.id))}
+                loading={publishMutation.isPending}
+                disabled={!productId || isBusy}
+              >
+                Accept all
+              </Button>
             </Group>
-          </Paper>
-        ))}
-
-        {workspaceId ? (
-          <Select
-            size="xs"
-            label="Target product"
-            placeholder="Choose a product"
-            data={products.map((product) => ({
-              value: product.id,
-              label: product.name,
-            }))}
-            value={productId}
-            onChange={setProductId}
-            searchable
-            nothingFoundMessage="No products in this workspace"
-          />
-        ) : (
-          <Text size="xs" c="dimmed">
-            This meeting isn&apos;t in a workspace yet — assign it to a project
-            first so its features have somewhere to go.
-          </Text>
-        )}
-
-        <Group justify="space-between">
-          <Text size="xs" c="dimmed">
-            {productId
-              ? "Nothing is added to the product until you accept."
-              : "Pick a target product to accept into."}
-          </Text>
-          <Group gap="xs">
-            <Button
-              size="xs"
-              variant="subtle"
-              color="red"
-              onClick={() => discard(Array.from(selectedIds))}
-              loading={discardMutation.isPending}
-              disabled={selectedIds.size === 0 || isBusy}
-            >
-              Discard ({selectedIds.size})
-            </Button>
-            <Button
-              size="xs"
-              variant="light"
-              onClick={() => accept(Array.from(selectedIds))}
-              loading={publishMutation.isPending}
-              disabled={!productId || selectedIds.size === 0 || isBusy}
-            >
-              Accept selected ({selectedIds.size})
-            </Button>
-            <Button
-              size="xs"
-              onClick={() => accept(drafts.map((draft) => draft.id))}
-              loading={publishMutation.isPending}
-              disabled={!productId || isBusy}
-            >
-              Accept all
-            </Button>
           </Group>
-        </Group>
-      </Stack>
-    </Paper>
+        </Stack>
+      </Paper>
+      <EditDraftFeatureModal
+        draft={editingDraft}
+        transcriptionId={transcriptionId}
+        opened={Boolean(editingDraft)}
+        onClose={() => setEditingDraft(null)}
+        onSaved={async () => {
+          await utils.transcription.getDraftFeaturesByTranscription.invalidate({
+            transcriptionId,
+          });
+          setEditingDraft(null);
+        }}
+      />
+    </>
   );
 }

@@ -11,6 +11,8 @@ import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { FeatureIdeationService } from "~/server/services/FeatureIdeationService";
 import { parseProposedTickets } from "~/server/services/FeatureExtractionService";
+import { TICKET_TYPES } from "~/lib/ticket-types";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
@@ -2025,6 +2027,82 @@ export const transcriptionRouter = createTRPCRouter({
         ticketsCreated,
         featureIds,
       };
+    }),
+
+  // Editing happens on the DRAFT, before anything is materialised — the
+  // reviewer sharpens a name or drops a proposed ticket, then accepts. Editing
+  // after accepting is ordinary Feature/Ticket editing and not this path.
+  updateDraftFeature: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        draftId: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE)
+          .nullable()
+          .optional(),
+        vision: boundedText("Vision", TEXT_LIMITS.SHORT).nullable().optional(),
+        tickets: z
+          .array(
+            z.object({
+              title: boundedText("Ticket title", TEXT_LIMITS.LABEL, { min: 1 }),
+              body: boundedText("Ticket body", TEXT_LIMITS.LARGE)
+                .nullable()
+                .optional(),
+              type: z.enum(TICKET_TYPES).optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      // Scoped to the transcription so a draft id from another meeting can't be
+      // edited through this meeting's card.
+      const draft = await ctx.db.meetingFeatureDraft.findFirst({
+        where: {
+          id: input.draftId,
+          transcriptionSessionId: input.transcriptionId,
+        },
+        select: { id: true },
+      });
+      if (!draft) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Draft feature not found",
+        });
+      }
+
+      return ctx.db.meetingFeatureDraft.update({
+        where: { id: draft.id },
+        data: {
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(input.description === undefined
+            ? {}
+            : { description: input.description }),
+          ...(input.vision === undefined ? {} : { vision: input.vision }),
+          ...(input.tickets === undefined
+            ? {}
+            : {
+                tickets: input.tickets.map((ticket) => ({
+                  title: ticket.title,
+                  body: ticket.body ?? null,
+                  type: ticket.type ?? "FEATURE",
+                })),
+              }),
+        },
+        select: { id: true },
+      });
     }),
 
   // Rejecting a draft deletes the holding row and touches nothing else — the
