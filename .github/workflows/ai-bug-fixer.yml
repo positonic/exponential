@@ -19,6 +19,11 @@ on:
       model:
         description: "Override the coding-agent model (default: the AI_BUG_FIXER_MODEL repo var or claude-haiku-4-5)"
         required: false
+      debug_output:
+        description: "Log the coding agent's full output. THIS REPO IS PUBLIC — the log is world-readable. Manual runs only, one at a time, and only when you need the agent's error message."
+        required: false
+        type: boolean
+        default: false
 
 # One run at a time. The status flip READY_TO_PLAN -> IN_PROGRESS is the soft
 # lock; this guarantees runs queue rather than overlap, so two workers can't
@@ -179,7 +184,17 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
+          # Two auth paths, because the two credential types are NOT
+          # interchangeable: a subscription OAuth token (`claude setup-token`,
+          # `sk-ant-oat…`) goes in CLAUDE_CODE_OAUTH_TOKEN, a console API key
+          # (`sk-ant-api…`) goes in ANTHROPIC_API_KEY. Passing the wrong one
+          # fails in ~2s with `is_error: true` and no usable message. Whichever
+          # secret is set wins; an unset secret renders as empty and is ignored.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Off by default. See the debug_output input — this repo is public, so
+          # the agent's full output lands in a world-readable log.
+          show_full_output: ${{ inputs.debug_output || false }}
           prompt: "Read .ai-bug-fixer/prompt.md and implement the narrow fix it describes. Edit the working tree only — do NOT run git, commit, push, or open a PR."
           claude_args: "--model ${{ inputs.model || vars.AI_BUG_FIXER_MODEL || 'claude-haiku-4-5' }} --max-turns 30"
 
