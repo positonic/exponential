@@ -94,11 +94,18 @@ export interface ExtractFeaturesOptions {
 }
 
 /**
- * Tracer-bullet defaults: one feature carrying one ticket. Widened in the
- * multi-draft slice.
+ * Why cap at all: extraction costs one LLM call per chunk, and chunks are
+ * `MAX_CHARS_PER_CHUNK`-sized, so a long meeting is many calls. Once
+ * `maxFeatures` drafts are in hand the remaining chunks would only produce rows
+ * we discard, so the walk stops there and never pays for them. Same reasoning as
+ * `DEFAULT_MAX_ACTIONS` in `ActionExtractionService`.
+ *
+ * The numbers are review-budget numbers, not model limits: 8 drafts each with up
+ * to 5 proposed tickets is about as much as a human will actually triage off one
+ * meeting.
  */
-const DEFAULT_MAX_FEATURES = 1;
-const DEFAULT_MAX_TICKETS_PER_FEATURE = 1;
+const DEFAULT_MAX_FEATURES = 8;
+const DEFAULT_MAX_TICKETS_PER_FEATURE = 5;
 const MAX_CHARS_PER_CHUNK = 6000;
 
 /** Name key used to drop near-identical features the model repeats across chunks. */
@@ -231,45 +238,56 @@ export class FeatureExtractionService {
     const model = new ChatOpenAI({ modelName, temperature: 0 });
     const systemPrompt = buildFeatureSystemPrompt(maxTicketsPerFeature);
 
-    // Tracer-bullet scope: a single pass over the opening chunk. The
-    // multi-draft slice walks every chunk and dedupes across them.
-    const chunk = chunks[0];
-    if (!chunk) {
-      return [];
-    }
-
-    let parsed: z.infer<typeof extractionSchema>;
-    try {
-      const response = await model.invoke([
-        new SystemMessage(systemPrompt),
-        new HumanMessage(buildFeatureChunkPrompt(chunk)),
-      ]);
-      const rawContent =
-        typeof response.content === "string" ? response.content : "";
-      parsed = extractionSchema.parse(parseJsonFromModelOutput(rawContent));
-    } catch (error) {
-      console.log(
-        `[FeatureExtraction] Failed to parse model response: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return [];
-    }
-
+    // `seen` lives outside the chunk loop: a capability discussed in the intro
+    // and again in the wrap-up must yield ONE draft, not two.
     const seen = new Set<string>();
     const results: ParsedDraftFeature[] = [];
 
-    for (const feature of parsed.features) {
-      const key = normalizeFeatureName(feature.name);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
+    for (let i = 0; i < chunks.length; i++) {
+      // Cost guard: stop before invoking the model for chunks whose output we
+      // would immediately throw away.
+      if (results.length >= maxFeatures) {
+        console.log(
+          `[FeatureExtraction] Reached maxFeatures=${maxFeatures} — skipping remaining ${chunks.length - i} chunk(s)`,
+        );
+        break;
+      }
 
-      results.push({
-        name: feature.name.trim(),
-        description: feature.description?.trim() ?? undefined,
-        vision: feature.vision?.trim() ?? undefined,
-        tickets: coerceTickets(feature.tickets, maxTicketsPerFeature),
-      });
+      const chunk = chunks[i]!;
+      let parsed: z.infer<typeof extractionSchema> | null = null;
 
-      if (results.length >= maxFeatures) break;
+      try {
+        const response = await model.invoke([
+          new SystemMessage(systemPrompt),
+          new HumanMessage(buildFeatureChunkPrompt(chunk)),
+        ]);
+        const rawContent =
+          typeof response.content === "string" ? response.content : "";
+        parsed = extractionSchema.parse(parseJsonFromModelOutput(rawContent));
+      } catch (error) {
+        // One bad chunk must not lose the whole meeting: the model wrapping its
+        // JSON in prose, or a transient call failure, costs us that chunk's
+        // features and nothing more.
+        console.log(
+          `[FeatureExtraction] Chunk ${i + 1}/${chunks.length} failed, continuing: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        continue;
+      }
+
+      for (const feature of parsed.features) {
+        const key = normalizeFeatureName(feature.name);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+
+        results.push({
+          name: feature.name.trim(),
+          description: feature.description?.trim() ?? undefined,
+          vision: feature.vision?.trim() ?? undefined,
+          tickets: coerceTickets(feature.tickets, maxTicketsPerFeature),
+        });
+
+        if (results.length >= maxFeatures) break;
+      }
     }
 
     console.log(`[FeatureExtraction] Extracted ${results.length} draft feature(s)`);
