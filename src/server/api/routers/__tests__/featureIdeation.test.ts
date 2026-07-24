@@ -216,6 +216,45 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
     caller = createMockCaller({ userId: callerId, db: dbMock });
   });
 
+  // ── Router-boundary access on ideation ─────────────────────────────
+  //
+  // The service's own check waves through a project-less meeting for any
+  // caller, so the router must assert access itself. A meeting belonging to
+  // someone else, filed under no project, must not be ideatable by a stranger.
+  it("refuses ideation by a non-member on someone else's project-less meeting", async () => {
+    stubOwnedSession(dbMock, { userId: "someone-else", projectId: null });
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+
+    await expect(
+      caller.transcription.generateDraftFeatures({ transcriptionId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(extractFromTranscript).not.toHaveBeenCalled();
+    expect(dbMock.meetingFeatureDraft.createMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses ideation by a workspace viewer — ideating writes draft rows", async () => {
+    stubOwnedSession(dbMock, { userId: "someone-else", projectId: null });
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { userId: callerId, workspaceId, role: "viewer" } as any,
+    );
+
+    await expect(
+      caller.transcription.generateDraftFeatures({ transcriptionId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(extractFromTranscript).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing meeting as NOT_FOUND, not BAD_REQUEST", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+
+    await expect(
+      caller.transcription.generateDraftFeatures({ transcriptionId }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   // ── Guard rail 1: no transcript declines and says why ──────────────
   it("declines ideation on a meeting with no transcript and says why", async () => {
     stubOwnedSession(dbMock, { transcription: null });
@@ -283,17 +322,14 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
   });
 
   // ── Guard rail 4: missing meeting reports failure ──────────────────
-  it("reports a BAD_REQUEST failure (not an unhandled throw) when the meeting does not exist", async () => {
+  it("does not reach extraction when the meeting does not exist", async () => {
     dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
 
     await expect(
       caller.transcription.generateDraftFeatures({
         transcriptionId: "does-not-exist",
       }),
-    ).rejects.toMatchObject({
-      code: "BAD_REQUEST",
-      message: expect.stringMatching(/not found/i) as unknown as string,
-    });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     expect(extractFromTranscript).not.toHaveBeenCalled();
     expect(dbMock.meetingFeatureDraft.createMany).not.toHaveBeenCalled();

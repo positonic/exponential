@@ -1916,6 +1916,24 @@ export const transcriptionRouter = createTRPCRouter({
   generateDraftFeatures: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // Assert access at the router boundary like every sibling procedure,
+      // rather than leaning on the service's internal check. The service
+      // mirrors generateDraftActions, whose owner-first check waves through a
+      // project-less meeting for any caller; the centralized transcription
+      // resolver handles project-less sessions properly (workspace members can
+      // edit, viewers cannot) and re-checks an owner who has since lost
+      // workspace access. Ideation writes draft rows, so "edit", not "view".
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
       const result = await FeatureIdeationService.generateDraftFeatures(
         input.transcriptionId,
         ctx.session.user.id,
