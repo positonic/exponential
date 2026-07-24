@@ -35,13 +35,38 @@ const actionBlock = linkedActions.length
   ? linkedActions.map((a) => `- ${a.name} (${a.status})`).join("\n")
   : "_(none)_";
 
-const brief = `# Bug fix task — Ticket #${ticket.number ?? "?"}: ${ticket.title ?? ""}
-
-You are an autonomous engineer fixing ONE bug in this repository. A human will
+// The worker is no longer bug-only, and the framing is not cosmetic: telling an
+// agent to "make the smallest change that fixes the reported bug" when the
+// ticket asks for a feature reliably produces a deliberate non-implementation.
+// BUG keeps the narrow-fix framing; everything else asks for the change the
+// ticket describes, still scoped to that ticket and nothing more.
+const isBug = String(ticket.type ?? "BUG").toUpperCase() === "BUG";
+const kind = isBug ? "Bug fix" : "Implementation";
+const intro = isBug
+  ? `You are an autonomous engineer fixing ONE bug in this repository. A human will
 review your pull request before anything merges — your job is a correct,
-**narrow** fix, not a refactor.
+**narrow** fix, not a refactor.`
+  : `You are an autonomous engineer implementing ONE ticket in this repository. A
+human will review your pull request before anything merges — your job is to
+build exactly what this ticket describes, and nothing beyond it.`;
+const scopeRule = isBug
+  ? `Make the **smallest change** that fixes the reported bug. Do not refactor
+   unrelated code, rename things, or reformat files you didn't need to touch.`
+  : `Implement **only** what this ticket describes. Do not expand the scope,
+   refactor unrelated code, rename things, or reformat files you didn't need
+   to touch. If the ticket is ambiguous, choose the smallest reasonable
+   interpretation rather than guessing at a bigger one.`;
+const bailRule = isBug
+  ? `If the bug is actually a security or data-loss issue, or you cannot fix it
+   without a broad/risky change,`
+  : `If this ticket turns out to be a security or data-loss concern, needs a
+   database migration, or cannot be built without a broad/risky change,`;
 
-## Bug report
+const brief = `# ${kind} task — Ticket #${ticket.number ?? "?"}: ${ticket.title ?? ""}
+
+${intro}
+
+## Ticket (type: ${ticket.type ?? "unknown"})
 
 ${(ticket.body ?? "_(no description provided)_").trim()}
 
@@ -55,15 +80,15 @@ ${actionBlock}
 
 ## Rules
 
-1. Make the **smallest change** that fixes the reported bug. Do not refactor
-   unrelated code, rename things, or reformat files you didn't need to touch.
+1. ${scopeRule}
 2. Follow this repo's conventions in \`CLAUDE.md\` — especially: NO hardcoded
    colors, use \`??\` not \`||\`, no \`any\`, proper \`import type\`, await all promises.
-3. If the bug is actually a security or data-loss issue, or you cannot fix it
-   without a broad/risky change, **STOP**: leave a short note in a file named
+3. ${bailRule} **STOP**: leave a short note in a file named
    \`.ai-bug-fixer/needs-human.txt\` explaining why, and make no code changes.
 4. Add or update a focused test when it's reasonable to do so.
-5. Do **not** run git, commit, push, or open a PR — the workflow handles that.
+5. If the ticket body is empty or too vague to act on, do **not** guess — STOP
+   and write \`.ai-bug-fixer/needs-human.txt\` saying what you'd need to know.
+6. Do **not** run git, commit, push, or open a PR — the workflow handles that.
    Just edit the working tree.
 
 When done, the workflow runs \`npx tsc --noEmit\` and \`npx next lint\`; your change
