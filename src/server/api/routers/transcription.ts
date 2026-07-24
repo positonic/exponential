@@ -2027,6 +2027,39 @@ export const transcriptionRouter = createTRPCRouter({
       };
     }),
 
+  // Rejecting a draft deletes the holding row and touches nothing else — the
+  // feature registry never saw it in the first place.
+  discardDraftFeatures: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        draftIds: z.array(z.string()).min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      // Scoped to the transcription as well as the ids, so a draft id from
+      // another meeting can't be deleted through this meeting's card.
+      const result = await ctx.db.meetingFeatureDraft.deleteMany({
+        where: {
+          id: { in: input.draftIds },
+          transcriptionSessionId: input.transcriptionId,
+        },
+      });
+
+      return { discardedCount: result.count };
+    }),
+
   sendSlackNotification: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
