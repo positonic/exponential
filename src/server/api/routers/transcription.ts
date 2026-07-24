@@ -9,6 +9,10 @@ import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { FeatureIdeationService } from "~/server/services/FeatureIdeationService";
+import { parseProposedTickets } from "~/server/services/FeatureExtractionService";
+import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
+import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
@@ -140,6 +144,23 @@ async function ensureTranscriptionAccess(
         ? "Not authorized to view this transcription"
         : "Not authorized to update this transcription",
   });
+}
+
+/**
+ * Load the identity columns `ensureTranscriptionAccess` needs, or 404.
+ */
+async function loadTranscriptionForAccess(db: PrismaClient, id: string) {
+  const session = await db.transcriptionSession.findUnique({
+    where: { id },
+    select: { id: true, userId: true, projectId: true, workspaceId: true },
+  });
+  if (!session) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Transcription not found",
+    });
+  }
+  return session;
 }
 
 // Keep the denormalized `participantCount` in sync with the persisted
@@ -1852,6 +1873,158 @@ export const transcriptionRouter = createTRPCRouter({
       }
 
       return { publishedCount: result.count };
+    }),
+
+  // ────────────────────────────────────────────────────────────────
+  // Feature ideation (meeting → product features & backlog tickets).
+  //
+  // Same shape as the draft-Actions trio above: a mutation that runs
+  // deterministic extraction into a holding table, a query that feeds the
+  // review card, and a publish mutation that materialises what the human
+  // accepted. Drafts live in `MeetingFeatureDraft`, never in `Feature` —
+  // nothing reaches the feature registry without review.
+  // ────────────────────────────────────────────────────────────────
+
+  generateDraftFeatures: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await FeatureIdeationService.generateDraftFeatures(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.errors.join(", ") || "Failed to ideate features",
+        });
+      }
+
+      return result;
+    }),
+
+  getDraftFeaturesByTranscription: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "view",
+      );
+
+      const drafts = await ctx.db.meetingFeatureDraft.findMany({
+        where: { transcriptionSessionId: input.transcriptionId },
+        orderBy: { createdAt: "asc" },
+      });
+
+      // Hand the card a typed breakdown rather than a raw JsonValue.
+      return drafts.map((draft) => ({
+        id: draft.id,
+        name: draft.name,
+        description: draft.description,
+        vision: draft.vision,
+        tickets: parseProposedTickets(draft.tickets),
+      }));
+    }),
+
+  publishSelectedDraftFeatures: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        draftIds: z.array(z.string()).min(1),
+        // Required by design: a workspace can hold several products, and
+        // inferring the target from the meeting would let one product's
+        // meeting silently write features into another.
+        productId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(ctx.db, userId, session, "edit");
+
+      const product = await loadProductWithAccess(
+        ctx.db,
+        userId,
+        input.productId,
+      );
+
+      const drafts = await ctx.db.meetingFeatureDraft.findMany({
+        where: {
+          id: { in: input.draftIds },
+          transcriptionSessionId: input.transcriptionId,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (drafts.length === 0) {
+        return { featuresCreated: 0, ticketsCreated: 0, featureIds: [] };
+      }
+
+      const featureIds: string[] = [];
+      let ticketsCreated = 0;
+
+      for (const draft of drafts) {
+        // Mirrors `feature.create`: `description` is the Markdown projection and
+        // `descriptionDoc` stays null until the editor first opens it (ADR-0024).
+        const feature = await ctx.db.feature.create({
+          data: {
+            productId: product.id,
+            name: draft.name,
+            description: draft.description,
+            vision: draft.vision,
+            status: "IDEA",
+            createdById: userId,
+          },
+        });
+        featureIds.push(feature.id);
+
+        await recordActivity(ctx.db, {
+          workspaceId: product.workspaceId,
+          userId,
+          entityType: "feature",
+          entityId: feature.id,
+          action: "created",
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+
+        // Ticket creation goes through the shared service (ADR-0016) — it owns
+        // the atomic product-counter increment, the shortId, and the activity
+        // write. Raw `db.ticket.create` here would yield malformed tickets.
+        for (const proposed of parseProposedTickets(draft.tickets)) {
+          await createTicketWithNumber(ctx.db, {
+            productId: product.id,
+            workspaceId: product.workspaceId,
+            createdById: userId,
+            title: proposed.title,
+            body: proposed.body ?? null,
+            type: proposed.type,
+            status: "BACKLOG",
+            featureId: feature.id,
+          });
+          ticketsCreated += 1;
+        }
+      }
+
+      // Drain the accepted drafts — the real Features now carry them.
+      await ctx.db.meetingFeatureDraft.deleteMany({
+        where: { id: { in: drafts.map((draft) => draft.id) } },
+      });
+
+      return {
+        featuresCreated: featureIds.length,
+        ticketsCreated,
+        featureIds,
+      };
     }),
 
   sendSlackNotification: protectedProcedure

@@ -11,6 +11,7 @@ import {
   IconAlertCircle,
   IconPlus,
   IconRefresh,
+  IconBulb,
 } from "@tabler/icons-react";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
@@ -28,10 +29,14 @@ interface SummaryTabProps {
   isActionsLoading: boolean;
   hasTranscript: boolean;
   isCreatingActions: boolean;
+  /** True while feature ideation is running for this meeting. */
+  isIdeatingFeatures: boolean;
   /** True while a summary is being auto-generated on view for this meeting. */
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onCreateActions: () => void;
+  /** Turn the transcript into reviewable draft product features. */
+  onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
   onRegenerate: () => void;
 }
@@ -44,9 +49,11 @@ export function SummaryTab({
   isActionsLoading,
   hasTranscript,
   isCreatingActions,
+  isIdeatingFeatures,
   isGeneratingSummary,
   onSaveSummary,
   onCreateActions,
+  onIdeateFeatures,
   onRegenerate,
 }: SummaryTabProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -213,6 +220,25 @@ export function SummaryTab({
           </div>
         ) : (
           <div className="mp-empty">No transcript available to create actions from.</div>
+        )}
+
+        {/* Sits beside Create Actions rather than inside its bar: that bar
+            disappears once the meeting has actions, and ideating features
+            stays useful after that. */}
+        {hasTranscript && (
+          <div className="mp-actbar">
+            <div className="mp-actbar__txt">
+              <b>Product features</b> can be ideated from this meeting. Review
+              them, pick a product, and accept the ones worth building.
+            </div>
+            <button
+              className="mp-btn mp-btn--primary"
+              onClick={onIdeateFeatures}
+              disabled={isIdeatingFeatures}
+            >
+              <IconBulb size={13} /> Ideate Features
+            </button>
+          </div>
         )}
       </section>
     </>

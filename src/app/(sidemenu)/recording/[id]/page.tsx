@@ -163,6 +163,55 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     generateDraftsMutation.mutate({ transcriptionId: session.id });
   }
 
+  // Same deterministic-then-review shape as Create Actions, one level up the
+  // altitude ladder: an Action is a task, a Feature is a product capability.
+  // Nothing is written to the feature registry until the card's accept step.
+  const ideateFeaturesMutation =
+    api.transcription.generateDraftFeatures.useMutation({
+      onSuccess: (result) => {
+        if (!session) return;
+        if (result.draftCount === 0) {
+          notifications.show({
+            title: "No features found",
+            message: "No product features were identified in this meeting.",
+            color: "gray",
+          });
+          return;
+        }
+        const transcriptionId = session.id;
+        setMessages((prev) => {
+          const alreadyHasCard = prev.some(
+            (m) =>
+              m.card?.kind === "draft-features" &&
+              m.card.transcriptionId === transcriptionId,
+          );
+          if (alreadyHasCard) return prev;
+          const cardMessage: ChatMessage = {
+            type: "ai",
+            agentName: "Zoe",
+            content: result.alreadyDrafted
+              ? "Here are the draft features from this meeting — pick a product and accept the ones you want."
+              : "I found some product features in this meeting — pick a product and accept the ones you want.",
+            card: { kind: "draft-features", transcriptionId },
+          };
+          return [...prev, cardMessage];
+        });
+        openModal();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Error",
+          message: error.message || "Failed to ideate features",
+          color: "red",
+        });
+      },
+    });
+
+  function handleIdeateFeatures() {
+    if (!session) return;
+    ideateFeaturesMutation.mutate({ transcriptionId: session.id });
+  }
+
   function handleArchive() {
     if (!session) return;
     if (
@@ -255,11 +304,13 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       isActionsLoading={isActionsLoading}
       assignableProjects={assignableProjects}
       isCreatingActions={generateDraftsMutation.isPending}
+      isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
       onCreateActions={handleCreateActions}
+      onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
       onArchive={handleArchive}
     />
