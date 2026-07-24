@@ -30,6 +30,11 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  # Required by anthropics/claude-code-action, which authenticates via OIDC.
+  # Without it the agent step fails with "Could not fetch an OIDC token" —
+  # and because that step is `continue-on-error`, the run still goes GREEN
+  # while silently never producing a PR. Do not remove.
+  id-token: write
 
 env:
   EXPONENTIAL_API_URL: ${{ vars.EXPONENTIAL_API_URL }}
