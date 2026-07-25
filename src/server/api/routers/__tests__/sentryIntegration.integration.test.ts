@@ -55,6 +55,52 @@ describe("integration router — Sentry", () => {
       expect(getDecryptedKey(secretCred[0]!)).toBe(result.webhookSecret);
     });
 
+    it("uses a caller-supplied secret when one is provided", async () => {
+      const owner = await createUser(db);
+      const workspace = await createWorkspace(db, { ownerId: owner.id });
+      const product = await createProduct(db, {
+        workspaceId: workspace.id,
+        createdById: owner.id,
+      });
+      const caller = createTestCaller(owner.id);
+
+      const provided = "my-own-super-secret-value";
+      const result = await caller.integration.createSentryIntegration({
+        workspaceId: workspace.id,
+        productId: product.id,
+        webhookSecret: provided,
+      });
+
+      expect(result.webhookSecret).toBe(provided);
+
+      const integration = await db.integration.findFirst({
+        where: { provider: "sentry", workspaceId: workspace.id },
+        include: { credentials: true },
+      });
+      const secretCred = integration!.credentials.find(
+        (c) => c.keyType === "WEBHOOK_SECRET",
+      );
+      expect(getDecryptedKey(secretCred!)).toBe(provided);
+    });
+
+    it("rejects a supplied secret shorter than 16 chars", async () => {
+      const owner = await createUser(db);
+      const workspace = await createWorkspace(db, { ownerId: owner.id });
+      const product = await createProduct(db, {
+        workspaceId: workspace.id,
+        createdById: owner.id,
+      });
+      const caller = createTestCaller(owner.id);
+
+      await expect(
+        caller.integration.createSentryIntegration({
+          workspaceId: workspace.id,
+          productId: product.id,
+          webhookSecret: "tooshort",
+        }),
+      ).rejects.toThrow();
+    });
+
     it("rejects a non-owner/admin member with FORBIDDEN", async () => {
       const owner = await createUser(db);
       const member = await createUser(db);

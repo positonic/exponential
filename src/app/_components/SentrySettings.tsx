@@ -11,6 +11,7 @@ import {
   PasswordInput,
   Select,
   Stack,
+  Switch,
   Text,
   TextInput,
 } from "@mantine/core";
@@ -37,12 +38,19 @@ export function SentrySettings({ workspace, canManage }: SentrySettingsProps) {
   const [setupOpened, { open: openSetup, close: closeSetup }] =
     useDisclosure(false);
   const [productId, setProductId] = useState<string | null>(null);
+  // Optional: let the admin supply their own signing secret instead of having
+  // one generated (e.g. to reuse an existing Sentry Client Secret).
+  const [useOwnSecret, setUseOwnSecret] = useState(false);
+  const [ownSecret, setOwnSecret] = useState("");
   // Populated once, from the create response — the only time we ever hold the
   // plaintext secret client-side.
   const [created, setCreated] = useState<{
     webhookUrl: string;
     webhookSecret: string;
   } | null>(null);
+
+  // Mirror the server's `z.string().min(16)` rule so we can validate before submit.
+  const ownSecretTooShort = useOwnSecret && ownSecret.length < 16;
 
   const utils = api.useUtils();
 
@@ -76,6 +84,8 @@ export function SentrySettings({ workspace, canManage }: SentrySettingsProps) {
     // Keep `created` cleared so the secret isn't lingering in state after close.
     setCreated(null);
     setProductId(null);
+    setUseOwnSecret(false);
+    setOwnSecret("");
     createMutation.reset();
   }
 
@@ -206,6 +216,30 @@ export function SentrySettings({ workspace, canManage }: SentrySettingsProps) {
               searchable
             />
 
+            <div>
+              <Switch
+                checked={useOwnSecret}
+                onChange={(e) => setUseOwnSecret(e.currentTarget.checked)}
+                label="Provide my own signing secret"
+                description="Off by default — a strong secret is generated for you."
+              />
+              {useOwnSecret && (
+                <PasswordInput
+                  mt="sm"
+                  label="Signing secret"
+                  placeholder="At least 16 characters"
+                  value={ownSecret}
+                  onChange={(e) => setOwnSecret(e.currentTarget.value)}
+                  error={
+                    ownSecretTooShort
+                      ? "Must be at least 16 characters"
+                      : undefined
+                  }
+                  required
+                />
+              )}
+            </div>
+
             {createMutation.error && (
               <Alert color="red" icon={<IconX size={16} />}>
                 {createMutation.error.message}
@@ -218,12 +252,16 @@ export function SentrySettings({ workspace, canManage }: SentrySettingsProps) {
               </Button>
               <Button
                 loading={createMutation.isPending}
-                disabled={!productId}
+                disabled={!productId || ownSecretTooShort}
                 onClick={() => {
                   if (!productId) return;
                   createMutation.mutate({
                     workspaceId: workspace.id,
                     productId,
+                    // Only send a secret when the admin opted to supply one;
+                    // otherwise the server generates it.
+                    webhookSecret:
+                      useOwnSecret && ownSecret ? ownSecret : undefined,
                   });
                 }}
               >
