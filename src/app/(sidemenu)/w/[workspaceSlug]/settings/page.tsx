@@ -45,6 +45,7 @@ import {
   IconShieldExclamation,
   IconSparkles,
   IconSend,
+  IconBug,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -57,6 +58,7 @@ import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTab
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
+import { SentrySettings } from '~/app/_components/SentrySettings';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
@@ -1262,6 +1264,19 @@ export default function WorkspaceSettingsPage() {
                 <ZulipSettings
                   workspace={{ id: workspaceId, name: workspace.name }}
                   workspaceSlug={workspace.slug}
+                />
+              </SettingsSection>
+            )}
+
+            {workspaceId && (
+              <SettingsSection
+                icon={IconBug}
+                title="Sentry"
+                description="File Sentry issues as Bug tickets in a product of your choice. Generates a webhook URL and signing secret to paste into a Sentry internal integration."
+              >
+                <SentrySettings
+                  workspace={{ id: workspaceId, name: workspace.name }}
+                  canManage={canEdit}
                 />
               </SettingsSection>
             )}
