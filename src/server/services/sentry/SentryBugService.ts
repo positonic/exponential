@@ -95,8 +95,16 @@ export interface IngestResult {
 export async function ingestSentryBug(
   db: PrismaClient,
   bug: SentryBug,
+  options?: { productId?: string },
 ): Promise<IngestResult> {
-  const productId = process.env.SENTRY_BUG_PRODUCT_ID ?? DEFAULT_BUG_PRODUCT_ID;
+  // Destination precedence: an explicit per-workspace product (from a
+  // workspace-scoped Sentry integration) wins; otherwise fall back to the
+  // global env default, then the hardcoded Exponential product. This keeps the
+  // legacy global `/api/webhooks/sentry` route working unchanged.
+  const productId =
+    options?.productId ??
+    process.env.SENTRY_BUG_PRODUCT_ID ??
+    DEFAULT_BUG_PRODUCT_ID;
   const product = await db.product.findUnique({
     where: { id: productId },
     select: {
