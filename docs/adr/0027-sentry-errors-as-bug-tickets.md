@@ -6,6 +6,12 @@ Accepted — 2026-06-19. Builds on the external-webhook-writes-to-Ticket pattern
 [ADR-0021](0021-pr-merge-promotes-ticket-via-app-webhook.md) and deviates, deliberately,
 from [ADR-0016](0016-agent-activity-writes-reuse-human-path.md) on attribution.
 
+**Amended by [ADR-0048](0048-workspace-scoped-sentry-integration.md) (2026-07-25):** decision
+point 2 below ("*not* an `Integration` row" / single global hook) is superseded — Sentry is now a
+workspace-scoped `Integration` with a per-tenant signed webhook. The global route described here
+remains as a fallback; the rest of this ADR (bug-as-Ticket, Errol authorship, `links` dedup, the
+shared ticket-create service) stands.
+
 ## Context
 
 Sentry (`@sentry/nextjs`, production-only) captures runtime errors but there was no path from
