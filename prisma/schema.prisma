@@ -1289,6 +1289,7 @@ model TranscriptionSession {
 
   actions           Action[]
   featureDrafts     MeetingFeatureDraft[]
+  sourcedFeatures   Feature[]                         @relation("FeatureSourceMeeting")
   screenshots       Screenshot[]
   project           Project?                          @relation(fields: [projectId], references: [id])
   sourceIntegration Integration?                      @relation(fields: [sourceIntegrationId], references: [id])
@@ -4050,48 +4051,55 @@ model Area {
 }
 
 model Feature {
-  id             String        @id @default(cuid())
-  productId      String
-  name           String
+  id                    String        @id @default(cuid())
+  productId             String
+  name                  String
   // PRD body - the scoped ADR-0017 exception (ADR-0024). `descriptionDoc` is the
   // canonical ProseMirror document the editor reads/writes; `description` is a
   // derived, write-only Markdown projection for off-island readers (CLI, agents,
   // card previews) and never read back into the editor. `docVersion` powers the
   // optimistic-concurrency stale-write guard for single-writer editing.
-  description    String?
-  descriptionDoc Json?
-  docVersion     Int           @default(0)
-  vision         String?
-  status         FeatureStatus @default(IDEA)
-  effort         Float?
-  priority       Int?
+  description           String?
+  descriptionDoc        Json?
+  docVersion            Int           @default(0)
+  vision                String?
+  status                FeatureStatus @default(IDEA)
+  effort                Float?
+  priority              Int?
   // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
-  goalId         Int?
+  goalId                Int?
   // Exclusive Area bucket (Features V2) - at most one per Feature, nullable
   // while unsorted.
-  areaId         String?
-  createdById    String
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  areaId                String?
+  // Provenance (Features V3): the meeting this Feature was ideated from, set at
+  // accept time by the meeting→features path. Nullable — hand-authored features
+  // have no originating meeting. SetNull on delete so purging a meeting doesn't
+  // cascade away the Features it produced; the back-link just goes quiet.
+  sourceTranscriptionId String?
+  createdById           String
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  product      Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy    User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
-  goal         Goal?            @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
-  area         Area?            @relation(fields: [areaId], references: [id], onDelete: SetNull)
-  scopes       FeatureScope[]
-  userStories  UserStory[]
-  requirements Requirement[]
-  insights     FeatureInsight[]
-  tickets      Ticket[]
-  tags         FeatureTag[]
-  comments     FeatureComment[]
-  pages        FeaturePage[]
+  product             Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy           User                  @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  goal                Goal?                 @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
+  area                Area?                 @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  sourceTranscription TranscriptionSession? @relation("FeatureSourceMeeting", fields: [sourceTranscriptionId], references: [id], onDelete: SetNull)
+  scopes              FeatureScope[]
+  userStories         UserStory[]
+  requirements        Requirement[]
+  insights            FeatureInsight[]
+  tickets             Ticket[]
+  tags                FeatureTag[]
+  comments            FeatureComment[]
+  pages               FeaturePage[]
 
   @@index([productId])
   @@index([goalId])
   @@index([createdById])
   @@index([status])
   @@index([areaId])
+  @@index([sourceTranscriptionId])
 }
 
 /// A candidate Feature ideated from a meeting, held OUTSIDE the feature registry

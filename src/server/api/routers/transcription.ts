@@ -2039,6 +2039,9 @@ export const transcriptionRouter = createTRPCRouter({
             vision: draft.vision,
             status: "IDEA",
             createdById: userId,
+            // Provenance (V3): record the meeting this Feature came from, so the
+            // feature view can link back to it.
+            sourceTranscriptionId: input.transcriptionId,
           },
         });
         featureIds.push(feature.id);

@@ -424,6 +424,8 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
         vision: "Nobody types a contact in by hand again.",
         status: "IDEA",
         createdById: callerId,
+        // Provenance (V3): the originating meeting is recorded on the Feature.
+        sourceTranscriptionId: transcriptionId,
       }),
     ]);
 

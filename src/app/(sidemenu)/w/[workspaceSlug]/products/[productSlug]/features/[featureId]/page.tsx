@@ -28,6 +28,7 @@ import {
   IconFlag,
   IconFlame,
   IconMap2,
+  IconMicrophone,
   IconTag,
   IconTarget,
   IconTicket,
@@ -488,6 +489,24 @@ export default function FeatureDetailPage() {
             {new Date(feature.createdAt).toLocaleDateString()}
           </Text>
         </PropertyRow>
+
+        {/* Provenance (V3): a back-link to the meeting this feature was
+            ideated from. Absent for hand-authored features. */}
+        {feature.sourceTranscription && (
+          <PropertyRow icon={<IconMicrophone size={14} />} label="From meeting">
+            <Text
+              size="xs"
+              component={Link}
+              href={`/recording/${feature.sourceTranscription.id}`}
+              className="text-brand-primary hover:underline"
+              lineClamp={1}
+            >
+              {feature.sourceTranscription.title?.trim()
+                ? feature.sourceTranscription.title
+                : "Untitled meeting"}
+            </Text>
+          </PropertyRow>
+        )}
       </PropertiesSidebar>
 
       <MoveFeatureModal
