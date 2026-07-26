@@ -386,6 +386,11 @@ export const featureRouter = createTRPCRouter({
             },
           },
           area: { select: { id: true, name: true } },
+          // Provenance (V3): the meeting this feature was ideated from, for the
+          // "From meeting" back-link. Null for hand-authored features.
+          sourceTranscription: {
+            select: { id: true, title: true, meetingDate: true },
+          },
           scopes: { orderBy: { displayOrder: "asc" } },
           userStories: { orderBy: { displayOrder: "asc" } },
           requirements: {

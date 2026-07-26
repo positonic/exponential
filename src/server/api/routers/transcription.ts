@@ -10,7 +10,10 @@ import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { FeatureIdeationService } from "~/server/services/FeatureIdeationService";
-import { parseProposedTickets } from "~/server/services/FeatureExtractionService";
+import {
+  parseProposedTickets,
+  normalizeFeatureName,
+} from "~/server/services/FeatureExtractionService";
 import { TICKET_TYPES } from "~/lib/ticket-types";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
@@ -1986,6 +1989,60 @@ export const transcriptionRouter = createTRPCRouter({
       }));
     }),
 
+  // Near-duplicate check (V3), run when the card has a target product picked.
+  // For each draft, find existing features in that product whose normalized
+  // name matches — a warning surface, NOT a gate: the accept mutation does not
+  // consult this and creates the Feature regardless. Deliberately narrow per
+  // the scope: exact normalized-name match, same product only, no embeddings,
+  // no cross-product comparison.
+  findDuplicateFeatures: protectedProcedure
+    .input(z.object({ transcriptionId: z.string(), productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "view",
+      );
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.productId,
+      );
+
+      const drafts = await ctx.db.meetingFeatureDraft.findMany({
+        where: { transcriptionSessionId: input.transcriptionId },
+        select: { id: true, name: true },
+      });
+      const existing = await ctx.db.feature.findMany({
+        where: { productId: product.id },
+        select: { id: true, name: true },
+      });
+
+      // Index existing features by normalized name once, then look each draft up.
+      const byNormalized = new Map<string, { id: string; name: string }[]>();
+      for (const feature of existing) {
+        const key = normalizeFeatureName(feature.name);
+        const bucket = byNormalized.get(key);
+        if (bucket) {
+          bucket.push(feature);
+        } else {
+          byNormalized.set(key, [feature]);
+        }
+      }
+
+      return drafts
+        .map((draft) => ({
+          draftId: draft.id,
+          matches: byNormalized.get(normalizeFeatureName(draft.name)) ?? [],
+        }))
+        .filter((row) => row.matches.length > 0);
+    }),
+
   publishSelectedDraftFeatures: protectedProcedure
     .input(
       z.object({
@@ -2039,6 +2096,9 @@ export const transcriptionRouter = createTRPCRouter({
             vision: draft.vision,
             status: "IDEA",
             createdById: userId,
+            // Provenance (V3): record the meeting this Feature came from, so the
+            // feature view can link back to it.
+            sourceTranscriptionId: input.transcriptionId,
           },
         });
         featureIds.push(feature.id);
