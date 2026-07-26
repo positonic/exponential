@@ -9,6 +9,10 @@
  * here, so the YAML stays clean and the brief is auditable in the run logs.
  *
  * Usage: node render-prompt.mjs --ticket ticket.json --out .ai-bug-fixer/prompt.md
+ *
+ * `buildBrief` is exported and pure so the framing logic can be tested without
+ * a filesystem or a live ticket — see render-prompt.test.ts. The CLI wrapper at
+ * the bottom only runs when this file is executed directly.
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -18,9 +22,11 @@ function arg(name, fallback) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const ticket = JSON.parse(readFileSync(arg("ticket"), "utf8"));
-const out = arg("out", ".ai-bug-fixer/prompt.md");
-
+/**
+ * @param {Record<string, any>} ticket  parsed `exponential tickets get --json`
+ * @returns {string} the Markdown brief the coding agent reads
+ */
+export function buildBrief(ticket) {
 const comments = Array.isArray(ticket.comments) ? ticket.comments : [];
 const commentBlock = comments.length
   ? comments
@@ -95,6 +101,15 @@ When done, the workflow runs \`npx tsc --noEmit\` and \`npx next lint\`; your ch
 must pass both.
 `;
 
-mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, brief);
-console.log(`[ai-bug-fixer] wrote prompt for #${ticket.number ?? "?"} → ${out} (${brief.length} chars)`);
+  return brief;
+}
+
+// --- CLI: only when run directly, so the test can import buildBrief cleanly ---
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  const ticket = JSON.parse(readFileSync(arg("ticket"), "utf8"));
+  const out = arg("out", ".ai-bug-fixer/prompt.md");
+  const brief = buildBrief(ticket);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, brief);
+  console.log(`[ai-bug-fixer] wrote prompt for #${ticket.number ?? "?"} → ${out} (${brief.length} chars)`);
+}

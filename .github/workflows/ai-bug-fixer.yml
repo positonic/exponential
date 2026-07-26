@@ -188,6 +188,10 @@ jobs:
 
       - name: Render fix brief
         run: |
+          # Branch FIRST, then write scratch. If branch creation fails after the
+          # files exist, they are left dirtying the default branch's working
+          # tree for the rest of the run.
+          git checkout -b "$BRANCH"
           # Everything scratch lives under .ai-bug-fixer/ so the single `rm -rf`
           # in Finalize cleans it all up. ticket.json used to be written to the
           # repo root, where `git add -A` swept it into the commit — polluting
@@ -196,7 +200,6 @@ jobs:
           mkdir -p .ai-bug-fixer
           exponential tickets get "$TICKET_ID" --json > .ai-bug-fixer/ticket.json
           node scripts/ai-bug-fixer/render-prompt.mjs --ticket .ai-bug-fixer/ticket.json --out .ai-bug-fixer/prompt.md
-          git checkout -b "$BRANCH"
 
       - name: Run coding agent
         id: agent
@@ -305,13 +308,20 @@ jobs:
 
           # claude-code-action rewrites remote.origin.url to embed its OWN
           # (claude[bot]) token — it logs "Updating remote URL with
-          # authentication". That silently replaces the PAT credential
+          # authentication". That silently replaces the credential
           # actions/checkout installed, so this push authenticates as the bot
-          # and dies with "Invalid username or token". Restore our own remote
-          # before pushing. Checked out with the same token, so read already
-          # worked — it is only the write that was being hijacked.
-          git remote set-url origin \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # and dies with "Invalid username or token".
+          #
+          # Reset the remote to the PLAIN url — no token. actions/checkout's
+          # own `http.https://github.com/.extraheader` credential is still in
+          # .git/config at this point (it is only unset by the checkout Post
+          # step, which runs after this one) and applies to that url, so the
+          # push authenticates as us again. Deliberately NOT re-embedding a
+          # token in the url or in git config: this repo is public and Actions
+          # logs are world-readable, so a token in the remote would leak via
+          # `git remote -v`, `git config --list`, or a git error that echoes
+          # the url. Nothing to leak if nothing is stored.
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
           if ! git push origin "$BRANCH"; then abort "could not push the branch"; fi
 
           cat > .pr-body.md <<EOF
