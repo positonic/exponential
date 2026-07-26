@@ -13,7 +13,8 @@ import {
   Text,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconAlertTriangle, IconPencil, IconTrash } from "@tabler/icons-react";
+import Link from "next/link";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { EditDraftFeatureModal } from "./EditDraftFeatureModal";
 
@@ -60,6 +61,28 @@ export function DraftFeaturesReviewCard({
     { workspaceId: workspaceId ?? "" },
     { enabled: Boolean(workspaceId) },
   );
+
+  // Near-duplicate warning (V3): once a product is picked, flag drafts whose
+  // name already exists there. A warning only — accept is never blocked.
+  const { data: duplicateRows = [] } =
+    api.transcription.findDuplicateFeatures.useQuery(
+      { transcriptionId, productId: productId ?? "" },
+      { enabled: Boolean(productId) },
+    );
+  const duplicatesByDraft = new Map(
+    duplicateRows.map((row) => [row.draftId, row.matches]),
+  );
+
+  // Build the workspace/product-scoped link to an existing feature, or null if
+  // we can't (no workspace slug, or the product's slug isn't loaded) — the
+  // warning then still names the duplicate, just without a link.
+  const workspaceSlug = meeting?.workspace?.slug ?? null;
+  const selectedProductSlug =
+    products.find((product) => product.id === productId)?.slug ?? null;
+  const featureHref = (featureId: string): string | null =>
+    workspaceSlug && selectedProductSlug
+      ? `/w/${workspaceSlug}/products/${selectedProductSlug}/features/${featureId}`
+      : null;
 
   const invalidateQueries = useCallback(async () => {
     await Promise.all([
@@ -211,6 +234,42 @@ export function DraftFeaturesReviewCard({
                 />
                 <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
                   <Text fw={500}>{draft.name}</Text>
+                  {(duplicatesByDraft.get(draft.id) ?? []).length > 0 && (
+                    <Group gap={6} wrap="nowrap" align="center">
+                      <IconAlertTriangle
+                        size={14}
+                        className="text-brand-warning"
+                      />
+                      <Text size="xs" className="text-brand-warning">
+                        Possible duplicate of{" "}
+                        {(duplicatesByDraft.get(draft.id) ?? []).map(
+                          (match, index) => {
+                            const href = featureHref(match.id);
+                            return (
+                              <span key={match.id}>
+                                {index > 0 && ", "}
+                                {href ? (
+                                  <Text
+                                    span
+                                    component={Link}
+                                    href={href}
+                                    className="underline"
+                                  >
+                                    {match.name}
+                                  </Text>
+                                ) : (
+                                  <Text span fw={500}>
+                                    {match.name}
+                                  </Text>
+                                )}
+                              </span>
+                            );
+                          },
+                        )}
+                        . You can still accept it.
+                      </Text>
+                    </Group>
+                  )}
                   {draft.description && (
                     <Text size="sm" c="dimmed">
                       {draft.description}

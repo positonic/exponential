@@ -520,4 +520,51 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
     expect(dbMock.feature.create).not.toHaveBeenCalled();
     expect(createTicketWithNumber).not.toHaveBeenCalled();
   });
+
+  // ── Near-duplicate warning (V3) ───────────────────────────────────
+  it("flags a draft whose normalized name matches an existing feature in the product", async () => {
+    stubOwnedSession(dbMock);
+    stubProductAccess(dbMock);
+    dbMock.meetingFeatureDraft.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "draft-1", name: "  Bulk   CSV Import " } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "draft-2", name: "Totally new idea" } as any,
+    ]);
+    dbMock.feature.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "feat-1", name: "bulk csv import" } as any,
+    ]);
+
+    const rows = await caller.transcription.findDuplicateFeatures({
+      transcriptionId,
+      productId,
+    });
+
+    // Only the matching draft is returned, linking the existing feature; the
+    // match is by normalized name, so whitespace and case differences still hit.
+    expect(rows).toEqual([
+      { draftId: "draft-1", matches: [{ id: "feat-1", name: "bulk csv import" }] },
+    ]);
+  });
+
+  it("returns no duplicate rows when nothing matches", async () => {
+    stubOwnedSession(dbMock);
+    stubProductAccess(dbMock);
+    dbMock.meetingFeatureDraft.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "draft-1", name: "Brand new capability" } as any,
+    ]);
+    dbMock.feature.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "feat-1", name: "Something unrelated" } as any,
+    ]);
+
+    const rows = await caller.transcription.findDuplicateFeatures({
+      transcriptionId,
+      productId,
+    });
+
+    expect(rows).toEqual([]);
+  });
 });
