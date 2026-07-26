@@ -1914,7 +1914,14 @@ export const transcriptionRouter = createTRPCRouter({
   // ────────────────────────────────────────────────────────────────
 
   generateDraftFeatures: protectedProcedure
-    .input(z.object({ transcriptionId: z.string() }))
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        // Optional free-text steer from the V2 chat path ("focus on the
+        // ingestion parts"). Bounded and treated as untrusted data downstream.
+        focus: boundedText("Focus", TEXT_LIMITS.SHORT).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Assert access at the router boundary like every sibling procedure,
       // rather than leaning on the service's internal check. The service
@@ -1937,6 +1944,7 @@ export const transcriptionRouter = createTRPCRouter({
       const result = await FeatureIdeationService.generateDraftFeatures(
         input.transcriptionId,
         ctx.session.user.id,
+        { focus: input.focus },
       );
 
       if (!result.success) {
