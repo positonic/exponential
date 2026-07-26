@@ -5,6 +5,7 @@ import { api } from '~/trpc/react';
 import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { streamChatResponse, type ChatStreamCoreMessage } from '~/lib/chat/streamChatResponse';
 import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 import { applyToolRefreshInvalidations } from '~/app/_components/agent/toolRefreshInvalidation';
 
@@ -222,6 +223,13 @@ export function useCanvasEngagement({
           .filter(tc => tc.status === 'success')
           .map(tc => tc.name);
         applyToolRefreshInvalidations(utils, executedToolNames, pageContext?.pageType);
+
+        // Conversational ideation (V2): attach the draft-features review card
+        // when the agent ran `ideate-features`, same as the drawer does.
+        const card = cardFromToolCalls(streamResult.toolCalls);
+        if (card) {
+          patchTrailingAi({ card });
+        }
 
         // A turn that did tool work but produced no prose is NOT empty — the
         // user sees those calls in the tool-activity row.

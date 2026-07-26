@@ -30,6 +30,7 @@ import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/A
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
 import { streamChatResponse } from '~/lib/chat/streamChatResponse';
 import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdown';
 import { failureCopy } from '~/lib/chat/failureCopy';
@@ -1286,6 +1287,22 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         .filter((tc) => tc.status === 'success')
         .map((tc) => tc.name);
       applyToolRefreshInvalidations(utils, executedToolNames, pageContext?.pageType);
+
+      // Conversational ideation (V2): when the agent ran `ideate-features`,
+      // render the same draft-features review card the meeting-page button
+      // produces, keyed off the tool's transcriptionId. The tool wrote only
+      // DRAFT rows; the human accepts them here.
+      const card = cardFromToolCalls(streamResult.toolCalls);
+      if (card) {
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.type === 'ai') {
+            updated[updated.length - 1] = { ...last, card };
+          }
+          return updated;
+        });
+      }
 
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —
