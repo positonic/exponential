@@ -212,7 +212,8 @@ jobs:
           # (`sk-ant-api…`) goes in ANTHROPIC_API_KEY. Passing the wrong one
           # fails in ~2s with `is_error: true` and no usable message. Whichever
           # secret is set wins; an unset secret renders as empty and is ignored.
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # TEMP TEST: oauth token disabled to force the funded ANTHROPIC_API_KEY.
+          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Off by default. See the debug_output input — this repo is public, so
           # the agent's full output lands in a world-readable log.
