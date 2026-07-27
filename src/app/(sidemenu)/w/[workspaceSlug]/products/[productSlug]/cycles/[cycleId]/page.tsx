@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Badge,
@@ -12,8 +13,11 @@ import {
   Stack,
   Text,
   Textarea,
+  TextInput,
   Title,
 } from "@mantine/core";
+import { IconArrowLeft } from "@tabler/icons-react";
+import { DateInput } from "@mantine/dates";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -44,11 +48,20 @@ export default function CycleDetailPage() {
   const [cycleGoal, setCycleGoal] = useState("");
   const [achievements, setAchievements] = useState("");
 
+  const [isEditingHeader, setIsEditingHeader] = useState(false);
+  const [name, setName] = useState("");
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [headerError, setHeaderError] = useState<string | null>(null);
+
   useEffect(() => {
     if (cycle) {
       setStatus(cycle.status as CycleStatus);
       setCycleGoal(cycle.cycleGoal ?? "");
       setAchievements(cycle.achievements ?? "");
+      setName(cycle.name);
+      setStartDate(cycle.startDate ? new Date(cycle.startDate) : null);
+      setEndDate(cycle.endDate ? new Date(cycle.endDate) : null);
     }
   }, [cycle]);
 
@@ -61,6 +74,20 @@ export default function CycleDetailPage() {
         });
       }
     },
+  });
+
+  const updateHeader = api.product.cycle.update.useMutation({
+    onSuccess: async () => {
+      setHeaderError(null);
+      setIsEditingHeader(false);
+      await utils.product.cycle.getById.invalidate({ id: cycleId });
+      if (cycle?.workspaceId) {
+        await utils.product.cycle.list.invalidate({
+          workspaceId: cycle.workspaceId,
+        });
+      }
+    },
+    onError: (err) => setHeaderError(err.message),
   });
 
   const deleteCycle = api.product.cycle.delete.useMutation({
@@ -95,6 +122,25 @@ export default function CycleDetailPage() {
     });
   };
 
+  const onSaveHeader = () => {
+    updateHeader.mutate({
+      id: cycleId,
+      name: name.trim(),
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    });
+  };
+
+  const onCancelHeader = () => {
+    if (cycle) {
+      setName(cycle.name);
+      setStartDate(cycle.startDate ? new Date(cycle.startDate) : null);
+      setEndDate(cycle.endDate ? new Date(cycle.endDate) : null);
+    }
+    setHeaderError(null);
+    setIsEditingHeader(false);
+  };
+
   const onDelete = () => {
     modals.openConfirmModal({
       title: "Delete cycle",
@@ -113,25 +159,103 @@ export default function CycleDetailPage() {
     .filter((t) => t.status === "DONE")
     .reduce((sum, t) => sum + (t.points ?? 0), 0);
 
+  // Only render the back link once the workspace has resolved — otherwise the
+  // slug is undefined and the href becomes "/w/undefined/…" (a broken link).
+  const backPath = workspace
+    ? `/w/${workspace.slug}/products/${productSlug}/cycles`
+    : null;
+
   return (
     <Stack gap="lg">
+      {/* Back nav */}
+      {backPath && (
+        <Link
+          href={backPath}
+          className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
+        >
+          <IconArrowLeft size={14} />
+          Cycles
+        </Link>
+      )}
+
       <Group justify="space-between" align="flex-start">
-        <div>
-          <Title order={2} className="text-text-primary">
-            {cycle.name}
-          </Title>
-          {(cycle.startDate ?? cycle.endDate) && (
-            <Text size="sm" className="text-text-muted mt-1">
-              {cycle.startDate
-                ? new Date(cycle.startDate).toLocaleDateString()
-                : "?"}
-              {" - "}
-              {cycle.endDate
-                ? new Date(cycle.endDate).toLocaleDateString()
-                : "?"}
-            </Text>
-          )}
-        </div>
+        {isEditingHeader ? (
+          <Stack gap="sm" style={{ flex: 1 }} maw={520}>
+            <TextInput
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.currentTarget.value)}
+              maxLength={120}
+              required
+            />
+            <Group grow>
+              <DateInput
+                label="Start date"
+                value={startDate}
+                onChange={(v) =>
+                  setStartDate(
+                    v ? (typeof v === "string" ? new Date(v) : v) : null,
+                  )
+                }
+                clearable
+              />
+              <DateInput
+                label="End date"
+                value={endDate}
+                onChange={(v) =>
+                  setEndDate(
+                    v ? (typeof v === "string" ? new Date(v) : v) : null,
+                  )
+                }
+                clearable
+              />
+            </Group>
+            {headerError && (
+              <Text size="sm" className="text-text-error">
+                {headerError}
+              </Text>
+            )}
+            <Group>
+              <Button
+                size="sm"
+                onClick={onSaveHeader}
+                loading={updateHeader.isPending}
+                disabled={!name.trim()}
+              >
+                Save
+              </Button>
+              <Button size="sm" variant="subtle" onClick={onCancelHeader}>
+                Cancel
+              </Button>
+            </Group>
+          </Stack>
+        ) : (
+          <div>
+            <Group gap="xs" align="center">
+              <Title order={2} className="text-text-primary">
+                {cycle.name}
+              </Title>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                onClick={() => setIsEditingHeader(true)}
+              >
+                Edit
+              </Button>
+            </Group>
+            {(cycle.startDate ?? cycle.endDate) && (
+              <Text size="sm" className="text-text-muted mt-1">
+                {cycle.startDate
+                  ? new Date(cycle.startDate).toLocaleDateString()
+                  : "?"}
+                {" - "}
+                {cycle.endDate
+                  ? new Date(cycle.endDate).toLocaleDateString()
+                  : "?"}
+              </Text>
+            )}
+          </div>
+        )}
         <Group>
           <Select
             data={STATUS_OPTIONS}

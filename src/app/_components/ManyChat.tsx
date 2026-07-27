@@ -19,15 +19,22 @@ import {
   Button,
   Anchor,
 } from '@mantine/core';
-import { IconSend, IconMicrophone, IconMicrophoneOff } from '@tabler/icons-react';
+import { IconSend, IconMicrophone, IconMicrophoneOff, IconRefresh } from '@tabler/icons-react';
 import { useVoiceSession } from '~/lib/voice/useVoiceSession';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
 import { ThinkingStatus } from './agent/ThinkingStatus';
 import { DraftActionsReviewCard } from './DraftActionsReviewCard';
-import { useAgentModal, type ChatMessage, type PageContext, type ToolCall } from '~/providers/AgentModalProvider';
+import { DraftFeaturesReviewCard } from './DraftFeaturesReviewCard';
+import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
+import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
+import { streamChatResponse } from '~/lib/chat/streamChatResponse';
+import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdown';
+import { failureCopy } from '~/lib/chat/failureCopy';
+import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -143,6 +150,14 @@ const TEXT_INPUT_STYLES = {
 // Use ChatMessage from provider for consistency
 type Message = ChatMessage;
 
+/**
+ * How many times a turn is silently re-attempted after a *transport* drop that
+ * produced no usable content, before the user is shown anything. Turns that had
+ * already streamed content are never auto-retried (re-running re-does tool work
+ * and re-spends tokens) — they finalize as `incomplete` with a Retry button.
+ */
+const MAX_AUTO_RETRIES = 2;
+
 function formatPageContextData(context: PageContext): string {
   const str = (val: unknown, fallback = 'None'): string => {
     if (val == null) return fallback;
@@ -152,6 +167,29 @@ function formatPageContextData(context: PageContext): string {
   };
 
   switch (context.pageType) {
+    case 'goals-list': {
+      const count = str(context.data.goalCount, '0');
+      const filter = str(context.data.statusFilter, 'active');
+      return `  - The user is viewing their Goals list (${count} ${filter} goals shown).
+  - To read, reference, or discuss the actual goals, call the \`get-all-goals\` tool. Do NOT ask the user to paste them.`;
+    }
+    case 'projects-list': {
+      const count = str(context.data.projectCount, '0');
+      return `  - The user is viewing their Projects list (${count} projects shown).
+  - To read, reference, or discuss the actual projects, call the \`get-all-projects\` tool. Do NOT ask the user to paste them.`;
+    }
+    case 'meetings-list': {
+      const count = str(context.data.meetingCount, '0');
+      return `  - The user is viewing their Meetings list (${count} meetings shown).
+  - To read, reference, or discuss meetings, call the \`get-meeting-transcriptions\` tool (pass includeTranscript: false for a fast title/date list). Do NOT ask the user to paste them.`;
+    }
+    case 'product': {
+      const d = context.data;
+      return `  - The user is viewing the product "${str(d.productName)}" (productId: ${str(d.productId)}), on its "${str(d.view, 'overview')}" tab.
+  - To read, reference, or analyze this product's tickets, cycles, or dependencies, call \`list-tickets\` / \`list-cycles\` with this productId. Do NOT ask the user to paste tickets.
+  - Cycle references like "cycle 10" go straight into \`list-tickets\`'s \`cycle\` input — the server resolves the name.
+  - To link tickets ("X blocks Y" / "Y depends on X"), propose the edges first, then call \`add-ticket-dependencies\` once the user confirms.`;
+    }
     case 'recording': {
       const d = context.data;
       const rawSummary = str(d.summary, 'No summary');
@@ -200,18 +238,8 @@ function preprocessAgentHtml(html: string): string {
   return processed;
 }
 
-// Markdown equivalent of preprocessAgentHtml's paragraph splitting:
-// inserts `\n\n` at agent action boundaries so streamed narration renders
-// as separate paragraphs instead of one giant <Text>. Keep action-word
-// list in sync with preprocessAgentHtml above.
-function preprocessAgentMarkdown(content: string): string {
-  return content.replace(
-    /:(Now |Let |Great|Good|Perfect|Excellent|However, |I |The |Then |First, |Next )/g,
-    (_: string, word: string) => `:\n\n${word}`,
-  );
-}
-
 // Render message content with markdown/video support
+// (preprocessAgentMarkdown / linkifyBareUrls live in ~/lib/chat/agentMarkdown)
 function renderMessageContent(content: string, messageType: string) {
   // Handle video links first — reset lastIndex since VIDEO_PATTERN is a global regex
   const hasVideoLinks = VIDEO_PATTERN.test(content);
@@ -251,9 +279,13 @@ function renderMessageContent(content: string, messageType: string) {
     );
   }
 
-  // For AI messages, check if content looks like markdown and render accordingly
-  if (messageType === 'ai' && (content.includes('###') || content.includes('**') || content.includes('- ') || content.includes('| ') || content.includes('```'))) {
-    const processed = preprocessAgentMarkdown(content);
+  // AI messages are always markdown: the stream inserts `\n\n` between text
+  // blocks separated by tool calls, and prose routinely carries links —
+  // rendering as plain text collapses the paragraph break into a stray gap
+  // and leaves "[CRM](https://…)" raw. (A keyword heuristic used to gate
+  // this; it missed links entirely.)
+  if (messageType === 'ai') {
+    const processed = preprocessAgentMarkdown(linkifyBareUrls(content));
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -264,7 +296,7 @@ function renderMessageContent(content: string, messageType: string) {
     );
   }
 
-  // For regular text, return as-is
+  // For regular (human) text, return as-is
   return content;
 }
 
@@ -273,9 +305,10 @@ interface MessageListProps {
   messages: ChatMessage[];
   conversationId: string;
   isStreaming: boolean;
+  onRetry: (text: string) => void;
 }
 
-const MessageList = memo(function MessageList({ messages, conversationId, isStreaming }: MessageListProps) {
+const MessageList = memo(function MessageList({ messages, conversationId, isStreaming, onRetry }: MessageListProps) {
   const viewport = useRef<HTMLDivElement>(null);
 
   const visibleMessages = useMemo(
@@ -307,16 +340,52 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   {isStreaming &&
                     index === visibleMessages.length - 1 &&
                     message.content === '' && (
-                      <ThinkingStatus toolCalls={message.toolCalls} />
+                      <ThinkingStatus
+                        toolCalls={message.toolCalls}
+                        requestText={
+                          [...visibleMessages]
+                            .reverse()
+                            .find((m) => m.type === 'human')?.content
+                        }
+                      />
                     )}
-                  <div className="text-text-primary text-sm leading-relaxed">
-                    {message.marker === 'voice' && (
-                      <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
-                    )}
-                    {renderMessageContent(message.content, message.type)}
-                  </div>
+                  {/* A clean error (severity 'error') has no usable content —
+                      render only the failure footer. Otherwise show the streamed
+                      text (full answer, or a partial one for 'incomplete'). */}
+                  {!(message.failure?.severity === 'error' && message.content === '') && (
+                    <div className="text-text-primary text-sm leading-relaxed">
+                      {message.marker === 'voice' && (
+                        <span title="Spoken via voice mode" aria-label="voice" className="mr-1">🎙</span>
+                      )}
+                      {renderMessageContent(message.content, message.type)}
+                    </div>
+                  )}
+                  {message.failure && (
+                    <div className="mt-1.5 flex items-center gap-2 text-text-muted text-xs">
+                      {/* Show the failure note when the main block above isn't
+                          already showing it: always for 'incomplete' (the block
+                          shows the partial answer), and for a contentless error. */}
+                      {(message.failure.severity === 'incomplete' || message.content === '') && (
+                        <span>{failureCopy(message.failure.kind, message.failure.severity)}</span>
+                      )}
+                      {message.failure.canRetry && message.failure.retryText && (
+                        <Button
+                          size="compact-xs"
+                          variant="subtle"
+                          color="gray"
+                          leftSection={<IconRefresh size={13} />}
+                          onClick={() => onRetry(message.failure!.retryText!)}
+                        >
+                          Try again
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   {message.card?.kind === 'draft-actions' && (
                     <DraftActionsReviewCard transcriptionId={message.card.transcriptionId} />
+                  )}
+                  {message.card?.kind === 'draft-features' && (
+                    <DraftFeaturesReviewCard transcriptionId={message.card.transcriptionId} />
                   )}
                   {message.interactionId && (
                     <AgentMessageFeedback
@@ -367,6 +436,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, pendingContext, consumePendingPrompt } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
   const workspaceId = workspaceIdProp ?? urlWorkspaceId;
+  const utils = api.useUtils();
 
   // Fetch the user's custom assistant (if configured)
   const { data: customAssistant } = api.assistant.getDefault.useQuery(
@@ -456,6 +526,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     const goalDescription = typeof pageContext?.data?.goalDescription === 'string' ? pageContext.data.goalDescription : '';
     const goalWhy = typeof pageContext?.data?.goalWhy === 'string' ? pageContext.data.goalWhy : '';
     const goalStatus = typeof pageContext?.data?.goalStatus === 'string' ? pageContext.data.goalStatus : '';
+    const goalHealth = typeof pageContext?.data?.goalHealth === 'string' ? pageContext.data.goalHealth : '';
     const goalContext = pageContext?.pageType === 'goal' ? `
 
       🎯 CURRENT GOAL CONTEXT:
@@ -463,9 +534,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Description: ${goalDescription || 'No description'}
       - Why: ${goalWhy || 'Not specified'}
       - Status: ${goalStatus || 'Unknown'}
+      - Current health: ${goalHealth || 'no-update'}
       🎯 ACTIONS:
       - When creating actions or outcomes, link to this goal where appropriate
       - When asked about progress, refer to this goal's description and why
+      - When posting an Objective update whose health is unclear, default to this Current health so the status badge does not silently change
     ` : '';
 
     // Extract workspace info from page context for the system prompt
@@ -1013,16 +1086,23 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string, extraContext?: string) => {
+  const handleSubmit = async (e: React.FormEvent | null, overrideText?: string, extraContext?: string, attempt = 0) => {
     e?.preventDefault();
     const text = overrideText ?? input;
+    // attempt > 0 means this is a retry (auto after a transport drop, or a
+    // manual Retry-button tap). A retry must NOT re-echo the user's question
+    // and must reuse the existing trailing assistant bubble rather than adding
+    // a fresh placeholder, so the thread doesn't grow a duplicate pair.
+    const isRetry = attempt > 0;
     // Voice mode and typed streaming are mutually exclusive on this surface: the
     // typed stream mutates the last AI message in place, which would race with
     // voice transcripts being appended to the same thread. End voice mode to type.
     if (!text.trim() || voiceActive) return;
 
-    const userMessage: Message = { type: 'human', content: text };
-    setMessages(prev => [...prev, userMessage]);
+    if (!isRetry) {
+      const userMessage: Message = { type: 'human', content: text };
+      setMessages(prev => [...prev, userMessage]);
+    }
 
     // Parse for agent mentions
     const { agentId: mentionedAgentId, cleanMessage } = parseAgentMention(text);
@@ -1032,6 +1112,10 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     setShowAgentDropdown(false);
 
     let targetAgentId: string | undefined;
+    // Bytes of model text seen this attempt. Declared in the function scope (not
+    // the try) so the catch can read it to decide auto-retry vs. finalizing a
+    // partial answer as `incomplete`.
+    let streamedChars = 0;
 
     try {
 
@@ -1081,8 +1165,21 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         ? customAssistant.name
         : mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
 
-      // Add empty AI message that will be filled by streaming
-      setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
+      // First attempt: append a fresh empty AI bubble to stream into.
+      // Retry: reuse the trailing (failed/incomplete) AI bubble — reset its text
+      // and clear the failure/tool markers so the re-stream renders cleanly.
+      if (!isRetry) {
+        setMessages(prev => [...prev, { type: 'ai', agentName, content: '' }]);
+      } else {
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.type === 'ai') {
+            updated[updated.length - 1] = { ...last, agentName, content: '', failure: undefined, toolCalls: undefined };
+          }
+          return updated;
+        });
+      }
       setIsStreaming(true);
 
       // Build full conversation history so the agent has context from prior messages
@@ -1097,7 +1194,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       for (const msg of messages) {
         if (msg.type === 'human') {
           coreMessages.push({ role: 'user', content: msg.content });
-        } else if (msg.type === 'ai' && msg.content) {
+        } else if (msg.type === 'ai' && msg.content && !msg.failure) {
+          // Skip failed/incomplete assistant bubbles — on a retry the trailing
+          // one is still in state, but its partial text isn't a real prior turn.
           coreMessages.push({ role: 'assistant', content: msg.content });
         }
       }
@@ -1153,176 +1252,62 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         })),
       });
 
-      // Idle-timeout watchdog: abort if no chunk arrives for IDLE_TIMEOUT_MS.
-      // Prevents the stuck-isStreaming state when the server stream stalls silently.
-      const abortController = new AbortController();
-      const IDLE_TIMEOUT_MS = 60_000;
-      let idleTimer: ReturnType<typeof setTimeout> | null = null;
-      const clearIdleTimer = () => {
-        if (idleTimer) {
-          clearTimeout(idleTimer);
-          idleTimer = null;
-        }
-      };
-      const resetIdleTimer = () => {
-        clearIdleTimer();
-        idleTimer = setTimeout(() => {
-          abortController.abort(new DOMException('stream-idle-timeout', 'AbortError'));
-        }, IDLE_TIMEOUT_MS);
-      };
-      resetIdleTimer();
-
-      const response = await fetch('/api/chat/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(streamPayload),
-        signal: abortController.signal,
-      });
-
-      if (!response.ok) {
-        clearIdleTimer();
-        throw new Error('Stream request failed');
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullResponse = '';
-      // Server emits a final  __exp_meta__:{...}\n frame carrying
-      // { interactionId, modelId } — strip it from rendered text.
-      // U+001E is virtually never present in normal AI output.
-      const META_RE = /\n?__exp_meta__:([^\n]*)\n?/;
-      // Mid-stream __exp_tool__:{...}\n frames carry structured tool-call
-      // events (call/result/error). Multiple per stream; only fully
-      // terminated frames match. Incomplete tail is stripped separately.
-      const TOOL_RE = /\n?__exp_tool__:([^\n]*)\n/g;
-      const TOOL_PREFIX = '__exp_tool__:';
-      let interactionId: string | undefined;
-      // Keyed by tool-call id; rebuilt from scratch each iteration since we
-      // re-parse `fullResponse` cumulatively. setMessages overwrites the
-      // toolCalls array on every chunk so the UI reflects the latest state.
-      const toolCallsById = new Map<string, ToolCall>();
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          resetIdleTimer();
-
-          const chunk = decoder.decode(value, { stream: true });
-          fullResponse += chunk;
-
-          // If the meta frame has arrived (possibly mid-chunk), peel it off
-          // before rendering so the user never briefly sees the sentinel.
-          let displayResponse = fullResponse;
-          const metaMatch = META_RE.exec(fullResponse);
-          if (metaMatch) {
-            displayResponse = fullResponse.slice(0, metaMatch.index);
-            try {
-              const meta = JSON.parse(metaMatch[1] ?? "") as {
-                interactionId?: string;
-              };
-              if (meta.interactionId) interactionId = meta.interactionId;
-            } catch {
-              // Frame split across chunks: try again next iteration.
-            }
-          }
-          // Extract every complete tool frame and update the call map.
-          // Idempotent: re-parsing the same frame just re-sets the same value.
-          displayResponse = displayResponse.replace(TOOL_RE, (_match, json: string) => {
-            try {
-              const payload = JSON.parse(json) as
-                | { phase: 'call'; id: string; name: string; args?: Record<string, unknown> }
-                | { phase: 'result'; id: string; name: string }
-                | { phase: 'error'; id: string; name: string; msg?: string };
-              if (payload.phase === 'call') {
-                toolCallsById.set(payload.id, {
-                  id: payload.id,
-                  name: payload.name,
-                  args: payload.args,
-                  status: 'running',
-                });
-              } else if (payload.phase === 'result') {
-                const existing = toolCallsById.get(payload.id);
-                toolCallsById.set(payload.id, {
-                  id: payload.id,
-                  name: payload.name,
-                  args: existing?.args,
-                  status: 'success',
-                });
-              } else {
-                const existing = toolCallsById.get(payload.id);
-                toolCallsById.set(payload.id, {
-                  id: payload.id,
-                  name: payload.name,
-                  args: existing?.args,
-                  status: 'error',
-                  errorMsg: payload.msg,
-                });
-              }
-            } catch {
-              // Malformed frame — drop it from the display anyway.
-            }
-            return '';
-          });
-          TOOL_RE.lastIndex = 0;
-
-          // Hide a partial frame at the tail (e.g. "...__exp_tool__:{partia")
-          // so the sentinel doesn't briefly leak into the bubble.
-          const incompleteAt = displayResponse.lastIndexOf(TOOL_PREFIX);
-          if (incompleteAt !== -1 && !displayResponse.slice(incompleteAt).includes('\n')) {
-            displayResponse = displayResponse.slice(0, incompleteAt).replace(/\n$/, '');
-          }
-
-          // Strip zero-width-space keepalives the server emits on
-          // non-text chunks (see route.ts). They reset the idle timer
-          // above (every reader.read() resets) but must not appear in
-          // the rendered text.
-          displayResponse = displayResponse.replace(/​/g, '');
-
-          const toolCallsSnapshot = Array.from(toolCallsById.values());
-
+      // Fetch + incremental protocol parsing (sentinel frames, keepalive
+      // stripping, idle-timeout watchdog) live in ~/lib/chat so every chat
+      // surface consumes one implementation. Each update rewrites the trailing
+      // AI bubble with the cumulative parsed state.
+      const streamResult = await streamChatResponse(streamPayload, {
+        onUpdate: (update) => {
+          streamedChars = update.rawLength;
           setMessages(prev => {
             const updated = [...prev];
             const lastMessage = updated[updated.length - 1];
             if (lastMessage && lastMessage.type === 'ai') {
               updated[updated.length - 1] = {
                 ...lastMessage,
-                content: displayResponse,
-                ...(toolCallsSnapshot.length > 0 ? { toolCalls: toolCallsSnapshot } : {}),
+                content: update.displayText,
+                ...(update.toolCalls.length > 0 ? { toolCalls: update.toolCalls } : {}),
               };
             }
             return updated;
           });
-        }
-      }
+        },
+      });
+      const fullResponse = streamResult.displayText;
+      const interactionId = streamResult.interactionId;
 
-      // Final strip: ensure fullResponse used downstream (length checks,
-      // emptyResponse logic) excludes the meta sentinel.
-      const finalMatch = META_RE.exec(fullResponse);
-      if (finalMatch) {
-        fullResponse = fullResponse.slice(0, finalMatch.index);
-        try {
-          const meta = JSON.parse(finalMatch[1] ?? "") as { interactionId?: string };
-          interactionId ??= meta.interactionId;
-        } catch {
-          // Unparseable meta frame — interactionId stays undefined; feedback
-          // UI handles missing IDs by not rendering the rating affordance.
-        }
-      }
-      // Strip any remaining __exp_tool__ frames so they don't pollute the
-      // log preview or trigger length checks based on metadata bytes.
-      TOOL_RE.lastIndex = 0;
-      fullResponse = fullResponse.replace(TOOL_RE, '');
-      // Also strip server-side zero-width-space keepalives so they don't
-      // count toward emptyResponse / length checks.
-      fullResponse = fullResponse.replace(/​/g, '');
-
-      clearIdleTimer();
       setIsStreaming(false);
+
+      // Agent writes leave sibling views (each with its own React Query cache)
+      // stale until reload. The rule registry maps the tools that just ran to the
+      // entities whose mounted views need invalidating (see manyChatToolRefresh /
+      // ADR-0023). Procedure-wide (no args) invalidation keeps it robust against
+      // arg source/coercion drift and only refetches mounted observers.
+      const executedToolNames = streamResult.toolCalls
+        .filter((tc) => tc.status === 'success')
+        .map((tc) => tc.name);
+      applyToolRefreshInvalidations(utils, executedToolNames, pageContext?.pageType);
+
+      // Conversational ideation (V2): when the agent ran `ideate-features`,
+      // render the same draft-features review card the meeting-page button
+      // produces, keyed off the tool's transcriptionId. The tool wrote only
+      // DRAFT rows; the human accepts them here.
+      const card = cardFromToolCalls(streamResult.toolCalls);
+      if (card) {
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last && last.type === 'ai') {
+            updated[updated.length - 1] = { ...last, card };
+          }
+          return updated;
+        });
+      }
+
       const responseTime = Date.now() - startTime;
       // A turn that did tool work but produced no prose is NOT empty —
       // the user sees those calls in the ToolActivity row.
-      const isEmptyResponse = fullResponse.trim() === '' && toolCallsById.size === 0;
+      const isEmptyResponse = fullResponse.trim() === '' && streamResult.toolCalls.length === 0;
 
       // Debug: log what we received back
       console.log('📥 [Mastra → ManyChat] Response:', {
@@ -1342,7 +1327,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           agentId: targetAgentId,
           responseTime,
         });
-        const emptyMessage = `⚠️ **No response from the assistant.**\n\nThe agent started but produced no output — this usually means a tool failed silently or the step budget was exhausted. Try rephrasing, or ask again in smaller pieces. Server logs (search \`[chat/stream]\`) have the details.`;
+        const emptyMessage = `The assistant started but didn't produce a reply — a tool may have failed or the step budget ran out.`;
         setMessages(prev => {
           const updated = [...prev];
           const lastMessage = updated[updated.length - 1];
@@ -1350,6 +1335,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
             updated[updated.length - 1] = {
               ...lastMessage,
               content: emptyMessage,
+              failure: { severity: 'error', kind: 'model', canRetry: true, retryText: text },
             };
           }
           return updated;
@@ -1375,61 +1361,80 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       }
 
     } catch (error) {
-      setIsStreaming(false);
       console.error('Chat error:', error);
+      const { kind, retryable } = classifyStreamError(error);
+      const hadContent = streamedChars > 0;
 
-      // Enhanced error detection and reporting
-      let errorMessage = 'Sorry, I encountered an error processing your request.';
-      let errorType = 'Unknown';
-      
-      if (error instanceof Error) {
-        const errorText = error.message.toLowerCase();
-
-        // Detect specific error types
-        if (error.name === 'AbortError' || errorText.includes('stream-idle-timeout')) {
-          errorType = 'Idle Timeout';
-          errorMessage = `⏱ **Connection stalled**: The assistant sent no data for 60 seconds and the stream was aborted. The agent is likely stuck on a tool call. Please try again — smaller requests tend to succeed.`;
-        } else if (errorText.includes('unauthorized') || errorText.includes('401')) {
-          errorType = 'Authentication';
-          errorMessage = `🔐 **Authentication Error**: Agent tools are not accessible due to expired or invalid authentication. Please check your API tokens in the /settings/api-keys page. Working with available context only.`;
-        } else if (errorText.includes('forbidden') || errorText.includes('403')) {
-          errorType = 'Authorization';
-          errorMessage = `🚫 **Authorization Error**: Agent doesn't have permission to access the requested data. This might be a security issue. Working with available context only.`;
-        } else if (errorText.includes('not found') || errorText.includes('404')) {
-          errorType = 'Resource Not Found';
-          errorMessage = `📂 **Resource Error**: The requested project or data was not found. This might be a security restriction or the data may not exist. Working with available context only.`;
-        } else if (errorText.includes('timeout') || errorText.includes('network') || errorText.includes('failed to fetch') || error.name === 'TypeError') {
-          errorType = 'Network';
-          errorMessage = `🌐 **Network Error**: The connection to the AI service was interrupted (possibly a timeout). Please try again. Working with available context only.`;
-        } else if (errorText.includes('mastra') || errorText.includes('agent')) {
-          errorType = 'Agent Communication';
-          errorMessage = `🤖 **Agent Error**: Failed to communicate with the AI agent system. The agent service might be unavailable. Working with available context only.`;
-        } else {
-          errorMessage = `⚠️ **System Error**: ${error.message}. Working with available context only.`;
-        }
-        
-        // Log detailed error info for debugging
-        console.error(`[ManyChat] ${errorType} Error:`, {
-          message: error.message,
-          projectId,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent
+      // Auto-retry: a transport drop that produced NO usable content is almost
+      // always a transient connection blip (the dominant mobile failure mode).
+      // Re-attempt silently with linear backoff before the user ever sees an
+      // error. We do NOT auto-retry once content has streamed (re-running re-does
+      // tool work and re-spends tokens — finalize it as `incomplete` instead),
+      // nor non-transport errors (auth/model won't self-heal on a blind retry).
+      if (retryable && !hadContent && attempt < MAX_AUTO_RETRIES) {
+        console.warn(`[ManyChat] Transport drop, no content — auto-retry ${attempt + 1}/${MAX_AUTO_RETRIES}`, {
+          kind,
+          conversationId,
+          message: error instanceof Error ? error.message : String(error),
         });
-
-        // Note: stream errors are not persisted to aiInteractionHistory.
-        // The server's catch block at /api/chat/stream logs them to console;
-        // operationally we rely on Sentry/server logs for stream failures.
-        // (Client-side log was removed to fix the double-logging bug — it
-        // was writing rows without tokenUsage that polluted aggregate stats.)
+        await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+        void handleSubmit(null, text, extraContext, attempt + 1);
+        return;
       }
-      
-      setMessages(prev => [...prev, { 
-        type: 'ai', 
-        agentName: 'System Error',
-        content: `${errorMessage}\n\n_Error Type: ${errorType}_\n_Time: ${new Date().toLocaleTimeString()}_\n\n**Next Steps:**\n• Try rephrasing your request\n• Check /settings/api-keys page for authentication issues\n• Report persistent issues to support` 
-      }]);
+
+      setIsStreaming(false);
+      console.error(`[ManyChat] Stream failed (${kind}) after ${attempt} retr${attempt === 1 ? 'y' : 'ies'}`, {
+        message: error instanceof Error ? error.message : String(error),
+        hadContent,
+        projectId,
+        conversationId,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Two terminal shapes, neither of which is the old red "System Error":
+      //  • hadContent → the answer DID stream but the socket cut before a clean
+      //    close. Keep the partial text and mark it `incomplete` so the UI shows
+      //    it as a normal answer with a subtle "ended early" + Retry footer.
+      //  • !hadContent → nothing usable arrived. Convert the empty placeholder
+      //    into a calm, single-line error with a Retry button.
+      const severity: 'error' | 'incomplete' = hadContent ? 'incomplete' : 'error';
+      const failure: NonNullable<Message['failure']> = {
+        severity,
+        kind,
+        canRetry: kind !== 'auth',
+        retryText: text,
+      };
+
+      setMessages((prev) => {
+        const updated = [...prev];
+        const last = updated[updated.length - 1];
+        if (last && last.type === 'ai') {
+          updated[updated.length - 1] = {
+            ...last,
+            // Clean error: drop the empty placeholder agent name to a neutral
+            // label and render copy from `failure`. Incomplete: keep everything.
+            agentName: severity === 'error' ? (last.agentName ?? 'Assistant') : last.agentName,
+            content: severity === 'error' ? '' : last.content,
+            failure,
+          };
+        } else {
+          updated.push({ type: 'ai', agentName: 'Assistant', content: '', failure });
+        }
+        return updated;
+      });
     }
   };
+
+  /**
+   * Re-run a turn from a failed/incomplete bubble without re-echoing the
+   * question (attempt=1 reuses the trailing bubble). Kept stable via a ref so it
+   * doesn't bust MessageList's memo (which isolates rendering from input typing).
+   */
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+  const retryTurn = useCallback((retryText: string) => {
+    void handleSubmitRef.current(null, retryText, undefined, 1);
+  }, []);
 
   const getInitials = (name = '') => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
@@ -1447,7 +1452,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       )}
 
       {/* Messages Area */}
-      <MessageList messages={messages} conversationId={conversationId} isStreaming={isStreaming} />
+      <MessageList messages={messages} conversationId={conversationId} isStreaming={isStreaming} onRetry={retryTurn} />
       
       {/* Enhanced Input Area */}
       <div className="flex-shrink-0 bg-surface-primary backdrop-blur-lg border-t border-border-primary p-4">

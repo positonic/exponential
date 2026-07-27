@@ -22,6 +22,10 @@ import {
 } from "~/lib/fireflies-summary";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import {
+  ParticipantPicker,
+  type PendingParticipant,
+} from "./meeting/ParticipantPicker";
 import { ActionsPane } from "./transcription-detail/ActionsPane";
 import { MeetingHeader } from "./transcription-detail/MeetingHeader";
 import { NotesPane } from "./transcription-detail/NotesPane";
@@ -57,7 +61,7 @@ export function TranscriptionDetailsModal({
   transcription,
   onTranscriptionUpdate,
 }: TranscriptionDetailsModalProps) {
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId, userRole } = useWorkspace();
   const { data: authSession } = useSession();
 
   // Refetch full data (with participants + actions) once the modal opens.
@@ -84,6 +88,7 @@ export function TranscriptionDetailsModal({
   const [editedTranscript, setEditedTranscript] = useState("");
   const [editingNotes, setEditingNotes] = useState(false);
   const [editedNotes, setEditedNotes] = useState("");
+  const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!opened) {
@@ -92,11 +97,51 @@ export function TranscriptionDetailsModal({
       setEditingTitle(false);
       setEditingTranscript(false);
       setEditingNotes(false);
+      setParticipantPickerOpen(false);
     }
   }, [opened]);
 
   // ---------- mutations ----------
   const utils = api.useUtils();
+
+  const addParticipantMutation =
+    api.transcription.addParticipant.useMutation({
+      onSuccess: () => {
+        void refetch();
+        // A free-text email may have inline-created a CRM contact; refresh the
+        // contact list so subsequent adds this session reflect reality.
+        void utils.crmContact.getAll.invalidate();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Couldn't add participant",
+          message: error.message,
+          color: "red",
+        });
+      },
+    });
+
+  const removeParticipantMutation =
+    api.transcription.removeParticipant.useMutation({
+      onSuccess: () => {
+        void refetch();
+      },
+      onError: (error) => {
+        notifications.show({
+          title: "Couldn't remove participant",
+          message: error.message,
+          color: "red",
+        });
+      },
+    });
+
+  const handleAddParticipant = (person: PendingParticipant) => {
+    if (!data?.id) return;
+    addParticipantMutation.mutate({
+      transcriptionSessionId: data.id,
+      ...person.payload,
+    });
+  };
 
   const updateTitleMutation = api.transcription.updateTitle.useMutation({
     onSuccess: (updated) => {
@@ -258,9 +303,12 @@ export function TranscriptionDetailsModal({
     setJumpToSeconds(startSeconds);
   }, []);
 
-  // Build participants list. If we have structured participants, use them;
-  // otherwise derive a placeholder list from transcript speaker names so the
-  // rail isn't empty for legacy records.
+  // Build the participants list. The PARTICIPANTS panel shows ONLY managed
+  // Participant rows (DB), never transcript-derived Speakers (CONTEXT.md →
+  // Speaker: "Derived Speakers never populate the Participants panel"). Deriving
+  // placeholders from parsed turns conflated the two concepts and, for manual
+  // pastes, surfaced header lines ("Meeting Title:", "Date:", …) as bogus
+  // "Guest" participants. When there are none, the rail shows an empty state.
   const meEmail = authSession?.user?.email?.toLowerCase();
   const meName = authSession?.user?.name ?? null;
 
@@ -271,36 +319,41 @@ export function TranscriptionDetailsModal({
       email: string;
       isHost: boolean;
       userId: string | null;
+      contactId: string | null;
     }> | undefined) ?? [];
-    if (raw.length > 0) {
-      return raw.map((p) => ({
-        id: p.id,
-        name: p.name,
-        email: p.email,
-        isHost: p.isHost,
-        isMe: p.email?.toLowerCase() === meEmail,
-      }));
-    }
-    // Derive from turns
-    const seen = new Map<string, { id: string; name: string; email: string }>();
-    for (const t of turns) {
-      if (!seen.has(t.speaker)) {
-        seen.set(t.speaker, {
-          id: `derived-${seen.size}`,
-          name: t.speaker,
-          email: "",
-        });
-      }
-    }
-    return [...seen.values()].map((p) => ({
+    return raw.map((p) => ({
       id: p.id,
       name: p.name,
       email: p.email,
-      isHost: false,
-      isMe:
-        !!meName && p.name.toLowerCase().includes(meName.toLowerCase().split(" ")[0]!),
+      isHost: p.isHost,
+      isMe: p.email?.toLowerCase() === meEmail,
+      isPersisted: true,
     }));
-  }, [data?.participants, turns, meEmail, meName]);
+  }, [data?.participants, meEmail]);
+
+  // Participants are workspace-scoped (members + CRM), so editing needs a
+  // workspace and a non-viewer role. The server enforces the real edit rule.
+  const participantWorkspaceId =
+    (data?.workspace?.id as string | undefined) ?? workspaceId ?? null;
+  const canEditParticipants =
+    !!participantWorkspaceId &&
+    (userRole === "owner" || userRole === "admin" || userRole === "member");
+
+  // Identity keys already on the meeting, so the picker can hide them.
+  const existingParticipantKeys = useMemo(() => {
+    const keys = new Set<string>();
+    const raw = (data?.participants as Array<{
+      email: string;
+      userId: string | null;
+      contactId: string | null;
+    }> | undefined) ?? [];
+    for (const p of raw) {
+      if (p.userId) keys.add(`user:${p.userId}`);
+      if (p.contactId) keys.add(`contact:${p.contactId}`);
+      if (p.email) keys.add(`email:${p.email.toLowerCase()}`);
+    }
+    return keys;
+  }, [data?.participants]);
 
   // Type pill: from Fireflies meeting_type, capitalized. Fallback "Meeting".
   const meetingTypeLabel = useMemo(() => {
@@ -348,8 +401,12 @@ export function TranscriptionDetailsModal({
       value: formatMeetingDate(meetingDate).fullLabel,
     });
     rows.push({
+      // Show the meeting's OWN workspace, never the browsing-context workspace
+      // from the URL — falling back to `workspace?.name` masked meetings that
+      // were wrongly saved with no workspace. A meeting with no workspace is
+      // genuinely "Personal".
       label: "Workspace",
-      value: data?.workspace?.name ?? workspace?.name ?? "—",
+      value: data?.workspace?.name ?? "Personal",
     });
     if (data?.createdAt) {
       rows.push({ label: "Created", value: formatTimestamp(data.createdAt) });
@@ -367,7 +424,6 @@ export function TranscriptionDetailsModal({
     data?.createdAt,
     data?.sessionId,
     data?.workspace?.name,
-    workspace?.name,
   ]);
 
   const hasScreenshots =
@@ -425,7 +481,7 @@ export function TranscriptionDetailsModal({
           durationSeconds={data?.durationSeconds ?? null}
           participantCount={participants.length}
           projectName={data?.project?.name ?? null}
-          workspaceName={data?.workspace?.name ?? workspace?.name ?? null}
+          workspaceName={data?.workspace?.name ?? null}
           editingTitle={editingTitle}
           editedTitle={editedTitle}
           onEditedTitleChange={setEditedTitle}
@@ -602,6 +658,16 @@ export function TranscriptionDetailsModal({
 
           <Rail
             participants={participants}
+            onAddParticipant={
+              canEditParticipants
+                ? () => setParticipantPickerOpen(true)
+                : undefined
+            }
+            onRemoveParticipant={
+              canEditParticipants
+                ? (id) => removeParticipantMutation.mutate({ id })
+                : undefined
+            }
             analyticsJson={data?.analyticsJson}
             links={links}
             source={{
@@ -669,6 +735,17 @@ export function TranscriptionDetailsModal({
             ]}
           />
         </div>
+
+        {participantWorkspaceId && (
+          <ParticipantPicker
+            opened={participantPickerOpen}
+            onClose={() => setParticipantPickerOpen(false)}
+            workspaceId={participantWorkspaceId}
+            existing={existingParticipantKeys}
+            onAdd={handleAddParticipant}
+            busy={addParticipantMutation.isPending}
+          />
+        )}
 
         <LoadingOverlay
           visible={

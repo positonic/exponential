@@ -6,12 +6,17 @@ import { IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
 import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
 import { SummaryTab } from "./SummaryTab";
-import { TranscriptTab } from "./TranscriptTab";
+import { TranscriptView } from "./TranscriptView";
 import { ScreenshotsTab } from "./ScreenshotsTab";
 import { ContextRail } from "./ContextRail";
+import {
+  ParticipantPicker,
+  type PendingParticipant,
+} from "./ParticipantPicker";
 import { buildMeetingViewModel } from "~/lib/meeting-view-model";
 import type { MeetingSession } from "~/lib/meeting-view-model";
-import type { RouterOutputs } from "~/trpc/react";
+import type { MeetingProjectOption } from "./MeetingProjectPicker";
+import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
 type Tab = "summary" | "transcript" | "screenshots";
@@ -20,12 +25,22 @@ interface MeetingDetailProps {
   session: MeetingSession;
   actions: TranscriptAction[];
   isActionsLoading: boolean;
-  workspaces: { id: string; name: string }[];
+  /** Candidate projects for placement (edit-scoped, across workspaces). */
+  assignableProjects: MeetingProjectOption[];
   isCreatingActions: boolean;
+  /** True while feature ideation is running for this meeting. */
+  isIdeatingFeatures: boolean;
+  /** True while a summary is being auto-generated on view for this meeting. */
+  isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onMeetingDateChange: (value: Date | null) => void;
-  onWorkspaceChange: (value: string | null) => void;
+  /** Place the meeting onto a project (null clears placement). */
+  onProjectChange: (projectId: string | null) => void;
   onCreateActions: () => void;
+  /** Turn the transcript into reviewable draft product features. */
+  onIdeateFeatures: () => void;
+  /** Re-run the AI summary, overwriting the stored one (manual refresh). */
+  onRegenerateSummary: () => void;
   onArchive: () => void;
 }
 
@@ -51,16 +66,68 @@ export function MeetingDetail({
   session,
   actions,
   isActionsLoading,
-  workspaces,
+  assignableProjects,
   isCreatingActions,
+  isIdeatingFeatures,
+  isGeneratingSummary,
   onSaveSummary,
   onMeetingDateChange,
-  onWorkspaceChange,
+  onProjectChange,
   onCreateActions,
+  onIdeateFeatures,
+  onRegenerateSummary,
   onArchive,
 }: MeetingDetailProps) {
   const [tab, setTab] = useState<Tab>("summary");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const vm = useMemo(() => buildMeetingViewModel(session), [session]);
+
+  const utils = api.useUtils();
+  // Identity keys already on the meeting so the picker hides existing people.
+  const existingParticipants = useMemo(() => {
+    const keys = new Set<string>();
+    for (const p of session.participants) {
+      if (p.userId) keys.add(`user:${p.userId}`);
+      if (p.contactId) keys.add(`contact:${p.contactId}`);
+      if (p.email?.includes("@")) keys.add(`email:${p.email.toLowerCase()}`);
+    }
+    return keys;
+  }, [session.participants]);
+
+  const addParticipant = api.transcription.addParticipant.useMutation({
+    onSuccess: () => {
+      void utils.transcription.getById.invalidate({ id: session.id });
+    },
+    onError: (error) =>
+      notifications.show({
+        title: "Couldn't add participant",
+        message: error.message,
+        color: "red",
+      }),
+  });
+
+  const removeParticipant = api.transcription.removeParticipant.useMutation({
+    onSuccess: () => {
+      void utils.transcription.getById.invalidate({ id: session.id });
+    },
+    onError: (error) =>
+      notifications.show({
+        title: "Couldn't remove participant",
+        message: error.message,
+        color: "red",
+      }),
+  });
+
+  function handleAddPerson(person: PendingParticipant) {
+    addParticipant.mutate({
+      transcriptionSessionId: session.id,
+      ...person.payload,
+    });
+  }
+
+  function handleRemoveParticipant(id: string) {
+    removeParticipant.mutate({ id });
+  }
 
   const meetingDateObj = session.meetingDate ? new Date(session.meetingDate) : null;
   const displayDate = meetingDateObj ?? new Date(session.createdAt);
@@ -109,10 +176,7 @@ export function MeetingDetail({
   }
 
   function handleAddParticipant() {
-    notifications.show({
-      message: "Editing participants is coming soon",
-      color: "blue",
-    });
+    setPickerOpen(true);
   }
 
   return (
@@ -171,12 +235,17 @@ export function MeetingDetail({
                 isActionsLoading={isActionsLoading}
                 hasTranscript={Boolean(session.transcription)}
                 isCreatingActions={isCreatingActions}
+                isIdeatingFeatures={isIdeatingFeatures}
+                isGeneratingSummary={isGeneratingSummary}
                 onSaveSummary={onSaveSummary}
                 onCreateActions={onCreateActions}
+                onIdeateFeatures={onIdeateFeatures}
+                onRegenerate={onRegenerateSummary}
               />
             )}
             {tab === "transcript" && (
-              <TranscriptTab
+              <TranscriptView
+                variant="full"
                 transcription={session.transcription}
                 sentencesJson={session.sentencesJson}
                 chapters={vm.chapters}
@@ -208,17 +277,33 @@ export function MeetingDetail({
             updatedLabel={new Date(session.updatedAt).toLocaleString(undefined, timestampFmt)}
             meetingDate={meetingDateObj}
             onMeetingDateChange={onMeetingDateChange}
-            workspaceId={session.workspaceId ?? null}
-            workspaces={workspaces}
-            onWorkspaceChange={onWorkspaceChange}
+            projectId={session.projectId ?? null}
+            assignableProjects={assignableProjects}
+            onProjectChange={onProjectChange}
+            workspaceName={session.workspace?.name ?? null}
             onShare={handleShare}
             onExportTranscript={handleExportTranscript}
             canExport={Boolean(session.transcription)}
             onArchive={onArchive}
             onAddParticipant={handleAddParticipant}
+            onRemoveParticipant={handleRemoveParticipant}
+            removingParticipantId={
+              removeParticipant.isPending
+                ? removeParticipant.variables?.id ?? null
+                : null
+            }
           />
         </div>
       </div>
+
+      <ParticipantPicker
+        opened={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        workspaceId={session.workspaceId ?? null}
+        existing={existingParticipants}
+        onAdd={handleAddPerson}
+        busy={addParticipant.isPending}
+      />
     </div>
   );
 }

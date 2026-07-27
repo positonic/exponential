@@ -1,0 +1,176 @@
+/* Shared Kanban board presentation (ADR-0037).
+   Owns the board/column chrome and the `.kcol*` accent vocabulary that
+   graduated out of the Project-scoped ProjectTasks.module.css.
+   All colours reference CSS variables from globals.css.
+   Alpha-only rgba() values (shadows, tints, glows) are allowed. */
+
+/* ── Kanban board ─────────────────────────────────────── */
+
+.kboard {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  align-items: flex-start;
+}
+
+/* Opt-in horizontal bleed for shells with 32px side padding (Project tasks tab).
+   Consumers pass this via the board `className` prop so the generic board
+   stays free of any page-shell assumption. */
+.kboardBleed {
+  margin: 0 -32px;
+  padding-left: 32px;
+  padding-right: 32px;
+  scroll-padding-left: 32px;
+}
+
+.kboard::-webkit-scrollbar {
+  height: 8px;
+}
+
+.kboard::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 4px;
+}
+
+.kboard::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Per-column accent tokens (slate default, overridden by accent modifier) */
+.kcol {
+  --col-accent: var(--color-text-muted);
+  --col-tint: rgba(148, 163, 184, 0.10);
+  --col-glow: rgba(148, 163, 184, 0.18);
+
+  flex: 0 0 296px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+  overflow: hidden;
+  position: relative;
+  transition: background 120ms, border-color 120ms;
+}
+
+.kcol::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--col-accent);
+  opacity: 0.9;
+}
+
+.kcolOver {
+  background: var(--color-bg-elevated);
+  border-color: var(--col-accent);
+}
+
+/* Accent variants */
+.kcolSlate {
+  --col-accent: var(--accent-neutral);
+  --col-tint: rgba(111, 127, 152, 0.10);
+  --col-glow: rgba(111, 127, 152, 0.20);
+}
+.kcolBrand {
+  --col-accent: var(--brand-400);
+  --col-tint: rgba(78, 137, 255, 0.10);
+  --col-glow: rgba(78, 137, 255, 0.22);
+}
+.kcolAmber {
+  --col-accent: var(--accent-okr);
+  --col-tint: rgba(245, 185, 74, 0.10);
+  --col-glow: rgba(245, 185, 74, 0.22);
+}
+.kcolViolet {
+  --col-accent: var(--accent-meetings);
+  --col-tint: rgba(167, 139, 250, 0.10);
+  --col-glow: rgba(167, 139, 250, 0.22);
+}
+.kcolGreen {
+  --col-accent: var(--accent-crm);
+  --col-tint: rgba(74, 222, 140, 0.10);
+  --col-glow: rgba(74, 222, 140, 0.22);
+}
+.kcolRed {
+  --col-accent: var(--accent-due);
+  --col-tint: rgba(248, 113, 113, 0.10);
+  --col-glow: rgba(248, 113, 113, 0.22);
+}
+
+.kcolHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px 10px;
+  background: linear-gradient(180deg, var(--col-tint), transparent);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.kcolHeadLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kcolHeadRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.kcolDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--col-accent);
+  box-shadow: 0 0 0 3px var(--col-glow);
+}
+
+.kcolLabel {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: 0.005em;
+}
+
+.kcolCount {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.kcolBody {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 80px;
+}
+
+.kcolEmpty {
+  margin: 8px;
+  padding: 36px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-faint);
+  border: 1.5px dashed var(--color-border-subtle);
+  border-radius: 8px;
+}
+
+/* Drop indicator between cards */
+.kcolDropIndicator {
+  height: 3px;
+  background: var(--col-accent);
+  border-radius: 2px;
+  margin: 0 2px 4px;
+  opacity: 0.75;
+}

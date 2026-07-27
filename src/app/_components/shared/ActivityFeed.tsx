@@ -25,11 +25,14 @@ import {
 } from "~/utils/avatarColors";
 import { CommentThread } from "~/app/_components/shared/CommentThread";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { Comment } from "~/app/_components/shared/CommentThread";
 import type {
   ActivityItem,
   ActivityUpdate,
   ActivityComment,
+  ActivityEventItem,
+  ActivityFilter,
   StatusOption,
 } from "./activityTypes";
 
@@ -45,6 +48,8 @@ function formatShortDate(date: Date): string {
 interface ActivityFeedProps {
   items: ActivityItem[];
   currentUserId?: string;
+  /** Timeline filter (unified timeline surfaces). Default: everything. */
+  filter?: ActivityFilter;
 
   onDeleteComment: (id: string) => void;
   onEditComment: (id: string, content: string) => Promise<void>;
@@ -63,6 +68,7 @@ interface ActivityFeedProps {
 export function ActivityFeed({
   items,
   currentUserId,
+  filter = "all",
   onDeleteComment,
   onEditComment,
   onDeleteImage,
@@ -74,18 +80,27 @@ export function ActivityFeed({
   mentionNames,
   emptyMessage = "No activity yet. Post an update or leave a comment to get started.",
 }: ActivityFeedProps) {
-  if (items.length === 0) {
+  const visible =
+    filter === "all"
+      ? items
+      : items.filter((item) =>
+          filter === "changes" ? item.type === "event" : item.type !== "event",
+        );
+
+  if (visible.length === 0) {
     return (
       <Text size="sm" className="text-text-muted py-8 text-center">
-        {emptyMessage}
+        {filter === "changes" ? "No changes recorded yet." : emptyMessage}
       </Text>
     );
   }
 
   return (
     <div className="space-y-4">
-      {items.map((item) =>
-        item.type === "update" ? (
+      {visible.map((item) =>
+        item.type === "event" ? (
+          <EventRow key={`event-${item.id}`} item={item} />
+        ) : item.type === "update" ? (
           <UpdateThread
             key={`update-${item.id}`}
             item={item}
@@ -95,6 +110,7 @@ export function ActivityFeed({
             onDeleteReply={onDeleteReply}
             onEditReply={onEditReply}
             statusOptions={statusOptions}
+            mentionNames={mentionNames}
           />
         ) : (
           <Card
@@ -131,6 +147,53 @@ function mapComment(item: ActivityComment): Comment {
     updatedAt: item.updatedAt,
     author: item.author,
   };
+}
+
+// ── Event row (unified timeline) ──────────────────────────────
+// One quiet line between comment cards: dot, actor, verb phrase, optional
+// from→to status tokens, relative time (absolute on hover). No card, no
+// avatar - events are subordinate to authored content.
+
+function StatusToken({ label, color }: { label: string; color: string }) {
+  return (
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+      <span
+        className="inline-block h-1.5 w-1.5 rounded-full self-center"
+        style={{ backgroundColor: `var(--mantine-color-${color}-6)` }}
+      />
+      <span className="text-text-secondary">{label}</span>
+    </span>
+  );
+}
+
+function EventRow({ item }: { item: ActivityEventItem }) {
+  const absolute = new Date(item.createdAt).toLocaleString();
+  return (
+    <div className="flex items-start gap-2 px-1 text-xs text-text-muted leading-5">
+      <span
+        className="mt-2 inline-block h-1.5 w-1.5 rounded-full shrink-0"
+        style={{
+          backgroundColor: item.statusChange
+            ? `var(--mantine-color-${item.statusChange.toColor}-6)`
+            : "var(--color-border-primary)",
+        }}
+      />
+      <span className="min-w-0">
+        <span className="font-medium text-text-secondary">{item.actorName}</span>{" "}
+        {item.text}
+        {item.statusChange && (
+          <>
+            {" "}
+            <StatusToken label={item.statusChange.fromLabel} color={item.statusChange.fromColor} />
+            <span className="mx-1">→</span>
+            <StatusToken label={item.statusChange.toLabel} color={item.statusChange.toColor} />
+          </>
+        )}
+        {item.bulk && <span className="opacity-70"> via bulk edit</span>}
+        <span title={absolute}> · {formatShortDate(item.createdAt)}</span>
+      </span>
+    </div>
+  );
 }
 
 // ── Shared Sub-Components ─────────────────────────────────────
@@ -214,6 +277,7 @@ function UpdateThread({
   onDeleteReply,
   onEditReply,
   statusOptions,
+  mentionNames,
 }: {
   item: ActivityUpdate;
   currentUserId?: string;
@@ -222,6 +286,7 @@ function UpdateThread({
   onDeleteReply?: (id: string) => void;
   onEditReply?: (id: string, content: string) => Promise<void>;
   statusOptions?: StatusOption[];
+  mentionNames?: string[];
 }) {
   const [showReply, setShowReply] = useState(false);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
@@ -299,9 +364,7 @@ function UpdateThread({
           )}
         </Group>
 
-        <Text size="sm" className="text-text-primary" fw={500}>
-          {item.content}
-        </Text>
+        <MarkdownRenderer content={item.content} variant="compact" mentionNames={mentionNames} />
 
         {/* Action icons */}
         <Group gap="sm" mt="xs">
@@ -334,6 +397,7 @@ function UpdateThread({
             onDeleteComment={onDeleteReply}
             onEditComment={onEditReply}
             currentUserId={currentUserId}
+            mentionNames={mentionNames}
           />
         </div>
       )}

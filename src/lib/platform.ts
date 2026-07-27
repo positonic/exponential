@@ -65,6 +65,19 @@ export interface ElectronAPI {
   maximize: () => void;
   close: () => void;
   getAppVersion: () => Promise<string>;
+  /**
+   * Start the desktop sign-in flow: opens the system browser to complete OAuth
+   * (where passkeys work) and returns to the app via the exponential:// deep
+   * link. Resolves once the browser has been opened, not when sign-in finishes.
+   */
+  startLogin: () => Promise<void>;
+  /**
+   * One-shot fetch of the {code, verifier} pair captured from the deep-link
+   * callback. Delivered over IPC rather than the page URL so the PKCE verifier
+   * never lands in access logs / history / Referer. Returns null if there's no
+   * pending sign-in (or it was already consumed).
+   */
+  getPendingAuth: () => Promise<{ code: string; verifier: string } | null>;
 }
 
 /**

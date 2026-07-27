@@ -1,12 +1,7 @@
-import OnBoardingComponent from "../../_components/OnboardingComponent"
-import { auth } from '~/server/auth';
+import { redirect } from "next/navigation";
 
-export default async function OnboardingPage() {
-  const session = await auth();
-  const userName = session?.user?.name ?? '';
-  const userEmail = session?.user?.email ?? '';
-
-  return (
-    <OnBoardingComponent userName={userName} userEmail={userEmail} />
-  )
+// The onboarding wizard is retired; /welcome is the sole new-user flow.
+// This stub survives one release for old emails/bookmarks, then disappears.
+export default function OnboardingPage() {
+  redirect("/welcome");
 }

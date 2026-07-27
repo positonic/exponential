@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
-import { sendMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { emitActionCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { deleteFromBlob } from "~/lib/blob";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 
@@ -97,9 +97,10 @@ export const actionCommentRouter = createTRPCRouter({
         });
       }
 
-      // Fire-and-forget mention notifications
-      void sendMentionNotifications(ctx.db, {
+      // Fire-and-forget mention notifications via the unified pipeline (ADR-0045)
+      void emitActionCommentMention(ctx.db, {
         actionId: input.actionId,
+        commentId: comment.id,
         commentContent: input.content,
         commentAuthorId: ctx.session.user.id,
       });

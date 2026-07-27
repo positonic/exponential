@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   Container,
   Title,
@@ -27,6 +28,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { GoalIcon } from "../GoalIcon";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import Link from "next/link";
 
 type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
@@ -189,6 +191,7 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const { workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
+  const pathname = usePathname();
 
   const { data: projectGoals, isLoading: projectGoalsLoading } = api.goal.getProjectGoals.useQuery(
     { projectId: projectId ?? "" },
@@ -209,6 +212,20 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
     if (!projectId && g.parentGoalId !== null) return false;
     return true;
   });
+
+  // Register lightweight page context for the AI agent (workspace goals view only —
+  // the project-scoped reuse already has project context). Counts only; the agent
+  // fetches the actual goals on demand via its `get-all-goals` tool.
+  const goalsPageContext = useMemo(() => {
+    if (projectId || !workspaceId) return null;
+    return {
+      pageType: "goals-list",
+      pageTitle: terminology.goals,
+      pagePath: pathname,
+      data: { workspaceId, goalCount: filteredGoals.length, statusFilter },
+    };
+  }, [projectId, workspaceId, pathname, filteredGoals.length, statusFilter, terminology.goals]);
+  useRegisterPageContext(goalsPageContext, { clearOnUnmount: false });
 
 
   return (

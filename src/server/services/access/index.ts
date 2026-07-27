@@ -67,6 +67,7 @@ export {
 // Resolvers (for direct use when needed)
 export {
   getWorkspaceMembership,
+  canEditWorkspaceContent,
   isWorkspaceOwner,
   isWorkspaceGuest,
   buildWorkspaceAccessWhere,
@@ -79,6 +80,7 @@ export {
   canEditProject,
   canManageProjectMembers,
   buildProjectAccessWhere,
+  buildProjectEditWhere,
 } from "./resolvers/projectResolver";
 export {
   getActionAccess,
@@ -94,3 +96,10 @@ export {
   buildTranscriptionAccessWhere,
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
+export {
+  getKnowledgePageAccess,
+  canViewKnowledgePage,
+  canEditKnowledgePage,
+  buildKnowledgePageAccessWhere,
+} from "./resolvers/knowledgePageResolver";
+export type { KnowledgePageAccessInfo } from "./resolvers/knowledgePageResolver";

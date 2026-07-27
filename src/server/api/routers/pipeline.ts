@@ -74,14 +74,18 @@ async function ensureStageAccess(
 export const pipelineRouter = createTRPCRouter({
   // ─── Pipeline (Project) management ──────────────────────────
 
-  get: protectedProcedure
+  // List every pipeline in a workspace (a workspace may hold N named
+  // pipelines — e.g. a Sales and a Hiring pipeline — see ADR-0033). Filtered
+  // to the pipelines the user can view; ordered oldest-first so the first
+  // entry is the stable default the single-pipeline `get` would have returned.
+  list: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string(),
       }),
     )
     .query(async ({ ctx, input }) => {
-      const pipeline = await ctx.db.project.findFirst({
+      const pipelines = await ctx.db.project.findMany({
         where: {
           workspaceId: input.workspaceId,
           type: "pipeline",
@@ -91,6 +95,44 @@ export const pipelineRouter = createTRPCRouter({
             orderBy: { order: "asc" },
           },
         },
+        orderBy: { createdAt: "asc" },
+      });
+
+      const visible: typeof pipelines = [];
+      for (const pipeline of pipelines) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          pipeline.id,
+        );
+        if (hasProjectAccess(access)) visible.push(pipeline);
+      }
+      return visible;
+    }),
+
+  get: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        // Target a specific pipeline. Omitted → the workspace's default
+        // (oldest) pipeline, preserving the historical single-pipeline contract
+        // for callers that don't yet know about multiple pipelines.
+        pipelineId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const pipeline = await ctx.db.project.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          type: "pipeline",
+          ...(input.pipelineId ? { id: input.pipelineId } : {}),
+        },
+        include: {
+          pipelineStages: {
+            orderBy: { order: "asc" },
+          },
+        },
+        orderBy: { createdAt: "asc" },
       });
       if (!pipeline) return null;
       const access = await getProjectAccess(
@@ -106,6 +148,10 @@ export const pipelineRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
+        // A workspace may hold many pipelines, so each create makes a distinct
+        // one. Names need not be unique. Defaults so the first-run auto-create
+        // path (which has no name to offer) still works.
+        name: z.string().min(1).max(120).default("Pipeline"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -125,23 +171,10 @@ export const pipelineRouter = createTRPCRouter({
         });
       }
 
-      // Check if one already exists
-      const existing = await ctx.db.project.findFirst({
-        where: {
-          workspaceId: input.workspaceId,
-          type: "pipeline",
-        },
-        include: {
-          pipelineStages: {
-            orderBy: { order: "asc" },
-          },
-        },
-      });
-
-      if (existing) return existing;
-
-      // Create a new pipeline project with default stages
-      const baseSlug = slugify("Pipeline");
+      // Always create a new, distinct pipeline (multi-pipeline, ADR-0033) —
+      // no collapsing to an existing one. Each is seeded with the generic
+      // DEFAULT_STAGES; the user re-stages it via the stage editor.
+      const baseSlug = slugify(input.name) || "pipeline";
       let slug = baseSlug;
       let counter = 1;
       while (await ctx.db.project.findFirst({ where: { slug } })) {
@@ -151,7 +184,7 @@ export const pipelineRouter = createTRPCRouter({
 
       return ctx.db.project.create({
         data: {
-          name: "Pipeline",
+          name: input.name,
           slug,
           type: "pipeline",
           status: "ACTIVE",
@@ -221,25 +254,37 @@ export const pipelineRouter = createTRPCRouter({
     )
     .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
-      // Shift existing stages at or after the target order
-      await ctx.db.pipelineStage.updateMany({
+      // Fetch the stages that need to shift up to make room. We can't use a
+      // single `updateMany({ increment: 1 })` because the @@unique([projectId,
+      // order]) constraint is checked per-row (not deferred): shifting order
+      // 3→4 transiently collides with the existing order 4. Shift them inside a
+      // transaction, highest order first, so each row moves into a free slot.
+      const stagesToShift = await ctx.db.pipelineStage.findMany({
         where: {
           projectId: input.projectId,
           order: { gte: input.order },
         },
-        data: {
-          order: { increment: 1 },
-        },
+        orderBy: { order: "desc" },
+        select: { id: true, order: true },
       });
 
-      return ctx.db.pipelineStage.create({
-        data: {
-          projectId: input.projectId,
-          name: input.name,
-          color: input.color,
-          type: input.type,
-          order: input.order,
-        },
+      return ctx.db.$transaction(async (tx) => {
+        for (const stage of stagesToShift) {
+          await tx.pipelineStage.update({
+            where: { id: stage.id },
+            data: { order: stage.order + 1 },
+          });
+        }
+
+        return tx.pipelineStage.create({
+          data: {
+            projectId: input.projectId,
+            name: input.name,
+            color: input.color,
+            type: input.type,
+            order: input.order,
+          },
+        });
       });
     }),
 
@@ -514,20 +559,109 @@ export const pipelineRouter = createTRPCRouter({
         contactId: z.string().nullable().optional(),
         organizationId: z.string().nullable().optional(),
         assignedToId: z.string().nullable().optional(),
+        // Move the deal to a different pipeline and/or stage. Stages are
+        // per-pipeline, so the two travel together: when projectId changes, a
+        // stageId in the destination pipeline must resolve (falls back to that
+        // pipeline's first stage — "Lead").
+        projectId: z.string().optional(),
+        stageId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...data } = input;
+      const { id, projectId, stageId, ...data } = input;
       await ensureDealAccess(ctx.db, ctx.session.user.id, id, "edit");
 
       const oldDeal = await ctx.db.deal.findUniqueOrThrow({
         where: { id },
-        select: { value: true },
+        select: {
+          value: true,
+          projectId: true,
+          stageId: true,
+          closedAt: true,
+          workspaceId: true,
+          stage: { select: { name: true } },
+        },
       });
+
+      // Resolve the destination pipeline + stage when a move is requested.
+      const targetProjectId = projectId ?? oldDeal.projectId;
+      const isPipelineChange = targetProjectId !== oldDeal.projectId;
+
+      let targetStageId = stageId;
+      if (!targetStageId && isPipelineChange) {
+        // Moving pipeline without an explicit stage → land in the destination's
+        // first stage (lowest order, i.e. "Lead").
+        const firstStage = await ctx.db.pipelineStage.findFirst({
+          where: { projectId: targetProjectId },
+          orderBy: { order: "asc" },
+          select: { id: true },
+        });
+        if (!firstStage) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Destination pipeline has no stages",
+          });
+        }
+        targetStageId = firstStage.id;
+      }
+
+      const isStageChange =
+        targetStageId != null && targetStageId !== oldDeal.stageId;
+
+      // Validate + authorize the destination stage before mutating.
+      let newStage:
+        | { id: string; name: string; type: string; projectId: string }
+        | undefined;
+      let moveData: {
+        projectId?: string;
+        stageId?: string;
+        stageOrder?: number;
+        closedAt?: Date | null;
+      } = {};
+      if (targetStageId && (isStageChange || isPipelineChange)) {
+        const stage = await ctx.db.pipelineStage.findUnique({
+          where: { id: targetStageId },
+          select: { id: true, name: true, type: true, projectId: true },
+        });
+        if (!stage) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Stage not found" });
+        }
+        if (stage.projectId !== targetProjectId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Stage does not belong to the destination pipeline",
+          });
+        }
+        if (isPipelineChange) {
+          await ensurePipelineProjectAccess(
+            ctx.db,
+            ctx.session.user.id,
+            targetProjectId,
+            "edit",
+          );
+        }
+        newStage = stage;
+
+        // Append to the end of the destination stage and reconcile closedAt
+        // with the stage type (mirrors moveDeal).
+        const lastDeal = await ctx.db.deal.findFirst({
+          where: { projectId: targetProjectId, stageId: stage.id },
+          orderBy: { stageOrder: "desc" },
+          select: { stageOrder: true },
+        });
+        const isTerminal = stage.type === "won" || stage.type === "lost";
+        moveData = {
+          projectId: targetProjectId,
+          stageId: stage.id,
+          stageOrder: (lastDeal?.stageOrder ?? -1) + 1,
+          ...(isTerminal && !oldDeal.closedAt ? { closedAt: new Date() } : {}),
+          ...(!isTerminal && oldDeal.closedAt ? { closedAt: null } : {}),
+        };
+      }
 
       const deal = await ctx.db.deal.update({
         where: { id },
-        data,
+        data: { ...data, ...moveData },
         include: {
           stage: true,
           contact: {
@@ -553,6 +687,51 @@ export const pipelineRouter = createTRPCRouter({
             },
           },
         });
+      }
+
+      // Log stage / pipeline moves
+      if (newStage) {
+        const isTerminal =
+          newStage.type === "won" || newStage.type === "lost";
+        await ctx.db.dealActivity.create({
+          data: {
+            dealId: deal.id,
+            userId: ctx.session.user.id,
+            type: isTerminal ? "CLOSED" : "STAGE_CHANGE",
+            content: `Moved from ${oldDeal.stage.name} to ${newStage.name}`,
+            metadata: {
+              fromStageId: oldDeal.stageId,
+              fromStageName: oldDeal.stage.name,
+              toStageId: newStage.id,
+              toStageName: newStage.name,
+              ...(isPipelineChange
+                ? {
+                    fromProjectId: oldDeal.projectId,
+                    toProjectId: targetProjectId,
+                  }
+                : {}),
+            },
+          },
+        });
+
+        // Surface a newly-closed deal as a workspace milestone, matching
+        // moveDeal — only on the transition into a terminal stage.
+        if (isTerminal && !oldDeal.closedAt) {
+          await recordActivity(ctx.db, {
+            workspaceId: oldDeal.workspaceId,
+            userId: ctx.session.user.id,
+            entityType: "deal",
+            entityId: deal.id,
+            action: "completed",
+            metadata: {
+              name: deal.title,
+              outcome: newStage.type, // "won" | "lost"
+              value: oldDeal.value,
+            },
+          }).catch(() => {
+            /* instrumentation failure is non-fatal */
+          });
+        }
       }
 
       return deal;

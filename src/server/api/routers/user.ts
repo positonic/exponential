@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import { uploadToBlob } from "~/lib/blob";
 
 export const userRouter = createTRPCRouter({
   getCurrentUser: protectedProcedure
@@ -102,7 +102,6 @@ export const userRouter = createTRPCRouter({
             welcomeCompletedAt: true,
             usageType: true,
             userRole: true,
-            onboardingProjectId: true,
           },
         }),
         ctx.db.project.count({ where: { createdById: userId, type: { not: 'onboarding' } } }),
@@ -131,20 +130,11 @@ export const userRouter = createTRPCRouter({
         }),
       ]);
 
-      // Sync onboarding progress for calendar connection (fire-and-forget)
-      // Calendar accounts are linked via NextAuth OAuth, so we detect it here
-      if (calendarAccounts.length > 0) {
-        void completeOnboardingStep(ctx.db, userId, "calendar").catch(
-          (err: unknown) => { console.error("[onboarding-sync] calendar:", err); },
-        );
-      }
-
       return {
         userName: user?.name ?? null,
         welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
         usageType: user?.usageType ?? null,
         userRole: user?.userRole ?? null,
-        onboardingProjectId: user?.onboardingProjectId ?? null,
         steps: {
           hasProject: projectCount > 0,
           hasGoal: goalCount > 0,
@@ -157,70 +147,148 @@ export const userRouter = createTRPCRouter({
       };
     }),
 
-  getOnboardingProject: protectedProcedure
+  getProfile: protectedProcedure
     .query(async ({ ctx }) => {
       const user = await ctx.db.user.findUnique({
         where: { id: ctx.session.user.id },
-        select: { onboardingProjectId: true },
-      });
-
-      if (!user?.onboardingProjectId) return null;
-
-      const project = await ctx.db.project.findUnique({
-        where: { id: user.onboardingProjectId },
         select: {
-          id: true,
           name: true,
-          description: true,
-          status: true,
-          progress: true,
-          actions: {
-            where: { source: "onboarding" },
-            orderBy: { id: "asc" },
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              status: true,
-              completedAt: true,
-            },
-          },
+          email: true,
+          image: true,
         },
       });
 
-      return project;
+      if (!user) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "User not found",
+        });
+      }
+
+      return user;
+    }),
+
+  updateProfile: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const updatedUser = await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { name: input.name },
+        select: { name: true },
+      });
+
+      return { success: true, name: updatedUser.name };
+    }),
+
+  /**
+   * Upload profile image and save URL to user record.
+   * (Re-homed from the onboarding router; same behavior.)
+   */
+  uploadProfileImage: protectedProcedure
+    .input(
+      z.object({
+        base64Data: z.string(),
+        contentType: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { base64Data } = input;
+      const userId = ctx.session.user.id;
+
+      // Upload to Vercel Blob
+      const filename = `profile-images/${userId}.png`;
+      const blob = await uploadToBlob(base64Data, filename);
+
+      // Update user's image field
+      await ctx.db.user.update({
+        where: { id: userId },
+        data: {
+          image: blob.url,
+        },
+      });
+
+      return {
+        success: true,
+        imageUrl: blob.url,
+      };
+    }),
+
+  getWorkHours: protectedProcedure
+    .query(async ({ ctx }) => {
+      const user = await ctx.db.user.findUnique({
+        where: { id: ctx.session.user.id },
+        select: {
+          workHoursEnabled: true,
+          workDaysJson: true,
+          workHoursStart: true,
+          workHoursEnd: true,
+        },
+      });
+
+      let workDays: string[] = [];
+      if (user?.workDaysJson) {
+        try {
+          workDays = JSON.parse(user.workDaysJson) as string[];
+        } catch {
+          workDays = [];
+        }
+      }
+
+      return {
+        workHoursEnabled: user?.workHoursEnabled ?? false,
+        workDays,
+        workHoursStart: user?.workHoursStart ?? null,
+        workHoursEnd: user?.workHoursEnd ?? null,
+      };
+    }),
+
+  updateWorkHours: protectedProcedure
+    .input(
+      z.object({
+        workHoursEnabled: z.boolean(),
+        workDays: z.array(z.string()), // ["monday", "tuesday", ...]
+        workHoursStart: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid HH:MM (00:00-23:59)'),
+        workHoursEnd: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, 'Invalid HH:MM (00:00-23:59)'),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { workHoursEnabled, workDays, workHoursStart, workHoursEnd } = input;
+
+      const updatedUser = await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: {
+          workHoursEnabled,
+          workDaysJson: JSON.stringify(workDays),
+          workHoursStart,
+          workHoursEnd,
+        },
+        select: {
+          workHoursEnabled: true,
+          workDaysJson: true,
+          workHoursStart: true,
+          workHoursEnd: true,
+        },
+      });
+
+      return {
+        success: true,
+        workHoursEnabled: updatedUser.workHoursEnabled,
+        workDays: updatedUser.workDaysJson ? JSON.parse(updatedUser.workDaysJson) as string[] : [],
+        workHoursStart: updatedUser.workHoursStart,
+        workHoursEnd: updatedUser.workHoursEnd,
+      };
     }),
 
   completeWelcome: protectedProcedure
     .mutation(async ({ ctx }) => {
-      const userId = ctx.session.user.id;
-
-      const user = await ctx.db.user.findUnique({
-        where: { id: userId },
-        select: { onboardingProjectId: true },
-      });
-
       await ctx.db.user.update({
-        where: { id: userId },
+        where: { id: ctx.session.user.id },
         data: { welcomeCompletedAt: new Date() },
       });
-
-      // Close out onboarding project so it doesn't linger with stale progress
-      if (user?.onboardingProjectId) {
-        await ctx.db.action.updateMany({
-          where: {
-            projectId: user.onboardingProjectId,
-            source: 'onboarding',
-            status: { not: 'COMPLETED' },
-          },
-          data: { status: 'COMPLETED', completedAt: new Date() },
-        });
-
-        await ctx.db.project.update({
-          where: { id: user.onboardingProjectId },
-          data: { status: 'COMPLETED', progress: 100 },
-        });
-      }
 
       return { success: true };
     }),

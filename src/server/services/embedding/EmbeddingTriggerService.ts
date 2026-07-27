@@ -1,7 +1,15 @@
 import type { PrismaClient } from "@prisma/client";
 import { getKnowledgeService } from "../KnowledgeService";
 import { TranscriptionSource } from "./sources/TranscriptionSource";
+import { PageSource } from "./sources/PageSource";
 import type { EmbeddingResult, EmbeddingStatus } from "./types";
+
+/**
+ * Settle delay before a Page is (re-)embedded. Page autosave fires roughly once
+ * a second while typing; coalescing into one embed after a quiet window keeps us
+ * from thrashing the Knowledge index on every keystroke-save (ADR-0033).
+ */
+const PAGE_EMBED_SETTLE_MS = 8000;
 
 /**
  * Service to handle fire-and-forget embedding triggers.
@@ -10,6 +18,67 @@ import type { EmbeddingResult, EmbeddingStatus } from "./types";
  */
 export class EmbeddingTriggerService {
   constructor(private db: PrismaClient) {}
+
+  /** Per-page debounce timers, so rapid autosaves coalesce into one embed. */
+  private pageEmbedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /**
+   * (Re-)index a Page after a settle delay, without blocking the save (ADR-0033).
+   * Debounced per page id; the deferred run reads the Page fresh and either
+   * embeds its Markdown `body` or — when `includeInSearch` is off, the body is
+   * empty, or the Page is gone — clears its chunks. Fire-and-forget.
+   */
+  triggerPageEmbedding(
+    pageId: string,
+    settleDelayMs: number = PAGE_EMBED_SETTLE_MS,
+  ): void {
+    const existing = this.pageEmbedTimers.get(pageId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.pageEmbedTimers.delete(pageId);
+      this.processPageEmbedding(pageId).catch((error) => {
+        console.error(
+          `[EmbeddingTriggerService] Background page embedding failed for ${pageId}:`,
+          error,
+        );
+      });
+    }, settleDelayMs);
+    this.pageEmbedTimers.set(pageId, timer);
+  }
+
+  /** Immediately drop a Page's chunks (e.g. on delete). Fire-and-forget safe. */
+  async clearPageChunks(pageId: string): Promise<void> {
+    const existing = this.pageEmbedTimers.get(pageId);
+    if (existing) {
+      clearTimeout(existing);
+      this.pageEmbedTimers.delete(pageId);
+    }
+    await getKnowledgeService(this.db).deleteChunks("page", pageId);
+  }
+
+  private async processPageEmbedding(pageId: string): Promise<void> {
+    const knowledgeService = getKnowledgeService(this.db);
+    const page = await this.db.knowledgePage.findUnique({
+      where: { id: pageId },
+    });
+
+    // Gone, opted out, or empty → ensure no stale chunks linger.
+    if (!page || !page.includeInSearch || !page.body || page.body.trim() === "") {
+      await knowledgeService.deleteChunks("page", pageId);
+      return;
+    }
+
+    const result = await knowledgeService.embedSource(PageSource.fromEntity(page));
+    if (result.success) {
+      console.log(
+        `[EmbeddingTriggerService] Embedded page ${pageId}: ${result.chunkCount} chunks`,
+      );
+    } else {
+      console.error(
+        `[EmbeddingTriggerService] Failed to embed page ${pageId}: ${result.error}`,
+      );
+    }
+  }
 
   /**
    * Trigger embedding for a transcription without blocking.

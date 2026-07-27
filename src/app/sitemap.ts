@@ -3,6 +3,12 @@ import { getAllBlogPosts } from '~/lib/blog/getBlogPost';
 import { getAllFeatureSlugs } from '~/app/(home)/features/_data/features';
 import { getAllDocSlugs } from '~/lib/docs/getDoc';
 import { getPublicBaseUrl } from '~/lib/urls';
+import { buildPublicPagePath } from '~/lib/pages/public-url';
+import { db } from '~/server/db';
+
+// Regenerate hourly so post-deploy publish/SEO-opt-in changes reach the
+// sitemap without a rebuild.
+export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = await getPublicBaseUrl();
@@ -73,5 +79,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.5,
   }));
 
-  return [...staticPages, ...blogPages, ...featurePages, ...docPages];
+  // Published pages that opted into search indexing (ADR-0038). noindex
+  // (default) pages are deliberately absent — public means link-only there.
+  // The sitemap is also generated at build time, so a DB that is unreachable
+  // or not yet migrated must degrade to "no page entries", never fail the
+  // build.
+  let publicPagePaths: MetadataRoute.Sitemap = [];
+  try {
+    const publishedPages = await db.knowledgePage.findMany({
+      where: { isPublic: true, publicSeoIndexed: true, publicId: { not: null } },
+      select: { publicId: true, publicSlug: true, updatedAt: true },
+    });
+    publicPagePaths = publishedPages.map((page) => ({
+      url: `${baseUrl}${buildPublicPagePath(page.publicSlug ?? 'untitled', page.publicId!)}`,
+      lastModified: page.updatedAt,
+      changeFrequency: 'weekly' as const,
+      priority: 0.5,
+    }));
+  } catch (error) {
+    console.warn('[sitemap] Skipping published pages:', error);
+  }
+
+  return [
+    ...staticPages,
+    ...blogPages,
+    ...featurePages,
+    ...docPages,
+    ...publicPagePaths,
+  ];
 }

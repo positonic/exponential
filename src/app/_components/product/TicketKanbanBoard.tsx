@@ -1,25 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import { useDroppable } from "@dnd-kit/core";
+import { useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Badge, Card, Group, Paper, Stack, Text } from "@mantine/core";
+import { Badge, Card, Group, Text } from "@mantine/core";
 import { useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import { BOARD_COLUMNS, type TicketStatus } from "~/lib/ticket-statuses";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { generateLinearId } from "~/lib/fun-ids";
+import { KanbanBoard as SharedKanbanBoard } from "~/app/_components/shared/kanban";
+import type { ColumnAccent, KanbanColumnDef, KanbanItem } from "~/app/_components/shared/kanban";
+import { CardSelectCheckbox } from "~/app/_components/shared/multiSelect";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,13 +33,46 @@ interface TicketItem {
   isBlocked: boolean;
 }
 
+type BoardItem = TicketItem & KanbanItem;
+
+/** Optional multi-select wiring passed down from the tickets page. */
+export interface TicketBoardSelection {
+  isSelected: (id: string) => boolean;
+  toggle: (id: string) => void;
+}
+
 const TYPE_COLORS: Record<string, string> = { BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow" };
 
+// Map the centralised ticket-status Mantine colours (~/lib/ticket-statuses) onto
+// the shared board's accent vocabulary (ADR-0037).
+function mapStatusColorToAccent(color: string): ColumnAccent {
+  switch (color) {
+    case "blue":
+    case "indigo":
+      return "brand";
+    case "grape":
+    case "violet":
+      return "violet";
+    case "orange":
+    case "yellow":
+      return "amber";
+    case "green":
+    case "teal":
+      return "green";
+    case "red":
+      return "red";
+    case "gray":
+    case "dark":
+    default:
+      return "slate";
+  }
+}
+
 // ---------------------------------------------------------------------------
-// TicketCard (draggable)
+// TicketCard (draggable) - unchanged; owns its own useSortable
 // ---------------------------------------------------------------------------
 
-function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName }: { ticket: TicketItem; basePath: string; isDragOverlay?: boolean; funTicketIds: boolean; productName: string }) {
+function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName, selection, onOpenTicket }: { ticket: TicketItem; basePath: string; isDragOverlay?: boolean; funTicketIds: boolean; productName: string; selection?: TicketBoardSelection; onOpenTicket?: (id: string) => void }) {
   const router = useRouter();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ticket.id });
 
@@ -58,21 +84,36 @@ function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName
         opacity: isDragging ? 0.4 : 1,
       };
 
+  const isSelected = !isDragOverlay && (selection?.isSelected(ticket.id) ?? false);
+
   return (
     <Card
       ref={isDragOverlay ? undefined : setNodeRef}
       style={style}
       {...(isDragOverlay ? {} : { ...attributes, ...listeners })}
-      className="border border-border-primary bg-surface-secondary hover:border-border-focus transition-colors cursor-grab active:cursor-grabbing"
+      className={`group/card relative border bg-surface-secondary transition-colors cursor-grab active:cursor-grabbing ${isSelected ? "border-border-focus" : "border-border-primary hover:border-border-focus"}`}
       padding="sm"
       radius="sm"
       onClick={(e: React.MouseEvent) => {
-        if (!isDragging && !isDragOverlay) {
-          e.stopPropagation();
-          router.push(`${basePath}/${ticket.id}`);
+        if (isDragging || isDragOverlay) return;
+        e.stopPropagation();
+        if ((e.metaKey || e.ctrlKey) && selection) {
+          selection.toggle(ticket.id);
+          return;
         }
+        if (onOpenTicket) {
+          onOpenTicket(ticket.id);
+          return;
+        }
+        router.push(`${basePath}/${ticket.id}`);
       }}
     >
+      {!isDragOverlay && selection && (
+        <CardSelectCheckbox
+          selected={isSelected}
+          onToggle={() => selection.toggle(ticket.id)}
+        />
+      )}
       {(() => {
         const displayId = funTicketIds && ticket.shortId
           ? ticket.shortId
@@ -110,48 +151,6 @@ function TicketCard({ ticket, basePath, isDragOverlay, funTicketIds, productName
 }
 
 // ---------------------------------------------------------------------------
-// Column (droppable)
-// ---------------------------------------------------------------------------
-
-function BoardColumn({ status, label, color, tickets, basePath, funTicketIds, productName }: {
-  status: string; label: string; color: string; tickets: TicketItem[]; basePath: string; funTicketIds: boolean; productName: string;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: status });
-
-  return (
-    <Paper
-      ref={setNodeRef}
-      className={`min-w-64 w-64 shrink-0 transition-all duration-200 ${isOver ? "ring-2 ring-blue-400 ring-opacity-50 bg-surface-hover" : ""}`}
-      p="sm"
-      radius="md"
-      withBorder
-    >
-      <Group justify="space-between" mb="sm">
-        <Badge
-          size="sm"
-          variant="filled"
-          color={color}
-          styles={{ label: { color: "var(--mantine-color-dark-9)" } }}
-        >
-          {label}
-        </Badge>
-        <Text size="xs" fw={600} className="text-text-muted">{tickets.length}</Text>
-      </Group>
-      <Stack gap="xs">
-        {tickets.map((ticket) => (
-          <TicketCard key={ticket.id} ticket={ticket} basePath={basePath} funTicketIds={funTicketIds} productName={productName} />
-        ))}
-        {tickets.length === 0 && (
-          <div className="h-16 border-2 border-dashed border-border-secondary rounded-md flex items-center justify-center">
-            <Text size="xs" className="text-text-muted">Drop here</Text>
-          </div>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Board
 // ---------------------------------------------------------------------------
 
@@ -161,91 +160,57 @@ interface TicketKanbanBoardProps {
   productName: string;
   funTicketIds: boolean;
   basePath: string;
+  selection?: TicketBoardSelection;
+  /** When set, clicking a card opens the peek instead of navigating. */
+  onOpenTicket?: (id: string) => void;
 }
 
-export function TicketKanbanBoard({ tickets, productId, productName, funTicketIds, basePath }: TicketKanbanBoardProps) {
+const BOARD_STATUSES = new Set<string>(BOARD_COLUMNS.map((c) => c.value));
+
+export function TicketKanbanBoard({ tickets, productId, productName, funTicketIds, basePath, selection, onOpenTicket }: TicketKanbanBoardProps) {
   const utils = api.useUtils();
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [optimisticMoves, setOptimisticMoves] = useState<Record<string, TicketStatus>>({});
 
   const updateTicket = api.product.ticket.update.useMutation({
     onSuccess: async () => {
       await utils.product.ticket.list.invalidate({ productId });
     },
-    onError: (_err, variables) => {
-      // Rollback optimistic move
-      setOptimisticMoves((prev) => {
-        const next = { ...prev };
-        delete next[variables.id];
-        return next;
-      });
-    },
   });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  const columns = useMemo<KanbanColumnDef[]>(
+    () => BOARD_COLUMNS.map((c) => ({ id: c.value, title: c.label, accent: mapStatusColorToAccent(c.color) })),
+    [],
   );
 
-  // Apply optimistic moves
-  const effectiveTickets = useMemo(() =>
-    tickets.map((t) => optimisticMoves[t.id] ? { ...t, status: optimisticMoves[t.id]! } : t),
-    [tickets, optimisticMoves],
+  // Tag each ticket with its column; drop ARCHIVED (no column) so it stays excluded.
+  const items = useMemo<BoardItem[]>(
+    () =>
+      tickets
+        .filter((t) => BOARD_STATUSES.has(t.status))
+        .map((t) => ({ ...t, columnId: t.status })),
+    [tickets],
   );
 
-  const columnTickets = useMemo(() => {
-    const map: Record<string, TicketItem[]> = {};
-    for (const col of BOARD_COLUMNS) map[col.value] = [];
-    for (const t of effectiveTickets) {
-      (map[t.status] ??= []).push(t);
-    }
-    return map;
-  }, [effectiveTickets]);
-
-  const activeTicket = activeId ? effectiveTickets.find((t) => t.id === activeId) : null;
-
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    setActiveId(event.active.id as string);
-  }, []);
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setActiveId(null);
-    const { active, over } = event;
-    if (!over) return;
-
-    const ticketId = active.id as string;
-    const overId = String(over.id);
-    const overColumn = BOARD_COLUMNS.find((c) => c.value === overId);
-    const overTicket = effectiveTickets.find((t) => t.id === overId);
-    const nextStatus = overColumn?.value ?? overTicket?.status;
-    if (!nextStatus) return;
-
-    const ticket = effectiveTickets.find((t) => t.id === ticketId);
-    if (!ticket || ticket.status === nextStatus) return;
-
-    // Optimistic update
-    setOptimisticMoves((prev) => ({ ...prev, [ticketId]: nextStatus }));
-    updateTicket.mutate({ id: ticketId, status: nextStatus });
-  }, [effectiveTickets, updateTicket]);
+  const handleMove = (itemId: string, toColumnId: string) =>
+    updateTicket.mutateAsync({ id: itemId, status: toColumnId as TicketStatus });
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-4 w-full min-w-0">
-        {BOARD_COLUMNS.map((col) => (
-          <BoardColumn
-            key={col.value}
-            status={col.value}
-            label={col.label}
-            color={col.color}
-            tickets={columnTickets[col.value] ?? []}
-            basePath={basePath}
-            funTicketIds={funTicketIds}
-            productName={productName}
-          />
-        ))}
-      </div>
-      <DragOverlay>
-        {activeTicket && <TicketCard ticket={activeTicket} basePath={basePath} isDragOverlay funTicketIds={funTicketIds} productName={productName} />}
-      </DragOverlay>
-    </DndContext>
+    <SharedKanbanBoard<BoardItem>
+      columns={columns}
+      items={items}
+      onMove={handleMove}
+      getItemLabel={(item) => item.title}
+      columnEmptyState="Drop here"
+      renderCard={(item, { isOverlay }) => (
+        <TicketCard
+          ticket={item}
+          basePath={basePath}
+          isDragOverlay={isOverlay}
+          funTicketIds={funTicketIds}
+          productName={productName}
+          selection={selection}
+          onOpenTicket={onOpenTicket}
+        />
+      )}
+    />
   );
 }

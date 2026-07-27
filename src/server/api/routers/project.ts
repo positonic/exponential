@@ -13,8 +13,8 @@ import {
   isWorkspaceGuest,
   AccessControlService,
 } from "~/server/services/access";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -75,6 +75,15 @@ export const projectRouter = createTRPCRouter({
         projects,
       };
     }),
+
+  /**
+   * Candidate projects for placing a meeting: every project the caller can
+   * edit, across all their workspaces, tagged with workspace for grouping in
+   * the placement picker. See `getAssignableProjects`.
+   */
+  getAssignable: protectedProcedure.query(({ ctx }) =>
+    getAssignableProjects(ctx.db, ctx.session.user.id),
+  ),
 
   getAll: protectedProcedure
     .input(z.object({
@@ -190,6 +199,7 @@ export const projectRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1),
         description: z.string().optional(),
+        aiInstructions: z.string().optional(),
         status: z.string(),
         priority: z.string(),
         progress: z.number().min(0).max(100).optional().default(0),
@@ -235,6 +245,7 @@ export const projectRouter = createTRPCRouter({
         data: {
           name: input.name,
           description: input.description,
+          aiInstructions: input.aiInstructions,
           status: input.status,
           priority: input.priority,
           progress: input.progress ?? 0,
@@ -305,10 +316,6 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Sync onboarding progress (fire-and-forget)
-      void completeOnboardingStep(ctx.db, ctx.session.user.id, "project").catch(
-        (err: unknown) => { console.error("[onboarding-sync] project:", err); },
-      );
 
       return project;
     }),
@@ -365,6 +372,10 @@ export const projectRouter = createTRPCRouter({
         id: z.string(),
         name: z.string().min(1),
         description: z.string().optional(),
+        // Per-scope AI guidance; demoted context only. Flows through
+        // `...updateData` into the prisma update below; access is gated by
+        // canEditProject (the existing project-update access path).
+        aiInstructions: z.string().optional(),
         status: z.enum(["ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]),
         priority: z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]),
         taskManagementTool: z.enum(["internal", "monday", "notion"]).optional(),

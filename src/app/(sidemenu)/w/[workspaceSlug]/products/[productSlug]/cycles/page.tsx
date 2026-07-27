@@ -365,6 +365,16 @@ function CycleCard({
                   </Menu.Item>
                 </>
               )}
+              {(cycle.status === "COMPLETED" ||
+                cycle.status === "ARCHIVED") && (
+                <Menu.Item
+                  color="red"
+                  leftSection={<IconTrash size={14} />}
+                  onClick={() => actions.onDelete(cycle.id, cycle.name)}
+                >
+                  Delete cycle
+                </Menu.Item>
+              )}
             </Menu.Dropdown>
           </Menu>
         </Group>

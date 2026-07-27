@@ -1,10 +1,45 @@
 import { db } from "~/server/db";
+import { App } from "octokit";
 import type {
   Integration,
   IntegrationCredential,
+  Prisma,
   Workflow,
 } from "@prisma/client";
 import { encryptCredential } from "~/server/utils/credentialHelper";
+import {
+  GITHUB_INSTALLATION_PROVIDER,
+  GITHUB_INSTALLATION_TYPE,
+  isGithubAppConfigured,
+} from "~/server/services/github/connectionState";
+import {
+  normalizeAccessibleRepos,
+  type RepoOption,
+} from "~/server/services/github/accessibleRepos";
+
+/** Minimal GitHub account shape captured at install time (account = user or org). */
+interface GitHubAccount {
+  id?: number;
+  login?: string;
+  avatar_url?: string;
+  html_url?: string;
+}
+
+interface UpsertWorkspaceInstallationParams {
+  workspaceId: string;
+  /** User who performed the install — recorded as the Integration's `userId`. */
+  addedById: string;
+  installationId: number;
+  accessToken: string;
+  scopes: string[];
+  githubUser: GitHubAccount | null;
+  /**
+   * Raw `apps.listReposAccessibleToInstallation` payload, stashed on the
+   * Integration's `providerConfig` so `listAccessibleRepos` can offer repos for
+   * selection without a live GitHub call (and works when L1 env is absent).
+   */
+  accessibleRepos: unknown;
+}
 
 interface GitHubIssue {
   id: number;
@@ -69,6 +104,149 @@ class GitHubIntegrationService {
     }
 
     return response.json();
+  }
+
+  /**
+   * Upsert the ONE workspace-scoped GitHub App installation `Integration`
+   * (ADR-0020, L2). Replaces the legacy one-Integration-per-repo shape for the
+   * workspace connect flow: a workspace has at most one installation row
+   * (`provider=github`, `type=github_app_installation`, `status=ACTIVE`), which
+   * is the FK target for `WorkspaceRepository`. Idempotent — re-installing
+   * refreshes the token, accessible-repo list, and metadata in place.
+   */
+  async upsertWorkspaceInstallation(
+    params: UpsertWorkspaceInstallationParams,
+  ): Promise<Integration> {
+    const {
+      workspaceId,
+      addedById,
+      installationId,
+      accessToken,
+      scopes,
+      githubUser,
+      accessibleRepos,
+    } = params;
+
+    const existing = await db.integration.findFirst({
+      where: {
+        workspaceId,
+        provider: GITHUB_INSTALLATION_PROVIDER,
+        type: GITHUB_INSTALLATION_TYPE,
+      },
+      select: { id: true },
+    });
+
+    const providerConfig: Prisma.InputJsonValue = {
+      installationId,
+      // Retained for the later identity-claim phase; never used to attribute
+      // commits in this slice.
+      githubLogin: githubUser?.login ?? null,
+      // Raw GitHub payload (JSON-serializable); normalized on read.
+      accessibleRepos: (accessibleRepos ?? null) as Prisma.InputJsonValue,
+    };
+
+    const data = {
+      name: "GitHub",
+      type: GITHUB_INSTALLATION_TYPE,
+      provider: GITHUB_INSTALLATION_PROVIDER,
+      status: "ACTIVE",
+      description: "GitHub App installation for this workspace",
+      workspaceId,
+      userId: addedById,
+      lastSyncAt: new Date(),
+      providerConfig,
+    };
+
+    const integration = existing
+      ? await db.integration.update({ where: { id: existing.id }, data })
+      : await db.integration.create({ data });
+
+    // Refresh the credentials we own for this installation. Replace-in-place so
+    // re-installs don't accumulate stale token/metadata rows.
+    const encryptedToken = encryptCredential(accessToken);
+    await db.integrationCredential.deleteMany({
+      where: {
+        integrationId: integration.id,
+        keyType: { in: ["access_token", "github_metadata"] },
+      },
+    });
+    await db.integrationCredential.createMany({
+      data: [
+        {
+          integrationId: integration.id,
+          key: encryptedToken.key,
+          keyType: "access_token",
+          isEncrypted: encryptedToken.isEncrypted,
+        },
+        {
+          integrationId: integration.id,
+          key: JSON.stringify({
+            githubUserId: githubUser?.id,
+            githubUsername: githubUser?.login,
+            avatarUrl: githubUser?.avatar_url,
+            scopes,
+            installationId,
+          }),
+          keyType: "github_metadata",
+          isEncrypted: false,
+        },
+      ],
+    });
+
+    return integration;
+  }
+
+  /**
+   * Re-fetch the repos accessible to a workspace's installation directly from
+   * GitHub and refresh the cached `providerConfig.accessibleRepos` (ADR-0020,
+   * slice #3 follow-up). Paginates so installations with >100 repos are fully
+   * listed. Lets a user who just granted the App access to more repos on GitHub
+   * see them without re-installing. Never throws on config: returns `[]` when
+   * the workspace isn't installed, and falls back to the cached list (writing
+   * nothing) when L1 env is absent or the installation id is unusable.
+   */
+  async refreshWorkspaceAccessibleRepos(
+    workspaceId: string,
+  ): Promise<RepoOption[]> {
+    const installation = await db.integration.findFirst({
+      where: {
+        workspaceId,
+        provider: GITHUB_INSTALLATION_PROVIDER,
+        type: GITHUB_INSTALLATION_TYPE,
+        status: "ACTIVE",
+      },
+      select: { id: true, providerConfig: true },
+    });
+    if (!installation) return [];
+
+    const cfg = (installation.providerConfig ?? {}) as Record<string, unknown>;
+    const installationId = Number(cfg.installationId);
+    if (!isGithubAppConfigured() || !Number.isFinite(installationId)) {
+      return normalizeAccessibleRepos(cfg.accessibleRepos);
+    }
+
+    const app = new App({
+      appId: process.env.GITHUB_APP_ID!,
+      privateKey: process.env.GITHUB_PRIVATE_KEY!,
+    });
+    const octokit = await app.getInstallationOctokit(installationId);
+    const repositories = await octokit.paginate(
+      octokit.rest.apps.listReposAccessibleToInstallation,
+      { per_page: 100 },
+    );
+
+    const accessibleRepos = { repositories };
+    await db.integration.update({
+      where: { id: installation.id },
+      data: {
+        providerConfig: {
+          ...cfg,
+          accessibleRepos,
+        } as Prisma.InputJsonValue,
+      },
+    });
+
+    return normalizeAccessibleRepos(accessibleRepos);
   }
 
   async createGitHubIntegration(

@@ -17,6 +17,10 @@ export const env = createEnv({
     MICROSOFT_ENTRA_ID_CLIENT_SECRET: z.string().optional(),
     MICROSOFT_ENTRA_ID_TENANT_ID: z.string().optional(),
     DATABASE_URL: z.string().url(),
+    // Web Push (VAPID) private key — server-only, pairs with
+    // NEXT_PUBLIC_VAPID_PUBLIC_KEY. Optional: push notifications degrade
+    // gracefully when unset (see WebPushService / pushSubscription router).
+    VAPID_PRIVATE_KEY: z.string().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -35,6 +39,10 @@ export const env = createEnv({
       process.env.VERCEL_ENV === "production"
         ? z.string().url()
         : z.string().url().optional(),
+    // Web Push (VAPID) public key — exposed to the browser as the
+    // applicationServerKey for pushManager.subscribe(). Optional: push
+    // notifications degrade gracefully when unset.
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
   },
 
   /**
@@ -49,8 +57,10 @@ export const env = createEnv({
     MICROSOFT_ENTRA_ID_CLIENT_SECRET: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET,
     MICROSOFT_ENTRA_ID_TENANT_ID: process.env.MICROSOFT_ENTRA_ID_TENANT_ID,
     DATABASE_URL: process.env.DATABASE_URL,
+    VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

@@ -1,22 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ActionIcon,
+  Avatar,
   Badge,
   Button,
+  Group,
   Select,
   Switch,
   Text,
   TextInput,
   Textarea,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconArrowLeft,
   IconArrowsExchange,
+  IconBrandNotion,
   IconLayoutList,
+  IconMap2,
   IconPlus,
   IconRefresh,
   IconSettings,
@@ -30,6 +35,9 @@ import { getTagMantineColor } from "~/utils/tagColors";
 import type { TagColor } from "~/types/tag";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { AreaManagement } from "~/app/_components/product/AreaManagement";
+import { buildProductFavoriteTarget } from "../favoriteTarget";
 import {
   SettingsShell,
   SettingsHero,
@@ -37,12 +45,21 @@ import {
   SettingsSidebar,
   SettingsSection,
   SettingsField,
+  SettingsFieldButton,
   SettingsDangerRow,
   SettingsDangerZone,
   type SidebarGroup,
 } from "~/app/_components/settings/SettingsShell";
+import { NotionSyncSettings } from "~/app/_components/products/NotionSyncSettings";
 
-type SectionId = "general" | "flow" | "labels" | "workspace" | "danger";
+type SectionId =
+  | "general"
+  | "flow"
+  | "areas"
+  | "labels"
+  | "notion-sync"
+  | "workspace"
+  | "danger";
 
 // ---------------------------------------------------------------------------
 // Small helpers used inside the design-system sections
@@ -71,7 +88,7 @@ function SubSectionLabel({ children }: { children: React.ReactNode }) {
 const TICKET_STATUSES = ["Backlog", "Needs refinement", "Ready to plan", "Committed", "In progress", "Blocked", "QA", "Done", "Deployed", "Archived"];
 const EPIC_STATUSES = ["Open", "In progress", "Done", "Cancelled"];
 const CYCLE_STATUSES = ["Planned", "Active", "Completed", "Archived"];
-const FEATURE_STATUSES = ["Idea", "Defined", "In progress", "Shipped", "Archived"];
+const FEATURE_STATUSES = ["Idea", "Defined", "In progress", "Live", "Deprecated", "Archived"];
 
 function StageRow({
   label,
@@ -412,6 +429,8 @@ export default function ProductSettingsPage() {
     null,
   );
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: workspaces } = api.workspace.list.useQuery();
 
@@ -433,7 +452,7 @@ export default function ProductSettingsPage() {
           slug: productSlug,
         });
       }
-      // The page is keyed by slug — follow it to the new URL if it changed.
+      // The page is keyed by slug - follow it to the new URL if it changed.
       if (workspace && updated.slug !== productSlug) {
         router.replace(
           `/w/${workspace.slug}/products/${updated.slug}/settings`,
@@ -441,6 +460,54 @@ export default function ProductSettingsPage() {
       }
     },
     onError: (err) => setError(err.message),
+  });
+
+  const invalidateProduct = async () => {
+    if (workspaceId) {
+      await utils.product.product.list.invalidate({ workspaceId });
+      await utils.product.product.getBySlug.invalidate({
+        workspaceId,
+        slug: productSlug,
+      });
+    }
+  };
+
+  const uploadLogo = api.product.product.uploadLogo.useMutation({
+    onSuccess: async () => {
+      await invalidateProduct();
+      notifications.show({
+        title: "Logo updated",
+        message: "Product logo has been saved.",
+        color: "green",
+        autoClose: 3000,
+      });
+    },
+    onError: (err) =>
+      notifications.show({
+        title: "Upload failed",
+        message: err.message,
+        color: "red",
+        autoClose: 5000,
+      }),
+  });
+
+  const removeLogo = api.product.product.removeLogo.useMutation({
+    onSuccess: async () => {
+      await invalidateProduct();
+      notifications.show({
+        title: "Logo removed",
+        message: "Product will use the default icon.",
+        color: "blue",
+        autoClose: 3000,
+      });
+    },
+    onError: (err) =>
+      notifications.show({
+        title: "Remove failed",
+        message: err.message,
+        color: "red",
+        autoClose: 5000,
+      }),
   });
 
   const deleteProduct = api.product.product.delete.useMutation({
@@ -484,6 +551,53 @@ export default function ProductSettingsPage() {
       description: description.trim() || undefined,
       funTicketIds,
     });
+  };
+
+  const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      notifications.show({
+        title: "Invalid file",
+        message: "Please select an image file.",
+        color: "red",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      notifications.show({
+        title: "File too large",
+        message: "Please select an image under 5MB.",
+        color: "red",
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string | null)?.split(",")[1];
+      if (!base64) {
+        setIsUploadingLogo(false);
+        return;
+      }
+      uploadLogo.mutate(
+        { id: product.id, base64Data: base64, contentType: file.type },
+        { onSettled: () => setIsUploadingLogo(false) },
+      );
+    };
+    reader.onerror = () => {
+      setIsUploadingLogo(false);
+      notifications.show({
+        title: "Upload failed",
+        message: "Could not read the selected file.",
+        color: "red",
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const onDelete = () => {
@@ -535,7 +649,9 @@ export default function ProductSettingsPage() {
       items: [
         { id: "general", label: "General", icon: IconSettings },
         { id: "flow", label: "Delivery Flow", icon: IconRefresh },
-        { id: "labels", label: "Labels & Areas", icon: IconTags },
+        { id: "areas", label: "Areas", icon: IconMap2 },
+        { id: "labels", label: "Labels", icon: IconTags },
+        { id: "notion-sync", label: "Notion sync", icon: IconBrandNotion },
       ],
     },
     {
@@ -548,7 +664,7 @@ export default function ProductSettingsPage() {
 
   return (
     <SettingsShell>
-      <div className="px-6 md:px-10 pt-6">
+      <div className="px-6 md:px-10 pt-6 flex items-center justify-between">
         <Link
           href={backPath}
           className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors"
@@ -556,6 +672,18 @@ export default function ProductSettingsPage() {
           <IconArrowLeft size={16} />
           Back to {product.name}
         </Link>
+        {workspaceId && (
+          <FavoriteButton
+            entityType="page"
+            {...buildProductFavoriteTarget({
+              pathname: `${backPath}/settings`,
+              workspaceSlug: workspace.slug,
+              productSlug,
+              productName: product.name,
+            })}
+            workspaceId={workspaceId}
+          />
+        )}
       </div>
 
       <SettingsHero
@@ -580,6 +708,53 @@ export default function ProductSettingsPage() {
             title="General"
             description="Basic product information."
           >
+            <SettingsField
+              label="Logo"
+              sublabel="Shown in the products list. PNG or JPG, up to 5MB."
+              action={
+                <Group gap="xs">
+                  <SettingsFieldButton
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    {isUploadingLogo
+                      ? "Uploading…"
+                      : product.logoUrl
+                        ? "Replace"
+                        : "Upload"}
+                  </SettingsFieldButton>
+                  {product.logoUrl && (
+                    <SettingsFieldButton
+                      onClick={() => removeLogo.mutate({ id: product.id })}
+                    >
+                      Remove
+                    </SettingsFieldButton>
+                  )}
+                </Group>
+              }
+            >
+              <Group gap="sm" align="center">
+                <Avatar
+                  src={product.logoUrl ?? null}
+                  size={48}
+                  radius="md"
+                  color="brand"
+                  className="bg-surface-tertiary text-text-primary"
+                >
+                  {product.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <span className="text-text-muted text-[12px]">
+                  {product.logoUrl ? "Custom logo" : "Using the default icon"}
+                </span>
+              </Group>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoFileChange}
+              />
+            </SettingsField>
+
             <SettingsField
               label="Name"
               sublabel="The display name for this product."
@@ -760,13 +935,33 @@ export default function ProductSettingsPage() {
           </>
         )}
 
+        {section === "areas" && (
+          <SettingsSection
+            icon={IconMap2}
+            title="Areas"
+            description="Areas divide this product into its major parts, and every feature belongs to exactly one - for example: Onboarding, Billing, Notifications, Search, Admin. Define 5-10 areas along a single principle (product parts, platforms, or journey steps - not a mix). Use labels for anything that applies across areas, like a technology or a team. Deleting an area does not delete its features; they just become unassigned."
+          >
+            <AreaManagement productId={product?.id ?? ""} />
+          </SettingsSection>
+        )}
+
         {section === "labels" && (
           <SettingsSection
             icon={IconTags}
-            title="Labels & Areas"
-            description="Labels are freeform tags for filtering (e.g. tech-debt, urgent). Areas group features by product area (e.g. Platform, Growth)."
+            title="Labels"
+            description="Freeform tags for filtering (e.g. tech-debt, urgent, mobile). The legacy Area category here only groups tickets in ticket views - feature registry Areas are managed in the Areas section."
           >
             <TagManagementSection workspaceId={workspaceId ?? ""} />
+          </SettingsSection>
+        )}
+
+        {section === "notion-sync" && (
+          <SettingsSection
+            icon={IconBrandNotion}
+            title="Notion sync"
+            description="Link this product's ticket board to a Notion backlog database. Rows in the database sync as tickets in this product."
+          >
+            <NotionSyncSettings productId={product.id} />
           </SettingsSection>
         )}
 

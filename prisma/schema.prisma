@@ -39,12 +39,12 @@ model Account {
 }
 
 // An external OAuth account (Google/Microsoft) a User has linked for DATA
-// ACCESS — calendar today, Contacts/Gmail later. Deliberately separate from
+// ACCESS - calendar today, Contacts/Gmail later. Deliberately separate from
 // `Account` (the NextAuth sign-in identity), whose global
 // @@unique([provider, providerAccountId]) is load-bearing for auth and cannot
 // hold a second row for the same external account. Keyed by
 // (userId, provider, providerAccountId) so the SAME external account can be
-// connected by many Users independently, and one User can connect many — and
+// connected by many Users independently, and one User can connect many - and
 // linking it never touches that account's own login. See ADR-0009.
 model ConnectedAccount {
   id                 String              @id @default(cuid())
@@ -75,124 +75,146 @@ model Session {
 }
 
 model User {
-  id                          String                      @id @default(cuid())
-  name                        String?
-  email                       String?                     @unique
-  emailVerified               DateTime?
-  image                       String?
-  onboardingCompletedAt       DateTime?
-  onboardingStep              Int                         @default(1)
-  welcomeCompletedAt          DateTime?
-  projectSetupCompletedAt     DateTime?
-  onboardingProjectId         String?
-  selectedTools               String[]
-  usageType                   String?
-  userRole                    String?
-  isAdmin                     Boolean                     @default(false)
-  emailMarketingOptIn         Boolean                     @default(true)
-  workRole                    String?
-  workFunction                String[]
-  usagePurposes               String[]
-  lastLogin                   DateTime?
-  defaultWorkspaceId          String?
-  accounts                    Account[]
-  connectedAccounts           ConnectedAccount[]
-  actions                     Action[]
-  actionAssignees             ActionAssignee[]            @relation("ActionAssignees")
-  timeEntries                 TimeEntry[]
-  aiInteractionHistory        AiInteractionHistory[]
-  feedback                    Feedback[]
-  goals                       Goal[]
-  integrations                Integration[]
-  permissionsGrantedBy        IntegrationPermission[]     @relation("PermissionGrantedBy")
-  permissionsGrantedTo        IntegrationPermission[]     @relation("PermissionGrantedTo")
-  permissionsRevokedBy        IntegrationPermission[]     @relation("PermissionRevokedBy")
-  integrationMappings         IntegrationUserMapping[]
-  notes                       Note[]
-  notificationPreferences     NotificationPreference?
-  navigationPreference        NavigationPreference?
-  calendarPreferences         CalendarPreference[]
-  outcomes                    Outcome[]
-  posts                       Post[]
-  projects                    Project[]
-  projectMemberships          ProjectMember[]
-  scheduledNotifications      ScheduledNotification[]
-  sessions                    Session[]
-  slackChannelsConfigured     SlackChannelConfig[]
-  slackMessageHistory         SlackMessageHistory[]
-  slackRegistrations          SlackRegistrationToken[]
-  teams                       TeamUser[]
-  transcriptionSessions       TranscriptionSession[]
-  exercises                   UserExercise[]
-  verificationTokens          VerificationToken[]
-  whatsappConversations       WhatsAppConversation[]
-  whatsappGatewaySessions     WhatsAppGatewaySession[]
-  workflows                   Workflow[]
-  weeklyOutcomesCreated       WeeklyOutcome[]             @relation("WeeklyOutcomeCreated")
-  weeklyOutcomeAssignees      WeeklyOutcomeAssignee[]     @relation("WeeklyOutcomeAssignee")
-  teamCapacities              TeamMemberWeeklyCapacity[]  @relation("TeamMemberCapacity")
-  weeklyReviewSharing         WeeklyReviewSharing[]
-  weeklyReviewCompletions     WeeklyReviewCompletion[]
-  portfolioReviewCompletions  PortfolioReviewCompletion[]
-  workspaceWeeklyFocuses      WorkspaceWeeklyFocus[]
-  wheelOfLifeAssessments      WheelOfLifeAssessment[]
-  habits                      Habit[]
-  ownedWorkspaces             Workspace[]                 @relation("WorkspaceOwner")
-  workspaceMemberships        WorkspaceUser[]
-  resources                   Resource[]
-  workspaceInvitationsCreated WorkspaceInvitation[]       @relation("InvitationCreator")
+  id                             String                          @id @default(cuid())
+  name                           String?
+  email                          String?                         @unique
+  emailVerified                  DateTime?
+  image                          String?
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  onboardingCompletedAt          DateTime?
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  onboardingStep                 Int                             @default(1)
+  welcomeCompletedAt             DateTime?
+  welcomeSetupState              Json?
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  projectSetupCompletedAt        DateTime?
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  onboardingProjectId            String?
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  selectedTools                  String[]
+  usageType                      String?
+  userRole                       String?
+  isAdmin                        Boolean                         @default(false)
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  emailMarketingOptIn            Boolean                         @default(true)
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  workRole                       String?
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  workFunction                   String[]
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
+  usagePurposes                  String[]
+  lastLogin                      DateTime?
+  defaultWorkspaceId             String?
+  accounts                       Account[]
+  connectedAccounts              ConnectedAccount[]
+  actions                        Action[]
+  actionAssignees                ActionAssignee[]                @relation("ActionAssignees")
+  timeEntries                    TimeEntry[]
+  aiInteractionHistory           AiInteractionHistory[]
+  feedback                       Feedback[]
+  goals                          Goal[]
+  integrations                   Integration[]
+  workspaceRepositoriesAdded     WorkspaceRepository[]           @relation("WorkspaceRepositoryAddedBy")
+  permissionsGrantedBy           IntegrationPermission[]         @relation("PermissionGrantedBy")
+  permissionsGrantedTo           IntegrationPermission[]         @relation("PermissionGrantedTo")
+  permissionsRevokedBy           IntegrationPermission[]         @relation("PermissionRevokedBy")
+  integrationMappings            IntegrationUserMapping[]
+  notes                          Note[]
+  notificationPreferences        NotificationPreference?
+  notifications                  Notification[]
+  notificationChannelPreferences NotificationChannelPreference[]
+  navigationPreference           NavigationPreference?
+  calendarPreferences            CalendarPreference[]
+  outcomes                       Outcome[]
+  posts                          Post[]
+  projects                       Project[]
+  projectMemberships             ProjectMember[]
+  scheduledNotifications         ScheduledNotification[]
+  sessions                       Session[]
+  slackChannelsConfigured        SlackChannelConfig[]
+  slackMessageHistory            SlackMessageHistory[]
+  slackRegistrations             SlackRegistrationToken[]
+  teams                          TeamUser[]
+  transcriptionSessions          TranscriptionSession[]
+  exercises                      UserExercise[]
+  verificationTokens             VerificationToken[]
+  whatsappConversations          WhatsAppConversation[]
+  whatsappGatewaySessions        WhatsAppGatewaySession[]
+  workflows                      Workflow[]
+  weeklyOutcomesCreated          WeeklyOutcome[]                 @relation("WeeklyOutcomeCreated")
+  weeklyOutcomeAssignees         WeeklyOutcomeAssignee[]         @relation("WeeklyOutcomeAssignee")
+  teamCapacities                 TeamMemberWeeklyCapacity[]      @relation("TeamMemberCapacity")
+  weeklyReviewSharing            WeeklyReviewSharing[]
+  weeklyReviewCompletions        WeeklyReviewCompletion[]
+  weeklyWorkDigests              WeeklyWorkDigest[]
+  portfolioReviewCompletions     PortfolioReviewCompletion[]
+  workspaceWeeklyFocuses         WorkspaceWeeklyFocus[]
+  wheelOfLifeAssessments         WheelOfLifeAssessment[]
+  habits                         Habit[]
+  ownedWorkspaces                Workspace[]                     @relation("WorkspaceOwner")
+  workspaceMemberships           WorkspaceUser[]
+  resources                      Resource[]
+  knowledgePages                 KnowledgePage[]
+  workspaceInvitationsCreated    WorkspaceInvitation[]           @relation("InvitationCreator")
   // CRM relations
-  crmContactsCreated          CrmContact[]                @relation("CrmContactCreatedBy")
-  crmOrganizationsCreated     CrmOrganization[]           @relation("CrmOrganizationCreatedBy")
-  crmInteractions             CrmContactInteraction[]     @relation("CrmInteractionUser")
-  crmCommunicationsCreated    CrmCommunication[]          @relation("CrmCommunicationCreatedBy")
-  crmTemplatesCreated         CrmCommunicationTemplate[]  @relation("CrmTemplateCreatedBy")
-  crmImportBatchesCreated     ContactImportBatch[]        @relation("CrmImportBatchCreatedBy")
+  crmContactsCreated             CrmContact[]                    @relation("CrmContactCreatedBy")
+  crmOrganizationsCreated        CrmOrganization[]               @relation("CrmOrganizationCreatedBy")
+  formsCreated                   Form[]                          @relation("FormCreatedBy")
+  crmInteractions                CrmContactInteraction[]         @relation("CrmInteractionUser")
+  crmCommunicationsCreated       CrmCommunication[]              @relation("CrmCommunicationCreatedBy")
+  crmTemplatesCreated            CrmCommunicationTemplate[]      @relation("CrmTemplateCreatedBy")
+  crmImportBatchesCreated        ContactImportBatch[]            @relation("CrmImportBatchCreatedBy")
   // Plugin and OKR relations
-  pluginConfigs               PluginConfig[]
-  keyResults                  KeyResult[]
-  keyResultCheckIns           KeyResultCheckIn[]          @relation("KeyResultCheckInCreator")
-  driGoals                    Goal[]                      @relation("GoalDRI")
-  driKeyResults               KeyResult[]                 @relation("KeyResultDRI")
+  pluginConfigs                  PluginConfig[]
+  keyResults                     KeyResult[]
+  keyResultCheckIns              KeyResultCheckIn[]              @relation("KeyResultCheckInCreator")
+  driGoals                       Goal[]                          @relation("GoalDRI")
+  driKeyResults                  KeyResult[]                     @relation("KeyResultDRI")
   // Tag relations
-  tagsCreated                 Tag[]                       @relation("TagCreator")
+  tagsCreated                    Tag[]                           @relation("TagCreator")
   // View relations
-  viewsCreated                View[]                      @relation("ViewsCreated")
+  viewsCreated                   View[]                          @relation("ViewsCreated")
   // List relations
-  listsCreated                List[]                      @relation("ListsCreated")
+  listsCreated                   List[]                          @relation("ListsCreated")
+  collectionsCreated             Collection[]                    @relation("CollectionCreatedBy")
   // Epic relations
-  epicsOwned                  Epic[]                      @relation("EpicOwner")
+  epicsOwned                     Epic[]                          @relation("EpicOwner")
   // OKR Check-in relations
-  facilitatedOkrCheckins      OkrCheckin[]                @relation("OkrCheckinFacilitator")
-  okrCheckinUpdates           OkrCheckinUpdate[]          @relation("OkrCheckinUpdateUser")
-  okrCheckinComments          OkrCheckinComment[]         @relation("OkrCheckinCommentAuthor")
+  facilitatedOkrCheckins         OkrCheckin[]                    @relation("OkrCheckinFacilitator")
+  okrCheckinUpdates              OkrCheckinUpdate[]              @relation("OkrCheckinUpdateUser")
+  okrCheckinComments             OkrCheckinComment[]             @relation("OkrCheckinCommentAuthor")
   // OKR Discussion relations
-  goalComments                GoalComment[]               @relation("GoalCommentAuthor")
-  goalUpdates                 GoalUpdate[]                @relation("GoalUpdateAuthor")
-  keyResultComments           KeyResultComment[]          @relation("KeyResultCommentAuthor")
+  goalComments                   GoalComment[]                   @relation("GoalCommentAuthor")
+  goalUpdates                    GoalUpdate[]                    @relation("GoalUpdateAuthor")
+  keyResultComments              KeyResultComment[]              @relation("KeyResultCommentAuthor")
   // Action Discussion relations
-  actionComments              ActionComment[]             @relation("ActionCommentAuthor")
+  actionComments                 ActionComment[]                 @relation("ActionCommentAuthor")
+  featureComments                FeatureComment[]                @relation("FeatureCommentAuthor")
+  knowledgePageComments          KnowledgePageComment[]          @relation("KnowledgePageCommentAuthor")
   // Blog Discussion relations
-  blogComments                BlogComment[]               @relation("BlogCommentAuthor")
+  blogComments                   BlogComment[]                   @relation("BlogCommentAuthor")
   // Daily Planning relations
-  dailyPlans                  DailyPlan[]
+  dailyPlans                     DailyPlan[]
   // Zoe daily briefing
-  dailyBriefings              DailyBriefing[]
+  dailyBriefings                 DailyBriefing[]
   // Push notification subscriptions
-  pushSubscriptions           PushSubscription[]
+  pushSubscriptions              PushSubscription[]
   // Webhook activity logs
-  webhookLogs                 WebhookLog[]
+  webhookLogs                    WebhookLog[]
   // Auto-scheduling relations
-  taskSchedulesCreated        TaskSchedule[]              @relation("TaskScheduleCreator")
-  recurringTasksCreated       RecurringTask[]             @relation("RecurringTaskCreator")
+  taskSchedulesCreated           TaskSchedule[]                  @relation("TaskScheduleCreator")
+  recurringTasksCreated          RecurringTask[]                 @relation("RecurringTaskCreator")
   // Project activity audit log
-  projectActivitiesAuthored   ProjectActivity[]           @relation("ProjectActivityAuthor")
+  projectActivitiesAuthored      ProjectActivity[]               @relation("ProjectActivityAuthor")
   // Workspace home activity feed
-  workspaceActivityEvents     WorkspaceActivityEvent[]
+  workspaceActivityEvents        WorkspaceActivityEvent[]
+  // Inbound channel links created by this user
+  channelLinksCreated            ChannelLink[]                   @relation("ChannelLinkCreatedBy")
   // Per-user favourites (polymorphic pins)
-  favorites                   Favorite[]
+  favorites                      Favorite[]
 
   // Onboarding: Attribution
+  /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
 
   // Onboarding: Work Hours
@@ -239,16 +261,20 @@ model User {
   workspaceNotificationOverrides WorkspaceNotificationOverride[]
 
   // Product Management plugin relations
-  productsCreated       Product[]          @relation("ProductCreatedBy")
-  featuresCreated       Feature[]          @relation("FeatureCreatedBy")
-  researchesCreated     Research[]         @relation("ResearchCreatedBy")
-  ticketsCreated        Ticket[]           @relation("TicketCreatedBy")
-  ticketsAssigned       Ticket[]           @relation("TicketAssignee")
-  retrospectivesCreated Retrospective[]    @relation("RetrospectiveCreatedBy")
-  ticketComments        TicketComment[]    @relation("TicketCommentAuthor")
-  ticketDepsCreated     TicketDependency[] @relation("TicketDependencyCreatedBy")
-  insightsCreated       Insight[]          @relation("InsightCreatedBy")
-  problemsCreated       Problem[]          @relation("ProblemCreatedBy")
+  productsCreated       Product[]             @relation("ProductCreatedBy")
+  featuresCreated       Feature[]             @relation("FeatureCreatedBy")
+  featureDraftsCreated  MeetingFeatureDraft[] @relation("MeetingFeatureDraftCreatedBy")
+  researchesCreated     Research[]            @relation("ResearchCreatedBy")
+  ticketsCreated        Ticket[]              @relation("TicketCreatedBy")
+  ticketsAssigned       Ticket[]              @relation("TicketAssignee")
+  retrospectivesCreated Retrospective[]       @relation("RetrospectiveCreatedBy")
+  ticketComments        TicketComment[]       @relation("TicketCommentAuthor")
+  ticketDepsCreated     TicketDependency[]    @relation("TicketDependencyCreatedBy")
+  insightsCreated       Insight[]             @relation("InsightCreatedBy")
+  insightComments       InsightComment[]      @relation("InsightCommentAuthor")
+  requirementsChecked   Requirement[]         @relation("RequirementCheckedBy")
+  ticketSyncConfigs     TicketSyncConfig[]    @relation("TicketSyncConfigCreatedBy")
+  ticketSyncRuns        TicketSyncRun[]       @relation("TicketSyncRunTriggeredBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -279,16 +305,20 @@ model VerificationToken {
 // ============================================
 
 model Workspace {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
-  logoUrl     String?
-  type        String   @default("personal") // "personal" | "team" | "organization"
-  homeLayout  String   @default("command") // "command" | "activity"
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  ownerId     String
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  description    String?
+  // Per-scope AI guidance ("Instructions" in the UI). Injected as DEMOTED
+  // <user_data> context in the chat route, never as an authoritative system
+  // prompt (demoted scope-instructions ADR). Distinct from the human-facing `description`.
+  aiInstructions String?  @db.Text
+  logoUrl        String?
+  type           String   @default("personal") // "personal" | "team" | "organization"
+  homeLayout     String   @default("command") // "command" | "activity"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ownerId        String
 
   effortUnit               EffortUnit @default(STORY_POINTS)
   enableAdvancedActions    Boolean    @default(false)
@@ -297,6 +327,9 @@ model Workspace {
   enableDailyPlanBanner    Boolean    @default(true)
   enableWeeklyReviewBanner Boolean    @default(true)
   enableEmailNotifications Boolean    @default(true)
+  // When on, creating a CRM contact enqueues an async web-search enrichment job
+  // (drained by the enrich-pending-contacts cron → Mastra enrichmentAgent).
+  enableAutoEnrichContacts Boolean    @default(false)
 
   // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
   notionDefaultConfig Json?
@@ -311,9 +344,11 @@ model Workspace {
   timeEntries             TimeEntry[]
   teams                   Team[]
   resources               Resource[]
+  knowledgePages          KnowledgePage[]
   invitations             WorkspaceInvitation[]
   views                   View[]
   lists                   List[]
+  collections             Collection[]
   // CRM relations
   crmContacts             CrmContact[]
   crmOrganizations        CrmOrganization[]
@@ -321,6 +356,9 @@ model Workspace {
   crmCommunications       CrmCommunication[]
   crmTemplates            CrmCommunicationTemplate[]
   crmImportBatches        ContactImportBatch[]
+  crmEnrichments          CrmContactEnrichment[]
+  // Forms relations
+  forms                   Form[]
   // Plugin and OKR relations
   pluginConfigs           PluginConfig[]
   keyResults              KeyResult[]
@@ -355,6 +393,8 @@ model Workspace {
   deals                   Deal[]
   // Integration relations
   integrations            Integration[]
+  // GitHub repo connection (ADR-0020): repos this workspace tracks
+  workspaceRepositories   WorkspaceRepository[]
   // Notification override relations
   notificationOverrides   WorkspaceNotificationOverride[]
   // Slack channel config relation
@@ -376,6 +416,8 @@ model Workspace {
   activityEvents   WorkspaceActivityEvent[]
   // Cached AI-generated Week-in-Review narratives (one row per ISO week).
   weeklyNarratives WorkspaceWeeklyNarrative[]
+  // Inbound channel links routed to this workspace (ADR-0023)
+  channelLinks     ChannelLink[]
 
   @@index([slug])
   @@index([ownerId])
@@ -384,18 +426,18 @@ model Workspace {
 
 // Append-only log of significant workspace events.
 // Powers heatmap, activity feed, and weekly review sparkline. Writes are
-// fire-and-forget from call sites via `recordActivity()` — see
+// fire-and-forget from call sites via `recordActivity()` - see
 // src/server/services/activity/.
 model WorkspaceActivityEvent {
   id          String   @id @default(cuid())
   workspaceId String
-  // Nullable so deleting a user preserves the audit trail — the userId is set
+  // Nullable so deleting a user preserves the audit trail - the userId is set
   // to NULL rather than blocking the delete (RESTRICT) or destroying the event
   // (CASCADE). recordActivity() always inserts a non-null userId; only
   // post-user-deletion rows are NULL. Matches ProjectActivity.changedById.
   userId      String?
   entityType  String // "action" | "action_comment" | "ticket" | "ticket_comment"
-  entityId    String // intentionally not a foreign key — events outlive the entity
+  entityId    String // intentionally not a foreign key - events outlive the entity
   action      String // "created" | "updated" | "status_changed" | "completed" | "commented"
   metadata    Json?
   createdAt   DateTime @default(now())
@@ -405,6 +447,35 @@ model WorkspaceActivityEvent {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, userId, createdAt])
+}
+
+// Generic, inbound, provider-agnostic link routing a watched external
+// conversation to an Exponential destination (ADR-0023). The *routing*
+// authority: where a conversation's summary lands (required workspace,
+// optional project). `provider` is a string ("whatsapp" first); `externalId`
+// is that provider's conversation id (WhatsApp Baileys group JID "…@g.us",
+// Slack channel id, …). Deliberately distinct from the OUTBOUND,
+// Integration-FK-bound SlackChannelConfig - this is inbound and integration-free.
+model ChannelLink {
+  id          String   @id @default(cuid())
+  provider    String // "whatsapp" | "slack" | "telegram" | …
+  externalId  String // provider conversation id (e.g. WhatsApp group JID)
+  displayName String?
+  workspaceId String
+  projectId   String?
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalId])
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdById])
 }
 
 // Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
@@ -417,7 +488,7 @@ model WorkspaceWeeklyNarrative {
   isoYear     Int
   isoWeek     Int // 1–53
   narrative   String   @db.Text
-  highlights  Json // string[] — length 3 in practice, but stored as JSON for flexibility
+  highlights  Json // string[] - length 3 in practice, but stored as JSON for flexibility
   model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
   tokensIn    Int?
   tokensOut   Int?
@@ -427,6 +498,31 @@ model WorkspaceWeeklyNarrative {
 
   @@unique([workspaceId, isoYear, isoWeek])
   @@index([workspaceId, generatedAt])
+}
+
+// Cached AI-generated personal Weekly work digest. One row per (user, ISO week).
+// The personal, cross-workspace sibling of WorkspaceWeeklyNarrative: scoped to a
+// single user across all their workspaces, private to them, and additionally
+// carries content angles. Regenerated lazily on read; TTL on the active week.
+// See ADR-0018. v1 gathers three sources (activity events, assigned/owned items,
+// meetings attended); commits are deferred (ADR-0019).
+model WeeklyWorkDigest {
+  id          String   @id @default(cuid())
+  userId      String
+  isoYear     Int
+  isoWeek     Int // 1–53
+  narrative   String   @db.Text
+  highlights  Json // string[]
+  angles      Json // string[] - AI-suggested content angles
+  model       String // e.g. "gpt-4o-mini" or "canned" for the empty-week shortcut
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, isoYear, isoWeek])
+  @@index([userId, generatedAt])
 }
 
 model WorkspaceUser {
@@ -529,6 +625,44 @@ model List {
   @@index([workspaceId])
   @@index([createdById])
   @@index([status])
+}
+
+/// Generic, user-facing "List" primitive (ADR-0030). A curated membership set,
+/// polymorphic *by convention* and homogeneous per collection (one memberType).
+/// Distinct from the sprint `List` model above. v1 member type: "crm_contact".
+model Collection {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  /// Discriminator for the kind of member this list holds, e.g. "crm_contact".
+  memberType  String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User?              @relation("CollectionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  members   CollectionMember[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, memberType])
+}
+
+/// One member of a Collection. `memberId` references an entity of the parent's
+/// `memberType` *by convention* (no DB FK - that is what lets a new member type
+/// be added with no migration); cleanup of orphaned members is app-level.
+model CollectionMember {
+  id           String   @id @default(cuid())
+  collectionId String
+  memberType   String
+  memberId     String
+  createdAt    DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, memberId])
+  @@index([collectionId])
+  @@index([memberType, memberId])
 }
 
 model Action {
@@ -757,6 +891,11 @@ model Project {
   createdById           String
   slug                  String                     @unique
   description           String?
+  // Per-scope AI guidance ("Instructions" in the UI). Layered on top of the
+  // workspace's aiInstructions as DEMOTED <user_data> context in the chat
+  // route (project wins on conflict), never an authoritative system prompt
+  // (demoted scope-instructions ADR). Distinct from the human-facing `description`.
+  aiInstructions        String?                    @db.Text
   teamId                String?
   workspaceId           String?
   taskManagementConfig  Json?
@@ -778,6 +917,7 @@ model Project {
   product               Product?                   @relation(fields: [productId], references: [id], onDelete: SetNull)
   projectMembers        ProjectMember[]
   slackConfig           SlackChannelConfig?
+  channelLinks          ChannelLink[]
   transcriptionSessions TranscriptionSession[]
   workflows             Workflow[]
   goals                 Goal[]                     @relation("GoalProjects")
@@ -786,14 +926,13 @@ model Project {
   memberCapacities      TeamMemberWeeklyCapacity[] @relation("ProjectCapacities")
   lifeDomains           LifeDomain[]               @relation("ProjectLifeDomains")
   resources             Resource[]
+  knowledgePages        KnowledgePage[]
   recurringTasks        RecurringTask[]
   activities            ProjectActivity[]
   keyResults            KeyResultProject[] // Key results this project contributes to
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
   deals                 Deal[]
-  // Pipeline Triage: Problems this project is an Approach for (ADR-0008)
-  problemApproaches     ProblemApproach[]
 
   @@index([name])
   @@index([status])
@@ -1149,6 +1288,8 @@ model TranscriptionSession {
   participantCount Int?
 
   actions           Action[]
+  featureDrafts     MeetingFeatureDraft[]
+  sourcedFeatures   Feature[]                         @relation("FeatureSourceMeeting")
   screenshots       Screenshot[]
   project           Project?                          @relation(fields: [projectId], references: [id])
   sourceIntegration Integration?                      @relation(fields: [sourceIntegrationId], references: [id])
@@ -1166,13 +1307,14 @@ model TranscriptionSession {
 }
 
 model Screenshot {
-  id                     String                @id @default(cuid())
+  id                     String                 @id @default(cuid())
   url                    String
   timestamp              String
   transcriptionSessionId String?
-  createdAt              DateTime              @default(now())
-  transcriptionSession   TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id])
+  createdAt              DateTime               @default(now())
+  transcriptionSession   TranscriptionSession?  @relation(fields: [transcriptionSessionId], references: [id])
   actionScreenshots      ActionScreenshot[]
+  crmContactScreenshots  CrmContactScreenshot[]
 }
 
 model ActionScreenshot {
@@ -1220,6 +1362,9 @@ model Integration {
   workflows               Workflow[]
   // PM Agent GitHub tracking
   githubActivities        GitHubActivity[]
+  // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
+  workspaceRepositories   WorkspaceRepository[]
+  syncConfigs             TicketSyncConfig[]
 
   @@index([userId])
   @@index([teamId])
@@ -1458,7 +1603,7 @@ model AiInteractionHistory {
   // Per-call detail for the agent-quality loop (ADR-0012 judges, ADR-0013
   // replay baselines) and incident diagnosis: [{name, args, isError,
   // errorCode?, providerExecuted?}]. Args are redacted+truncated at capture
-  // (see redactToolArgs) — never store raw secrets here.
+  // (see redactToolArgs) - never store raw secrets here.
   toolCalls          Json?
   userAgent          String?
   ipAddress          String?
@@ -1504,7 +1649,7 @@ model Feedback {
   @@index([aiInteractionId])
 }
 
-// Agent-quality Thread scoring (ADR-0012). One row per judged Thread — a
+// Agent-quality Thread scoring (ADR-0012). One row per judged Thread - a
 // conversationId-scoped exchange with Zoe-the-brain, judged as a whole by an
 // LLM judge against Zoe's contract. Different grain from per-turn Feedback:
 // Feedback is a human ground-truth rating on one turn; ThreadScore is the
@@ -1520,7 +1665,7 @@ model ThreadScore {
   toolSuccess     Boolean
   noDeflection    Boolean
   overallScore    Int // 0-100, judge's holistic score across the four axes
-  // code_bug | agent_behaviour | capability_gap — null when the Thread passes (decision 4)
+  // code_bug | agent_behaviour | capability_gap - null when the Thread passes (decision 4)
   failureLane     String?
   judgeModel      String
   judgeVersion    String // versioned judge prompt (decision 9)
@@ -1693,6 +1838,7 @@ model NavigationPreference {
   showSuggestedFocus Boolean  @default(true)
   showGamification   Boolean  @default(false)
   showDailyBriefing  Boolean  @default(false)
+  navLayout          Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1779,6 +1925,70 @@ model ScheduledNotification {
   @@index([status])
   @@index([type])
   @@index([userId, scheduledFor])
+}
+
+/// Unified notification dispatch (ADR-0045). One durable record per (recipient,
+/// event); `scheduledFor` null = immediate, future = fired by the cron worker.
+/// Dedup: unique (dedupeKey, userId) collapses replays/double-fires.
+model Notification {
+  id           String                 @id @default(cuid())
+  userId       String
+  category     String // assignment | mention | due_date | summary | meeting_ready
+  title        String
+  message      String
+  metadata     Json?
+  deeplink     String?
+  dedupeKey    String
+  scheduledFor DateTime?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries   NotificationDelivery[]
+
+  @@unique([dedupeKey, userId])
+  @@index([userId])
+  @@index([category])
+  @@index([scheduledFor])
+  @@index([createdAt])
+}
+
+/// Per-channel delivery status for a Notification. A child table (not a JSON
+/// blob) so the cron can query pending/failed deliveries cheaply. Unique
+/// (notificationId, channel) guarantees the same (event, recipient, channel) is
+/// never delivered twice.
+model NotificationDelivery {
+  id             String       @id @default(cuid())
+  notificationId String
+  channel        String // push | email | matrix | whatsapp | zulip
+  status         String       @default("pending") // pending | sent | failed
+  attempts       Int          @default(0)
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, channel])
+  @@index([status])
+  @@index([status, attempts])
+  @@index([notificationId])
+}
+
+/// One cell of a user's category × channel preference matrix. Absence of a row
+/// falls back to the seeded default for that (category, channel).
+model NotificationChannelPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  category  String
+  channel   String
+  enabled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, channel])
+  @@index([userId])
+  @@index([userId, category])
 }
 
 model PushSubscription {
@@ -2212,7 +2422,7 @@ model WeeklyReviewCompletion {
 // Portfolio (cross-workspace) Weekly Review
 // ============================================
 
-// One row per user per week — completion of the high-altitude /weekly-review ritual.
+// One row per user per week - completion of the high-altitude /weekly-review ritual.
 // Distinct from WeeklyReviewCompletion (per-workspace) and tracked with its own streak.
 model PortfolioReviewCompletion {
   id                    String   @id @default(cuid())
@@ -2410,6 +2620,69 @@ model KnowledgeChunk {
   @@index([workspaceId])
 }
 
+/// A free-form, human- or Zoe-authored rich document (ADR-0033) - a spec, doc,
+/// or wiki page that stands on its own, not scoped to a Product/Day/Meeting. Its
+/// own top-level area (/w/[slug]/pages). Storage reuses the Feature PRD
+/// dual-format (ADR-0024): `bodyDoc` is the canonical ProseMirror JSON the
+/// editor reads/writes; `body` is a derived, write-only Markdown projection
+/// (greppable, embeddable, agent-readable); `docVersion` powers the
+/// optimistic-concurrency stale-write guard. Workspace-scoped with an optional
+/// Project link (flat - no nesting in v1); visibility mirrors Meetings
+/// (project-linked inherits the Project's rules incl. restriction; project-less
+/// is workspace-visible). When `includeInSearch` is on, the Markdown projection
+/// feeds the shared Knowledge index as `KnowledgeChunk.sourceType = "page"`.
+model KnowledgePage {
+  id               String    @id @default(cuid())
+  title            String    @default("Untitled")
+  bodyDoc          Json?
+  body             String?
+  docVersion       Int       @default(0)
+  includeInSearch  Boolean   @default(true)
+  // Public publishing (ADR-0038). `publicId` alone resolves /p/{publicSlug}-{publicId}:
+  // minted at first publish, immutable, survives unpublish so republish revives old links.
+  // `publicSlug` is cosmetic and freely editable; a stale slug 301s to canonical.
+  isPublic         Boolean   @default(false)
+  publicId         String?   @unique
+  publicSlug       String?
+  publicSeoIndexed Boolean   @default(false)
+  publishedAt      DateTime?
+  workspaceId      String
+  projectId        String?
+  createdById      String
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project   Project?               @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy User                   @relation(fields: [createdById], references: [id])
+  features  FeaturePage[]
+  comments  KnowledgePageComment[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([createdById])
+}
+
+/// Discussion note on a Knowledge Page — the doc-level comment feed under the
+/// page body, same card + composer pattern as FeatureComment's feature-level
+/// feed. No anchored threads: page bodies carry no `comment` marks, so the
+/// model stays flat (no threadId/parentId/quotedText until a real need).
+/// Bodies are Markdown (ADR-0017).
+model KnowledgePageComment {
+  id          String   @id @default(cuid())
+  pageId      String
+  body        String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  page      KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
+
+  @@index([pageId])
+  @@index([createdById])
+}
+
 // ============================================
 // CRM Models
 // ============================================
@@ -2430,8 +2703,15 @@ model CrmContact {
   profileType         String?
   skills              String[]
   tags                String[]
+  // Field keys whose CURRENT value came from enrichment, not a human (ADR-0036).
+  // The UI badges these "AI - verify". A human edit clears the key; re-enrich may
+  // refresh a still-AI field but never a human-locked one. Defaults to [] so the
+  // ADD COLUMN backfills existing rows (never NULL).
+  aiSourcedFields     String[]  @default([])
   lastInteractionAt   DateTime?
   lastInteractionType String?
+  // Email consent: set when the contact unsubscribes; honored by every Broadcast send.
+  emailOptedOutAt     DateTime?
   organizationId      String?
   createdById         String?
   createdAt           DateTime  @default(now())
@@ -2439,7 +2719,7 @@ model CrmContact {
 
   // Gmail/Calendar import fields
   connectionScore Int?      @default(0) // 0-100 calculated score
-  emailHash       String?   @unique // SHA-256 for deduplication
+  emailHash       String? // SHA-256 for deduplication; uniqueness is workspace-scoped via @@unique below
   importSource    String? // "GMAIL", "CALENDAR", "MANUAL"
   googleContactId String? // Google People API ID
   lastSyncedAt    DateTime? // Last import sync time
@@ -2451,7 +2731,10 @@ model CrmContact {
   communications              CrmCommunication[]
   deals                       Deal[]
   transcriptionParticipations TranscriptionSessionParticipant[]
+  screenshots                 CrmContactScreenshot[]
+  enrichments                 CrmContactEnrichment[]
 
+  @@unique([workspaceId, emailHash])
   @@index([workspaceId])
   @@index([organizationId])
   @@index([createdById])
@@ -2460,6 +2743,51 @@ model CrmContact {
   @@index([emailHash])
   @@index([connectionScore])
   @@index([workspaceId, importSource])
+}
+
+// Async enrichment job for a CRM contact. Written (status PENDING) by
+// dispatchContactEnrichment when a contact is created in a workspace with
+// enableAutoEnrichContacts on; drained by the enrich-pending-contacts cron,
+// which hands the contact to Mastra's enrichmentAgent (web search + write-back).
+// Mirrors ContactImportBatch's role as a durable status/audit record for
+// serverless fire-and-forget work.
+model CrmContactEnrichment {
+  id          String    @id @default(cuid())
+  contactId   String
+  workspaceId String
+  status      String    @default("PENDING") // PENDING, RUNNING, COMPLETED, FAILED
+  error       String?   @db.Text
+  metadata    Json? // agent summary, fields written, tool uses
+  createdById String?
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  contact   CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([workspaceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Join between a CRM contact and an uploaded image/screenshot. Mirrors
+// ActionScreenshot: the binary lives in Vercel Blob (see src/lib/blob.ts) and the
+// shared Screenshot row holds the URL. Pasting/dropping an image on the edit
+// drawer creates one of these on save.
+model CrmContactScreenshot {
+  id           String   @id @default(cuid())
+  contactId    String
+  screenshotId String
+  createdAt    DateTime @default(now())
+
+  contact    CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  screenshot Screenshot @relation(fields: [screenshotId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, screenshotId])
+  @@index([contactId])
+  @@index([screenshotId])
 }
 
 model CrmOrganization {
@@ -2600,6 +2928,65 @@ model ContactImportBatch {
   @@index([workspaceId])
   @@index([createdById])
   @@index([status])
+  @@index([createdAt])
+}
+
+// ============================================
+// Forms (generic public intake) Models
+// ============================================
+
+model Form {
+  id                     String   @id @default(cuid())
+  workspaceId            String
+  name                   String
+  // Globally unique - the public renderer/intake resolve a form by slug alone
+  // (`/f/[slug]`), with no workspace in the URL, so the slug must be unique
+  // across all workspaces or submissions could route to the wrong tenant.
+  slug                   String   @unique
+  description            String?  @db.Text
+  // FormField[]: [{ key, label, type, required, options?, placeholder? }]
+  fields                 Json     @default("[]")
+  // FormDestination[]: [{ type, config }] - run synchronously on submit
+  destinations           Json     @default("[]")
+  isActive               Boolean  @default(false)
+  confirmationMessage    String?  @db.Text
+  // Applicant account offer (CONTEXT.md ### Forms): whether the success page
+  // shows the optional "create an Exponential account" CTA, and an optional
+  // per-form override of its prompt copy (null = the built-in default).
+  // Defaults preserve pre-existing behaviour (offer shown, default copy).
+  offerApplicantAccount  Boolean  @default(true)
+  applicantAccountPrompt String?  @db.Text
+  // Public renderer copy overrides: the submit button label (null = "Submit")
+  // and a small dimmed note rendered under the button (null = nothing) -
+  // e.g. "We'll only use your email for updates and follow-ups."
+  submitLabel            String?
+  footnote               String?  @db.Text
+  createdById            String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User?            @relation("FormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  submissions FormSubmission[]
+
+  @@index([workspaceId])
+}
+
+model FormSubmission {
+  id               String   @id @default(cuid())
+  formId           String
+  // Validated submission payload keyed by field.key.
+  data             Json
+  // { ip, userAgent, honeypotTripped, emailHash? } - diagnostics & anti-abuse.
+  metadata         Json     @default("{}")
+  // Per-destination outcome: [{ type, ok, detail|error }].
+  result           Json?
+  createdContactId String?
+  createdAt        DateTime @default(now())
+
+  form Form @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
   @@index([createdAt])
 }
 
@@ -2828,14 +3215,16 @@ model KeyResultComment {
 
 // Per-user favourite (polymorphic pin of any entity). v1 wires entityType
 // "objective" and "keyResult"; deliberately extensible to projects/meetings.
-// entityId is a stringified id (Goal id or KeyResult cuid) — no FK because the
+// entityId is a stringified id (Goal id or KeyResult cuid) - no FK because the
 // target is polymorphic. workspaceId is captured for workspace-scoped surfaces.
 model Favorite {
   id          String   @id @default(cuid())
   userId      String
   workspaceId String?
-  entityType  String // "objective" | "keyResult"
-  entityId    String // Goal id (as string) or KeyResult cuid
+  entityType  String // "objective" | "keyResult" | "page"
+  entityId    String // Goal id (as string), KeyResult cuid, or workspace-relative path (page)
+  label       String? // Snapshot display label for "page" favourites (entity rows resolve titles live)
+  icon        String? // Optional icon-name snapshot for "page" favourites
   createdAt   DateTime @default(now())
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3598,6 +3987,7 @@ model Product {
   description   String?
   icon          String?
   color         String?
+  logoUrl       String?
   funTicketIds  Boolean  @default(false)
   ticketCounter Int      @default(0)
   workspaceId   String
@@ -3605,58 +3995,179 @@ model Product {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy       User             @relation("ProductCreatedBy", fields: [createdById], references: [id])
-  features        Feature[]
-  tickets         Ticket[]
-  researches      Research[]
-  insights        Insight[]
-  retrospectives  Retrospective[]
-  ticketTemplates TicketTemplate[]
-  projects        Project[]
-  problems        Problem[]
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy         User                  @relation("ProductCreatedBy", fields: [createdById], references: [id])
+  features          Feature[]
+  areas             Area[]
+  tickets           Ticket[]
+  researches        Research[]
+  insights          Insight[]
+  retrospectives    Retrospective[]
+  ticketTemplates   TicketTemplate[]
+  projects          Project[]
+  ticketSyncConfigs TicketSyncConfig[]
+  featureDrafts     MeetingFeatureDraft[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
   @@index([createdById])
 }
 
+// Feature lifecycle (Features V2): Idea -> Defined -> In progress -> Live ->
+// Deprecated (+ Archived). SHIPPED is the historical DB value for the Live
+// state - the UI always displays "Live" (live is the state, shipping is the
+// event, recorded by FeatureScope.shippedAt). IDEA/DEFINED/ARCHIVED are always
+// hand-managed. When a Feature has scopes, IN_PROGRESS/SHIPPED roll up from
+// scope statuses (see applyScopeRollup in the feature router). DEPRECATED =
+// was live, sunset by a human - never derived, distinct from ARCHIVED
+// (registry housekeeping for things that never shipped).
 enum FeatureStatus {
   IDEA
   DEFINED
   IN_PROGRESS
   SHIPPED
+  DEPRECATED
   ARCHIVED
 }
 
-model Feature {
-  id          String        @id @default(cuid())
-  productId   String
-  name        String
-  description String?
-  vision      String?
-  status      FeatureStatus @default(IDEA)
-  effort      Float?
-  priority    Int?
-  // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
-  goalId      Int?
-  createdById String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+// An exclusive bucket sorting a Product's Features into 5-10 groups (the
+// product's capability-map "profile picture"). Per-product, flat, exclusive:
+// a Feature belongs to at most one Area. Each product picks ONE carving axis
+// (functional or technical) - cross-cutting concerns belong in tags, not Areas.
+model Area {
+  id           String   @id @default(cuid())
+  productId    String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy   User             @relation("FeatureCreatedBy", fields: [createdById], references: [id])
-  goal        Goal?            @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
-  scopes      FeatureScope[]
-  userStories UserStory[]
-  insights    FeatureInsight[]
-  tickets     Ticket[]
-  tags        FeatureTag[]
+  product  Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  features Feature[]
+
+  @@unique([productId, name])
+  @@index([productId])
+}
+
+model Feature {
+  id                    String        @id @default(cuid())
+  productId             String
+  name                  String
+  // PRD body - the scoped ADR-0017 exception (ADR-0024). `descriptionDoc` is the
+  // canonical ProseMirror document the editor reads/writes; `description` is a
+  // derived, write-only Markdown projection for off-island readers (CLI, agents,
+  // card previews) and never read back into the editor. `docVersion` powers the
+  // optimistic-concurrency stale-write guard for single-writer editing.
+  description           String?
+  descriptionDoc        Json?
+  docVersion            Int           @default(0)
+  vision                String?
+  status                FeatureStatus @default(IDEA)
+  effort                Float?
+  priority              Int?
+  // Strategic alignment: optional link to a Goal (which may be an Objective in the OKR hierarchy)
+  goalId                Int?
+  // Exclusive Area bucket (Features V2) - at most one per Feature, nullable
+  // while unsorted.
+  areaId                String?
+  // Provenance (Features V3): the meeting this Feature was ideated from, set at
+  // accept time by the meeting→features path. Nullable — hand-authored features
+  // have no originating meeting. SetNull on delete so purging a meeting doesn't
+  // cascade away the Features it produced; the back-link just goes quiet.
+  sourceTranscriptionId String?
+  createdById           String
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  product             Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdBy           User                  @relation("FeatureCreatedBy", fields: [createdById], references: [id])
+  goal                Goal?                 @relation("FeatureGoal", fields: [goalId], references: [id], onDelete: SetNull)
+  area                Area?                 @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  sourceTranscription TranscriptionSession? @relation("FeatureSourceMeeting", fields: [sourceTranscriptionId], references: [id], onDelete: SetNull)
+  scopes              FeatureScope[]
+  userStories         UserStory[]
+  requirements        Requirement[]
+  insights            FeatureInsight[]
+  tickets             Ticket[]
+  tags                FeatureTag[]
+  comments            FeatureComment[]
+  pages               FeaturePage[]
 
   @@index([productId])
   @@index([goalId])
   @@index([createdById])
   @@index([status])
+  @@index([areaId])
+  @@index([sourceTranscriptionId])
+}
+
+/// A candidate Feature ideated from a meeting, held OUTSIDE the feature registry
+/// until a human accepts it. `FeatureStatus` has no DRAFT member on purpose -
+/// parking rejects in `Feature` would pollute the registry and force a status
+/// filter into every existing feature query - so drafts get their own table,
+/// written by the ideation service and drained on accept (deleted after the real
+/// Feature is created) or on discard. That keeps the review card alive across a
+/// page reload while nothing lands in `Feature` without human review.
+///
+/// `tickets` is the proposed breakdown, `[{ title, body, type }]`, materialised
+/// through `createTicketWithNumber` (ADR-0016) at accept time. `productId` is the
+/// last product the user had selected in the card - advisory only; the accept
+/// mutation takes the target product explicitly.
+model MeetingFeatureDraft {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  productId              String?
+  createdById            String
+  name                   String
+  description            String?
+  vision                 String?
+  tickets                Json     @default("[]")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  product              Product?             @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdBy            User                 @relation("MeetingFeatureDraftCreatedBy", fields: [createdById], references: [id])
+
+  @@index([transcriptionSessionId])
+  @@index([productId])
+  @@index([createdById])
+}
+
+/// Discussion note on a PRD body (ADR-0024). Either anchored - pinned via a
+/// `comment` mark in `Feature.descriptionDoc` to a span that stays highlighted
+/// as the text is edited - or doc-level (`threadId` null). Grouped into threads
+/// (a root plus `parentId` replies) and resolvable (`resolvedAt`). `quotedText`
+/// snapshots the selected text so an orphaned thread still renders. Bodies are
+/// Markdown (ADR-0017 still governs comment prose).
+model FeatureComment {
+  id          String    @id @default(cuid())
+  featureId   String
+  // Set when the comment belongs to a Feature scope's activity feed (the
+  // scope detail page) rather than the feature itself. Scope comments are
+  // always doc-level (threadId null).
+  scopeId     String?
+  threadId    String?
+  parentId    String?
+  body        String
+  quotedText  String?
+  resolvedAt  DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  feature   Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope     FeatureScope?    @relation(fields: [scopeId], references: [id], onDelete: Cascade)
+  parent    FeatureComment?  @relation("FeatureCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   FeatureComment[] @relation("FeatureCommentReplies")
+  createdBy User             @relation("FeatureCommentAuthor", fields: [createdById], references: [id])
+
+  @@index([featureId])
+  @@index([scopeId])
+  @@index([threadId])
+  @@index([parentId])
+  @@index([createdById])
 }
 
 enum FeatureScopeStatus {
@@ -3677,9 +4188,12 @@ model FeatureScope {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  feature     Feature     @relation(fields: [featureId], references: [id], onDelete: Cascade)
-  userStories UserStory[]
-  tickets     Ticket[]    @relation("TicketScope")
+  feature      Feature          @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  userStories  UserStory[]
+  requirements Requirement[]
+  tickets      Ticket[]         @relation("TicketScope")
+  pages        FeaturePage[]
+  comments     FeatureComment[]
 
   @@index([featureId])
 }
@@ -3700,6 +4214,56 @@ model UserStory {
   scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
 
   @@index([featureId])
+  @@index([scopeId])
+}
+
+enum RequirementKind {
+  FUNCTIONAL
+  NON_FUNCTIONAL
+  CONSTRAINT
+}
+
+// An atomic, testable, checkable EARS-style statement about a Feature,
+// optionally pinned to one of its Scopes (ADR-0039). Replaces UserStory as the
+// requirements write path - UserStory stays dormant for existing data.
+// Requirements are drafted in a PRD page and extracted into rows on
+// acceptance; the rows are canonical (checkable met/unmet via checkedAt).
+model Requirement {
+  id           String           @id @default(cuid())
+  featureId    String
+  scopeId      String?
+  statement    String           @db.Text
+  kind         RequirementKind?
+  displayOrder Int              @default(0)
+  checkedAt    DateTime?
+  checkedById  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  feature   Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  scope     FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+  checkedBy User?         @relation("RequirementCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
+
+  @@index([featureId])
+  @@index([scopeId])
+}
+
+// Document-shaped specs: a Knowledge page (PRD, research writeup, technical
+// spec) linked to a Feature, optionally to a specific Scope for large
+// extensions. The Feature's own body stays the living description; linked
+// pages are the moment-in-time arguments (see CONTEXT.md "PRD").
+model FeaturePage {
+  featureId String
+  pageId    String
+  scopeId   String?
+  createdAt DateTime @default(now())
+
+  feature Feature       @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  page    KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  scope   FeatureScope? @relation(fields: [scopeId], references: [id], onDelete: SetNull)
+
+  @@id([featureId, pageId])
+  @@index([pageId])
   @@index([scopeId])
 }
 
@@ -3741,6 +4305,7 @@ enum InsightType {
   JOURNEY
   OBSERVATION
   COMPETITIVE
+  PROBLEM
 }
 
 enum InsightStatus {
@@ -3751,31 +4316,81 @@ enum InsightStatus {
 }
 
 model Insight {
-  id          String        @id @default(cuid())
-  productId   String
-  researchId  String?
-  type        InsightType
-  title       String
-  body        String?
-  source      String?
-  sentiment   String?
-  description String        @default("")
-  status      InsightStatus @default(INBOX)
-  createdById String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  productId     String
+  researchId    String?
+  type          InsightType
+  title         String
+  body          String?
+  // Rich detail-page body (ADR-0024 storage model, third adopter after
+  // Feature and KnowledgePage): bodyDoc is the canonical ProseMirror JSON,
+  // body above is its derived write-only Markdown projection, docVersion is
+  // the optimistic-concurrency guard.
+  bodyDoc       Json?
+  docVersion    Int           @default(0)
+  source        String?
+  sentiment     String?
+  description   String        @default("")
+  status        InsightStatus @default(INBOX)
+  // General triage fields, usable by any insight type (ADR-0036). Formerly
+  // Problem-only; parking (parkedAt/parkReason) is now a general "defer with a
+  // reason, reversibly" affordance independent of `status`.
+  impact        Int?
+  confidence    Int?
+  category      String?
+  evidence      String?
+  parkedAt      DateTime?
+  parkReason    String?
+  // Feedback-board visibility: set by an explicit human "publish" act, never
+  // automatically. Only user-voice insights (FEEDBACK/PAIN_POINT/OPPORTUNITY)
+  // may be published - internal evidence (PROBLEM, COMPETITIVE, ...) never
+  // reaches the public board. The board read path must filter on this.
+  publishedAt   DateTime?
+  // Linear-style duplicate marking: a non-destructive "this describes the same
+  // thing as" pointer. The duplicate keeps ALL its content (insights are
+  // evidence - two reports are two data points); it just drops out of default
+  // lists and defers to its canonical. Chains are flattened at write time
+  // (marking A dup-of B where B is dup-of C points A at C), so this is always
+  // one level deep.
+  duplicateOfId String?
+  createdById   String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  research  Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
-  createdBy User             @relation("InsightCreatedBy", fields: [createdById], references: [id])
-  features  FeatureInsight[]
-  tags      InsightTag[]
+  product     Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  research    Research?        @relation(fields: [researchId], references: [id], onDelete: SetNull)
+  createdBy   User             @relation("InsightCreatedBy", fields: [createdById], references: [id])
+  duplicateOf Insight?         @relation("InsightDuplicateOf", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates  Insight[]        @relation("InsightDuplicateOf")
+  features    FeatureInsight[]
+  tags        InsightTag[]
+  comments    InsightComment[]
 
   @@index([productId])
   @@index([researchId])
   @@index([status])
   @@index([type])
   @@index([createdById])
+  @@index([duplicateOfId])
+}
+
+// Per-insight discussion, mirroring TicketComment. Events ("status changed",
+// "marked duplicate of ...") are NOT stored here - they live in
+// WorkspaceActivityEvent (entityType "insight") and the detail page merges the
+// two into one activity feed.
+model InsightComment {
+  id        String   @id @default(cuid())
+  insightId String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  insight Insight @relation(fields: [insightId], references: [id], onDelete: Cascade)
+  author  User    @relation("InsightCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([insightId])
+  @@index([authorId])
 }
 
 model FeatureInsight {
@@ -3858,6 +4473,7 @@ model Ticket {
   depsOut   TicketDependency[] @relation("TicketDepsOut")
   depsIn    TicketDependency[] @relation("TicketDepsIn")
   tags      TicketTag[]
+  syncs     TicketSync[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -4007,63 +4623,11 @@ model InsightTag {
   @@index([tagId])
 }
 
-// ============================================
-// Pipeline Triage — Problem (see docs/adr/0008-pipeline-triage-model.md)
-// ============================================
-
-/// Lifecycle of a Problem as it moves through the triage pipeline.
-/// Independent of parked-ness (a Problem can be parked at any stage).
-enum ProblemStage {
-  IDEA
-  QUALIFIED
-  PRIORITISED
-}
-
-/// A validated issue worth solving — "who's hurt and how", scoped to a Product.
-/// Distinct from an Insight (raw research evidence); a Problem is the committed
-/// issue that enters the strategy pipeline. `impact`/`confidence` are the two
-/// prioritisation axes — ease is deliberately NOT scored here (it lives on the
-/// Approach later). `parkedAt`/`parkReason` are populated by a later slice but
-/// the columns exist now to avoid a second migration.
-model Problem {
-  id          String       @id @default(cuid())
-  productId   String
-  title       String
-  description String?
-  evidence    String?
-  category    String?
-  impact      Int?
-  confidence  Int?
-  stage       ProblemStage @default(IDEA)
-  parkedAt    DateTime?
-  parkReason  String?
-  createdById String
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  product    Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdBy  User              @relation("ProblemCreatedBy", fields: [createdById], references: [id])
-  approaches ProblemApproach[]
-
-  @@index([productId])
-  @@index([stage])
-  @@index([createdById])
-}
-
-/// "Approaches" — the many-to-many link between a Problem and the Projects
-/// that tackle it (ADR-0008: an Approach IS a Project, not a new model). A
-/// Project can address several Problems; a Problem has several Approaches.
-model ProblemApproach {
-  problemId String
-  projectId String
-  createdAt DateTime @default(now())
-
-  problem Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@id([problemId, projectId])
-  @@index([projectId])
-}
+// Pipeline Triage - Problem/ProblemApproach/ProblemStage removed (ADR-0036,
+// supersedes ADR-0008). A Problem is now an Insight of type PROBLEM; the general
+// triage fields on Insight (impact/confidence/category/evidence/parkedAt/
+// parkReason) absorb its extra columns. The Problem↔Project "Approach" links
+// (ProblemApproach) are intentionally discarded, not migrated.
 
 // ============================================
 // One2b Agent Models
@@ -4218,4 +4782,146 @@ model ActionParticipantAssignee {
   @@index([actionId])
   @@index([participantId])
   @@index([workspaceId])
+}
+
+/// A GitHub repo a workspace has declared interest in (ADR-0020). Source of
+/// truth for which repos a workspace tracks - independent of who installed the
+/// GitHub App. The same repo can be tracked by multiple workspaces (one row per
+/// workspace × repo pair). `integrationId` points at the workspace's single
+/// GitHub App installation Integration.
+model WorkspaceRepository {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  integrationId  String
+  owner          String
+  name           String
+  fullName       String
+  installationId String?
+  addedById      String?
+  syncStatus     String    @default("pending")
+  lastSyncedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  addedBy     User?       @relation("WorkspaceRepositoryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, fullName])
+  @@index([workspaceId])
+  @@index([integrationId])
+}
+
+model TicketSyncConfig {
+  id            String    @id @default(cuid())
+  productId     String
+  provider      String    @default("notion")
+  /// Null means DISCONNECTED — disconnect is a soft state change, never a row
+  /// delete, so ticket links and run history always survive (ADR-0042).
+  integrationId String?
+  databaseId    String
+  databaseName  String?
+  enabled       Boolean   @default(true)
+  pushEnabled   Boolean   @default(false)
+  statusMap     Json?
+  propertyNames Json?
+  /// Upper bound of the last successful incremental pull window.
+  lastPulledAt  DateTime?
+  createdById   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  integration Integration?    @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  createdBy   User            @relation("TicketSyncConfigCreatedBy", fields: [createdById], references: [id])
+  syncs       TicketSync[]
+  runs        TicketSyncRun[]
+
+  @@unique([productId, provider])
+  @@index([integrationId])
+  @@index([createdById])
+}
+
+model TicketSync {
+  id           String    @id @default(cuid())
+  configId     String
+  ticketId     String
+  provider     String    @default("notion")
+  /// Remote identity — the Notion page id.
+  externalId   String
+  externalUrl  String?
+  /// Field values at last successful sync (three-way merge base).
+  snapshot     Json?
+  lastSyncedAt DateTime  @default(now())
+  tombstonedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  config   TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
+  ticket   Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  pushJobs TicketSyncPushJob[]
+
+  @@unique([ticketId, provider])
+  @@unique([configId, externalId])
+  @@index([provider, externalId])
+}
+
+/// Durable outbound-push queue entry (ADR-0046). A synced-ticket mutation
+/// enqueues one of these; a drain (immediate best-effort kick + cron safety
+/// net) runs the outbound merge and writes to Notion. A durable row rather
+/// than fire-and-forget so retry survives a serverless freeze — same pattern
+/// as CrmContactEnrichment.
+model TicketSyncPushJob {
+  id            String    @id @default(cuid())
+  syncId        String
+  /// PENDING | RUNNING | COMPLETED | FAILED
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  lastError     String?
+  /// Earliest time the drain may (re)claim this job — backoff after a failure.
+  nextAttemptAt DateTime  @default(now())
+  startedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sync TicketSync @relation(fields: [syncId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([syncId])
+}
+
+model TicketSyncRun {
+  id              String    @id @default(cuid())
+  configId        String
+  /// manual | cron | agent
+  trigger         String
+  /// pull | push | backfill | revert
+  direction       String    @default("pull")
+  dryRun          Boolean   @default(false)
+  /// running | success | error
+  status          String    @default("running")
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  error           String?
+  created         Int       @default(0)
+  updated         Int       @default(0)
+  skipped         Int       @default(0)
+  conflicts       Int       @default(0)
+  archived        Int       @default(0)
+  failed          Int       @default(0)
+  /// Per-item outcomes: [{ externalId, ticketId?, action, reason? }]
+  items           Json?
+  /// Who triggered the run; null for cron/agent runs with no acting user.
+  triggeredById   String?
+  /// Stamped when this run has been reverted — a run is revertible at most once.
+  revertedAt      DateTime?
+  /// The revert run that undid this run.
+  revertedByRunId String?
+
+  config        TicketSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  triggeredBy   User?            @relation("TicketSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+  revertedByRun TicketSyncRun?   @relation("TicketSyncRunRevertedBy", fields: [revertedByRunId], references: [id], onDelete: SetNull)
+  revertedRuns  TicketSyncRun[]  @relation("TicketSyncRunRevertedBy")
+
+  @@index([configId, startedAt])
+  @@index([triggeredById])
 }

@@ -12,6 +12,7 @@ import { lifeDomainRouter } from "./routers/lifeDomain";
 import { workflowRouter } from "./routers/workflow";
 import { transcriptionRouter } from "./routers/transcription";
 import { githubRouter } from "./routers/github";
+import { channelLinkRouter } from "./routers/channelLink";
 import { noteRouter } from "./routers/note";
 import { exerciseRouter } from "./routers/exercise";
 import { mastraRouter } from "./routers/mastra";
@@ -26,14 +27,15 @@ import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
 import { telegramGatewayRouter } from "./routers/telegramGateway";
+import { matrixGatewayRouter } from "./routers/matrixGateway";
 import { notificationRouter } from "./routers/notification";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
-import { onboardingRouter } from "./routers/onboarding";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
 import { weeklyReviewRouter } from "./routers/weeklyReview";
 import { portfolioReviewRouter } from "./routers/portfolioReview";
 import { userRouter } from "./routers/user";
+import { welcomeRouter } from "./routers/welcome";
 import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
@@ -43,6 +45,11 @@ import { knowledgeChunkRouter } from "./routers/knowledgeChunk";
 import { transcriptionSessionParticipantRouter } from "./routers/transcriptionSessionParticipant";
 import { crmContactRouter } from "./routers/crmContact";
 import { crmOrganizationRouter } from "./routers/crmOrganization";
+import { crmAutomationRouter } from "./routers/crmAutomation";
+import { formRouter } from "./routers/form";
+import { collectionRouter } from "./routers/collection";
+import { listAutomationRouter } from "./routers/listAutomation";
+import { broadcastRouter } from "./routers/broadcast";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
 import { taskScheduleRouter } from "./routers/taskSchedule";
@@ -77,6 +84,8 @@ import { favoriteRouter } from "~/server/api/routers/favorite";
 import { authRouter } from "./routers/auth";
 import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
+import { pageRouter } from "./routers/page";
+import { pageCommentRouter } from "./routers/pageComment";
 /**
  * This is the primary router for your server.
  *
@@ -96,6 +105,7 @@ export const appRouter = createTRPCRouter({
   workflow: workflowRouter,
   transcription: transcriptionRouter,
   github: githubRouter,
+  channelLink: channelLinkRouter,
   note: noteRouter,
   exercise: exerciseRouter,
   mastra: mastraRouter,
@@ -110,14 +120,15 @@ export const appRouter = createTRPCRouter({
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
   telegramGateway: telegramGatewayRouter,
+  matrixGateway: matrixGatewayRouter,
   notification: notificationRouter,
   pushSubscription: pushSubscriptionRouter,
-  onboarding: onboardingRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,
   weeklyReview: weeklyReviewRouter,
   portfolioReview: portfolioReviewRouter,
   user: userRouter,
+  welcome: welcomeRouter,
   wheelOfLife: wheelOfLifeRouter,
   navigationPreference: navigationPreferenceRouter,
   habit: habitRouter,
@@ -127,6 +138,11 @@ export const appRouter = createTRPCRouter({
   transcriptionSessionParticipant: transcriptionSessionParticipantRouter,
   crmContact: crmContactRouter,
   crmOrganization: crmOrganizationRouter,
+  crmAutomation: crmAutomationRouter,
+  form: formRouter,
+  collection: collectionRouter,
+  listAutomation: listAutomationRouter,
+  broadcast: broadcastRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
   taskSchedule: taskScheduleRouter,
@@ -156,6 +172,8 @@ export const appRouter = createTRPCRouter({
   auth: authRouter,
   document: documentRouter,
   voice: voiceRouter,
+  page: pageRouter,
+  pageComment: pageCommentRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,

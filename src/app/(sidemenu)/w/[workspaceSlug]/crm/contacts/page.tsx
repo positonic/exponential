@@ -38,6 +38,7 @@ import { notifications } from '@mantine/notifications';
 import { ImportDialog } from './_components/ImportDialog';
 import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
 import { EmptyState } from '~/app/_components/EmptyState';
+import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
 
 // Helper function to get relative time
 function getRelativeTime(date: Date | null): string {
@@ -179,6 +180,8 @@ function ContactForm({
           label="Profile Type"
           placeholder="Select type"
           data={[
+            { value: 'Channel Partner', label: 'Channel Partner' },
+            { value: 'Advisor', label: 'Advisor' },
             { value: 'Developer', label: 'Developer' },
             { value: 'Designer', label: 'Designer' },
             { value: 'Founder', label: 'Founder' },
@@ -537,6 +540,10 @@ export default function ContactsPage() {
                           >
                             Edit
                           </Menu.Item>
+                          <EnrichContactButton
+                            contactId={contact.id}
+                            variant="menu-item"
+                          />
                           <Menu.Divider />
                           <Menu.Item
                             leftSection={<IconTrash size={14} />}

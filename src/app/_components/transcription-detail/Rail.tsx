@@ -5,6 +5,7 @@ import {
   IconArrowUpRight,
   IconPlayerPlayFilled,
   IconPlus,
+  IconX,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -22,6 +23,11 @@ interface RailParticipant {
   email: string;
   isHost: boolean;
   isMe: boolean;
+  /**
+   * Always true now — the panel only renders managed Participant rows. Kept so
+   * the remove affordance stays explicit about acting on persisted rows.
+   */
+  isPersisted: boolean;
 }
 
 type RailTone = "blue" | "amber" | "purple" | "green";
@@ -66,6 +72,7 @@ interface RailProps {
   details: RailDetail[];
   actions: RailAction[];
   onAddParticipant?: () => void;
+  onRemoveParticipant?: (id: string) => void;
 }
 
 export function Rail({
@@ -76,6 +83,7 @@ export function Rail({
   details,
   actions,
   onAddParticipant,
+  onRemoveParticipant,
 }: RailProps) {
   const talkShares = extractTalkShares(analyticsJson);
   const getShare = (p: RailParticipant): string | null => {
@@ -90,21 +98,27 @@ export function Rail({
 
   return (
     <aside className="mdm-rail">
-      {participants.length > 0 && (
-        <div className="mdm-rail__section">
-          <div className="mdm-rail__label">
-            <span>Participants</span>
-            {onAddParticipant && (
-              <button
-                type="button"
-                className="mdm-rail__add"
-                onClick={onAddParticipant}
-                aria-label="Add participant"
-              >
-                <IconPlus size={14} />
-              </button>
-            )}
+      <div className="mdm-rail__section">
+        <div className="mdm-rail__label">
+          <span>Participants</span>
+          {onAddParticipant && (
+            <button
+              type="button"
+              className="mdm-rail__add"
+              onClick={onAddParticipant}
+              aria-label="Add participant"
+            >
+              <IconPlus size={14} />
+            </button>
+          )}
+        </div>
+        {participants.length === 0 ? (
+          // Only managed Participant rows populate this panel — never derived
+          // transcript Speakers (CONTEXT.md → Speaker). Empty state, not fakes.
+          <div className="mdm-people__empty">
+            {onAddParticipant ? "No participants yet — add one" : "No participants yet"}
           </div>
+        ) : (
           <div className="mdm-people">
             {participants.map((p) => {
               const share = getShare(p);
@@ -130,12 +144,23 @@ export function Rail({
                       {share}
                     </span>
                   )}
+                  {p.isPersisted && onRemoveParticipant && (
+                    <button
+                      type="button"
+                      className="mdm-person__remove"
+                      onClick={() => onRemoveParticipant(p.id)}
+                      aria-label={`Remove ${display}`}
+                      title="Remove participant"
+                    >
+                      <IconX size={13} />
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {links.length > 0 && (
         <div className="mdm-rail__section">

@@ -89,3 +89,9 @@ concurrent text chat, so its user-scoped voice thread is correct as-is.
 - Edge case (accepted for v1): a voice session token pins one `conversationId`
   for its ~30-min TTL. If the user starts a new text conversation mid-session,
   the live voice session keeps writing to the original thread until restarted.
+- A conversation can *begin* with a voice turn, and Mastra's `saveMessages`
+  does not auto-create the thread (only an agent run does). The transcript
+  bridge therefore creates the Mastra thread on first write if it doesn't
+  exist — without this, every turn of a voice-first session fails with
+  "Thread … not found" and the transcript is silently lost (observed
+  2026-06-11).

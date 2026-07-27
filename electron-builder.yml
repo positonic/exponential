@@ -4,13 +4,16 @@ copyright: Copyright © 2024 Exponential
 
 directories:
   buildResources: electron/build
-  output: dist-electron
+  output: dist-installers
   app: dist-electron
 
+# Only the compiled shell — never "**/*", which previously swallowed prior
+# build outputs into app.asar and blew past the 4.2GB asar limit.
 files:
-  - "**/*"
-  - "!**/*.ts"
-  - "!**/*.map"
+  - "main.js"
+  - "preload.js"
+  - "colors.js"
+  - "package.json"
 
 extraMetadata:
   main: main.js

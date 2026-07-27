@@ -28,6 +28,19 @@ export interface NotionPage {
   properties: Record<string, any>;
 }
 
+export interface NotionSearchHit {
+  id: string;
+  type: 'page' | 'database';
+  title: string;
+  url: string;
+}
+
+export interface NotionQueryPage {
+  results: any[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
 export interface CreatePageParams {
   databaseId: string;
   title: string;
@@ -118,6 +131,108 @@ export class NotionService {
       console.error('Failed to fetch Notion databases:', error);
       throw new Error('Failed to fetch databases from Notion');
     }
+  }
+
+  /**
+   * Search pages and databases by title/content, returning a lean shape
+   * (id/type/title/url only) suitable for pouring into an agent context.
+   * Used by the agent callback path (notionAgentService); not the sync flow.
+   */
+  async search(params: {
+    query: string;
+    filter?: 'page' | 'database';
+  }): Promise<{ results: NotionSearchHit[]; hasMore: boolean }> {
+    const body: Record<string, any> = { query: params.query };
+    if (params.filter) {
+      body.filter = { value: params.filter, property: 'object' };
+    }
+
+    const response = await this.client.search(body as any);
+
+    const results: NotionSearchHit[] = response.results.map((r: any) => ({
+      id: r.id,
+      type: r.object === 'database' ? 'database' : 'page',
+      title:
+        r.object === 'database'
+          ? r.title?.[0]?.plain_text || 'Untitled'
+          : NotionService.extractTitleFromProperties(r.properties ?? {}),
+      url: r.url ?? '',
+    }));
+
+    return { results, hasMore: response.has_more ?? false };
+  }
+
+  /** Fetch a page's properties only (no blocks). Thin SDK wrapper. */
+  async getPage(pageId: string): Promise<any> {
+    return this.client.pages.retrieve({ page_id: pageId });
+  }
+
+  /**
+   * Fetch a page's properties plus all its content blocks (auto-paginating the
+   * block children). Thin SDK wrapper — flattening/truncation lives in
+   * `notionAgentService.getPage`.
+   */
+  async getPageWithBlocks(pageId: string): Promise<{ page: any; blocks: any[] }> {
+    const [page, blocks] = await Promise.all([
+      this.client.pages.retrieve({ page_id: pageId }),
+      this.getAllBlocks(pageId),
+    ]);
+    return { page, blocks };
+  }
+
+  private async getAllBlocks(blockId: string): Promise<any[]> {
+    const blocks: any[] = [];
+    let cursor: string | undefined;
+    do {
+      const response = await this.client.blocks.children.list({
+        block_id: blockId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
+      blocks.push(...response.results);
+      cursor = response.has_more ? (response.next_cursor ?? undefined) : undefined;
+    } while (cursor);
+    return blocks;
+  }
+
+  /** Pull the title text out of a page's property bag (the `title`-typed property). */
+  static extractTitleFromProperties(properties: Record<string, any>): string {
+    for (const value of Object.values(properties)) {
+      if (value && typeof value === 'object' && value.type === 'title') {
+        const text = value.title?.map((t: any) => t.plain_text).join('') ?? '';
+        return text || 'Untitled';
+      }
+    }
+    return 'Untitled';
+  }
+
+  /**
+   * Query a database with optional filter/sort, returning one capped page of
+   * raw result pages plus Notion's pagination cursor. Thin SDK wrapper — the
+   * lean/scalar projection + cap policy live in `notionAgentService`.
+   */
+  async queryDatabase(params: {
+    databaseId: string;
+    filter?: unknown;
+    sorts?: Array<{ property: string; direction: 'ascending' | 'descending' }>;
+    pageSize?: number;
+    startCursor?: string;
+  }): Promise<NotionQueryPage> {
+    const query: Record<string, any> = {
+      database_id: params.databaseId,
+      page_size: params.pageSize ?? 25,
+    };
+    if (params.filter) query.filter = params.filter;
+    if (params.sorts) query.sorts = params.sorts;
+    if (params.startCursor) query.start_cursor = params.startCursor;
+
+    const response = await this.client.databases.query(query as any);
+
+    return {
+      results: response.results,
+      hasMore: response.has_more ?? false,
+      nextCursor: response.next_cursor ?? null,
+    };
   }
 
   async getDatabaseById(databaseId: string): Promise<NotionDatabase> {
@@ -263,6 +378,32 @@ export class NotionService {
         message: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
       });
+      throw new Error('Failed to create page in Notion');
+    }
+  }
+
+  /**
+   * Create a page from a pre-built properties payload, optionally with body
+   * `children` blocks, in one `pages.create` call. Unlike {@link createPage}
+   * this does no title-string cleaning or property inference — the caller
+   * (the ticket-sync outbound creator) owns the exact Notion shapes.
+   */
+  async createPageWithContent(params: {
+    databaseId: string;
+    properties: Record<string, any>;
+    children?: any[];
+  }): Promise<{ id: string; url: string | null }> {
+    try {
+      const response = await this.client.pages.create({
+        parent: { database_id: params.databaseId },
+        properties: params.properties,
+        ...(params.children && params.children.length > 0
+          ? { children: params.children }
+          : {}),
+      } as any);
+      return { id: response.id, url: (response as any).url ?? null };
+    } catch (error) {
+      console.error('❌ Failed to create Notion page (with content):', error);
       throw new Error('Failed to create page in Notion');
     }
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   IconHome,
@@ -12,10 +12,13 @@ import {
   IconPlus,
   IconAffiliate,
   IconTargetArrow,
+  IconMicrophone,
+  IconTicket,
 } from "@tabler/icons-react";
 import {
   ActionIcon,
   Group,
+  Menu,
   Skeleton,
   Tabs,
   Text,
@@ -23,16 +26,19 @@ import {
   Stack,
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { api } from "~/trpc/react";
+import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
+import { buildProductFavoriteTarget } from "./favoriteTarget";
 
 const tabs = [
   { value: "overview", href: "", label: "Overview", icon: IconHome },
-  { value: "problems", href: "/problems", label: "Problems", icon: IconTargetArrow },
   { value: "backlog", href: "/tickets", label: "Backlog", icon: IconLayoutList },
   { value: "features", href: "/features", label: "Features", icon: IconBulb },
   { value: "graph", href: "/graph", label: "Graph", icon: IconAffiliate },
   { value: "cycles", href: "/cycles", label: "Cycles", icon: IconCalendarClock },
-  { value: "research", href: "/research", label: "Insights", icon: IconBulb },
+  { value: "insights", href: "/insights", label: "Insights", icon: IconTargetArrow },
   { value: "retro", href: "/retrospectives", label: "Retro", icon: IconClipboardList },
 ] as const;
 
@@ -50,6 +56,7 @@ export default function ProductLayout({
   // Tab the user just clicked, shown as active immediately while the route
   // navigation is still pending — so the click feels acknowledged at once.
   const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
 
   const utils = api.useUtils();
 
@@ -59,6 +66,27 @@ export default function ProductLayout({
       slug: productSlug,
     },
     { enabled: !!workspaceId && !!productSlug },
+  );
+
+  // On a cycle detail route (…/cycles/<id>) fetch that cycle so the favourite
+  // snapshots the cycle's own name (e.g. "Cycle 10") instead of the generic
+  // "<Product> · Cycles" tab label. Derive the id from the pathname rather than
+  // params — this layout owns the `[productSlug]` segment, so `params` does not
+  // reliably expose the deeper `[cycleId]` segment. Excludes the "/cycles/new"
+  // create route. React Query dedupes this with the cycle detail page's own
+  // getById call, so it's not an extra request; when navigating to any other
+  // tab the id resolves to undefined and the label falls back to the tab label.
+  const cyclesPrefix = `/products/${productSlug}/cycles/`;
+  const cyclesIdx = pathname.indexOf(cyclesPrefix);
+  const cycleSegment =
+    cyclesIdx === -1
+      ? undefined
+      : pathname.slice(cyclesIdx + cyclesPrefix.length).split("/")[0];
+  const cycleId =
+    cycleSegment && cycleSegment !== "new" ? cycleSegment : undefined;
+  const { data: cycleForFavorite } = api.product.cycle.getById.useQuery(
+    { id: cycleId ?? "" },
+    { enabled: !!cycleId },
   );
 
   // Warm every sibling tab's route (RSC payload + JS chunk) as soon as a
@@ -84,14 +112,14 @@ export default function ProductLayout({
     if (typeof window === "undefined") return;
 
     const warm = () => {
-      void utils.product.problem.list.prefetch({ productId, includeParked: false });
       void utils.product.ticket.list.prefetch({ productId });
       void utils.product.feature.list.prefetch({ productId });
       void utils.product.product.getDependencyGraph.prefetch({
         productId,
         includeCompleted: false,
       });
-      void utils.product.insight.list.prefetch({ productId });
+      // Matches the Insights page's default query key (includeParked: false).
+      void utils.product.insight.list.prefetch({ productId, includeParked: false });
       // NB: cycle.list is intentionally NOT prewarmed — with autoCreate it
       // writes (ensureUpcomingCycles / reconcileCycleStatuses), so eagerly
       // prefetching it would create sprint data for products whose Cycles tab
@@ -106,6 +134,35 @@ export default function ProductLayout({
     const id = window.setTimeout(warm, 200);
     return () => window.clearTimeout(id);
   }, [productId, workspaceId, utils]);
+
+  // Tell the AI assistant which product (and tab) the user is looking at, so
+  // "the tickets in cycle 10" resolves without the agent asking. The workspace
+  // layout registrar yields on /products/ routes — this is the sole owner here.
+  const pageContext = useMemo(() => {
+    if (!product || !workspace || !workspaceId) return null;
+    const base = `/w/${workspace.slug}/products/${productSlug}`;
+    const view =
+      tabs.find(
+        (t) =>
+          t.href !== "" &&
+          (pathname === `${base}${t.href}` || pathname.startsWith(`${base}${t.href}/`)),
+      )?.value ?? "overview";
+    return {
+      pageType: "product",
+      pageTitle: product.name,
+      pagePath: pathname,
+      data: {
+        productId: product.id,
+        productName: product.name,
+        productSlug,
+        workspaceId,
+        workspaceSlug: workspace.slug,
+        view,
+      },
+    };
+  }, [product, workspace, workspaceId, productSlug, pathname]);
+
+  useRegisterPageContext(pageContext);
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
@@ -165,15 +222,80 @@ export default function ProductLayout({
             )}
           </div>
           <Group gap="xs">
-            <ActionIcon
-              variant="filled"
-              size="lg"
-              title="Add"
-              className="hover:scale-105"
-              style={{ transition: "all 0.2s ease" }}
-            >
-              <IconPlus size={20} />
-            </ActionIcon>
+            {product && workspaceId && (
+              <FavoriteButton
+                entityType="page"
+                {...buildProductFavoriteTarget({
+                  pathname,
+                  workspaceSlug: workspace.slug,
+                  productSlug,
+                  productName: product.name,
+                  detailLabel: cycleForFavorite?.name,
+                })}
+                workspaceId={workspaceId}
+                size="lg"
+                variant="default"
+              />
+            )}
+            <Menu position="bottom-end" width={244} shadow="md">
+              <Menu.Target>
+                <ActionIcon
+                  variant="filled"
+                  size="lg"
+                  title="Add"
+                  className="hover:scale-105"
+                  style={{ transition: "all 0.2s ease" }}
+                >
+                  <IconPlus size={20} />
+                </ActionIcon>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>Create</Menu.Label>
+                <Menu.Item
+                  leftSection={<IconTicket size={14} />}
+                  onClick={() => setTicketModalOpen(true)}
+                >
+                  New ticket
+                  <Text size="xs" c="dimmed">
+                    Add to the backlog
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconBulb size={14} />}
+                  onClick={() => router.push(`${basePath}/features/new`)}
+                >
+                  New feature
+                  <Text size="xs" c="dimmed">
+                    A larger unit of value
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconMicrophone size={14} />}
+                  onClick={() => router.push(`${basePath}/research/new`)}
+                >
+                  New research
+                  <Text size="xs" c="dimmed">
+                    Interview or finding
+                  </Text>
+                </Menu.Item>
+                <Menu.Item
+                  leftSection={<IconClipboardList size={14} />}
+                  onClick={() => router.push(`${basePath}/retrospectives/new`)}
+                >
+                  New retro
+                  <Text size="xs" c="dimmed">
+                    End-of-cycle review
+                  </Text>
+                </Menu.Item>
+                <Menu.Divider />
+                <Menu.Item
+                  leftSection={<IconCalendarClock size={14} />}
+                  onClick={() => router.push(`${basePath}/cycles/new`)}
+                >
+                  New cycle
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
             <ActionIcon
               variant="filled"
               size="lg"
@@ -210,6 +332,16 @@ export default function ProductLayout({
           <div className="px-10 pb-6">{children}</div>
         </Stack>
       </Tabs>
+
+      {product && (
+        <CreateTicketModal
+          opened={ticketModalOpen}
+          onClose={() => setTicketModalOpen(false)}
+          productId={product.id}
+          productName={product.name}
+          basePath={`${basePath}/tickets`}
+        />
+      )}
     </div>
   );
 }

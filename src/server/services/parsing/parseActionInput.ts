@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import { parseDictation } from "./DictationParser";
 import type { ProjectForMatching } from "./types";
+import { buildProjectAccessWhere } from "~/server/services/access";
 
 export interface ParseActionInputResult {
   name: string;
@@ -53,10 +54,13 @@ export async function parseActionInput(
     };
   }
 
-  // Fetch user's active projects for matching
+  // Fetch the user's active projects for matching. Use the centralized
+  // access-aware filter (not owner-only `createdById`) so the deterministic
+  // matcher can also resolve shared/team projects the user can access but did
+  // not personally create.
   const userProjects: ProjectForMatching[] = await db.project.findMany({
     where: {
-      createdById: userId,
+      ...buildProjectAccessWhere(userId),
       status: { not: "COMPLETED" },
       ...(options?.workspaceId ? { workspaceId: options.workspaceId } : {}),
     },

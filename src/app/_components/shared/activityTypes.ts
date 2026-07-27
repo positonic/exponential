@@ -29,7 +29,36 @@ export interface ActivityUpdate {
   replies: ActivityReply[];
 }
 
-export type ActivityItem = ActivityComment | ActivityUpdate;
+/** A status transition rendered as two colored dots + labels. Colors are
+ *  Mantine color names resolved by the entity-aware hook (status vocabularies
+ *  differ per entity), keeping the feed itself entity-agnostic. */
+export interface ActivityStatusChange {
+  fromLabel: string;
+  fromColor: string;
+  toLabel: string;
+  toColor: string;
+}
+
+/** A compact audit-event row (created / status change / field updates) in the
+ *  unified timeline. Typographically subordinate to comments: one muted line,
+ *  no card, no avatar. The hook pre-builds the verb phrase so the feed stays
+ *  entity-agnostic. */
+export interface ActivityEventItem {
+  type: "event";
+  id: string;
+  createdAt: Date;
+  actorName: string;
+  /** Verb phrase after the actor name, e.g. "updated priority and effort". */
+  text: string;
+  statusChange?: ActivityStatusChange;
+  /** True when the change came from a bulk operation. */
+  bulk?: boolean;
+}
+
+export type ActivityItem = ActivityComment | ActivityUpdate | ActivityEventItem;
+
+/** Timeline filter: everything, authored content only, or audit events only. */
+export type ActivityFilter = "all" | "comments" | "changes";
 
 export interface StatusOption {
   key: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Textarea, Button } from "@mantine/core";
+import { Textarea, Button, Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconSparkles,
@@ -10,6 +10,8 @@ import {
   IconCheck,
   IconAlertCircle,
   IconPlus,
+  IconRefresh,
+  IconBulb,
 } from "@tabler/icons-react";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
@@ -27,8 +29,16 @@ interface SummaryTabProps {
   isActionsLoading: boolean;
   hasTranscript: boolean;
   isCreatingActions: boolean;
+  /** True while feature ideation is running for this meeting. */
+  isIdeatingFeatures: boolean;
+  /** True while a summary is being auto-generated on view for this meeting. */
+  isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
   onCreateActions: () => void;
+  /** Turn the transcript into reviewable draft product features. */
+  onIdeateFeatures: () => void;
+  /** Re-run the AI summary, overwriting the stored one (manual refresh). */
+  onRegenerate: () => void;
 }
 
 export function SummaryTab({
@@ -39,8 +49,12 @@ export function SummaryTab({
   isActionsLoading,
   hasTranscript,
   isCreatingActions,
+  isIdeatingFeatures,
+  isGeneratingSummary,
   onSaveSummary,
   onCreateActions,
+  onIdeateFeatures,
+  onRegenerate,
 }: SummaryTabProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -108,6 +122,13 @@ export function SummaryTab({
               <div className="mp-tldr__text">
                 <SmartContentRenderer content={vm.plainSummary} />
               </div>
+            ) : isGeneratingSummary ? (
+              <p
+                className="mp-tldr__text"
+                style={{ display: "flex", alignItems: "center", gap: 8 }}
+              >
+                <Loader size="xs" /> Generating summary…
+              </p>
             ) : (
               <p className="mp-tldr__text">No summary yet for this meeting.</p>
             )}
@@ -120,6 +141,20 @@ export function SummaryTab({
               <button className="mp-chipbtn" onClick={startEdit}>
                 <IconPencil size={11} /> Edit
               </button>
+              {hasTranscript && (
+                <button
+                  className="mp-chipbtn"
+                  onClick={onRegenerate}
+                  disabled={isGeneratingSummary}
+                >
+                  {isGeneratingSummary ? (
+                    <Loader size={11} />
+                  ) : (
+                    <IconRefresh size={11} />
+                  )}{" "}
+                  {hasSummary ? "Regenerate" : "Generate"}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -185,6 +220,25 @@ export function SummaryTab({
           </div>
         ) : (
           <div className="mp-empty">No transcript available to create actions from.</div>
+        )}
+
+        {/* Sits beside Create Actions rather than inside its bar: that bar
+            disappears once the meeting has actions, and ideating features
+            stays useful after that. */}
+        {hasTranscript && (
+          <div className="mp-actbar">
+            <div className="mp-actbar__txt">
+              <b>Product features</b> can be ideated from this meeting. Review
+              them, pick a product, and accept the ones worth building.
+            </div>
+            <button
+              className="mp-btn mp-btn--primary"
+              onClick={onIdeateFeatures}
+              disabled={isIdeatingFeatures}
+            >
+              <IconBulb size={13} /> Ideate Features
+            </button>
+          </div>
         )}
       </section>
     </>

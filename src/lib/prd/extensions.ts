@@ -1,0 +1,98 @@
+import type { AnyExtension, Extensions } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
+import Image from "@tiptap/extension-image";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableHeader from "@tiptap/extension-table-header";
+import TableCell from "@tiptap/extension-table-cell";
+import { Markdown } from "tiptap-markdown";
+import { CommentMark } from "./comment-mark";
+import { PageLink } from "./page-link";
+
+/**
+ * The schema for the **PRD body** — the single scoped exception to ADR-0017
+ * where prose is a node-addressable ProseMirror document rather than a Markdown
+ * string (ADR-0024). This same extension set is used in three places, so it
+ * lives in one shared module:
+ *
+ *  - the read-only renderer on the Feature detail page,
+ *  - the live "Tier B" editor (later slice), and
+ *  - the pure {@link ./codec} (Markdown ⇄ ProseMirror JSON).
+ *
+ * Keeping a single source of truth guarantees the editor and the codec agree on
+ * the schema, so a document the editor produces always round-trips through the
+ * projection.
+ *
+ * Capability is deliberately "Tier B / Linear-grade": headings, lists, task
+ * lists, code blocks, tables, links, inline marks, and anchored comment marks.
+ * Every node/mark here is serialisable by tiptap-markdown except
+ * {@link CommentMark}, which intentionally drops from the Markdown projection.
+ */
+export const PRD_DEFAULT_PLACEHOLDER =
+  "Write the PRD… select text to format or comment, or type / for blocks.";
+
+export function buildPrdExtensions(
+  options: {
+    placeholder?: string;
+    /**
+     * Override for the {@link PageLink} node — the interactive editor passes
+     * `PageLinkWithView` (same schema + a React node view resolving the live
+     * page title); the headless codec and the server-side public render use
+     * the plain base node.
+     */
+    pageLink?: AnyExtension;
+  } = {},
+): Extensions {
+  return [
+    StarterKit.configure({
+      // StarterKit ships a basic codeBlock; keep it (tiptap-markdown serialises
+      // it). Everything else in StarterKit is used as-is.
+    }),
+    Link.configure({
+      openOnClick: true,
+      autolink: true,
+      HTMLAttributes: {
+        class: "text-brand-primary underline cursor-pointer",
+        rel: "noopener noreferrer nofollow",
+      },
+    }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Image.configure({
+      inline: false,
+      allowBase64: false,
+      HTMLAttributes: { class: "prd-image rounded-md max-w-full" },
+    }),
+    // Tables (Tier B). `resizable` only takes effect in the editable editor;
+    // the headless codec and public render ignore it but must share the same
+    // node schema so documents round-trip and serialise identically.
+    Table.configure({
+      resizable: true,
+      HTMLAttributes: { class: "prd-table" },
+    }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    CommentMark,
+    options.pageLink ?? PageLink,
+    Placeholder.configure({
+      placeholder: options.placeholder ?? PRD_DEFAULT_PLACEHOLDER,
+    }),
+    // Must come last so it can read the other extensions' markdown specs.
+    Markdown.configure({
+      html: true,
+      tightLists: true,
+      linkify: true,
+      breaks: false,
+      transformPastedText: true,
+      transformCopiedText: true,
+    }),
+  ];
+}
+
+/** Extension set used by the headless codec (placeholder is irrelevant there). */
+export const PRD_EXTENSIONS: Extensions = buildPrdExtensions();

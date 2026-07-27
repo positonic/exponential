@@ -6,6 +6,12 @@ export interface FirefliesSummary {
   action_items?: string[] | string; // Can be either array or formatted string
   outline?: string;
   shorthand_bullet?: string[];
+  /**
+   * Themed, hierarchical breakdown as a markdown string (`##` section headings,
+   * each with sub-bullets). Populated by the AI summarizer; rendered via
+   * MarkdownRenderer (ADR-0017). Falls back to `shorthand_bullet` when absent.
+   */
+  detailed_breakdown?: string;
   overview?: string;
   bullet_gist?: string[];
   gist?: string;

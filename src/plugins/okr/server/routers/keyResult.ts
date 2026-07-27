@@ -210,12 +210,20 @@ export const keyResultRouter = createTRPCRouter({
           // Both onlyMine and the period filter use `OR`, so combine them under
           // `AND` to avoid the two `OR` keys overwriting each other.
           AND: [
+            // "My Goals" is strictly a DRI view: show an objective only when the
+            // user is the DRI on the objective itself OR the DRI on at least one
+            // of its key results. Being the creator/owner (`userId`) is NOT
+            // enough — that's what surfaced objectives the user merely created.
             ...(isWorkspaceScoped && input.onlyMine
               ? [
                   {
                     OR: [
-                      { userId: ctx.session.user.id },
                       { driUserId: ctx.session.user.id },
+                      {
+                        keyResults: {
+                          some: { driUserId: ctx.session.user.id },
+                        },
+                      },
                     ],
                   },
                 ]
@@ -234,8 +242,22 @@ export const keyResultRouter = createTRPCRouter({
           keyResults: {
             where: {
               ...periodFilter,
-              // When workspace-scoped, show all key results; otherwise only user's own
-              ...(isWorkspaceScoped ? {} : { userId: ctx.session.user.id }),
+              // Workspace-wide OKRs view: show every key result.
+              // "My Goals" view (onlyMine): show only key results the user is the
+              // DRI for — being the creator/owner is not enough, matching the
+              // DRI-only objective filter above.
+              // Outside any workspace (personal view): scope to the user's own
+              // key results (owner or DRI).
+              ...(isWorkspaceScoped
+                ? input.onlyMine
+                  ? { driUserId: ctx.session.user.id }
+                  : {}
+                : {
+                    OR: [
+                      { userId: ctx.session.user.id },
+                      { driUserId: ctx.session.user.id },
+                    ],
+                  }),
             },
             include: {
               checkIns: {
@@ -845,21 +867,23 @@ export const keyResultRouter = createTRPCRouter({
         periods.map(async (periodType) => {
           const period = `${periodType}-${input.year}`;
           const where = {
+            ...(isWorkspaceScoped ? { workspaceId: input.workspaceId } : {}),
+            // "My Goals" view: count only the key results the user is the DRI
+            // for — matching the DRI-only cards. A my-DRI KR's objective always
+            // surfaces on some card (via the objective's `keyResults.some` DRI
+            // filter), so no extra goal-ownership scoping is needed here.
+            // Personal (non-workspace) view: count the user's own KRs (owner or
+            // DRI). Workspace-wide OKRs view: count every KR in the period.
             ...(isWorkspaceScoped
-              ? { workspaceId: input.workspaceId }
-              : { userId: ctx.session.user.id }),
-            // Scope counts to KRs under my objectives so period-tab counts
-            // match the cards shown in the "My Goals" view.
-            ...(isWorkspaceScoped && input.onlyMine
-              ? {
-                  goal: {
-                    OR: [
-                      { userId: ctx.session.user.id },
-                      { driUserId: ctx.session.user.id },
-                    ],
-                  },
-                }
-              : {}),
+              ? input.onlyMine
+                ? { driUserId: ctx.session.user.id }
+                : {}
+              : {
+                  OR: [
+                    { userId: ctx.session.user.id },
+                    { driUserId: ctx.session.user.id },
+                  ],
+                }),
             period,
           };
 

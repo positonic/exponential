@@ -38,6 +38,53 @@ jobs:
           SKIP_ENV_VALIDATION: true
           AUTH_SECRET: test-secret-for-ci
 
+  # Dedicated merge gate: apply every migration from scratch against a real
+  # Postgres. Fails the PR (once required in branch protection) if any migration
+  # errors — bad SQL, a reference to a not-yet-created column, ordering drift, or
+  # a checksum mismatch on an edited already-applied migration.
+  #
+  # Runs UNCONDITIONALLY on every PR (not path-filtered) so it is a reliable
+  # required status check — a path-filtered required check that gets skipped
+  # shows as "pending" and blocks merge forever. Applying the full history to an
+  # empty DB takes only a few seconds.
+  #
+  # COVERAGE LIMIT: this applies migrations to an EMPTY database, so it catches
+  # STRUCTURAL failures but NOT data-dependent ones (a data backfill that only
+  # trips on real rows — e.g. an ON CONFLICT dup that needs an existing row).
+  # Write data migrations defensively (dedupe before INSERT ... ON CONFLICT,
+  # guard against NULLs, etc.); an empty-DB apply cannot prove them safe on prod.
+  migration-apply:
+    name: Migrations apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: exponential_migrations
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5434/exponential_migrations
+      SKIP_ENV_VALIDATION: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Apply all migrations from scratch
+        run: npx prisma migrate deploy
+      - name: Verify no pending migrations / drift
+        run: npx prisma migrate status
+
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest

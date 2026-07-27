@@ -1,11 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
-import {
-  sendAssignmentNotificationEmail,
-  sendMentionNotificationEmail,
-} from "~/server/services/EmailService";
+import { sendMentionNotificationEmail } from "~/server/services/EmailService";
 import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 import { ZulipNotificationService } from "~/server/services/notifications/ZulipNotificationService";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
@@ -96,137 +94,11 @@ export async function shouldSendEmailNotification(
 }
 
 /**
- * Resolve the workspaceId and workspace slug for an action.
- * Actions may have a direct workspaceId or inherit via their project.
+ * NOTE: Assignment + ActionComment/FeatureComment @mentions now flow through the
+ * unified dispatch pipeline (ADR-0045). Their former fan-out wrappers and the
+ * `resolveActionWorkspace` / `resolveFeatureWorkspace` helpers were removed.
+ * Only KnowledgePage mentions still use the fan-out below (migrated later).
  */
-async function resolveActionWorkspace(
-  db: PrismaClient,
-  actionId: string,
-): Promise<{ workspaceId: string; workspaceSlug: string; workspaceName: string } | null> {
-  const action = await db.action.findUnique({
-    where: { id: actionId },
-    include: {
-      workspace: { select: { id: true, slug: true, name: true } },
-      project: {
-        include: {
-          workspace: { select: { id: true, slug: true, name: true } },
-        },
-      },
-    },
-  });
-  if (!action) return null;
-
-  const ws = action.workspace ?? action.project?.workspace;
-  if (!ws) return null;
-
-  return { workspaceId: ws.id, workspaceSlug: ws.slug, workspaceName: ws.name };
-}
-
-/**
- * Build notification URLs for the email footer.
- */
-function buildNotificationUrls(workspaceSlug: string, actionId: string) {
-  return {
-    actionUrl: `${BASE_URL}/w/${workspaceSlug}/actions/${actionId}`,
-    personalSettingsUrl: `${BASE_URL}/settings/notifications`,
-    workspaceSettingsUrl: `${BASE_URL}/w/${workspaceSlug}/settings`,
-  };
-}
-
-/**
- * Fire-and-forget: Send email notifications to newly assigned users.
- * Call this after creating ActionAssignee records.
- */
-export async function sendAssignmentNotifications(
-  db: PrismaClient,
-  params: {
-    actionId: string;
-    assignedUserIds: string[];
-    assignerId: string;
-  },
-): Promise<void> {
-  try {
-    const { actionId, assignedUserIds, assignerId } = params;
-
-    const [action, assigner] = await Promise.all([
-      db.action.findUnique({
-        where: { id: actionId },
-        select: { name: true },
-      }),
-      db.user.findUnique({
-        where: { id: assignerId },
-        select: { name: true, email: true },
-      }),
-    ]);
-    if (!action || !assigner) return;
-
-    const ws = await resolveActionWorkspace(db, actionId);
-    if (!ws) return;
-
-    const urls = buildNotificationUrls(ws.workspaceSlug, actionId);
-    const assignerName = assigner.name ?? assigner.email ?? "Someone";
-
-    const recipients = await db.user.findMany({
-      where: {
-        id: { in: assignedUserIds },
-      },
-      select: { id: true, name: true, email: true },
-    });
-
-    await Promise.allSettled(
-      recipients.map(async (recipient) => {
-        const isSelfAssign = recipient.id === assignerId;
-        const notifTitle = isSelfAssign
-          ? "You assigned yourself a task"
-          : `${assignerName} assigned you a task`;
-
-        // Send Zulip DM (always, including self-assign)
-        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
-          title: notifTitle,
-          message: `**${action.name}**\n\n[View task](${urls.actionUrl})`,
-          priority: "normal",
-        });
-
-        // Skip push/email for self-assignment
-        if (isSelfAssign) return;
-
-        const shouldSend = await shouldSendEmailNotification(
-          db,
-          recipient.id,
-          ws.workspaceId,
-        );
-        if (!shouldSend) return;
-
-        // Send push notification
-        void sendPushToUser(
-          recipient.id,
-          {
-            title: notifTitle,
-            body: action.name,
-            tag: "assignment",
-            url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
-          },
-          db,
-        );
-
-        if (!recipient.email) return;
-
-        await sendAssignmentNotificationEmail({
-          to: recipient.email,
-          assigneeName: recipient.name ?? "",
-          assignerName,
-          actionName: action.name,
-          actionUrl: urls.actionUrl,
-          workspaceName: ws.workspaceName,
-          personalSettingsUrl: urls.personalSettingsUrl,
-          workspaceSettingsUrl: urls.workspaceSettingsUrl,
-        });
-      }),
-    );
-  } catch (error) {
-    console.error("[EmailNotificationService] Failed to send assignment notifications:", error);
-  }
-}
 
 /** Regex to parse mentions in format @[Name](userId) or legacy @[Name] */
 const MENTION_WITH_ID_REGEX = /@\[([^\]]+)\](?:\(([^)]+)\))?/g;
@@ -275,103 +147,187 @@ async function extractMentionedUserIds(
 }
 
 /**
- * Fire-and-forget: Send email notifications to mentioned users in a comment.
- * Call this after creating an ActionComment.
+ * Target-agnostic core: notify every mentioned user (minus the author) across
+ * push, Zulip DM, and email. Callers resolve the entity (action, feature, …)
+ * to a workspace + display name + deep-link path and hand it here so the
+ * multi-channel fan-out and per-recipient gating live in exactly one place.
  */
-export async function sendMentionNotifications(
+async function fanOutMentionNotifications(
   db: PrismaClient,
   params: {
-    actionId: string;
+    workspaceId: string;
+    workspaceSlug: string;
+    workspaceName: string;
+    /** Display name of the thing the comment is on (action name, feature name). */
+    targetName: string;
+    /** Relative deep-link path to the comment thread, e.g. /w/slug/actions/id. */
+    targetPath: string;
+    /** Link label used in the Zulip DM, e.g. "View task", "View PRD". */
+    viewLabel: string;
     commentContent: string;
     commentAuthorId: string;
+    /** The comment's pre-edit body. Users already mentioned in it are skipped,
+     * so editing a comment only notifies newly added mentions — never re-spams
+     * everyone on each edit. */
+    previousContent?: string;
+  },
+): Promise<void> {
+  const {
+    workspaceId,
+    workspaceSlug,
+    workspaceName,
+    targetName,
+    targetPath,
+    viewLabel,
+    commentContent,
+    commentAuthorId,
+    previousContent,
+  } = params;
+
+  const mentionedUserIds = await extractMentionedUserIds(
+    db,
+    commentContent,
+    workspaceId,
+  );
+  if (mentionedUserIds.length === 0) return;
+
+  const previouslyMentioned = previousContent
+    ? new Set(await extractMentionedUserIds(db, previousContent, workspaceId))
+    : null;
+
+  // Filter out the comment author (don't notify yourself) and anyone already
+  // mentioned before an edit. Non-member ids (e.g. mentioned agents) never
+  // match a User row below, so they drop out.
+  const recipientIds = mentionedUserIds.filter(
+    (id) => id !== commentAuthorId && !previouslyMentioned?.has(id),
+  );
+  if (recipientIds.length === 0) return;
+
+  // Mention markup is client-supplied: only notify users who actually belong
+  // to this workspace, directly or via a team linked to it. Anyone else a
+  // crafted @[Name](id) names is silently dropped — never leak comment
+  // content outside the workspace.
+  const [author, recipients] = await Promise.all([
+    db.user.findUnique({
+      where: { id: commentAuthorId },
+      select: { name: true, email: true },
+    }),
+    db.user.findMany({
+      where: {
+        id: { in: recipientIds },
+        OR: [
+          { workspaceMemberships: { some: { workspaceId } } },
+          { teams: { some: { team: { workspaceId } } } },
+        ],
+      },
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
+  if (!author) return;
+
+  const targetUrl = `${BASE_URL}${targetPath}`;
+  const personalSettingsUrl = `${BASE_URL}/settings/notifications`;
+  const workspaceSettingsUrl = `${BASE_URL}/w/${workspaceSlug}/settings`;
+  const authorName = author.name ?? author.email ?? "Someone";
+  // Strip mention markup for preview and limit to 200 chars
+  const cleanContent = commentContent.replace(/@\[([^\]]+)\](?:\([^)]+\))?/g, "@$1");
+  const commentPreview =
+    cleanContent.length > 200
+      ? cleanContent.substring(0, 200) + "..."
+      : cleanContent;
+
+  await Promise.allSettled(
+    recipients.map(async (recipient) => {
+      const shouldSend = await shouldSendEmailNotification(
+        db,
+        recipient.id,
+        workspaceId,
+      );
+      if (!shouldSend) return;
+
+      // Send push notification
+      void sendPushToUser(
+        recipient.id,
+        {
+          title: `${authorName} mentioned you in ${targetName}`,
+          body: commentPreview,
+          tag: "mention",
+          url: targetPath,
+        },
+        db,
+      );
+
+      // Send Zulip DM
+      void sendZulipDmToUser(db, recipient.id, workspaceId, {
+        title: `${authorName} mentioned you in ${targetName}`,
+        message: `${commentPreview}\n\n[${viewLabel}](${targetUrl})`,
+        priority: "normal",
+      });
+
+      if (!recipient.email) return;
+
+      await sendMentionNotificationEmail({
+        to: recipient.email,
+        mentionedName: recipient.name ?? "",
+        authorName,
+        actionName: targetName,
+        commentPreview,
+        actionUrl: targetUrl,
+        workspaceName,
+        personalSettingsUrl,
+        workspaceSettingsUrl,
+        workspaceId,
+      });
+    }),
+  );
+}
+
+/**
+ * NOTE: ActionComment and FeatureComment @mentions now flow through the unified
+ * dispatch pipeline (`emitActionCommentMention` / `emitFeatureCommentMention`,
+ * ADR-0045). Their former wrappers — and the `resolveActionWorkspace` /
+ * `resolveFeatureWorkspace` helpers they used — were removed here. KnowledgePage
+ * comments still use the fan-out below (migrated later).
+ */
+
+/**
+ * Fire-and-forget: Send notifications to users mentioned in a
+ * KnowledgePageComment. Thin wrapper over {@link fanOutMentionNotifications}.
+ */
+export async function sendPageMentionNotifications(
+  db: PrismaClient,
+  params: {
+    pageId: string;
+    commentContent: string;
+    commentAuthorId: string;
+    /** Pre-edit body — see {@link fanOutMentionNotifications}. */
+    previousContent?: string;
   },
 ): Promise<void> {
   try {
-    const { actionId, commentContent, commentAuthorId } = params;
+    const { pageId, commentContent, commentAuthorId, previousContent } = params;
 
-    const ws = await resolveActionWorkspace(db, actionId);
-    if (!ws) return;
+    const page = await db.knowledgePage.findUnique({
+      where: { id: pageId },
+      select: {
+        title: true,
+        workspace: { select: { id: true, slug: true, name: true } },
+      },
+    });
+    if (!page) return;
 
-    const mentionedUserIds = await extractMentionedUserIds(
-      db,
+    await fanOutMentionNotifications(db, {
+      workspaceId: page.workspace.id,
+      workspaceSlug: page.workspace.slug,
+      workspaceName: page.workspace.name,
+      targetName: page.title,
+      targetPath: buildPageEditorPath(page.workspace.slug, pageId),
+      viewLabel: "View page",
       commentContent,
-      ws.workspaceId,
-    );
-    if (mentionedUserIds.length === 0) return;
-
-    // Filter out the comment author (don't notify yourself)
-    const recipientIds = mentionedUserIds.filter((id) => id !== commentAuthorId);
-    if (recipientIds.length === 0) return;
-
-    const [action, author, recipients] = await Promise.all([
-      db.action.findUnique({
-        where: { id: actionId },
-        select: { name: true },
-      }),
-      db.user.findUnique({
-        where: { id: commentAuthorId },
-        select: { name: true, email: true },
-      }),
-      db.user.findMany({
-        where: { id: { in: recipientIds } },
-        select: { id: true, name: true, email: true },
-      }),
-    ]);
-    if (!action || !author) return;
-
-    const urls = buildNotificationUrls(ws.workspaceSlug, actionId);
-    const authorName = author.name ?? author.email ?? "Someone";
-    // Strip mention markup for preview and limit to 200 chars
-    const cleanContent = commentContent.replace(/@\[([^\]]+)\](?:\([^)]+\))?/g, "@$1");
-    const commentPreview =
-      cleanContent.length > 200
-        ? cleanContent.substring(0, 200) + "..."
-        : cleanContent;
-
-    await Promise.allSettled(
-      recipients.map(async (recipient) => {
-        const shouldSend = await shouldSendEmailNotification(
-          db,
-          recipient.id,
-          ws.workspaceId,
-        );
-        if (!shouldSend) return;
-
-        // Send push notification
-        void sendPushToUser(
-          recipient.id,
-          {
-            title: `${authorName} mentioned you in ${action.name}`,
-            body: commentPreview,
-            tag: "mention",
-            url: `/w/${ws.workspaceSlug}/actions/${actionId}`,
-          },
-          db,
-        );
-
-        // Send Zulip DM
-        void sendZulipDmToUser(db, recipient.id, ws.workspaceId, {
-          title: `${authorName} mentioned you in ${action.name}`,
-          message: `${commentPreview}\n\n[View task](${urls.actionUrl})`,
-          priority: "normal",
-        });
-
-        if (!recipient.email) return;
-
-        await sendMentionNotificationEmail({
-          to: recipient.email,
-          mentionedName: recipient.name ?? "",
-          authorName,
-          actionName: action.name,
-          commentPreview,
-          actionUrl: urls.actionUrl,
-          workspaceName: ws.workspaceName,
-          personalSettingsUrl: urls.personalSettingsUrl,
-          workspaceSettingsUrl: urls.workspaceSettingsUrl,
-        });
-      }),
-    );
+      commentAuthorId,
+      previousContent,
+    });
   } catch (error) {
-    console.error("[EmailNotificationService] Failed to send mention notifications:", error);
+    console.error("[EmailNotificationService] Failed to send page mention notifications:", error);
   }
 }

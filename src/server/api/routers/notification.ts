@@ -1,6 +1,49 @@
 import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { MatrixNotificationService } from "~/server/services/notifications/MatrixNotificationService";
+import {
+  CATEGORY_LIST,
+  CHANNEL_LIST,
+  DEFAULT_MATRIX,
+} from "~/server/services/notifications/emit/constants";
+
+/**
+ * Which opt-in channels the user has actually connected — Push/Email are
+ * always available; Matrix/WhatsApp/Zulip require a paired IntegrationUserMapping.
+ * The channel-first matrix UI uses this to show only usable columns.
+ */
+async function resolveChannelAvailability(db: PrismaClient, userId: string) {
+  const matrixIntegration = await db.integration.findFirst({
+    where: { provider: "matrix", status: "ACTIVE", userId: null },
+    select: { id: true },
+  });
+  const [matrixMapping, zulipMapping, whatsappMapping] = await Promise.all([
+    matrixIntegration
+      ? db.integrationUserMapping.findFirst({
+          where: { userId, integrationId: matrixIntegration.id },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+    db.integrationUserMapping.findFirst({
+      where: { userId, integration: { provider: "zulip", status: "ACTIVE" } },
+      select: { id: true },
+    }),
+    db.integrationUserMapping.findFirst({
+      where: { userId, integration: { provider: "whatsapp", status: "ACTIVE" } },
+      select: { id: true },
+    }),
+  ]);
+
+  return {
+    push: true,
+    email: true,
+    matrix: !!matrixMapping,
+    whatsapp: !!whatsappMapping,
+    zulip: !!zulipMapping,
+  };
+}
 
 export const notificationRouter = createTRPCRouter({
   // Get user notification preferences
@@ -31,6 +74,120 @@ export const notificationRouter = createTRPCRouter({
 
     return preferences;
   }),
+
+  // Whether the user can pick Matrix as their notification channel — true only
+  // when they've paired a Matrix account (a mapping under the shared system
+  // "matrix" Integration). Returns that integration's id to set as the
+  // preference's integrationId. Opt-in: pairing for chat does not enable this
+  // by itself; the user must choose Matrix here. (V2, ADR-0043)
+  getMatrixOptIn: protectedProcedure.query(async ({ ctx }) => {
+    const integration = await ctx.db.integration.findFirst({
+      where: { provider: "matrix", status: "ACTIVE", userId: null },
+    });
+    if (!integration) return { available: false, integrationId: null };
+
+    const mapping = await ctx.db.integrationUserMapping.findFirst({
+      where: { userId: ctx.session.user.id, integrationId: integration.id },
+    });
+    return {
+      available: !!mapping,
+      integrationId: mapping ? integration.id : null,
+    };
+  }),
+
+  // Deliver a test message to the user's Matrix DM *immediately* (bypasses the
+  // scheduler), so opt-in can be verified on the spot. Requires a Matrix mapping.
+  sendMatrixTest: protectedProcedure.mutation(async ({ ctx }) => {
+    const integration = await ctx.db.integration.findFirst({
+      where: { provider: "matrix", status: "ACTIVE", userId: null },
+    });
+    const mapping = integration
+      ? await ctx.db.integrationUserMapping.findFirst({
+          where: { userId: ctx.session.user.id, integrationId: integration.id },
+        })
+      : null;
+    if (!mapping) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "Connect Matrix first (Settings → Assistant → Connect Matrix).",
+      });
+    }
+
+    const service = new MatrixNotificationService({
+      userId: ctx.session.user.id,
+      integrationId: integration!.id,
+    });
+    const result = await service.sendNotification({
+      title: "Test notification",
+      message: "✅ Your Exponential notifications are wired up to Matrix.",
+    });
+    if (!result.success) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: result.error ?? "Failed to deliver to Matrix",
+      });
+    }
+    return { success: true };
+  }),
+
+  // Read the user's category × channel matrix: effective cells (explicit
+  // NotificationChannelPreference rows merged over seeded defaults) plus which
+  // opt-in channels are currently connected. Drives the channel-first UI.
+  getChannelPreferences: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+
+    const rows = await ctx.db.notificationChannelPreference.findMany({
+      where: { userId },
+      select: { category: true, channel: true, enabled: true },
+    });
+    const explicit = new Map(
+      rows.map((r) => [`${r.category}:${r.channel}`, r.enabled]),
+    );
+
+    const cells = CATEGORY_LIST.flatMap((category) =>
+      CHANNEL_LIST.map((channel) => ({
+        category,
+        channel,
+        enabled:
+          explicit.get(`${category}:${channel}`) ??
+          DEFAULT_MATRIX[category][channel],
+      })),
+    );
+
+    const availability = await resolveChannelAvailability(ctx.db, userId);
+
+    return { cells, availability };
+  }),
+
+  // Enable/disable one matrix cell (e.g. the Assignment → Matrix opt-in).
+  setChannelPreference: protectedProcedure
+    .input(
+      z.object({
+        category: z.enum(CATEGORY_LIST),
+        channel: z.enum(CHANNEL_LIST),
+        enabled: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await ctx.db.notificationChannelPreference.upsert({
+        where: {
+          userId_category_channel: {
+            userId,
+            category: input.category,
+            channel: input.channel,
+          },
+        },
+        update: { enabled: input.enabled },
+        create: {
+          userId,
+          category: input.category,
+          channel: input.channel,
+          enabled: input.enabled,
+        },
+      });
+      return { success: true };
+    }),
 
   // Update notification preferences
   updatePreferences: protectedProcedure

@@ -25,6 +25,7 @@ import { GoogleCalendarConnect } from '~/app/_components/GoogleCalendarConnect';
 import { CalendarMultiSelect } from '~/app/_components/calendar/CalendarMultiSelect';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
+import { GithubRepositoriesCard } from '~/app/_components/integrations/GithubRepositoriesCard';
 import IntegrationsClient from '~/app/(sidemenu)/integrations/IntegrationsClient';
 import { WhatsAppGatewayModal } from '~/app/_components/WhatsAppGatewayModal';
 import { TelegramGatewayModal } from '~/app/_components/TelegramGatewayModal';
@@ -245,6 +246,11 @@ export default function IntegrationsSettingsPage() {
             </Button>
           </Group>
         </Paper>
+
+        <Divider />
+
+        {/* GitHub repositories (ADR-0020) */}
+        <GithubRepositoriesCard />
 
         <Divider />
 

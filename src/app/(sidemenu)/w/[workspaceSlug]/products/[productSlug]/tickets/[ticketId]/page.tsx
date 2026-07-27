@@ -28,6 +28,8 @@ import {
   IconBug,
   IconCalendar,
   IconCategory,
+  IconChevronDown,
+  IconChevronRight,
   IconCircleDot,
   IconClock,
   IconCopy,
@@ -52,15 +54,18 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
+import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
+import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
+import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import {
   STATUS_OPTIONS,
   STATUS_COLORS,
   type TicketStatus,
 } from "~/lib/ticket-statuses";
 import { TagBadge } from "~/app/_components/TagBadge";
-import { getTagMantineColor } from "~/utils/tagColors";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -203,113 +208,35 @@ function EpicCombobox({
 }
 
 // ---------------------------------------------------------------------------
-// Combobox: Labels (multi-select with create)
-// ---------------------------------------------------------------------------
-
-function LabelsCombobox({
-  selectedIds,
-  allTags,
-  ticketTags,
-  onChange,
-  onCreate,
-}: {
-  selectedIds: string[];
-  allTags: Array<{ id: string; name: string; color: string }>;
-  ticketTags: Array<{ tag: { id: string; name: string; color: string } }>;
-  onChange: (tagIds: string[]) => void;
-  onCreate: (name: string) => void;
-}) {
-  const combobox = useCombobox({ onDropdownClose: () => { combobox.resetSelectedOption(); setSearch(""); } });
-  const [search, setSearch] = useState("");
-
-  const filtered = allTags.filter((t) => t.name.toLowerCase().includes(search.toLowerCase().trim()));
-  const exactMatch = allTags.some((t) => t.name.toLowerCase() === search.toLowerCase().trim());
-
-  const toggleTag = (tagId: string) => {
-    if (selectedIds.includes(tagId)) {
-      onChange(selectedIds.filter((id) => id !== tagId));
-    } else {
-      onChange([...selectedIds, tagId]);
-    }
-  };
-
-  return (
-    <Combobox store={combobox} onOptionSubmit={(val) => {
-      if (val === "__create") {
-        onCreate(search.trim());
-        combobox.closeDropdown();
-      } else {
-        toggleTag(val);
-        // Keep dropdown open for multi-select
-      }
-    }}>
-      <Combobox.Target>
-        <div
-          className="cursor-pointer min-h-[24px] flex items-center"
-          onClick={() => combobox.toggleDropdown()}
-        >
-          {ticketTags.length > 0 ? (
-            <Group gap={4}>
-              {ticketTags.map((t) => (
-                <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-              ))}
-            </Group>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
-        </div>
-      </Combobox.Target>
-      <Combobox.Dropdown>
-        <Combobox.Search
-          value={search}
-          onChange={(e) => { setSearch(e.currentTarget.value); combobox.updateSelectedOptionIndex(); }}
-          placeholder="Search or create..."
-          size="xs"
-        />
-        <Combobox.Options>
-          {filtered.map((tag) => {
-            const isSelected = selectedIds.includes(tag.id);
-            return (
-              <Combobox.Option key={tag.id} value={tag.id} active={isSelected}>
-                <div className="flex items-center gap-2">
-                  {isSelected && <CheckIcon size={12} />}
-                  <Badge size="xs" variant="light" color={getTagMantineColor(tag.color)}>{tag.name}</Badge>
-                </div>
-              </Combobox.Option>
-            );
-          })}
-          {search.trim() && !exactMatch && (
-            <Combobox.Option value="__create">
-              <Text size="xs" className="text-blue-400">+ Create &quot;{search.trim()}&quot;</Text>
-            </Combobox.Option>
-          )}
-          {!search.trim() && filtered.length === 0 && (
-            <Combobox.Empty>
-              <Text size="xs" className="text-text-muted">No labels</Text>
-            </Combobox.Empty>
-          )}
-        </Combobox.Options>
-      </Combobox.Dropdown>
-    </Combobox>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function TicketDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const ticketId = params.ticketId as string;
+  const routeParam = params.ticketId as string;
   const productSlug = params.productSlug as string;
-  const { workspace, workspaceId } = useWorkspace();
+  const { workspace, workspaceId, isLoading: isWorkspaceLoading } =
+    useWorkspace();
   const utils = api.useUtils();
 
-  const { data: ticket, isLoading } = api.product.ticket.getById.useQuery(
-    { id: ticketId },
-    { enabled: !!ticketId },
-  );
+  // Resolve the URL segment (sequential number, Linear-style `PLAT-29`, CUID,
+  // or fun shortId) to the canonical ticket CUID. Everything below keys off
+  // this CUID, so all mutations/invalidations are unaffected by the URL form.
+  const { data: resolved, isLoading: isResolving } =
+    api.product.ticket.resolveId.useQuery(
+      { workspaceId: workspaceId ?? "", productSlug, identifier: routeParam },
+      { enabled: !!workspaceId && !!routeParam, retry: false },
+    );
+  const ticketId = resolved?.id ?? "";
+
+  const { data: ticket, isLoading: isTicketLoading } =
+    api.product.ticket.getById.useQuery(
+      { id: ticketId },
+      { enabled: !!ticketId },
+    );
+  const isLoading =
+    isWorkspaceLoading || isResolving || (!!ticketId && isTicketLoading);
 
   // Data for selectors
   const members = workspace?.members ?? [];
@@ -351,10 +278,28 @@ export default function TicketDetailPage() {
 
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<TicketStatus | null>(null);
+  const [titleValue, setTitleValue] = useState(ticket?.title ?? "");
+  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   useEffect(() => {
-    if (ticket) setStatus(ticket.status);
+    if (ticket) {
+      setStatus(ticket.status);
+      setTitleValue(ticket.title);
+    }
   }, [ticket]);
+
+  // Canonicalise the address bar to the clean number form (`/tickets/29`) when
+  // the ticket was reached via CUID or a Linear-style id. Legacy tickets with
+  // no number (0) keep their CUID URL.
+  useEffect(() => {
+    if (!ticket || !workspace || ticket.number <= 0) return;
+    const canonical = String(ticket.number);
+    if (routeParam !== canonical) {
+      router.replace(
+        `/w/${workspace.slug}/products/${productSlug}/tickets/${canonical}`,
+      );
+    }
+  }, [ticket, workspace, routeParam, productSlug, router]);
 
   const updateTicket = api.product.ticket.update.useMutation({
     onSuccess: async () => {
@@ -463,16 +408,32 @@ export default function TicketDetailPage() {
                   {displayId}
                 </Text>
               )}
+              <NotionSyncBadge syncs={ticket.syncs} />
             </Group>
 
             <Group justify="space-between" align="flex-start">
-              <Text
-                size="xl"
-                fw={700}
-                className="text-text-primary flex-1"
-              >
-                {ticket.title}
-              </Text>
+              <Textarea
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.currentTarget.value)}
+                autosize
+                minRows={1}
+                maxRows={3}
+                variant="unstyled"
+                classNames={{ input: "text-text-primary font-bold text-xl p-0 leading-tight resize-none" }}
+                styles={{ root: { flex: 1 }, input: { fontWeight: 700, fontSize: "1.25rem" } }}
+                onBlur={() => {
+                  const trimmed = titleValue.trim();
+                  if (trimmed && trimmed !== ticket.title) {
+                    handleFieldUpdate("title", trimmed);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
               <Menu position="bottom-end" withinPortal>
                 <Menu.Target>
                   <ActionIcon variant="subtle" className="text-text-muted">
@@ -522,43 +483,34 @@ export default function TicketDetailPage() {
           )}
 
           {/* Body */}
-          {ticket.body ? (
-            <MarkdownRenderer content={ticket.body} />
-          ) : (
-            <Text size="sm" className="text-text-muted">
-              No description provided.
-            </Text>
-          )}
+          <TicketBodyEditor
+            ticketId={ticketId}
+            initialContent={ticket.body ?? null}
+          />
 
-          {/* Sub-actions linked to this ticket */}
-          {ticket.actions && ticket.actions.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Sub-tasks
-              </Text>
-              <div className="rounded-lg border border-border-primary overflow-hidden">
-                {ticket.actions.map((action: { id: string; name: string; status: string; kanbanStatus: string | null }, i: number) => (
-                  <div
-                    key={action.id}
-                    className={`flex items-center gap-3 px-3 py-2 ${i < ticket.actions.length - 1 ? "border-b border-border-primary" : ""}`}
-                  >
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${action.kanbanStatus === "DONE" || action.status === "completed" ? "bg-green-500" : "bg-border-primary"}`} />
-                    <Text size="sm" className={`text-text-primary ${action.kanbanStatus === "DONE" || action.status === "completed" ? "line-through opacity-60" : ""}`}>
-                      {action.name}
-                    </Text>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Linked Actions */}
+          <LinkedActionsSection
+            ticketId={ticketId}
+            actions={ticket.actions ?? []}
+            workspaceId={workspaceId}
+            onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
+          />
 
           {/* Activity / Comments */}
           <div className="mt-4">
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-3">
-              Activity
-            </Text>
+            <button
+              className="flex items-center gap-1.5 mb-3"
+              onClick={() => setActivityCollapsed((v) => !v)}
+            >
+              {activityCollapsed
+                ? <IconChevronRight size={13} className="text-text-muted" />
+                : <IconChevronDown size={13} className="text-text-muted" />}
+              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
+                Activity
+              </Text>
+            </button>
 
-            {ticket.comments.length > 0 && (
+            {!activityCollapsed && ticket.comments.length > 0 && (
               <Stack gap="sm" mb="md">
                 {ticket.comments.map((c) => (
                   <div key={c.id} className="border border-border-primary rounded-lg p-3">
@@ -572,7 +524,7 @@ export default function TicketDetailPage() {
                             {c.author.name}
                           </Text>
                           <Text size="xs" className="text-text-muted">
-                            {new Date(c.createdAt).toLocaleDateString()}
+                            {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
                           </Text>
                         </Group>
                         <div className="ml-6">
@@ -588,33 +540,35 @@ export default function TicketDetailPage() {
               </Stack>
             )}
 
-            <div className="flex gap-3">
-              <Textarea
-                placeholder="Leave a comment..."
-                value={comment}
-                onChange={(e) => setComment(e.currentTarget.value)}
-                autosize
-                minRows={1}
-                maxRows={4}
-                className="flex-1"
-                styles={{
-                  input: {
-                    backgroundColor: "transparent",
-                    border: "1px solid var(--color-border-primary)",
-                    fontSize: "0.85rem",
-                  },
-                }}
-              />
-              <Button
-                size="xs"
-                onClick={() => addComment.mutate({ ticketId, content: comment })}
-                loading={addComment.isPending}
-                disabled={!comment.trim()}
-                className="self-end"
-              >
-                Post
-              </Button>
-            </div>
+            {!activityCollapsed && (
+              <div className="flex gap-3">
+                <Textarea
+                  placeholder="Leave a comment..."
+                  value={comment}
+                  onChange={(e) => setComment(e.currentTarget.value)}
+                  autosize
+                  minRows={1}
+                  maxRows={4}
+                  className="flex-1"
+                  styles={{
+                    input: {
+                      backgroundColor: "transparent",
+                      border: "1px solid var(--color-border-primary)",
+                      fontSize: "0.85rem",
+                    },
+                  }}
+                />
+                <Button
+                  size="xs"
+                  onClick={() => addComment.mutate({ ticketId, content: comment })}
+                  loading={addComment.isPending}
+                  disabled={!comment.trim()}
+                  className="self-end"
+                >
+                  Post
+                </Button>
+              </div>
+            )}
           </div>
         </Stack>
       </div>
@@ -758,7 +712,7 @@ export default function TicketDetailPage() {
           <LabelsCombobox
             selectedIds={ticket.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
             allTags={tags?.allTags ?? []}
-            ticketTags={ticket.tags ?? []}
+            entityTags={ticket.tags ?? []}
             onChange={(tagIds) => setTicketTags.mutate({ ticketId, tagIds })}
             onCreate={(name) => {
               if (workspaceId) createTag.mutate({ name, color: "avatar-blue", workspaceId });

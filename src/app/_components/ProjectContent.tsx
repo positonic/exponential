@@ -655,7 +655,10 @@ export function ProjectContent({
                 <Group justify="space-between" align="center">
                   <Group gap="md">
                     <Title order={4}>Project Meetings</Title>
-                    <CreateTranscriptionModal projectId={resolvedProjectId} />
+                    <CreateTranscriptionModal
+                      projectId={resolvedProjectId}
+                      workspaceId={project.workspaceId ?? undefined}
+                    />
                   </Group>
                   <Group gap="md">
                     {hasFirefliesWorkflow && (

@@ -20,6 +20,8 @@ export type IconKind =
   | "completed"
   | "commented"
   | "milestone"
+  | "tracked"
+  | "channel_summary"
   | "fallback";
 
 export interface FeedRenderHint {
@@ -122,6 +124,56 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} closed deal {entityRef}",
     iconKind: "completed",
   },
+
+  // Meetings — a recorded/ingested meeting (TranscriptionSession) surfaces in the
+  // feed via the internal write-path (ADR-0018). The meeting title rides in
+  // metadata so {entityRef} renders the title, not a raw CUID. Reuses the
+  // generic "created" icon kind.
+  [key("meeting", "created")]: {
+    template: "{actor} had a meeting {entityRef}",
+    iconKind: "created",
+  },
+  // A meeting's transcript was auto-summarized by the cron sweep (ADR-0018,
+  // royal.raven). Emitted once when the summary lands; the meeting title rides
+  // in metadata so {entityRef} renders the title, not a CUID. Reuses the
+  // "updated" icon kind since summarizing enriches an existing meeting.
+  [key("meeting", "summarized")]: {
+    template: "{actor} summarized a meeting {entityRef}",
+    iconKind: "updated",
+  },
+
+  // Time recordings — one event per stopped timer (TimeEntryService, incl. the
+  // silent auto-stop when a new timer starts). The tracked Action's name rides
+  // in metadata so {entityRef} renders the task, not the action CUID; the
+  // recorded duration rides in metadata.durationMins for future enrichment.
+  // Dedicated "tracked" icon kind (clock) so time logging reads distinctly from
+  // task creation/edits.
+  [key("time_entry", "created")]: {
+    template: "{actor} tracked time on {entityRef}",
+    iconKind: "tracked",
+  },
+
+  // Ticket sync runs (ADR-0042 feed altitude): one `synced` event per real
+  // run — per-ticket `created` events are suppressed on the engine path.
+  [key("ticket_sync_run", "synced")]: {
+    template: "{actor} synced tickets from Notion: {entityRef}",
+    iconKind: "updated",
+  },
+
+  // Ticket sync reverts (ADR-0042): one `reverted` event per revert run.
+  [key("ticket_sync_run", "reverted")]: {
+    template: "{actor} reverted a ticket sync: {entityRef}",
+    iconKind: "status_changed",
+  },
+
+  // Channel activity summaries (ADR-0023). The feed renders these rows with a
+  // bespoke layout (provider icon + channel name as the actor, summary as the
+  // body) rather than this template, but the hint still drives the icon kind
+  // and is the fallback if a summary is ever rendered generically.
+  [key("channel_summary", "summarized")]: {
+    template: "{actor} summarized {entityRef}",
+    iconKind: "channel_summary",
+  },
 };
 
 /** Default hint used when no entry exists for the (entityType, action) pair. */
@@ -155,6 +207,9 @@ export function describeEntityRef(
     const m = metadata as Record<string, unknown>;
     if (typeof m.name === "string" && m.name.trim().length > 0) return m.name;
     if (typeof m.title === "string" && m.title.trim().length > 0) return m.title;
+    if (typeof m.displayName === "string" && m.displayName.trim().length > 0) {
+      return m.displayName;
+    }
     if (typeof m.snippet === "string" && m.snippet.trim().length > 0) {
       return m.snippet;
     }

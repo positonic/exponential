@@ -1,11 +1,9 @@
 "use client";
 
 import { NavLinks } from "./NavLinks";
-import { SidebarContent } from "./SidebarContent";
 import { FavouritesNav } from "./FavouritesNav";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
 import { themes, type ValidDomain } from "~/config/themes";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { UserMenu } from "./UserMenu";
@@ -14,7 +12,6 @@ import { ActiveTimerWidget } from "./ActiveTimerWidget";
 import "./sidebar.css";
 
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
-  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
 
@@ -26,7 +23,15 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
     }
   }, []);
 
-  if (!session?.user || pathname.startsWith('/onboarding')) {
+  // Sync sidebar state to <html> so CSS can offset the main content
+  useEffect(() => {
+    document.documentElement.setAttribute('data-sidebar', isMenuOpen ? 'open' : 'closed');
+    return () => {
+      document.documentElement.removeAttribute('data-sidebar');
+    };
+  }, [isMenuOpen]);
+
+  if (!session?.user) {
     return null;
   }
 
@@ -57,9 +62,9 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         app-sidebar
         w-screen sm:w-[220px] flex flex-col
         h-screen
-        fixed sm:static inset-y-0 left-0 z-[95]
+        fixed inset-y-0 left-0 z-[95]
         transform transition-all duration-300 ease-in-out
-        ${isMenuOpen ? 'translate-x-0' : 'translate-x-[-100%] sm:translate-x-0 sm:ml-[-220px]'}
+        ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
 
         {/* Header with workspace switcher and collapse button */}
@@ -80,13 +85,6 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
 
           <div className="sb-group">
             <NavLinks />
-          </div>
-
-          <div className="sb-divider" />
-
-          <div className="sb-section-label">Workspaces</div>
-          <div className="sb-group sb-group--secondary">
-            <SidebarContent />
           </div>
 
           <FavouritesNav />

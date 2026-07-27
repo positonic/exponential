@@ -6,6 +6,11 @@ import { buildProjectAccessWhere } from "~/server/services/access";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
+import {
+  COMPLETED_TICKET_STATUSES,
+  STATUS_ORDER,
+} from "~/lib/ticket-statuses";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -179,6 +184,295 @@ export const productRouter = createTRPCRouter({
       return product;
     }),
 
+  /**
+   * Single-call aggregate for the product Overview tab: open-ticket counts by
+   * status, the current cycle (resolved read-only — never auto-creates or
+   * reconciles, unlike cycle.list) with this product's in-cycle points/status
+   * rollup and the caller's own tickets, the needs-attention lists (blocked /
+   * needs refinement / QA), demoted nav counts, and the last few ticket
+   * activity events for this product.
+   *
+   * Runs as two parallel DB waves: the independent aggregates first, then the
+   * cycle-ticket and event-ticket lookups (which depend on wave 1) together.
+   */
+  getOverview: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const product = await loadProductWithAccess(
+        ctx.db,
+        userId,
+        input.productId,
+      );
+      const now = new Date();
+
+      const attentionStatuses = [
+        "BLOCKED",
+        "NEEDS_REFINEMENT",
+        "QA",
+      ] as const;
+
+      // Read-only "current cycle" predicate: an ACTIVE sprint that hasn't
+      // ended, a PLANNED one whose window contains today (covers workspaces
+      // where the lazy reconcile in cycle.list hasn't run yet), or an ACTIVE
+      // one that ended but was never reconciled to COMPLETED. Cycles are
+      // workspace-scoped (List, listType SPRINT), so this matches any current
+      // sprint in the workspace; we prefer the one holding this product's
+      // tickets below.
+      const currentCycleWhere = {
+        workspaceId: product.workspaceId,
+        listType: "SPRINT" as const,
+        OR: [
+          { status: "ACTIVE" as const, OR: [{ endDate: null }, { endDate: { gt: now } }] },
+          {
+            status: "PLANNED" as const,
+            startDate: { lte: now },
+            endDate: { gt: now },
+          },
+          { status: "ACTIVE" as const, endDate: { lte: now } },
+        ],
+      };
+      const currentCycleSelect = {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+      };
+      // Deterministic pick when several sprints qualify (e.g. parallel team
+      // cycles with the same startDate) — id breaks the tie so the same cycle
+      // is always chosen.
+      const currentCycleOrder = [
+        { startDate: "desc" as const },
+        { id: "desc" as const },
+      ];
+
+      const [
+        statusGroups,
+        navCounts,
+        cycleWithProductTickets,
+        anyCurrentCycle,
+        attentionTickets,
+        productTickets,
+      ] = await Promise.all([
+        ctx.db.ticket.groupBy({
+          by: ["status"],
+          where: { productId: input.productId },
+          _count: { _all: true },
+        }),
+        ctx.db.product.findUnique({
+          where: { id: input.productId },
+          select: {
+            _count: {
+              select: {
+                features: true,
+                researches: true,
+                retrospectives: true,
+              },
+            },
+          },
+        }),
+        // Prefer a current cycle that actually holds this product's tickets, so
+        // the hero shows "their" cycle rather than an unrelated workspace one.
+        ctx.db.list.findFirst({
+          where: {
+            ...currentCycleWhere,
+            tickets: { some: { productId: input.productId } },
+          },
+          orderBy: currentCycleOrder,
+          select: currentCycleSelect,
+        }),
+        // Fallback: the workspace's current cycle even if this product has no
+        // tickets in it yet — the hero then prompts to commit tickets.
+        ctx.db.list.findFirst({
+          where: currentCycleWhere,
+          orderBy: currentCycleOrder,
+          select: currentCycleSelect,
+        }),
+        ctx.db.ticket.findMany({
+          where: {
+            productId: input.productId,
+            status: { in: [...attentionStatuses] },
+          },
+          select: {
+            id: true,
+            shortId: true,
+            number: true,
+            title: true,
+            status: true,
+            updatedAt: true,
+          },
+          // Oldest first — the longest-rotting work is the most urgent.
+          orderBy: { updatedAt: "asc" },
+        }),
+        // This product's tickets (light fields), used to scope the activity
+        // events to this product *in the database* (events carry no productId)
+        // and to resolve the shown events' display. Never loads events from
+        // other products/workspaces. Lighter than the Backlog tab's own
+        // ticket.list, which already loads every product ticket with includes.
+        ctx.db.ticket.findMany({
+          where: { productId: input.productId },
+          select: { id: true, shortId: true, number: true, title: true },
+        }),
+      ]);
+
+      const currentCycle = cycleWithProductTickets ?? anyCurrentCycle;
+      const productTicketIds = productTickets.map((t) => t.id);
+
+      // Wave 2: the two lookups that depend on wave 1 run together — the
+      // cycle-scoped tickets and this product's recent activity events (scoped
+      // by ticket id, so no cross-product events are ever fetched).
+      const [cycleTickets, recentEvents] = await Promise.all([
+        currentCycle
+          ? ctx.db.ticket.findMany({
+              where: { productId: input.productId, cycleId: currentCycle.id },
+              select: {
+                id: true,
+                shortId: true,
+                number: true,
+                title: true,
+                status: true,
+                points: true,
+                assigneeId: true,
+              },
+            })
+          : Promise.resolve([]),
+        productTicketIds.length
+          ? ctx.db.workspaceActivityEvent.findMany({
+              where: {
+                workspaceId: product.workspaceId,
+                entityType: "ticket",
+                entityId: { in: productTicketIds },
+              },
+              orderBy: { createdAt: "desc" },
+              take: 5,
+              select: {
+                id: true,
+                entityId: true,
+                action: true,
+                metadata: true,
+                createdAt: true,
+                user: { select: { id: true, name: true, image: true } },
+              },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      // ---- current cycle rollup (scoped to this product's tickets) ----
+      let cycle: {
+        id: string;
+        name: string;
+        status: string;
+        startDate: Date | null;
+        endDate: Date | null;
+        usesPoints: boolean;
+        committed: number;
+        completed: number;
+        inProgress: number;
+        statusCounts: { status: string; count: number }[];
+        myTickets: {
+          id: string;
+          shortId: string | null;
+          number: number;
+          title: string;
+          status: string;
+        }[];
+      } | null = null;
+
+      if (currentCycle) {
+        const completedSet = new Set<string>(COMPLETED_TICKET_STATUSES);
+        const usesPoints = cycleTickets.some((t) => (t.points ?? 0) > 0);
+        const weight = (t: { points: number | null }) =>
+          usesPoints ? (t.points ?? 0) : 1;
+
+        const committed = cycleTickets.reduce((s, t) => s + weight(t), 0);
+        const completed = cycleTickets
+          .filter((t) => completedSet.has(t.status))
+          .reduce((s, t) => s + weight(t), 0);
+        const inProgress = cycleTickets
+          .filter((t) => t.status === "IN_PROGRESS")
+          .reduce((s, t) => s + weight(t), 0);
+
+        const cycleStatusCounts = new Map<string, number>();
+        for (const t of cycleTickets) {
+          cycleStatusCounts.set(
+            t.status,
+            (cycleStatusCounts.get(t.status) ?? 0) + 1,
+          );
+        }
+
+        const statusRank = (s: string) => STATUS_ORDER[s] ?? 99;
+        const myTickets = cycleTickets
+          .filter((t) => t.assigneeId === userId)
+          .sort((a, b) => statusRank(a.status) - statusRank(b.status))
+          .slice(0, 4)
+          .map(({ id, shortId, number, title, status }) => ({
+            id,
+            shortId,
+            number,
+            title,
+            status,
+          }));
+
+        cycle = {
+          id: currentCycle.id,
+          name: currentCycle.name,
+          status: currentCycle.status,
+          startDate: currentCycle.startDate,
+          endDate: currentCycle.endDate,
+          usesPoints,
+          committed,
+          completed,
+          inProgress,
+          statusCounts: Array.from(cycleStatusCounts.entries())
+            .map(([status, count]) => ({ status, count }))
+            .sort((a, b) => statusRank(a.status) - statusRank(b.status)),
+          myTickets,
+        };
+      }
+
+      // ---- needs-attention groups (top items + full counts) ----
+      const pickGroup = (status: (typeof attentionStatuses)[number]) => {
+        const items = attentionTickets.filter((t) => t.status === status);
+        return { count: items.length, items: items.slice(0, 5) };
+      };
+
+      // ---- recent activity, resolved to this product's tickets ----
+      // recentEvents is already scoped to this product's ticket ids in the DB,
+      // so every event resolves; the map guard is defensive only.
+      const ticketById = new Map(productTickets.map((t) => [t.id, t]));
+      const activity = recentEvents
+        .filter((e) => ticketById.has(e.entityId))
+        .slice(0, 5)
+        .map((e) => ({
+          id: e.id,
+          action: e.action,
+          metadata: e.metadata,
+          createdAt: e.createdAt,
+          actor: e.user,
+          ticket: ticketById.get(e.entityId)!,
+        }));
+
+      return {
+        statusCounts: statusGroups.map((g) => ({
+          status: g.status,
+          count: g._count._all,
+        })),
+        counts: {
+          features: navCounts?._count.features ?? 0,
+          researches: navCounts?._count.researches ?? 0,
+          retrospectives: navCounts?._count.retrospectives ?? 0,
+        },
+        cycle,
+        attention: {
+          blocked: pickGroup("BLOCKED"),
+          needsRefinement: pickGroup("NEEDS_REFINEMENT"),
+          qa: pickGroup("QA"),
+        },
+        activity,
+      };
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
@@ -264,6 +558,82 @@ export const productRouter = createTRPCRouter({
         where: { id },
         data,
       });
+    }),
+
+  // Upload a product logo (base64-encoded image -> Vercel Blob -> Product.logoUrl)
+  uploadLogo: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        base64Data: z.string().min(1),
+        contentType: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
+
+      // Cache-bust by including a timestamp so the new URL replaces the old one in CDN/clients
+      const filename = `product-logos/${product.id}-${Date.now()}.png`;
+      const blob = await uploadToBlob(
+        input.base64Data,
+        filename,
+        input.contentType,
+      );
+
+      const previous = await ctx.db.product.findUnique({
+        where: { id: product.id },
+        select: { logoUrl: true },
+      });
+
+      const updated = await ctx.db.product.update({
+        where: { id: product.id },
+        data: { logoUrl: blob.url },
+      });
+
+      if (previous?.logoUrl && previous.logoUrl !== blob.url) {
+        try {
+          await deleteFromBlob(previous.logoUrl);
+        } catch {
+          // Best-effort cleanup; do not fail the upload if the old blob can't be deleted
+        }
+      }
+
+      return { logoUrl: updated.logoUrl };
+    }),
+
+  // Remove the product logo (clears logoUrl, deletes underlying blob)
+  removeLogo: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+      );
+
+      const previous = await ctx.db.product.findUnique({
+        where: { id: product.id },
+        select: { logoUrl: true },
+      });
+
+      await ctx.db.product.update({
+        where: { id: product.id },
+        data: { logoUrl: null },
+      });
+
+      if (previous?.logoUrl) {
+        try {
+          await deleteFromBlob(previous.logoUrl);
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+
+      return { logoUrl: null };
     }),
 
   delete: protectedProcedure
@@ -447,6 +817,20 @@ export const productRouter = createTRPCRouter({
         sortDir: z.string().optional(),
         visibleColumns: z.array(z.string()).optional(),
         entity: z.enum(["tickets", "epics"]).optional(),
+        filters: z
+          // Bounded so a buggy/malicious client can't bloat the persisted
+          // settings JSON. Facet values are ids/enums, so these caps sit far
+          // above any realistic selection.
+          .object({
+            status: z.array(z.string().max(200)).max(200).optional(),
+            priority: z.array(z.string().max(200)).max(200).optional(),
+            type: z.array(z.string().max(200)).max(200).optional(),
+            assignee: z.array(z.string().max(200)).max(200).optional(),
+            epic: z.array(z.string().max(200)).max(200).optional(),
+            cycle: z.array(z.string().max(200)).max(200).optional(),
+            labels: z.array(z.string().max(200)).max(200).optional(),
+          })
+          .optional(),
       }),
     }))
     .mutation(async ({ ctx, input }) => {

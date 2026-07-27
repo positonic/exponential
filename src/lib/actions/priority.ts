@@ -18,14 +18,23 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
   "Someday Maybe": 11,
 };
 
+// Rank comparison only — no tiebreaker. Callers compose their own.
+export function comparePriorityRank(
+  a: { priority?: string | null },
+  b: { priority?: string | null },
+): number {
+  const aRank = PRIORITY_ORDER[a.priority as Priority] ?? 999;
+  const bRank = PRIORITY_ORDER[b.priority as Priority] ?? 999;
+  return aRank - bRank;
+}
+
 // Stable sort: priority rank, then id tiebreaker.
 export function sortByPriority(
   a: { priority?: string | null; id: string },
   b: { priority?: string | null; id: string },
 ): number {
-  const aRank = PRIORITY_ORDER[a.priority as Priority] ?? 999;
-  const bRank = PRIORITY_ORDER[b.priority as Priority] ?? 999;
-  if (aRank !== bRank) return aRank - bRank;
+  const rank = comparePriorityRank(a, b);
+  if (rank !== 0) return rank;
   return a.id.localeCompare(b.id);
 }
 

@@ -7,9 +7,11 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
+import { deriveActionSource } from "~/server/utils/actionSource";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
+import { pageRouter } from "./page";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
 import { addDays, startOfDay, endOfDay } from "date-fns";
@@ -22,12 +24,38 @@ import { getWorkspaceMembership } from "~/server/services/access/resolvers/works
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
-import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
+import { loadProductWithAccess, assertWorkspaceMember } from "~/plugins/product/server/routers/product";
+import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { matchCycle, wouldCreateCycle } from "~/plugins/product/server/services/ticketDependencies";
+import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 import { generateFunId } from "~/lib/fun-ids";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { ingestChannelSummary } from "~/server/services/activity/ingestChannelSummary";
+import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "~/server/services/goalService";
+import { NotionAgentService } from "~/server/services/notionAgentService";
+import {
+  importNotionCycleTickets,
+  resolveOrCreateWorkspaceTags,
+  attachTicketTags,
+} from "~/server/services/notionTicketImport";
 
 // OpenAI client for embeddings
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Parse an ISO date string supplied by an agent tool into a Date. Empty/nullish
+// values clear the field (return null); a malformed string throws BAD_REQUEST
+// rather than silently persisting an `Invalid Date` to the DB.
+function parseAgentDate(value: string | null | undefined, field: string): Date | null {
+  if (value == null || value === "") return null;
+  const parsed = new Date(value);
+  if (isNaN(parsed.getTime())) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Invalid ${field}: expected an ISO date string (e.g. "2026-09-19T12:00:00Z")`,
+    });
+  }
+  return parsed;
+}
 
 // Get Mastra API URL from environment variable
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
@@ -1114,11 +1142,14 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({
       text: z.string().min(1),
       projectId: z.string().optional(),
+      // Canonical priority enum. Optional and backward-compatible: when omitted,
+      // the action falls back to "Quick" (the historical hardcoded value).
+      priority: z.enum(PRIORITY_VALUES).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
@@ -1126,10 +1157,16 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, scheduledStart=${String(parsed.scheduledStart ?? "none")}, dueDate=${String(parsed.dueDate ?? "none")}`);
 
-      // Use context projectId as fallback if text parsing didn't match a project
-      if (!parsed.projectId && input.projectId) {
+      // An explicitly-passed projectId is a deliberately-resolved target — the
+      // agent resolves the user-named project via get-all-projects and passes the
+      // intended id — so it takes precedence over any project the text parser
+      // inferred. When no explicit id is passed, the parsed match stands (so calls
+      // that pass neither are unchanged).
+      if (input.projectId) {
+        if (parsed.projectId && parsed.projectId !== input.projectId) {
+          console.log(`🎯 [tRPC quickCreateAction] PRECEDENCE: explicit projectId=${input.projectId} overrides parsed=${parsed.projectId}`);
+        }
         parsed.projectId = input.projectId;
-        console.log(`🎯 [tRPC quickCreateAction] FALLBACK: using context projectId=${input.projectId}`);
       }
 
       // Get kanban order if project specified
@@ -1157,12 +1194,12 @@ export const mastraRouter = createTRPCRouter({
         data: {
           name: parsed.name,
           projectId: parsed.projectId,
-          priority: "Quick",
+          priority: input.priority ?? "Quick",
           status: "ACTIVE",
           createdById: userId,
           scheduledStart: parsed.scheduledStart,
           dueDate: parsed.dueDate,
-          source: "whatsapp",
+          source: deriveActionSource(ctx.tokenType),
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
           workspaceId: quickMastraWsId,
@@ -2312,16 +2349,34 @@ export const mastraRouter = createTRPCRouter({
       phone: z.string(),
       firstName: z.string().optional(),
       lastName: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Get user's first workspace
-      const workspace = await ctx.db.workspaceUser.findFirst({
-        where: { userId: ctx.session.user.id },
-        select: { workspaceId: true },
-      });
+      // Resolve the target workspace. When the caller forwards the active chat
+      // workspace, honor it after verifying membership; otherwise fall back to
+      // the user's first workspace for backward compatibility with callers that
+      // don't yet send it.
+      let workspaceId: string;
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          return { created: false, updated: false, error: "Workspace not found or access denied" };
+        }
+        workspaceId = membership.workspaceId;
+      } else {
+        const workspace = await ctx.db.workspaceUser.findFirst({
+          where: { userId: ctx.session.user.id },
+          select: { workspaceId: true },
+        });
 
-      if (!workspace) {
-        return { created: false, updated: false, error: "No workspace found" };
+        if (!workspace) {
+          return { created: false, updated: false, error: "No workspace found" };
+        }
+        workspaceId = workspace.workspaceId;
       }
 
       // Generate emailHash for deduplication
@@ -2333,7 +2388,7 @@ export const mastraRouter = createTRPCRouter({
       // Check if contact already exists
       const existing = await ctx.db.crmContact.findFirst({
         where: {
-          workspaceId: workspace.workspaceId,
+          workspaceId,
           emailHash,
         },
       });
@@ -2353,7 +2408,7 @@ export const mastraRouter = createTRPCRouter({
       // Create new contact
       const contact = await ctx.db.crmContact.create({
         data: {
-          workspaceId: workspace.workspaceId,
+          workspaceId,
           createdById: ctx.session.user.id,
           firstName: input.firstName,
           lastName: input.lastName,
@@ -2671,18 +2726,35 @@ export const mastraRouter = createTRPCRouter({
       skills: z.array(z.string()).optional(),
       tags: z.array(z.string()).optional(),
       organizationId: z.string().optional(),
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const workspaceUser = await ctx.db.workspaceUser.findFirst({
-        where: { userId: ctx.session.user.id },
-        select: { workspaceId: true },
-      });
+      // Resolve the target workspace. When the caller forwards the active chat
+      // workspace, honor it after verifying membership; otherwise fall back to
+      // the user's first workspace for backward compatibility with callers that
+      // don't yet send it.
+      let workspaceId: string;
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found or access denied" });
+        }
+        workspaceId = membership.workspaceId;
+      } else {
+        const workspaceUser = await ctx.db.workspaceUser.findFirst({
+          where: { userId: ctx.session.user.id },
+          select: { workspaceId: true },
+        });
 
-      if (!workspaceUser) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+        if (!workspaceUser) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
+        }
+        workspaceId = workspaceUser.workspaceId;
       }
-
-      const workspaceId = workspaceUser.workspaceId;
 
       // Validate organizationId belongs to same workspace
       if (input.organizationId) {
@@ -3020,6 +3092,109 @@ export const mastraRouter = createTRPCRouter({
   // OKR Tools - Objectives & Key Results CRUD
   // ============================================
 
+  // ───────────────────────── Notion (agent callback, ADR-0020) ─────────────────────────
+  // The Notion credential is resolved server-side from the user's Integration and
+  // never enters the LLM context. Zoe's Notion tools carry only the agent JWT.
+  notionSearch: protectedProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      filter: z.enum(["page", "database"]).optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.search(userId, input.workspaceId, input.query, input.filter);
+    }),
+
+  notionQueryDatabase: protectedProcedure
+    .input(z.object({
+      databaseId: z.string().min(1),
+      filter: z.any().optional(),
+      sorts: z
+        .array(z.object({
+          property: z.string(),
+          direction: z.enum(["ascending", "descending"]),
+        }))
+        .optional(),
+      startCursor: z.string().optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.queryDatabase(userId, input.workspaceId, input.databaseId, {
+        filter: input.filter,
+        sorts: input.sorts,
+        startCursor: input.startCursor,
+      });
+    }),
+
+  notionGetPage: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.getPage(userId, input.workspaceId, input.pageId);
+    }),
+
+  // Writes follow ADR-0016 draft-and-confirm — the agent surfaces the exact
+  // change and gets an explicit "yes" before these endpoints are ever called.
+  notionCreatePage: protectedProcedure
+    .input(z.object({
+      databaseId: z.string().min(1),
+      title: z.string().min(1),
+      properties: z.record(z.any()).optional(),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.createPage(userId, input.workspaceId, {
+        databaseId: input.databaseId,
+        title: input.title,
+        properties: input.properties,
+      });
+    }),
+
+  notionUpdatePage: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1),
+      properties: z.record(z.any()),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const notion = new NotionAgentService({ db: ctx.db });
+      return notion.updatePage(userId, input.workspaceId, {
+        pageId: input.pageId,
+        properties: input.properties,
+      });
+    }),
+
+  // ADR-0023: the gateway pushes ONE finished channel summary tagged only with
+  // (provider, externalId). Authenticated by the agent JWT (resolves to a user
+  // in the tRPC context) so only the trusted gateway can write summaries. The
+  // routing (workspace/project), drop-if-unlinked, and dedup-by-window logic
+  // all live in ingestChannelSummary — this endpoint is a thin shell. The
+  // event's owner is the link's creator, not the JWT user.
+  recordChannelSummary: protectedProcedure
+    .input(z.object({
+      provider: z.string().min(1),
+      externalId: z.string().min(1),
+      summary: z.string().min(1),
+      displayName: z.string().optional(),
+      windowStart: z.string().datetime(),
+      windowEnd: z.string().datetime(),
+      messageCount: z.number().int().nonnegative(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ingestChannelSummary(ctx.db, input);
+    }),
+
   getOkrObjectives: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
@@ -3142,25 +3317,25 @@ export const mastraRouter = createTRPCRouter({
       description: z.string().optional(),
       whyThisGoal: z.string().optional(),
       period: z.string().optional(),
-      lifeDomainId: z.number().optional(),
+      // Agent-facing numerics: coerce stringified scalars (see
+      // dev-docs/AGENT_TOOL_INPUT_VALIDATION.md).
+      lifeDomainId: z.coerce.number().optional(),
+      parentGoalId: z.coerce.number().optional(),
       workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
-      const goal = await ctx.db.goal.create({
-        data: {
+      // Route through the shared service so the depth/cycle parent guard runs
+      // (do not inline ctx.db.goal.create — it bypasses validation). See ADR-0016.
+      const goal = await createGoal({
+        ctx,
+        input: {
           title: input.title,
           description: input.description,
           whyThisGoal: input.whyThisGoal,
-          period: input.period ?? null,
-          lifeDomainId: input.lifeDomainId ?? null,
-          userId,
-          driUserId: userId,
-          workspaceId: input.workspaceId ?? null,
-        },
-        include: {
-          lifeDomain: true,
+          period: input.period,
+          lifeDomainId: input.lifeDomainId,
+          parentGoalId: input.parentGoalId,
+          workspaceId: input.workspaceId,
         },
       });
 
@@ -3170,10 +3345,38 @@ export const mastraRouter = createTRPCRouter({
           title: goal.title,
           description: goal.description,
           period: goal.period,
+          parentGoalId: goal.parentGoalId,
           lifeDomain: goal.lifeDomain
             ? { id: goal.lifeDomain.id, title: goal.lifeDomain.title }
             : null,
           workspaceId: goal.workspaceId,
+        },
+      };
+    }),
+
+  // Agent-facing: nest an existing Objective under a parent (or detach with
+  // parentGoalId = null). Delegates to goalService.setGoalParent, which writes
+  // ONLY parentGoalId (never clobbers projects/period/workspace like updateGoal
+  // would) and enforces access + no-self/no-cycle/depth.
+  setObjectiveParent: protectedProcedure
+    .input(z.object({
+      goalId: z.coerce.number(),
+      parentGoalId: z.coerce.number().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const goal = await setGoalParent({
+        ctx,
+        goalId: input.goalId,
+        parentGoalId: input.parentGoalId,
+      });
+      return {
+        objective: {
+          id: goal.id,
+          title: goal.title,
+          parentGoalId: goal.parentGoalId,
+          parentGoal: goal.parentGoal
+            ? { id: goal.parentGoal.id, title: goal.parentGoal.title }
+            : null,
         },
       };
     }),
@@ -3461,6 +3664,50 @@ export const mastraRouter = createTRPCRouter({
       };
     }),
 
+  // Agent-facing proxy: post an Objective comment (GoalComment) on the user's
+  // behalf. Thin wrapper over the shared goalService.createGoalComment, which
+  // authorizes via verifyGoalAccess (the centralized 5-path resolver) and
+  // authors the record as the JWT user — mirroring the human path exactly.
+  // Deliberately does NOT copy the legacy OKR endpoints' inline { id, userId }
+  // creator-only check or duplicate logic. See ADR-0016.
+  addGoalComment: protectedProcedure
+    .input(z.object({
+      // Agent-facing: the model often passes goalId as a string lifted from the
+      // prompt's page context, so coerce. The tool coerces too (defense in depth).
+      goalId: z.coerce.number(),
+      content: z.string().min(1).max(10000),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return createGoalComment({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+      });
+    }),
+
+  // Agent-facing proxy: post a health-bearing Objective update (GoalUpdate) on
+  // the user's behalf. Thin wrapper over goalService.createGoalUpdate, which
+  // authorizes via verifyGoalAccess, authors as the JWT user, and syncs the
+  // Objective's auto health (Goal.health) in one transaction — never the manual
+  // healthOverride (ADR-0004). Same access shape as the human Update tab; does
+  // NOT copy the legacy OKR endpoints' inline creator-only check. See ADR-0016.
+  addGoalUpdate: protectedProcedure
+    .input(z.object({
+      // Agent-facing: the model often passes goalId as a string lifted from the
+      // prompt's page context, so coerce. The tool coerces too (defense in depth).
+      goalId: z.coerce.number(),
+      content: z.string().min(1).max(10000),
+      health: z.enum(["on-track", "at-risk", "off-track"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return createGoalUpdate({
+        ctx,
+        goalId: input.goalId,
+        content: input.content,
+        health: input.health,
+      });
+    }),
+
   getOkrStats: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
@@ -3553,9 +3800,14 @@ export const mastraRouter = createTRPCRouter({
   bulkCreateStructure: protectedProcedure
     .input(z.object({
       workspaceId: z.string(),
+      // Batch-level parent: nest every created goal under this Objective unless a
+      // goal supplies its own parentGoalId. Use the page-context goalId here when
+      // the user says "build this under this goal". Coerced per AGENT_TOOL doc.
+      parentGoalId: z.coerce.number().optional(),
       goals: z.array(z.object({
         title: z.string().min(1),
         description: z.string().optional(),
+        parentGoalId: z.coerce.number().optional(),
         projects: z.array(z.object({
           name: z.string().min(1),
           description: z.string().optional(),
@@ -3583,13 +3835,14 @@ export const mastraRouter = createTRPCRouter({
       for (const goalInput of input.goals) {
         let goalId: number | null = null;
         try {
-          const goal = await ctx.db.goal.create({
-            data: {
+          // Route through the shared service so parent depth/cycle validation runs.
+          const goal = await createGoal({
+            ctx,
+            input: {
               title: goalInput.title,
-              description: goalInput.description ?? null,
-              userId,
-              driUserId: userId,
+              description: goalInput.description,
               workspaceId: input.workspaceId,
+              parentGoalId: goalInput.parentGoalId ?? input.parentGoalId,
             },
           });
           goalId = goal.id;
@@ -3666,11 +3919,13 @@ export const mastraRouter = createTRPCRouter({
       status: z.enum(['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED']).optional().default('ACTIVE'),
       priority: z.enum(['HIGH', 'MEDIUM', 'LOW', 'NONE']).optional().default('MEDIUM'),
       workspaceId: z.string().optional(),
+      startDate: z.string().optional(), // ISO string
+      endDate: z.string().optional(), // ISO string
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🏗️ [tRPC createProject] RECEIVED: name="${input.name}", status=${input.status}, priority=${input.priority}, userId=${userId}`);
+      console.log(`🏗️ [tRPC createProject] RECEIVED: name="${input.name}", status=${input.status}, priority=${input.priority}, startDate=${input.startDate ?? "none"}, endDate=${input.endDate ?? "none"}, userId=${userId}`);
 
       // Generate a unique slug
       const baseSlug = slugify(input.name);
@@ -3691,6 +3946,8 @@ export const mastraRouter = createTRPCRouter({
           slug,
           createdById: userId,
           workspaceId: input.workspaceId ?? null,
+          startDate: parseAgentDate(input.startDate, "startDate"),
+          endDate: parseAgentDate(input.endDate, "endDate"),
         },
       });
 
@@ -3704,6 +3961,150 @@ export const mastraRouter = createTRPCRouter({
           status: project.status,
           priority: project.priority,
           slug: project.slug,
+          startDate: project.startDate ? project.startDate.toISOString() : null,
+          endDate: project.endDate ? project.endDate.toISOString() : null,
+        },
+      };
+    }),
+
+  // Update an existing project's core fields on behalf of the agent. Only the
+  // provided fields change. Access is gated by the same project-access path the
+  // human `project.updateDates` / `mastra.updateAction` use (ADR-0016 — reuse
+  // the human authorization path, the agent JWT never enters the LLM context).
+  // Dates arrive as ISO strings (the `dueDate` convention) and are parsed here.
+  updateProject: protectedProcedure
+    .input(z.object({
+      projectId: z.string(),
+      name: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      status: z.enum(['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED']).optional(),
+      priority: z.enum(['HIGH', 'MEDIUM', 'LOW', 'NONE']).optional(),
+      startDate: z.string().nullable().optional(), // ISO string, null to clear
+      endDate: z.string().nullable().optional(), // ISO string, null to clear
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`✏️ [tRPC updateProject] RECEIVED: projectId=${input.projectId}, userId=${userId}, changes=${JSON.stringify(input)}`);
+
+      const existing = await ctx.db.project.findUnique({
+        where: { id: input.projectId },
+        select: { id: true },
+      });
+      if (!existing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Project not found' });
+      }
+
+      const access = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!hasProjectAccess(access)) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'You do not have access to this project',
+        });
+      }
+
+      const updateData: Record<string, unknown> = {};
+      if (input.name !== undefined) updateData.name = input.name;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.status !== undefined) updateData.status = input.status;
+      if (input.priority !== undefined) updateData.priority = input.priority;
+      if (input.startDate !== undefined) {
+        updateData.startDate = parseAgentDate(input.startDate, "startDate");
+      }
+      if (input.endDate !== undefined) {
+        updateData.endDate = parseAgentDate(input.endDate, "endDate");
+      }
+
+      const project = await ctx.db.project.update({
+        where: { id: input.projectId },
+        data: updateData,
+      });
+
+      console.log(`✅ [tRPC updateProject] UPDATED: id=${project.id}, name="${project.name}"`);
+
+      return {
+        project: {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          status: project.status,
+          priority: project.priority,
+          slug: project.slug,
+          startDate: project.startDate ? project.startDate.toISOString() : null,
+          endDate: project.endDate ? project.endDate.toISOString() : null,
+        },
+      };
+    }),
+
+  // ────────────────── Knowledge Pages (ADR-0033) ──────────────────
+  // Zoe authors Pages by reusing the human write path: these callbacks resolve
+  // the acting user from the agent JWT server-side (protectedProcedure — the
+  // credential never enters the LLM context, ADR-0020) and delegate to the same
+  // `page.*` procedures a human uses (ADR-0016 — no duplicated business logic,
+  // so access checks, project/workspace gating, the Markdown projection, and
+  // Knowledge-index embedding all come for free). Zoe drafts Markdown; the
+  // canonical ProseMirror doc derives lazily on first open (bodyDoc null on
+  // create; reset on a Markdown-source update).
+  createPage: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string().nullish(),
+        title: z.string().min(1),
+        body: z.string().min(1),
+        includeInSearch: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const pages = pageRouter.createCaller(ctx);
+      const page = await pages.create({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId ?? null,
+        title: input.title,
+        body: input.body,
+        includeInSearch: input.includeInSearch,
+      });
+      return {
+        page: {
+          id: page.id,
+          title: page.title,
+          workspaceId: page.workspaceId,
+          projectId: page.projectId,
+          includeInSearch: page.includeInSearch,
+        },
+      };
+    }),
+
+  updatePage: protectedProcedure
+    .input(
+      z.object({
+        pageId: z.string(),
+        title: z.string().min(1).optional(),
+        body: z.string().min(1).optional(),
+        includeInSearch: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const pages = pageRouter.createCaller(ctx);
+      const updated = await pages.update({
+        id: input.pageId,
+        title: input.title,
+        body: input.body,
+        includeInSearch: input.includeInSearch,
+      });
+      // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
+      // the metadata path and returns the full record (not the {id, docVersion}
+      // body-save shape). Narrow on a record-only field to satisfy the union.
+      if (!("title" in updated)) {
+        return { page: { id: updated.id } };
+      }
+      return {
+        page: {
+          id: updated.id,
+          title: updated.title,
+          workspaceId: updated.workspaceId,
+          projectId: updated.projectId,
+          includeInSearch: updated.includeInSearch,
         },
       };
     }),
@@ -3762,6 +4163,87 @@ export const mastraRouter = createTRPCRouter({
       console.log(`🔗 [tRPC unlinkProjectFromGoal] Unlinked project ${input.projectId} from goal ${input.goalId}`);
       return { success: true, goalId: input.goalId, projectId: input.projectId };
     }),
+
+  linkProjectToKeyResult: protectedProcedure
+    .input(z.object({
+      keyResultId: z.string(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Authorize the KR by ownership OR workspace membership (mirrors okr.linkProject),
+      // so the assistant can link a KR shared within the caller's workspace.
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key result not found or access denied' });
+      }
+
+      // Verify the caller can edit the project being linked.
+      const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
+      if (!canEditProject(projectAccess)) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: "You don't have permission to link this project" });
+      }
+
+      // Idempotent: no-op if the link already exists (unique keyResultId+projectId).
+      await ctx.db.keyResultProject.upsert({
+        where: {
+          keyResultId_projectId: {
+            keyResultId: input.keyResultId,
+            projectId: input.projectId,
+          },
+        },
+        create: {
+          keyResultId: input.keyResultId,
+          projectId: input.projectId,
+        },
+        update: {},
+      });
+
+      console.log(`🔗 [tRPC linkProjectToKeyResult] Linked project ${input.projectId} to key result ${input.keyResultId}`);
+      return { success: true, keyResultId: input.keyResultId, projectId: input.projectId };
+    }),
+
+  unlinkProjectFromKeyResult: protectedProcedure
+    .input(z.object({
+      keyResultId: z.string(),
+      projectId: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+      if (
+        !keyResult ||
+        (keyResult.userId !== userId &&
+          !(keyResult.workspaceId &&
+            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
+      ) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key result not found or access denied' });
+      }
+
+      await ctx.db.keyResultProject.deleteMany({
+        where: {
+          keyResultId: input.keyResultId,
+          projectId: input.projectId,
+        },
+      });
+
+      console.log(`🔗 [tRPC unlinkProjectFromKeyResult] Unlinked project ${input.projectId} from key result ${input.keyResultId}`);
+      return { success: true, keyResultId: input.keyResultId, projectId: input.projectId };
+    }),
+
 
   deleteProject: protectedProcedure
     .input(z.object({
@@ -3965,53 +4447,19 @@ export const mastraRouter = createTRPCRouter({
       // Verifies the product exists and the user is a member of its workspace.
       const product = await loadProductWithAccess(ctx.db, userId, input.productId);
 
-      // Atomically increment the product's ticket counter to get the number.
-      const updated = await ctx.db.product.update({
-        where: { id: input.productId },
-        data: { ticketCounter: { increment: 1 } },
-        select: { ticketCounter: true, funTicketIds: true },
-      });
-      const ticketNumber = updated.ticketCounter;
-
-      // Generate a fun short ID if the product has them enabled.
-      let shortId: string | null = null;
-      if (updated.funTicketIds) {
-        const existing = await ctx.db.ticket.findMany({
-          where: { productId: input.productId },
-          select: { shortId: true },
-        });
-        const existingIds = new Set(
-          existing.map((t) => t.shortId).filter(Boolean) as string[],
-        );
-        shortId = generateFunId(existingIds);
-      }
-
-      const ticket = await ctx.db.ticket.create({
-        data: {
-          productId: input.productId,
-          number: ticketNumber,
-          shortId,
-          title: input.title,
-          body: input.body,
-          type: input.type ?? "FEATURE",
-          status: input.status ?? "BACKLOG",
-          priority: input.priority,
-          points: input.points,
-          assigneeId: input.assigneeId,
-          createdById: userId,
-        },
-      });
-
-      // Workspace activity feed (non-fatal if it fails).
-      await recordActivity(ctx.db, {
+      // Counter increment, shortId, create, and activity-feed write live in the
+      // shared service (ADR-0016). Access was already verified above.
+      const ticket = await createTicketWithNumber(ctx.db, {
+        productId: input.productId,
         workspaceId: product.workspaceId,
-        userId,
-        entityType: "ticket",
-        entityId: ticket.id,
-        action: "created",
-        metadata: { title: input.title },
-      }).catch(() => {
-        /* instrumentation failure is non-fatal */
+        createdById: userId,
+        title: input.title,
+        body: input.body,
+        type: input.type,
+        status: input.status,
+        priority: input.priority,
+        points: input.points,
+        assigneeId: input.assigneeId,
       });
 
       console.log(`✅ [tRPC createTicket] CREATED: id=${ticket.id}, number=${ticket.number}, shortId=${ticket.shortId ?? 'none'}`);
@@ -4050,7 +4498,12 @@ export const mastraRouter = createTRPCRouter({
         points: z.number().optional(),
         cycleName: z.string().optional(),
         assigneeName: z.string().optional(),
+        // Per-ticket labels, merged with the top-level `labels` below.
+        labels: z.array(z.string().min(1).max(50)).max(10).optional(),
       })).min(1).max(100),
+      // Labels applied to EVERY created ticket (e.g. an import provenance tag).
+      // Resolved against workspace/global tags by slug; created when missing.
+      labels: z.array(z.string().min(1).max(50)).max(10).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -4058,6 +4511,31 @@ export const mastraRouter = createTRPCRouter({
       console.log(`🎫 [tRPC bulkCreateTickets] RECEIVED: productId=${input.productId}, count=${input.tickets.length}, userId=${userId}`);
 
       const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      // Resolve the shared label set once; per-ticket labels resolve lazily
+      // through a memo so repeated names don't re-query.
+      const sharedTagIds = input.labels?.length
+        ? await resolveOrCreateWorkspaceTags(ctx.db, {
+            workspaceId: product.workspaceId,
+            userId,
+            names: input.labels,
+          })
+        : [];
+      const tagIdMemo = new Map<string, string[]>();
+      const resolveTicketTagIds = async (names: string[] | undefined): Promise<string[]> => {
+        if (!names?.length) return sharedTagIds;
+        const key = names.join(" ");
+        let extra = tagIdMemo.get(key);
+        if (!extra) {
+          extra = await resolveOrCreateWorkspaceTags(ctx.db, {
+            workspaceId: product.workspaceId,
+            userId,
+            names,
+          });
+          tagIdMemo.set(key, extra);
+        }
+        return [...new Set([...sharedTagIds, ...extra])];
+      };
 
       // Pre-resolve cycles (SPRINT lists in the workspace) and members once.
       const [cycles, members] = await Promise.all([
@@ -4150,6 +4628,8 @@ export const mastraRouter = createTRPCRouter({
             },
           });
 
+          await attachTicketTags(ctx.db, ticket.id, await resolveTicketTagIds(t.labels));
+
           await recordActivity(ctx.db, {
             workspaceId: product.workspaceId,
             userId,
@@ -4178,6 +4658,341 @@ export const mastraRouter = createTRPCRouter({
       console.log(`✅ [tRPC bulkCreateTickets] Done: ${created.length} created, ${failed.length} failed`);
 
       return { created, failed, totalCreated: created.length, totalFailed: failed.length };
+    }),
+
+  // Import one Notion backlog cycle into a product's tickets in a single call.
+  // Codifies the previously agent-improvised flow (resolve cycle page, relation
+  // filter, field mapping, provenance labels, dedup) — see notionTicketImport.ts.
+  // Idempotent: re-runs skip rows already imported (Notion page id stored in
+  // Ticket.links.notionPageId, with a title+cycle fallback).
+  importNotionCycleTickets: protectedProcedure
+    .input(z.object({
+      productId: z.string(),
+      notionDatabaseId: z.string().min(1),
+      cyclePageId: z.string().optional(),
+      cycleName: z.string().optional(),
+      relationProperty: z.string().optional(),
+      labels: z.array(z.string().min(1).max(50)).max(10).optional(),
+      targetCycleName: z.string().optional(),
+      properties: z.object({
+        status: z.string().optional(),
+        priority: z.string().optional(),
+        type: z.string().optional(),
+        effort: z.string().optional(),
+        label: z.string().optional(),
+      }).optional(),
+      dryRun: z.boolean().optional(),
+    }).refine((v) => v.cyclePageId ?? v.cycleName, {
+      message: "Provide cyclePageId or cycleName",
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      console.log(`📥 [tRPC importNotionCycleTickets] RECEIVED: productId=${input.productId}, cycle="${input.cycleName ?? input.cyclePageId}", dryRun=${input.dryRun ?? false}, userId=${userId}`);
+
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      const result = await importNotionCycleTickets(ctx.db, {
+        userId,
+        workspaceId: product.workspaceId,
+        productId: input.productId,
+        notionDatabaseId: input.notionDatabaseId,
+        cyclePageId: input.cyclePageId,
+        cycleName: input.cycleName,
+        relationProperty: input.relationProperty,
+        labels: input.labels,
+        targetCycleName: input.targetCycleName,
+        properties: input.properties,
+        dryRun: input.dryRun,
+      });
+
+      if (result.connected && result.error === undefined) {
+        console.log(`✅ [tRPC importNotionCycleTickets] Done: ${result.created.length} created, ${result.skipped.length} skipped, ${result.failed.length} failed (dryRun=${result.dryRun})`);
+      }
+
+      return result;
+    }),
+
+  // List the cycles (SPRINT lists) an agent can reference. Cycles are
+  // workspace-scoped; pass a productId to resolve the workspace from a product
+  // the agent already knows. Pure read — unlike the plugin's cycle.list, this
+  // never auto-creates upcoming cycles. Declared as a query per ADR-0041
+  // (agent tools POST; allowMethodOverride accepts it).
+  listCycles: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string().optional(),
+        workspaceId: z.string().optional(),
+      }).refine((v) => v.productId ?? v.workspaceId, {
+        message: "Provide productId or workspaceId",
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      let workspaceId = input.workspaceId;
+      if (input.productId) {
+        const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+        workspaceId = product.workspaceId;
+      } else if (workspaceId) {
+        await assertWorkspaceMember(ctx.db, userId, workspaceId);
+      }
+
+      const cycles = await ctx.db.list.findMany({
+        where: { workspaceId, listType: "SPRINT" },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          startDate: true,
+          endDate: true,
+          cycleGoal: true,
+          _count: { select: { tickets: true } },
+        },
+        orderBy: [{ startDate: "desc" }, { name: "desc" }],
+      });
+
+      return {
+        cycles: cycles.map((c) => ({
+          id: c.id,
+          name: c.name,
+          slug: c.slug,
+          status: c.status,
+          startDate: c.startDate?.toISOString() ?? null,
+          endDate: c.endDate?.toISOString() ?? null,
+          cycleGoal: c.cycleGoal,
+          ticketCount: c._count.tickets,
+        })),
+      };
+    }),
+
+  // List a product's tickets, optionally scoped to one cycle, with their
+  // dependency edges — enough for an agent to answer "what's in cycle 10 and
+  // what blocks what?" in a single call. `cycle` accepts anything a human
+  // would say: "Cycle 10", "cycle-10", "10", or a cycle id. If the cycle
+  // doesn't resolve, the response carries the available cycle names so the
+  // agent can self-correct without another lookup round-trip.
+  listTickets: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        cycle: z.string().optional(),
+        status: z.enum([
+          'BACKLOG', 'NEEDS_REFINEMENT', 'READY_TO_PLAN', 'COMMITTED',
+          'IN_PROGRESS', 'BLOCKED', 'QA', 'DONE', 'DEPLOYED', 'ARCHIVED',
+        ]).optional(),
+        type: z.enum(['BUG', 'FEATURE', 'CHORE', 'IMPROVEMENT', 'SPIKE', 'RESEARCH']).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const limit = input.limit ?? 100;
+
+      // Resolve the human cycle reference against the workspace's cycles.
+      let cycleFilter: { id: string; name: string } | undefined;
+      let cycleWarning: string | undefined;
+      let availableCycles: string[] | undefined;
+      if (input.cycle) {
+        const cycles = await ctx.db.list.findMany({
+          where: { workspaceId: product.workspaceId, listType: "SPRINT" },
+          select: { id: true, name: true, slug: true },
+        });
+        const matched = matchCycle(cycles, input.cycle);
+        if (matched) {
+          cycleFilter = { id: matched.id, name: matched.name };
+        } else {
+          availableCycles = cycles.map((c) => c.name);
+          cycleWarning = `Cycle "${input.cycle}" not found in this workspace.`;
+          return { tickets: [], totalCount: 0, cycle: null, warning: cycleWarning, availableCycles };
+        }
+      }
+
+      const where = {
+        productId: input.productId,
+        ...(cycleFilter ? { cycleId: cycleFilter.id } : {}),
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.type ? { type: input.type } : {}),
+      };
+
+      const [totalCount, tickets] = await Promise.all([
+        ctx.db.ticket.count({ where }),
+        ctx.db.ticket.findMany({
+          where,
+          orderBy: [{ status: "asc" }, { number: "asc" }],
+          take: limit,
+          select: {
+            id: true,
+            number: true,
+            shortId: true,
+            title: true,
+            body: true,
+            status: true,
+            type: true,
+            priority: true,
+            points: true,
+            assignee: { select: { name: true } },
+            cycle: { select: { name: true } },
+            feature: { select: { name: true } },
+            epic: { select: { name: true } },
+            depsOut: {
+              select: {
+                dependsOn: { select: { number: true, title: true, status: true } },
+              },
+            },
+            depsIn: {
+              select: {
+                ticket: { select: { number: true, title: true, status: true } },
+              },
+            },
+          },
+        }),
+      ]);
+
+      const completed = new Set<string>(COMPLETED_TICKET_STATUSES);
+      const BODY_PREVIEW_LENGTH = 600;
+
+      return {
+        cycle: cycleFilter ?? null,
+        totalCount,
+        // When totalCount > tickets.length the agent should say so, not
+        // silently reason over a truncated list.
+        tickets: tickets.map((t) => {
+          const dependsOn = t.depsOut.map((d) => d.dependsOn);
+          return {
+            number: t.number,
+            shortId: t.shortId,
+            title: t.title,
+            body:
+              t.body && t.body.length > BODY_PREVIEW_LENGTH
+                ? `${t.body.slice(0, BODY_PREVIEW_LENGTH)}… [truncated]`
+                : t.body,
+            status: t.status,
+            type: t.type,
+            priority: t.priority,
+            points: t.points,
+            assignee: t.assignee?.name ?? null,
+            cycle: t.cycle?.name ?? null,
+            feature: t.feature?.name ?? null,
+            epic: t.epic?.name ?? null,
+            dependsOn,
+            requiredFor: t.depsIn.map((d) => d.ticket),
+            isBlocked: dependsOn.some((d) => !completed.has(d.status)),
+          };
+        }),
+      };
+    }),
+
+  // Create dependency edges between tickets in one product, by ticket number
+  // ("#12 depends on #7"). Enforces the same rules as the plugin's
+  // ticket.addDependency — same product, no self-deps, no cycles (shared
+  // wouldCreateCycle) — and reports per-edge outcomes so an agent can relay
+  // exactly what was linked and what was rejected.
+  addTicketDependencies: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        dependencies: z.array(
+          z.object({
+            ticketNumber: z.number().int().positive(),
+            dependsOnNumber: z.number().int().positive(),
+          }),
+        ).min(1).max(50),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      console.log(`🔗 [tRPC addTicketDependencies] RECEIVED: productId=${input.productId}, edges=${input.dependencies.length}, userId=${userId}`);
+
+      // Resolve every referenced number → ticket id in one query.
+      const numbers = [
+        ...new Set(input.dependencies.flatMap((d) => [d.ticketNumber, d.dependsOnNumber])),
+      ];
+      const tickets = await ctx.db.ticket.findMany({
+        where: { productId: input.productId, number: { in: numbers } },
+        select: { id: true, number: true, title: true },
+      });
+      const byNumber = new Map(tickets.map((t) => [t.number, t]));
+
+      const added: { ticket: number; dependsOn: number }[] = [];
+      const failed: { ticket: number; dependsOn: number; error: string }[] = [];
+
+      for (const dep of input.dependencies) {
+        const ticket = byNumber.get(dep.ticketNumber);
+        const dependsOn = byNumber.get(dep.dependsOnNumber);
+        if (!ticket || !dependsOn) {
+          failed.push({
+            ticket: dep.ticketNumber,
+            dependsOn: dep.dependsOnNumber,
+            error: `Ticket #${!ticket ? dep.ticketNumber : dep.dependsOnNumber} not found in this product`,
+          });
+          continue;
+        }
+        if (ticket.id === dependsOn.id) {
+          failed.push({ ticket: dep.ticketNumber, dependsOn: dep.dependsOnNumber, error: "A ticket cannot depend on itself" });
+          continue;
+        }
+        try {
+          await ctx.db.$transaction(async (tx) => {
+            if (await wouldCreateCycle(tx, dependsOn.id, ticket.id)) {
+              throw new Error("This would create a dependency cycle");
+            }
+            await tx.ticketDependency.upsert({
+              where: { ticketId_dependsOnId: { ticketId: ticket.id, dependsOnId: dependsOn.id } },
+              create: { ticketId: ticket.id, dependsOnId: dependsOn.id, createdById: userId },
+              update: {},
+            });
+          });
+          added.push({ ticket: dep.ticketNumber, dependsOn: dep.dependsOnNumber });
+        } catch (err) {
+          failed.push({
+            ticket: dep.ticketNumber,
+            dependsOn: dep.dependsOnNumber,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      console.log(`✅ [tRPC addTicketDependencies] Done: ${added.length} added, ${failed.length} failed`);
+
+      return { added, failed, totalAdded: added.length, totalFailed: failed.length };
+    }),
+
+  // Remove one dependency edge, by ticket number. Symmetric undo for
+  // addTicketDependencies; deleting a non-existent edge is a no-op success.
+  removeTicketDependency: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        ticketNumber: z.number().int().positive(),
+        dependsOnNumber: z.number().int().positive(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await loadProductWithAccess(ctx.db, userId, input.productId);
+
+      const [ticket, dependsOn] = await Promise.all([
+        ctx.db.ticket.findUnique({
+          where: { productId_number: { productId: input.productId, number: input.ticketNumber } },
+          select: { id: true },
+        }),
+        ctx.db.ticket.findUnique({
+          where: { productId_number: { productId: input.productId, number: input.dependsOnNumber } },
+          select: { id: true },
+        }),
+      ]);
+      if (!ticket || !dependsOn) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found in this product" });
+      }
+
+      const result = await ctx.db.ticketDependency.deleteMany({
+        where: { ticketId: ticket.id, dependsOnId: dependsOn.id },
+      });
+      return { removed: result.count > 0 };
     }),
 });
 

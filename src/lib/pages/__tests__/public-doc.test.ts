@@ -1,0 +1,316 @@
+import { describe, expect, it } from "vitest";
+import { generateHTML } from "@tiptap/html";
+import type { JSONContent } from "@tiptap/core";
+
+import {
+  collectPageLinkIds,
+  remapPageLinkIds,
+  sanitizeDocForPublic,
+  type PageLinkRewrite,
+} from "../public-doc";
+import { buildPrdExtensions } from "~/lib/prd/extensions";
+
+function doc(content: JSONContent[]): JSONContent {
+  return { type: "doc", content };
+}
+
+function textWithMarks(marks: NonNullable<JSONContent["marks"]>): JSONContent {
+  return { type: "text", text: "hi", marks };
+}
+
+describe("sanitizeDocForPublic", () => {
+  it("keeps http(s) and mailto links", () => {
+    const input = doc([
+      {
+        type: "paragraph",
+        content: [
+          textWithMarks([
+            { type: "link", attrs: { href: "https://example.com" } },
+          ]),
+          textWithMarks([{ type: "link", attrs: { href: "mailto:a@b.c" } }]),
+        ],
+      },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    const texts = out.content![0]!.content!;
+    expect(texts[0]!.marks).toHaveLength(1);
+    expect(texts[1]!.marks).toHaveLength(1);
+  });
+
+  it("drops javascript: and data: link marks but keeps the text", () => {
+    const input = doc([
+      {
+        type: "paragraph",
+        content: [
+          textWithMarks([
+            { type: "bold" },
+            { type: "link", attrs: { href: "javascript:alert(1)" } },
+          ]),
+        ],
+      },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    const marks = out.content![0]!.content![0]!.marks!;
+    expect(marks).toEqual([{ type: "bold" }]);
+  });
+
+  it("strips internal comment marks", () => {
+    const input = doc([
+      {
+        type: "paragraph",
+        content: [
+          textWithMarks([{ type: "comment", attrs: { commentId: "c1" } }]),
+        ],
+      },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    expect(out.content![0]!.content![0]!.marks).toEqual([]);
+  });
+
+  it("removes images with unsafe srcs, keeps https images", () => {
+    const input = doc([
+      { type: "image", attrs: { src: "https://blob.example/a.png" } },
+      { type: "image", attrs: { src: "data:image/png;base64,AAAA" } },
+      { type: "image", attrs: {} },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    expect(out.content).toHaveLength(1);
+    expect(out.content![0]!.attrs!.src).toBe("https://blob.example/a.png");
+  });
+
+  it("sanitizes nested content recursively", () => {
+    const input = doc([
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              { type: "image", attrs: { src: "javascript:alert(1)" } },
+              {
+                type: "paragraph",
+                content: [
+                  textWithMarks([
+                    { type: "link", attrs: { href: "vbscript:x" } },
+                  ]),
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    const listItem = out.content![0]!.content![0]!;
+    expect(listItem.content).toHaveLength(1);
+    expect(listItem.content![0]!.content![0]!.marks).toEqual([]);
+  });
+
+  it("strips page ids and internal hrefs from page links, keeping the title", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: {
+          pageId: "clx123",
+          title: "Design notes",
+          href: "/w/acme/pages/clx123",
+        },
+      },
+      { type: "pageLink" },
+    ]);
+    const out = sanitizeDocForPublic(input);
+    expect(out.content![0]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Design notes" },
+    });
+    expect(out.content![1]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Untitled" },
+    });
+  });
+
+  it("links page links whose target is published, with the live title", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx1", title: "Old title", href: "/w/acme/pages/clx1" },
+      },
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx2", title: "Private", href: "/w/acme/pages/clx2" },
+      },
+    ]);
+    const out = sanitizeDocForPublic(
+      input,
+      new Map([["clx1", { title: "Live title", href: "/p/live-title-ab12cd34" }]]),
+    );
+    // Published target → paragraph linking to the public URL.
+    expect(out.content![0]).toEqual({
+      type: "paragraph",
+      content: [
+        {
+          type: "text",
+          text: "Live title",
+          marks: [{ type: "link", attrs: { href: "/p/live-title-ab12cd34" } }],
+        },
+      ],
+    });
+    // Unpublished target → title-only node, no id/href leak.
+    expect(out.content![1]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Private" },
+    });
+  });
+
+  it("falls back to title-only when a resolved href is not app-relative", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "clx1", title: "Cached", href: "/w/acme/pages/clx1" },
+      },
+    ]);
+    const out = sanitizeDocForPublic(
+      input,
+      // A target whose href is somehow unsafe must never reach the HTML.
+      new Map([["clx1", { title: "Live", href: "javascript:alert(1)" }]]),
+    );
+    expect(out.content![0]).toEqual({
+      type: "pageLink",
+      attrs: { title: "Cached" },
+    });
+  });
+
+  it("does not mutate the input document", () => {
+    const input = doc([
+      { type: "image", attrs: { src: "data:image/png;base64,AAAA" } },
+    ]);
+    const snapshot = JSON.parse(JSON.stringify(input)) as JSONContent;
+    sanitizeDocForPublic(input);
+    expect(input).toEqual(snapshot);
+  });
+});
+
+describe("remapPageLinkIds", () => {
+  const remap = new Map<string, PageLinkRewrite>([
+    ["old1", { pageId: "new1", href: "/w/acme/pages/new1" }],
+    ["old2", { pageId: "new2", href: "/w/acme/pages/new2" }],
+  ]);
+
+  it("rewrites pageId and href for remapped targets, in nested nodes", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "old1", title: "One", href: "/w/acme/pages/old1" },
+      },
+      {
+        type: "blockquote",
+        content: [
+          {
+            type: "pageLink",
+            attrs: { pageId: "old2", title: "Two", href: "/w/acme/pages/old2" },
+          },
+        ],
+      },
+    ]);
+    const out = remapPageLinkIds(input, remap);
+    expect(out.content![0]!.attrs).toEqual({
+      pageId: "new1",
+      title: "One",
+      href: "/w/acme/pages/new1",
+    });
+    expect(out.content![1]!.content![0]!.attrs).toEqual({
+      pageId: "new2",
+      title: "Two",
+      href: "/w/acme/pages/new2",
+    });
+  });
+
+  it("leaves links whose target is not in the remap untouched", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "other", title: "Kept", href: "/w/acme/pages/other" },
+      },
+    ]);
+    const out = remapPageLinkIds(input, remap);
+    expect(out.content![0]!.attrs).toEqual({
+      pageId: "other",
+      title: "Kept",
+      href: "/w/acme/pages/other",
+    });
+  });
+
+  it("does not mutate the input document", () => {
+    const input = doc([
+      {
+        type: "pageLink",
+        attrs: { pageId: "old1", title: "One", href: "/w/acme/pages/old1" },
+      },
+    ]);
+    const snapshot = JSON.parse(JSON.stringify(input)) as JSONContent;
+    remapPageLinkIds(input, remap);
+    expect(input).toEqual(snapshot);
+  });
+});
+
+describe("collectPageLinkIds", () => {
+  it("collects distinct ids in document order, including nested nodes", () => {
+    const input = doc([
+      { type: "pageLink", attrs: { pageId: "b", title: "B" } },
+      {
+        type: "blockquote",
+        content: [{ type: "pageLink", attrs: { pageId: "a", title: "A" } }],
+      },
+      { type: "pageLink", attrs: { pageId: "b", title: "B again" } },
+      { type: "pageLink" },
+      { type: "paragraph", content: [{ type: "text", text: "no links" }] },
+    ]);
+    expect(collectPageLinkIds(input)).toEqual(["b", "a"]);
+  });
+
+  it("returns empty for empty or missing docs", () => {
+    expect(collectPageLinkIds(null)).toEqual([]);
+    expect(collectPageLinkIds(doc([]))).toEqual([]);
+  });
+});
+
+// Mirrors the exact composition in renderPublicPageHtml (server-only, so it
+// can't be imported here): generateHTML(sanitizeDocForPublic(doc), extensions).
+// Guards the /p/ public render path for tables end-to-end without a DB.
+describe("public render path (tables)", () => {
+  const cell = (text: string): JSONContent => ({
+    type: "tableCell",
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  });
+  const headerCell = (text: string): JSONContent => ({
+    type: "tableHeader",
+    content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+  });
+  const tableDoc = doc([
+    {
+      type: "table",
+      content: [
+        { type: "tableRow", content: [headerCell("Name"), headerCell("Role")] },
+        { type: "tableRow", content: [cell("Ada"), cell("Engineer")] },
+      ],
+    },
+  ]);
+
+  it("renders a table node to real table HTML", () => {
+    const html = generateHTML(
+      sanitizeDocForPublic(tableDoc),
+      buildPrdExtensions(),
+    );
+    expect(html).toContain("<table");
+    expect(html).toContain("<th");
+    expect(html).toContain("<td");
+    expect(html).toContain("Ada");
+    expect(html).toContain("Engineer");
+  });
+
+  it("keeps the table intact through public sanitization", () => {
+    const out = sanitizeDocForPublic(tableDoc);
+    const table = out.content?.find((n) => n.type === "table");
+    expect(table?.content?.length).toBe(2);
+  });
+});

@@ -2,16 +2,214 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { recordActivity } from "~/server/services/activity/recordActivity";
+import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import { uploadToBlob } from "~/lib/blob";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { hasMinimumWorkspaceRole } from "~/server/services/access";
+import {
+  planFeatureMove,
+  type FeatureMoveGraph,
+  type FeatureMoveDestination,
+} from "../services/featureMove";
 
+/**
+ * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
+ * A cross-workspace Feature move is a lossy cascade, so - per ADR-0027 - the
+ * mover must be able to *write* to both the source and destination workspaces,
+ * not merely read them. This is stricter than {@link assertWorkspaceMember},
+ * which admits viewers.
+ */
+async function assertWorkspaceWriteRole(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+) {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!membership || !hasMinimumWorkspaceRole(membership.role, "member")) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "You need owner, admin, or member access to this workspace to move a feature here",
+    });
+  }
+  return membership;
+}
+
+/**
+ * Load everything a Feature move needs, run both-ends access checks, and shape
+ * the {@link FeatureMoveGraph} + {@link FeatureMoveDestination} the pure
+ * planner consumes. Shared by the read-only `getMovePreview` and the executing
+ * `move` mutation so the dialog preview and the actual move are computed from
+ * identical inputs (ADR-0027 - preview must never disagree with execution).
+ */
+async function loadFeatureMoveContext(
+  db: PrismaClient,
+  userId: string,
+  featureId: string,
+  destinationProductId: string,
+) {
+  // Source: feature graph + workspace, require write role.
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: {
+      id: true,
+      productId: true,
+      goalId: true,
+      product: { select: { workspaceId: true } },
+      tags: { select: { tagId: true, tag: { select: { workspaceId: true } } } },
+      insights: { select: { insightId: true } },
+    },
+  });
+  if (!feature) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+  }
+  await assertWorkspaceWriteRole(db, userId, feature.product.workspaceId);
+
+  // Destination Product (and its workspace), require write role.
+  const destProduct = await db.product.findUnique({
+    where: { id: destinationProductId },
+    select: {
+      id: true,
+      slug: true,
+      workspaceId: true,
+      ticketCounter: true,
+      funTicketIds: true,
+    },
+  });
+  if (!destProduct) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Destination product not found",
+    });
+  }
+  if (destProduct.id === feature.productId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "The feature is already in this product",
+    });
+  }
+  await assertWorkspaceWriteRole(db, userId, destProduct.workspaceId);
+
+  // The rest of the graph the planner needs.
+  const tickets = await db.ticket.findMany({
+    where: { featureId: feature.id },
+    select: {
+      id: true,
+      number: true,
+      shortId: true,
+      cycleId: true,
+      assigneeId: true,
+      actions: { select: { id: true } },
+    },
+  });
+  const movingIds = tickets.map((t) => t.id);
+  const dependencies =
+    movingIds.length > 0
+      ? await db.ticketDependency.findMany({
+          where: {
+            OR: [
+              { ticketId: { in: movingIds } },
+              { dependsOnId: { in: movingIds } },
+            ],
+          },
+          select: { id: true, ticketId: true, dependsOnId: true },
+        })
+      : [];
+  const [destUsed, destMembers] = await Promise.all([
+    db.ticket.findMany({
+      where: { productId: destProduct.id },
+      select: { number: true, shortId: true },
+    }),
+    db.workspaceUser.findMany({
+      where: { workspaceId: destProduct.workspaceId },
+      select: { userId: true },
+    }),
+  ]);
+
+  const graph: FeatureMoveGraph = {
+    featureId: feature.id,
+    goalId: feature.goalId,
+    tags: feature.tags.map((t) => ({
+      tagId: t.tagId,
+      tagWorkspaceId: t.tag.workspaceId,
+    })),
+    insightIds: feature.insights.map((i) => i.insightId),
+    tickets: tickets.map((t) => ({
+      id: t.id,
+      number: t.number,
+      shortId: t.shortId,
+      cycleId: t.cycleId,
+      assigneeId: t.assigneeId,
+      childActionIds: t.actions.map((a) => a.id),
+    })),
+    dependencies,
+  };
+  const destination: FeatureMoveDestination = {
+    productId: destProduct.id,
+    ticketCounter: destProduct.ticketCounter,
+    funTicketIds: destProduct.funTicketIds,
+    usedNumbers: destUsed.map((t) => t.number),
+    usedShortIds: destUsed
+      .map((t) => t.shortId)
+      .filter((s): s is string => s !== null),
+    memberUserIds: destMembers.map((m) => m.userId),
+  };
+
+  return { feature, destProduct, graph, destination };
+}
+
+/** A ProseMirror document object (PRD body, ADR-0024). Validated structurally. */
+const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+// Feature lifecycle (Features V2). SHIPPED is the DB value for the "Live"
+// state - the UI always displays "Live". DEPRECATED = was live, sunset by a
+// human; ARCHIVED = registry housekeeping for things that never shipped.
 const featureStatusEnum = z.enum([
   "IDEA",
   "DEFINED",
   "IN_PROGRESS",
   "SHIPPED",
+  "DEPRECATED",
   "ARCHIVED",
 ]);
+
+const requirementKindEnum = z.enum(["FUNCTIONAL", "NON_FUNCTIONAL", "CONSTRAINT"]);
+
+/**
+ * Scope -> Feature status rollup (Features V2). When a Feature has scopes,
+ * its delivery stages derive from them: any live (SHIPPED) scope means the
+ * Feature is live and STAYS live while extensions build; otherwise a scope in
+ * progress means IN_PROGRESS. Registry stages (IDEA/DEFINED) and the manual
+ * terminal states (DEPRECATED/ARCHIVED) are never derived - with no derivable
+ * signal the human's last setting stands. Call after every scope write.
+ */
+async function applyScopeRollup(db: PrismaClient, featureId: string) {
+  const feature = await db.feature.findUnique({
+    where: { id: featureId },
+    select: { status: true, scopes: { select: { status: true } } },
+  });
+  if (!feature || feature.scopes.length === 0) return;
+  if (feature.status === "DEPRECATED" || feature.status === "ARCHIVED") return;
+
+  const derived = feature.scopes.some((s) => s.status === "SHIPPED")
+    ? ("SHIPPED" as const)
+    : feature.scopes.some((s) => s.status === "IN_PROGRESS")
+      ? ("IN_PROGRESS" as const)
+      : null;
+
+  if (derived && derived !== feature.status) {
+    // The status guard is repeated in the WHERE so a deprecation/archival that
+    // lands between our read and this write is never overwritten.
+    await db.feature.updateMany({
+      where: { id: featureId, status: { notIn: ["DEPRECATED", "ARCHIVED"] } },
+      data: { status: derived },
+    });
+  }
+}
 
 const scopeStatusEnum = z.enum([
   "PLANNED",
@@ -21,9 +219,10 @@ const scopeStatusEnum = z.enum([
 ]);
 
 /**
- * Load a feature and verify workspace membership via its product.
+ * Load a feature and verify workspace membership via its product. Shared with
+ * the featureComment router so comments reuse the exact same access gate.
  */
-async function loadFeatureWithAccess(
+export async function loadFeatureWithAccess(
   db: PrismaClient,
   userId: string,
   featureId: string,
@@ -53,6 +252,7 @@ async function loadScopeWithAccess(
     select: {
       id: true,
       featureId: true,
+      status: true,
       feature: {
         select: { productId: true, product: { select: { workspaceId: true } } },
       },
@@ -113,10 +313,57 @@ export const featureRouter = createTRPCRouter({
         orderBy: { createdAt: "desc" },
         include: {
           goal: { select: { id: true, title: true, period: true } },
+          area: { select: { id: true, name: true, displayOrder: true } },
           tags: { include: { tag: true } },
           _count: {
-            select: { scopes: true, userStories: true, tickets: true },
+            select: { scopes: true, requirements: true, tickets: true },
           },
+        },
+      });
+    }),
+
+  /**
+   * Workspace-wide Feature fetch for the cross-product **Product Roadmap** board
+   * (ADR-0035). Unlike {@link list} (one Product), this returns every Feature
+   * across *all* of the workspace's Products, with only the lean card fields the
+   * board needs plus the parent `product` (icon/color/name for the card badge).
+   * No descriptions, no ticket graphs - keep the payload small.
+   *
+   * Access is gated at the workspace level (`assertWorkspaceMember`); every
+   * Feature returned belongs to a Product in that workspace, so the per-Product
+   * access check is unnecessary.
+   */
+  listForWorkspace: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+
+      return ctx.db.feature.findMany({
+        where: { product: { workspaceId: input.workspaceId } },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          goalId: true,
+          updatedAt: true,
+          product: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              icon: true,
+              color: true,
+            },
+          },
+          // Lean Objective for the Product Roadmap's swimlane grouping
+          // (ADR-0035) - id + title only, no Key results / nested graph.
+          goal: { select: { id: true, title: true } },
         },
       });
     }),
@@ -138,8 +385,28 @@ export const featureRouter = createTRPCRouter({
               parentGoal: { select: { id: true, title: true } },
             },
           },
+          area: { select: { id: true, name: true } },
+          // Provenance (V3): the meeting this feature was ideated from, for the
+          // "From meeting" back-link. Null for hand-authored features.
+          sourceTranscription: {
+            select: { id: true, title: true, meetingDate: true },
+          },
           scopes: { orderBy: { displayOrder: "asc" } },
           userStories: { orderBy: { displayOrder: "asc" } },
+          requirements: {
+            orderBy: { displayOrder: "asc" },
+            include: {
+              checkedBy: { select: { id: true, name: true, image: true } },
+            },
+          },
+          pages: {
+            orderBy: { createdAt: "asc" },
+            include: {
+              page: {
+                select: { id: true, title: true, updatedAt: true },
+              },
+            },
+          },
           insights: {
             include: {
               insight: {
@@ -175,6 +442,7 @@ export const featureRouter = createTRPCRouter({
         effort: z.number().optional(),
         priority: z.number().int().min(0).max(4).optional(),
         goalId: z.number().int().optional(),
+        areaId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -193,7 +461,17 @@ export const featureRouter = createTRPCRouter({
         }
       }
 
-      return ctx.db.feature.create({
+      if (input.areaId) {
+        const area = await ctx.db.area.findFirst({
+          where: { id: input.areaId, productId: input.productId },
+          select: { id: true },
+        });
+        if (!area) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+        }
+      }
+
+      const created = await ctx.db.feature.create({
         data: {
           productId: input.productId,
           name: input.name,
@@ -203,9 +481,18 @@ export const featureRouter = createTRPCRouter({
           effort: input.effort,
           priority: input.priority,
           goalId: input.goalId,
+          areaId: input.areaId,
           createdById: ctx.session.user.id,
         },
       });
+      await recordActivity(ctx.db, {
+        workspaceId: product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "feature",
+        entityId: created.id,
+        action: "created",
+      });
+      return created;
     }),
 
   update: protectedProcedure
@@ -216,9 +503,22 @@ export const featureRouter = createTRPCRouter({
         description: boundedText("Description", TEXT_LIMITS.LARGE).optional(),
         vision: boundedText("Vision", TEXT_LIMITS.SHORT).optional(),
         status: featureStatusEnum.optional(),
-        effort: z.number().optional(),
+        effort: z.number().nullable().optional(),
         priority: z.number().int().min(0).max(4).optional(),
         goalId: z.number().int().nullable().optional(),
+        // PRD body save (ADR-0024). `descriptionDoc` is the canonical document;
+        // `description` rides along as its derived Markdown projection (the
+        // client serialises it, since the projection needs the editor schema -
+        // a deviation from ADR-0024's "server derives", forced by there being no
+        // server-side DOM; the JSON-canonical, write-once-Markdown invariant
+        // still holds). `baseVersion` is the optimistic-concurrency check.
+        descriptionDoc: prosemirrorDoc.optional(),
+        baseVersion: z.number().int().min(0).optional(),
+        areaId: z.string().nullable().optional(),
+        // Deprecation cascade (Features V2): when setting status DEPRECATED,
+        // pass true to also deprecate the feature's still-live scopes. The UI
+        // prompts for this; it is never implicit.
+        deprecateScopes: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -237,11 +537,386 @@ export const featureRouter = createTRPCRouter({
         }
       }
 
-      const { id, ...data } = input;
-      return ctx.db.feature.update({
+      if (input.areaId) {
+        const area = await ctx.db.area.findFirst({
+          where: { id: input.areaId, productId: feature.productId },
+          select: { id: true },
+        });
+        if (!area) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+        }
+      }
+
+      // Archived = never became product. A feature that is (or was) live can
+      // only be deprecated - archiving it would erase product history.
+      if (input.status === "ARCHIVED") {
+        const current = await ctx.db.feature.findUnique({
+          where: { id: input.id },
+          select: {
+            status: true,
+            scopes: { select: { status: true }, where: { status: { in: ["SHIPPED", "DEPRECATED"] } } },
+          },
+        });
+        const everLive =
+          current?.status === "SHIPPED" ||
+          current?.status === "DEPRECATED" ||
+          (current?.scopes.length ?? 0) > 0;
+        if (everLive) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This feature was live - deprecate it instead of archiving",
+          });
+        }
+      }
+
+      const { id, descriptionDoc, baseVersion, deprecateScopes, ...rest } = input;
+
+      // Markdown-only description write (CLI/SDK/agents): the caller has no
+      // editor, so derive the canonical `descriptionDoc` from the Markdown
+      // server-side (ADR-0024 - the doc is canonical; leaving it stale would
+      // make the edit invisible in the UI and get clobbered on the next
+      // editor save). Bumping `docVersion` turns any open editor tab's next
+      // autosave into a CONFLICT instead of a silent overwrite. Anchored
+      // comment marks don't survive the rewrite - the Markdown projection
+      // never carried them - which is the same trade-off as a full-body
+      // rewrite in the editor.
+      let syncDoc = descriptionDoc === undefined && rest.description !== undefined;
+      if (syncDoc) {
+        // Re-sending the stored Markdown unchanged (agents retry-write a lot)
+        // must not rewrite the doc: it would bump `docVersion` for nothing
+        // and hand every open editor tab a spurious CONFLICT.
+        const current = await ctx.db.feature.findUnique({
+          where: { id },
+          select: { description: true },
+        });
+        if (!current) {
+          // Deleted between the access check and this read - fail the same
+          // way the access check would have.
+          throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+        }
+        if (current.description === rest.description) syncDoc = false;
+      }
+      let data: Prisma.FeatureUncheckedUpdateInput = rest;
+      if (syncDoc) {
+        try {
+          data = {
+            ...rest,
+            descriptionDoc: markdownToDocServer(
+              rest.description,
+            ) as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          };
+        } catch (err) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message:
+              "Failed to derive the PRD document from the Markdown description",
+            cause: err,
+          });
+        }
+      }
+      // Unified-timeline instrumentation needs the previous status; one tiny
+      // read. The PRD-autosave path below is deliberately NOT instrumented
+      // (debounced body writes would spam the timeline).
+      const prev = await ctx.db.feature.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+      const recordFeatureEvent = async () => {
+        const statusChanged =
+          rest.status !== undefined && rest.status !== prev?.status;
+        if (statusChanged) {
+          await recordActivity(ctx.db, {
+            workspaceId: feature.product.workspaceId,
+            userId: ctx.session.user.id,
+            entityType: "feature",
+            entityId: id,
+            action: "status_changed",
+            metadata: { from: prev?.status ?? "", to: rest.status! },
+          });
+          return;
+        }
+        const fieldsChanged = Object.entries(rest)
+          .filter(([, v]) => v !== undefined)
+          .map(([k]) => k)
+          .filter((k) => k !== "status");
+        if (fieldsChanged.length > 0) {
+          await recordActivity(ctx.db, {
+            workspaceId: feature.product.workspaceId,
+            userId: ctx.session.user.id,
+            entityType: "feature",
+            entityId: id,
+            action: "updated",
+            metadata: { fieldsChanged },
+          });
+        }
+      };
+
+      // Deprecation cascade: only LIVE scopes become DEPRECATED (deprecated =
+      // was live, sunset - a PLANNED scope was never live, so it keeps its
+      // status). Runs in one transaction with the feature update below so a
+      // failed feature write cannot leave scopes deprecated on their own.
+      if (input.status === "DEPRECATED" && deprecateScopes) {
+        const [, updated] = await ctx.db.$transaction([
+          ctx.db.featureScope.updateMany({
+            where: { featureId: id, status: "SHIPPED" },
+            data: { status: "DEPRECATED" },
+          }),
+          ctx.db.feature.update({ where: { id }, data }),
+        ]);
+        await recordFeatureEvent();
+        return updated;
+      }
+
+      // PRD body autosave path: optimistic-concurrency guard + version bump.
+      if (descriptionDoc !== undefined) {
+        if (baseVersion === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "baseVersion is required when saving the PRD body",
+          });
+        }
+        const current = await ctx.db.feature.findUnique({
+          where: { id },
+          select: { docVersion: true },
+        });
+        const decision = checkStaleWrite({
+          storedVersion: current?.docVersion ?? 0,
+          baseVersion,
+        });
+        if (!decision.accept) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              decision.reason === "stale"
+                ? "This PRD was updated in another tab or by another member. Reload to get the latest version."
+                : "Stale document version - reload and try again.",
+          });
+        }
+        // Atomic compare-and-set: the WHERE on docVersion closes the read→write
+        // race so two concurrent saves can't both bump from the same base.
+        const res = await ctx.db.feature.updateMany({
+          where: { id, docVersion: baseVersion },
+          data: {
+            ...rest,
+            descriptionDoc: descriptionDoc as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          },
+        });
+        if (res.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This PRD was updated concurrently. Reload to get the latest version.",
+          });
+        }
+        return { id, docVersion: decision.nextVersion };
+      }
+
+      const updated = await ctx.db.feature.update({
         where: { id },
         data,
       });
+      await recordFeatureEvent();
+      return updated;
+    }),
+
+  /**
+   * Uniform bulk patch across many features (multi-select). Status writes
+   * respect the registry lifecycle: features whose status is scope-derived
+   * (any scope IN_PROGRESS/SHIPPED - see applyScopeRollup) and features the
+   * "was live - deprecate, don't archive" guard protects are SKIPPED, never
+   * overridden; the response reports how many. Bulk DEPRECATED never cascades
+   * to scopes (the single-feature path prompts for that explicitly).
+   */
+  bulkUpdate: protectedProcedure
+    .input(
+      z.object({
+        ids: z.array(z.string()).min(1).max(100),
+        status: featureStatusEnum.optional(),
+        priority: z.number().int().min(0).max(4).nullable().optional(),
+        areaId: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { ids, ...patch } = input;
+      const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
+      if (fields.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No fields to update",
+        });
+      }
+
+      const uniqueIds = Array.from(new Set(ids));
+      const features = await ctx.db.feature.findMany({
+        where: { id: { in: uniqueIds } },
+        select: {
+          id: true,
+          status: true,
+          productId: true,
+          product: { select: { workspaceId: true } },
+          scopes: { select: { status: true } },
+        },
+      });
+      if (features.length !== uniqueIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+      const workspaceIds = Array.from(
+        new Set(features.map((f) => f.product.workspaceId)),
+      );
+      for (const workspaceId of workspaceIds) {
+        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+      }
+
+      if (input.areaId) {
+        const productIds = Array.from(
+          new Set(features.map((f) => f.productId)),
+        );
+        if (productIds.length > 1) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Areas are per-product - select features from a single product",
+          });
+        }
+        const area = await ctx.db.area.findFirst({
+          where: { id: input.areaId, productId: productIds[0]! },
+          select: { id: true },
+        });
+        if (!area) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+        }
+      }
+
+      let okIds = features.map((f) => f.id);
+      if (input.status) {
+        const target = input.status;
+        const allowed = features.filter((f) => {
+          const derived = f.scopes.some(
+            (s) => s.status === "SHIPPED" || s.status === "IN_PROGRESS",
+          );
+          if (derived && target !== "DEPRECATED" && target !== "ARCHIVED") {
+            return false;
+          }
+          const everLive =
+            f.status === "SHIPPED" ||
+            f.status === "DEPRECATED" ||
+            f.scopes.some(
+              (s) => s.status === "SHIPPED" || s.status === "DEPRECATED",
+            );
+          if (target === "ARCHIVED" && everLive) return false;
+          return true;
+        });
+        okIds = allowed.map((f) => f.id);
+      }
+
+      if (okIds.length > 0) {
+        await ctx.db.feature.updateMany({
+          where: { id: { in: okIds } },
+          data: Object.fromEntries(fields),
+        });
+      }
+
+      // Unified-timeline events, mirroring ticket.bulkUpdate: per-feature so
+      // each detail page's history stays coherent; recordActivity never throws.
+      const okSet = new Set(okIds);
+      const fieldsChanged = fields.map(([k]) => k).filter((k) => k !== "status");
+      await Promise.all(
+        features
+          .filter((f) => okSet.has(f.id))
+          .map((f) => {
+            const statusChanged =
+              input.status !== undefined && input.status !== f.status;
+            if (statusChanged) {
+              return recordActivity(ctx.db, {
+                workspaceId: f.product.workspaceId,
+                userId: ctx.session.user.id,
+                entityType: "feature",
+                entityId: f.id,
+                action: "status_changed",
+                metadata: { from: f.status, to: input.status!, bulk: true },
+              });
+            }
+            if (fieldsChanged.length === 0) return Promise.resolve(true);
+            return recordActivity(ctx.db, {
+              workspaceId: f.product.workspaceId,
+              userId: ctx.session.user.id,
+              entityType: "feature",
+              entityId: f.id,
+              action: "updated",
+              metadata: { fieldsChanged, bulk: true },
+            });
+          }),
+      );
+
+      return { updated: okIds.length, skipped: uniqueIds.length - okIds.length };
+    }),
+
+  /**
+   * Persist the one-time lazy migration of a legacy Markdown `description` into
+   * the canonical `descriptionDoc` (ADR-0024). The client converts Markdown →
+   * ProseMirror JSON via the codec on first open and calls this to store it.
+   *
+   * Idempotent and write-once: if `descriptionDoc` is already set, the existing
+   * doc wins and nothing is written - so a second tab (or a real edit that has
+   * already happened) is never clobbered by a migration. `description` is left
+   * untouched (it is the source of this migration), as is `docVersion`.
+   */
+  initDescriptionDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      const existing = await ctx.db.feature.findUnique({
+        where: { id: input.id },
+        select: { descriptionDoc: true },
+      });
+      if (existing?.descriptionDoc != null) {
+        return { migrated: false, descriptionDoc: existing.descriptionDoc };
+      }
+
+      const updated = await ctx.db.feature.update({
+        where: { id: input.id },
+        data: { descriptionDoc: input.doc as Prisma.InputJsonValue },
+        select: { descriptionDoc: true },
+      });
+      return { migrated: true, descriptionDoc: updated.descriptionDoc };
+    }),
+
+  /**
+   * Upload an image pasted/dropped into the PRD body (ADR-0024 Tier B), mirroring
+   * `action.uploadImage`: base64 in, public URL out, reusing the Vercel Blob
+   * backend. Gated by the same workspace-member check as editing. The returned
+   * URL is inserted as an inline image node in `descriptionDoc` and survives the
+   * Markdown projection as an image link.
+   */
+  uploadImage: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        base64Data: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+
+      // Same 5MB cap as action.uploadImage (base64 is ~4/3 the byte size).
+      const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
+      if (approxBytes > 5 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Image too large. Please use an image under 5MB.",
+        });
+      }
+
+      const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
+      const filename = `screenshots/features/${input.id}/${timestamp}.png`;
+      const blob = await uploadToBlob(input.base64Data, filename);
+      return { url: blob.url };
     }),
 
   delete: protectedProcedure
@@ -252,7 +927,218 @@ export const featureRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  /** Bulk hard delete (multi-select). Same access model as `delete`. */
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      const uniqueIds = Array.from(new Set(input.ids));
+      const features = await ctx.db.feature.findMany({
+        where: { id: { in: uniqueIds } },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (features.length !== uniqueIds.length) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+      const workspaceIds = Array.from(
+        new Set(features.map((f) => f.product.workspaceId)),
+      );
+      for (const workspaceId of workspaceIds) {
+        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+      }
+      await ctx.db.feature.deleteMany({ where: { id: { in: uniqueIds } } });
+      return { count: uniqueIds.length };
+    }),
+
+  /**
+   * Move a Feature to a Product in another workspace (ADR-0027).
+   *
+   * A Feature has no workspace of its own - its only container link is
+   * `productId` - so "move to a workspace" is re-pointing `productId` at a
+   * Product in the destination workspace. The move is a single-transaction
+   * lossy cascade whose rules (and the loss counts shown in the confirm dialog)
+   * are computed by the pure {@link planFeatureMove}, so preview and execution
+   * can never diverge.
+   *
+   * Access: the caller must be a non-viewer member of *both* the source and the
+   * destination workspaces.
+   */
+  /**
+   * Read-only preview of a move's loss summary (ADR-0027). Runs the exact same
+   * fetch + {@link planFeatureMove} as `move`, but applies nothing - so the
+   * confirm dialog can enumerate every consequence before the user commits,
+   * and can never disagree with what `move` will do. Same both-ends access
+   * checks as the move itself.
+   */
+  getMovePreview: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        destinationProductId: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { graph, destination } = await loadFeatureMoveContext(
+        ctx.db,
+        ctx.session.user.id,
+        input.featureId,
+        input.destinationProductId,
+      );
+      return planFeatureMove(graph, destination).loss;
+    }),
+
+  move: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        destinationProductId: z.string(),
+        /**
+         * Stale-state guard: the source Product the modal saw when it computed
+         * the preview. If the Feature has since moved (its `productId` no longer
+         * matches), the cached plan is stale and we refuse rather than apply it.
+         */
+        expectedSourceProductId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const { feature, destProduct, graph, destination } =
+        await loadFeatureMoveContext(
+          ctx.db,
+          userId,
+          input.featureId,
+          input.destinationProductId,
+        );
+
+      // Stale-state guard: the Feature moved out from under the open modal.
+      if (
+        input.expectedSourceProductId !== undefined &&
+        input.expectedSourceProductId !== feature.productId
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "This feature changed since you opened the move dialog. Reload and try again.",
+        });
+      }
+
+      const { mutations } = planFeatureMove(graph, destination);
+
+      // Apply the whole plan in one transaction (driven by the plan only).
+      await ctx.db.$transaction(async (tx) => {
+        // Per-ticket: re-point to the destination Product, renumber, and clear
+        // the source-scoped cycle / assignee links the plan flagged.
+        for (const r of mutations.ticketRenumber) {
+          await tx.ticket.update({
+            where: { id: r.ticketId },
+            data: {
+              productId: mutations.destinationProductId,
+              number: r.number,
+              shortId: r.shortId,
+              ...(mutations.clearCycleTicketIds.includes(r.ticketId)
+                ? { cycleId: null }
+                : {}),
+              ...(mutations.clearAssigneeTicketIds.includes(r.ticketId)
+                ? { assigneeId: null }
+                : {}),
+            },
+          });
+        }
+        if (mutations.dropDependencyIds.length > 0) {
+          await tx.ticketDependency.deleteMany({
+            where: { id: { in: mutations.dropDependencyIds } },
+          });
+        }
+        if (mutations.unlinkActionTicketIds.length > 0) {
+          await tx.action.updateMany({
+            where: { ticketId: { in: mutations.unlinkActionTicketIds } },
+            data: { ticketId: null },
+          });
+        }
+        // Feature-level: re-point + sever goal / insights / workspace tags.
+        await tx.feature.update({
+          where: { id: mutations.featureId },
+          data: {
+            productId: mutations.destinationProductId,
+            ...(mutations.nullGoal ? { goalId: null } : {}),
+          },
+        });
+        if (mutations.dropInsightIds.length > 0) {
+          await tx.featureInsight.deleteMany({
+            where: {
+              featureId: mutations.featureId,
+              insightId: { in: mutations.dropInsightIds },
+            },
+          });
+        }
+        if (mutations.dropTagIds.length > 0) {
+          await tx.featureTag.deleteMany({
+            where: {
+              featureId: mutations.featureId,
+              tagId: { in: mutations.dropTagIds },
+            },
+          });
+        }
+        if (mutations.nextTicketCounter !== destProduct.ticketCounter) {
+          await tx.product.update({
+            where: { id: destProduct.id },
+            data: { ticketCounter: mutations.nextTicketCounter },
+          });
+        }
+      });
+
+      // 5. Navigation target: the feature in its new Product/workspace.
+      const destWorkspace = await ctx.db.workspace.findUnique({
+        where: { id: destProduct.workspaceId },
+        select: { slug: true },
+      });
+      return {
+        featureId: feature.id,
+        productSlug: destProduct.slug,
+        workspaceSlug: destWorkspace?.slug ?? null,
+      };
+    }),
+
   // ────────────────── Feature Scopes ──────────────────
+  /**
+   * Per-feature (or per-scope) audit events for the unified activity
+   * timeline (mirrors ticket.listEvents). With scopeId set, returns the
+   * scope's own feed instead of the feature's.
+   */
+  listEvents: protectedProcedure
+    .input(z.object({ featureId: z.string(), scopeId: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const target = await loadFeatureWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.featureId,
+      );
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== input.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      return ctx.db.workspaceActivityEvent.findMany({
+        where: {
+          workspaceId: target.product.workspaceId,
+          entityType: input.scopeId ? "feature_scope" : "feature",
+          entityId: input.scopeId ?? input.featureId,
+        },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, image: true } } },
+      });
+    }),
+
   addScope: protectedProcedure
     .input(
       z.object({
@@ -264,7 +1150,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const parentFeature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
 
       const maxOrder = await ctx.db.featureScope.findFirst({
         where: { featureId: input.featureId },
@@ -272,7 +1158,7 @@ export const featureRouter = createTRPCRouter({
         select: { displayOrder: true },
       });
 
-      return ctx.db.featureScope.create({
+      const scope = await ctx.db.featureScope.create({
         data: {
           featureId: input.featureId,
           version: input.version,
@@ -282,6 +1168,16 @@ export const featureRouter = createTRPCRouter({
           displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
         },
       });
+      await applyScopeRollup(ctx.db, input.featureId);
+      await recordActivity(ctx.db, {
+        workspaceId: parentFeature.product.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "feature_scope",
+        entityId: scope.id,
+        action: "created",
+        metadata: { featureId: input.featureId, version: input.version },
+      });
+      return scope;
     }),
 
   updateScope: protectedProcedure
@@ -296,20 +1192,387 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
 
       const { id, ...data } = input;
-      return ctx.db.featureScope.update({
+      const updated = await ctx.db.featureScope.update({
         where: { id },
-        data,
+        data: {
+          ...data,
+          // Going live stamps the shipping event if the caller didn't.
+          ...(input.status === "SHIPPED" && input.shippedAt === undefined
+            ? { shippedAt: new Date() }
+            : {}),
+        },
       });
+      if (input.status !== undefined) {
+        await applyScopeRollup(ctx.db, scope.featureId);
+      }
+
+      const statusChanged =
+        input.status !== undefined && input.status !== scope.status;
+      if (statusChanged) {
+        await recordActivity(ctx.db, {
+          workspaceId: scope.feature.product.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "feature_scope",
+          entityId: scope.id,
+          action: "status_changed",
+          metadata: { from: scope.status, to: input.status! },
+        });
+      } else {
+        // displayOrder is drag-reorder noise, not timeline material.
+        const fieldsChanged = Object.entries(data)
+          .filter(([k, v]) => v !== undefined && k !== "displayOrder" && k !== "status")
+          .map(([k]) => k);
+        if (fieldsChanged.length > 0) {
+          await recordActivity(ctx.db, {
+            workspaceId: scope.feature.product.workspaceId,
+            userId: ctx.session.user.id,
+            entityType: "feature_scope",
+            entityId: scope.id,
+            action: "updated",
+            metadata: { fieldsChanged },
+          });
+        }
+      }
+      return updated;
     }),
 
   deleteScope: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
       await ctx.db.featureScope.delete({ where: { id: input.id } });
+      await applyScopeRollup(ctx.db, scope.featureId);
+      return { success: true };
+    }),
+
+  /** Scope detail page (Features V2): the scope plus its feature context. */
+  getScopeById: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const scope = await ctx.db.featureScope.findUnique({
+        where: { id: input.id },
+        include: {
+          feature: {
+            select: {
+              id: true,
+              name: true,
+              product: { select: { id: true, slug: true, workspaceId: true, name: true } },
+            },
+          },
+          requirements: {
+            orderBy: { displayOrder: "asc" },
+            include: {
+              checkedBy: { select: { id: true, name: true, image: true } },
+            },
+          },
+        },
+      });
+      if (!scope) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Scope not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        scope.feature.product.workspaceId,
+      );
+      return scope;
+    }),
+
+  // ────────────────── Areas ──────────────────
+  // Exclusive per-product buckets for the feature registry (Features V2).
+  // Flat, one carving axis per product; deleting an Area un-sorts its
+  // features (areaId SetNull), never deletes them.
+
+  listAreas: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      return ctx.db.area.findMany({
+        where: { productId: input.productId },
+        orderBy: { displayOrder: "asc" },
+        include: { _count: { select: { features: true } } },
+      });
+    }),
+
+  createArea: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
+        description: boundedText("Description", TEXT_LIMITS.MEDIUM).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const maxOrder = await ctx.db.area.findFirst({
+        where: { productId: input.productId },
+        orderBy: { displayOrder: "desc" },
+        select: { displayOrder: true },
+      });
+      try {
+        return await ctx.db.area.create({
+          data: {
+            productId: input.productId,
+            name: input.name,
+            description: input.description,
+            displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
+          },
+        });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An area with this name already exists in this product",
+          });
+        }
+        throw e;
+      }
+    }),
+
+  updateArea: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.MEDIUM).nullable().optional(),
+        displayOrder: z.number().int().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const area = await ctx.db.area.findUnique({
+        where: { id: input.id },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (!area) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      const { id, ...data } = input;
+      try {
+        return await ctx.db.area.update({ where: { id }, data });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An area with this name already exists in this product",
+          });
+        }
+        throw e;
+      }
+    }),
+
+  deleteArea: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const area = await ctx.db.area.findUnique({
+        where: { id: input.id },
+        select: { id: true, product: { select: { workspaceId: true } } },
+      });
+      if (!area) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
+      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      await ctx.db.area.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // ────────────────── Requirements ──────────────────
+  // Checkable EARS-style statements (ADR-0039). Replaces user stories as the
+  // requirements write path; the UserStory endpoints below stay for dormant
+  // legacy data but the UI no longer writes to them.
+
+  addRequirement: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        scopeId: z.string().optional(),
+        statement: boundedText("Statement", TEXT_LIMITS.MEDIUM, { min: 1 }),
+        kind: requirementKindEnum.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== input.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      const maxOrder = await ctx.db.requirement.findFirst({
+        where: { featureId: input.featureId },
+        orderBy: { displayOrder: "desc" },
+        select: { displayOrder: true },
+      });
+      return ctx.db.requirement.create({
+        data: {
+          featureId: input.featureId,
+          scopeId: input.scopeId,
+          statement: input.statement,
+          kind: input.kind,
+          displayOrder: (maxOrder?.displayOrder ?? -1) + 1,
+        },
+      });
+    }),
+
+  updateRequirement: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        statement: boundedText("Statement", TEXT_LIMITS.MEDIUM, { min: 1 }).optional(),
+        kind: requirementKindEnum.nullable().optional(),
+        scopeId: z.string().nullable().optional(),
+        displayOrder: z.number().int().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.db.requirement.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          featureId: true,
+          feature: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!requirement) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        requirement.feature.product.workspaceId,
+      );
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== requirement.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      const { id, ...data } = input;
+      return ctx.db.requirement.update({ where: { id }, data });
+    }),
+
+  /** Check a requirement off as met (or un-check it). Records who and when. */
+  setRequirementChecked: protectedProcedure
+    .input(z.object({ id: z.string(), checked: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.db.requirement.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          feature: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!requirement) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        requirement.feature.product.workspaceId,
+      );
+      return ctx.db.requirement.update({
+        where: { id: input.id },
+        data: input.checked
+          ? { checkedAt: new Date(), checkedById: ctx.session.user.id }
+          : { checkedAt: null, checkedById: null },
+      });
+    }),
+
+  deleteRequirement: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const requirement = await ctx.db.requirement.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          feature: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!requirement) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        requirement.feature.product.workspaceId,
+      );
+      await ctx.db.requirement.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  // ────────────────── Spec pages ──────────────────
+  // Document-shaped specs: Knowledge pages (PRDs, research, technical specs)
+  // linked to a Feature, optionally pinned to a Scope. The page must belong to
+  // the same workspace as the feature's product.
+
+  linkPage: protectedProcedure
+    .input(
+      z.object({
+        featureId: z.string(),
+        pageId: z.string(),
+        scopeId: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const page = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.pageId },
+        select: { id: true, workspaceId: true },
+      });
+      if (!page || page.workspaceId !== feature.product.workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Page not found in this workspace",
+        });
+      }
+      if (input.scopeId) {
+        const scope = await ctx.db.featureScope.findUnique({
+          where: { id: input.scopeId },
+          select: { featureId: true },
+        });
+        if (!scope || scope.featureId !== input.featureId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Scope does not belong to this feature",
+          });
+        }
+      }
+      await ctx.db.featurePage.upsert({
+        where: {
+          featureId_pageId: { featureId: input.featureId, pageId: input.pageId },
+        },
+        create: {
+          featureId: input.featureId,
+          pageId: input.pageId,
+          scopeId: input.scopeId,
+        },
+        update: { scopeId: input.scopeId ?? null },
+      });
+      return { success: true };
+    }),
+
+  unlinkPage: protectedProcedure
+    .input(z.object({ featureId: z.string(), pageId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await ctx.db.featurePage.deleteMany({
+        where: { featureId: input.featureId, pageId: input.pageId },
+      });
       return { success: true };
     }),
 

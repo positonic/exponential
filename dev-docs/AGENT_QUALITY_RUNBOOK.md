@@ -7,6 +7,13 @@ and [ADR-0013](../docs/adr/0013-eval-replay-frozen-prefix.md); glossary terms
 in [CONTEXT.md](../CONTEXT.md#agent-quality). This file is just *what to do
 and when*.
 
+The **PRD** — problem, goals, rollout, and where we are in the process — is the
+place for team discussion:
+[PRD page](https://www.exponential.im/w/syntrofi/pages/cmruptufm0009jp04e5jv1tsf)
+· [feature + requirement rows](https://www.exponential.im/w/syntrofi/products/exponential/features/cmq9u39kr0001ky04encxm1t8)
+in Exponential, mirrored in-repo at
+[PRD_AGENT_QUALITY_SELF_IMPROVEMENT_LOOP.md](./PRD_AGENT_QUALITY_SELF_IMPROVEMENT_LOOP.md).
+
 > Status as of 2026-06-12. The measuring/verifying machinery is live; the
 > automation is deliberately not running yet — partly unbuilt (tickets
 > below), partly locked behind the calibration gate.

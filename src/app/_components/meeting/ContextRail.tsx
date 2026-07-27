@@ -1,18 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { Select } from "@mantine/core";
 import { DateTimePicker } from "@mantine/dates";
 import {
   IconPlayerPlay,
-  IconArrowRight,
   IconShare,
   IconFileExport,
   IconExternalLink,
   IconArchive,
   IconPlus,
+  IconX,
 } from "@tabler/icons-react";
+import { Loader } from "@mantine/core";
 import { MpAvatar } from "./MpAvatar";
+import {
+  MeetingProjectPicker,
+  type MeetingProjectOption,
+} from "./MeetingProjectPicker";
 import type { MeetingParticipant } from "~/lib/meeting-view-model";
 
 interface ContextRailProps {
@@ -28,14 +32,20 @@ interface ContextRailProps {
   updatedLabel: string;
   meetingDate: Date | null;
   onMeetingDateChange: (value: Date | null) => void;
-  workspaceId: string | null;
-  workspaces: { id: string; name: string }[];
-  onWorkspaceChange: (value: string | null) => void;
+  /** Current placement + candidates. Workspace is derived from the project. */
+  projectId: string | null;
+  assignableProjects: MeetingProjectOption[];
+  onProjectChange: (projectId: string | null) => void;
+  /** Read-only workspace label, derived from the placed project. */
+  workspaceName: string | null;
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
   onArchive: () => void;
   onAddParticipant?: () => void;
+  onRemoveParticipant?: (id: string) => void;
+  /** Id of the participant currently being removed, for a per-row spinner. */
+  removingParticipantId?: string | null;
 }
 
 export function ContextRail({
@@ -51,18 +61,21 @@ export function ContextRail({
   updatedLabel,
   meetingDate,
   onMeetingDateChange,
-  workspaceId,
-  workspaces,
-  onWorkspaceChange,
+  projectId,
+  assignableProjects,
+  onProjectChange,
+  workspaceName,
   onShare,
   onExportTranscript,
   canExport,
   onArchive,
   onAddParticipant,
+  onRemoveParticipant,
+  removingParticipantId,
 }: ContextRailProps) {
   return (
     <aside className="mp-rail">
-      {participants.length > 0 && (
+      {(participants.length > 0 || onAddParticipant) && (
         <div className="mp-rail__section">
           <div className="mp-rail__label">
             <span>Participants</span>
@@ -77,48 +90,81 @@ export function ContextRail({
               </button>
             )}
           </div>
-          <div className="mp-people">
-            {participants.map((p) => (
-              <div key={p.id} className="mp-person">
-                <MpAvatar initial={p.initial} flavor={p.flavor} />
-                <div style={{ minWidth: 0 }}>
-                  <div className="mp-person__name">{p.name}</div>
-                  {p.role && <div className="mp-person__role">{p.role}</div>}
-                </div>
-                {p.talk && <span className="mp-person__talk" title="Talk-time">{p.talk}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {project && (
-        <div className="mp-rail__section">
-          <div className="mp-rail__label">Linked</div>
-          {projectHref ? (
-            <Link href={projectHref} className="mp-linkrow">
-              <span className="mp-linkrow__glyph mp-linkrow__glyph--ritual">
-                {project.name.charAt(0).toUpperCase()}
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <div className="mp-linkrow__title">{project.name}</div>
-                <div className="mp-linkrow__sub">Project</div>
-              </div>
-              <IconArrowRight size={13} className="mp-linkrow__arrow" />
-            </Link>
-          ) : (
-            <div className="mp-linkrow">
-              <span className="mp-linkrow__glyph mp-linkrow__glyph--ritual">
-                {project.name.charAt(0).toUpperCase()}
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <div className="mp-linkrow__title">{project.name}</div>
-                <div className="mp-linkrow__sub">Project</div>
-              </div>
+          {participants.length > 0 ? (
+            <div className="mp-people">
+              {participants.map((p) => {
+                const removing = removingParticipantId === p.id;
+                return (
+                  <div key={p.id} className="mp-person">
+                    <MpAvatar initial={p.initial} flavor={p.flavor} />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="mp-person__name">{p.name}</div>
+                      {p.role && <div className="mp-person__role">{p.role}</div>}
+                    </div>
+                    {p.talk && <span className="mp-person__talk" title="Talk-time">{p.talk}</span>}
+                    {onRemoveParticipant && (
+                      <button
+                        type="button"
+                        className="mp-person__remove"
+                        onClick={() => onRemoveParticipant(p.id)}
+                        disabled={removing}
+                        aria-label={`Remove ${p.name}`}
+                        title={`Remove ${p.name}`}
+                      >
+                        {removing ? <Loader size={12} /> : <IconX size={13} />}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+          ) : (
+            <div className="mp-rail__empty">No participants yet.</div>
           )}
         </div>
       )}
+
+      <div className="mp-rail__section">
+        <div className="mp-rail__label">Linked</div>
+        {/* Project placement — searchable, grouped by workspace. Picking a
+            project sets the meeting's workspace (and re-homes its Actions). */}
+        <MeetingProjectPicker
+          projects={assignableProjects}
+          value={projectId}
+          onChange={onProjectChange}
+        >
+          {({ toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              className="mp-linkrow"
+              style={{ width: "100%", textAlign: "left", cursor: "pointer" }}
+            >
+              <span className="mp-linkrow__glyph mp-linkrow__glyph--ritual">
+                {project ? project.name.charAt(0).toUpperCase() : "+"}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">
+                  {project ? project.name : "Assign to project"}
+                </div>
+                <div className="mp-linkrow__sub">
+                  {project
+                    ? workspaceName ?? "Project"
+                    : "Sets the workspace too"}
+                </div>
+              </div>
+            </button>
+          )}
+        </MeetingProjectPicker>
+        {project && projectHref && (
+          <Link
+            href={projectHref}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-brand-400"
+          >
+            <IconExternalLink size={12} /> Open project
+          </Link>
+        )}
+      </div>
 
       {(hasVideo || sourceLabel) && (
         <div className="mp-rail__section">
@@ -158,6 +204,10 @@ export function ContextRail({
               {sessionId.length > 8 ? `…${sessionId.slice(-6)}` : sessionId}
             </span>
           </div>
+          <div className="mp-railkv__row">
+            <span className="mp-railkv__k">Workspace</span>
+            <span className="mp-railkv__v">{workspaceName ?? "Personal"}</span>
+          </div>
         </div>
         <div className="mp-rail__field">
           <DateTimePicker
@@ -170,20 +220,6 @@ export function ContextRail({
             popoverProps={{ withinPortal: true }}
           />
         </div>
-        {workspaces.length > 0 && (
-          <div className="mp-rail__field">
-            <Select
-              label="Workspace"
-              size="xs"
-              data={[
-                { value: "", label: "No workspace" },
-                ...workspaces.map((ws) => ({ value: ws.id, label: ws.name })),
-              ]}
-              value={workspaceId ?? ""}
-              onChange={(value) => onWorkspaceChange(value === "" ? null : value)}
-            />
-          </div>
-        )}
       </div>
 
       <div className="mp-rail__section">

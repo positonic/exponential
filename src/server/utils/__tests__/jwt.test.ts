@@ -92,4 +92,20 @@ describe("generateJWT", () => {
     expect(decoded.jti).toBeDefined();
     expect(decoded.tokenType).toBe("whatsapp-gateway");
   });
+
+  it("mints matrix-gateway tokens with the same shape and expiry as telegram-gateway ones", () => {
+    const token = generateJWT(testUser, { tokenType: "matrix-gateway" });
+    const decoded = jwt.verify(token, TEST_SECRET) as Record<string, unknown>;
+
+    expect(decoded.aud).toBe("matrix-gateway");
+    expect(decoded.tokenType).toBe("matrix-gateway");
+    expect(decoded.sub).toBe("user-123");
+
+    const iat = decoded.iat as number;
+    const exp = decoded.exp as number;
+    expect(exp - iat).toBe(DEFAULT_EXPIRY["matrix-gateway"] * 60);
+    expect(DEFAULT_EXPIRY["matrix-gateway"]).toBe(
+      DEFAULT_EXPIRY["telegram-gateway"],
+    );
+  });
 });

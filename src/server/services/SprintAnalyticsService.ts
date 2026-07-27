@@ -41,6 +41,73 @@ export interface DailySnapshotResult {
   actionsCompleted: number;
 }
 
+/**
+ * Cycle metrics computed over the cycle's **Tickets** (`Ticket.cycleId`) — the
+ * entity the product workflow actually tracks cycle work with. Distinct from
+ * the Action-based {@link SprintMetricsResult} the Mastra PM agent reads; see
+ * ADR-0047 for why the Metrics page is Ticket-based.
+ */
+export interface CycleTicketMetricsResult {
+  cycleId: string;
+  cycleName: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  totalTickets: number;
+  /** Tickets in a completed state ({@link COMPLETED_TICKET_STATUSES}). */
+  completedTickets: number;
+  /** Summed `Ticket.points` for completed tickets (points are optional/sparse). */
+  completedPoints: number;
+  totalPoints: number;
+  /** completedTickets / totalTickets, as a percentage. */
+  completionRate: number;
+  /** Count of tickets by `TicketStatus`. */
+  statusCounts: Record<string, number>;
+}
+
+export interface CycleSummary {
+  id: string;
+  name: string;
+  status: string; // ListStatus (ACTIVE / COMPLETED / PLANNED / …)
+  startDate: Date | null;
+  endDate: Date | null;
+}
+
+export interface CycleVelocityPoint {
+  cycleId: string;
+  cycleName: string;
+  endDate: Date | null;
+  completedTickets: number;
+  completedPoints: number;
+  completionRate: number;
+}
+
+/**
+ * Ticket statuses that count as delivered work for velocity/completion.
+ * Both are terminal/shipped states in the product workflow.
+ */
+const COMPLETED_TICKET_STATUSES = new Set<string>(["DONE", "DEPLOYED"]);
+
+export interface PrTurnaroundResult {
+  /** PRs merged within the cycle window (deduped by repo + PR number). */
+  mergedPrCount: number;
+  /** Avg opened→merged time in hours, over PRs with a known opened event. Null when none are measurable. */
+  avgHours: number | null;
+  /** Median opened→merged time in hours. Null when none are measurable. */
+  medianHours: number | null;
+}
+
+export interface VelocityHistoryPoint {
+  sprintId: string;
+  sprintName: string;
+  endDate: Date | null;
+  // Velocity, reported as both a count (headline) and points, consistent
+  // with the active-cycle metrics.
+  completedActions: number;
+  completedEffort: number;
+  velocity: number; // = completedEffort (points); kept for agent compatibility
+  completionRate: number;
+}
+
 const KANBAN_STATUSES: ActionStatus[] = [
   "BACKLOG",
   "TODO",
@@ -398,12 +465,22 @@ export class SprintAnalyticsService {
   }
 
   /**
-   * Get velocity history across past sprints for trend analysis.
+   * Get velocity history across recent completed sprints for trend analysis.
+   *
+   * Each cycle is **recomputed live** from its actions' current (final)
+   * kanbanStatus — the same computation as {@link getSprintMetrics} — rather
+   * than reading the dormant, never-written `SprintMetrics` rows (which made
+   * this method return all-zeros in practice). A completed cycle's actions are
+   * effectively immutable, so a live recompute is accurate and needs no stored
+   * snapshot. No `SprintMetrics` row is written and no cron is introduced.
+   * See ADR-0047.
+   *
+   * Returned most-recent-first (by `endDate` desc).
    */
   async getVelocityHistory(
     workspaceId: string,
     count = 5,
-  ): Promise<Array<{ sprintName: string; velocity: number; completionRate: number }>> {
+  ): Promise<VelocityHistoryPoint[]> {
     const completedSprints = await this.prisma.list.findMany({
       where: {
         workspaceId,
@@ -412,15 +489,249 @@ export class SprintAnalyticsService {
       },
       orderBy: { endDate: "desc" },
       take: count,
-      include: {
-        metrics: true,
+      select: { id: true },
+    });
+
+    const metrics = await Promise.all(
+      completedSprints.map((sprint) => this.getSprintMetrics(sprint.id)),
+    );
+
+    return metrics.map((m) => ({
+      sprintId: m.sprintId,
+      sprintName: m.sprintName,
+      endDate: m.endDate,
+      completedActions: m.completedActions,
+      completedEffort: m.completedEffort,
+      velocity: m.velocity,
+      completionRate: m.completionRate,
+    }));
+  }
+
+  /**
+   * Merged-PR turnaround for a cycle: average (and median) opened→merged time
+   * for PRs merged within the cycle's [startDate, endDate] window.
+   *
+   * Computed **live** from the webhook-fed `GitHubActivity` event log — a PR's
+   * `opened`-event `eventTimestamp` joined to its `prMergedAt`. Nothing is
+   * persisted; `SprintMetrics.avgPrTurnaround` stays dormant per ADR-0047.
+   * Merged-PR turnaround only (no open-PR-age panel).
+   *
+   * Returns zeros/nulls gracefully when the cycle has no window or no merged
+   * PRs (no NaN from an empty average).
+   */
+  async getPrTurnaround(listId: string): Promise<PrTurnaroundResult> {
+    const empty: PrTurnaroundResult = {
+      mergedPrCount: 0,
+      avgHours: null,
+      medianHours: null,
+    };
+
+    const list = await this.prisma.list.findUniqueOrThrow({
+      where: { id: listId },
+      select: { startDate: true, endDate: true, workspaceId: true },
+    });
+
+    if (!list.startDate || !list.endDate || !list.workspaceId) return empty;
+
+    // PRs merged within the cycle window.
+    const mergedRows = await this.prisma.gitHubActivity.findMany({
+      where: {
+        workspaceId: list.workspaceId,
+        eventType: "pull_request",
+        prNumber: { not: null },
+        prMergedAt: { gte: list.startDate, lte: list.endDate },
+      },
+      select: { prNumber: true, repoFullName: true, prMergedAt: true },
+    });
+
+    // Dedup to one merged timestamp per (repo, PR number).
+    const mergedByPr = new Map<
+      string,
+      { prNumber: number; repoFullName: string; mergedAt: Date }
+    >();
+    for (const row of mergedRows) {
+      if (row.prNumber == null || !row.prMergedAt) continue;
+      const key = `${row.repoFullName}#${row.prNumber}`;
+      const existing = mergedByPr.get(key);
+      if (!existing || row.prMergedAt > existing.mergedAt) {
+        mergedByPr.set(key, {
+          prNumber: row.prNumber,
+          repoFullName: row.repoFullName,
+          mergedAt: row.prMergedAt,
+        });
+      }
+    }
+
+    if (mergedByPr.size === 0) return empty;
+
+    const merged = [...mergedByPr.values()];
+    const prNumbers = [...new Set(merged.map((m) => m.prNumber))];
+    const repoNames = [...new Set(merged.map((m) => m.repoFullName))];
+
+    // Opened events for those PRs → earliest opened timestamp per PR.
+    const openedRows = await this.prisma.gitHubActivity.findMany({
+      where: {
+        workspaceId: list.workspaceId,
+        eventType: "pull_request",
+        eventAction: "opened",
+        prNumber: { in: prNumbers },
+        repoFullName: { in: repoNames },
+      },
+      select: { prNumber: true, repoFullName: true, eventTimestamp: true },
+    });
+
+    const openedByPr = new Map<string, Date>();
+    for (const row of openedRows) {
+      if (row.prNumber == null) continue;
+      const key = `${row.repoFullName}#${row.prNumber}`;
+      const existing = openedByPr.get(key);
+      if (!existing || row.eventTimestamp < existing) {
+        openedByPr.set(key, row.eventTimestamp);
+      }
+    }
+
+    const durationsHours: number[] = [];
+    for (const [key, { mergedAt }] of mergedByPr) {
+      const openedAt = openedByPr.get(key);
+      if (!openedAt) continue; // no opened event captured → not measurable
+      const ms = mergedAt.getTime() - openedAt.getTime();
+      if (ms < 0) continue;
+      durationsHours.push(ms / (1000 * 60 * 60));
+    }
+
+    if (durationsHours.length === 0) {
+      // PRs merged in-window, but none had a captured opened event to measure.
+      return { mergedPrCount: mergedByPr.size, avgHours: null, medianHours: null };
+    }
+
+    const avgHours =
+      durationsHours.reduce((sum, h) => sum + h, 0) / durationsHours.length;
+
+    const sorted = [...durationsHours].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const medianHours =
+      sorted.length % 2 === 0
+        ? (sorted[mid - 1]! + sorted[mid]!) / 2
+        : sorted[mid]!;
+
+    return {
+      mergedPrCount: mergedByPr.size,
+      avgHours,
+      medianHours,
+    };
+  }
+
+  /**
+   * List a workspace's cycles (SPRINT lists) for the Metrics page selector.
+   * Ordered most-recent-first by start date (undated cycles last, by recency).
+   */
+  async getWorkspaceCycles(workspaceId: string): Promise<CycleSummary[]> {
+    const cycles = await this.prisma.list.findMany({
+      where: { workspaceId, listType: "SPRINT" },
+      orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
       },
     });
 
-    return completedSprints.map((sprint) => ({
-      sprintName: sprint.name,
-      velocity: sprint.metrics?.velocity ?? 0,
-      completionRate: sprint.metrics?.completionRate ?? 0,
+    return cycles.map((c) => ({
+      id: c.id,
+      name: c.name,
+      status: c.status,
+      startDate: c.startDate,
+      endDate: c.endDate,
+    }));
+  }
+
+  /**
+   * Ticket-based cycle metrics for the Metrics page.
+   *
+   * Computes velocity and completion over the cycle's **Tickets**
+   * (`Ticket.cycleId`), not its Actions — the product workflow assigns cycle
+   * work as Tickets, so the Action-based {@link getSprintMetrics} returns zeros
+   * for these cycles. Velocity is a completed-ticket count (headline) plus
+   * summed points; "completed" = {@link COMPLETED_TICKET_STATUSES}. Computed
+   * live; nothing persisted. See ADR-0047.
+   */
+  async getCycleTicketMetrics(
+    listId: string,
+  ): Promise<CycleTicketMetricsResult> {
+    const list = await this.prisma.list.findUniqueOrThrow({
+      where: { id: listId },
+      select: { id: true, name: true, startDate: true, endDate: true },
+    });
+
+    const tickets = await this.prisma.ticket.findMany({
+      where: { cycleId: listId },
+      select: { status: true, points: true },
+    });
+
+    const statusCounts: Record<string, number> = {};
+    for (const ticket of tickets) {
+      statusCounts[ticket.status] = (statusCounts[ticket.status] ?? 0) + 1;
+    }
+
+    const completed = tickets.filter((t) =>
+      COMPLETED_TICKET_STATUSES.has(t.status),
+    );
+    const completedTickets = completed.length;
+    const totalTickets = tickets.length;
+    const completedPoints = completed.reduce(
+      (sum, t) => sum + (t.points ?? 0),
+      0,
+    );
+    const totalPoints = tickets.reduce((sum, t) => sum + (t.points ?? 0), 0);
+    const completionRate =
+      totalTickets > 0 ? (completedTickets / totalTickets) * 100 : 0;
+
+    return {
+      cycleId: list.id,
+      cycleName: list.name,
+      startDate: list.startDate,
+      endDate: list.endDate,
+      totalTickets,
+      completedTickets,
+      completedPoints,
+      totalPoints,
+      completionRate,
+      statusCounts,
+    };
+  }
+
+  /**
+   * Ticket-based velocity trend across recent completed cycles. Each cycle is
+   * recomputed live via {@link getCycleTicketMetrics}. Returned most-recent-first.
+   */
+  async getTicketVelocityHistory(
+    workspaceId: string,
+    count = 5,
+  ): Promise<CycleVelocityPoint[]> {
+    const cycles = await this.prisma.list.findMany({
+      where: {
+        workspaceId,
+        listType: "SPRINT",
+        status: "COMPLETED",
+      },
+      orderBy: { endDate: "desc" },
+      take: count,
+      select: { id: true },
+    });
+
+    const metrics = await Promise.all(
+      cycles.map((cycle) => this.getCycleTicketMetrics(cycle.id)),
+    );
+
+    return metrics.map((m) => ({
+      cycleId: m.cycleId,
+      cycleName: m.cycleName,
+      endDate: m.endDate,
+      completedTickets: m.completedTickets,
+      completedPoints: m.completedPoints,
+      completionRate: m.completionRate,
     }));
   }
 }

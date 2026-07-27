@@ -5,6 +5,7 @@ import {
   Accordion,
   ActionIcon,
   Badge,
+  Button,
   Group,
   Text,
 } from "@mantine/core";
@@ -13,6 +14,8 @@ import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useDayRollover } from "~/hooks/useDayRollover";
 import type { Action } from "~/lib/actions/types";
+import { formatRelativeDueAge } from "~/lib/actions/dates";
+import { overdueAnchor } from "~/lib/actions/partition";
 import { EditActionModal } from "../EditActionModal";
 import { AssignActionModal } from "../AssignActionModal";
 import { InboxZeroCelebration } from "../InboxZeroCelebration";
@@ -49,6 +52,8 @@ interface ActionsListProps {
   onActionClose?: () => void;
   onTagClick?: (tagId: string) => void;
   workspaceProjects?: Array<{ id: string; name: string }>;
+  /** When set, shows a "Reschedule all → Today" button in the Overdue header. */
+  onRescheduleAllOverdue?: (actionIds: string[]) => void;
 }
 
 export function ActionsList({
@@ -61,6 +66,7 @@ export function ActionsList({
   onActionOpen,
   onActionClose,
   workspaceProjects,
+  onRescheduleAllOverdue,
 }: ActionsListProps) {
   const today = useDayRollover();
   const partition = useActionPartition(actions, { today });
@@ -196,7 +202,9 @@ export function ActionsList({
   // Sections
   const showOverdueSection =
     partition.overdue.length > 0 && lower !== "inbox";
-  const completedList = partition.completed;
+  // The today view celebrates today's progress only; other views keep history.
+  const completedList =
+    lower === "today" ? partition.completedToday : partition.completed;
   const showCompleted = completedSection !== "hidden" && completedList.length > 0;
 
   // Empty states
@@ -223,6 +231,14 @@ export function ActionsList({
       key={a.id}
       action={a}
       isOverdue={isOverdue}
+      overdueLabel={
+        isOverdue
+          ? (() => {
+              const anchor = overdueAnchor(a);
+              return anchor ? formatRelativeDueAge(anchor, today) : undefined;
+            })()
+          : undefined
+      }
       bulkMode={bulkMode}
       bulkSelected={selection.isSelected(a.id)}
       onBulkToggle={selection.toggle}
@@ -265,14 +281,31 @@ export function ActionsList({
       {showOverdueSection && (
         <Accordion defaultValue="overdue" radius="md" className="mb-4">
           <Accordion.Item value="overdue">
-            <Accordion.Control>
-              <Group gap="xs">
-                <Text fw={600}>Overdue</Text>
-                <Badge color="red" variant="light">
-                  {partition.overdue.length}
-                </Badge>
-              </Group>
-            </Accordion.Control>
+            {/* Button sits beside the Control (nested buttons are invalid HTML) */}
+            <Group wrap="nowrap" gap={0}>
+              <Accordion.Control>
+                <Group gap="xs">
+                  <Text fw={600}>Overdue</Text>
+                  <Badge color="red" variant="light">
+                    {partition.overdue.length}
+                  </Badge>
+                </Group>
+              </Accordion.Control>
+              {onRescheduleAllOverdue && !bulkMode && (
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="red"
+                  mr="sm"
+                  style={{ flexShrink: 0 }}
+                  onClick={() =>
+                    onRescheduleAllOverdue(partition.overdue.map((a) => a.id))
+                  }
+                >
+                  Reschedule all → Today
+                </Button>
+              )}
+            </Group>
             <Accordion.Panel>
               {partition.overdue.map((a) => renderRow(a, true))}
             </Accordion.Panel>

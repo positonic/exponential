@@ -4,7 +4,6 @@ import { useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 import { WorkspaceProvider, useWorkspace } from '~/providers/WorkspaceProvider';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
-import { WorkspaceTopNav } from '~/app/_components/layout/WorkspaceTopNav';
 import { WorkspaceTopbar } from '~/app/_components/layout/WorkspaceTopbar';
 import { GuestRouteGuard } from '~/app/_components/layout/GuestRouteGuard';
 import styles from './WorkspaceLayout.module.css';
@@ -19,6 +18,12 @@ function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) 
 
   const pageContext = useMemo(() => {
     if (!workspace || !workspaceId) return null;
+    // Product routes register their own richer context (ProductLayout). Yield
+    // here: this registrar's effect re-runs on every pathname change and runs
+    // AFTER child effects (parent effects fire last), so registering the
+    // generic workspace context on product routes would clobber the product
+    // context on every product tab switch.
+    if (/\/products\/[^/]+/.test(pathname)) return null;
     return {
       pageType: 'workspace',
       pageTitle: workspace.name,
@@ -36,7 +41,6 @@ function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) 
   return (
     <div className={styles.wrapper}>
       <WorkspaceTopbar />
-      <WorkspaceTopNav />
       <GuestRouteGuard>{children}</GuestRouteGuard>
     </div>
   );

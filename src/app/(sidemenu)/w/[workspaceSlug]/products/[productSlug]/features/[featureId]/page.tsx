@@ -10,15 +10,16 @@ import {
   Button,
   Group,
   Menu,
+  NumberInput,
   Select,
   Skeleton,
   Stack,
   Text,
-  TextInput,
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import {
   IconArrowLeft,
+  IconArrowRight,
   IconCalendar,
   IconCategory,
   IconCircleDot,
@@ -26,7 +27,8 @@ import {
   IconDots,
   IconFlag,
   IconFlame,
-  IconPlus,
+  IconMap2,
+  IconMicrophone,
   IconTag,
   IconTarget,
   IconTicket,
@@ -35,34 +37,30 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { MoveFeatureModal } from "~/app/_components/product/MoveFeatureModal";
 import {
   PropertiesSidebar,
   PropertyRow,
   PropertyDivider,
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
-import { TagBadge } from "~/app/_components/TagBadge";
+import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { FeatureBodyDocument } from "~/app/_components/prd/FeatureBodyDocument";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection";
+import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
+import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
+import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
+import {
+  FEATURE_STATUS_OPTIONS,
+  FEATURE_STATUS_COLORS,
+} from "~/lib/feature-statuses";
+import type { JSONContent } from "@tiptap/core";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const STATUS_OPTIONS = [
-  { value: "IDEA", label: "Idea" },
-  { value: "DEFINED", label: "Defined" },
-  { value: "IN_PROGRESS", label: "In progress" },
-  { value: "SHIPPED", label: "Shipped" },
-  { value: "ARCHIVED", label: "Archived" },
-];
-
-const STATUS_COLORS: Record<string, string> = {
-  IDEA: "gray",
-  DEFINED: "blue",
-  IN_PROGRESS: "yellow",
-  SHIPPED: "green",
-  ARCHIVED: "dark",
-};
 
 const PRIORITY_OPTIONS = [
   { value: "0", label: "Urgent" },
@@ -71,13 +69,6 @@ const PRIORITY_OPTIONS = [
   { value: "3", label: "Low" },
   { value: "4", label: "No priority" },
 ];
-
-const SCOPE_STATUS_COLORS: Record<string, string> = {
-  PLANNED: "gray",
-  IN_PROGRESS: "yellow",
-  SHIPPED: "green",
-  DEPRECATED: "red",
-};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -88,7 +79,7 @@ export default function FeatureDetailPage() {
   const params = useParams();
   const featureId = params.featureId as string;
   const productSlug = params.productSlug as string;
-  const { workspace } = useWorkspace();
+  const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
   const { data: feature, isLoading } = api.product.feature.getById.useQuery(
@@ -96,47 +87,41 @@ export default function FeatureDetailPage() {
     { enabled: !!featureId },
   );
 
-  // Scope form
-  const [scopeVersion, setScopeVersion] = useState("");
-  const [scopeDescription, setScopeDescription] = useState("");
+  const { data: tags } = api.tag.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
 
-  // Story form
-  const [storyAsA, setStoryAsA] = useState("");
-  const [storyIWant, setStoryIWant] = useState("");
-  const [storySoThat, setStorySoThat] = useState("");
-  const [storyScopeId, setStoryScopeId] = useState<string | null>(null);
+  const { data: goals } = api.goal.getAllMyGoals.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId },
+  );
+
+  const setFeatureTags = api.tag.setFeatureTags.useMutation({
+    onSuccess: async () => {
+      await utils.product.feature.getById.invalidate({ id: featureId });
+    },
+  });
+
+  const createTag = api.tag.create.useMutation({
+    onSuccess: async (newTag) => {
+      await utils.tag.list.invalidate();
+      // Auto-add the newly created tag to this feature
+      const currentIds = feature?.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? [];
+      setFeatureTags.mutate({ featureId, tagIds: [...currentIds, newTag.id] });
+    },
+  });
+
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+
+  const invalidateFeature = async () => {
+    await utils.product.feature.getById.invalidate({ id: featureId });
+    await utils.product.feature.listEvents.invalidate({ featureId });
+    if (feature?.product.id) await utils.product.feature.list.invalidate({ productId: feature.product.id });
+  };
 
   const updateFeature = api.product.feature.update.useMutation({
-    onSuccess: async () => {
-      await utils.product.feature.getById.invalidate({ id: featureId });
-      if (feature?.product.id) await utils.product.feature.list.invalidate({ productId: feature.product.id });
-    },
-  });
-
-  const addScope = api.product.feature.addScope.useMutation({
-    onSuccess: async () => {
-      setScopeVersion("");
-      setScopeDescription("");
-      await utils.product.feature.getById.invalidate({ id: featureId });
-    },
-  });
-
-  const deleteScope = api.product.feature.deleteScope.useMutation({
-    onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
-  });
-
-  const addUserStory = api.product.feature.addUserStory.useMutation({
-    onSuccess: async () => {
-      setStoryAsA("");
-      setStoryIWant("");
-      setStorySoThat("");
-      setStoryScopeId(null);
-      await utils.product.feature.getById.invalidate({ id: featureId });
-    },
-  });
-
-  const deleteUserStory = api.product.feature.deleteUserStory.useMutation({
-    onSuccess: () => { void utils.product.feature.getById.invalidate({ id: featureId }); },
+    onSuccess: invalidateFeature,
   });
 
   const deleteFeature = api.product.feature.delete.useMutation({
@@ -146,8 +131,62 @@ export default function FeatureDetailPage() {
     },
   });
 
+  const { data: areas } = api.product.feature.listAreas.useQuery(
+    { productId: feature?.product.id ?? "" },
+    { enabled: !!feature?.product.id },
+  );
+
   const handleFieldUpdate = (field: string, value: unknown) => {
     updateFeature.mutate({ id: featureId, [field]: value });
+  };
+
+  /**
+   * Deprecating a feature prompts to also deprecate its LIVE scopes (never
+   * implicit - see CONTEXT.md "Deprecated"). Planned or in-progress scopes
+   * were never live, so they are never part of the cascade. Other statuses
+   * apply directly.
+   */
+  const handleStatusChange = (val: string) => {
+    const hasLiveScopes =
+      (feature?.scopes ?? []).some((s) => s.status === "SHIPPED");
+    if (val === "DEPRECATED" && hasLiveScopes) {
+      // Three explicit actions - a true Cancel must exist; "cancel = also
+      // deprecate" broke the back-out contract.
+      const modalId = "deprecate-feature";
+      const deprecate = (deprecateScopes: boolean) => {
+        modals.close(modalId);
+        updateFeature.mutate({
+          id: featureId,
+          status: "DEPRECATED",
+          ...(deprecateScopes ? { deprecateScopes: true } : {}),
+        });
+      };
+      modals.open({
+        modalId,
+        title: "Deprecate feature",
+        children: (
+          <Stack gap="md">
+            <Text size="sm">
+              Also deprecate this feature&apos;s live scopes? The feature stays in
+              the registry as product history either way.
+            </Text>
+            <Group justify="flex-end" gap="sm">
+              <Button variant="subtle" onClick={() => modals.close(modalId)}>
+                Cancel
+              </Button>
+              <Button color="orange" variant="light" onClick={() => deprecate(false)}>
+                Feature only
+              </Button>
+              <Button color="orange" onClick={() => deprecate(true)}>
+                Feature + scopes
+              </Button>
+            </Group>
+          </Stack>
+        ),
+      });
+      return;
+    }
+    handleFieldUpdate("status", val);
   };
 
   if (isLoading) {
@@ -178,9 +217,14 @@ export default function FeatureDetailPage() {
           {/* Title + badges + overflow menu */}
           <div>
             <Group gap="sm" mb={8}>
-              <Badge size="xs" variant="filled" color={STATUS_COLORS[feature.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
-                {STATUS_OPTIONS.find((s) => s.value === feature.status)?.label ?? feature.status}
+              <Badge size="xs" variant="filled" color={FEATURE_STATUS_COLORS[feature.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
+                {FEATURE_STATUS_OPTIONS.find((s) => s.value === feature.status)?.label ?? feature.status}
               </Badge>
+              {feature.area && (
+                <Badge size="xs" variant="outline" color="gray" leftSection={<IconMap2 size={10} />}>
+                  {feature.area.name}
+                </Badge>
+              )}
             </Group>
 
             <Group justify="space-between" align="flex-start">
@@ -197,11 +241,14 @@ export default function FeatureDetailPage() {
                   <Menu.Item leftSection={<IconCopy size={14} />} onClick={() => { void navigator.clipboard.writeText(window.location.href); }}>
                     Copy link
                   </Menu.Item>
+                  <Menu.Item leftSection={<IconArrowRight size={14} />} onClick={() => setMoveModalOpen(true)}>
+                    Move to another workspace…
+                  </Menu.Item>
                   <Menu.Divider />
                   <Menu.Item color="red" leftSection={<IconTrash size={14} />} onClick={() => {
                     modals.openConfirmModal({
                       title: "Delete feature",
-                      children: <Text size="sm">This will permanently delete the feature and all its scopes and user stories.</Text>,
+                      children: <Text size="sm">This will permanently delete the feature and all its scopes and requirements.</Text>,
                       labels: { confirm: "Delete", cancel: "Cancel" },
                       confirmProps: { color: "red" },
                       onConfirm: () => deleteFeature.mutate({ id: featureId }),
@@ -214,98 +261,82 @@ export default function FeatureDetailPage() {
             </Group>
           </div>
 
-          {/* Description */}
-          {feature.description ? (
-            <MarkdownRenderer content={feature.description} />
-          ) : (
-            <Text size="sm" className="text-text-muted">No description provided.</Text>
-          )}
+          {/* Description - the living rich document (ADR-0024). Editable for
+              any workspace member (getById already gates membership). */}
+          <CollapsibleSection title="Description">
+            <Stack gap="md">
+              <FeatureBodyDocument
+                featureId={featureId}
+                descriptionDoc={(feature.descriptionDoc as JSONContent | null) ?? null}
+                description={feature.description ?? null}
+                docVersion={feature.docVersion}
+                editable
+                enableComments
+              />
+              {feature.vision && (
+                <div className="border border-border-primary rounded-lg p-3">
+                  <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
+                  <MarkdownRenderer content={feature.vision} />
+                </div>
+              )}
+            </Stack>
+          </CollapsibleSection>
 
-          {/* Vision */}
-          {feature.vision && (
-            <div className="border border-border-primary rounded-lg p-3">
-              <Text size="xs" className="text-text-muted uppercase tracking-wider mb-1">Vision</Text>
-              <MarkdownRenderer content={feature.vision} />
-            </div>
-          )}
+          {/* Scopes - shared interactive block (same component as the peek) */}
+          <CollapsibleSection
+            title="Scopes"
+            meta={feature.scopes.length > 0 ? String(feature.scopes.length) : undefined}
+          >
+            <FeatureScopesSection
+              featureId={featureId}
+              productId={feature.product.id}
+              scopes={feature.scopes}
+              scopesPath={`${backPath}/${featureId}/scopes`}
+            />
+          </CollapsibleSection>
 
-          {/* Scopes */}
-          <div>
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-              Scopes
-            </Text>
-            {feature.scopes.length > 0 ? (
-              <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
-                {feature.scopes.map((scope, i) => (
-                  <div key={scope.id} className={`flex items-start justify-between gap-3 px-3 py-2.5 ${i < feature.scopes.length - 1 ? "border-b border-border-primary" : ""}`}>
-                    <div className="flex-1">
-                      <Group gap="sm">
-                        <Text size="sm" fw={500} className="text-text-primary">{scope.version}</Text>
-                        <Badge size="xs" variant="light" color={SCOPE_STATUS_COLORS[scope.status] ?? "gray"}>
-                          {scope.status.replace("_", " ").toLowerCase()}
-                        </Badge>
-                      </Group>
-                      <div className="mt-1">
-                        <MarkdownRenderer content={scope.description} />
-                      </div>
-                    </div>
-                    <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteScope.mutate({ id: scope.id })}>
-                      <IconTrash size={12} />
-                    </ActionIcon>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Text size="xs" className="text-text-muted mb-3">No scopes yet.</Text>
-            )}
-            <div className="flex gap-2 items-end">
-              <TextInput placeholder="Version (e.g. v1.0)" value={scopeVersion} onChange={(e) => setScopeVersion(e.currentTarget.value)} size="xs" className="w-28" />
-              <TextInput placeholder="Description" value={scopeDescription} onChange={(e) => setScopeDescription(e.currentTarget.value)} size="xs" className="flex-1" />
-              <Button size="xs" variant="light" leftSection={<IconPlus size={12} />} onClick={() => { if (scopeVersion.trim() && scopeDescription.trim()) addScope.mutate({ featureId, version: scopeVersion.trim(), description: scopeDescription.trim() }); }} loading={addScope.isPending} disabled={!scopeVersion.trim() || !scopeDescription.trim()}>
-                Add
-              </Button>
-            </div>
-          </div>
+          {/* Requirements - checkable EARS statements (ADR-0039). Legacy user
+              stories render read-only below while any remain; the write path
+              is requirements only. */}
+          <CollapsibleSection
+            title="Requirements"
+            meta={
+              feature.requirements.length > 0
+                ? `${feature.requirements.filter((r) => r.checkedAt != null).length}/${feature.requirements.length} met`
+                : undefined
+            }
+          >
+            <FeatureRequirementsSection
+              featureId={featureId}
+              requirements={feature.requirements}
+              scopes={feature.scopes}
+              userStories={feature.userStories}
+            />
+          </CollapsibleSection>
 
-          {/* User stories */}
-          <div>
-            <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-              User stories
-            </Text>
-            {feature.userStories.length > 0 ? (
-              <div className="border border-border-primary rounded-lg overflow-hidden mb-3">
-                {feature.userStories.map((story, i) => (
-                  <div key={story.id} className={`flex items-start justify-between gap-3 px-3 py-2.5 ${i < feature.userStories.length - 1 ? "border-b border-border-primary" : ""}`}>
-                    <Text size="sm" className="text-text-primary flex-1">
-                      <span className="text-text-muted">As a</span> {story.asA ?? "-"}{" "}
-                      <span className="text-text-muted">I want</span> {story.iWant ?? "-"}{" "}
-                      <span className="text-text-muted">so that</span> {story.soThat ?? "-"}
-                    </Text>
-                    <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteUserStory.mutate({ id: story.id })}>
-                      <IconTrash size={12} />
-                    </ActionIcon>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Text size="xs" className="text-text-muted mb-3">No stories yet.</Text>
-            )}
-            <div className="flex gap-2 items-end">
-              <TextInput placeholder="As a..." value={storyAsA} onChange={(e) => setStoryAsA(e.currentTarget.value)} size="xs" className="flex-1" />
-              <TextInput placeholder="I want..." value={storyIWant} onChange={(e) => setStoryIWant(e.currentTarget.value)} size="xs" className="flex-1" />
-              <TextInput placeholder="So that..." value={storySoThat} onChange={(e) => setStorySoThat(e.currentTarget.value)} size="xs" className="flex-1" />
-              <Button size="xs" variant="light" leftSection={<IconPlus size={12} />} onClick={() => { if (storyIWant.trim()) addUserStory.mutate({ featureId, scopeId: storyScopeId ?? undefined, asA: storyAsA.trim() || undefined, iWant: storyIWant.trim() || undefined, soThat: storySoThat.trim() || undefined }); }} loading={addUserStory.isPending} disabled={!storyIWant.trim()}>
-                Add
-              </Button>
-            </div>
-          </div>
+          {/* Docs - Knowledge pages (PRDs, research, technical specs) linked
+              to this feature. The body above stays the living description;
+              these are the moment-in-time arguments. */}
+          <CollapsibleSection
+            title="Docs"
+            meta={feature.pages.length > 0 ? String(feature.pages.length) : undefined}
+          >
+            <FeatureDocsSection
+              featureId={featureId}
+              featureName={feature.name}
+              workspaceId={workspaceId}
+              workspaceSlug={workspace?.slug}
+              pages={feature.pages}
+              scopes={feature.scopes}
+            />
+          </CollapsibleSection>
 
           {/* Linked insights */}
           {feature.insights.length > 0 && (
-            <div>
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider mb-2">
-                Linked insights
-              </Text>
+            <CollapsibleSection
+              title="Linked insights"
+              meta={String(feature.insights.length)}
+            >
               <div className="border border-border-primary rounded-lg overflow-hidden">
                 {feature.insights.map((link, i) => (
                   <div key={link.insight.id} className={`flex items-center gap-3 px-3 py-2.5 ${i < feature.insights.length - 1 ? "border-b border-border-primary" : ""}`}>
@@ -321,8 +352,13 @@ export default function FeatureDetailPage() {
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
+
+          {/* Activity - feature-level comments, ticket-detail pattern. */}
+          <CollapsibleSection title="Activity">
+            <FeatureActivitySection featureId={featureId} />
+          </CollapsibleSection>
         </Stack>
       </div>
 
@@ -331,10 +367,26 @@ export default function FeatureDetailPage() {
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
           <Select
             value={feature.status}
-            onChange={(val) => val && handleFieldUpdate("status", val)}
-            data={STATUS_OPTIONS}
+            onChange={(val) => val && handleStatusChange(val)}
+            data={FEATURE_STATUS_OPTIONS}
             size="xs"
             variant="unstyled"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        <PropertyRow icon={<IconMap2 size={14} />} label="Area">
+          <Select
+            value={feature.areaId}
+            onChange={(val) => handleFieldUpdate("areaId", val)}
+            data={(areas ?? []).map((a) => ({ value: a.id, label: a.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            nothingFoundMessage="No areas yet"
             comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
             styles={{ input: { height: 24, minHeight: 24 } }}
@@ -364,17 +416,35 @@ export default function FeatureDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconFlame size={14} />} label="Effort">
-          <Text size="xs" className="text-text-primary">
-            {feature.effort != null ? String(feature.effort) : "None"}
-          </Text>
+          <NumberInput
+            value={feature.effort ?? ""}
+            onChange={(val) => handleFieldUpdate("effort", val === "" ? null : Number(val))}
+            size="xs"
+            variant="unstyled"
+            min={0}
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24, width: 80 } }}
+          />
         </PropertyRow>
 
         <PropertyDivider />
 
         <PropertyRow icon={<IconTarget size={14} />} label="Goal">
-          <Text size="xs" className={feature.goal ? "text-text-primary" : "text-text-muted"}>
-            {feature.goal?.title ?? "None"}
-          </Text>
+          <Select
+            value={feature.goalId != null ? String(feature.goalId) : null}
+            onChange={(val) => handleFieldUpdate("goalId", val != null ? Number(val) : null)}
+            data={(goals ?? []).map((g) => ({ value: String(g.id), label: g.title }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            searchable
+            placeholder="None"
+            nothingFoundMessage="No goals"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
         </PropertyRow>
 
         <PropertyRow icon={<IconTicket size={14} />} label="Tickets">
@@ -390,15 +460,15 @@ export default function FeatureDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconTag size={14} />} label="Labels">
-          {feature.tags && feature.tags.length > 0 ? (
-            <Group gap={4}>
-              {feature.tags.map((t: { tag: { id: string; name: string; color: string } }) => (
-                <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-              ))}
-            </Group>
-          ) : (
-            <Text size="xs" className="text-text-muted">None</Text>
-          )}
+          <LabelsCombobox
+            selectedIds={feature.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
+            allTags={tags?.allTags ?? []}
+            entityTags={feature.tags ?? []}
+            onChange={(tagIds) => setFeatureTags.mutate({ featureId, tagIds })}
+            onCreate={(name) => {
+              if (workspaceId) createTag.mutate({ name, color: "avatar-blue", workspaceId });
+            }}
+          />
         </PropertyRow>
 
         <PropertyDivider />
@@ -419,7 +489,33 @@ export default function FeatureDetailPage() {
             {new Date(feature.createdAt).toLocaleDateString()}
           </Text>
         </PropertyRow>
+
+        {/* Provenance (V3): a back-link to the meeting this feature was
+            ideated from. Absent for hand-authored features. */}
+        {feature.sourceTranscription && (
+          <PropertyRow icon={<IconMicrophone size={14} />} label="From meeting">
+            <Text
+              size="xs"
+              component={Link}
+              href={`/recording/${feature.sourceTranscription.id}`}
+              className="text-brand-primary hover:underline"
+              lineClamp={1}
+            >
+              {feature.sourceTranscription.title?.trim()
+                ? feature.sourceTranscription.title
+                : "Untitled meeting"}
+            </Text>
+          </PropertyRow>
+        )}
       </PropertiesSidebar>
+
+      <MoveFeatureModal
+        opened={moveModalOpen}
+        onClose={() => setMoveModalOpen(false)}
+        featureId={featureId}
+        currentProductId={feature.product.id}
+        currentWorkspaceId={feature.product.workspaceId}
+      />
     </div>
   );
 }

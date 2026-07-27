@@ -111,3 +111,32 @@ export function generateLinearId(productName: string, number: number): string {
     .slice(0, 4) || "T";
   return `${prefix}-${number}`;
 }
+
+/**
+ * The canonical, user-friendly identifier to put in a ticket URL.
+ * Prefers the per-product sequential number (e.g. `/tickets/29`) and falls
+ * back to the CUID for legacy tickets that never got a number (number === 0).
+ * The ticket detail route resolves all three forms (number, CUID, Linear-style
+ * `PLAT-29`), so existing links keep working — this just picks the clean one.
+ */
+export function ticketUrlId(ticket: { id: string; number: number }): string {
+  return ticket.number > 0 ? String(ticket.number) : ticket.id;
+}
+
+/**
+ * Parse a ticket URL segment into a sequential-number lookup key. Accepts a
+ * bare number (`29`) or a Linear-style id (`PLAT-29`, case-insensitive).
+ * Returns the number when the segment encodes a *positive* one, otherwise null
+ * — in which case the raw segment should be treated as a CUID / fun shortId.
+ *
+ * `0` is rejected on purpose: `Ticket.number` defaults to 0 for legacy tickets
+ * that never got a sequential number, and those are addressed only by their
+ * CUID (see `ticketUrlId`). Treating `/tickets/0` as a number lookup would let
+ * an unintended legacy ticket resolve, so we fall through to the CUID branch.
+ */
+export function parseTicketUrlId(segment: string): number | null {
+  const match = /^(?:[a-z][a-z0-9]*-)?(\d+)$/i.exec(segment.trim());
+  if (!match) return null;
+  const parsed = parseInt(match[1]!, 10);
+  return parsed > 0 ? parsed : null;
+}

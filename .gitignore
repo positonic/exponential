@@ -95,7 +95,14 @@ db-backups/
 
 # Electron
 /dist-electron/
+/dist-installers/
 /release/
 
 .exponential/
 .claude/worktrees/
+
+# Local design tooling (impeccable skill + generated critique snapshots) and
+# the per-machine verify recipe - personal tooling, not team config.
+.impeccable/
+.claude/skills/impeccable/
+.claude/skills/verify/

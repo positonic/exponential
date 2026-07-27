@@ -1,0 +1,166 @@
+import type { PrismaClient } from "@prisma/client";
+import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { ticketUrlId } from "~/lib/fun-ids";
+import { buildBugBody, type SentryBug } from "./sentryPayload";
+import { notifyZulipOfSentryBug } from "./sentryZulip";
+
+/**
+ * Ingests a normalized {@link SentryBug} as a Bug Ticket in Exponential.
+ *
+ * Runs in-process (direct Prisma access) — the webhook route lives inside this
+ * app, so no API token / JWT is involved. The ticket is authored by the
+ * **Errol** system user (find-or-created lazily) and created through the shared
+ * `createTicketWithNumber` service. See ADR-0027.
+ *
+ * Access control is intentionally absent: the route already verified Sentry's
+ * signature, and Errol is not a workspace member (so the usual membership check
+ * would reject it). We load the product directly for the `workspaceId` the
+ * activity write needs.
+ */
+
+// The Exponential product is the default bug destination (overridable via env).
+const DEFAULT_BUG_PRODUCT_ID = "cmp2ztu9y0003jv04kk2l8sm0";
+const DEFAULT_BOT_EMAIL = "errol@bots.exponential.im";
+const DEFAULT_BOT_NAME = "Errol";
+
+/**
+ * Find-or-create the Errol system user. A real `User` row that never signs in
+ * and is not a `WorkspaceUser` — it exists purely to author Sentry-filed bugs.
+ */
+async function findOrCreateErrol(db: PrismaClient): Promise<{ id: string }> {
+  const email = process.env.SENTRY_BOT_EMAIL ?? DEFAULT_BOT_EMAIL;
+  const name = process.env.SENTRY_BOT_NAME ?? DEFAULT_BOT_NAME;
+
+  return db.user.upsert({
+    where: { email },
+    create: { email, name },
+    update: {},
+    select: { id: true },
+  });
+}
+
+// Workspace labels applied to every Sentry-filed ticket. `avatar-plum` ≈ Sentry's
+// purple; `avatar-red` for the bug label.
+const TICKET_LABELS = [
+  { name: "Sentry", slug: "sentry", color: "avatar-plum" },
+  { name: "bug", slug: "bug", color: "avatar-red" },
+] as const;
+
+/**
+ * Find-or-create each workspace label and attach it to the ticket. Idempotent
+ * (both upserts) and best-effort — a tagging failure is logged but never breaks
+ * ingestion, since the ticket itself is already created. An existing tag keeps
+ * its current colour (the create branch only runs on first use).
+ */
+async function labelTicket(
+  db: PrismaClient,
+  ticketId: string,
+  workspaceId: string,
+  authorId: string,
+): Promise<void> {
+  for (const label of TICKET_LABELS) {
+    try {
+      const tag = await db.tag.upsert({
+        where: { slug_workspaceId: { slug: label.slug, workspaceId } },
+        create: {
+          name: label.name,
+          slug: label.slug,
+          color: label.color,
+          category: "label",
+          workspaceId,
+          createdById: authorId,
+        },
+        update: {},
+        select: { id: true },
+      });
+      await db.ticketTag.upsert({
+        where: { ticketId_tagId: { ticketId, tagId: tag.id } },
+        create: { ticketId, tagId: tag.id },
+        update: {},
+      });
+    } catch (error) {
+      console.error(
+        `[sentry webhook] failed to attach ${label.name} label:`,
+        error,
+      );
+    }
+  }
+}
+
+export interface IngestResult {
+  created: boolean;
+  ticketId: string;
+}
+
+export async function ingestSentryBug(
+  db: PrismaClient,
+  bug: SentryBug,
+  options?: { productId?: string },
+): Promise<IngestResult> {
+  // Destination precedence: an explicit per-workspace product (from a
+  // workspace-scoped Sentry integration) wins; otherwise fall back to the
+  // global env default, then the hardcoded Exponential product. This keeps the
+  // legacy global `/api/webhooks/sentry` route working unchanged.
+  const productId =
+    options?.productId ??
+    process.env.SENTRY_BUG_PRODUCT_ID ??
+    DEFAULT_BUG_PRODUCT_ID;
+  const product = await db.product.findUnique({
+    where: { id: productId },
+    select: {
+      id: true,
+      workspaceId: true,
+      slug: true,
+      workspace: { select: { slug: true } },
+    },
+  });
+  if (!product) {
+    throw new Error(`Sentry bug product not found: ${productId}`);
+  }
+
+  // Dedup: one Ticket per Sentry issue. Look for an existing ticket in this
+  // product whose `links` JSON carries the incoming issue id (the same
+  // JSON-path filter the activity feed uses on `metadata.provider`). A
+  // recurring error collapses onto the existing ticket instead of duplicating.
+  const existing = await db.ticket.findFirst({
+    where: {
+      productId: product.id,
+      links: { path: ["sentryIssueId"], equals: bug.issueId },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    return { created: false, ticketId: existing.id };
+  }
+
+  const errol = await findOrCreateErrol(db);
+
+  const ticket = await createTicketWithNumber(db, {
+    productId: product.id,
+    workspaceId: product.workspaceId,
+    createdById: errol.id,
+    title: bug.title,
+    body: buildBugBody(bug),
+    type: "BUG",
+    status: "BACKLOG",
+    // Priority is left unset — a human assigns it during triage.
+    links: { sentryIssueId: bug.issueId, sentryUrl: bug.url },
+  });
+
+  // Tag it with the workspace's "Sentry" and "bug" labels so these are filterable.
+  await labelTicket(db, ticket.id, product.workspaceId, errol.id);
+
+  // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
+  // Only on creation — recurring errors that dedup above do not re-notify.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+  const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
+  await notifyZulipOfSentryBug(db, {
+    workspaceId: product.workspaceId,
+    authorId: errol.id,
+    title: bug.title,
+    ticketUrl,
+    sentryUrl: bug.url,
+  });
+
+  return { created: true, ticketId: ticket.id };
+}

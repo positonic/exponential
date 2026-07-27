@@ -1,0 +1,34 @@
+name: PR Agent
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  issue_comment:
+    types: [created]
+jobs:
+  pr_agent_job:
+    # Skip when the event was triggered by a bot (e.g. PR-Agent's own comments)
+    # to avoid an infinite review loop.
+    if: ${{ github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+      contents: write
+    name: PR Agent review
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: qodo-ai/pr-agent@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC.KEY: ${{ secrets.ANTHROPIC_KEY }}
+          # Repo-level behaviour is version-controlled in .pr_agent.toml.
+          # Model selection is kept here so the secret/model live together.
+          config.model: "anthropic/claude-sonnet-4-6"
+          # Point the fallback at another Anthropic model so PR-Agent never
+          # falls back to OpenAI (which would require an OPENAI_API_KEY).
+          config.fallback_models: '["anthropic/claude-sonnet-4-6"]'
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "true"
+          github_action_config.auto_improve: "true"
+          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'

@@ -7,7 +7,11 @@
  * Source types that can be embedded into the knowledge base.
  * Extensible for future sources like notes, Slack messages, etc.
  */
-export type EmbeddingSourceType = "transcription" | "resource" | "document";
+export type EmbeddingSourceType =
+  | "transcription"
+  | "resource"
+  | "document"
+  | "page";
 
 /**
  * Status of the embedding process for a source.

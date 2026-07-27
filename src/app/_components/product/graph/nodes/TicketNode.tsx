@@ -5,6 +5,10 @@ import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { STATUS_LABELS } from "~/lib/ticket-statuses";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import {
+  PriorityIcon,
+  PRIORITY_LABELS,
+} from "~/app/_components/product/PriorityIcon";
+import {
   assigneePillColor,
   ROADMAP_CARD_CLASS,
   ROADMAP_CARD_WIDTH,
@@ -16,9 +20,20 @@ export interface TicketNodeData extends Record<string, unknown> {
   status: string;
   shortId: string | null;
   number: number;
+  priority: number | null;
+  points: number | null;
   assignee: { id: string; name: string | null; image: string | null } | null;
   openBlockerCount: number;
   isBlocked: boolean;
+  /** Out-of-cycle direct blocker shown under a cycle filter. */
+  dimmed: boolean;
+  /** Cycle name for the chip on dimmed cards; null reads as "No cycle". */
+  cycleName: string | null;
+}
+
+/** Priorities 0–3 carry signal; 4 / null ("No priority") renders nothing. */
+function hasPriority(priority: number | null): priority is number {
+  return priority !== null && priority >= 0 && priority <= 3;
 }
 
 export function TicketNode({ data }: NodeProps) {
@@ -28,7 +43,9 @@ export function TicketNode({ data }: NodeProps) {
 
   return (
     <div
-      className={`${ROADMAP_CARD_CLASS} hover:border-border-focus`}
+      className={`${ROADMAP_CARD_CLASS} hover:border-border-focus ${
+        d.dimmed ? "opacity-50" : ""
+      }`}
       style={{ width: ROADMAP_CARD_WIDTH }}
     >
       <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
@@ -44,6 +61,17 @@ export function TicketNode({ data }: NodeProps) {
             {ticketStatusEmoji(d.status)}
           </span>
         </Tooltip>
+        {hasPriority(d.priority) && (
+          <Tooltip
+            label={PRIORITY_LABELS[d.priority] ?? "Priority"}
+            position="top"
+            withArrow
+          >
+            <span className="shrink-0 leading-none">
+              <PriorityIcon priority={d.priority} size={16} />
+            </span>
+          </Tooltip>
+        )}
         <Text
           size="sm"
           fw={600}
@@ -52,11 +80,28 @@ export function TicketNode({ data }: NodeProps) {
         >
           {d.title}
         </Text>
+        {d.points !== null && (
+          <Tooltip label={`${d.points} points`} position="top" withArrow>
+            <Text size="xs" className="text-text-muted shrink-0">
+              {d.points}
+            </Text>
+          </Tooltip>
+        )}
         <BlockedIndicator
           openBlockerCount={d.openBlockerCount}
           isBlocked={d.isBlocked}
         />
-        {d.assignee ? (
+        {d.dimmed ? (
+          <Badge
+            variant="light"
+            color="gray"
+            radius="sm"
+            size="sm"
+            className="shrink-0 normal-case"
+          >
+            {d.cycleName ?? "No cycle"}
+          </Badge>
+        ) : d.assignee ? (
           <Badge
             variant="light"
             color={assigneePillColor(d.assignee.id)}

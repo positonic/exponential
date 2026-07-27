@@ -1,22 +1,21 @@
 'use client';
 
-import { useSession } from 'next-auth/react';
 import {
   Container,
   Title,
   Text,
   Stack,
   Paper,
-  Avatar,
   Group,
   Badge,
-  Skeleton,
 } from '@mantine/core';
 import {
   IconBrandDiscord,
   IconBrandGoogle,
   IconBrandNotion,
 } from '@tabler/icons-react';
+import { ProfileCard } from './ProfileCard';
+import { WorkHoursCard } from './WorkHoursCard';
 
 const PROVIDERS = [
   { id: 'discord', label: 'Discord', icon: IconBrandDiscord, color: 'indigo' },
@@ -25,21 +24,6 @@ const PROVIDERS = [
 ] as const;
 
 export default function ProfileSettingsPage() {
-  const { data: session, status } = useSession();
-
-  if (status === 'loading') {
-    return (
-      <Container size="md" py="xl">
-        <Stack gap="lg">
-          <Skeleton height={32} width={120} />
-          <Skeleton height={200} />
-        </Stack>
-      </Container>
-    );
-  }
-
-  const user = session?.user;
-
   return (
     <Container size="md" py="xl">
       <Stack gap="xl">
@@ -48,45 +32,15 @@ export default function ProfileSettingsPage() {
             Profile
           </Title>
           <Text size="sm" c="dimmed" mt="xs">
-            Your account information from your sign-in provider
+            Your account information and work preferences
           </Text>
         </div>
 
         {/* User Info */}
-        <Paper p="lg" withBorder className="bg-surface-secondary">
-          <Group gap="lg" align="flex-start">
-            <Avatar
-              src={user?.image}
-              size={72}
-              radius="xl"
-              className="bg-brand-primary"
-            >
-              {user?.name
-                ?.split(' ')
-                .map((n) => n[0])
-                .join('')
-                .toUpperCase() ?? 'U'}
-            </Avatar>
-            <Stack gap="sm" className="flex-1">
-              <div>
-                <Text size="xs" className="text-text-muted mb-1">
-                  Name
-                </Text>
-                <Text size="lg" fw={500} className="text-text-primary">
-                  {user?.name ?? 'Unknown'}
-                </Text>
-              </div>
-              <div>
-                <Text size="xs" className="text-text-muted mb-1">
-                  Email
-                </Text>
-                <Text className="text-text-secondary">
-                  {user?.email ?? 'No email'}
-                </Text>
-              </div>
-            </Stack>
-          </Group>
-        </Paper>
+        <ProfileCard />
+
+        {/* Work Hours */}
+        <WorkHoursCard />
 
         {/* Connected Accounts */}
         <div>

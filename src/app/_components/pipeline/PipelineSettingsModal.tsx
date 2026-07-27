@@ -77,6 +77,7 @@ export function PipelineSettingsModal({
       setNewStageName("");
       void utils.pipeline.getStages.invalidate({ projectId });
       void utils.pipeline.get.invalidate();
+      void utils.pipeline.list.invalidate();
       notifications.show({
         title: "Stage added",
         message: "New pipeline stage created",
@@ -96,6 +97,7 @@ export function PipelineSettingsModal({
     onSuccess: () => {
       void utils.pipeline.getStages.invalidate({ projectId });
       void utils.pipeline.get.invalidate();
+      void utils.pipeline.list.invalidate();
     },
   });
 
@@ -103,6 +105,7 @@ export function PipelineSettingsModal({
     onSuccess: () => {
       void utils.pipeline.getStages.invalidate({ projectId });
       void utils.pipeline.get.invalidate();
+      void utils.pipeline.list.invalidate();
       void utils.pipeline.getDeals.invalidate({ projectId });
       notifications.show({
         title: "Stage deleted",

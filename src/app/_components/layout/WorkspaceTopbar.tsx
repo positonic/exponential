@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { IconFolder } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { api } from '~/trpc/react';
 import styles from './WorkspaceTopbar.module.css';
 
 const PAGE_LABELS: Record<string, string> = {
@@ -34,9 +36,27 @@ function getCurrentPageLabel(pathname: string, workspaceSlug: string): string {
   return PAGE_LABELS[segment] ?? segment.charAt(0).toUpperCase() + segment.slice(1);
 }
 
+/** Extract the page id when on a page-detail route (`/w/{slug}/pages/{id}`). */
+function getPageDetailId(pathname: string, workspaceSlug: string): string | null {
+  const prefix = `/w/${workspaceSlug}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const parts = pathname.slice(prefix.length).split('/');
+  return parts[0] === 'pages' && parts[1] ? parts[1] : null;
+}
+
 export function WorkspaceTopbar() {
   const { workspace, workspaceSlug } = useWorkspace();
   const pathname = usePathname();
+
+  const pageDetailId = workspaceSlug
+    ? getPageDetailId(pathname, workspaceSlug)
+    : null;
+
+  // Reverse-lookup the linking ("parent") page, only on a page-detail route.
+  const { data: parent } = api.page.parentCrumb.useQuery(
+    { id: pageDetailId ?? '' },
+    { enabled: !!pageDetailId },
+  );
 
   if (!workspace || !workspaceSlug) return null;
 
@@ -50,7 +70,24 @@ export function WorkspaceTopbar() {
         {pageLabel && (
           <>
             <span className={styles.crumbSep}>/</span>
-            <span>{pageLabel}</span>
+            {pageDetailId ? (
+              <Link href={`/w/${workspaceSlug}/pages`} className={styles.crumbLink}>
+                {pageLabel}
+              </Link>
+            ) : (
+              <span>{pageLabel}</span>
+            )}
+          </>
+        )}
+        {parent && (
+          <>
+            <span className={styles.crumbSep}>/</span>
+            <Link
+              href={`/w/${workspaceSlug}/pages/${parent.id}`}
+              className={styles.crumbLink}
+            >
+              {parent.title}
+            </Link>
           </>
         )}
       </div>

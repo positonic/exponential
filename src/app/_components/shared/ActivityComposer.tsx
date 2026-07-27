@@ -4,7 +4,6 @@ import { useState } from "react";
 import {
   SegmentedControl,
   Badge,
-  Textarea,
   Button,
   Group,
   Menu,
@@ -12,6 +11,7 @@ import {
 } from "@mantine/core";
 import { IconPaperclip } from "@tabler/icons-react";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import type { StatusOption } from "./activityTypes";
 import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 
@@ -140,21 +140,15 @@ export function ActivityComposer({
           />
         ) : (
           <>
-            <Textarea
+            <MarkdownInput
               value={updateContent}
-              onChange={(e) => setUpdateContent(e.currentTarget.value)}
+              onChange={(value) => setUpdateContent(value)}
               placeholder={updatePlaceholder}
               minRows={4}
               maxRows={8}
-              autosize
               variant="unstyled"
               disabled={isSubmittingUpdate}
-              styles={{
-                input: {
-                  color: "var(--text-primary)",
-                  padding: 0,
-                },
-              }}
+              mentionNames={mentionCandidates?.map((c) => c.name)}
             />
 
             {/* Bottom bar: attachment + actions */}

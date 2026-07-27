@@ -20,6 +20,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconTrash,
+  IconPencil,
   IconUserPlus,
   IconPlug,
   IconFolder,
@@ -42,6 +43,9 @@ import {
   IconClock,
   IconPlus,
   IconShieldExclamation,
+  IconSparkles,
+  IconSend,
+  IconBug,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -49,10 +53,12 @@ import { useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
+import { EditMemberRoleModal } from '~/app/_components/EditMemberRoleModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
+import { SentrySettings } from '~/app/_components/SentrySettings';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { EFFORT_UNIT_OPTIONS, type EffortUnit } from '~/types/effort';
@@ -89,14 +95,26 @@ export default function WorkspaceSettingsPage() {
   const router = useRouter();
   const { workspace, workspaceId, isLoading, userRole, refetchWorkspace } = useWorkspace();
   const [section, setSection] = useState<SectionId>('general');
-  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null);
+  const [editingField, setEditingField] = useState<'name' | 'description' | 'aiInstructions' | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [aiInstructions, setAiInstructions] = useState('');
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deleteModalOpened, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
   const [inviteModalOpened, { open: openInviteModal, close: closeInviteModal }] = useDisclosure(false);
+  const [editRoleModalOpened, { open: openEditRoleModal, close: closeEditRoleModal }] = useDisclosure(false);
+  const [editingMember, setEditingMember] = useState<{
+    userId: string;
+    name: string | null;
+    email: string | null;
+    image: string | null;
+    role: string;
+  } | null>(null);
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
   const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
+  const [postmarkModalOpened, { open: openPostmarkModal, close: closePostmarkModal }] = useDisclosure(false);
+  const [postmarkApiKey, setPostmarkApiKey] = useState('');
+  const [postmarkFrom, setPostmarkFrom] = useState('');
   const [emailProvider, setEmailProvider] = useState<string>('gmail');
   const [emailAddress, setEmailAddress] = useState('');
   const [emailAppPassword, setEmailAppPassword] = useState('');
@@ -143,6 +161,7 @@ export default function WorkspaceSettingsPage() {
   const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
+  const autoEnrichContactsEnabled = workspaceData?.enableAutoEnrichContacts ?? false;
   const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
 
   const featureSuccess = (message: string) => () => {
@@ -207,6 +226,13 @@ export default function WorkspaceSettingsPage() {
       emailNotificationsEnabled
         ? 'Email notifications have been disabled'
         : 'Email notifications have been enabled'
+    ),
+  });
+  const updateAutoEnrichContactsMutation = api.workspace.update.useMutation({
+    onSuccess: featureSuccess(
+      autoEnrichContactsEnabled
+        ? 'Contact auto-enrichment has been disabled'
+        : 'Contact auto-enrichment has been enabled'
     ),
   });
 
@@ -356,6 +382,53 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
+  const { data: postmarkStatus, refetch: refetchPostmarkStatus } =
+    api.integration.getWorkspacePostmarkStatus.useQuery(
+      { workspaceId: workspaceId! },
+      { enabled: !!workspaceId }
+    );
+
+  const createPostmarkMutation = api.integration.createPostmarkIntegration.useMutation({
+    onSuccess: () => {
+      void refetchPostmarkStatus();
+      closePostmarkModal();
+      setPostmarkApiKey('');
+      setPostmarkFrom('');
+      notifications.show({
+        title: 'Postmark Connected',
+        message: 'Workspace email delivery will use your Postmark sender.',
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Postmark Connection Failed',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
+  const removePostmarkMutation = api.integration.removePostmarkIntegration.useMutation({
+    onSuccess: () => {
+      void refetchPostmarkStatus();
+      notifications.show({
+        title: 'Postmark Removed',
+        message: 'Workspace email will use the platform default sender.',
+        color: 'blue',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Error',
+        message: error.message,
+        color: 'red',
+      });
+    },
+  });
+
   const { data: notionConfig, refetch: refetchNotionConfig } = api.workspace.getNotionConfig.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
@@ -421,10 +494,25 @@ export default function WorkspaceSettingsPage() {
     removeEmailMutation.mutate({ workspaceId });
   };
 
-  const handleStartEdit = (field: 'name' | 'description') => {
+  const handleSavePostmark = () => {
+    if (!workspaceId || !postmarkApiKey || !postmarkFrom) return;
+    createPostmarkMutation.mutate({
+      workspaceId,
+      apiKey: postmarkApiKey,
+      fromAddress: postmarkFrom,
+    });
+  };
+
+  const handleRemovePostmark = () => {
+    if (!workspaceId) return;
+    removePostmarkMutation.mutate({ workspaceId });
+  };
+
+  const handleStartEdit = (field: 'name' | 'description' | 'aiInstructions') => {
     if (!workspace) return;
     if (field === 'name') setName(workspace.name);
     if (field === 'description') setDescription(workspace.description ?? '');
+    if (field === 'aiInstructions') setAiInstructions(workspace.aiInstructions ?? '');
     setEditingField(field);
   };
 
@@ -434,6 +522,9 @@ export default function WorkspaceSettingsPage() {
       workspaceId,
       name: editingField === 'name' ? (name || undefined) : undefined,
       description: editingField === 'description' ? (description || undefined) : undefined,
+      // Empty string clears the field (send "" not undefined) so users can
+      // remove instructions; undefined leaves it untouched.
+      aiInstructions: editingField === 'aiInstructions' ? aiInstructions : undefined,
     });
   };
 
@@ -442,6 +533,21 @@ export default function WorkspaceSettingsPage() {
     if (confirm('Are you sure you want to remove this member?')) {
       removeMemberMutation.mutate({ workspaceId, userId });
     }
+  };
+
+  const handleEditRole = (member: {
+    userId: string;
+    user: { name: string | null; email: string | null; image: string | null };
+    role: string;
+  }) => {
+    setEditingMember({
+      userId: member.userId,
+      name: member.user.name,
+      email: member.user.email,
+      image: member.user.image,
+      role: member.role,
+    });
+    openEditRoleModal();
   };
 
   if (isLoading) {
@@ -677,6 +783,45 @@ export default function WorkspaceSettingsPage() {
                 </span>
               )}
             </SettingsField>
+
+            <SettingsField
+              label="Instructions"
+              sublabel="Guidance the AI assistant receives when chatting in this workspace (e.g. preferences, where your data lives). Treated as helpful context, not as enforced rules."
+              action={
+                canEdit ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (editingField === 'aiInstructions') {
+                        handleSave();
+                      } else {
+                        handleStartEdit('aiInstructions');
+                      }
+                    }}
+                  >
+                    {editingField === 'aiInstructions' ? 'Save' : 'Edit'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {editingField === 'aiInstructions' ? (
+                <Textarea
+                  value={aiInstructions}
+                  onChange={(e) => setAiInstructions(e.currentTarget.value)}
+                  autoFocus
+                  size="xs"
+                  autosize
+                  minRows={3}
+                  placeholder="e.g. Prefer concise answers. My finances live in the FinanceDB Notion database."
+                  classNames={{
+                    input: 'bg-background-primary border-border-primary text-text-primary',
+                  }}
+                />
+              ) : (
+                <span className="text-text-secondary whitespace-pre-wrap">
+                  {workspace.aiInstructions ?? <span className="text-text-muted">—</span>}
+                </span>
+              )}
+            </SettingsField>
           </SettingsSection>
         )}
 
@@ -737,7 +882,18 @@ export default function WorkspaceSettingsPage() {
                         {member.role}
                       </SettingsPill>
                     </div>
-                    <div className="flex items-center justify-end border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                    <div className="flex items-center justify-end gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                      {userRole === 'owner' && member.role !== 'owner' && (
+                        <Tooltip label="Edit role">
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            onClick={() => handleEditRole(member)}
+                          >
+                            <IconPencil size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
                       {canManageMembers && member.role !== 'owner' && (
                         <Tooltip label="Remove member">
                           <ActionIcon
@@ -969,6 +1125,21 @@ export default function WorkspaceSettingsPage() {
                 });
               }}
             />
+            <FeatureRow
+              icon={IconSparkles}
+              tag="CRM"
+              title="Auto-enrich Contacts"
+              description="When a contact is created, run a background web search to fill in missing details (email, LinkedIn, Twitter, bio, organization)."
+              enabled={autoEnrichContactsEnabled}
+              disabled={!canEdit || updateAutoEnrichContactsMutation.isPending}
+              onToggle={(checked) => {
+                if (!workspaceId) return;
+                updateAutoEnrichContactsMutation.mutate({
+                  workspaceId,
+                  enableAutoEnrichContacts: checked,
+                });
+              }}
+            />
           </SettingsSection>
         )}
 
@@ -1026,6 +1197,54 @@ export default function WorkspaceSettingsPage() {
               </Stack>
             </SettingsSection>
 
+            <SettingsSection
+              icon={IconSend}
+              title="Postmark"
+              description="Send this workspace's notification, CRM, and broadcast emails from your own Postmark server and sender address. Leave unset to use the platform default."
+            >
+              <Stack gap="sm">
+                {postmarkStatus?.configured ? (
+                  <Group justify="space-between">
+                    <div>
+                      <div className="text-[13px] text-text-secondary">
+                        {postmarkStatus.fromAddress ?? 'Configured'}
+                      </div>
+                      <div className="text-[11.5px] text-text-muted">
+                        Sending via your Postmark server
+                      </div>
+                    </div>
+                    {canEdit && (
+                      <Group gap="xs">
+                        <Button variant="light" size="xs" onClick={openPostmarkModal}>
+                          Change
+                        </Button>
+                        <Button
+                          variant="subtle"
+                          size="xs"
+                          color="red"
+                          onClick={handleRemovePostmark}
+                          loading={removePostmarkMutation.isPending}
+                        >
+                          Remove
+                        </Button>
+                      </Group>
+                    )}
+                  </Group>
+                ) : (
+                  <Group justify="space-between">
+                    <div className="text-[13px] text-text-muted">
+                      Using the platform default email sender
+                    </div>
+                    {canEdit && (
+                      <Button variant="light" size="xs" onClick={openPostmarkModal}>
+                        Add Postmark
+                      </Button>
+                    )}
+                  </Group>
+                )}
+              </Stack>
+            </SettingsSection>
+
             {workspaceId && (
               <SettingsSection
                 icon={IconBrandSlack}
@@ -1045,6 +1264,19 @@ export default function WorkspaceSettingsPage() {
                 <ZulipSettings
                   workspace={{ id: workspaceId, name: workspace.name }}
                   workspaceSlug={workspace.slug}
+                />
+              </SettingsSection>
+            )}
+
+            {workspaceId && (
+              <SettingsSection
+                icon={IconBug}
+                title="Sentry"
+                description="File Sentry issues as Bug tickets in a product of your choice. Generates a webhook URL and signing secret to paste into a Sentry internal integration."
+              >
+                <SentrySettings
+                  workspace={{ id: workspaceId, name: workspace.name }}
+                  canManage={canEdit}
                 />
               </SettingsSection>
             )}
@@ -1273,6 +1505,16 @@ export default function WorkspaceSettingsPage() {
         }}
       />
 
+      <EditMemberRoleModal
+        workspaceId={workspaceId!}
+        member={editingMember}
+        opened={editRoleModalOpened}
+        onClose={closeEditRoleModal}
+        onSuccess={() => {
+          refetchWorkspace();
+        }}
+      />
+
       <FirefliesWizardModal
         opened={firefliesModalOpened}
         onClose={closeFirefliesModal}
@@ -1346,6 +1588,52 @@ export default function WorkspaceSettingsPage() {
               disabled={!emailAddress || !emailAppPassword}
             >
               Connect Email
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={postmarkModalOpened}
+        onClose={closePostmarkModal}
+        title="Configure Postmark"
+        size="md"
+      >
+        <Stack gap="md">
+          <Alert icon={<IconSend size={16} />} title="Postmark Setup" color="blue">
+            Emails originating from this workspace will be delivered using your Postmark
+            server token and sender address. The from-address must be a verified Sender
+            Signature (or on a verified domain) in your Postmark account.
+          </Alert>
+
+          <TextInput
+            label="Server API Token"
+            placeholder="Your Postmark server token"
+            required
+            type="password"
+            value={postmarkApiKey}
+            onChange={(e) => setPostmarkApiKey(e.currentTarget.value)}
+          />
+
+          <TextInput
+            label="From Address"
+            placeholder="notifications@yourdomain.com"
+            required
+            type="email"
+            value={postmarkFrom}
+            onChange={(e) => setPostmarkFrom(e.currentTarget.value)}
+          />
+
+          <Group justify="flex-end" mt="md">
+            <Button variant="subtle" onClick={closePostmarkModal}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSavePostmark}
+              loading={createPostmarkMutation.isPending}
+              disabled={!postmarkApiKey || !postmarkFrom}
+            >
+              Save Postmark
             </Button>
           </Group>
         </Stack>

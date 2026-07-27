@@ -1,6 +1,12 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, type PropsWithChildren, type Dispatch, type SetStateAction } from 'react';
+import type { ToolCall } from '~/lib/chat/streamProtocol';
+
+// One agent tool invocation, accumulated client-side from __exp_tool__ frames.
+// Canonically defined next to the wire-protocol parser; re-exported here so
+// existing importers keep working.
+export type { ToolCall };
 
 // sessionStorage keys for per-tab isolation (prevents context bleeding between tabs)
 const CHAT_STORAGE_KEY = 'agent-chat-messages';
@@ -8,15 +14,6 @@ const CONVERSATION_STORAGE_KEY = 'agent-chat-conversation-id';
 const DRAWER_SIZE_STORAGE_KEY = 'zoe-drawer-size';
 
 export type DrawerSize = 's' | 'm' | 'l';
-
-// One agent tool invocation, accumulated client-side from __exp_tool__ frames.
-export interface ToolCall {
-  id: string;
-  name: string;
-  args?: Record<string, unknown>;
-  status: 'running' | 'success' | 'error';
-  errorMsg?: string;
-}
 
 // Message type shared between provider and ManyChat
 export interface ChatMessage {
@@ -37,12 +34,41 @@ export interface ChatMessage {
   voiceTurnId?: string;
   /**
    * Structured, interactive payload rendered below this message's text instead of
-   * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007).
+   * plain markdown. The first use is the meeting draft-Actions review card (ADR-0007);
+   * `draft-features` is the same pattern for meeting-ideated product Features.
+   *
+   * Every arm must be rendered on BOTH chat surfaces — the ManyChat drawer and
+   * ZoeCanvas — or the card silently vanishes on one of them.
    */
-  card?: { kind: 'draft-actions'; transcriptionId: string };
+  card?:
+    | { kind: 'draft-actions'; transcriptionId: string }
+    | { kind: 'draft-features'; transcriptionId: string };
+  /**
+   * Set on an assistant turn that failed or ended early, to drive the Retry UI.
+   * `severity: 'error'`      — nothing usable streamed; render the red error bubble.
+   * `severity: 'incomplete'` — an answer DID stream but the connection was cut
+   *                            before clean completion; render the partial text
+   *                            normally with a subtle "ended early" + Retry hint,
+   *                            NOT a scary error.
+   * `retryText` is the original user message, re-sent verbatim when the user taps
+   * Retry (no duplicate human bubble — see ManyChat `retryTurn`). `kind` lets the
+   * UI tailor copy (transport drop vs auth vs model error).
+   */
+  failure?: {
+    severity: 'error' | 'incomplete';
+    kind: 'transport' | 'idle-timeout' | 'auth' | 'model' | 'unknown';
+    canRetry: boolean;
+    retryText?: string;
+  };
 }
 
 export type ChatDisplayMode = 'panel' | 'modal';
+
+// The Zoe canvas (ADR-0040) is a third display surface of this same
+// conversation state: /home renders the current engagement in the page while
+// `canvasEngaged` is true. Engagement lifecycle (fresh conversationId per
+// engagement, abort-on-dismiss) lives in useCanvasEngagement; the provider
+// only holds the flag so sibling surfaces (drawer, FAB) can see it.
 
 // Notification from background workflows (e.g. standup report ready)
 export interface PendingNotification {
@@ -104,6 +130,8 @@ interface AgentModalContextValue {
   pendingContext: string | null;
   openWithPrompt: (text: string, context?: string) => void;
   consumePendingPrompt: () => void;
+  canvasEngaged: boolean;
+  setCanvasEngaged: Dispatch<SetStateAction<boolean>>;
 }
 
 const AgentModalContext = createContext<AgentModalContextValue>({
@@ -135,6 +163,8 @@ const AgentModalContext = createContext<AgentModalContextValue>({
   pendingContext: null,
   openWithPrompt: () => undefined,
   consumePendingPrompt: () => undefined,
+  canvasEngaged: false,
+  setCanvasEngaged: () => undefined,
 });
 
 export function useAgentModal() {
@@ -164,6 +194,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
   const [maximised, setMaximised] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingContext, setPendingContext] = useState<string | null>(null);
+  const [canvasEngaged, setCanvasEngaged] = useState(false);
 
   // Hydrate state from sessionStorage / localStorage after mount (per-tab, avoids SSR mismatch)
   useEffect(() => {
@@ -298,6 +329,8 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     pendingContext,
     openWithPrompt,
     consumePendingPrompt,
+    canvasEngaged,
+    setCanvasEngaged,
   }), [
     isOpen,
     displayMode,
@@ -323,6 +356,7 @@ export function AgentModalProvider({ children }: PropsWithChildren) {
     pendingContext,
     openWithPrompt,
     consumePendingPrompt,
+    canvasEngaged,
   ]);
 
   return (

@@ -6,6 +6,7 @@ import { Anchor, Text } from '@mantine/core';
 import Link from 'next/link';
 import { api } from '~/trpc/react';
 import { useSession } from 'next-auth/react';
+import { notificationDeepLink } from '~/server/services/notifications/notificationDeepLink';
 
 /**
  * Hook to check for and display new notifications on page load
@@ -58,13 +59,12 @@ export function useNotificationChecker() {
         // Only track notifications that we actually show to avoid skipping unshown types
         shownNotificationIds.current.add(notification.id);
 
-        const metadata = (() => {
-          try { return JSON.parse(notification.metadata as string) as { transcriptionId?: string }; }
-          catch { return null; }
-        })();
-        const meetingHref = metadata?.transcriptionId
-          ? `/recording/${metadata.transcriptionId}`
-          : '/meetings';
+        // Single source of truth for the click destination — shared with the
+        // web-push payload (NotificationScheduler).
+        const meetingHref = notificationDeepLink({
+          type: notification.type,
+          metadata: notification.metadata,
+        });
 
         notifications.show({
           id: notification.id, // Use notification ID to prevent duplicate toasts

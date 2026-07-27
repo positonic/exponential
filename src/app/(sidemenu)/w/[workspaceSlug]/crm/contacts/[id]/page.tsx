@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   Title,
@@ -34,7 +34,6 @@ import {
   IconBrandBluesky,
   IconBuilding,
   IconPlus,
-  IconPhoneCall,
   IconCalendar,
   IconNote,
   IconStar,
@@ -54,6 +53,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
 import { notifications } from '@mantine/notifications';
+import { EditContactDrawer } from '~/app/_components/crm/EditContactDrawer';
 
 // Helper function to get relative time
 function getRelativeTime(date: Date): string {
@@ -126,18 +126,22 @@ function ActivityItem({
   action,
   date,
   subject,
+  icon,
+  href,
 }: {
   actor: string;
   action: string;
   date: Date;
   subject?: string;
+  icon?: React.ReactNode;
+  href?: string;
 }) {
   const initial = actor[0]?.toUpperCase() ?? '?';
 
-  return (
+  const body = (
     <div className="flex items-start gap-3 py-3">
       <Avatar size="sm" radius="xl" className="mt-0.5">
-        {initial}
+        {icon ?? initial}
       </Avatar>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2 flex-wrap">
@@ -161,6 +165,16 @@ function ActivityItem({
       </div>
     </div>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block rounded-md hover:bg-surface-hover transition-colors">
+        {body}
+      </Link>
+    );
+  }
+
+  return body;
 }
 
 // Collapsible section component
@@ -342,228 +356,6 @@ function AddInteractionForm({
   );
 }
 
-interface ContactEditFormProps {
-  contact: {
-    id: string;
-    firstName: string | null;
-    lastName: string | null;
-    email: string | null;
-    phone: string | null;
-    linkedIn: string | null;
-    telegram: string | null;
-    twitter: string | null;
-    github: string | null;
-    bluesky: string | null;
-    about: string | null;
-    profileType: string | null;
-    organizationId: string | null;
-  };
-  workspaceId: string;
-  onSuccess: () => void;
-  onCancel: () => void;
-}
-
-function ContactEditForm({
-  contact,
-  workspaceId,
-  onSuccess,
-  onCancel,
-}: ContactEditFormProps) {
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    linkedIn: '',
-    telegram: '',
-    twitter: '',
-    github: '',
-    bluesky: '',
-    about: '',
-    profileType: '',
-    organizationId: '',
-  });
-
-  const utils = api.useUtils();
-
-  const { data: organizations } = api.crmOrganization.getAll.useQuery(
-    { workspaceId, limit: 100 },
-    { enabled: !!workspaceId },
-  );
-
-  const updateContact = api.crmContact.update.useMutation({
-    onSuccess: () => {
-      void utils.crmContact.getById.invalidate({ id: contact.id });
-      void utils.crmContact.getAll.invalidate();
-      notifications.show({
-        title: 'Success',
-        message: 'Contact updated successfully',
-        color: 'green',
-      });
-      onSuccess();
-    },
-    onError: (error) => {
-      notifications.show({
-        title: 'Error',
-        message: error.message,
-        color: 'red',
-      });
-    },
-  });
-
-  useEffect(() => {
-    setFormData({
-      firstName: contact.firstName ?? '',
-      lastName: contact.lastName ?? '',
-      email: contact.email ?? '',
-      phone: contact.phone ?? '',
-      linkedIn: contact.linkedIn ?? '',
-      telegram: contact.telegram ?? '',
-      twitter: contact.twitter ?? '',
-      github: contact.github ?? '',
-      bluesky: contact.bluesky ?? '',
-      about: contact.about ?? '',
-      profileType: contact.profileType ?? '',
-      organizationId: contact.organizationId ?? '',
-    });
-  }, [contact]);
-
-  const getOptionalValue = (value: string) => value.trim();
-
-  const getNullableEmail = (value: string) => {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  };
-
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-    updateContact.mutate({
-      id: contact.id,
-      firstName: formData.firstName.trim(),
-      lastName: formData.lastName.trim(),
-      email: getNullableEmail(formData.email),
-      phone: getOptionalValue(formData.phone),
-      linkedIn: getOptionalValue(formData.linkedIn),
-      telegram: getOptionalValue(formData.telegram),
-      twitter: getOptionalValue(formData.twitter),
-      github: getOptionalValue(formData.github),
-      bluesky: getOptionalValue(formData.bluesky),
-      about: formData.about.trim(),
-      profileType: formData.profileType.trim() || undefined,
-      organizationId: formData.organizationId.length > 0 ? formData.organizationId : null,
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <Stack gap="md">
-        <div className="grid grid-cols-2 gap-3">
-          <TextInput
-            label="First Name"
-            value={formData.firstName}
-            onChange={(event) =>
-              setFormData({ ...formData, firstName: event.target.value })
-            }
-          />
-          <TextInput
-            label="Last Name"
-            value={formData.lastName}
-            onChange={(event) =>
-              setFormData({ ...formData, lastName: event.target.value })
-            }
-          />
-        </div>
-        <TextInput
-          label="Email"
-          type="email"
-          value={formData.email}
-          onChange={(event) => setFormData({ ...formData, email: event.target.value })}
-        />
-        <TextInput
-          label="Phone"
-          value={formData.phone}
-          onChange={(event) => setFormData({ ...formData, phone: event.target.value })}
-        />
-        <TextInput
-          label="LinkedIn URL"
-          value={formData.linkedIn}
-          onChange={(event) => setFormData({ ...formData, linkedIn: event.target.value })}
-        />
-        <TextInput
-          label="Telegram"
-          placeholder="@username"
-          value={formData.telegram}
-          onChange={(event) => setFormData({ ...formData, telegram: event.target.value })}
-        />
-        <TextInput
-          label="Twitter"
-          placeholder="@handle"
-          value={formData.twitter}
-          onChange={(event) => setFormData({ ...formData, twitter: event.target.value })}
-        />
-        <TextInput
-          label="GitHub"
-          placeholder="username"
-          value={formData.github}
-          onChange={(event) => setFormData({ ...formData, github: event.target.value })}
-        />
-        <TextInput
-          label="BlueSky"
-          placeholder="@handle.bsky.social"
-          value={formData.bluesky}
-          onChange={(event) => setFormData({ ...formData, bluesky: event.target.value })}
-        />
-        <Textarea
-          label="Description"
-          minRows={3}
-          value={formData.about}
-          onChange={(event) => setFormData({ ...formData, about: event.target.value })}
-        />
-        <Select
-          label="Profile Type"
-          placeholder="Select type"
-          data={[
-            { value: 'Developer', label: 'Developer' },
-            { value: 'Designer', label: 'Designer' },
-            { value: 'Founder', label: 'Founder' },
-            { value: 'Product Manager', label: 'Product Manager' },
-            { value: 'Investor', label: 'Investor' },
-            { value: 'Marketing', label: 'Marketing' },
-            { value: 'Sales', label: 'Sales' },
-            { value: 'Other', label: 'Other' },
-          ]}
-          value={formData.profileType}
-          onChange={(value) => setFormData({ ...formData, profileType: value ?? '' })}
-          clearable
-          searchable
-        />
-        <Select
-          label="Company"
-          placeholder="Select organization"
-          data={
-            organizations?.organizations.map((org) => ({
-              value: org.id,
-              label: org.name,
-            })) ?? []
-          }
-          value={formData.organizationId}
-          onChange={(value) => setFormData({ ...formData, organizationId: value ?? '' })}
-          clearable
-          searchable
-        />
-        <div className="flex justify-end gap-2 mt-2">
-          <Button variant="subtle" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={updateContact.isPending}>
-            Save Changes
-          </Button>
-        </div>
-      </Stack>
-    </form>
-  );
-}
-
 export default function ContactDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -582,6 +374,14 @@ export default function ContactDetailPage() {
     { id: contactId, includeInteractions: true },
     { enabled: !!contactId }
   );
+
+  // Get the unified activity timeline (interactions + meetings); it also returns
+  // the full meeting list for the Meetings tab so we only load meetings once.
+  const { data: activityData } = api.crmContact.getActivity.useQuery(
+    { contactId },
+    { enabled: !!contactId }
+  );
+  const meetings = activityData?.meetings ?? [];
 
   // Get all contacts for prev/next navigation
   const { data: allContacts } = api.crmContact.getAll.useQuery(
@@ -604,7 +404,7 @@ export default function ContactDetailPage() {
     };
   }, [allContacts, contactId]);
 
-  // Build activity items
+  // Build activity items from the merged interaction + meeting timeline
   const activityItems = useMemo(() => {
     if (!contact) return [];
     const items: Array<{
@@ -613,28 +413,42 @@ export default function ContactDetailPage() {
       action: string;
       date: Date;
       subject?: string;
+      icon?: React.ReactNode;
+      href?: string;
     }> = [];
 
     const fullName =
       [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'Unknown';
 
-    // Add interactions as activity
-    contact.interactions?.forEach((interaction) => {
+    activityData?.events.forEach((event) => {
+      if (event.kind === 'meeting') {
+        items.push({
+          id: `meeting-${event.id}`,
+          actor: fullName,
+          action: 'had a meeting',
+          date: new Date(event.occurredAt),
+          subject: event.title ?? event.summary ?? undefined,
+          icon: <IconCalendar size={16} />,
+          href: `/recording/${event.id}`,
+        });
+        return;
+      }
+
       items.push({
-        id: interaction.id,
+        id: event.id,
         actor: fullName,
         action:
-          interaction.type === 'EMAIL'
+          event.interactionType === 'EMAIL'
             ? 'sent an email'
-            : interaction.type === 'TELEGRAM'
+            : event.interactionType === 'TELEGRAM'
               ? 'sent a message'
-              : interaction.type === 'PHONE_CALL'
+              : event.interactionType === 'PHONE_CALL'
                 ? 'had a call'
-                : interaction.type === 'MEETING'
+                : event.interactionType === 'MEETING'
                   ? 'had a meeting'
                   : 'added a note',
-        date: new Date(interaction.createdAt),
-        subject: interaction.subject ?? interaction.notes ?? undefined,
+        date: new Date(event.occurredAt),
+        subject: event.subject ?? event.notes ?? undefined,
       });
     });
 
@@ -647,7 +461,7 @@ export default function ContactDetailPage() {
     });
 
     return items.sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [contact]);
+  }, [contact, activityData]);
 
   if (workspaceLoading || isLoading) {
     return (
@@ -790,14 +604,14 @@ export default function ContactDetailPage() {
               Telegram
             </Tabs.Tab>
             <Tabs.Tab
-              value="calls"
+              value="meetings"
               rightSection={
                 <Badge size="xs" variant="light">
-                  {contact.interactions?.filter((i) => i.type === 'PHONE_CALL').length ?? 0}
+                  {meetings.length}
                 </Badge>
               }
             >
-              Calls
+              Meetings
             </Tabs.Tab>
             <Tabs.Tab
               value="company"
@@ -959,6 +773,8 @@ export default function ContactDetailPage() {
                         action={item.action}
                         date={item.date}
                         subject={item.subject}
+                        icon={item.icon}
+                        href={item.href}
                       />
                     ))
                   ) : (
@@ -1057,6 +873,8 @@ export default function ContactDetailPage() {
                         action={item.action}
                         date={item.date}
                         subject={item.subject}
+                        icon={item.icon}
+                        href={item.href}
                       />
                     ))
                   ) : (
@@ -1167,48 +985,52 @@ export default function ContactDetailPage() {
             </div>
           )}
 
-          {activeTab === 'calls' && (
+          {activeTab === 'meetings' && (
             <div className="space-y-4">
               <Title order={4} className="text-text-primary">
-                Calls
+                Meetings
               </Title>
-              {contact.interactions?.filter((i) => i.type === 'PHONE_CALL').length ? (
+              {meetings.length ? (
                 <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
-                  {contact.interactions
-                    .filter((i) => i.type === 'PHONE_CALL')
-                    .map((call) => (
-                      <div key={call.id} className="p-4 flex items-start gap-3">
-                        <Avatar size="md" radius="xl">
-                          {getInitialFromName(contact.firstName ?? contact.lastName)}
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline justify-between gap-2 mb-1">
-                            <Text size="sm" className="font-semibold text-text-primary">
-                              {call.subject ?? 'Call'}
-                            </Text>
+                  {meetings.map((meeting) => (
+                    <Link
+                      key={meeting.id}
+                      href={`/recording/${meeting.id}`}
+                      className="flex items-start gap-3 p-4 hover:bg-surface-hover transition-colors"
+                    >
+                      <Avatar size="md" radius="xl" color="grape">
+                        <IconCalendar size={18} />
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline justify-between gap-2 mb-1">
+                          <Text size="sm" className="font-semibold text-text-primary">
+                            {meeting.title ?? 'Untitled meeting'}
+                          </Text>
+                          {(meeting.meetingDate ?? meeting.createdAt) && (
                             <Text size="xs" className="text-text-muted shrink-0">
-                              {new Date(call.createdAt).toLocaleDateString('en-US', {
+                              {new Date(
+                                meeting.meetingDate ?? meeting.createdAt
+                              ).toLocaleDateString('en-US', {
                                 day: 'numeric',
                                 month: 'short',
+                                year: 'numeric',
                               })}
-                            </Text>
-                          </div>
-                          <Text size="sm" className="text-text-muted">
-                            {fullName}
-                          </Text>
-                          {call.notes && (
-                            <Text size="sm" className="text-text-muted mt-1 line-clamp-2">
-                              {call.notes}
                             </Text>
                           )}
                         </div>
+                        {meeting.summary && (
+                          <Text size="sm" className="text-text-muted line-clamp-2">
+                            {meeting.summary}
+                          </Text>
+                        )}
                       </div>
-                    ))}
+                    </Link>
+                  ))}
                 </div>
               ) : (
                 <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
-                  <IconPhoneCall size={40} className="text-text-muted mx-auto mb-3" />
-                  <Text size="sm" className="text-text-muted">No calls yet</Text>
+                  <IconCalendar size={40} className="text-text-muted mx-auto mb-3" />
+                  <Text size="sm" className="text-text-muted">No meetings yet</Text>
                 </div>
               )}
             </div>
@@ -1558,16 +1380,15 @@ export default function ContactDetailPage() {
         />
       </Modal>
 
-      <Modal opened={editModalOpened} onClose={closeEditModal} title="Edit Contact" size="lg">
-        {contact && workspaceId ? (
-          <ContactEditForm
-            contact={contact}
-            workspaceId={workspaceId}
-            onSuccess={closeEditModal}
-            onCancel={closeEditModal}
-          />
-        ) : null}
-      </Modal>
+      {contact && workspaceId ? (
+        <EditContactDrawer
+          opened={editModalOpened}
+          onClose={closeEditModal}
+          contact={contact}
+          workspaceId={workspaceId}
+          onSaved={closeEditModal}
+        />
+      ) : null}
     </div>
   );
 }

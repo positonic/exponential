@@ -10,12 +10,12 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { findUserByEmailInWorkspace } from "~/server/services/access/resolvers/workspaceResolver";
+import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
-import { sendAssignmentNotifications } from "~/server/services/notifications/EmailNotificationService";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
@@ -24,6 +24,7 @@ import {
   PROJECT_ACTIVITY_TYPES,
 } from "~/server/services/projectActivity";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { partitionActions } from "~/lib/actions/partition";
 
 
 export const actionRouter = createTRPCRouter({
@@ -486,9 +487,6 @@ export const actionRouter = createTRPCRouter({
 
       // Sync onboarding progress if action is linked to a project (fire-and-forget)
       if (input.projectId) {
-        void completeOnboardingStep(ctx.db, ctx.session.user.id, "actions").catch(
-          (err: unknown) => { console.error("[onboarding-sync] actions:", err); },
-        );
 
         void logProjectActivity(ctx.db, {
           projectId: input.projectId,
@@ -581,7 +579,7 @@ export const actionRouter = createTRPCRouter({
         bountyDeadline: z.date().nullable().optional(),
         bountyMaxClaimants: z.number().int().min(1).optional(),
         bountyExternalUrl: z.string().url().nullable().optional(),
-        // Source attribution — set by agents and external integrations
+        // Source attribution - set by agents and external integrations
         // so we can track which channel last touched the action.
         lastUpdatedBy: z.enum(["AGENT", "USER_EMAIL", "USER_WHATSAPP", "USER_UI"]).optional(),
         lastUpdatedSource: z.string().optional(),
@@ -709,7 +707,7 @@ export const actionRouter = createTRPCRouter({
             if (skipKeys.has(key)) return false;
             const incoming = (updateData as Record<string, unknown>)[key];
             if (incoming === undefined) return false;
-            // Only diff against fields we actually selected on currentAction —
+            // Only diff against fields we actually selected on currentAction -
             // anything outside that select is treated as changed.
             if (!(key in currentRecord)) return true;
             const existing = currentRecord[key];
@@ -759,9 +757,6 @@ export const actionRouter = createTRPCRouter({
 
       // Sync onboarding progress on first action completion (fire-and-forget)
       if (isCompleting && !wasCompleted) {
-        void completeOnboardingStep(ctx.db, ctx.session.user.id, "complete").catch(
-          (err: unknown) => { console.error("[onboarding-sync] complete:", err); },
-        );
       }
 
       // Recalculate score if completion status changed and action is linked to daily plan
@@ -896,9 +891,6 @@ export const actionRouter = createTRPCRouter({
 
       // Sync onboarding progress on first action completion via kanban (fire-and-forget)
       if (isCompleting && !wasCompleted) {
-        void completeOnboardingStep(ctx.db, ctx.session.user.id, "complete").catch(
-          (err: unknown) => { console.error("[onboarding-sync] complete:", err); },
-        );
       }
 
       // Track status change for PM agent analytics (cycle time, lead time)
@@ -976,6 +968,92 @@ export const actionRouter = createTRPCRouter({
           },
         },
       });
+    }),
+
+  // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
+  // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the
+  // same `partitionActions()` source of truth as the client hook, so "what
+  // counts as today" agrees by construction. Distinct from the due-only
+  // Daily brief (`generateBriefingData`).
+  getTodaysActions: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Same ownership as action.getAll: created-by-me-with-no-assignees OR
+      // assigned-to-me. Cross-workspace by default; optional workspaceId filter
+      // matches either the action's own workspace or its project's workspace
+      // (so project-less actions are still scoped correctly).
+      const actions = await ctx.db.action.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { createdById: userId, assignees: { none: {} } },
+                { assignees: { some: { userId } } },
+              ],
+            },
+            ...(input?.workspaceId
+              ? [
+                  {
+                    OR: [
+                      { workspaceId: input.workspaceId },
+                      { project: { workspaceId: input.workspaceId } },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          scheduledStart: true,
+          dueDate: true,
+          projectId: true,
+          completedAt: true,
+          project: {
+            select: {
+              name: true,
+              workspace: { select: { name: true } },
+            },
+          },
+          workspace: { select: { name: true } },
+        },
+      });
+
+      const partition = partitionActions(actions, { today: new Date() });
+
+      const PER_GROUP_CAP = 50;
+      const toRow = (a: (typeof actions)[number]) => ({
+        id: a.id,
+        name: a.name,
+        status: a.status,
+        scheduledStart: a.scheduledStart,
+        dueDate: a.dueDate,
+        projectName: a.project?.name ?? null,
+        workspaceName: a.workspace?.name ?? a.project?.workspace?.name ?? null,
+      });
+
+      const toGroup = (group: (typeof actions)) => ({
+        count: group.length,
+        actions: group.slice(0, PER_GROUP_CAP).map(toRow),
+      });
+
+      return {
+        overdue: toGroup(partition.overdue),
+        today: toGroup(partition.todays),
+        inbox: toGroup(partition.inbox),
+      };
     }),
 
   getByDateRange: protectedProcedure
@@ -1535,13 +1613,13 @@ export const actionRouter = createTRPCRouter({
             canAssign = !!sharedTeam;
           }
         }
-        // Action has a team (but no project) — users must be team members
+        // Action has a team (but no project) - users must be team members
         else if (action.teamId && action.team) {
           canAssign = action.team.members.some(
             (member: { userId: string }) => member.userId === userId,
           );
         }
-        // No project or team — allow assignment to any user
+        // No project or team - allow assignment to any user
         else {
           canAssign = true;
         }
@@ -1587,11 +1665,18 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      // Fire-and-forget email notifications for newly assigned users
-      void sendAssignmentNotifications(ctx.db, {
-        actionId: input.actionId,
-        assignedUserIds: input.userIds,
-        assignerId: ctx.session.user.id,
+      // Unified notification pipeline (ADR-0045): emit an Assignment notification.
+      // Resolves recipients + enabled channels, persists a durable Notification
+      // record, and delivers best-effort synchronously; the cron worker retries
+      // any channel that failed. Never notifies the assigner about their own action.
+      void emitNotification({
+        category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+        actorUserId: ctx.session.user.id,
+        subject: {
+          actionId: input.actionId,
+          assignedUserIds: input.userIds,
+        },
+        db: ctx.db,
       });
 
       // Return updated action with assignees
@@ -1736,13 +1821,13 @@ export const actionRouter = createTRPCRouter({
             );
             canAssign = hasProjectAccess(candidateAccess);
           }
-          // Action has a team (but no project) — users must be team members
+          // Action has a team (but no project) - users must be team members
           else if (action.teamId && action.team) {
             canAssign = action.team.members.some(
               (member: { userId: string }) => member.userId === userId,
             );
           }
-          // No project or team — allow assignment to any user
+          // No project or team - allow assignment to any user
           else {
             canAssign = true;
           }
@@ -1803,7 +1888,7 @@ export const actionRouter = createTRPCRouter({
       const isRestrictedProject = action.project?.isRestricted ?? false;
 
       // 1. Get users from teams the current user belongs to.
-      //    Skip when the action's project is restricted — only ProjectMembers
+      //    Skip when the action's project is restricted - only ProjectMembers
       //    (plus creator + workspace owner/admin escape hatch) are valid.
       const userTeams = await ctx.db.team.findMany({
         where: {
@@ -2501,13 +2586,43 @@ export const actionRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // When a workspaceId is provided, search all actions in that workspace —
+      // but only after verifying the caller is actually a member. Without this
+      // check any logged-in user could enumerate other workspaces' actions.
+      // Without a workspaceId, fall back to only the caller's own actions.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          userId,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+      }
+
+      const ownershipFilter = input.workspaceId
+        ? {}
+        : { createdById: userId };
+
+      const workspaceFilter = input.workspaceId
+        ? {
+            OR: [
+              { workspaceId: input.workspaceId },
+              { project: { workspaceId: input.workspaceId } },
+            ],
+          }
+        : {};
+
       return ctx.db.action.findMany({
         where: {
           name: { contains: input.query, mode: "insensitive" },
-          status: { not: "COMPLETED" },
-          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          status: { notIn: ["COMPLETED", "CANCELLED", "DELETED"] },
+          ...ownershipFilter,
+          ...workspaceFilter,
           ...(input.excludeId ? { id: { not: input.excludeId } } : {}),
-          createdById: ctx.session.user.id,
         },
         take: input.limit,
         select: {
@@ -2588,7 +2703,7 @@ export const actionRouter = createTRPCRouter({
       // rest of the action router. CANCELLED is excluded implicitly by the
       // kanban statusFilter (its allowed-list never includes CANCELLED). An
       // explicit `status` guard keeps DRAFT and legacy COMPLETED actions out
-      // of autocomplete results — both are valid Action.status values in this
+      // of autocomplete results - both are valid Action.status values in this
       // codebase but neither is a valid pick for "track time against".
       const baseWhere: Prisma.ActionWhereInput = {
         AND: [
@@ -2823,7 +2938,7 @@ export const actionRouter = createTRPCRouter({
 
       // 5. Process each item with a per-item try/catch so one failure
       //    doesn't abort the whole batch. We deliberately do NOT wrap the
-      //    loop in an outer transaction — each item is logically independent
+      //    loop in an outer transaction - each item is logically independent
       //    and we want partial successes to persist.
       for (const item of input.items) {
         try {

@@ -29,17 +29,20 @@ export const SETTLED_AFTER_MS = 60 * 60 * 1000;
 
 /**
  * Platforms where the brain actually reasoned (decision 1):
- * - "web"      — typed web chat (/api/chat/stream)
- * - "manychat" — WhatsApp via ManyChat (same stream route)
- * - "slack"    — Slack bot turns
- * - "api"      — API/webhook callers
- * - "direct"   — mastra.sendMessage tRPC path
+ * - "web"        — typed web chat (/api/chat/stream)
+ * - "manychat"   — WhatsApp via ManyChat (same stream route)
+ * - "web-canvas" — Zoe canvas engagements on /home (same stream route,
+ *                  distinct stamp so canvas vs drawer Threads compare, ADR-0040)
+ * - "slack"      — Slack bot turns
+ * - "api"        — API/webhook callers
+ * - "direct"     — mastra.sendMessage tRPC path
  * Excluded: "voice" (coarse-tool dispatcher + realtime transcript duplicates —
  * deterministic router turns, not brain reasoning).
  */
 export const BRAIN_REASONED_PLATFORMS = [
   "web",
   "manychat",
+  "web-canvas",
   "slack",
   "api",
   "direct",

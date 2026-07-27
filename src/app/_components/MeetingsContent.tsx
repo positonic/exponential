@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { SlackSummaryModal } from './SlackSummaryModal';
 import Link from "next/link";
 import {
@@ -51,7 +52,8 @@ import {
   IconArrowRight,
   IconCheckbox,
 } from "@tabler/icons-react";
-import { TranscriptionRenderer } from "./TranscriptionRenderer";
+import { TranscriptView } from "./meeting/TranscriptView";
+import { MeetingProjectPicker } from "./meeting/MeetingProjectPicker";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import {
@@ -264,11 +266,11 @@ function PeekTranscript({
       </button>
       {open && (
         <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
-          <TranscriptionRenderer
+          <TranscriptView
+            variant="preview"
             transcription={transcription}
             provider={provider}
-            isPreview={true}
-            maxLines={2}
+            previewCount={2}
           />
         </div>
       )}
@@ -513,6 +515,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     document.head.appendChild(style);
   }
   const router = useRouter();
+  const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<TabValue>("all");
   const [_successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message (kept for future sync-status UI)
   const [_syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
@@ -529,7 +532,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
-  const [bulkProjectAssignment, setBulkProjectAssignment] = useState<string | null>(null);
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
   const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
@@ -549,7 +551,24 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
     }
   );
+  // Register lightweight page context for the AI agent. Counts only; the agent
+  // fetches actual meetings on demand via its `get-meeting-transcriptions` tool.
+  const meetingsPageContext = useMemo(() => {
+    if (!workspaceId) return null;
+    return {
+      pageType: "meetings-list",
+      pageTitle: "Meetings",
+      pagePath: pathname,
+      data: { workspaceId, meetingCount: transcriptions?.length ?? 0 },
+    };
+  }, [workspaceId, pathname, transcriptions?.length]);
+  useRegisterPageContext(meetingsPageContext, { clearOnUnmount: false });
+
   const { data: projects } = api.project.getAll.useQuery({});
+  // Cross-workspace, edit-scoped candidates for the placement picker (grouped
+  // by workspace). Distinct from `projects` above, which feeds the optimistic
+  // cache update and carries the full project shape.
+  const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
   const { data: workflows = [] } = api.workflow.list.useQuery();
   const { data: webhookLogsData, isLoading: isLoadingLogs, refetch: refetchLogs } = api.transcription.getWebhookLogs.useQuery(
     { workspaceId, limit: 50 },
@@ -571,9 +590,32 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // caller owns the session OR appears as a Participant with this userId.
   const { data: currentUser } = api.user.getCurrentUser.useQuery();
   const utils = api.useUtils();
-  
-  
-  const assignProjectMutation = api.transcription.associateWithProject.useMutation({
+
+  // On first load, heal the current user's unsummarized meetings on demand
+  // (one bounded server-side sweep, limit 10) instead of waiting for the hourly
+  // cron. Fires at most once per mount and only when a card is actually missing
+  // a summary; refetches the list when any summary lands.
+  const summariesSweptRef = useRef(false);
+  const { mutate: ensureMyMeetingSummaries } =
+    api.transcription.ensureMyMeetingSummaries.useMutation({
+      onSuccess: (result) => {
+        if (result.summarized > 0) {
+          void utils.transcription.getAllTranscriptions.invalidate();
+        }
+      },
+    });
+  useEffect(() => {
+    if (summariesSweptRef.current || isLoading || !transcriptions) return;
+    const hasUnsummarized = transcriptions.some(
+      (t) => !t.archivedAt && !t.summary?.trim(),
+    );
+    if (!hasUnsummarized) return;
+    summariesSweptRef.current = true;
+    ensureMyMeetingSummaries();
+  }, [isLoading, transcriptions, ensureMyMeetingSummaries]);
+
+
+  const assignProjectMutation = api.transcription.assignProject.useMutation({
     onMutate: async ({ transcriptionId, projectId }) => {
       // Cancel outgoing refetches
       await utils.transcription.getAllTranscriptions.cancel();
@@ -662,7 +704,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      setBulkProjectAssignment(null);
       void utils.transcription.getAllTranscriptions.invalidate();
     },
     onError: (error) => {
@@ -800,18 +841,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   };
 
   const handleProjectAssignment = (transcriptionId: string, projectId: string | null) => {
-    if (projectId) {
-      assignProjectMutation.mutate({
-        transcriptionId,
-        projectId,
-        autoProcess: false
-      });
-    }
-  };
-
-  const getProjectsForMeeting = (sessionWorkspaceId: string | null | undefined) => {
-    if (!sessionWorkspaceId) return [];
-    return (projects ?? []).filter(p => p.workspaceId === sessionWorkspaceId);
+    // projectId may be null to clear placement (Personal / no project). The
+    // assignProject endpoint routes through the placement service, so workspace
+    // and the meeting's Actions are re-homed to match.
+    assignProjectMutation.mutate({ transcriptionId, projectId });
   };
 
   const handleSlackSummaryModal = (session: any) => {
@@ -875,12 +908,12 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     setSelectedTranscriptionIds(new Set());
   };
 
-  const handleBulkProjectAssignment = async () => {
-    if (selectedTranscriptionIds.size === 0 || !bulkProjectAssignment) return;
-    
+  const handleBulkProjectAssignment = async (projectId: string | null) => {
+    if (selectedTranscriptionIds.size === 0) return;
+
     await bulkAssignProjectMutation.mutateAsync({
       transcriptionIds: Array.from(selectedTranscriptionIds),
-      projectId: bulkProjectAssignment === "none" ? null : bulkProjectAssignment,
+      projectId,
     });
   };
 
@@ -1181,6 +1214,25 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           Select all
                         </Button>
                       </Group>
+                      <Group gap="sm">
+                        {/* Placement: same searchable, workspace-grouped picker as the rows */}
+                        <MeetingProjectPicker
+                          projects={assignableProjects}
+                          value={null}
+                          onChange={(projectId) => void handleBulkProjectAssignment(projectId)}
+                        >
+                          {({ toggle }) => (
+                            <Button
+                              size="xs"
+                              variant="light"
+                              leftSection={<IconFolder size={14} />}
+                              onClick={toggle}
+                              loading={bulkAssignProjectMutation.isPending}
+                            >
+                              Assign to project
+                            </Button>
+                          )}
+                        </MeetingProjectPicker>
                       <Menu shadow="md">
                         <Menu.Target>
                           <Button size="xs" variant="filled" rightSection={<IconDotsVertical size={14} />}>
@@ -1188,27 +1240,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           </Button>
                         </Menu.Target>
                         <Menu.Dropdown>
-                          <Menu.Label>Project Assignment</Menu.Label>
-                          {projects?.map(project => (
-                            <Menu.Item
-                              key={project.id}
-                              leftSection={<IconFolder size={14} />}
-                              onClick={() => {
-                                setBulkProjectAssignment(project.id);
-                                void handleBulkProjectAssignment();
-                              }}
-                            >
-                              {project.name}
-                            </Menu.Item>
-                          ))}
-                          <Menu.Divider />
-                          <Menu.Item color="gray" onClick={() => {
-                            setBulkProjectAssignment("none");
-                            void handleBulkProjectAssignment();
-                          }}>
-                            Remove from Project
-                          </Menu.Item>
-                          <Menu.Divider />
                           <Menu.Item leftSection={<IconArchive size={14} />} onClick={() => void handleBulkArchive()}>
                             Archive Meetings
                           </Menu.Item>
@@ -1217,6 +1248,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           </Menu.Item>
                         </Menu.Dropdown>
                       </Menu>
+                      </Group>
                     </Group>
                   </Paper>
                 )}
@@ -1258,7 +1290,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                       </div>
                       <div className="flex min-w-0 flex-col gap-3">
                         {group.meetings.map((session) => {
-                      const projectsForWorkspace = getProjectsForMeeting(session.workspaceId);
                       const vmSession: MeetingCardSession = {
                         id: session.id,
                         sessionId: session.sessionId,
@@ -1354,60 +1385,36 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-start gap-3">
-                            {/* Project tag — colored variants by project hash */}
-                            {vm.projectPill && tagClass ? (
-                              <div onClick={stopBubble}>
-                                <Menu shadow="md" width={240}>
-                                  <Menu.Target>
+                            {/* Project placement — searchable, grouped by workspace, across all editable workspaces */}
+                            <div onClick={stopBubble}>
+                              <MeetingProjectPicker
+                                projects={assignableProjects}
+                                value={session.projectId}
+                                onChange={(projectId) => handleProjectAssignment(session.id, projectId)}
+                              >
+                                {({ toggle }) =>
+                                  vm.projectPill && tagClass ? (
                                     <button
                                       type="button"
+                                      onClick={toggle}
                                       className={`inline-flex h-[22px] max-w-[180px] items-center gap-1.5 truncate rounded px-2 text-[11.5px] font-medium ${tagClass.bg} ${tagClass.text}`}
                                     >
                                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${tagClass.dot}`} />
                                       <span className="truncate">{vm.projectPill.name}</span>
                                     </button>
-                                  </Menu.Target>
-                                  <Menu.Dropdown>
-                                    <Menu.Label>Reassign project</Menu.Label>
-                                    {projectsForWorkspace.map((p) => (
-                                      <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
-                                        {p.name}
-                                      </Menu.Item>
-                                    ))}
-                                    <Menu.Divider />
-                                    <Menu.Item color="gray" onClick={() => handleProjectAssignment(session.id, null)}>
-                                      Remove project
-                                    </Menu.Item>
-                                  </Menu.Dropdown>
-                                </Menu>
-                              </div>
-                            ) : (
-                              <div onClick={stopBubble}>
-                                <Menu shadow="md" width={240}>
-                                  <Menu.Target>
+                                  ) : (
                                     <button
                                       type="button"
+                                      onClick={toggle}
                                       className="inline-flex h-[22px] items-center gap-1 rounded border border-dashed border-border-strong px-2 text-[11.5px] text-text-muted hover:border-brand-400 hover:text-brand-400"
                                     >
                                       <IconFolder size={11} />
                                       <span>Assign to project</span>
                                     </button>
-                                  </Menu.Target>
-                                  <Menu.Dropdown>
-                                    <Menu.Label>Assign to project</Menu.Label>
-                                    {projectsForWorkspace.length === 0 ? (
-                                      <Menu.Item disabled>No projects in this workspace</Menu.Item>
-                                    ) : (
-                                      projectsForWorkspace.map((p) => (
-                                        <Menu.Item key={p.id} onClick={() => handleProjectAssignment(session.id, p.id)}>
-                                          {p.name}
-                                        </Menu.Item>
-                                      ))
-                                    )}
-                                  </Menu.Dropdown>
-                                </Menu>
-                              </div>
-                            )}
+                                  )
+                                }
+                              </MeetingProjectPicker>
+                            </div>
 
                             {/* Avatar stack — Participants (calendar invitees) */}
                             {vm.avatars.length > 0 && (
@@ -1661,11 +1668,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           {/* Meeting Preview */}
                           {session.transcription && (
                             <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800 opacity-75">
-                              <TranscriptionRenderer
+                              <TranscriptView
+                                variant="preview"
                                 transcription={session.transcription}
                                 provider={session.sourceIntegration?.provider}
-                                isPreview={true}
-                                maxLines={2}
+                                previewCount={2}
                               />
                             </Paper>
                           )}

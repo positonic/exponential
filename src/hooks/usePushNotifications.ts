@@ -56,10 +56,14 @@ export function usePushNotifications() {
     setPermission(Notification.permission as PushPermissionState);
 
     // Check if already subscribed
-    void navigator.serviceWorker.ready.then(async (registration) => {
-      const sub = await registration.pushManager.getSubscription();
-      setIsSubscribed(!!sub);
-    });
+    void navigator.serviceWorker.ready
+      .then(async (registration) => {
+        const sub = await registration.pushManager.getSubscription();
+        setIsSubscribed(!!sub);
+      })
+      .catch((err) => {
+        console.error("[Push] Failed to check existing subscription:", err);
+      });
   }, []);
 
   const subscribe = useCallback(async (): Promise<SubscribeResult> => {
@@ -86,6 +90,15 @@ export function usePushNotifications() {
 
       let subscription: PushSubscription;
       try {
+        // A stale subscription bound to a different (e.g. rotated) VAPID key
+        // makes subscribe() below throw InvalidStateError on every attempt,
+        // even across reloads, since push subscriptions outlive the page.
+        // Clear it first so we can always subscribe with the current key.
+        const existing = await registration.pushManager.getSubscription();
+        if (existing) {
+          await existing.unsubscribe();
+        }
+
         const applicationServerKey = urlBase64ToUint8Array(vapidData.publicKey);
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,

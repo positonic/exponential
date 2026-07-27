@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { IconCalendar, IconClock } from "@tabler/icons-react";
+import { IconAlertCircle, IconCalendar, IconClock } from "@tabler/icons-react";
 import type { Action } from "~/lib/actions/types";
 import { toVisualPriority } from "~/lib/actions/priority";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
@@ -15,6 +15,8 @@ import { TagChip, tagTone } from "./TagChip";
 interface TaskRowProps {
   action: Action;
   isOverdue?: boolean;
+  /** Relative age shown on overdue rows, e.g. "due 3d ago". Replaces the absolute due-date chip. */
+  overdueLabel?: string;
   focused?: boolean;
   bulkMode?: boolean;
   bulkSelected?: boolean;
@@ -28,6 +30,7 @@ interface TaskRowProps {
 export function TaskRow({
   action,
   isOverdue = false,
+  overdueLabel,
   focused = false,
   bulkMode = false,
   bulkSelected = false,
@@ -99,11 +102,18 @@ export function TaskRow({
           <HTMLContent html={action.name} compactUrls />
         </div>
         <div className="td-task__meta">
-          {due && (
-            <span className="td-task__meta-item">
-              <IconCalendar size={11} />
-              {formatAprDay(due)}
+          {isOverdue && overdueLabel ? (
+            <span className="td-task__meta-item td-task__meta-item--overdue">
+              <IconAlertCircle size={11} />
+              {overdueLabel}
             </span>
+          ) : (
+            due && (
+              <span className="td-task__meta-item">
+                <IconCalendar size={11} />
+                {formatAprDay(due)}
+              </span>
+            )
           )}
           {scheduled && (
             <span className="td-task__meta-item">
@@ -126,6 +136,22 @@ export function TaskRow({
         className="td-task__reschedule"
         onClick={(e) => e.stopPropagation()}
       >
+        {isOverdue && !bulkMode && onReschedule && (
+          <button
+            type="button"
+            className="td-task__quick"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReschedule(action.id, {
+                id: "today",
+                label: "Today",
+                date: new Date(),
+              });
+            }}
+          >
+            Today
+          </button>
+        )}
         <button
           type="button"
           className="td-task__action"

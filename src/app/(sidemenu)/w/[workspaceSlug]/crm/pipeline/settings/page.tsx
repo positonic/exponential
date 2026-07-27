@@ -1,48 +1,39 @@
 "use client";
 
-import { useEffect } from "react";
-import { Text, Loader, Stack, Paper } from "@mantine/core";
+import { useEffect, useState } from "react";
+import { Text, Loader, Stack, Paper, Group, Select } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { PipelineSettingsModal } from "~/app/_components/pipeline/PipelineSettingsModal";
 
 export default function PipelineSettingsPage() {
   const { workspace, workspaceId } = useWorkspace();
-
-  const utils = api.useUtils();
-
-  const {
-    data: pipeline,
-    isLoading: pipelineLoading,
-    error: pipelineError,
-  } = api.pipeline.get.useQuery(
-    { workspaceId: workspaceId! },
-    { enabled: !!workspaceId },
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(
+    null,
   );
 
-  const createPipelineMutation = api.pipeline.create.useMutation({
-    onSuccess: () => {
-      void utils.pipeline.get.invalidate({ workspaceId: workspaceId! });
-    },
-  });
+  const { data: pipelines, isLoading: pipelinesLoading } =
+    api.pipeline.list.useQuery(
+      { workspaceId: workspaceId! },
+      { enabled: !!workspaceId },
+    );
 
-  // Auto-create pipeline if none exists
   useEffect(() => {
+    if (!pipelines || pipelines.length === 0) return;
     if (
-      workspaceId &&
-      !pipelineLoading &&
-      !pipeline &&
-      !pipelineError &&
-      !createPipelineMutation.isPending &&
-      !createPipelineMutation.isSuccess
+      !selectedPipelineId ||
+      !pipelines.some((p) => p.id === selectedPipelineId)
     ) {
-      createPipelineMutation.mutate({ workspaceId });
+      setSelectedPipelineId(pipelines[0]!.id);
     }
-  }, [workspaceId, pipelineLoading, pipeline, pipelineError, createPipelineMutation]);
+  }, [pipelines, selectedPipelineId]);
+
+  const pipeline =
+    pipelines?.find((p) => p.id === selectedPipelineId) ?? pipelines?.[0];
 
   if (!workspace) return null;
 
-  if (pipelineLoading || createPipelineMutation.isPending) {
+  if (pipelinesLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader />
@@ -55,11 +46,24 @@ export default function PipelineSettingsPage() {
   // Render inline settings (not as a modal)
   return (
     <Stack gap="md">
-      <Text fw={600} size="xl">
-        Pipeline Settings
-      </Text>
+      <Group justify="space-between">
+        <Text fw={600} size="xl">
+          Pipeline Settings
+        </Text>
+        {pipelines && pipelines.length > 1 && (
+          <Select
+            aria-label="Select pipeline"
+            data={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+            value={pipeline.id}
+            onChange={(value) => value && setSelectedPipelineId(value)}
+            allowDeselect={false}
+            w={220}
+          />
+        )}
+      </Group>
       <Paper p="lg" radius="md" withBorder>
         <PipelineSettingsModal
+          key={pipeline.id}
           opened={true}
           onClose={() => {
             window.history.back();

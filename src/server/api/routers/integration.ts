@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { z } from "zod";
 import {
   createTRPCRouter,
@@ -3355,6 +3356,129 @@ export const integrationRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  // ==================== POSTMARK INTEGRATION ====================
+  // Per-workspace Postmark server token + from-address. Used by
+  // EmailService.resolvePostmark() so a workspace's notification / CRM /
+  // broadcast email ships from its own sender, falling back to the env default.
+
+  createPostmarkIntegration: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        apiKey: z.string().min(1, "Server API token is required"),
+        fromAddress: z.string().email("From address must be a valid email"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Only workspace owners/admins can change how the workspace sends email.
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin"] },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners or admins can configure Postmark.",
+        });
+      }
+
+      // One config per workspace: replace any existing one. Run the replace as a
+      // single transaction so a failure can't leave the workspace with an
+      // integration row and no credentials (which resolvePostmark would silently
+      // treat as "unconfigured") or with no integration at all.
+      const encryptedApiKey = encryptCredential(input.apiKey);
+      await ctx.db.$transaction(async (tx) => {
+        await tx.integration.deleteMany({
+          where: { provider: "postmark", workspaceId: input.workspaceId },
+        });
+
+        const integration = await tx.integration.create({
+          data: {
+            name: "Postmark",
+            type: "API_KEY",
+            provider: "postmark",
+            description: "Workspace email delivery via Postmark",
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+            status: "ACTIVE",
+          },
+        });
+
+        await tx.integrationCredential.createMany({
+          data: [
+            {
+              key: encryptedApiKey.key,
+              keyType: "api_key",
+              isEncrypted: encryptedApiKey.isEncrypted,
+              integrationId: integration.id,
+            },
+            {
+              key: input.fromAddress,
+              keyType: "from_address",
+              isEncrypted: false,
+              integrationId: integration.id,
+            },
+          ],
+        });
+      });
+
+      return { configured: true, fromAddress: input.fromAddress };
+    }),
+
+  // Get the workspace Postmark status. Never returns the token.
+  getWorkspacePostmarkStatus: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      const integration = await ctx.db.integration.findFirst({
+        where: { provider: "postmark", status: "ACTIVE", workspaceId: input.workspaceId },
+        include: { credentials: true },
+      });
+
+      if (!integration) return { configured: false as const };
+
+      const fromAddress = integration.credentials.find(
+        (c) => c.keyType === "from_address",
+      )?.key;
+
+      return { configured: true as const, fromAddress };
+    }),
+
+  removePostmarkIntegration: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin"] },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners or admins can remove Postmark.",
+        });
+      }
+
+      await ctx.db.integration.deleteMany({
+        where: { provider: "postmark", workspaceId: input.workspaceId },
+      });
+      return { success: true };
+    }),
+
   // ==================== ZULIP INTEGRATION ====================
 
   createZulipIntegration: protectedProcedure
@@ -3645,6 +3769,182 @@ export const integrationRouter = createTRPCRouter({
           integrationId: input.integrationId,
           userId: input.userId,
         },
+      });
+      return { success: true };
+    }),
+
+  // ==================== SENTRY INTEGRATION ====================
+  // Workspace-scoped Sentry webhook config. Each workspace gets its own inbound
+  // URL (`/api/webhooks/sentry/{webhookId}`) and its own signing secret, and
+  // routes filed bugs to a chosen destination Product (`providerConfig.productId`).
+  // The receiver (dynamic route) looks the integration up by `webhookId` and
+  // verifies the HMAC against the stored secret. The legacy global env-based
+  // `/api/webhooks/sentry` route stays as a fallback. Modeled on Postmark:
+  // transactional single-config-per-workspace replace, owner/admin guarded.
+
+  createSentryIntegration: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        productId: z.string(),
+        // Optional: let the caller supply their own secret (e.g. to rotate to a
+        // known value); otherwise we generate a strong random one.
+        webhookSecret: z.string().min(16).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Only workspace owners/admins can wire up an inbound webhook.
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin"] },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners or admins can configure Sentry.",
+        });
+      }
+
+      // The destination product must live in this workspace — otherwise a member
+      // could route another workspace's bugs into their own product.
+      const product = await ctx.db.product.findFirst({
+        where: { id: input.productId, workspaceId: input.workspaceId },
+        select: { id: true, name: true },
+      });
+      if (!product) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Destination product not found in this workspace.",
+        });
+      }
+
+      // `webhookId` is the public, unguessable URL segment; `secret` signs the
+      // payload (HMAC-SHA256), matching what the Sentry receiver verifies.
+      const webhookId = crypto.randomUUID();
+      const secret =
+        input.webhookSecret ?? crypto.randomBytes(32).toString("hex");
+      const encryptedSecret = encryptCredential(secret);
+
+      // One config per workspace: replace transactionally so a failure can't
+      // leave an integration row with no secret (which the receiver would treat
+      // as misconfigured) or a secret with no integration.
+      await ctx.db.$transaction(async (tx) => {
+        await tx.integration.deleteMany({
+          where: { provider: "sentry", workspaceId: input.workspaceId },
+        });
+
+        const integration = await tx.integration.create({
+          data: {
+            name: "Sentry",
+            type: "WEBHOOK",
+            provider: "sentry",
+            description: "Files Sentry issues as Bug Tickets in this workspace",
+            userId: ctx.session.user.id,
+            workspaceId: input.workspaceId,
+            webhookId,
+            providerConfig: { productId: input.productId },
+            status: "ACTIVE",
+          },
+        });
+
+        await tx.integrationCredential.create({
+          data: {
+            key: encryptedSecret.key,
+            keyType: "WEBHOOK_SECRET",
+            isEncrypted: encryptedSecret.isEncrypted,
+            integrationId: integration.id,
+          },
+        });
+      });
+
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+      return {
+        configured: true as const,
+        webhookId,
+        webhookUrl: `${baseUrl}/api/webhooks/sentry/${webhookId}`,
+        // Returned exactly once, for the user to copy into Sentry. Never exposed
+        // again by `getWorkspaceSentryStatus`.
+        webhookSecret: secret,
+        productId: product.id,
+        productName: product.name,
+      };
+    }),
+
+  // Workspace Sentry status. Returns the (non-secret) webhook URL + destination
+  // so the settings UI can render the connected state; never returns the secret.
+  getWorkspaceSentryStatus: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      const integration = await ctx.db.integration.findFirst({
+        where: {
+          provider: "sentry",
+          status: "ACTIVE",
+          workspaceId: input.workspaceId,
+        },
+        select: { id: true, webhookId: true, providerConfig: true },
+      });
+
+      if (!integration?.webhookId) return { configured: false as const };
+
+      const config = integration.providerConfig as {
+        productId?: string;
+      } | null;
+      const productId = config?.productId ?? null;
+      let productName: string | null = null;
+      if (productId) {
+        const product = await ctx.db.product.findUnique({
+          where: { id: productId },
+          select: { name: true },
+        });
+        productName = product?.name ?? null;
+      }
+
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+      return {
+        configured: true as const,
+        integrationId: integration.id,
+        webhookId: integration.webhookId,
+        webhookUrl: `${baseUrl}/api/webhooks/sentry/${integration.webhookId}`,
+        productId,
+        productName,
+      };
+    }),
+
+  removeWorkspaceSentry: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin"] },
+        },
+      });
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners or admins can remove Sentry.",
+        });
+      }
+
+      // Credentials cascade-delete with the integration.
+      await ctx.db.integration.deleteMany({
+        where: { provider: "sentry", workspaceId: input.workspaceId },
       });
       return { success: true };
     }),

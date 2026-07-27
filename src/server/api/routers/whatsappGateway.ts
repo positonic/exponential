@@ -6,6 +6,14 @@ import { generateJWT } from "~/server/utils/jwt";
 // Environment variable for gateway URL
 const WHATSAPP_GATEWAY_URL = process.env.WHATSAPP_GATEWAY_URL;
 
+// One WhatsApp group as returned by the gateway's
+// `GET /sessions/{sessionId}/groups` endpoint.
+interface WhatsAppGroup {
+  jid: string;
+  subject: string;
+  participants: number;
+}
+
 export const whatsappGatewayRouter = createTRPCRouter({
   // Check if gateway is configured
   isConfigured: protectedProcedure.query(() => {
@@ -217,6 +225,74 @@ export const whatsappGatewayRouter = createTRPCRouter({
         status: data.connected ? "CONNECTED" : "PENDING",
       };
     }),
+
+  // List the WhatsApp groups the caller's connected session belongs to, for the
+  // workspace "WhatsApp Groups" settings card (ADR-0023). Resolves the user's
+  // connected gateway session, then proxies the gateway's
+  // `GET /sessions/{sessionId}/groups`. Degrades gracefully: returns an empty
+  // list (never throws) when the gateway is unconfigured, no session is
+  // connected, or the gateway call fails — the card renders a connect hint.
+  getGroups: protectedProcedure.query(async ({ ctx }) => {
+    const empty = {
+      configured: false,
+      connected: false,
+      phoneNumber: null as string | null,
+      groups: [] as WhatsAppGroup[],
+      groupsError: null as string | null,
+    };
+
+    if (!WHATSAPP_GATEWAY_URL) return empty;
+
+    // `connected` reflects the user's CONNECTED gateway session (same source
+    // the WhatsApp Connection modal trusts via `listSessions`) — NOT whether
+    // the live group fetch succeeds. A failed fetch is reported separately in
+    // `groupsError` so the card never claims "not connected" when you are.
+    const session = await ctx.db.whatsAppGatewaySession.findFirst({
+      where: { userId: ctx.session.user.id, status: "CONNECTED" },
+      orderBy: { connectedAt: "desc" },
+    });
+
+    if (!session) return { ...empty, configured: true };
+
+    const base = {
+      configured: true,
+      connected: true,
+      phoneNumber: session.phoneNumber,
+      groups: [] as WhatsAppGroup[],
+      groupsError: null as string | null,
+    };
+
+    const authToken = generateJWT(ctx.session.user, {
+      tokenType: "whatsapp-gateway",
+    });
+
+    try {
+      const response = await fetch(
+        `${WHATSAPP_GATEWAY_URL}/sessions/${session.sessionId}/groups`,
+        { headers: { Authorization: `Bearer ${authToken}` } },
+      );
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        // A 404 here usually means the deployed gateway predates the
+        // `GET /sessions/{id}/groups` route (needs a `railway up`); 503 means
+        // the live socket isn't connected. Surface it instead of hiding it.
+        const groupsError = `gateway ${response.status}${
+          body ? `: ${body.slice(0, 200)}` : ""
+        }`;
+        console.error("[whatsappGateway] getGroups failed:", groupsError);
+        return { ...base, groupsError };
+      }
+
+      const data = (await response.json()) as { groups?: WhatsAppGroup[] };
+      return { ...base, groups: data.groups ?? [] };
+    } catch (error) {
+      const groupsError =
+        error instanceof Error ? error.message : String(error);
+      console.error("[whatsappGateway] getGroups error:", groupsError);
+      return { ...base, groupsError };
+    }
+  }),
 
   // List user's sessions
   listSessions: protectedProcedure.query(async ({ ctx }) => {

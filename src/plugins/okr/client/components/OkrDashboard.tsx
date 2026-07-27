@@ -26,6 +26,8 @@ import {
   IconHierarchy,
   IconSparkles,
   IconX,
+  IconLayoutDashboard,
+  IconLayoutDashboardFilled,
 } from "@tabler/icons-react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { PeriodTabs } from "./PeriodTabs";
@@ -159,6 +161,7 @@ export function OkrDashboard({
     new Set(),
   );
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
+  const [heroCardsVisible, setHeroCardsVisible] = useState(true);
 
   const [formData, setFormData] = useState({
     goalId: "",
@@ -632,6 +635,19 @@ export function OkrDashboard({
               )}
               <Button
                 variant="default"
+                leftSection={
+                  heroCardsVisible ? (
+                    <IconLayoutDashboardFilled size={14} />
+                  ) : (
+                    <IconLayoutDashboard size={14} />
+                  )
+                }
+                onClick={() => setHeroCardsVisible((v) => !v)}
+              >
+                {heroCardsVisible ? "Hide overview" : "Show overview"}
+              </Button>
+              <Button
+                variant="default"
                 leftSection={<IconHierarchy size={14} />}
                 disabled
               >
@@ -667,7 +683,7 @@ export function OkrDashboard({
         />
 
         {/* Hero cards */}
-        {visibleObjectives.length > 0 && (
+        {heroCardsVisible && visibleObjectives.length > 0 && (
           <OkrHeroCards
             objectives={visibleObjectives}
             period={effectivePeriod}

@@ -15,6 +15,7 @@
 
 import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient, TimeEntry } from "@prisma/client";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 export type TimeEntryWithAction = Prisma.TimeEntryGetPayload<{
   include: {
@@ -56,6 +57,21 @@ interface GetActiveInput {
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
+/**
+ * The data a just-completed TimeEntry needs to surface as a `time_entry`
+ * activity event. Collected inside the stop transaction so the activity write
+ * (which runs after commit, on the non-transactional client) has everything it
+ * needs without a follow-up read.
+ */
+interface CompletedEntry {
+  userId: string;
+  workspaceId: string | null;
+  actionId: string;
+  actionName: string | null;
+  startedAt: Date;
+  endedAt: Date;
+}
+
 export class TimeEntryService {
   constructor(private readonly db: PrismaClient) {}
 
@@ -73,8 +89,8 @@ export class TimeEntryService {
    * and tRPC error idioms live; the service trusts its caller for v1.
    */
   async start(input: StartInput): Promise<TimeEntryWithAction> {
-    return this.db.$transaction(async (tx) => {
-      await this.autoStopRunning(tx, input.userId);
+    const { created, autoStopped } = await this.db.$transaction(async (tx) => {
+      const stopped = await this.autoStopRunning(tx, input.userId);
 
       let actionId: string;
       let workspaceId: string | null;
@@ -110,7 +126,7 @@ export class TimeEntryService {
         workspaceId = created.workspaceId;
       }
 
-      return tx.timeEntry.create({
+      const entry = await tx.timeEntry.create({
         data: {
           userId: input.userId,
           actionId,
@@ -129,7 +145,16 @@ export class TimeEntryService {
           },
         },
       });
+
+      return { created: entry, autoStopped: stopped };
     });
+
+    // Starting a new timer silently completes any prior running one — surface
+    // that auto-stopped entry in the activity feed too, so no recorded time is
+    // lost from the feed. Emitted post-commit on the non-transactional client.
+    if (autoStopped) await this.recordTracked(autoStopped);
+
+    return created;
   }
 
   /**
@@ -142,7 +167,7 @@ export class TimeEntryService {
    * Throws BAD_REQUEST if the entry is already stopped.
    */
   async stop(input: StopInput): Promise<TimeEntryWithAction> {
-    return this.db.$transaction(async (tx) => {
+    const updated = await this.db.$transaction(async (tx) => {
       const entry = input.entryId
         ? await tx.timeEntry.findUnique({ where: { id: input.entryId } })
         : await tx.timeEntry.findFirst({
@@ -174,7 +199,7 @@ export class TimeEntryService {
       const endedAt = safeEndedAt(entry.startedAt);
       const mins = durationMinutes(entry.startedAt, endedAt);
 
-      const updated = await tx.timeEntry.update({
+      const result = await tx.timeEntry.update({
         where: { id: entry.id },
         data: { endedAt },
         include: {
@@ -196,8 +221,21 @@ export class TimeEntryService {
         });
       }
 
-      return updated;
+      return result;
     });
+
+    // Surface the completed recording in the activity feed. Post-commit and
+    // fire-and-forget: a feed-write failure must never fail the user's stop.
+    await this.recordTracked({
+      userId: updated.userId,
+      workspaceId: updated.workspaceId,
+      actionId: updated.actionId,
+      actionName: updated.action.name,
+      startedAt: updated.startedAt,
+      endedAt: updated.endedAt!,
+    });
+
+    return updated;
   }
 
   /**
@@ -448,14 +486,20 @@ export class TimeEntryService {
   /**
    * Internal: stamp endedAt on any currently-running entry for this user and
    * resync the parent Action's timeSpentMins. Used by `start` to enforce the
-   * single-timer-per-user invariant.
+   * single-timer-per-user invariant. Returns the completed entry's data (so the
+   * caller can emit a `time_entry` activity event after commit), or null when
+   * nothing was running.
    */
-  private async autoStopRunning(tx: Db, userId: string): Promise<void> {
+  private async autoStopRunning(
+    tx: Db,
+    userId: string,
+  ): Promise<CompletedEntry | null> {
     const running = await tx.timeEntry.findFirst({
       where: { userId, endedAt: null },
       orderBy: { startedAt: "desc" },
+      include: { action: { select: { name: true } } },
     });
-    if (!running) return;
+    if (!running) return null;
 
     // Must always stamp endedAt: leaving the entry running would let the
     // subsequent create() violate the one-running-timer-per-user unique index.
@@ -473,6 +517,41 @@ export class TimeEntryService {
         data: { timeSpentMins: { increment: mins } },
       });
     }
+
+    return {
+      userId: running.userId,
+      workspaceId: running.workspaceId,
+      actionId: running.actionId,
+      actionName: running.action.name,
+      startedAt: running.startedAt,
+      endedAt,
+    };
+  }
+
+  /**
+   * Emit a `time_entry` activity event for a just-completed recording so it
+   * shows up in the workspace + aggregated activity feeds. The Action name
+   * rides in metadata as the entity reference; the recorded duration rides in
+   * `durationMins` for future enrichment. The Action id is the entityId so the
+   * row can link to the task it tracked.
+   *
+   * Skipped for entries with no workspace (recordActivity requires a
+   * workspaceId — personal/no-workspace timers can't appear in a workspace
+   * feed). Fire-and-forget: instrumentation must never break a stop/start.
+   */
+  private async recordTracked(entry: CompletedEntry): Promise<void> {
+    if (!entry.workspaceId) return;
+    const durationMins = durationMinutes(entry.startedAt, entry.endedAt);
+    await recordActivity(this.db, {
+      workspaceId: entry.workspaceId,
+      userId: entry.userId,
+      entityType: "time_entry",
+      entityId: entry.actionId,
+      action: "created",
+      metadata: { title: entry.actionName ?? "Untitled", durationMins },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
   }
 }
 

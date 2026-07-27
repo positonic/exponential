@@ -25,11 +25,19 @@ import {
   durationMinutes,
   safeEndedAt,
 } from "../TimeEntryService";
+import { recordActivity } from "~/server/services/activity/recordActivity";
+
+// The service emits a `time_entry` activity event after each completed
+// recording. Mock it so the unit tests can assert the payload without a DB.
+vi.mock("~/server/services/activity/recordActivity", () => ({
+  recordActivity: vi.fn().mockResolvedValue(true),
+}));
 
 const dbMock: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 
 beforeEach(() => {
   mockReset(dbMock);
+  vi.mocked(recordActivity).mockClear();
   // Default: $transaction immediately invokes the callback with the same mock,
   // so per-method mocks set on dbMock are visible inside the transaction body.
   // (Casting is necessary because $transaction is overloaded.)
@@ -190,12 +198,16 @@ describe("TimeEntryService.start", () => {
 
   it("auto-stops a previously running entry and increments its action's timeSpentMins", async () => {
     const startedAt = new Date(Date.now() - 5 * 60_000); // 5 min ago
-    const running = buildEntry({
-      id: "entry-running",
-      actionId: "action-old",
-      startedAt,
-    });
-    dbMock.timeEntry.findFirst.mockResolvedValueOnce(running);
+    const running = {
+      ...buildEntry({
+        id: "entry-running",
+        actionId: "action-old",
+        startedAt,
+      }),
+      action: { name: "old task" },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findFirst.mockResolvedValueOnce(running as any);
     dbMock.action.create.mockResolvedValueOnce(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { id: "action-new", workspaceId: null } as any,
@@ -227,6 +239,50 @@ describe("TimeEntryService.start", () => {
     const inc = (incCall.data as any).timeSpentMins.increment as number;
     expect(inc).toBeGreaterThanOrEqual(4);
     expect(inc).toBeLessThanOrEqual(6);
+    // No workspace on the auto-stopped entry → no activity event (a workspace
+    // feed can't show a no-workspace recording).
+    expect(recordActivity).not.toHaveBeenCalled();
+  });
+
+  it("emits a time_entry activity event for the auto-stopped entry when it has a workspace", async () => {
+    const startedAt = new Date(Date.now() - 5 * 60_000); // 5 min ago
+    const running = {
+      ...buildEntry({
+        id: "entry-running",
+        actionId: "action-old",
+        workspaceId: "ws-7",
+        startedAt,
+      }),
+      action: { name: "old task" },
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findFirst.mockResolvedValueOnce(running as any);
+    dbMock.action.create.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "action-new", workspaceId: "ws-7" } as any,
+    );
+    dbMock.timeEntry.create.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildEntry({ id: "entry-new", actionId: "action-new", workspaceId: "ws-7" }) as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.start({ userId: "user-1", typedTitle: "next thing", workspaceId: "ws-7" });
+
+    expect(recordActivity).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({
+        workspaceId: "ws-7",
+        userId: "user-1",
+        entityType: "time_entry",
+        entityId: "action-old",
+        action: "created",
+        metadata: expect.objectContaining({
+          title: "old task",
+          durationMins: expect.any(Number),
+        }),
+      }),
+    );
   });
 });
 
@@ -250,6 +306,58 @@ describe("TimeEntryService.stop", () => {
         data: { timeSpentMins: { increment: expect.any(Number) } },
       }),
     );
+  });
+
+  it("emits a time_entry activity event after stopping a workspace-scoped timer", async () => {
+    const startedAt = new Date(Date.now() - 10 * 60_000); // 10 min ago
+    const running = buildEntry({
+      startedAt,
+      actionId: "action-x",
+      workspaceId: "ws-3",
+    });
+    dbMock.timeEntry.findFirst.mockResolvedValueOnce(running);
+    dbMock.timeEntry.update.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        ...running,
+        endedAt: new Date(),
+        action: { id: "action-x", name: "Deep work", projectId: null, workspaceId: "ws-3" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.stop({ userId: "user-1" });
+
+    expect(recordActivity).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({
+        workspaceId: "ws-3",
+        userId: "user-1",
+        entityType: "time_entry",
+        entityId: "action-x",
+        action: "created",
+        metadata: expect.objectContaining({
+          title: "Deep work",
+          durationMins: expect.any(Number),
+        }),
+      }),
+    );
+  });
+
+  it("does not emit an activity event when the stopped timer has no workspace", async () => {
+    const startedAt = new Date(Date.now() - 10 * 60_000);
+    const running = buildEntry({ startedAt, actionId: "action-x" });
+    dbMock.timeEntry.findFirst.mockResolvedValueOnce(running);
+    dbMock.timeEntry.update.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { ...running, endedAt: new Date(), action: { id: "action-x", name: "x", projectId: null, workspaceId: null } } as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.stop({ userId: "user-1" });
+
+    expect(recordActivity).not.toHaveBeenCalled();
   });
 
   it("throws NOT_FOUND when nothing is running", async () => {

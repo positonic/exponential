@@ -11,6 +11,7 @@ import {
   Title,
 } from "@mantine/core";
 import type { FirefliesSummary } from "~/server/services/FirefliesService";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 interface FirefliesSummaryProps {
   summary: FirefliesSummary;
@@ -149,19 +150,29 @@ function renderSummarySections(summary: FirefliesSummary) {
         </Accordion.Item>
       )}
 
-      {summary.shorthand_bullet && summary.shorthand_bullet.length > 0 && (
+      {((summary.detailed_breakdown?.trim().length ?? 0) > 0 ||
+        (summary.shorthand_bullet?.length ?? 0) > 0) && (
         <Accordion.Item value="shorthand-bullet">
           <Accordion.Control>
             <Title order={5}>Detailed Breakdown</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <List>
-              {summary.shorthand_bullet.map(
-                (point: string, index: number) => (
-                  <List.Item key={index}>{point}</List.Item>
-                ),
-              )}
-            </List>
+            {summary.detailed_breakdown?.trim() ? (
+              // Rich themed write-up (markdown). Older summaries that predate
+              // this field fall back to the flat bullet list below.
+              <MarkdownRenderer
+                content={summary.detailed_breakdown}
+                variant="prose"
+              />
+            ) : (
+              <List>
+                {(summary.shorthand_bullet ?? []).map(
+                  (point: string, index: number) => (
+                    <List.Item key={index}>{point}</List.Item>
+                  ),
+                )}
+              </List>
+            )}
           </Accordion.Panel>
         </Accordion.Item>
       )}

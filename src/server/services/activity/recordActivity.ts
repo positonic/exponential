@@ -4,14 +4,17 @@ import { env } from "~/env";
 /**
  * Significant workspace events that feed the home-page heatmap, activity feed,
  * and weekly-review sparkline. Each value is stored as the `action` column on
- * `WorkspaceActivityEvent` — keep this list in sync with the column comment.
+ * `WorkspaceActivityEvent` - keep this list in sync with the column comment.
  */
 export type ActivityAction =
   | "created"
   | "updated"
   | "status_changed"
   | "completed"
-  | "commented";
+  | "commented"
+  | "summarized"
+  | "synced"
+  | "reverted";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -22,15 +25,28 @@ export type ActivityEntityType =
   | "action_comment"
   | "ticket"
   | "ticket_comment"
+  | "feature"
+  | "feature_scope"
+  | "insight"
+  | "insight_comment"
   | "project"
   | "goal"
   | "weekly_review"
   | "workspace_member"
-  | "deal";
+  | "deal"
+  | "meeting"
+  | "time_entry"
+  | "channel_summary"
+  | "ticket_sync_run";
 
 export interface RecordActivityInput {
   workspaceId: string;
-  userId: string;
+  /**
+   * Acting user. Normally a real user id; `null` is permitted for system-actor
+   * events whose `ChannelLink.createdById` was cleared (the column is nullable,
+   * SET NULL on user delete). See ADR-0023 channel summaries.
+   */
+  userId: string | null;
   entityType: ActivityEntityType;
   entityId: string;
   action: ActivityAction;
@@ -39,7 +55,7 @@ export interface RecordActivityInput {
 
 /**
  * Append one row to `WorkspaceActivityEvent`. This is a fire-and-forget
- * primitive for write sites — it MUST NOT throw, because instrumentation
+ * primitive for write sites - it MUST NOT throw, because instrumentation
  * failures should never break the user's mutation.
  *
  * Behavior:
@@ -50,7 +66,7 @@ export interface RecordActivityInput {
  *   normally.
  *
  * Returns true on a successful write, false otherwise. Callers can ignore the
- * return value — it exists for tests and observability.
+ * return value - it exists for tests and observability.
  */
 export async function recordActivity(
   db: PrismaClient,
@@ -59,11 +75,11 @@ export async function recordActivity(
   if (!input.workspaceId) {
     if (env.NODE_ENV === "development") {
       throw new Error(
-        "[recordActivity] workspaceId is required — instrumentation call site is missing it",
+        "[recordActivity] workspaceId is required - instrumentation call site is missing it",
       );
     }
     console.warn(
-      "[recordActivity] missing workspaceId — skipping",
+      "[recordActivity] missing workspaceId - skipping",
       { entityType: input.entityType, entityId: input.entityId, action: input.action },
     );
     return false;

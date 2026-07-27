@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
+import { getElectronAPI, isElectron } from "~/lib/platform";
 import "~/styles/auth-surface.css";
 
 export function SignInLandingPage() {
@@ -20,6 +21,21 @@ export function SignInLandingPage() {
   const { data: providers } = api.auth.getConfiguredProviders.useQuery();
 
   const startSignIn = async (provider: string) => {
+    // In the Electron desktop app, in-window OAuth is a dead end: Chromium has
+    // no platform authenticator so Google passkeys can't complete, and provider
+    // cookies would land in the wrong context anyway. Hand off to the Electron
+    // main process, which runs the whole sign-in in the system browser and
+    // returns via the exponential:// deep link. All providers route this way.
+    if (isElectron()) {
+      setPendingProvider(provider);
+      try {
+        await getElectronAPI()?.startLogin();
+      } finally {
+        setPendingProvider(null);
+      }
+      return;
+    }
+
     setPendingProvider(provider);
     try {
       if (provider === "postmark") {

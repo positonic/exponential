@@ -110,7 +110,7 @@ const componentStyles = {
     },
   },
 
-  // Menu — Mantine does NOT apply the Popover theme override to Menu's internal
+  // Menu - Mantine does NOT apply the Popover theme override to Menu's internal
   // popover, so without this entry Menu.Dropdown falls back to the built-in dark
   // default (#25262b/gray). That default WINS over the `bg-surface-secondary`
   // Tailwind class under Turbopack (dev) but LOSES under webpack (prod), causing
@@ -180,7 +180,7 @@ const componentStyles = {
     },
   },
 
-  // InputBase — used as a custom target for Combobox/Autocomplete and
+  // InputBase - used as a custom target for Combobox/Autocomplete and
   // anywhere a TextInput-shaped wrapper is needed without TextInput itself.
   // Mantine doesn't inherit TextInput's defaults onto InputBase, so we mirror
   // them here so every InputBase picks up the theme tokens automatically.
@@ -214,7 +214,7 @@ const componentStyles = {
     },
   },
 
-  // NumberInput — Mantine does NOT inherit TextInput's defaults onto it, so
+  // NumberInput - Mantine does NOT inherit TextInput's defaults onto it, so
   // without this entry it falls back to the built-in dark default (#25262b),
   // clashing with our dark-blue surfaces. Mirror TextInput.
   NumberInput: {
@@ -368,7 +368,7 @@ const componentStyles = {
   },
 
   // DatePickerInput is also a separate Mantine component that does NOT inherit
-  // from DateInput. Same fallback issue as DateTimePicker — mirror DateInput.
+  // from DateInput. Same fallback issue as DateTimePicker - mirror DateInput.
   DatePickerInput: {
     defaultProps: {
       popoverProps: {
@@ -634,16 +634,10 @@ const componentStyles = {
     },
   },
 
-  // Text component
-  Text: {
-    defaultProps: {
-      styles: {
-        root: {
-          color: 'var(--color-text-primary)',
-        },
-      },
-    },
-  },
+  // Text: no inline-style color default. The theme's default text color is
+  // mapped via `body { --mantine-color-text: var(--color-text-primary) }` in
+  // globals.css - an inline style here would silently beat every Tailwind
+  // text utility (`text-text-muted` etc.) and flatten the type hierarchy.
 };
 
 /**
@@ -672,5 +666,5 @@ export function createAppTheme(
   });
 }
 
-// Default theme instance — preserves the existing import surface.
+// Default theme instance - preserves the existing import surface.
 export const mantineTheme = createAppTheme();

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -8,12 +8,20 @@ import { TRPCError } from "@trpc/server";
 //import { getSetups } from "~/server/services/videoService";
 import { uploadToBlob } from "~/lib/blob";
 import { FirefliesSyncService } from "~/server/services/FirefliesSyncService";
-import {
-  FirefliesService,
-  type FirefliesTranscript,
-} from "~/server/services/FirefliesService";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { FeatureIdeationService } from "~/server/services/FeatureIdeationService";
+import {
+  parseProposedTickets,
+  normalizeFeatureName,
+} from "~/server/services/FeatureExtractionService";
+import { TICKET_TYPES } from "~/lib/ticket-types";
+import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
+import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
+import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
+import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
+import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   TranscriptSummarizerService,
@@ -21,14 +29,20 @@ import {
 } from "~/server/services/TranscriptSummarizerService";
 import {
   buildTranscriptionAccessWhere,
-  canEditProject,
   canEditTranscription,
+  canEditWorkspaceContent,
   canViewTranscription,
   getProjectAccess,
+  getWorkspaceMembership,
   getTranscriptionAccess,
   hasProjectAccess,
   requireProjectAccess,
 } from "~/server/services/access";
+import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import { createHash } from "crypto";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -139,37 +153,250 @@ async function ensureTranscriptionAccess(
   });
 }
 
-/** Cap the transcript fed to the summarizer to bound LLM cost/latency. */
-const MAX_SUMMARY_TRANSCRIPT_CHARS = 200_000;
+/**
+ * Refuse a workspace write by a read-only member.
+ *
+ * `assertWorkspaceMember` (and therefore `loadProductWithAccess`) does not
+ * distinguish editors from viewers, so product-side writes that route only
+ * through it let a workspace *viewer* create Features and Tickets. Accepting a
+ * draft feature is exactly such a write, so it carries this explicit check on
+ * top. The role predicate itself lives in the access service — this is only the
+ * throwing wrapper.
+ */
+async function assertWorkspaceEditor(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<void> {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (canEditWorkspaceContent(membership?.role ?? null)) return;
+
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "You need edit access to this workspace to create features",
+  });
+}
 
 /**
- * Normalize a stored `transcription` field into readable plain text for the
- * summarizer. Fireflies sessions store a JSON `{ sentences: [...] }` blob;
- * device sessions store plain text. Returns "" when there's nothing to summarize.
+ * Load the identity columns `ensureTranscriptionAccess` needs, or 404.
  */
-function extractReadableTranscript(raw: string | null): string {
-  if (!raw) return "";
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return "";
+async function loadTranscriptionForAccess(db: PrismaClient, id: string) {
+  const session = await db.transcriptionSession.findUnique({
+    where: { id },
+    select: { id: true, userId: true, projectId: true, workspaceId: true },
+  });
+  if (!session) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Transcription not found",
+    });
+  }
+  return session;
+}
 
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      const sentences =
-        parsed && typeof parsed === "object" && "sentences" in parsed
-          ? (parsed as { sentences?: FirefliesTranscript["sentences"] })
-              .sentences
-          : undefined;
-      if (sentences?.length) {
-        return FirefliesService.formatTranscriptText(sentences);
+// Keep the denormalized `participantCount` in sync with the persisted
+// participant rows after an add/remove so the Meeting header stays honest.
+// Accepts a transaction client so the recount can run atomically with the
+// add/remove that triggered it.
+async function syncParticipantCount(
+  db: Prisma.TransactionClient,
+  transcriptionSessionId: string,
+): Promise<void> {
+  const count = await db.transcriptionSessionParticipant.count({
+    where: { transcriptionSessionId },
+  });
+  await db.transcriptionSession.update({
+    where: { id: transcriptionSessionId },
+    data: { participantCount: count },
+  });
+}
+
+// Shared shape for "a person to attach to a meeting": a workspace member
+// (userId), an existing CRM contact (contactId), or a free-text name/email.
+// Used by both addParticipant (one at a time) and createManualTranscription
+// (a batch attached at create time).
+const participantPersonSchema = z
+  .object({
+    userId: z.string().optional(),
+    contactId: z.string().optional(),
+    email: z.string().email().optional(),
+    name: z.string().trim().min(1).optional(),
+  })
+  .refine((v) => v.userId ?? v.contactId ?? v.email ?? v.name, {
+    message: "Provide a member, a contact, or a name/email",
+  });
+
+type ParticipantPerson = z.infer<typeof participantPersonSchema>;
+
+// Resolve one person into a meeting participant row and upsert it inside the
+// caller's transaction. Single source of truth for "turn a member / contact /
+// free-text person into a participant" — used by both addParticipant (detail
+// page, one at a time) and createManualTranscription (a batch on manual
+// create). Resolution covers workspace-member lookup, existing-contact linking
+// with email write-back for no-email contacts, and free-text emailHash
+// find-or-create (workspace-boundary safe). Does NOT recount participantCount —
+// the caller runs syncParticipantCount once after all participants resolve.
+async function upsertMeetingParticipant(
+  tx: Prisma.TransactionClient,
+  args: {
+    transcriptionSessionId: string;
+    workspaceId: string;
+    actorId: string;
+    person: ParticipantPerson;
+  },
+) {
+  const { transcriptionSessionId, workspaceId, actorId, person } = args;
+
+  // Denormalized fields stored on the participant row.
+  let userId: string | null = null;
+  let contactId: string | null = null;
+  let email: string | null = null;
+  let name: string | null = null;
+
+  if (person.userId) {
+    // Workspace member: verify membership in this Meeting's workspace.
+    const membership = await tx.workspaceUser.findFirst({
+      where: { userId: person.userId, workspaceId },
+    });
+    if (!membership) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "User is not a member of this workspace",
+      });
+    }
+    const user = await tx.user.findUnique({
+      where: { id: person.userId },
+      select: { id: true, name: true, email: true },
+    });
+    if (!user) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+    }
+    userId = user.id;
+    email = user.email ?? null;
+    name = user.name ?? null;
+  } else if (person.contactId) {
+    // Existing CRM contact in this workspace.
+    const contact = await tx.crmContact.findUnique({
+      where: { id: person.contactId },
+      select: {
+        id: true,
+        workspaceId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+    });
+    if (!contact || contact.workspaceId !== workspaceId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Contact must belong to this workspace",
+      });
+    }
+    contactId = contact.id;
+    name =
+      [contact.firstName, contact.lastName].filter(Boolean).join(" ") || null;
+
+    const existingEmail = decryptBuffer(contact.email);
+    if (existingEmail) {
+      email = existingEmail;
+    } else if (person.email) {
+      // The contact has no email on file: capture the one supplied at link
+      // time and write it back onto the CrmContact, so the contact record
+      // improves everywhere — not just this participant row.
+      const emailHash = createHash("sha256")
+        .update(person.email.toLowerCase().trim())
+        .digest("hex");
+      // emailHash uniqueness is workspace-scoped. If another contact in this
+      // workspace already owns this email, don't collide on update — surface a
+      // clear error. Contacts in other workspaces with the same email are fine.
+      const owner = await tx.crmContact.findUnique({
+        where: {
+          workspaceId_emailHash: { workspaceId, emailHash },
+        },
+        select: { id: true },
+      });
+      if (owner && owner.id !== contact.id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That email already belongs to another contact",
+        });
       }
-    } catch {
-      // Not JSON — fall through and treat the raw string as plain text.
+      await tx.crmContact.update({
+        where: { id: contact.id },
+        data: { email: encryptString(person.email), emailHash },
+      });
+      email = person.email;
+    }
+  } else {
+    // Free-text. If we have an email, link (or create) a CRM contact so the
+    // person lands in the CRM.
+    name = person.name ?? null;
+    email = person.email ?? null;
+
+    if (person.email) {
+      const emailHash = createHash("sha256")
+        .update(person.email.toLowerCase().trim())
+        .digest("hex");
+      // emailHash uniqueness is workspace-scoped, so look up within this
+      // Meeting's workspace. The same email may exist as a contact in other
+      // workspaces; that's allowed and irrelevant here.
+      let contact = await tx.crmContact.findUnique({
+        where: {
+          workspaceId_emailHash: { workspaceId, emailHash },
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+        },
+      });
+      if (!contact) {
+        const [firstName, ...rest] = (person.name ?? "").trim().split(/\s+/);
+        contact = await tx.crmContact.create({
+          data: {
+            workspaceId,
+            createdById: actorId,
+            firstName: firstName || null,
+            lastName: rest.length > 0 ? rest.join(" ") : null,
+            email: encryptString(person.email),
+            emailHash,
+            importSource: "MANUAL",
+          },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        });
+      }
+      // The lookup/insert above is workspace-scoped, so the returned contact
+      // necessarily belongs to this Meeting's workspace.
+      contactId = contact.id;
+      if (!name) {
+        name =
+          [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
+          null;
+      }
     }
   }
 
-  return trimmed;
+  // The unique key is [transcriptionSessionId, email]. Real people have an
+  // email; name-only entries fall back to a stable `name:<lowercased>` sentinel
+  // so repeated adds dedupe instead of colliding on "".
+  const dedupeKey = email ?? `name:${(name ?? "").toLowerCase()}`;
+  const baseData = { workspaceId, userId, contactId, name };
+  return tx.transcriptionSessionParticipant.upsert({
+    where: {
+      transcriptionSessionId_email: {
+        transcriptionSessionId,
+        email: dedupeKey,
+      },
+    },
+    create: { transcriptionSessionId, email: dedupeKey, ...baseData },
+    update: baseData,
+  });
 }
+
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
@@ -207,6 +434,13 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
+
+      // NOTE: no activity event here. A device session is created empty (no
+      // transcript, title usually null) and may be abandoned, so emitting at
+      // start would render "had a meeting <CUID>" and log non-meetings. Device
+      // meetings should be instrumented at a "landed + titled" hook in a
+      // follow-up (coordinating with the auto-summarize work). The manual path
+      // (createManualTranscription) emits on completion with a required title.
 
       return {
         id: session.id,
@@ -377,6 +611,14 @@ export const transcriptionRouter = createTRPCRouter({
               isHost: true,
               userId: true,
               contactId: true,
+            },
+          },
+          // Meeting owner/recorder — the "me" side a device Me:/Them: transcript
+          // is written from. Used to resolve participant identity tone.
+          user: {
+            select: {
+              id: true,
+              email: true,
             },
           },
           actions: {
@@ -602,43 +844,267 @@ export const transcriptionRouter = createTRPCRouter({
         notes: z.string().optional(),
         projectId: z.string().optional(),
         workspaceId: z.string().optional(),
+        // Participants to attach atomically with the meeting (linked CRM
+        // contacts and/or new name+email people). Resolved via the same
+        // helper as addParticipant.
+        participants: z.array(participantPersonSchema).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const session = await ctx.db.transcriptionSession.create({
-        data: {
-          sessionId: `manual_${Date.now()}`,
-          title: input.title,
-          description: input.description ?? null,
-          transcription: input.transcription,
-          meetingDate: input.meetingDate ?? null,
-          notes: input.notes ?? null,
-          projectId: input.projectId ?? null,
-          workspaceId: input.workspaceId ?? null,
+      const participants = input.participants ?? [];
+
+      // A project-linked Meeting always inherits its Project's Workspace
+      // (CONTEXT.md → Meeting↔Workspace): a meeting with a Project but no
+      // Workspace is an incoherent state that breaks participant management
+      // (TranscriptionSessionParticipant.workspaceId is non-null). Enforce the
+      // invariant server-side so it holds regardless of caller — when a project
+      // is supplied the project's workspace is authoritative, never the caller's
+      // workspaceId. A caller-supplied workspaceId that disagrees with the
+      // project is a coherence bug, so reject it rather than silently override.
+      let workspaceId = input.workspaceId ?? null;
+      if (input.projectId) {
+        const project = await ctx.db.project.findUnique({
+          where: { id: input.projectId },
+          select: { workspaceId: true },
+        });
+        if (
+          input.workspaceId &&
+          project?.workspaceId &&
+          input.workspaceId !== project.workspaceId
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "workspaceId does not match the project's workspace; a project-linked meeting inherits its project's workspace.",
+          });
+        }
+        workspaceId = project?.workspaceId ?? null;
+      }
+
+      // Participants are workspace-scoped (members + CRM), so a meeting with no
+      // workspace can't carry them. Reject rather than silently dropping them.
+      // Use the resolved workspaceId so a project-linked meeting can carry
+      // participants via the project's workspace even without an explicit one.
+      if (participants.length > 0 && !workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot add participants to a meeting with no workspace",
+        });
+      }
+
+      // Create the meeting and resolve every participant in ONE transaction: a
+      // meeting is never created with participants silently failing to attach,
+      // and there's no N+1 round-trip from the client. Any participant that
+      // fails to resolve rolls the whole thing back.
+      const session = await ctx.db.$transaction(
+        async (tx) => {
+          const created = await tx.transcriptionSession.create({
+            data: {
+              sessionId: `manual_${Date.now()}`,
+              title: input.title,
+              description: input.description ?? null,
+              transcription: input.transcription,
+              meetingDate: input.meetingDate ?? null,
+              notes: input.notes ?? null,
+              projectId: input.projectId ?? null,
+              workspaceId,
+              userId: ctx.session.user.id,
+            },
+            include: {
+              sourceIntegration: {
+                select: {
+                  id: true,
+                  provider: true,
+                  name: true,
+                },
+              },
+              actions: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  status: true,
+                  priority: true,
+                  dueDate: true,
+                },
+              },
+            },
+          });
+
+          if (participants.length > 0 && workspaceId) {
+            for (const person of participants) {
+              await upsertMeetingParticipant(tx, {
+                transcriptionSessionId: created.id,
+                workspaceId,
+                actorId: ctx.session.user.id,
+                person,
+              });
+            }
+            await syncParticipantCount(tx, created.id);
+          }
+
+          return created;
+        },
+        { timeout: 20000 },
+      );
+
+      // Record a workspace activity event when a meeting lands (ADR-0018): one
+      // write surfaces it in the workspace feed, the aggregated /activity feed,
+      // and the weekly work digest. Skipped for personal (no-workspace) meetings
+      // since recordActivity requires a workspaceId. The title rides in metadata
+      // so describeEntityRef renders the title, not a CUID. Fire-and-forget:
+      // recordActivity never throws, but the .catch keeps instrumentation
+      // failures non-fatal.
+      if (session.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: session.workspaceId,
           userId: ctx.session.user.id,
-        },
-        include: {
-          sourceIntegration: {
-            select: {
-              id: true,
-              provider: true,
-              name: true,
-            },
-          },
-          actions: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              status: true,
-              priority: true,
-              dueDate: true,
-            },
-          },
-        },
-      });
+          entityType: "meeting",
+          entityId: session.id,
+          action: "created",
+          metadata: { title: session.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      // Notify workspace members tagged as participants (ADR-0045 pipeline).
+      // Only member (userId) participants are notifiable — CRM-contact /
+      // free-text people have no User account. The actor is dropped downstream.
+      const memberUserIds = participants
+        .map((p) => p.userId)
+        .filter((id): id is string => !!id);
+      if (session.workspaceId && memberUserIds.length > 0) {
+        void emitNotification({
+          db: ctx.db,
+          category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+          actorUserId: ctx.session.user.id,
+          subject: { sessionId: session.id, participantUserIds: memberUserIds },
+        });
+      }
 
       return session;
+    }),
+
+  // Add a participant to a Meeting. The person may be a workspace member
+  // (userId), an existing CRM contact (contactId), or a free-text name/email.
+  // Free-text people who aren't workspace members are persisted as CRM
+  // contacts in the Meeting's workspace so the CRM stays the source of truth.
+  addParticipant: protectedProcedure
+    .input(
+      z
+        .object({
+          transcriptionSessionId: z.string(),
+          userId: z.string().optional(),
+          contactId: z.string().optional(),
+          email: z.string().email().optional(),
+          name: z.string().trim().min(1).optional(),
+        })
+        .refine((v) => v.userId ?? v.contactId ?? v.email ?? v.name, {
+          message: "Provide a member, a contact, or a name/email",
+        }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionSessionId },
+        select: { id: true, userId: true, projectId: true, workspaceId: true },
+      });
+      if (!session) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      // Participant rows require a workspace (members + CRM are workspace
+      // scoped), so a meeting with no workspace can't have managed participants.
+      if (!session.workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot manage participants on a meeting with no workspace",
+        });
+      }
+      const workspaceId = session.workspaceId;
+
+      // Resolve + upsert the participant and recount in one transaction so the
+      // denormalized `participantCount` can't drift under concurrent edits.
+      // Resolution (member / contact / free-text) is shared with
+      // createManualTranscription via upsertMeetingParticipant.
+      const participant = await ctx.db.$transaction(async (tx) => {
+        const row = await upsertMeetingParticipant(tx, {
+          transcriptionSessionId: session.id,
+          workspaceId,
+          actorId: ctx.session.user.id,
+          person: input,
+        });
+        await syncParticipantCount(tx, session.id);
+        return row;
+      });
+
+      // Notify the tagged workspace member (ADR-0045 pipeline). Only the member
+      // (userId) path is notifiable; CRM-contact / free-text adds resolve to a
+      // contact with no User account. Fire-and-forget; the actor is dropped
+      // downstream (self-adds don't self-notify).
+      if (input.userId) {
+        void emitNotification({
+          db: ctx.db,
+          category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+          actorUserId: ctx.session.user.id,
+          subject: {
+            sessionId: session.id,
+            participantUserIds: [input.userId],
+          },
+        });
+      }
+
+      return participant;
+    }),
+
+  // Remove a persisted participant row. Derived (transcript-speaker) entries
+  // are not real rows and can't be removed here.
+  removeParticipant: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const participant =
+        await ctx.db.transcriptionSessionParticipant.findUnique({
+          where: { id: input.id },
+          select: {
+            id: true,
+            transcriptionSessionId: true,
+            transcriptionSession: {
+              select: {
+                id: true,
+                userId: true,
+                projectId: true,
+                workspaceId: true,
+              },
+            },
+          },
+        });
+      if (!participant) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Participant not found",
+        });
+      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        participant.transcriptionSession,
+        "edit",
+      );
+      // Delete the row and recount atomically so `participantCount` stays
+      // consistent with the surviving rows.
+      await ctx.db.$transaction(async (tx) => {
+        await tx.transcriptionSessionParticipant.delete({
+          where: { id: participant.id },
+        });
+        await syncParticipantCount(tx, participant.transcriptionSessionId);
+      });
+      return { success: true };
     }),
 
   // Get transcriptions for a specific project (used by ManyChat agent context).
@@ -816,61 +1282,18 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify the user can edit the source transcription.
-      const existing = await ctx.db.transcriptionSession.findUnique({
+      // Single placement path: resolves the project's workspace, enforces edit
+      // access on the meeting and the target project, and re-homes the meeting
+      // AND its Actions (projectId + workspaceId) together.
+      await assignMeetingPlacement(ctx.db, ctx.session.user.id, {
+        meetingIds: [input.transcriptionId],
+        projectId: input.projectId,
+        scope: "editable",
+      });
+
+      return ctx.db.transcriptionSession.findUniqueOrThrow({
         where: { id: input.transcriptionId },
-        select: { id: true, userId: true, projectId: true, workspaceId: true },
       });
-      if (!existing) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Transcription not found",
-        });
-      }
-      await ensureTranscriptionAccess(
-        ctx.db,
-        ctx.session.user.id,
-        existing,
-        "edit",
-      );
-
-      // Verify the user can edit the target project, and resolve its workspace.
-      let workspaceId: string | null = null;
-      if (input.projectId) {
-        const targetAccess = await getProjectAccess(
-          ctx.db,
-          ctx.session.user.id,
-          input.projectId,
-        );
-        if (!canEditProject(targetAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not have edit access to the target project",
-          });
-        }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        workspaceId = project?.workspaceId ?? null;
-      }
-
-      const session = await ctx.db.transcriptionSession.update({
-        where: { id: input.transcriptionId },
-        data: {
-          projectId: input.projectId,
-          workspaceId,
-          updatedAt: new Date(),
-        },
-      });
-
-      // Also update all associated actions to the same project
-      await ctx.db.action.updateMany({
-        where: { transcriptionSessionId: input.transcriptionId },
-        data: { projectId: input.projectId },
-      });
-
-      return session;
     }),
 
   bulkAssignProject: protectedProcedure
@@ -881,51 +1304,17 @@ export const transcriptionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify the user can edit the target project, and resolve its workspace.
-      let workspaceId: string | null = null;
-      if (input.projectId) {
-        const targetAccess = await getProjectAccess(
-          ctx.db,
-          ctx.session.user.id,
-          input.projectId,
-        );
-        if (!canEditProject(targetAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not have edit access to the target project",
-          });
-        }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        workspaceId = project?.workspaceId ?? null;
-      }
-
-      // Sources are scoped to user-owned transcriptions to keep bulk
-      // semantics narrow — broader source access can be added once the UI
-      // exposes shared transcriptions.
-      const result = await ctx.db.transcriptionSession.updateMany({
-        where: {
-          id: { in: input.transcriptionIds },
-          userId: ctx.session.user.id,
-        },
-        data: {
+      // Bulk placement: narrow "owner" scope (only the caller's own meetings are
+      // touched). Same service re-homes each meeting AND its Actions together.
+      const result = await assignMeetingPlacement(
+        ctx.db,
+        ctx.session.user.id,
+        {
+          meetingIds: input.transcriptionIds,
           projectId: input.projectId,
-          workspaceId,
-          updatedAt: new Date(),
+          scope: "owner",
         },
-      });
-
-      // Also update actions of the transcriptions we just touched. Mirror
-      // the source userId scope so we don't touch other users' actions.
-      await ctx.db.action.updateMany({
-        where: {
-          transcriptionSessionId: { in: input.transcriptionIds },
-          transcriptionSession: { userId: ctx.session.user.id },
-        },
-        data: { projectId: input.projectId },
-      });
+      );
 
       return { count: result.count };
     }),
@@ -1320,10 +1709,12 @@ export const transcriptionRouter = createTRPCRouter({
         where: { id: input.transcriptionId },
         select: {
           id: true,
+          title: true,
           userId: true,
           projectId: true,
           workspaceId: true,
           transcription: true,
+          summary: true,
         },
       });
 
@@ -1341,42 +1732,40 @@ export const transcriptionRouter = createTRPCRouter({
         "edit",
       );
 
-      const transcriptText = extractReadableTranscript(session.transcription);
-      if (transcriptText.trim().length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "This meeting has no transcript to summarize",
-        });
-      }
+      // Explicit user-triggered generation re-summarizes through the shared
+      // path (overwriteExisting) so the manual button can refresh a summary.
+      const outcome = await summarizeMeetingRow(ctx.db, session, {
+        overwriteExisting: true,
+      });
 
-      try {
-        const summary =
-          await TranscriptSummarizerService.summarizeToFirefliesSummary(
-            transcriptText.slice(0, MAX_SUMMARY_TRANSCRIPT_CHARS),
-          );
-        return ctx.db.transcriptionSession.update({
-          where: { id: session.id },
-          data: {
-            summary: JSON.stringify(summary, null, 2),
-            updatedAt: new Date(),
-          },
-          select: { id: true, summary: true },
-        });
-      } catch (error) {
-        if (error instanceof SummarizationNotConfiguredError) {
+      switch (outcome.status) {
+        case "no-transcript":
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This meeting has no transcript to summarize",
+          });
+        case "not-configured":
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: error.message,
+            message:
+              "Server summarization is not configured (missing OPENAI_API_KEY).",
           });
-        }
-        console.error("[transcription.generateSummary] failed:", error);
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to generate summary",
-          cause: error,
-        });
+        case "created":
+          return { id: session.id, summary: outcome.summary ?? null };
+        default:
+          // already-had / not-found shouldn't occur here (we just loaded the
+          // row and pass overwriteExisting), but fall back to the stored value.
+          return { id: session.id, summary: session.summary };
       }
     }),
+
+  // On-view list trigger: heal the current user's unsummarized meetings on
+  // demand instead of waiting for the hourly cron. Runs the SAME bounded sweep
+  // as the cron (limit 10), scoped to the caller, so a page load fires one
+  // server-side batch rather than a burst of per-card client mutations.
+  ensureMyMeetingSummaries: protectedProcedure.mutation(async ({ ctx }) => {
+    return runMeetingSummarySweep(ctx.db, { userId: ctx.session.user.id });
+  }),
 
   generateDraftActions: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
@@ -1515,6 +1904,352 @@ export const transcriptionRouter = createTRPCRouter({
       }
 
       return { publishedCount: result.count };
+    }),
+
+  // ────────────────────────────────────────────────────────────────
+  // Feature ideation (meeting → product features & backlog tickets).
+  //
+  // Same shape as the draft-Actions trio above: a mutation that runs
+  // deterministic extraction into a holding table, a query that feeds the
+  // review card, and a publish mutation that materialises what the human
+  // accepted. Drafts live in `MeetingFeatureDraft`, never in `Feature` —
+  // nothing reaches the feature registry without review.
+  // ────────────────────────────────────────────────────────────────
+
+  generateDraftFeatures: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        // Optional free-text steer from the V2 chat path ("focus on the
+        // ingestion parts"). Bounded and treated as untrusted data downstream.
+        focus: boundedText("Focus", TEXT_LIMITS.SHORT).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Assert access at the router boundary like every sibling procedure,
+      // rather than leaning on the service's internal check. The service
+      // mirrors generateDraftActions, whose owner-first check waves through a
+      // project-less meeting for any caller; the centralized transcription
+      // resolver handles project-less sessions properly (workspace members can
+      // edit, viewers cannot) and re-checks an owner who has since lost
+      // workspace access. Ideation writes draft rows, so "edit", not "view".
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      const result = await FeatureIdeationService.generateDraftFeatures(
+        input.transcriptionId,
+        ctx.session.user.id,
+        { focus: input.focus },
+      );
+
+      if (!result.success) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: result.errors.join(", ") || "Failed to ideate features",
+        });
+      }
+
+      return result;
+    }),
+
+  getDraftFeaturesByTranscription: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "view",
+      );
+
+      const drafts = await ctx.db.meetingFeatureDraft.findMany({
+        where: { transcriptionSessionId: input.transcriptionId },
+        orderBy: { createdAt: "asc" },
+      });
+
+      // Hand the card a typed breakdown rather than a raw JsonValue.
+      return drafts.map((draft) => ({
+        id: draft.id,
+        name: draft.name,
+        description: draft.description,
+        vision: draft.vision,
+        tickets: parseProposedTickets(draft.tickets),
+      }));
+    }),
+
+  // Near-duplicate check (V3), run when the card has a target product picked.
+  // For each draft, find existing features in that product whose normalized
+  // name matches — a warning surface, NOT a gate: the accept mutation does not
+  // consult this and creates the Feature regardless. Deliberately narrow per
+  // the scope: exact normalized-name match, same product only, no embeddings,
+  // no cross-product comparison.
+  findDuplicateFeatures: protectedProcedure
+    .input(z.object({ transcriptionId: z.string(), productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "view",
+      );
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.productId,
+      );
+
+      const drafts = await ctx.db.meetingFeatureDraft.findMany({
+        where: { transcriptionSessionId: input.transcriptionId },
+        select: { id: true, name: true },
+      });
+      const existing = await ctx.db.feature.findMany({
+        where: { productId: product.id },
+        select: { id: true, name: true },
+      });
+
+      // Index existing features by normalized name once, then look each draft up.
+      const byNormalized = new Map<string, { id: string; name: string }[]>();
+      for (const feature of existing) {
+        const key = normalizeFeatureName(feature.name);
+        const bucket = byNormalized.get(key);
+        if (bucket) {
+          bucket.push(feature);
+        } else {
+          byNormalized.set(key, [feature]);
+        }
+      }
+
+      return drafts
+        .map((draft) => ({
+          draftId: draft.id,
+          matches: byNormalized.get(normalizeFeatureName(draft.name)) ?? [],
+        }))
+        .filter((row) => row.matches.length > 0);
+    }),
+
+  publishSelectedDraftFeatures: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        draftIds: z.array(z.string()).min(1),
+        // Required by design: a workspace can hold several products, and
+        // inferring the target from the meeting would let one product's
+        // meeting silently write features into another.
+        productId: z.string(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(ctx.db, userId, session, "edit");
+
+      const product = await loadProductWithAccess(
+        ctx.db,
+        userId,
+        input.productId,
+      );
+      // Membership got us this far; writing Features and Tickets needs more.
+      await assertWorkspaceEditor(ctx.db, userId, product.workspaceId);
+
+      const drafts = await ctx.db.meetingFeatureDraft.findMany({
+        where: {
+          id: { in: input.draftIds },
+          transcriptionSessionId: input.transcriptionId,
+        },
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (drafts.length === 0) {
+        return { featuresCreated: 0, ticketsCreated: 0, featureIds: [] };
+      }
+
+      const featureIds: string[] = [];
+      let ticketsCreated = 0;
+
+      for (const draft of drafts) {
+        // Mirrors `feature.create`: `description` is the Markdown projection and
+        // `descriptionDoc` stays null until the editor first opens it (ADR-0024).
+        const feature = await ctx.db.feature.create({
+          data: {
+            productId: product.id,
+            name: draft.name,
+            description: draft.description,
+            vision: draft.vision,
+            status: "IDEA",
+            createdById: userId,
+            // Provenance (V3): record the meeting this Feature came from, so the
+            // feature view can link back to it.
+            sourceTranscriptionId: input.transcriptionId,
+          },
+        });
+        featureIds.push(feature.id);
+
+        await recordActivity(ctx.db, {
+          workspaceId: product.workspaceId,
+          userId,
+          entityType: "feature",
+          entityId: feature.id,
+          action: "created",
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+
+        // Ticket creation goes through the shared service (ADR-0016) — it owns
+        // the atomic product-counter increment, the shortId, and the activity
+        // write. Raw `db.ticket.create` here would yield malformed tickets.
+        for (const proposed of parseProposedTickets(draft.tickets)) {
+          await createTicketWithNumber(ctx.db, {
+            productId: product.id,
+            workspaceId: product.workspaceId,
+            createdById: userId,
+            title: proposed.title,
+            body: proposed.body ?? null,
+            type: proposed.type,
+            status: "BACKLOG",
+            featureId: feature.id,
+          });
+          ticketsCreated += 1;
+        }
+      }
+
+      // Drain the accepted drafts — the real Features now carry them.
+      await ctx.db.meetingFeatureDraft.deleteMany({
+        where: { id: { in: drafts.map((draft) => draft.id) } },
+      });
+
+      return {
+        featuresCreated: featureIds.length,
+        ticketsCreated,
+        featureIds,
+      };
+    }),
+
+  // Editing happens on the DRAFT, before anything is materialised — the
+  // reviewer sharpens a name or drops a proposed ticket, then accepts. Editing
+  // after accepting is ordinary Feature/Ticket editing and not this path.
+  updateDraftFeature: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        draftId: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        description: boundedText("Description", TEXT_LIMITS.LARGE)
+          .nullable()
+          .optional(),
+        vision: boundedText("Vision", TEXT_LIMITS.SHORT).nullable().optional(),
+        tickets: z
+          .array(
+            z.object({
+              title: boundedText("Ticket title", TEXT_LIMITS.LABEL, { min: 1 }),
+              body: boundedText("Ticket body", TEXT_LIMITS.LARGE)
+                .nullable()
+                .optional(),
+              type: z.enum(TICKET_TYPES).optional(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      // Scoped to the transcription so a draft id from another meeting can't be
+      // edited through this meeting's card.
+      const draft = await ctx.db.meetingFeatureDraft.findFirst({
+        where: {
+          id: input.draftId,
+          transcriptionSessionId: input.transcriptionId,
+        },
+        select: { id: true },
+      });
+      if (!draft) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Draft feature not found",
+        });
+      }
+
+      return ctx.db.meetingFeatureDraft.update({
+        where: { id: draft.id },
+        data: {
+          ...(input.name === undefined ? {} : { name: input.name }),
+          ...(input.description === undefined
+            ? {}
+            : { description: input.description }),
+          ...(input.vision === undefined ? {} : { vision: input.vision }),
+          ...(input.tickets === undefined
+            ? {}
+            : {
+                tickets: input.tickets.map((ticket) => ({
+                  title: ticket.title,
+                  body: ticket.body ?? null,
+                  type: ticket.type ?? "FEATURE",
+                })),
+              }),
+        },
+        select: { id: true },
+      });
+    }),
+
+  // Rejecting a draft deletes the holding row and touches nothing else — the
+  // feature registry never saw it in the first place.
+  discardDraftFeatures: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        draftIds: z.array(z.string()).min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      // Scoped to the transcription as well as the ids, so a draft id from
+      // another meeting can't be deleted through this meeting's card.
+      const result = await ctx.db.meetingFeatureDraft.deleteMany({
+        where: {
+          id: { in: input.draftIds },
+          transcriptionSessionId: input.transcriptionId,
+        },
+      });
+
+      return { discardedCount: result.count };
     }),
 
   sendSlackNotification: protectedProcedure

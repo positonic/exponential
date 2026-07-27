@@ -5,6 +5,8 @@ import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
 import { decryptFromBase64 } from '~/server/utils/encryption';
+import { emitNotification } from '~/server/services/notifications/emit/emitNotification';
+import { NOTIFICATION_CATEGORIES } from '~/server/services/notifications/emit/constants';
 // import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
 // import { NotificationServiceFactory } from '~/server/services/notifications/NotificationServiceFactory';
 
@@ -464,6 +466,20 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       });
       
       console.log(`🔔 Created notification for new transcription: ${title}`);
+
+      // Also notify the meeting's team-member participants that the notes are
+      // ready (ADR-0045) — the scheduledNotification above only reaches the
+      // owner. Only fires when a summary actually landed and there are member
+      // (userId) participants; a freshly-imported meeting with none is a safe
+      // no-op. Owner is the actor and is dropped downstream. Fire-and-forget.
+      if (sessionData.summary) {
+        void emitNotification({
+          db,
+          category: NOTIFICATION_CATEGORIES.MEETING_READY,
+          actorUserId: user.id,
+          subject: { sessionId: transcriptionSession.id },
+        });
+      }
     }
 
     // 6. Trigger embedding for knowledge base (fire-and-forget)

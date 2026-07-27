@@ -11,8 +11,70 @@
 import { colorTokens } from "~/styles/colors";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { db } from "~/server/db";
+import { getDecryptedKey } from "~/server/utils/credentialHelper";
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
+
+interface PostmarkConfig {
+  apiKey: string | null;
+  from: string;
+}
+
+/**
+ * Resolve which Postmark server token + from-address to use for a send.
+ *
+ * When a `workspaceId` is provided and that workspace has an ACTIVE `postmark`
+ * integration with both an api key and a from-address, the workspace's own
+ * Postmark config is used so its email ships from its own sender. Otherwise we
+ * fall back to the instance-global env vars — the historical behavior — which is
+ * also what pre-login emails (magic link / welcome) always use since they carry
+ * no workspace context.
+ *
+ * Looked up by `workspaceId` only (no `userId` filter): notification / CRM /
+ * broadcast sends run in a background context with no session user.
+ */
+export async function resolvePostmark(
+  workspaceId?: string
+): Promise<PostmarkConfig> {
+  const envConfig: PostmarkConfig = {
+    apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? null,
+    from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+  };
+
+  if (!workspaceId) return envConfig;
+
+  const integration = await db.integration.findFirst({
+    where: { provider: "postmark", status: "ACTIVE", workspaceId },
+    include: { credentials: true },
+  });
+
+  if (!integration) return envConfig;
+
+  const apiKeyCred = integration.credentials.find((c) => c.keyType === "api_key");
+  const fromCred = integration.credentials.find((c) => c.keyType === "from_address");
+
+  // A corrupted/tampered credential must not break the send — fall back to env.
+  let apiKey: string | null = null;
+  try {
+    apiKey = apiKeyCred ? getDecryptedKey(apiKeyCred) : null;
+  } catch (error) {
+    console.error(
+      "[EmailService] Failed to decrypt workspace Postmark API key; falling back to env config.",
+      error,
+    );
+    return envConfig;
+  }
+  const from = fromCred?.key;
+
+  // Use the workspace config only when both parts are present; a partial config
+  // must not mix a workspace key with the platform from-address (or vice versa).
+  if (apiKey && from) {
+    return { apiKey, from };
+  }
+
+  return envConfig;
+}
 
 // Email clients don't support CSS variables, so we inline the brand hex here.
 // Source of truth is `colorTokens.light.brand.primary` in `src/styles/colors.ts`.
@@ -23,15 +85,19 @@ interface SendEmailParams {
   subject: string;
   htmlBody: string;
   textBody: string;
+  /**
+   * When set, a workspace-configured Postmark server token + from-address is
+   * preferred over the env default. Omit for pre-login / non-workspace emails.
+   */
+  workspaceId?: string;
 }
 
-async function sendEmail({ to, subject, htmlBody, textBody }: SendEmailParams): Promise<void> {
-  const apiKey = process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN;
-  const from = process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im";
+async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendEmailParams): Promise<void> {
+  const { apiKey, from } = await resolvePostmark(workspaceId);
 
   if (!apiKey) {
     console.error(
-      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable."
+      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable, or configure a workspace Postmark integration."
     );
     throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
@@ -665,8 +731,9 @@ export async function sendAssignmentNotificationEmail(params: {
   workspaceName: string;
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
+  workspaceId?: string;
 }): Promise<void> {
-  const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
+  const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
@@ -753,6 +820,116 @@ ${footer.text}
     subject: `[${appName}] You've been assigned to: ${actionName}`,
     htmlBody,
     textBody,
+    workspaceId,
+  });
+}
+
+/**
+ * Generic, category-agnostic notification email used by the unified dispatch
+ * Email channel (ADR-0045). Renders a title, a message line, and an optional CTA
+ * button; includes the workspace footer when workspace context is supplied.
+ */
+export async function sendNotificationEmail(params: {
+  to: string;
+  title: string;
+  message: string;
+  actionUrl?: string;
+  workspaceName?: string;
+  personalSettingsUrl?: string;
+  workspaceSettingsUrl?: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const {
+    to,
+    title,
+    message,
+    actionUrl,
+    workspaceName,
+    personalSettingsUrl,
+    workspaceSettingsUrl,
+    workspaceId,
+  } = params;
+  const brandColor = EMAIL_BRAND_COLOR;
+  const appName = PRODUCT_NAME;
+
+  const footer =
+    workspaceName && personalSettingsUrl && workspaceSettingsUrl
+      ? generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl })
+      : { html: "", text: "" };
+
+  const ctaHtml = actionUrl
+    ? `
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      View in ${appName}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
+                Or copy and paste this link into your browser:
+              </p>
+              <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
+                ${actionUrl}
+              </p>`
+    : "";
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>${title}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <tr>
+            <td style="padding: 32px 32px 24px; text-align: center;">
+              <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
+                ${title}
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px;">
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                ${message}
+              </p>
+              ${ctaHtml}
+            </td>
+          </tr>
+          ${footer.html}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`.trim();
+
+  const textBody = `
+${title}
+
+${message}
+${actionUrl ? `\nView in ${appName}: ${actionUrl}\n` : ""}
+${footer.text}
+`.trim();
+
+  await sendEmail({
+    to,
+    subject: `[${appName}] ${title}`,
+    htmlBody,
+    textBody,
+    workspaceId,
   });
 }
 
@@ -769,8 +946,9 @@ export async function sendMentionNotificationEmail(params: {
   workspaceName: string;
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
+  workspaceId?: string;
 }): Promise<void> {
-  const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
+  const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
@@ -866,7 +1044,170 @@ ${footer.text}
     subject: `[${appName}] ${authorName} mentioned you in: ${actionName}`,
     htmlBody,
     textBody,
+    workspaceId,
   });
+}
+
+/**
+ * Welcome email for a new CRM Customer (Channel Partner / Advisor) onboarded by
+ * a CRM Automation. Deliberately distinct from Adobe Sign's own "review & sign"
+ * email — this is the branded "you're signed up" note (CONTEXT.md → Recipient
+ * email experience). Returns the composed content so the caller can log it as a
+ * CrmCommunication.
+ */
+export async function sendCrmOnboardingWelcomeEmail(params: {
+  to: string;
+  name?: string | null;
+  customerType: string;
+  workspaceId?: string;
+}): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const { to, name, customerType, workspaceId } = params;
+  const appName = PRODUCT_NAME;
+  const greeting = name ? `Hi ${name},` : "Hi there,";
+  const subject = `Welcome — you're signed up as a ${customerType}`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; line-height: 1.6; padding: 24px;">
+    <p>${greeting}</p>
+    <p>Welcome to ${appName}! You've been signed up as a <strong>${customerType}</strong>.</p>
+    <p>We're preparing your ${customerType} agreement now. You'll receive a separate
+       email shortly with a secure link to review and sign it electronically.</p>
+    <p style="color: ${EMAIL_BRAND_COLOR};">Thanks,<br />The ${appName} team</p>
+  </body>
+</html>`;
+
+  const textBody = `${greeting}
+
+Welcome to ${appName}! You've been signed up as a ${customerType}.
+
+We're preparing your ${customerType} agreement now. You'll receive a separate email shortly with a secure link to review and sign it electronically.
+
+Thanks,
+The ${appName} team`;
+
+  await sendEmail({ to, subject, htmlBody, textBody, workspaceId });
+  return { subject, htmlBody, textBody };
+}
+
+/**
+ * Send a CRM Automation email with **user-authored** content (subject + body)
+ * from the Automation builder. The body HTML is already rendered + escaped by
+ * the caller (`contentRendering`); here we only wrap it in the branded shell.
+ * Returns the composed content so the caller can log it as a CrmCommunication.
+ */
+export async function sendCrmAutomationEmail(params: {
+  to: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText: string;
+  workspaceId?: string;
+}): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const appName = PRODUCT_NAME;
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; line-height: 1.6; padding: 24px;">
+    ${params.bodyHtml}
+    <p style="color: ${EMAIL_BRAND_COLOR}; margin-top: 24px;">— The ${appName} team</p>
+  </body>
+</html>`;
+
+  await sendEmail({
+    to: params.to,
+    subject: params.subject,
+    htmlBody,
+    textBody: params.bodyText,
+    workspaceId: params.workspaceId,
+  });
+  return { subject: params.subject, htmlBody, textBody: params.bodyText };
+}
+
+function escapeDigestHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Renders + sends a "What Shipped Today" Broadcast digest email. The body leads
+ * with the AI prose summary, then the structured per-category list; the footer
+ * carries the mandatory one-click unsubscribe link (CONTEXT.md → Broadcast).
+ */
+export async function sendBroadcastDigestEmail(params: {
+  to: string;
+  subject: string;
+  summary: string;
+  sections: { category: string; items: string[] }[];
+  unsubscribeUrl: string;
+  greetingName?: string | null;
+  workspaceId?: string;
+}): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const appName = PRODUCT_NAME;
+  const greeting = params.greetingName
+    ? `Hi ${escapeDigestHtml(params.greetingName)},`
+    : "Hi,";
+
+  const summaryHtml = params.summary
+    ? `<div style="white-space: pre-wrap; color: #1a1a1a; margin: 16px 0;">${escapeDigestHtml(
+        params.summary,
+      )}</div>`
+    : "";
+
+  const sectionsHtml = params.sections
+    .map(
+      (s) => `
+    <h3 style="margin: 24px 0 8px; color: #1a1a1a;">${escapeDigestHtml(s.category)}</h3>
+    <ul style="margin: 0; padding-left: 20px; color: #1a1a1a;">
+      ${s.items.map((i) => `<li style="margin: 4px 0;">${escapeDigestHtml(i)}</li>`).join("")}
+    </ul>`,
+    )
+    .join("");
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; line-height: 1.6; background-color: #f9fafb;">
+    <h2 style="color: ${EMAIL_BRAND_COLOR}; margin: 0 0 8px;">${escapeDigestHtml(
+      params.subject,
+    )}</h2>
+    <p style="margin: 0 0 8px;">${greeting}</p>
+    ${summaryHtml}
+    ${sectionsHtml}
+    <p style="color: ${EMAIL_BRAND_COLOR}; margin-top: 24px;">— The ${appName} team</p>
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+    <p style="font-size: 12px; color: #6b7280;">
+      You received this because you're on a list in our CRM.
+      <a href="${params.unsubscribeUrl}" style="color: #6b7280;">Unsubscribe</a>.
+    </p>
+  </body>
+</html>`;
+
+  const textBody = `${params.subject}
+
+${params.greetingName ? `Hi ${params.greetingName},` : "Hi,"}
+
+${params.summary}
+
+${params.sections
+  .map((s) => `${s.category}\n${s.items.map((i) => `- ${i}`).join("\n")}`)
+  .join("\n\n")}
+
+— The ${appName} team
+
+Unsubscribe: ${params.unsubscribeUrl}`;
+
+  await sendEmail({
+    to: params.to,
+    subject: params.subject,
+    htmlBody,
+    textBody,
+    workspaceId: params.workspaceId,
+  });
+
+  return { subject: params.subject, htmlBody, textBody };
 }
 
 export const EmailService = {
@@ -877,4 +1218,7 @@ export const EmailService = {
   sendWorkspaceMemberAddedEmail,
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
+  sendCrmOnboardingWelcomeEmail,
+  sendCrmAutomationEmail,
+  sendBroadcastDigestEmail,
 };

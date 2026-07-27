@@ -8,6 +8,13 @@ import "./src/env.js";
 const config = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  experimental: {
+    turbo: {
+      resolveAlias: {
+        "markdown-it": "markdown-it/dist/index.cjs.js",
+      },
+    },
+  },
 
   async headers() {
     return [

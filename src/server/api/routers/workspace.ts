@@ -21,7 +21,15 @@ import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeS
 import { getWorkspaceFocusSummary } from "~/server/services/activity/workspaceFocusSummary";
 import { backfillWorkspaceActivity } from "~/server/services/activity/backfillActivity";
 import { getActivityHeatmap } from "~/server/services/activity/heatmap";
-import { getActivityFeed, FEED_PAGE_SIZE } from "~/server/services/activity/feed";
+import {
+  getActivityFeed,
+  getAggregatedActivityFeed,
+  FEED_PAGE_SIZE,
+} from "~/server/services/activity/feed";
+import {
+  getOrGenerateWeeklyWorkDigest,
+  DigestRateLimitError,
+} from "~/server/services/activity/weeklyWorkDigest/digest";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   getOrGenerateWeeklyNarrative,
@@ -329,6 +337,9 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: z.string(),
         name: z.string().min(1).optional(),
         description: z.string().optional(),
+        // Per-scope AI guidance shown as "Instructions" in settings. Demoted
+        // context only (demoted scope-instructions ADR); owner/admin-gated like other workspace edits.
+        aiInstructions: z.string().optional(),
         effortUnit: z.enum(["STORY_POINTS", "T_SHIRT", "HOURS"]).optional(),
         enableAdvancedActions: z.boolean().optional(),
         enableDetailedActions: z.boolean().optional(),
@@ -336,6 +347,7 @@ export const workspaceRouter = createTRPCRouter({
         enableDailyPlanBanner: z.boolean().optional(),
         enableWeeklyReviewBanner: z.boolean().optional(),
         enableEmailNotifications: z.boolean().optional(),
+        enableAutoEnrichContacts: z.boolean().optional(),
         homeLayout: z.enum(["command", "activity", "coaching"]).optional(),
       })
     )
@@ -362,6 +374,7 @@ export const workspaceRouter = createTRPCRouter({
         data: {
           name: input.name,
           description: input.description,
+          aiInstructions: input.aiInstructions,
           effortUnit: input.effortUnit,
           enableAdvancedActions: input.enableAdvancedActions,
           enableDetailedActions: input.enableDetailedActions,
@@ -369,6 +382,7 @@ export const workspaceRouter = createTRPCRouter({
           enableDailyPlanBanner: input.enableDailyPlanBanner,
           enableWeeklyReviewBanner: input.enableWeeklyReviewBanner,
           enableEmailNotifications: input.enableEmailNotifications,
+          enableAutoEnrichContacts: input.enableAutoEnrichContacts,
           homeLayout: input.homeLayout,
         },
       });
@@ -1767,6 +1781,7 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: z.string(),
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
+        source: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -1798,6 +1813,128 @@ export const workspaceRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
+        source: input.source,
       });
+    }),
+
+  // Which Activity sources actually have events in a workspace, so the source
+  // switcher only renders a chip for a source that exists (ADR-0023). Returns
+  // `hasInternal` and the distinct list of channel providers present.
+  getActivitySources: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
+      }
+
+      const [distinctTypes, channelRows] = await Promise.all([
+        ctx.db.workspaceActivityEvent.findMany({
+          where: { workspaceId: input.workspaceId },
+          select: { entityType: true },
+          distinct: ["entityType"],
+        }),
+        ctx.db.workspaceActivityEvent.findMany({
+          where: {
+            workspaceId: input.workspaceId,
+            entityType: "channel_summary",
+          },
+          select: { metadata: true },
+        }),
+      ]);
+
+      const hasInternal = distinctTypes.some(
+        (t) => t.entityType !== "channel_summary",
+      );
+      const providers = Array.from(
+        new Set(
+          channelRows
+            .map((r) =>
+              r.metadata &&
+              typeof r.metadata === "object" &&
+              !Array.isArray(r.metadata)
+                ? (r.metadata as Record<string, unknown>).provider
+                : null,
+            )
+            .filter((p): p is string => typeof p === "string" && p.length > 0),
+        ),
+      );
+
+      return { hasInternal, providers };
+    }),
+
+  // Aggregated cross-workspace activity feed for the top-level `/activity`
+  // page. Resolves every workspace the user is a member of — directly or via
+  // team — then reads events across all of them with the originating workspace
+  // joined in for per-row badging. No workspaceId input — scope is the user.
+  //
+  // Uses the STRICT `buildWorkspaceAccessWhere` (not the guest-inclusive
+  // `buildWorkspaceVisibilityWhere`) to match the per-workspace
+  // `getActivityFeed` guard, which throws FORBIDDEN for project-only guests.
+  // A guest must not see a workspace's full activity stream here when they're
+  // denied it on `/w/<slug>/activity`.
+  getMyActivityFeed: protectedProcedure
+    .input(
+      z.object({
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+        source: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const workspaces = await ctx.db.workspace.findMany({
+        where: buildWorkspaceAccessWhere(ctx.session.user.id),
+        select: { id: true },
+      });
+
+      return getAggregatedActivityFeed(ctx.db, {
+        workspaceIds: workspaces.map((w) => w.id),
+        cursor: input.cursor,
+        limit: input.limit ?? FEED_PAGE_SIZE,
+        source: input.source,
+      });
+    }),
+
+  // Personal Weekly work digest (ADR-0018): a private, cross-workspace,
+  // per-ISO-week synthesis of what *you* worked on, plus content angles.
+  // Owner-scoped — only ever the authenticated user's data. `isoYear`/`isoWeek`
+  // page back to a prior week; `force` regenerates the active week (rate-limited).
+  getMyWeeklyWorkDigest: protectedProcedure
+    .input(
+      z
+        .object({
+          isoYear: z.number().int().optional(),
+          isoWeek: z.number().int().min(1).max(53).optional(),
+          force: z.boolean().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const target =
+        input?.isoYear != null && input?.isoWeek != null
+          ? { isoYear: input.isoYear, isoWeek: input.isoWeek }
+          : undefined;
+      try {
+        return await getOrGenerateWeeklyWorkDigest(ctx.db, {
+          userId: ctx.session.user.id,
+          target,
+          force: input?.force,
+        });
+      } catch (err) {
+        if (err instanceof DigestRateLimitError) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Digest was regenerated recently — try again shortly.",
+          });
+        }
+        throw err;
+      }
     }),
 });

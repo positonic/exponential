@@ -7,7 +7,6 @@ import {
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
-import { completeOnboardingStep } from "~/server/services/onboarding/syncOnboardingProgress";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 
 import {
@@ -143,10 +142,6 @@ export const goalRouter = createTRPCRouter({
         },
       });
 
-      // Sync onboarding progress (fire-and-forget)
-      void completeOnboardingStep(ctx.db, ctx.session.user.id, "goal").catch(
-        (err: unknown) => { console.error("[onboarding-sync] goal:", err); },
-      );
 
       return goal;
     }),
