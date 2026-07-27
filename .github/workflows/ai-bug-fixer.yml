@@ -206,14 +206,23 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
-          # Two auth paths, because the two credential types are NOT
-          # interchangeable: a subscription OAuth token (`claude setup-token`,
-          # `sk-ant-oat…`) goes in CLAUDE_CODE_OAUTH_TOKEN, a console API key
-          # (`sk-ant-api…`) goes in ANTHROPIC_API_KEY. Passing the wrong one
-          # fails in ~2s with `is_error: true` and no usable message. Whichever
-          # secret is set wins; an unset secret renders as empty and is ignored.
-          # TEMP TEST: oauth token disabled to force the funded ANTHROPIC_API_KEY.
-          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Auth: the metered console API key (`sk-ant-api…`), NOT the
+          # subscription OAuth token.
+          #
+          # These are NOT interchangeable, and — the lesson from this outage —
+          # when BOTH are passed, claude-code-action PREFERS the OAuth token.
+          # Ours was a Claude subscription that hit its rolling usage cap
+          # ("You have reached your specified API usage limits. You will regain
+          # access on <date>"), which fails in ~250ms with is_error:true. No
+          # amount of API-key credit clears that, because the API key was being
+          # ignored. A metered API key has no such rolling cap — it bills against
+          # a balance we control — so it is the right credential for an
+          # unattended hourly worker. Only anthropic_api_key is passed, so there
+          # is no token for the action to prefer over it.
+          #
+          # To switch back to subscription billing: add
+          #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # AND remove the api key line below (leaving both re-triggers this bug).
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Off by default. See the debug_output input — this repo is public, so
           # the agent's full output lands in a world-readable log.
