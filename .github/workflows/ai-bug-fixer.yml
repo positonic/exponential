@@ -189,9 +189,11 @@ jobs:
       # model id). Clearing the var does NOT do that: `||` here cannot tell unset
       # from empty, so both fall back to the OpenRouter default.
       AGENT_BASE_URL: ${{ vars.AI_BUILDER_BASE_URL || 'https://openrouter.ai/api' }}
-      EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
-      # Prefer a PAT so the PR triggers CI; fall back to the default token.
-      GH_TOKEN: ${{ secrets.AI_BUG_FIXER_GH_TOKEN || github.token }}
+      # EXPONENTIAL_TOKEN and GH_TOKEN are deliberately NOT job-level env:
+      # job env is inherited by EVERY step, including the agent process (whose
+      # Read tool can read /proc/self/environ) and Validate's `npx next lint`
+      # (which executes agent-editable JS config). They are step-scoped to the
+      # steps that actually use them instead.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -204,6 +206,10 @@ jobs:
           cache: npm
 
       - name: Install deps + CLI
+        # The only step that needs the raw token in env — `auth login` stores
+        # credentials for the CLI, so later steps call it with no token in env.
+        env:
+          EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
         run: |
           npm ci
           npm i -g exponential-cli
@@ -271,10 +277,14 @@ jobs:
           # carries Bash(...) allow rules that merge into the agent's
           # permissions on top of these flags. A deny beats every allow source,
           # so this is what actually keeps the agent from shelling out — the
-          # brief forbids git, the workflow owns commit/push/PR, and an agent
-          # that cannot shell out cannot read the API key from its env.
-          # WebFetch/WebSearch are denied too: the brief needs neither, and a
-          # file-editing agent has no business making outbound requests.
+          # brief forbids git, and the workflow owns commit/push/PR.
+          #
+          # Containment is layered, not a single wall. The LLM key is
+          # unavoidably in this process's env (the Read tool can see
+          # /proc/self/environ), so: WebFetch/WebSearch are denied to close the
+          # outbound-exfil channel; repo/API tokens are step-scoped OUT of this
+          # step; and later steps never execute agent-editable files (Finalize
+          # commits with --no-verify).
           # --max-budget-usd is a hard spend ceiling; unlike --max-turns it
           # bounds cost directly, which matters now billing is per-token rather
           # than a flat subscription fee.
@@ -354,6 +364,9 @@ jobs:
           GIT_AUTHOR_EMAIL: ai-bot@bots.exponential.im
           GIT_COMMITTER_NAME: exponential-ai-bot
           GIT_COMMITTER_EMAIL: ai-bot@bots.exponential.im
+          # Prefer a PAT so the PR triggers CI; fall back to the default token.
+          # Step-scoped (see the job env comment): only this step runs `gh`.
+          GH_TOKEN: ${{ secrets.AI_BUG_FIXER_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
 
@@ -422,7 +435,11 @@ jobs:
           Autonomous change for Exponential ticket #${TICKET_NUMBER}.
           Requires human review before merge.
           EOF
-            git commit -F .git-commit-msg
+            # --no-verify: the workflow owns this commit. Hooks under .husky/
+            # are tracked, agent-editable files (installed by npm ci's
+            # `prepare`), so running them here would execute agent-authored
+            # code in a step that holds tokens.
+            git commit --no-verify -F .git-commit-msg
             rm -f .git-commit-msg
           fi
 
