@@ -296,9 +296,14 @@ jobs:
           # commits with --no-verify); and the guard rejects any edit under
           # .github/ or .husky/ so agent-authored CI never reaches a
           # `pull_request` run that holds secrets.
-          # --max-budget-usd is a hard spend ceiling; unlike --max-turns it
-          # bounds cost directly, which matters now billing is per-token rather
-          # than a flat subscription fee.
+          # --max-budget-usd bounds cost directly — but only if the CLI can
+          # price the model. It computes spend from an internal per-model
+          # pricing table, and a proxy-served id it does not know (e.g.
+          # z-ai/glm-5.2 via OpenRouter) may cost out at $0.00, in which case
+          # the ceiling never binds and --max-turns is the only real bound.
+          # Keep a key-level spend limit configured at the provider as the
+          # backstop. The flag stays: it is harmless when inert and correct if
+          # pricing metadata arrives later.
           set +e
           claude -p "Read .ai-bug-fixer/prompt.md and implement what it describes. Edit the working tree only — do NOT run git, commit, push, or open a PR." \
             --model "$MODEL" \

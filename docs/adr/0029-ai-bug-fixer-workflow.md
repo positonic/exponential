@@ -116,7 +116,11 @@ everything else — still exactly one credential secret either way.
 
 *Consequence, and it is a real one:* the flat-fee subscription token named as a
 cost control above is gone. Billing is per-token. `--max-budget-usd` was added as
-a hard per-run ceiling to compensate. Rejected: keeping the subscription for bugs
+a per-run ceiling to compensate — with a caveat: the CLI prices spend from an
+internal per-model table, and for a proxy-served model id it does not know the
+computed cost can be $0.00, leaving `--max-turns` and a provider-side key spend
+limit as the real bounds (see the *Cost controls* caveat in
+[docs/agents/ai-bug-fixer.md](../agents/ai-bug-fixer.md)). Rejected: keeping the subscription for bugs
 and OpenRouter for features — two auth paths and two failure modes to keep alive,
 for a worker with almost no track record to protect.
 

@@ -120,7 +120,7 @@ silently bill the wrong account.
 | `EXPONENTIAL_WORKSPACE` | yes | — | Workspace slug or CUID (e.g. `syntrofi`). Required — the CLI resolves `--label` slugs against the workspace, so label filtering fails without it even with a CUID product. |
 | `AI_BUILDER_MODEL` | no | `z-ai/glm-5.2` | Coding-agent model, as the endpoint names it |
 | `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to `https://api.anthropic.com` to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id, and the workflow switches the auth header to `x-api-key` automatically); clearing the var just restores the OpenRouter default. |
-| `AI_BUILDER_MAX_USD` | no | `2` | Hard per-run spend ceiling passed to `--max-budget-usd` |
+| `AI_BUILDER_MAX_USD` | no | `2` | Per-run spend ceiling passed to `--max-budget-usd`. Binds only if the CLI can price the model (see *Cost controls*) |
 | `AI_BUG_FIXER_MAX_OPEN_PRS` | no | `3` | Skip new work while this many AI PRs are open |
 
 The old `AI_BUG_FIXER_MODEL` variable is deliberately **not** read any more: it
@@ -150,14 +150,22 @@ app never sees it.
 
 The biggest levers, all wired in: the opt-in labels (nothing is touched unless
 tagged), **one ticket per run**, the **open-PR cap**, an **hourly** cadence, a
-**cheap default model**, a `--max-turns 30` ceiling, and a hard
-`--max-budget-usd` ceiling per run. Candidate scanning is free — tokens are only
-spent once a real ticket is claimed.
+**cheap default model**, a `--max-turns 30` ceiling, and a `--max-budget-usd`
+ceiling per run. Candidate scanning is free — tokens are only spent once a real
+ticket is claimed.
 
 **Billing is now metered, not flat.** ADR-0029 originally leaned on a Claude
 subscription token (flat fee). Moving to OpenRouter trades that for per-token
 billing, which is why `--max-budget-usd` was added. At GLM 5.2's rates
 (~$0.63/M input, ~$1.97/M output) a run costs cents, but it is no longer free.
+
+**Caveat: `--max-budget-usd` binds only if the CLI can price the model.** Claude
+Code computes spend from an internal per-model pricing table; a proxy-served id
+it does not know (like `z-ai/glm-5.2` through OpenRouter) may report `$0.00`
+total cost, in which case the ceiling never triggers and `--max-turns` is the
+only real per-run bound. Until a run has confirmed a non-zero `total_cost_usd`
+for your model, treat the flag as best-effort and **set a key-level spend limit
+on the OpenRouter key** — that one is enforced by the provider regardless.
 
 ## Safety guarantees
 
