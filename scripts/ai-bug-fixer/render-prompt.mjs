@@ -8,7 +8,15 @@
  * in the workflow ("read this file and fix it") and put all the ticket context
  * here, so the YAML stays clean and the brief is auditable in the run logs.
  *
- * Usage: node render-prompt.mjs --ticket ticket.json --out .ai-bug-fixer/prompt.md
+ * Usage: node render-prompt.mjs --ticket ticket.json --out .ai-bug-fixer/prompt.md \
+ *          [--label ai-buildable]
+ *
+ * FRAMING follows the ticket's `type` (BUG → narrow fix, else build-the-ticket);
+ * HARD RULES follow the trigger label (`--label`), because the workflow keys its
+ * mechanical gates to the label: `ai-buildable` bans schema/migration edits by
+ * diff, so the brief must say so no matter what type the ticket is — a BUG-type
+ * ticket labelled `ai-buildable` would otherwise never be told to bail, trip
+ * the guard, and fail the attempt.
  *
  * `buildBrief` is exported and pure so the framing logic can be tested without
  * a filesystem or a live ticket — see render-prompt.test.ts. The CLI wrapper at
@@ -24,9 +32,11 @@ function arg(name, fallback) {
 
 /**
  * @param {Record<string, any>} ticket  parsed `exponential tickets get --json`
+ * @param {string} [triggerLabel]  the trigger label that selected this ticket
+ *   (`ai-fixable` / `ai-buildable`); absent keeps the label-agnostic brief
  * @returns {string} the Markdown brief the coding agent reads
  */
-export function buildBrief(ticket) {
+export function buildBrief(ticket, triggerLabel = "") {
 const comments = Array.isArray(ticket.comments) ? ticket.comments : [];
 const commentBlock = comments.length
   ? comments
@@ -95,7 +105,15 @@ ${actionBlock}
 5. If the ticket body is empty or too vague to act on, do **not** guess — STOP
    and write \`.ai-bug-fixer/needs-human.txt\` saying what you'd need to know.
 6. Do **not** run git, commit, push, or open a PR — the workflow handles that.
-   Just edit the working tree.
+   Just edit the working tree.${
+    triggerLabel === "ai-buildable"
+      ? `
+7. This task may **NOT** touch \`prisma/schema.prisma\` or \`prisma/migrations\`
+   — the workflow rejects such changes mechanically, whatever this brief says.
+   If the ticket cannot be done without a schema change, **STOP** and write
+   \`.ai-bug-fixer/needs-human.txt\` explaining that, making no code changes.`
+      : ""
+  }
 
 When done, the workflow runs \`npx tsc --noEmit\` and \`npx next lint\`; your change
 must pass both.
@@ -108,7 +126,7 @@ must pass both.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   const ticket = JSON.parse(readFileSync(arg("ticket"), "utf8"));
   const out = arg("out", ".ai-bug-fixer/prompt.md");
-  const brief = buildBrief(ticket);
+  const brief = buildBrief(ticket, arg("label", ""));
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, brief);
   console.log(`[ai-bug-fixer] wrote prompt for #${ticket.number ?? "?"} → ${out} (${brief.length} chars)`);

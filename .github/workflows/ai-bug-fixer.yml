@@ -1,15 +1,24 @@
 name: AI Bug Fixer
 
-# Autonomous ticket worker. Polls Exponential for tickets a human has
-# explicitly marked `ai-fixable`, attempts the work, runs validation, and
-# opens a PR for HUMAN REVIEW. It never merges and never deploys. Ticket
-# close-out happens via the existing PR-merge webhook (ADR-0021).
+# Autonomous ticket worker. Polls Exponential for tickets a human (or the
+# ideation flow) has marked with a trigger label, attempts the work, runs
+# validation, and opens a PR for HUMAN REVIEW. It never merges and never
+# deploys. Ticket close-out happens via the existing PR-merge webhook (ADR-0021).
 #
-# NOT bug-only: there is no ticket-type filter. The pipeline is type-agnostic
-# and the human-applied label is the gate. The brief adapts its framing to the
-# ticket type (see scripts/ai-bug-fixer/render-prompt.mjs) — a feature briefed
-# with bug-fix framing produces a deliberate non-implementation.
-# The workflow file, job name and `ai-fixable`/`ai-bug-fixer` labels keep their
+# TWO trigger labels, two profiles:
+#   `ai-fixable`   — bugs. Narrow-fix framing. tsc + lint.
+#   `ai-buildable` — features. Build-what-it-says framing. tsc + lint, PLUS a
+#                    hard ban on schema/migration edits (see "Guard").
+# The pipeline is otherwise type-agnostic; the label is the gate. The brief
+# adapts its framing to the ticket type (scripts/ai-bug-fixer/render-prompt.mjs).
+#
+# The coding agent is the Claude Code CLI invoked DIRECTLY, not
+# anthropics/claude-code-action. Two reasons: (1) the model is served by
+# OpenRouter via its Anthropic-compatible endpoint, which the action does not
+# support; (2) the action's failures surfaced as a green run that silently
+# produced no PR — a direct call gives us a plain exit code.
+#
+# The workflow file, job name, script dir and `ai-bug-fixer` PR label keep their
 # historical names so existing runs, secrets and repo vars keep resolving.
 #
 # See docs/agents/ai-bug-fixer.md for setup, required secrets, and the marker
@@ -24,7 +33,7 @@ on:
         description: "Specific ticket CUID to attempt (optional; otherwise picks the oldest eligible)"
         required: false
       model:
-        description: "Override the coding-agent model (default: the AI_BUG_FIXER_MODEL repo var or claude-haiku-4-5)"
+        description: "Override the coding-agent model (default: the AI_BUILDER_MODEL repo var or z-ai/glm-5.2)"
         required: false
       debug_output:
         description: "Log the coding agent's full output. THIS REPO IS PUBLIC — the log is world-readable. Manual runs only, one at a time, and only when you need the agent's error message."
@@ -42,11 +51,10 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  # Required by anthropics/claude-code-action, which authenticates via OIDC.
-  # Without it the agent step fails with "Could not fetch an OIDC token" —
-  # and because that step is `continue-on-error`, the run still goes GREEN
-  # while silently never producing a PR. Do not remove.
-  id-token: write
+  # `id-token: write` used to live here for anthropics/claude-code-action's OIDC
+  # exchange. The agent is now the Claude Code CLI called directly, which
+  # authenticates with a plain API key, so no OIDC token is minted and the
+  # permission is deliberately gone. Do not re-add it without a reason.
 
 env:
   EXPONENTIAL_API_URL: ${{ vars.EXPONENTIAL_API_URL }}
@@ -69,6 +77,7 @@ jobs:
       ticket_number: ${{ steps.select.outputs.ticket_number }}
       ticket_title: ${{ steps.select.outputs.ticket_title }}
       branch_slug: ${{ steps.select.outputs.branch_slug }}
+      trigger_label: ${{ steps.select.outputs.trigger_label }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,8 +92,15 @@ jobs:
           if [ -z "${EXPONENTIAL_TOKEN}" ]; then
             echo "::error::Missing EXPONENTIAL_TOKEN secret"; exit 1
           fi
+          # Checked in the CHEAP job: without it the fix job would claim a
+          # ticket, flip it to IN_PROGRESS, and only then discover it cannot run
+          # the agent. Fail before anything is claimed.
+          if [ -z "${AI_BUILDER_API_KEY}" ]; then
+            echo "::error::Missing AI_BUILDER_API_KEY secret (OpenRouter key)"; exit 1
+          fi
         env:
           EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+          AI_BUILDER_API_KEY: ${{ secrets.AI_BUILDER_API_KEY }}
 
       - name: Install + auth Exponential CLI
         run: |
@@ -100,13 +116,21 @@ jobs:
           # wrong workspace, missing label) must fail the scan loudly rather than
           # leave the worker silently idle. An unused-but-existing label resolves
           # cleanly to {tickets:[]}; only a genuine misconfig errors out.
-          # Eligible: any ai-fixable ticket that is fully specified
+          # Eligible: any ticket carrying a trigger label that is fully specified
           # (READY_TO_PLAN). Deliberately NOT filtered by type — the pipeline
           # (claim, brief, agent, validate, PR) is type-agnostic, and the
-          # human-applied `ai-fixable` label is the real gate.
+          # trigger label is the real gate.
+          #
+          # ONE QUERY PER LABEL, on purpose: `--label` is repeatable but ANDs,
+          # so a single call cannot express "ai-fixable OR ai-buildable".
+          # select-candidate.mjs merges the two files and remembers which query
+          # produced each ticket.
           exponential tickets list \
             --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
-            --status READY_TO_PLAN --label ai-fixable --json > candidates.json
+            --status READY_TO_PLAN --label ai-fixable --json > fixable.json
+          exponential tickets list \
+            --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
+            --status READY_TO_PLAN --label ai-buildable --json > buildable.json
           # Safety exclusion set: anything also tagged `security`. MUST use the
           # same filters as the candidate query above (minus the label) — if
           # this one is narrower, a ticket can be in candidates but missing from
@@ -114,6 +138,14 @@ jobs:
           exponential tickets list \
             --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
             --status READY_TO_PLAN --label security --json > security.json
+          # Retry bound: a ticket that failed a previous attempt carries
+          # `ai-attempted` (added on release, below). Excluding it here stops a
+          # deterministically-failing ticket from burning metered budget every
+          # hour forever AND (selection is oldest-first) starving the queue
+          # behind it. A human re-arms the ticket by removing the label.
+          exponential tickets list \
+            --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
+            --status READY_TO_PLAN --label ai-attempted --json > attempted.json
 
       - name: Count open AI PRs (cap guard)
         id: prs
@@ -131,8 +163,10 @@ jobs:
           ONLY_TICKET: ${{ inputs.ticket_id }}
         run: |
           args=(
-            --candidates candidates.json
+            --candidates fixable.json  --candidate-label ai-fixable
+            --candidates buildable.json --candidate-label ai-buildable
             --exclude security.json
+            --exclude attempted.json
             --open-prs "${{ steps.prs.outputs.open }}"
             --max-open-prs "${{ vars.AI_BUG_FIXER_MAX_OPEN_PRS || '3' }}"
           )
@@ -153,10 +187,22 @@ jobs:
       TICKET_TITLE: ${{ needs.scan.outputs.ticket_title }}
       BRANCH: ai/ticket-${{ needs.scan.outputs.ticket_number }}-${{ needs.scan.outputs.branch_slug }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      MODEL: ${{ inputs.model || vars.AI_BUG_FIXER_MODEL || 'claude-haiku-4-5' }}
-      EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
-      # Prefer a PAT so the PR triggers CI; fall back to the default token.
-      GH_TOKEN: ${{ secrets.AI_BUG_FIXER_GH_TOKEN || github.token }}
+      TRIGGER_LABEL: ${{ needs.scan.outputs.trigger_label }}
+      # Deliberately a NEW var name rather than reusing AI_BUG_FIXER_MODEL: that
+      # one named an Anthropic model, and a stale value left in repo settings
+      # would be sent to OpenRouter, which does not know it.
+      MODEL: ${{ inputs.model || vars.AI_BUILDER_MODEL || 'z-ai/glm-5.2' }}
+      # OpenRouter's Anthropic-compatible endpoint. Note `/api`, NOT `/api/v1` —
+      # the Anthropic SDK appends its own path. To talk to Anthropic directly,
+      # SET the var to https://api.anthropic.com (then MODEL must be an Anthropic
+      # model id). Clearing the var does NOT do that: `||` here cannot tell unset
+      # from empty, so both fall back to the OpenRouter default.
+      AGENT_BASE_URL: ${{ vars.AI_BUILDER_BASE_URL || 'https://openrouter.ai/api' }}
+      # EXPONENTIAL_TOKEN and GH_TOKEN are deliberately NOT job-level env:
+      # job env is inherited by EVERY step, including the agent process (whose
+      # Read tool can read /proc/self/environ) and Validate's `npx next lint`
+      # (which executes agent-editable JS config). They are step-scoped to the
+      # steps that actually use them instead.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -169,6 +215,10 @@ jobs:
           cache: npm
 
       - name: Install deps + CLI
+        # The only step that needs the raw token in env — `auth login` stores
+        # credentials for the CLI, so later steps call it with no token in env.
+        env:
+          EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
         run: |
           npm ci
           npm i -g exponential-cli
@@ -199,36 +249,138 @@ jobs:
           # changed nothing.
           mkdir -p .ai-bug-fixer
           exponential tickets get "$TICKET_ID" --json > .ai-bug-fixer/ticket.json
-          node scripts/ai-bug-fixer/render-prompt.mjs --ticket .ai-bug-fixer/ticket.json --out .ai-bug-fixer/prompt.md
+          # --label: framing follows the ticket's type, but HARD RULES follow
+          # the trigger label — ai-buildable's brief must state the schema ban
+          # the guard enforces, whatever type the ticket is.
+          node scripts/ai-bug-fixer/render-prompt.mjs --ticket .ai-bug-fixer/ticket.json --out .ai-bug-fixer/prompt.md --label "$TRIGGER_LABEL"
 
       - name: Run coding agent
         id: agent
         continue-on-error: true
-        uses: anthropics/claude-code-action@v1
-        with:
-          # Auth: the metered console API key (`sk-ant-api…`), NOT the
-          # subscription OAuth token.
+        env:
+          # Exactly ONE credential reaches the agent (AI_BUILDER_API_KEY); the
+          # run block exports it under the variable whose auth header the
+          # target endpoint expects. Anthropic direct authenticates with
+          # x-api-key, which the SDK sends from ANTHROPIC_API_KEY; every other
+          # Anthropic-compatible endpoint (OpenRouter included) takes
+          # Authorization: Bearer, sent from ANTHROPIC_AUTH_TOKEN. Both are
+          # pre-blanked here so a leftover key in repo settings can never win a
+          # precedence race and silently bill the wrong account.
           #
-          # These are NOT interchangeable, and — the lesson from this outage —
-          # when BOTH are passed, claude-code-action PREFERS the OAuth token.
-          # Ours was a Claude subscription that hit its rolling usage cap
-          # ("You have reached your specified API usage limits. You will regain
-          # access on <date>"), which fails in ~250ms with is_error:true. No
-          # amount of API-key credit clears that, because the API key was being
-          # ignored. A metered API key has no such rolling cap — it bills against
-          # a balance we control — so it is the right credential for an
-          # unattended hourly worker. Only anthropic_api_key is passed, so there
-          # is no token for the action to prefer over it.
+          # That precedence trap is not hypothetical: PR #436 traced a five-week
+          # outage to claude-code-action PREFERRING claude_code_oauth_token when
+          # both credentials were present. The subscription behind it had hit a
+          # rolling usage cap and failed in ~250ms, and adding API-key credit
+          # changed nothing because the API key was never consulted.
+          ANTHROPIC_BASE_URL: ${{ env.AGENT_BASE_URL }}
+          AI_BUILDER_API_KEY: ${{ secrets.AI_BUILDER_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ""
+          ANTHROPIC_API_KEY: ""
+          MAX_BUDGET_USD: ${{ vars.AI_BUILDER_MAX_USD || '2' }}
+          DEBUG_OUTPUT: ${{ inputs.debug_output || false }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AI_BUILDER_API_KEY}" ]; then
+            echo "::error::Missing AI_BUILDER_API_KEY secret"; exit 1
+          fi
+          if [ "${ANTHROPIC_BASE_URL%/}" = "https://api.anthropic.com" ]; then
+            export ANTHROPIC_API_KEY="$AI_BUILDER_API_KEY"
+          else
+            export ANTHROPIC_AUTH_TOKEN="$AI_BUILDER_API_KEY"
+          fi
+          # Pinned: this process holds the LLM key in its env, so a hijacked
+          # release of the CLI would run holding that secret. Bump deliberately.
+          npm i -g @anthropic-ai/claude-code@2.1.186
+
+          # Tools are allow-listed AND Bash is explicitly denied. The deny is
+          # load-bearing, not belt-and-braces: --allowedTools only pre-approves,
+          # it does not restrict, and the checked-in .claude/settings.json
+          # carries Bash(...) allow rules that merge into the agent's
+          # permissions on top of these flags. A deny beats every allow source,
+          # so this is what actually keeps the agent from shelling out — the
+          # brief forbids git, and the workflow owns commit/push/PR.
           #
-          # To switch back to subscription billing: add
-          #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # AND remove the api key line below (leaving both re-triggers this bug).
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # Off by default. See the debug_output input — this repo is public, so
-          # the agent's full output lands in a world-readable log.
-          show_full_output: ${{ inputs.debug_output || false }}
-          prompt: "Read .ai-bug-fixer/prompt.md and implement the narrow fix it describes. Edit the working tree only — do NOT run git, commit, push, or open a PR."
-          claude_args: "--model ${{ inputs.model || vars.AI_BUG_FIXER_MODEL || 'claude-haiku-4-5' }} --max-turns 30"
+          # Containment is layered, not a single wall. The LLM key is
+          # unavoidably in this process's env (the Read tool can see
+          # /proc/self/environ), so: WebFetch/WebSearch are denied to close the
+          # outbound-exfil channel; repo/API tokens are step-scoped OUT of this
+          # step; later steps never execute agent-editable files (Finalize
+          # commits with --no-verify); and the guard rejects any edit under
+          # .github/ or .husky/ so agent-authored CI never reaches a
+          # `pull_request` run that holds secrets.
+          # --max-budget-usd bounds cost directly — but only if the CLI can
+          # price the model. It computes spend from an internal per-model
+          # pricing table, and a proxy-served id it does not know (e.g.
+          # z-ai/glm-5.2 via OpenRouter) may cost out at $0.00, in which case
+          # the ceiling never binds and --max-turns is the only real bound.
+          # Keep a key-level spend limit configured at the provider as the
+          # backstop. The flag stays: it is harmless when inert and correct if
+          # pricing metadata arrives later.
+          set +e
+          claude -p "Read .ai-bug-fixer/prompt.md and implement what it describes. Edit the working tree only — do NOT run git, commit, push, or open a PR." \
+            --model "$MODEL" \
+            --max-turns 30 \
+            --max-budget-usd "$MAX_BUDGET_USD" \
+            --permission-mode acceptEdits \
+            --allowedTools "Read,Write,Edit,Glob,Grep" \
+            --disallowedTools "Bash,WebFetch,WebSearch" \
+            > .ai-bug-fixer/agent-output.txt 2>&1
+          AGENT_EXIT=$?
+          set -e
+
+          # THIS REPO IS PUBLIC and Actions logs are world-readable, so the
+          # agent's output is written to a file and only echoed on explicit
+          # opt-in. On failure we surface the tail regardless — a silent
+          # failure is what made the previous incarnation of this step fail
+          # green and unnoticed for five weeks.
+          if [ "$DEBUG_OUTPUT" = "true" ]; then
+            cat .ai-bug-fixer/agent-output.txt
+          elif [ "$AGENT_EXIT" -ne 0 ]; then
+            echo "::group::agent output (tail)"; tail -n 30 .ai-bug-fixer/agent-output.txt; echo "::endgroup::"
+          fi
+          exit "$AGENT_EXIT"
+
+      - name: Guard — no CI/hook edits; no schema edits (ai-buildable)
+        id: guard
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # A model can ignore an instruction — it cannot ignore a diff.
+          #
+          # CI and hook paths are banned for BOTH profiles: they are the
+          # worker's own control plane. Finalize's `git add -A` commits, pushes
+          # and opens a PR from an in-repo branch, so `pull_request` workflows
+          # (test.yml, pr_agent.yml, …) would immediately EXECUTE an
+          # agent-authored workflow file with this repo's secrets, before any
+          # human review. Same for .husky/ hooks.
+          FORBIDDEN=$(git status --porcelain -- .github .husky)
+          if [ -n "$FORBIDDEN" ]; then
+            echo "::error::agent modified CI/hook files, which is never allowed"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+          # The schema/migration ban is `ai-buildable`-only. Features briefed
+          # via that label are told to STOP if they need a migration; this
+          # enforces it. An `ai-fixable` bug fix that legitimately needs a
+          # schema change still goes through human review as before.
+          #
+          # Rationale: preview deploys run `next build` only, never
+          # `prisma migrate deploy`, so a schema change never reaches a preview
+          # database. The feature would look broken for reasons unrelated to
+          # the agent's work.
+          if [ "$TRIGGER_LABEL" != "ai-buildable" ]; then
+            echo "guard (schema) not applicable for '$TRIGGER_LABEL'"; exit 0
+          fi
+          # --porcelain over `git diff` so NEW untracked migration directories
+          # are caught too — a migration is almost always a new file, which a
+          # plain diff against HEAD would not see.
+          CHANGED=$(git status --porcelain -- prisma/schema.prisma prisma/migrations)
+          if [ -n "$CHANGED" ]; then
+            echo "::error::agent modified prisma schema/migrations, which ai-buildable forbids"
+            echo "$CHANGED"
+            exit 1
+          fi
+          echo "no schema or migration changes"
 
       - name: Validate (typecheck + lint)
         id: validate
@@ -253,6 +405,9 @@ jobs:
           GIT_AUTHOR_EMAIL: ai-bot@bots.exponential.im
           GIT_COMMITTER_NAME: exponential-ai-bot
           GIT_COMMITTER_EMAIL: ai-bot@bots.exponential.im
+          # Prefer a PAT so the PR triggers CI; fall back to the default token.
+          # Step-scoped (see the job env comment): only this step runs `gh`.
+          GH_TOKEN: ${{ secrets.AI_BUG_FIXER_GH_TOKEN || github.token }}
         run: |
           set -euo pipefail
 
@@ -272,18 +427,25 @@ jobs:
 
           # `if` guards (not `[ ] && cmd`) so a false condition can't trip set -e.
           #
-          # `fail` = the agent couldn't do the job. Expected, not our problem to
-          # debug, so the run stays green. `abort` = OUR machinery broke (push,
-          # PR creation). That must go RED — a broken worker silently reporting
-          # success is how this workflow hid a total failure for five weeks.
+          # `fail` = the agent ran fine but its OUTPUT isn't shippable (bailed
+          # to needs-human, empty diff, guard trip, validation red). Expected,
+          # so the run stays green. `abort` = the machinery broke, and that
+          # must go RED. The agent PROCESS exiting non-zero (bad key, unknown
+          # model, crash) is machinery, not output — routing it to `fail` would
+          # recreate the exact green-run outage that went unnoticed for five
+          # weeks behind claude-code-action's continue-on-error.
           # Both release the ticket; neither may leave it stranded IN_PROGRESS.
           release_ticket() {
             reason="$1"
             exponential tickets comment add --id "$TICKET_ID" \
               -m "🤖 Couldn't open a PR automatically: ${reason}. Releasing the ticket for a human. [Run log]($RUN_URL)." || true
-            # Releasing the status is essential; dropping the label is cosmetic.
+            # Releasing the status is essential; label ops are best-effort so a
+            # missing/flaky label can never strand the ticket.
             exponential tickets update --id "$TICKET_ID" --status READY_TO_PLAN --json || true
             exponential tickets update --id "$TICKET_ID" --remove-label ai-in-progress --json || true
+            # Retry bound: mark the ticket attempted so the scan skips it from
+            # now on. A human re-arms it by removing `ai-attempted`.
+            exponential tickets update --id "$TICKET_ID" --add-label ai-attempted --json || true
           }
           fail() {
             echo "::warning::AI fix did not produce a PR: $1"
@@ -297,7 +459,8 @@ jobs:
           }
 
           if [ -n "$BAILED" ]; then fail "the agent flagged this as needing a human — ${BAILED}"; fi
-          if [ "${{ steps.agent.outcome }}" != "success" ]; then fail "the coding agent step failed"; fi
+          if [ "${{ steps.agent.outcome }}" != "success" ]; then abort "the coding agent step failed (log tail in the step above)"; fi
+          if [ "${{ steps.guard.outcome }}" != "success" ]; then fail "the agent modified forbidden paths (CI/hook files, or schema/migrations under ai-buildable)"; fi
           if [ -z "$HAS_CHANGES" ]; then fail "the agent made no code changes"; fi
           if [ "${{ steps.validate.outcome }}" != "success" ]; then fail "validation (tsc/next lint) failed"; fi
 
@@ -305,41 +468,43 @@ jobs:
           gh label create ai-bug-fixer --color BFD4F2 --description "Opened by the AI bug-fixer" --force >/dev/null 2>&1 || true
           # Commit staged edits if the agent left them uncommitted; if the action
           # already committed to the branch, this is a no-op and we just push.
+          # Conventional-commit prefix follows the profile, so a feature build
+          # does not land as `fix:` and pollute the changelog.
+          PREFIX="fix"
+          if [ "$TRIGGER_LABEL" = "ai-buildable" ]; then PREFIX="feat"; fi
+
           if ! git diff --cached --quiet; then
             cat > .git-commit-msg <<EOF
-          fix: ${TICKET_TITLE} (ticket #${TICKET_NUMBER})
+          ${PREFIX}: ${TICKET_TITLE} (ticket #${TICKET_NUMBER})
 
-          Autonomous fix for Exponential ticket #${TICKET_NUMBER}.
+          Autonomous change for Exponential ticket #${TICKET_NUMBER}.
           Requires human review before merge.
           EOF
-            git commit -F .git-commit-msg
+            # --no-verify: the workflow owns this commit. Hooks under .husky/
+            # are tracked, agent-editable files (installed by npm ci's
+            # `prepare`), so running them here would execute agent-authored
+            # code in a step that holds tokens.
+            git commit --no-verify -F .git-commit-msg
             rm -f .git-commit-msg
           fi
 
-          # claude-code-action rewrites remote.origin.url to embed its OWN
-          # (claude[bot]) token — it logs "Updating remote URL with
-          # authentication". That silently replaces the credential
-          # actions/checkout installed, so this push authenticates as the bot
-          # and dies with "Invalid username or token".
-          #
-          # Reset the remote to the PLAIN url — no token. actions/checkout's
-          # own `http.https://github.com/.extraheader` credential is still in
-          # .git/config at this point (it is only unset by the checkout Post
-          # step, which runs after this one) and applies to that url, so the
-          # push authenticates as us again. Deliberately NOT re-embedding a
-          # token in the url or in git config: this repo is public and Actions
-          # logs are world-readable, so a token in the remote would leak via
-          # `git remote -v`, `git config --list`, or a git error that echoes
-          # the url. Nothing to leak if nothing is stored.
-          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          # The remote is left exactly as actions/checkout configured it. The
+          # previous incarnation had to reset remote.origin.url here because
+          # claude-code-action rewrote it to embed its own claude[bot] token,
+          # breaking the push. The CLI does not touch git at all (it has no
+          # Bash tool), so there is nothing to undo. Deliberately NOT embedding
+          # a token in the url: this repo is public and Actions logs are
+          # world-readable, so a token there would leak via `git remote -v` or
+          # any git error that echoes the url.
           if ! git push origin "$BRANCH"; then abort "could not push the branch"; fi
 
           cat > .pr-body.md <<EOF
-          ## 🤖 Autonomous bug fix — needs human review
+          ## 🤖 Autonomous change — needs human review
 
           Implements Exponential ticket **#${TICKET_NUMBER}** — ${TICKET_TITLE}.
 
-          Generated by the AI bug-fixer ([run log]($RUN_URL)) using \`${MODEL}\`.
+          Triggered by the \`${TRIGGER_LABEL}\` label. Generated by the AI worker
+          ([run log]($RUN_URL)) using \`${MODEL}\`.
           Validation (\`tsc --noEmit\` + \`next lint\`) passed.
 
           **A human must review and merge this PR.** On merge, the existing PR-merge
@@ -348,7 +513,7 @@ jobs:
 
           if ! PR_URL=$(gh pr create \
             --base main --head "$BRANCH" \
-            --title "fix: ${TICKET_TITLE} (ticket #${TICKET_NUMBER})" \
+            --title "${PREFIX}: ${TICKET_TITLE} (ticket #${TICKET_NUMBER})" \
             --label ai-bug-fixer \
             --body-file .pr-body.md); then
             abort "pushed the branch but could not open the PR"
