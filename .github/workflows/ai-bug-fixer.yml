@@ -253,7 +253,7 @@ jobs:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.AI_BUILDER_API_KEY }}
           ANTHROPIC_API_KEY: ""
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "${ANTHROPIC_AUTH_TOKEN}" ]; then
             echo "::error::Missing AI_BUILDER_API_KEY secret"; exit 1
           fi
