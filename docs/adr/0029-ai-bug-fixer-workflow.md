@@ -109,7 +109,10 @@ profiles, not just features. OpenRouter's Anthropic-compatible endpoint
 provider" collapses to a model string: OpenAI and Anthropic models are reachable
 the same way. Set `AI_BUILDER_BASE_URL` to `https://api.anthropic.com` to talk to
 Anthropic directly — clearing it merely restores the OpenRouter default, since an
-Actions `||` expression cannot tell an unset variable from an empty one.
+Actions `||` expression cannot tell an unset variable from an empty one. The
+workflow picks the auth header per endpoint: `x-api-key` (`ANTHROPIC_API_KEY`)
+for Anthropic direct, `Authorization: Bearer` (`ANTHROPIC_AUTH_TOKEN`) for
+everything else — still exactly one credential secret either way.
 
 *Consequence, and it is a real one:* the flat-fee subscription token named as a
 cost control above is gone. Billing is per-token. `--max-budget-usd` was added as

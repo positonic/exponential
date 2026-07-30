@@ -246,26 +246,35 @@ jobs:
         id: agent
         continue-on-error: true
         env:
-          # ANTHROPIC_AUTH_TOKEN (not ANTHROPIC_API_KEY) is the header the SDK
-          # sends to a custom base URL. ANTHROPIC_API_KEY is blanked explicitly
-          # so a leftover Anthropic key in repo secrets cannot win the race and
-          # silently bill the wrong account.
+          # Exactly ONE credential reaches the agent (AI_BUILDER_API_KEY); the
+          # run block exports it under the variable whose auth header the
+          # target endpoint expects. Anthropic direct authenticates with
+          # x-api-key, which the SDK sends from ANTHROPIC_API_KEY; every other
+          # Anthropic-compatible endpoint (OpenRouter included) takes
+          # Authorization: Bearer, sent from ANTHROPIC_AUTH_TOKEN. Both are
+          # pre-blanked here so a leftover key in repo settings can never win a
+          # precedence race and silently bill the wrong account.
           #
           # That precedence trap is not hypothetical: PR #436 traced a five-week
           # outage to claude-code-action PREFERRING claude_code_oauth_token when
           # both credentials were present. The subscription behind it had hit a
           # rolling usage cap and failed in ~250ms, and adding API-key credit
-          # changed nothing because the API key was never consulted. Exactly one
-          # credential reaches the agent here, and it is named explicitly.
+          # changed nothing because the API key was never consulted.
           ANTHROPIC_BASE_URL: ${{ env.AGENT_BASE_URL }}
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.AI_BUILDER_API_KEY }}
+          AI_BUILDER_API_KEY: ${{ secrets.AI_BUILDER_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ""
           ANTHROPIC_API_KEY: ""
           MAX_BUDGET_USD: ${{ vars.AI_BUILDER_MAX_USD || '2' }}
           DEBUG_OUTPUT: ${{ inputs.debug_output || false }}
         run: |
           set -euo pipefail
-          if [ -z "${ANTHROPIC_AUTH_TOKEN}" ]; then
+          if [ -z "${AI_BUILDER_API_KEY}" ]; then
             echo "::error::Missing AI_BUILDER_API_KEY secret"; exit 1
+          fi
+          if [ "${ANTHROPIC_BASE_URL%/}" = "https://api.anthropic.com" ]; then
+            export ANTHROPIC_API_KEY="$AI_BUILDER_API_KEY"
+          else
+            export ANTHROPIC_AUTH_TOKEN="$AI_BUILDER_API_KEY"
           fi
           # Pinned: this process holds the LLM key in its env, so a hijacked
           # release of the CLI would run holding that secret. Bump deliberately.

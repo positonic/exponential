@@ -102,11 +102,14 @@ A human reviews and merges the PR. On merge, the ADR-0021 webhook flips the tick
 | `AI_BUILDER_API_KEY` | yes | The LLM key. An OpenRouter key by default; an Anthropic key if you point `AI_BUILDER_BASE_URL` at Anthropic. Checked in the cheap scan job so a missing key fails **before** a ticket is claimed. |
 | `AI_BUG_FIXER_GH_TOKEN` | optional | A PAT used to push the branch and open the PR. Set this so the PR **triggers CI** — PRs opened by the default `GITHUB_TOKEN` do not. Falls back to `GITHUB_TOKEN`. |
 
-`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are **no longer used** by this
-workflow. The agent is the Claude Code CLI called directly against a configurable
-endpoint; it reads `AI_BUILDER_API_KEY` only, and blanks `ANTHROPIC_API_KEY` in
-its environment so a leftover Anthropic key cannot silently bill the wrong
-account.
+`CLAUDE_CODE_OAUTH_TOKEN` and any `ANTHROPIC_API_KEY` repo secret are **no
+longer used** by this workflow. The agent is the Claude Code CLI called directly
+against a configurable endpoint; the only credential it sees is
+`AI_BUILDER_API_KEY`, exported under whichever variable matches the target's
+auth header — `ANTHROPIC_API_KEY` (`x-api-key`) when the base URL is
+`https://api.anthropic.com`, `ANTHROPIC_AUTH_TOKEN` (`Authorization: Bearer`)
+for every other endpoint. The unused one is blanked so a leftover key cannot
+silently bill the wrong account.
 
 ### Repository variables (`gh variable set …`)
 
@@ -116,7 +119,7 @@ account.
 | `EXPONENTIAL_PRODUCT` | yes | — | Product slug or CUID whose backlog to scan |
 | `EXPONENTIAL_WORKSPACE` | yes | — | Workspace slug or CUID (e.g. `syntrofi`). Required — the CLI resolves `--label` slugs against the workspace, so label filtering fails without it even with a CUID product. |
 | `AI_BUILDER_MODEL` | no | `z-ai/glm-5.2` | Coding-agent model, as the endpoint names it |
-| `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to `https://api.anthropic.com` to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id); clearing the var just restores the OpenRouter default. |
+| `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to `https://api.anthropic.com` to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id, and the workflow switches the auth header to `x-api-key` automatically); clearing the var just restores the OpenRouter default. |
 | `AI_BUILDER_MAX_USD` | no | `2` | Hard per-run spend ceiling passed to `--max-budget-usd` |
 | `AI_BUG_FIXER_MAX_OPEN_PRS` | no | `3` | Skip new work while this many AI PRs are open |
 
