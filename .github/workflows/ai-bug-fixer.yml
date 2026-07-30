@@ -242,6 +242,13 @@ jobs:
           # sends to a custom base URL. ANTHROPIC_API_KEY is blanked explicitly
           # so a leftover Anthropic key in repo secrets cannot win the race and
           # silently bill the wrong account.
+          #
+          # That precedence trap is not hypothetical: PR #436 traced a five-week
+          # outage to claude-code-action PREFERRING claude_code_oauth_token when
+          # both credentials were present. The subscription behind it had hit a
+          # rolling usage cap and failed in ~250ms, and adding API-key credit
+          # changed nothing because the API key was never consulted. Exactly one
+          # credential reaches the agent here, and it is named explicitly.
           ANTHROPIC_BASE_URL: ${{ env.AGENT_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.AI_BUILDER_API_KEY }}
           ANTHROPIC_API_KEY: ""
