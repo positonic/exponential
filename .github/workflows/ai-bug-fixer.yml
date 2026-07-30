@@ -138,6 +138,14 @@ jobs:
           exponential tickets list \
             --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
             --status READY_TO_PLAN --label security --json > security.json
+          # Retry bound: a ticket that failed a previous attempt carries
+          # `ai-attempted` (added on release, below). Excluding it here stops a
+          # deterministically-failing ticket from burning metered budget every
+          # hour forever AND (selection is oldest-first) starving the queue
+          # behind it. A human re-arms the ticket by removing the label.
+          exponential tickets list \
+            --product "$EXPONENTIAL_PRODUCT" --workspace "$EXPONENTIAL_WORKSPACE" \
+            --status READY_TO_PLAN --label ai-attempted --json > attempted.json
 
       - name: Count open AI PRs (cap guard)
         id: prs
@@ -158,6 +166,7 @@ jobs:
             --candidates fixable.json  --candidate-label ai-fixable
             --candidates buildable.json --candidate-label ai-buildable
             --exclude security.json
+            --exclude attempted.json
             --open-prs "${{ steps.prs.outputs.open }}"
             --max-open-prs "${{ vars.AI_BUG_FIXER_MAX_OPEN_PRS || '3' }}"
           )
@@ -427,9 +436,13 @@ jobs:
             reason="$1"
             exponential tickets comment add --id "$TICKET_ID" \
               -m "🤖 Couldn't open a PR automatically: ${reason}. Releasing the ticket for a human. [Run log]($RUN_URL)." || true
-            # Releasing the status is essential; dropping the label is cosmetic.
+            # Releasing the status is essential; label ops are best-effort so a
+            # missing/flaky label can never strand the ticket.
             exponential tickets update --id "$TICKET_ID" --status READY_TO_PLAN --json || true
             exponential tickets update --id "$TICKET_ID" --remove-label ai-in-progress --json || true
+            # Retry bound: mark the ticket attempted so the scan skips it from
+            # now on. A human re-arms it by removing `ai-attempted`.
+            exponential tickets update --id "$TICKET_ID" --add-label ai-attempted --json || true
           }
           fail() {
             echo "::warning::AI fix did not produce a PR: $1"

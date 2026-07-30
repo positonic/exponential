@@ -9,7 +9,10 @@
  * Eligibility (server-side filters are applied by the CLI before this runs):
  *   - status = READY_TO_PLAN and one of the trigger labels (the candidates sets)
  * Exclusions (applied here — the safety gate):
- *   - any ticket also carrying the `security` label  (the exclude set)
+ *   - any ticket in an exclude set: `security`-labelled, or `ai-attempted`
+ *     (a prior run failed on it — retrying hourly at per-token cost would burn
+ *     budget forever AND, because selection is oldest-first, starve every
+ *     newer ticket behind it; a human re-arms by removing the label)
  *   - any ticket with priority 0 (critical)
  *   - if the number of already-open AI PRs is at/above the cap, select nothing
  *
@@ -28,7 +31,8 @@
  *   node select-candidate.mjs \
  *     --candidates fixable.json  --candidate-label ai-fixable \
  *     --candidates buildable.json --candidate-label ai-buildable \
- *     --exclude sec.json [--open-prs 1] [--max-open-prs 3] [--only-ticket <id>]
+ *     --exclude sec.json --exclude attempted.json \
+ *     [--open-prs 1] [--max-open-prs 3] [--only-ticket <id>]
  *
  * Writes the chosen ticket to `chosen.json` (cwd) and, when running under GitHub
  * Actions, emits `found`, `ticket_id`, `ticket_number`, `ticket_title`,
@@ -104,7 +108,9 @@ candidateFiles.forEach((file, i) => {
   }
 });
 const candidates = [...byId.values()];
-const excludeIds = new Set(readTickets(arg("exclude")).map((t) => t.id));
+// `--exclude` is repeatable like `--candidates`: one file per exclusion query
+// (security-labelled, ai-attempted). Union of every file's ids.
+const excludeIds = new Set(args("exclude").flatMap((f) => readTickets(f).map((t) => t.id)));
 const onlyTicket = arg("only-ticket"); // manual workflow_dispatch override
 const openPrs = parseInt(arg("open-prs", "0"), 10) || 0;
 const maxOpenPrs = parseInt(arg("max-open-prs", "3"), 10) || 0;
@@ -115,7 +121,7 @@ function pickReason() {
   }
 
   let pool = candidates.filter((t) => {
-    if (excludeIds.has(t.id)) return false; // `security`-labelled
+    if (excludeIds.has(t.id)) return false; // `security`-labelled or `ai-attempted`
     if (t.priority === 0) return false; // critical
     return true;
   });
@@ -130,7 +136,7 @@ function pickReason() {
   if (pool.length === 0) {
     return {
       chosen: null,
-      reason: `no eligible tickets (${candidateLabels.join("/") || "no labels queried"} + READY_TO_PLAN, minus security/critical)`,
+      reason: `no eligible tickets (${candidateLabels.join("/") || "no labels queried"} + READY_TO_PLAN, minus security/ai-attempted/critical)`,
     };
   }
 

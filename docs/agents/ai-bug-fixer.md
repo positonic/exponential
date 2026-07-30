@@ -42,6 +42,7 @@ A ticket is attempted only when **all** of these hold:
 | `status = READY_TO_PLAN` | the documented "ready for an AFK agent" state |
 | has **`ai-fixable`** or **`ai-buildable`** | explicit opt-in |
 | **not** labelled `security` | safety: humans handle security |
+| **not** labelled `ai-attempted` | retry bound: a prior run already failed on it (see below) |
 | `priority` is not `0` (critical) | safety: humans handle critical |
 
 To hand work to the worker: write a clear ticket body, then
@@ -81,7 +82,12 @@ not run for a both-labelled ticket.
    `branchName`, remove `ai-in-progress`, comment with the PR link. **Never merges.**
 7. If the work fails, is empty, trips the guard, or the agent flags it as needing
    a human, the ticket is **released back to `READY_TO_PLAN`** with an
-   explanatory comment.
+   explanatory comment — and labelled **`ai-attempted`**, which the scan
+   excludes. Without that bound, a deterministically-failing ticket (say, a
+   feature that genuinely needs a migration) would be retried every hour
+   forever at per-token cost, and — selection being oldest-first — starve every
+   newer ticket behind it. **To re-arm a ticket** after fixing whatever made it
+   fail: `exponential tickets update --id <cuid> --remove-label ai-attempted`.
 
 The agent's output is written to a file, not the log — this repo is public and
 Actions logs are world-readable. If the agent process itself fails, the last 30
@@ -122,6 +128,14 @@ silently bill the wrong account.
 | `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to `https://api.anthropic.com` to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id, and the workflow switches the auth header to `x-api-key` automatically); clearing the var just restores the OpenRouter default. |
 | `AI_BUILDER_MAX_USD` | no | `2` | Per-run spend ceiling passed to `--max-budget-usd`. Binds only if the CLI can price the model (see *Cost controls*) |
 | `AI_BUG_FIXER_MAX_OPEN_PRS` | no | `3` | Skip new work while this many AI PRs are open |
+
+### Labels (must exist in the workspace)
+
+The CLI **errors on an unknown label slug**, and the scan deliberately does not
+swallow CLI errors — so every label the workflow queries or applies must exist
+in the workspace before the workflow runs: `ai-fixable`, `ai-buildable`,
+`security`, `ai-in-progress`, and `ai-attempted`. Create any missing one with
+`exponential labels create --workspace <ws> --name <slug>`.
 
 The old `AI_BUG_FIXER_MODEL` variable is deliberately **not** read any more: it
 named an Anthropic model, and a stale value left in repo settings would be sent
