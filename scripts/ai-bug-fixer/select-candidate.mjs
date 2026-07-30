@@ -20,7 +20,9 @@
  * and passes each file here. `--candidates` is therefore REPEATABLE, and each
  * one is paired with the `--candidate-label` of the same index so the chosen
  * ticket can report which profile it matched. A ticket carrying both labels is
- * deduped to its first (bug-fix) match, which is the stricter profile.
+ * deduped to its first (bug-fix) match — the narrow-fix profile. Note the
+ * schema/migration diff guard is keyed to the `ai-buildable` trigger, so it
+ * does not run for a both-labelled ticket.
  *
  * Usage:
  *   node select-candidate.mjs \
@@ -75,7 +77,7 @@ function slugify(title) {
 
 // Merge every --candidates file, stamping each ticket with the label whose
 // query produced it. First match wins on dedupe: a ticket carrying BOTH labels
-// is worked as `ai-fixable`, the stricter (narrow-fix) profile.
+// is worked as `ai-fixable`, the narrow-fix profile.
 const candidateFiles = args("candidates");
 const candidateLabels = args("candidate-label");
 // The two repeatable flags pair by index; a mismatch would stamp tickets with
@@ -88,7 +90,13 @@ if (candidateFiles.length !== candidateLabels.length) {
   );
   process.exit(1);
 }
-/** @type {Map<string, any>} */
+/**
+ * A ticket row from `exponential tickets list --json`, stamped with the trigger
+ * label whose query produced it.
+ * @typedef {{id: string, number?: number, title?: string, priority?: number,
+ *            createdAt: string, triggerLabel: string}} Candidate
+ */
+/** @type {Map<string, Candidate>} */
 const byId = new Map();
 candidateFiles.forEach((file, i) => {
   for (const t of readTickets(file)) {

@@ -184,8 +184,10 @@ jobs:
       # would be sent to OpenRouter, which does not know it.
       MODEL: ${{ inputs.model || vars.AI_BUILDER_MODEL || 'z-ai/glm-5.2' }}
       # OpenRouter's Anthropic-compatible endpoint. Note `/api`, NOT `/api/v1` —
-      # the Anthropic SDK appends its own path. Unset this var to talk to
-      # Anthropic directly instead (then MODEL must be an Anthropic model id).
+      # the Anthropic SDK appends its own path. To talk to Anthropic directly,
+      # SET the var to https://api.anthropic.com (then MODEL must be an Anthropic
+      # model id). Clearing the var does NOT do that: `||` here cannot tell unset
+      # from empty, so both fall back to the OpenRouter default.
       AGENT_BASE_URL: ${{ vars.AI_BUILDER_BASE_URL || 'https://openrouter.ai/api' }}
       EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
       # Prefer a PAT so the PR triggers CI; fall back to the default token.
@@ -252,17 +254,27 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ env.AGENT_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.AI_BUILDER_API_KEY }}
           ANTHROPIC_API_KEY: ""
+          MAX_BUDGET_USD: ${{ vars.AI_BUILDER_MAX_USD || '2' }}
+          DEBUG_OUTPUT: ${{ inputs.debug_output || false }}
         run: |
           set -euo pipefail
           if [ -z "${ANTHROPIC_AUTH_TOKEN}" ]; then
             echo "::error::Missing AI_BUILDER_API_KEY secret"; exit 1
           fi
-          npm i -g @anthropic-ai/claude-code
+          # Pinned: this process holds the LLM key in its env, so a hijacked
+          # release of the CLI would run holding that secret. Bump deliberately.
+          npm i -g @anthropic-ai/claude-code@2.1.186
 
-          # Tools are allow-listed rather than unrestricted. Bash is NOT granted:
-          # the brief already forbids the agent running git, the workflow owns
-          # commit/push/PR, and this process holds an API key in its env — in a
-          # public repo, an agent that cannot shell out cannot exfiltrate it.
+          # Tools are allow-listed AND Bash is explicitly denied. The deny is
+          # load-bearing, not belt-and-braces: --allowedTools only pre-approves,
+          # it does not restrict, and the checked-in .claude/settings.json
+          # carries Bash(...) allow rules that merge into the agent's
+          # permissions on top of these flags. A deny beats every allow source,
+          # so this is what actually keeps the agent from shelling out — the
+          # brief forbids git, the workflow owns commit/push/PR, and an agent
+          # that cannot shell out cannot read the API key from its env.
+          # WebFetch/WebSearch are denied too: the brief needs neither, and a
+          # file-editing agent has no business making outbound requests.
           # --max-budget-usd is a hard spend ceiling; unlike --max-turns it
           # bounds cost directly, which matters now billing is per-token rather
           # than a flat subscription fee.
@@ -270,9 +282,10 @@ jobs:
           claude -p "Read .ai-bug-fixer/prompt.md and implement what it describes. Edit the working tree only — do NOT run git, commit, push, or open a PR." \
             --model "$MODEL" \
             --max-turns 30 \
-            --max-budget-usd "${{ vars.AI_BUILDER_MAX_USD || '2' }}" \
+            --max-budget-usd "$MAX_BUDGET_USD" \
             --permission-mode acceptEdits \
             --allowedTools "Read,Write,Edit,Glob,Grep" \
+            --disallowedTools "Bash,WebFetch,WebSearch" \
             > .ai-bug-fixer/agent-output.txt 2>&1
           AGENT_EXIT=$?
           set -e
@@ -282,7 +295,7 @@ jobs:
           # opt-in. On failure we surface the tail regardless — a silent
           # failure is what made the previous incarnation of this step fail
           # green and unnoticed for five weeks.
-          if [ "${{ inputs.debug_output || false }}" = "true" ]; then
+          if [ "$DEBUG_OUTPUT" = "true" ]; then
             cat .ai-bug-fixer/agent-output.txt
           elif [ "$AGENT_EXIT" -ne 0 ]; then
             echo "::group::agent output (tail)"; tail -n 30 .ai-bug-fixer/agent-output.txt; echo "::endgroup::"
@@ -360,10 +373,13 @@ jobs:
 
           # `if` guards (not `[ ] && cmd`) so a false condition can't trip set -e.
           #
-          # `fail` = the agent couldn't do the job. Expected, not our problem to
-          # debug, so the run stays green. `abort` = OUR machinery broke (push,
-          # PR creation). That must go RED — a broken worker silently reporting
-          # success is how this workflow hid a total failure for five weeks.
+          # `fail` = the agent ran fine but its OUTPUT isn't shippable (bailed
+          # to needs-human, empty diff, guard trip, validation red). Expected,
+          # so the run stays green. `abort` = the machinery broke, and that
+          # must go RED. The agent PROCESS exiting non-zero (bad key, unknown
+          # model, crash) is machinery, not output — routing it to `fail` would
+          # recreate the exact green-run outage that went unnoticed for five
+          # weeks behind claude-code-action's continue-on-error.
           # Both release the ticket; neither may leave it stranded IN_PROGRESS.
           release_ticket() {
             reason="$1"
@@ -385,7 +401,7 @@ jobs:
           }
 
           if [ -n "$BAILED" ]; then fail "the agent flagged this as needing a human — ${BAILED}"; fi
-          if [ "${{ steps.agent.outcome }}" != "success" ]; then fail "the coding agent step failed"; fi
+          if [ "${{ steps.agent.outcome }}" != "success" ]; then abort "the coding agent step failed (log tail in the step above)"; fi
           if [ "${{ steps.guard.outcome }}" != "success" ]; then fail "the agent changed the database schema, which ai-buildable forbids"; fi
           if [ -z "$HAS_CHANGES" ]; then fail "the agent made no code changes"; fi
           if [ "${{ steps.validate.outcome }}" != "success" ]; then fail "validation (tsc/next lint) failed"; fi

@@ -93,16 +93,23 @@ below requires. It also rewrote `remote.origin.url` to embed its own bot token,
 which the workflow had to undo before every push. Decisively: the action step is
 `continue-on-error`, so its failures surfaced as a **green run that produced no
 PR** — a total outage went unnoticed for five weeks. A direct call yields a plain
-exit code. The `id-token: write` permission and the remote-URL workaround are
-both gone. The agent is allow-listed to `Read,Write,Edit,Glob,Grep`; **Bash is
-withheld**, so an agent holding an API key in a public repo's runner cannot shell
-out.
+exit code, and the workflow turns a non-zero agent exit into a **red** run (only
+an honest "couldn't do it" — bail, empty diff, failed validation — stays green).
+The `id-token: write` permission and the remote-URL workaround are both gone.
+The agent is allow-listed to `Read,Write,Edit,Glob,Grep` and **Bash is
+explicitly denied** (`--disallowedTools`). The deny is what does the work: an
+allow-list alone does not restrict, and the repo's checked-in
+`.claude/settings.json` would otherwise merge its own `Bash(...)` allow rules
+into the agent's permissions. With the deny in place, an agent holding an API
+key in a public repo's runner cannot shell out.
 
 **2. The model is served by OpenRouter, defaulting to `z-ai/glm-5.2`.** Both
 profiles, not just features. OpenRouter's Anthropic-compatible endpoint
 (`https://openrouter.ai/api` — note `/api`, not `/api/v1`) means "which
 provider" collapses to a model string: OpenAI and Anthropic models are reachable
-the same way. `AI_BUILDER_BASE_URL` can be cleared to talk to Anthropic directly.
+the same way. Set `AI_BUILDER_BASE_URL` to `https://api.anthropic.com` to talk to
+Anthropic directly — clearing it merely restores the OpenRouter default, since an
+Actions `||` expression cannot tell an unset variable from an empty one.
 
 *Consequence, and it is a real one:* the flat-fee subscription token named as a
 cost control above is gone. Billing is per-token. `--max-budget-usd` was added as
@@ -113,7 +120,10 @@ for a worker with almost no track record to protect.
 **3. A second trigger label, `ai-buildable`, for features.** `--label` on the CLI
 ANDs, so "either label" cannot be one query; the scan runs one list per label and
 `select-candidate.mjs` merges them, recording which query matched. A ticket with
-both is worked as `ai-fixable` — the stricter profile. `ai-buildable` adds one
+both is worked as `ai-fixable` — the narrow-fix profile. (Deliberate consequence:
+the diff gate below is keyed to the `ai-buildable` trigger, so a both-labelled
+ticket is not diff-gated; its schema edits reach human review like any bug
+fix's.) `ai-buildable` adds one
 gate: **schema and migration edits are rejected by diff**, not by prompt.
 Rationale — preview deploys run `next build` only, never `prisma migrate deploy`,
 so a schema change cannot reach a preview database and the feature would appear

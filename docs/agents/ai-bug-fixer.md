@@ -14,13 +14,16 @@ merge → ticket `DONE`) is handled by the existing webhook in
 | | `ai-fixable` | `ai-buildable` |
 | --- | --- | --- |
 | For | bugs | features |
-| Brief framing | smallest change that fixes it | build what the ticket describes |
 | Validation | `tsc` + `next lint` | `tsc` + `next lint`, **plus no schema/migration edits** |
 | Commit prefix | `fix:` | `feat:` |
 
 Both profiles share everything else: the same scan, claim, agent, PR and release
-logic. The label is the gate, not the ticket type — `type` only steers the brief's
-wording.
+logic. The label is the gate. The **brief's framing follows the ticket's `type`
+field, not the label** (`scripts/ai-bug-fixer/render-prompt.mjs`): a BUG-type
+ticket is told "smallest change that fixes it", anything else "build what the
+ticket describes". So a FEATURE-type ticket labelled `ai-fixable` gets the build
+framing but the `fix:` prefix and **no schema guard** — label tickets to match
+their type.
 
 The schema ban on `ai-buildable` is mechanical (a `git status` check), not an
 instruction the model can ignore. It exists because preview deploys run
@@ -47,7 +50,9 @@ exponential tickets update --id <ticket-cuid> --status READY_TO_PLAN --add-label
 ```
 
 The worker picks the **oldest** eligible ticket each run (FIFO). A ticket carrying
-both labels is worked as `ai-fixable` — the stricter profile.
+both labels is worked as `ai-fixable`, the narrow-fix profile — note that the
+schema/migration diff guard is keyed to the `ai-buildable` trigger, so it does
+not run for a both-labelled ticket.
 
 > `--label` on the CLI ANDs, so "either label" cannot be one query. The scan runs
 > one list per label and `select-candidate.mjs` merges them, remembering which
@@ -60,8 +65,10 @@ both labels is worked as `ai-fixable` — the stricter profile.
 2. **Claim:** move the ticket to `IN_PROGRESS`, add `ai-in-progress`, comment.
 3. **Brief + build:** render the ticket into `.ai-bug-fixer/prompt.md` and run
    the Claude Code CLI against it on a new `ai/ticket-<n>-<slug>` branch. The
-   agent is allow-listed to `Read,Write,Edit,Glob,Grep` — **no Bash**, so it
-   cannot run git, and cannot shell out with an API key in its environment.
+   agent is allow-listed to `Read,Write,Edit,Glob,Grep` with **Bash explicitly
+   denied** — the deny overrides the `Bash(...)` allow rules that the repo's
+   checked-in `.claude/settings.json` would otherwise merge in, so the agent
+   cannot run git or shell out with an API key in its environment.
 4. **Guard** (`ai-buildable` only): fail if `prisma/schema.prisma` or
    `prisma/migrations` changed.
 5. **Validate:** `npx tsc --noEmit` + `npx next lint` (same checks as CI).
@@ -72,8 +79,10 @@ both labels is worked as `ai-fixable` — the stricter profile.
    explanatory comment.
 
 The agent's output is written to a file, not the log — this repo is public and
-Actions logs are world-readable. On failure the last 30 lines are surfaced so a
-broken worker cannot fail silently; `debug_output` prints everything.
+Actions logs are world-readable. If the agent process itself fails, the last 30
+lines are surfaced **and the run goes red** — a broken worker cannot fail
+silently or green; `debug_output` prints everything. (An honest non-result —
+bail, empty diff, tripped guard, failed validation — stays green.)
 
 A human reviews and merges the PR. On merge, the ADR-0021 webhook flips the ticket
 `QA → DONE`.
@@ -85,7 +94,7 @@ A human reviews and merges the PR. On merge, the ADR-0021 webhook flips the tick
 | Secret | Required | Purpose |
 | --- | --- | --- |
 | `EXPONENTIAL_TOKEN` | yes | Bot JWT for the CLI. Get it with `exponential auth show --token`. Prefer a dedicated service-account user over a personal token. |
-| `AI_BUILDER_API_KEY` | yes | The LLM key. An OpenRouter key by default; an Anthropic key if you clear `AI_BUILDER_BASE_URL`. Checked in the cheap scan job so a missing key fails **before** a ticket is claimed. |
+| `AI_BUILDER_API_KEY` | yes | The LLM key. An OpenRouter key by default; an Anthropic key if you point `AI_BUILDER_BASE_URL` at Anthropic. Checked in the cheap scan job so a missing key fails **before** a ticket is claimed. |
 | `AI_BUG_FIXER_GH_TOKEN` | optional | A PAT used to push the branch and open the PR. Set this so the PR **triggers CI** — PRs opened by the default `GITHUB_TOKEN` do not. Falls back to `GITHUB_TOKEN`. |
 
 `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are **no longer used** by this
@@ -102,7 +111,7 @@ account.
 | `EXPONENTIAL_PRODUCT` | yes | — | Product slug or CUID whose backlog to scan |
 | `EXPONENTIAL_WORKSPACE` | yes | — | Workspace slug or CUID (e.g. `syntrofi`). Required — the CLI resolves `--label` slugs against the workspace, so label filtering fails without it even with a CUID product. |
 | `AI_BUILDER_MODEL` | no | `z-ai/glm-5.2` | Coding-agent model, as the endpoint names it |
-| `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to empty to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id). |
+| `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to `https://api.anthropic.com` to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id); clearing the var just restores the OpenRouter default. |
 | `AI_BUILDER_MAX_USD` | no | `2` | Hard per-run spend ceiling passed to `--max-budget-usd` |
 | `AI_BUG_FIXER_MAX_OPEN_PRS` | no | `3` | Skip new work while this many AI PRs are open |
 
@@ -146,7 +155,9 @@ billing, which is why `--max-budget-usd` was added. At GLM 5.2's rates
 
 - Never auto-merges, never auto-deploys — only opens PRs.
 - Never attempts `security`-labelled or `priority 0` (critical) tickets.
-- The agent has **no Bash tool** — it edits files and nothing else.
+- The agent has **Bash explicitly denied** (a deny rule beats every allow
+  source, including the repo's checked-in settings) — it edits files and
+  nothing else.
 - `ai-buildable` cannot change the database schema (enforced by diff, not prompt).
 - The brief instructs a **narrow** fix and tells the agent to bail (writing
   `.ai-bug-fixer/needs-human.txt`) if the fix would be broad or risky.
