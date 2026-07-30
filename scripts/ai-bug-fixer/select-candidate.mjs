@@ -30,8 +30,9 @@
  *
  * Writes the chosen ticket to `chosen.json` (cwd) and, when running under GitHub
  * Actions, emits `found`, `ticket_id`, `ticket_number`, `ticket_title`,
- * `branch_slug`, `trigger_label` to $GITHUB_OUTPUT. Exit code is always 0 —
- * "nothing to do" is a normal outcome, not a failure.
+ * `branch_slug`, `trigger_label` to $GITHUB_OUTPUT. "Nothing to do" is a
+ * normal outcome (exit 0); mispaired --candidates/--candidate-label flags are
+ * an invocation bug and exit 1.
  */
 import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 
@@ -77,6 +78,16 @@ function slugify(title) {
 // is worked as `ai-fixable`, the stricter (narrow-fix) profile.
 const candidateFiles = args("candidates");
 const candidateLabels = args("candidate-label");
+// The two repeatable flags pair by index; a mismatch would stamp tickets with
+// an empty triggerLabel, which downstream reads as "no profile" and would skip
+// profile-specific gates (e.g. the ai-buildable schema/migration guard). That
+// is an invocation bug, not "nothing to do" — fail the scan loudly.
+if (candidateFiles.length !== candidateLabels.length) {
+  console.error(
+    `[ai-bug-fixer] --candidates (${candidateFiles.length}) and --candidate-label (${candidateLabels.length}) must be paired 1:1`,
+  );
+  process.exit(1);
+}
 /** @type {Map<string, any>} */
 const byId = new Map();
 candidateFiles.forEach((file, i) => {
