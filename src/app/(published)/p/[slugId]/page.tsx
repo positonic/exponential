@@ -250,8 +250,13 @@ export default async function PublishedPage({
             <TypographyStylesProvider>
               {/* Server-generated from the schema-constrained ProseMirror doc
                   after the ADR-0038 sanitization pass — the deliberate, narrow
-                  exception to the no-dangerouslySetInnerHTML rule. */}
-              <div dangerouslySetInnerHTML={{ __html: html }} />
+                  exception to the no-dangerouslySetInnerHTML rule.
+                  `prd-document` is the same class the in-app editor/viewer sets:
+                  Tailwind Preflight strips list markers and list padding, and
+                  TypographyStylesProvider has no ul/ol rules to put them back, so
+                  without it bullets and numbers vanish on the public render (it
+                  also carries the table and task-list styling). */}
+              <div className="prd-document" dangerouslySetInnerHTML={{ __html: html }} />
             </TypographyStylesProvider>
           ) : page.body ? (
             <MarkdownRenderer content={page.body} variant="prose" />
