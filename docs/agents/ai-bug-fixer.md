@@ -15,6 +15,7 @@ merge → ticket `DONE`) is handled by the existing webhook in
 | --- | --- | --- |
 | For | bugs | features |
 | Validation | `tsc` + `next lint` | `tsc` + `next lint`, **plus no schema/migration edits** |
+| Forbidden paths | `.github/`, `.husky/` | `.github/`, `.husky/`, `prisma/schema.prisma`, `prisma/migrations` |
 | Commit prefix | `fix:` | `feat:` |
 
 Both profiles share everything else: the same scan, claim, agent, PR and release
@@ -69,7 +70,11 @@ not run for a both-labelled ticket.
    denied** — the deny overrides the `Bash(...)` allow rules that the repo's
    checked-in `.claude/settings.json` would otherwise merge in, so the agent
    cannot run git or shell out with an API key in its environment.
-4. **Guard** (`ai-buildable` only): fail if `prisma/schema.prisma` or
+4. **Guard:** for **both** profiles, fail if anything under `.github/` or
+   `.husky/` changed — those are the worker's own control plane, and an
+   agent-authored workflow file would be *executed* by `pull_request` CI (with
+   repo secrets) the moment the branch is pushed, before any human review.
+   Additionally (`ai-buildable` only): fail if `prisma/schema.prisma` or
    `prisma/migrations` changed.
 5. **Validate:** `npx tsc --noEmit` + `npx next lint` (same checks as CI).
 6. **Open PR** (labelled `ai-bug-fixer`), set the ticket to `QA`, link `prUrl` +
@@ -158,6 +163,9 @@ billing, which is why `--max-budget-usd` was added. At GLM 5.2's rates
 - The agent has **Bash explicitly denied** (a deny rule beats every allow
   source, including the repo's checked-in settings) — it edits files and
   nothing else.
+- Neither profile can touch `.github/` or `.husky/` (enforced by diff): CI and
+  hook files are executed by later steps and by `pull_request` workflows, so
+  agent-authored code there would run with secrets before human review.
 - `ai-buildable` cannot change the database schema (enforced by diff, not prompt).
 - The brief instructs a **narrow** fix and tells the agent to bail (writing
   `.ai-bug-fixer/needs-human.txt`) if the fix would be broad or risky.

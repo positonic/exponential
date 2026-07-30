@@ -283,8 +283,10 @@ jobs:
           # unavoidably in this process's env (the Read tool can see
           # /proc/self/environ), so: WebFetch/WebSearch are denied to close the
           # outbound-exfil channel; repo/API tokens are step-scoped OUT of this
-          # step; and later steps never execute agent-editable files (Finalize
-          # commits with --no-verify).
+          # step; later steps never execute agent-editable files (Finalize
+          # commits with --no-verify); and the guard rejects any edit under
+          # .github/ or .husky/ so agent-authored CI never reaches a
+          # `pull_request` run that holds secrets.
           # --max-budget-usd is a hard spend ceiling; unlike --max-turns it
           # bounds cost directly, which matters now billing is per-token rather
           # than a flat subscription fee.
@@ -312,15 +314,28 @@ jobs:
           fi
           exit "$AGENT_EXIT"
 
-      - name: Guard — no schema or migration edits
+      - name: Guard — no CI/hook edits; no schema edits (ai-buildable)
         id: guard
         continue-on-error: true
         run: |
           set -euo pipefail
-          # Features briefed via `ai-buildable` are told to STOP if they need a
-          # migration. That is an instruction, and a model can ignore an
-          # instruction — it cannot ignore a diff. Enforced only for the
-          # feature profile: an `ai-fixable` bug fix that legitimately needs a
+          # A model can ignore an instruction — it cannot ignore a diff.
+          #
+          # CI and hook paths are banned for BOTH profiles: they are the
+          # worker's own control plane. Finalize's `git add -A` commits, pushes
+          # and opens a PR from an in-repo branch, so `pull_request` workflows
+          # (test.yml, pr_agent.yml, …) would immediately EXECUTE an
+          # agent-authored workflow file with this repo's secrets, before any
+          # human review. Same for .husky/ hooks.
+          FORBIDDEN=$(git status --porcelain -- .github .husky)
+          if [ -n "$FORBIDDEN" ]; then
+            echo "::error::agent modified CI/hook files, which is never allowed"
+            echo "$FORBIDDEN"
+            exit 1
+          fi
+          # The schema/migration ban is `ai-buildable`-only. Features briefed
+          # via that label are told to STOP if they need a migration; this
+          # enforces it. An `ai-fixable` bug fix that legitimately needs a
           # schema change still goes through human review as before.
           #
           # Rationale: preview deploys run `next build` only, never
@@ -328,7 +343,7 @@ jobs:
           # database. The feature would look broken for reasons unrelated to
           # the agent's work.
           if [ "$TRIGGER_LABEL" != "ai-buildable" ]; then
-            echo "guard not applicable for '$TRIGGER_LABEL'"; exit 0
+            echo "guard (schema) not applicable for '$TRIGGER_LABEL'"; exit 0
           fi
           # --porcelain over `git diff` so NEW untracked migration directories
           # are caught too — a migration is almost always a new file, which a
@@ -415,7 +430,7 @@ jobs:
 
           if [ -n "$BAILED" ]; then fail "the agent flagged this as needing a human — ${BAILED}"; fi
           if [ "${{ steps.agent.outcome }}" != "success" ]; then abort "the coding agent step failed (log tail in the step above)"; fi
-          if [ "${{ steps.guard.outcome }}" != "success" ]; then fail "the agent changed the database schema, which ai-buildable forbids"; fi
+          if [ "${{ steps.guard.outcome }}" != "success" ]; then fail "the agent modified forbidden paths (CI/hook files, or schema/migrations under ai-buildable)"; fi
           if [ -z "$HAS_CHANGES" ]; then fail "the agent made no code changes"; fi
           if [ "${{ steps.validate.outcome }}" != "success" ]; then fail "validation (tsc/next lint) failed"; fi
 
