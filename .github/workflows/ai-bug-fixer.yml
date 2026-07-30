@@ -249,7 +249,10 @@ jobs:
           # changed nothing.
           mkdir -p .ai-bug-fixer
           exponential tickets get "$TICKET_ID" --json > .ai-bug-fixer/ticket.json
-          node scripts/ai-bug-fixer/render-prompt.mjs --ticket .ai-bug-fixer/ticket.json --out .ai-bug-fixer/prompt.md
+          # --label: framing follows the ticket's type, but HARD RULES follow
+          # the trigger label — ai-buildable's brief must state the schema ban
+          # the guard enforces, whatever type the ticket is.
+          node scripts/ai-bug-fixer/render-prompt.mjs --ticket .ai-bug-fixer/ticket.json --out .ai-bug-fixer/prompt.md --label "$TRIGGER_LABEL"
 
       - name: Run coding agent
         id: agent

@@ -20,11 +20,14 @@ merge → ticket `DONE`) is handled by the existing webhook in
 
 Both profiles share everything else: the same scan, claim, agent, PR and release
 logic. The label is the gate. The **brief's framing follows the ticket's `type`
-field, not the label** (`scripts/ai-bug-fixer/render-prompt.mjs`): a BUG-type
-ticket is told "smallest change that fixes it", anything else "build what the
-ticket describes". So a FEATURE-type ticket labelled `ai-fixable` gets the build
-framing but the `fix:` prefix and **no schema guard** — label tickets to match
-their type.
+field** (`scripts/ai-bug-fixer/render-prompt.mjs`): a BUG-type ticket is told
+"smallest change that fixes it", anything else "build what the ticket
+describes". The brief's **hard rules follow the trigger label**: an
+`ai-buildable` ticket's brief states the schema/migration ban explicitly
+(whatever the ticket's type), telling the agent to bail rather than trip the
+guard. A FEATURE-type ticket labelled `ai-fixable` still gets the build framing
+but the `fix:` prefix and **no schema guard** — label tickets to match their
+type.
 
 The schema ban on `ai-buildable` is mechanical (a `git status` check), not an
 instruction the model can ignore. It exists because preview deploys run
