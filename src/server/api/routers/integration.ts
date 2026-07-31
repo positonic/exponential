@@ -3532,8 +3532,15 @@ export const integrationRouter = createTRPCRouter({
         where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
         include: { credentials: true },
       });
-      if (!integration) {
+      if (!integration?.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
       const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
@@ -3559,8 +3566,15 @@ export const integrationRouter = createTRPCRouter({
         where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
         include: { credentials: true },
       });
-      if (!integration) {
+      if (!integration?.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
       const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
@@ -3582,6 +3596,21 @@ export const integrationRouter = createTRPCRouter({
   getZulipUserMappings: protectedProcedure
     .input(z.object({ integrationId: z.string() }))
     .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        select: { workspaceId: true },
+      });
+      if (!integration?.workspaceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
       return ctx.db.integrationUserMapping.findMany({
         where: { integrationId: input.integrationId },
         include: {
