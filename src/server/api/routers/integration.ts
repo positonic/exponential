@@ -16,6 +16,19 @@ import {
 } from "~/server/services/notifications/ZulipNotificationService";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
 
+/**
+ * Admin procedure - extends protectedProcedure with isAdmin check
+ */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.session.user.isAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required",
+    });
+  }
+  return next();
+});
+
 // Test Fireflies API connection
 export async function testFirefliesConnection(
   apiKey: string,
@@ -2859,8 +2872,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Admin endpoints for managing all WhatsApp integrations
-  getAllWhatsAppIntegrations: protectedProcedure.query(async ({ ctx }) => {
-    // Only allow admin users (you might want to add proper role checking)
+  getAllWhatsAppIntegrations: adminProcedure.query(async ({ ctx }) => {
     const integrations = await ctx.db.integration.findMany({
       where: {
         provider: "whatsapp",
@@ -2881,7 +2893,7 @@ export const integrationRouter = createTRPCRouter({
     return integrations;
   }),
 
-  getAllWhatsAppUserMappings: protectedProcedure.query(async ({ ctx }) => {
+  getAllWhatsAppUserMappings: adminProcedure.query(async ({ ctx }) => {
     const mappings = await ctx.db.integrationUserMapping.findMany({
       where: {
         integration: {
@@ -2911,7 +2923,7 @@ export const integrationRouter = createTRPCRouter({
     return mappings;
   }),
 
-  getSystemWhatsAppAnalytics: protectedProcedure.query(async ({ ctx }) => {
+  getSystemWhatsAppAnalytics: adminProcedure.query(async ({ ctx }) => {
     // Get system-wide WhatsApp analytics
     const today = new Date();
     const startOfToday = new Date(
