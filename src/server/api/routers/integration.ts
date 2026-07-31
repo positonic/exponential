@@ -2304,61 +2304,6 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  // Get Fireflies API key for a specific user (used by webhook handler)
-  getFirefliesApiKey: protectedProcedure
-    .input(
-      z.object({
-        userId: z.string(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      // Verify the user is requesting their own API key or is authorized
-      if (ctx.session.user.id !== input.userId) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied",
-        });
-      }
-
-      // Get user's team memberships
-      const userTeams = await ctx.db.teamUser.findMany({
-        where: {
-          userId: input.userId,
-        },
-        select: {
-          teamId: true,
-        },
-      });
-
-      const teamIds = userTeams.map((membership) => membership.teamId);
-
-      // Look for personal or team Fireflies integrations
-      const integration = await ctx.db.integration.findFirst({
-        where: {
-          provider: "fireflies",
-          status: "ACTIVE",
-          OR: [
-            { userId: input.userId }, // Personal integration
-            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
-          ],
-        },
-        include: {
-          credentials: {
-            where: {
-              keyType: "API_KEY",
-            },
-            take: 1,
-          },
-        },
-      });
-
-      if (!integration || integration.credentials.length === 0) {
-        return null;
-      }
-
-      return integration.credentials[0]!.key;
-    }),
-
   // Get Slack OAuth URL for integration setup
   getSlackOAuthUrl: protectedProcedure.query(({ ctx }) => {
     const clientId = process.env.SLACK_CLIENT_ID;
