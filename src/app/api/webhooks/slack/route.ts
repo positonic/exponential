@@ -544,16 +544,30 @@ export async function POST(request: NextRequest) {
     }
     
 
-    // Verify signature if we have signing secret
-    if (timestamp && signature && integrationData.credentials.SIGNING_SECRET) {
-      const isValid = verifySlackSignature(body, timestamp, signature, integrationData.credentials.SIGNING_SECRET);
-      if (!isValid) {
-        console.error('❌ Invalid Slack signature');
-        return NextResponse.json(
-          { error: 'Invalid signature' },
-          { status: 401 }
-        );
-      }
+    // Signature verification is mandatory — fail closed. A missing header or
+    // missing/undecryptable signing secret must never let a payload through
+    // (an unsigned POST with a forged team_id would otherwise be processed as
+    // genuine Slack traffic).
+    if (!integrationData.credentials.SIGNING_SECRET) {
+      console.error('❌ No usable Slack signing secret for team:', teamId);
+      return NextResponse.json(
+        { error: 'Integration misconfigured' },
+        { status: 401 }
+      );
+    }
+    if (!timestamp || !signature) {
+      console.error('❌ Missing Slack signature headers');
+      return NextResponse.json(
+        { error: 'Missing signature' },
+        { status: 401 }
+      );
+    }
+    if (!verifySlackSignature(body, timestamp, signature, integrationData.credentials.SIGNING_SECRET)) {
+      console.error('❌ Invalid Slack signature');
+      return NextResponse.json(
+        { error: 'Invalid signature' },
+        { status: 401 }
+      );
     }
 
 

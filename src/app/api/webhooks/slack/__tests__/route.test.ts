@@ -145,4 +145,43 @@ describe("Slack webhook signature verification", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ success: true });
   });
+
+  it("rejects an unsigned request with 401", async () => {
+    stubIntegration({ key: SIGNING_SECRET, isEncrypted: false });
+    const res = await POST(makeRequest({ timestamp: null, signature: null }));
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a request signed under the wrong secret with 401", async () => {
+    stubIntegration({ key: SIGNING_SECRET, isEncrypted: false });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const res = await POST(
+      makeRequest({ timestamp, signature: slackSignature(NEUTRAL_BODY, timestamp, "wrong-secret") }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a signed request when the integration has no signing secret", async () => {
+    db.integration.findFirst.mockResolvedValue({
+      ...integrationRow({ key: SIGNING_SECRET, isEncrypted: false }),
+      credentials: [{ id: "cred-2", keyType: "BOT_TOKEN", key: "xoxb-not-used-here", isEncrypted: false }],
+    } as unknown as Awaited<ReturnType<PrismaClient["integration"]["findFirst"]>>);
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const res = await POST(
+      makeRequest({ timestamp, signature: slackSignature(NEUTRAL_BODY, timestamp, SIGNING_SECRET) }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a request whose secret row is undecryptable ciphertext", async () => {
+    // Valid-looking base64 that is not a real AES-GCM payload under the test
+    // key — getDecryptedKey returns null, the record omits SIGNING_SECRET,
+    // and verification must fail closed.
+    stubIntegration({ key: Buffer.from("garbage-ciphertext-that-wont-decrypt").toString("base64"), isEncrypted: true });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const res = await POST(
+      makeRequest({ timestamp, signature: slackSignature(NEUTRAL_BODY, timestamp, SIGNING_SECRET) }),
+    );
+    expect(res.status).toBe(401);
+  });
 });
