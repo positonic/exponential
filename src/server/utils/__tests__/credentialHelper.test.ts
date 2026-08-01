@@ -19,10 +19,21 @@ vi.mock("~/server/db", () => ({
 }));
 
 import {
+  encryptCredential,
   findCredential,
+  getDecryptedKey,
   resolveCredential,
 } from "~/server/utils/credentialHelper";
 import { encryptToBase64 } from "~/server/utils/encryption";
+
+describe("encryptCredential", () => {
+  it("encrypts for real and round-trips through getDecryptedKey", () => {
+    const stored = encryptCredential("super-secret");
+    expect(stored.isEncrypted).toBe(true);
+    expect(stored.key).not.toContain("super-secret");
+    expect(getDecryptedKey(stored)).toBe("super-secret");
+  });
+});
 
 describe("findCredential", () => {
   const rows = [
