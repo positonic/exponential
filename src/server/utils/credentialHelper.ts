@@ -6,22 +6,23 @@ import { encryptToBase64, decryptFromBase64, isEncryptionAvailable } from './enc
  */
 
 /**
- * Encrypt a credential value for storage if encryption is available.
- * Returns the encrypted value and encryption status.
+ * Encrypt a credential value for storage. Encryption is MANDATORY: a missing
+ * or invalid DATABASE_ENCRYPTION_KEY throws rather than silently degrading to
+ * plaintext (the old fallback meant a misconfigured deploy stored every
+ * secret in the clear — see the 2026-07-30 integration-secrets audit).
  */
 export function encryptCredential(plaintext: string): { key: string; isEncrypted: boolean } {
   if (!isEncryptionAvailable()) {
-    console.warn('DATABASE_ENCRYPTION_KEY not set - storing credential in plaintext');
-    return { key: plaintext, isEncrypted: false };
+    throw new Error(
+      'DATABASE_ENCRYPTION_KEY is not set — refusing to store a credential in plaintext. ' +
+        'Set a 32-byte key (raw or base64) in the environment.',
+    );
   }
 
-  try {
-    const encrypted = encryptToBase64(plaintext);
-    return { key: encrypted, isEncrypted: true };
-  } catch (error) {
-    console.error('Encryption failed, falling back to plaintext:', error);
-    return { key: plaintext, isEncrypted: false };
-  }
+  // encryptToBase64 throws on an invalid key or cipher failure — let it
+  // propagate; a failed write is the correct outcome.
+  const encrypted = encryptToBase64(plaintext);
+  return { key: encrypted, isEncrypted: true };
 }
 
 /**
