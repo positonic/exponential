@@ -1,5 +1,6 @@
 import { NotificationService, type NotificationPayload, type NotificationResult, type NotificationConfig } from './NotificationService';
 import { db } from '~/server/db';
+import { getDecryptedKey } from '~/server/utils/credentialHelper';
 
 interface SlackChannel {
   id: string;
@@ -54,7 +55,13 @@ export class SlackNotificationService extends NotificationService {
       return null;
     }
 
-    this.botToken = integration.credentials[0]!.key;
+    const token = getDecryptedKey(integration.credentials[0]!);
+    if (!token) {
+      console.error('[SlackNotificationService] Failed to decrypt bot token for integration', integration.id);
+      return null;
+    }
+
+    this.botToken = token;
     return this.botToken;
   }
 

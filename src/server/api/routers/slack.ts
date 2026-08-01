@@ -220,6 +220,9 @@ export const slackRouter = createTRPCRouter({
         include: {
           credentials: {
             where: { keyType: "BOT_TOKEN" },
+            // Presence check only — SlackNotificationService does its own
+            // decrypted read; never fetch the secret here.
+            select: { id: true },
             take: 1,
           },
         },
@@ -317,6 +320,9 @@ export const slackRouter = createTRPCRouter({
         include: {
           credentials: {
             where: { keyType: "BOT_TOKEN" },
+            // Presence check only — SlackNotificationService does its own
+            // decrypted read; never fetch the secret here.
+            select: { id: true },
             take: 1,
           },
         },

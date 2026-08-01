@@ -193,9 +193,9 @@ export class SlackChannelResolver {
         status: 'ACTIVE'
       },
       include: {
-        credentials: {
-          where: { keyType: 'BOT_TOKEN' }
-        },
+        // No credentials here on purpose: no caller uses them, results flow to
+        // the client (weeklyReview/slack routers), and secrets must not ride
+        // along. Token consumers decrypt their own scoped read.
         slackChannelConfigs: {
           include: {
             project: true,
