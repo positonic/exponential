@@ -14,6 +14,7 @@ import { testFirefliesConnection } from "./integration";
 import { pageRouter } from "./page";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
+import { encryptCredential } from "~/server/utils/credentialHelper";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
@@ -1896,12 +1897,13 @@ export const mastraRouter = createTRPCRouter({
         },
       });
 
-      // Create the credential
+      // Create the credential (encrypted at rest)
+      const encryptedApiKey = encryptCredential(input.apiKey);
       await ctx.db.integrationCredential.create({
         data: {
-          key: input.apiKey,
+          key: encryptedApiKey.key,
           keyType: 'API_KEY',
-          isEncrypted: false, // TODO: implement encryption
+          isEncrypted: encryptedApiKey.isEncrypted,
           integrationId: integration.id,
         },
       });
@@ -1967,12 +1969,13 @@ export const mastraRouter = createTRPCRouter({
         where: { integrationId: integration.id },
       });
 
-      // Create new API key credential
+      // Create new API key credential (encrypted at rest)
+      const rotatedApiKey = encryptCredential(input.apiKey);
       await ctx.db.integrationCredential.create({
         data: {
-          key: input.apiKey,
+          key: rotatedApiKey.key,
           keyType: 'API_KEY',
-          isEncrypted: false,
+          isEncrypted: rotatedApiKey.isEncrypted,
           integrationId: integration.id,
         },
       });
