@@ -1,4 +1,5 @@
 import { NotificationService, type NotificationPayload, type NotificationResult, type NotificationConfig } from './NotificationService';
+import { resolveCredential } from '~/server/utils/credentialHelper';
 import { db } from '~/server/db';
 
 
@@ -84,9 +85,9 @@ export class WhatsAppNotificationService extends NotificationService {
     }
 
     // Get credentials from the integration
-    const accessTokenCred = integration.credentials.find(c => c.keyType === 'ACCESS_TOKEN');
+    const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
 
-    if (!accessTokenCred) {
+    if (!accessToken) {
       return null;
     }
 
@@ -95,7 +96,7 @@ export class WhatsAppNotificationService extends NotificationService {
       return null;
     }
 
-    this.accessToken = accessTokenCred.key;
+    this.accessToken = accessToken;
     this.phoneNumberId = integration.whatsappConfig.phoneNumberId;
     this.businessAccountId = integration.whatsappConfig.businessAccountId;
 
@@ -474,7 +475,7 @@ export class WhatsAppNotificationService extends NotificationService {
       }
 
       // Get credentials
-      const accessToken = config.integration.credentials.find(c => c.keyType === 'ACCESS_TOKEN')?.key;
+      const accessToken = await resolveCredential(config.integration.credentials, ['ACCESS_TOKEN']);
       if (!accessToken) {
         return {
           success: false,

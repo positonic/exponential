@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { resolveCredential } from "~/server/utils/credentialHelper";
 import { TRPCError } from "@trpc/server";
 import { WhatsAppNotificationService } from "~/server/services/whatsapp/WhatsAppNotificationService";
 import { db } from "~/server/db";
@@ -92,8 +93,8 @@ export const whatsappRouter = createTRPCRouter({
       }
 
       // Get credentials
-      const accessToken = integration.credentials.find((c: any) => c.keyType === 'ACCESS_TOKEN')?.key;
-      const phoneNumberId = integration.credentials.find((c: any) => c.keyType === 'PHONE_NUMBER_ID')?.key;
+      const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
+      const phoneNumberId = await resolveCredential(integration.credentials, ['PHONE_NUMBER_ID']);
 
       if (!accessToken || !phoneNumberId) {
         throw new TRPCError({
@@ -195,8 +196,8 @@ export const whatsappRouter = createTRPCRouter({
       }
 
       // Get credentials
-      const accessToken = integration.credentials.find((c: any) => c.keyType === 'ACCESS_TOKEN')?.key;
-      const phoneNumberId = integration.credentials.find((c: any) => c.keyType === 'PHONE_NUMBER_ID')?.key;
+      const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
+      const phoneNumberId = await resolveCredential(integration.credentials, ['PHONE_NUMBER_ID']);
 
       if (!accessToken || !phoneNumberId) {
         throw new TRPCError({
@@ -393,7 +394,7 @@ export const whatsappRouter = createTRPCRouter({
       });
 
       // Submit template to WhatsApp for approval
-      const accessToken = integration.credentials.find(c => c.keyType === 'ACCESS_TOKEN')?.key;
+      const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
       const businessAccountId = integration.whatsappConfig.businessAccountId;
 
       if (accessToken && businessAccountId) {
@@ -563,8 +564,10 @@ export const whatsappRouter = createTRPCRouter({
 
       // If template has WhatsApp ID, delete from WhatsApp
       if (template.whatsappTemplateId) {
-        const accessToken = template.whatsappConfig.integration.credentials
-          .find(c => c.keyType === 'ACCESS_TOKEN')?.key;
+        const accessToken = await resolveCredential(
+          template.whatsappConfig.integration.credentials,
+          ['ACCESS_TOKEN'],
+        );
         
         if (accessToken) {
           try {
