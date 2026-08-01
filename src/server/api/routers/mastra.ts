@@ -14,6 +14,7 @@ import { testFirefliesConnection } from "./integration";
 import { pageRouter } from "./page";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
+import { getDecryptedKey } from "~/server/utils/credentialHelper";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
@@ -451,14 +452,15 @@ export const mastraRouter = createTRPCRouter({
           if (!projectSlackChannelId) {
             const credential = await ctx.db.integrationCredential.findFirst({
               where: { integrationId: projectSlackConfig.integrationId, keyType: "BOT_TOKEN" },
-              select: { key: true },
+              select: { key: true, isEncrypted: true },
             });
-            if (credential?.key) {
+            const botToken = credential ? getDecryptedKey(credential) : null;
+            if (botToken) {
               try {
                 const nameWithoutHash = projectSlackConfig.slackChannel.replace(/^#/, "");
                 const slackRes = await fetch(
                   "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=1000",
-                  { headers: { Authorization: `Bearer ${credential.key}` } }
+                  { headers: { Authorization: `Bearer ${botToken}` } }
                 );
                 const slackData = await slackRes.json() as { ok: boolean; channels?: Array<{ id: string; name: string }> };
                 const match = slackData.ok && slackData.channels?.find((ch) => ch.name === nameWithoutHash);
