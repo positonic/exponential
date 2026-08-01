@@ -71,7 +71,11 @@ export class FirefliesSyncService {
   }
 
   /**
-   * Get user's Fireflies integrations for sync status
+   * Get user's Fireflies integrations for sync status.
+   *
+   * Returned to the client verbatim — only the EMAIL credential (display
+   * label) may be included. The API_KEY must never leave the server; sync
+   * paths fetch it separately via getFirefliesIntegration.
    */
   static async getUserFirefliesIntegrations(userId: string) {
     return await db.integration.findMany({
@@ -86,9 +90,11 @@ export class FirefliesSyncService {
       include: {
         credentials: {
           where: {
-            keyType: {
-              in: ['API_KEY', 'EMAIL'],
-            },
+            keyType: 'EMAIL',
+          },
+          select: {
+            key: true,
+            keyType: true,
           },
         },
       },

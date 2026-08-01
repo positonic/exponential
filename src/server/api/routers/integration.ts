@@ -16,6 +16,19 @@ import {
 } from "~/server/services/notifications/ZulipNotificationService";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
 
+/**
+ * Admin procedure - extends protectedProcedure with isAdmin check
+ */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.session.user.isAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required",
+    });
+  }
+  return next();
+});
+
 // Test Fireflies API connection
 export async function testFirefliesConnection(
   apiKey: string,
@@ -1046,87 +1059,6 @@ export const integrationRouter = createTRPCRouter({
           message: "Failed to create WhatsApp integration",
         });
       }
-    }),
-
-  // Get WhatsApp config by phone number ID (PUBLIC for webhook)
-  getWhatsAppConfigByPhoneNumberId: publicProcedure
-    .input(
-      z.object({
-        phoneNumberId: z.string(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      const config = await ctx.db.whatsAppConfig.findFirst({
-        where: {
-          phoneNumberId: input.phoneNumberId,
-          integration: {
-            status: "ACTIVE",
-          },
-        },
-        include: {
-          integration: {
-            include: {
-              credentials: true,
-            },
-          },
-        },
-      });
-
-      if (!config) {
-        return null;
-      }
-
-      // For webhook access, we don't check user permissions
-      // The webhook is authenticated via signature verification
-
-      return config;
-    }),
-
-  // Store WhatsApp message (PUBLIC for webhook)
-  storeWhatsAppMessage: publicProcedure
-    .input(
-      z.object({
-        configId: z.string(),
-        messageId: z.string(),
-        phoneNumber: z.string(),
-        direction: z.enum(["INBOUND", "OUTBOUND"]),
-        messageType: z.string(),
-        content: z.any(),
-        status: z.string(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      // For now, we'll just log the message
-      // In a real implementation, you'd store this in a WhatsAppMessageHistory table
-      console.log("Storing WhatsApp message:", input);
-
-      // TODO: Implement actual message storage
-      return { success: true };
-    }),
-
-  // Update WhatsApp message status (PUBLIC for webhook)
-  updateWhatsAppMessageStatus: publicProcedure
-    .input(
-      z.object({
-        messageId: z.string(),
-        status: z.string(),
-        statusDetails: z
-          .object({
-            timestamp: z.string(),
-            recipient: z.string(),
-            errors: z.any().optional(),
-          })
-          .optional(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      // Log the status update
-      console.log("Updating WhatsApp message status:", input);
-
-      // TODO: Implement actual status update in database
-      // In a real implementation, you'd update the message status in a WhatsAppMessageHistory table
-
-      return { success: true };
     }),
 
   // Map WhatsApp phone number to user
@@ -2385,61 +2317,6 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  // Get Fireflies API key for a specific user (used by webhook handler)
-  getFirefliesApiKey: protectedProcedure
-    .input(
-      z.object({
-        userId: z.string(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      // Verify the user is requesting their own API key or is authorized
-      if (ctx.session.user.id !== input.userId) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied",
-        });
-      }
-
-      // Get user's team memberships
-      const userTeams = await ctx.db.teamUser.findMany({
-        where: {
-          userId: input.userId,
-        },
-        select: {
-          teamId: true,
-        },
-      });
-
-      const teamIds = userTeams.map((membership) => membership.teamId);
-
-      // Look for personal or team Fireflies integrations
-      const integration = await ctx.db.integration.findFirst({
-        where: {
-          provider: "fireflies",
-          status: "ACTIVE",
-          OR: [
-            { userId: input.userId }, // Personal integration
-            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
-          ],
-        },
-        include: {
-          credentials: {
-            where: {
-              keyType: "API_KEY",
-            },
-            take: 1,
-          },
-        },
-      });
-
-      if (!integration || integration.credentials.length === 0) {
-        return null;
-      }
-
-      return integration.credentials[0]!.key;
-    }),
-
   // Get Slack OAuth URL for integration setup
   getSlackOAuthUrl: protectedProcedure.query(({ ctx }) => {
     const clientId = process.env.SLACK_CLIENT_ID;
@@ -2995,8 +2872,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Admin endpoints for managing all WhatsApp integrations
-  getAllWhatsAppIntegrations: protectedProcedure.query(async ({ ctx }) => {
-    // Only allow admin users (you might want to add proper role checking)
+  getAllWhatsAppIntegrations: adminProcedure.query(async ({ ctx }) => {
     const integrations = await ctx.db.integration.findMany({
       where: {
         provider: "whatsapp",
@@ -3017,7 +2893,7 @@ export const integrationRouter = createTRPCRouter({
     return integrations;
   }),
 
-  getAllWhatsAppUserMappings: protectedProcedure.query(async ({ ctx }) => {
+  getAllWhatsAppUserMappings: adminProcedure.query(async ({ ctx }) => {
     const mappings = await ctx.db.integrationUserMapping.findMany({
       where: {
         integration: {
@@ -3047,7 +2923,7 @@ export const integrationRouter = createTRPCRouter({
     return mappings;
   }),
 
-  getSystemWhatsAppAnalytics: protectedProcedure.query(async ({ ctx }) => {
+  getSystemWhatsAppAnalytics: adminProcedure.query(async ({ ctx }) => {
     // Get system-wide WhatsApp analytics
     const today = new Date();
     const startOfToday = new Date(
@@ -3656,8 +3532,15 @@ export const integrationRouter = createTRPCRouter({
         where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
         include: { credentials: true },
       });
-      if (!integration) {
+      if (!integration?.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
       const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
@@ -3683,8 +3566,15 @@ export const integrationRouter = createTRPCRouter({
         where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
         include: { credentials: true },
       });
-      if (!integration) {
+      if (!integration?.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
       const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
@@ -3706,6 +3596,21 @@ export const integrationRouter = createTRPCRouter({
   getZulipUserMappings: protectedProcedure
     .input(z.object({ integrationId: z.string() }))
     .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        select: { workspaceId: true },
+      });
+      if (!integration?.workspaceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
       return ctx.db.integrationUserMapping.findMany({
         where: { integrationId: input.integrationId },
         include: {
