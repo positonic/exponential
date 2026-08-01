@@ -92,6 +92,24 @@ export function decryptBuffer(buf: Buffer | Uint8Array | null | undefined): stri
 }
 
 /**
+ * decryptBuffer that never throws: a wrong/rotated key degrades to null
+ * (logged) instead of 500ing the caller. Use for display paths — CRM contact
+ * PII in particular — where a page rendering with blank fields beats an
+ * error page. Keep decryptBuffer for callers that must fail loudly.
+ */
+export function decryptBufferSafe(buf: Buffer | Uint8Array | null | undefined): string | null {
+  try {
+    return decryptBuffer(buf);
+  } catch (error) {
+    console.error(
+      '[encryption] decryptBufferSafe: value did not authenticate under any available key — check DATABASE_ENCRYPTION_KEY (wrong or rotated?)',
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+}
+
+/**
  * Version prefix for string-form ciphertext. Written on every encrypt so a
  * future scheme change (new algorithm, key id) has something to dispatch on;
  * legacy unprefixed values are treated as v1.

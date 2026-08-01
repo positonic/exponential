@@ -5,7 +5,7 @@ import {
   type StepContext,
 } from "~/server/services/workflows/steps/IStepExecutor";
 import { EmailService } from "~/server/services/EmailService";
-import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import {
   buildContactTemplateData,
   renderInline,
@@ -51,7 +51,7 @@ export class SendEmailStep implements IStepExecutor {
       throw new Error(`send_email: contact ${contactId} not found`);
     }
 
-    const toEmail = decryptBuffer(contact.email);
+    const toEmail = decryptBufferSafe(contact.email);
     if (!toEmail) {
       throw new Error(
         `send_email: contact ${contactId} has no email address`,

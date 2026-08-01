@@ -41,7 +41,7 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import { createHash } from "crypto";
 
 // Keep in-memory store for development/debugging
@@ -296,7 +296,7 @@ async function upsertMeetingParticipant(
     name =
       [contact.firstName, contact.lastName].filter(Boolean).join(" ") || null;
 
-    const existingEmail = decryptBuffer(contact.email);
+    const existingEmail = decryptBufferSafe(contact.email);
     if (existingEmail) {
       email = existingEmail;
     } else if (person.email) {

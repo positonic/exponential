@@ -21,6 +21,7 @@ import {
   decryptFromBase64,
   decryptFromBase64WithKeyInfo,
   decryptBufferWithKeyInfo,
+  decryptBufferSafe,
 } from "~/server/utils/encryption";
 
 /** Produce iv12+tag16+ct ciphertext under an arbitrary raw 32-byte key. */
@@ -57,6 +58,12 @@ describe("key rotation with DATABASE_ENCRYPTION_KEY_PREVIOUS", () => {
   it("still fails (auth_failed) when neither key matches", () => {
     const foreign = encryptUnder("3".repeat(32), "unreachable").toString("base64");
     expect(decryptFromBase64WithKeyInfo(foreign)).toEqual({ ok: false, reason: "auth_failed" });
+  });
+
+  it("decryptBufferSafe degrades to null on a wrong key instead of throwing (CRM PII paths)", () => {
+    const foreign = encryptUnder("3".repeat(32), "pii-under-unknown-key");
+    expect(() => decryptBufferSafe(foreign)).not.toThrow();
+    expect(decryptBufferSafe(foreign)).toBeNull();
   });
 
   it("round-trips new writes under the new key", () => {
