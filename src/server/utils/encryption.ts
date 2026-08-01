@@ -48,25 +48,38 @@ export function decryptBuffer(buf: Buffer | Uint8Array | null | undefined): stri
 }
 
 /**
- * Encrypt a string and return it as a base64-encoded string.
+ * Version prefix for string-form ciphertext. Written on every encrypt so a
+ * future scheme change (new algorithm, key id) has something to dispatch on;
+ * legacy unprefixed values are treated as v1.
+ */
+const CIPHERTEXT_V1_PREFIX = 'v1:';
+
+/**
+ * Encrypt a string and return it as version-prefixed base64 (`v1:<base64>`).
  * Useful for storing encrypted data in String database fields.
  */
 export function encryptToBase64(plaintext: string): string {
   const encrypted = encryptString(plaintext);
-  return Buffer.from(encrypted).toString('base64');
+  return CIPHERTEXT_V1_PREFIX + Buffer.from(encrypted).toString('base64');
 }
 
 /**
- * Decrypt a base64-encoded encrypted string.
- * Useful for reading encrypted data from String database fields.
+ * Decrypt a (possibly version-prefixed) base64-encoded encrypted string.
+ * Accepts both `v1:<base64>` and legacy unprefixed `<base64>` (treated as v1).
  */
 export function decryptFromBase64(base64Encrypted: string | null | undefined): string | null {
   if (!base64Encrypted) return null;
+  const base64 = base64Encrypted.startsWith(CIPHERTEXT_V1_PREFIX)
+    ? base64Encrypted.slice(CIPHERTEXT_V1_PREFIX.length)
+    : base64Encrypted;
   try {
-    const buf = Buffer.from(base64Encrypted, 'base64');
+    const buf = Buffer.from(base64, 'base64');
     return decryptBuffer(buf);
   } catch {
-    // If decryption fails, the value might be stored in plaintext (legacy)
+    // NOTE: Buffer.from(x, 'base64') does not throw on non-base64 input — it
+    // decodes what it can. What lands here is the GCM auth-tag failure from
+    // decryptBuffer (wrong key, corruption, or a plaintext value that
+    // happened to be long enough to attempt).
     return null;
   }
 }
