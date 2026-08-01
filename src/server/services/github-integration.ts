@@ -337,6 +337,7 @@ class GitHubIntegrationService {
     },
   ) {
     const {
+      accessToken,
       scopes,
       githubUser,
       selectedRepository,
@@ -359,30 +360,45 @@ class GitHubIntegrationService {
       },
     });
 
-    // Store GitHub user info and metadata with only the selected repository
-    await db.integrationCredential.updateMany({
+    // Replace-in-place, scoped by keyType (same pattern as
+    // upsertWorkspaceInstallation): the previous unscoped updateMany turned
+    // EVERY credential row — including access_token — into github_metadata,
+    // silently bricking the integration on reconnect.
+    const encryptedToken = encryptCredential(accessToken);
+    await db.integrationCredential.deleteMany({
       where: {
         integrationId: integrationId,
+        keyType: { in: ["access_token", "github_metadata"] },
       },
-      data: {
-        integrationId: integrationId,
-        key: JSON.stringify({
-          githubUserId: githubUser.id,
-          githubUsername: githubUser.login,
-          avatarUrl: githubUser.avatar_url,
-          scopes,
-          installationId,
-          repository: {
-            id: selectedRepository?.id,
-            name: selectedRepository?.name,
-            fullName: selectedRepository?.full_name,
-            private: selectedRepository?.private,
-            permissions: selectedRepository?.permissions,
-          },
-        }),
-        keyType: "github_metadata",
-        isEncrypted: false,
-      },
+    });
+    await db.integrationCredential.createMany({
+      data: [
+        {
+          integrationId: integrationId,
+          key: encryptedToken.key,
+          keyType: "access_token",
+          isEncrypted: encryptedToken.isEncrypted,
+        },
+        {
+          integrationId: integrationId,
+          key: JSON.stringify({
+            githubUserId: githubUser.id,
+            githubUsername: githubUser.login,
+            avatarUrl: githubUser.avatar_url,
+            scopes,
+            installationId,
+            repository: {
+              id: selectedRepository?.id,
+              name: selectedRepository?.name,
+              fullName: selectedRepository?.full_name,
+              private: selectedRepository?.private,
+              permissions: selectedRepository?.permissions,
+            },
+          }),
+          keyType: "github_metadata",
+          isEncrypted: false,
+        },
+      ],
     });
   }
 
