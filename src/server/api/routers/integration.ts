@@ -8,7 +8,7 @@ import {
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
-import { encryptCredential, getDecryptedKey, resolveCredential } from "~/server/utils/credentialHelper";
+import { encryptCredential, getDecryptedKey, decryptCredentialResult, resolveCredential } from "~/server/utils/credentialHelper";
 import {
   testZulipConnection,
   fetchZulipUsers,
@@ -1909,15 +1909,21 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const apiKey = getDecryptedKey(apiKeyCredential);
-        if (!apiKey) {
+        const apiKeyResult = decryptCredentialResult(
+          apiKeyCredential.key,
+          apiKeyCredential.isEncrypted,
+        );
+        if (!apiKeyResult.ok) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to decrypt API key",
+            message:
+              apiKeyResult.reason === "auth_failed"
+                ? "Fireflies API key failed to decrypt (wrong or rotated encryption key?)"
+                : "Fireflies API key is stored but unusable (reason: " + apiKeyResult.reason + ")",
           });
         }
 
-        const result = await testFirefliesConnection(apiKey);
+        const result = await testFirefliesConnection(apiKeyResult.value);
         return {
           success: result.success,
           error: result.error,
@@ -1936,15 +1942,21 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const botToken = getDecryptedKey(botTokenCredential);
-        if (!botToken) {
+        const botTokenResult = decryptCredentialResult(
+          botTokenCredential.key,
+          botTokenCredential.isEncrypted,
+        );
+        if (!botTokenResult.ok) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to decrypt Slack bot token",
+            message:
+              botTokenResult.reason === "auth_failed"
+                ? "Slack bot token failed to decrypt (wrong or rotated encryption key?)"
+                : "Slack bot token is stored but unusable (reason: " + botTokenResult.reason + ")",
           });
         }
 
-        const result = await testSlackConnection(botToken);
+        const result = await testSlackConnection(botTokenResult.value);
         return {
           success: result.success,
           error: result.error,

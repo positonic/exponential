@@ -13,7 +13,7 @@ import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { pageRouter } from "./page";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
-import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
+import { decryptBufferSafe, encryptString, encryptToBase64 } from "~/server/utils/encryption";
 import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
@@ -2327,8 +2327,8 @@ export const mastraRouter = createTRPCRouter({
             id: contact.id,
             firstName: contact.firstName,
             lastName: contact.lastName,
-            email: decryptBuffer(contact.email) ?? null,
-            phone: decryptBuffer(contact.phone) ?? null,
+            email: decryptBufferSafe(contact.email) ?? null,
+            phone: decryptBufferSafe(contact.phone) ?? null,
           },
         };
       } catch (e) {
@@ -2606,8 +2606,8 @@ export const mastraRouter = createTRPCRouter({
             id: c.id,
             firstName: c.firstName,
             lastName: c.lastName,
-            email: decryptBuffer(c.email) ?? null,
-            phone: decryptBuffer(c.phone) ?? null,
+            email: decryptBufferSafe(c.email) ?? null,
+            phone: decryptBufferSafe(c.phone) ?? null,
             tags: c.tags,
             organizationName: c.organization?.name ?? null,
             organizationId: c.organizationId,
@@ -2667,12 +2667,12 @@ export const mastraRouter = createTRPCRouter({
           id: contact.id,
           firstName: contact.firstName,
           lastName: contact.lastName,
-          email: decryptBuffer(contact.email) ?? null,
-          phone: decryptBuffer(contact.phone) ?? null,
-          linkedIn: decryptBuffer(contact.linkedIn) ?? null,
-          telegram: decryptBuffer(contact.telegram) ?? null,
-          twitter: decryptBuffer(contact.twitter) ?? null,
-          github: decryptBuffer(contact.github) ?? null,
+          email: decryptBufferSafe(contact.email) ?? null,
+          phone: decryptBufferSafe(contact.phone) ?? null,
+          linkedIn: decryptBufferSafe(contact.linkedIn) ?? null,
+          telegram: decryptBufferSafe(contact.telegram) ?? null,
+          twitter: decryptBufferSafe(contact.twitter) ?? null,
+          github: decryptBufferSafe(contact.github) ?? null,
           about: contact.about,
           skills: contact.skills,
           tags: contact.tags,
@@ -2866,7 +2866,7 @@ export const mastraRouter = createTRPCRouter({
         id: contact.id,
         firstName: contact.firstName,
         lastName: contact.lastName,
-        email: updateData.email !== undefined ? (updateData.email ?? null) : (decryptBuffer(contact.email) ?? null),
+        email: updateData.email !== undefined ? (updateData.email ?? null) : (decryptBufferSafe(contact.email) ?? null),
         updated: true,
       };
     }),

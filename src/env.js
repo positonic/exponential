@@ -43,6 +43,15 @@ export const env = createEnv({
       message:
         "DATABASE_ENCRYPTION_KEY must be 32 bytes (raw) or base64-encoded 32 bytes",
     }),
+    // Decrypt-only fallback during key rotation (see
+    // dev-docs/ENCRYPTION_KEY_ROTATION.md). Optional everywhere.
+    DATABASE_ENCRYPTION_KEY_PREVIOUS: z
+      .string()
+      .optional()
+      .refine((val) => val === undefined || isValidDatabaseEncryptionKey(val), {
+        message:
+          "DATABASE_ENCRYPTION_KEY_PREVIOUS must be 32 bytes (raw) or base64-encoded 32 bytes",
+      }),
     // Web Push (VAPID) private key — server-only, pairs with
     // NEXT_PUBLIC_VAPID_PUBLIC_KEY. Optional: push notifications degrade
     // gracefully when unset (see WebPushService / pushSubscription router).
@@ -84,6 +93,7 @@ export const env = createEnv({
     MICROSOFT_ENTRA_ID_TENANT_ID: process.env.MICROSOFT_ENTRA_ID_TENANT_ID,
     DATABASE_URL: process.env.DATABASE_URL,
     DATABASE_ENCRYPTION_KEY: process.env.DATABASE_ENCRYPTION_KEY,
+    DATABASE_ENCRYPTION_KEY_PREVIOUS: process.env.DATABASE_ENCRYPTION_KEY_PREVIOUS,
     VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,

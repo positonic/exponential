@@ -1,6 +1,6 @@
 import { type PrismaClient } from "@prisma/client";
 
-import { decryptBuffer } from "~/server/utils/encryption";
+import { decryptBufferSafe } from "~/server/utils/encryption";
 import {
   CRM_CONTACT_MEMBER_TYPE,
   type MemberTypeResolver,
@@ -46,7 +46,7 @@ export class CrmContactMemberResolver implements MemberTypeResolver {
 
     const resolved: ResolvedMember[] = [];
     for (const c of contacts) {
-      const email = decryptBuffer(c.email);
+      const email = decryptBufferSafe(c.email);
       if (!email) continue; // unmailable — cannot be a recipient
 
       const firstName = c.firstName ?? "";
