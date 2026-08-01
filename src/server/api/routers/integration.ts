@@ -1988,17 +1988,17 @@ export const integrationRouter = createTRPCRouter({
       }
 
       if (integration.provider === "monday") {
-        const apiKeyCredential = integration.credentials.find(
-          (c) => c.keyType === "API_KEY",
-        );
-        if (!apiKeyCredential) {
+        const mondayApiKey = await resolveCredential(integration.credentials, [
+          "API_KEY",
+        ]);
+        if (!mondayApiKey) {
           throw new TRPCError({
             code: "NOT_FOUND",
-            message: "No API key found for this Monday.com integration",
+            message: "No usable API key found for this Monday.com integration",
           });
         }
 
-        const result = await testMondayConnection(apiKeyCredential.key);
+        const result = await testMondayConnection(mondayApiKey);
         if (!result.success) {
           return {
             success: result.success,
@@ -2008,7 +2008,7 @@ export const integrationRouter = createTRPCRouter({
         }
 
         // Also fetch boards with columns for Monday.com
-        const mondayService = new MondayService(apiKeyCredential.key);
+        const mondayService = new MondayService(mondayApiKey);
         let boardsWithColumns: Array<any> = [];
         try {
           boardsWithColumns = await mondayService.getBoardsWithColumns();

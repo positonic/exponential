@@ -6,7 +6,7 @@ import type {
   Prisma,
   Workflow,
 } from "@prisma/client";
-import { encryptCredential } from "~/server/utils/credentialHelper";
+import { encryptCredential, resolveCredential } from "~/server/utils/credentialHelper";
 import {
   GITHUB_INSTALLATION_PROVIDER,
   GITHUB_INSTALLATION_TYPE,
@@ -70,15 +70,15 @@ class GitHubIntegrationService {
   private async getAccessToken(
     integration: GitHubIntegration,
   ): Promise<string> {
-    const tokenCredential = integration.credentials.find(
-      (cred) => cred.keyType === "access_token",
-    );
+    const accessToken = await resolveCredential(integration.credentials, [
+      "access_token",
+    ]);
 
-    if (!tokenCredential) {
-      throw new Error("GitHub access token not found");
+    if (!accessToken) {
+      throw new Error("GitHub access token not found or undecryptable");
     }
 
-    return tokenCredential.key;
+    return accessToken;
   }
 
   private async makeGitHubRequest(
