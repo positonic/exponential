@@ -6,6 +6,7 @@ import { createCallerFactory } from '~/server/api/trpc';
 import { appRouter } from '~/server/api/root';
 import { parseActionInput } from '~/server/services/parsing';
 import { SlackChannelResolver } from '~/server/services/SlackChannelResolver';
+import { getDecryptedKey } from '~/server/utils/credentialHelper';
 import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
@@ -321,8 +322,14 @@ async function findSlackIntegrationByTeam(teamId: string, appId?: string) {
       });
 
       if (integrationWithAppId) {
-        const credentials = integrationWithAppId.credentials.reduce((acc: Record<string, string>, cred: any) => {
-          acc[cred.keyType as string] = cred.key;
+        // Decrypt at the boundary: downstream consumers (signature check, bot
+        // API calls) always see plaintext. An undecryptable credential is
+        // omitted so verification fails closed rather than using ciphertext.
+        const credentials = integrationWithAppId.credentials.reduce((acc: Record<string, string>, cred) => {
+          const value = getDecryptedKey(cred);
+          if (value !== null) {
+            acc[cred.keyType] = value;
+          }
           return acc;
         }, {} as Record<string, string>);
 
@@ -364,8 +371,11 @@ async function findSlackIntegrationByTeam(teamId: string, appId?: string) {
       return null;
     }
 
-    const credentials = integration.credentials.reduce((acc: Record<string, string>, cred: any) => {
-      acc[cred.keyType as string] = cred.key;
+    const credentials = integration.credentials.reduce((acc: Record<string, string>, cred) => {
+      const value = getDecryptedKey(cred);
+      if (value !== null) {
+        acc[cred.keyType] = value;
+      }
       return acc;
     }, {} as Record<string, string>);
 
