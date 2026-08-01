@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { auth } from '~/server/auth';
 import { db } from '~/server/db';
+import { encryptCredential } from '~/server/utils/credentialHelper';
 import { z } from 'zod';
 
 const callbackSchema = z.object({
@@ -89,13 +90,17 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Store access token as encrypted credential
+    // Store the bot token actually encrypted — never claim isEncrypted for a
+    // value we did not encrypt. keyType is BOT_TOKEN because that is what
+    // every Slack consumer (webhook, notification service) reads; the old
+    // 'access_token' label left OAuth-created integrations inert.
+    const encryptedBotToken = encryptCredential(tokenData.access_token);
     await db.integrationCredential.create({
       data: {
         integrationId: integration.id,
-        key: tokenData.access_token,
-        keyType: 'access_token',
-        isEncrypted: true,
+        key: encryptedBotToken.key,
+        keyType: 'BOT_TOKEN',
+        isEncrypted: encryptedBotToken.isEncrypted,
       },
     });
 

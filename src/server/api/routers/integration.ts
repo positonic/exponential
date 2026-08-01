@@ -8,7 +8,7 @@ import {
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
-import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
+import { encryptCredential, getDecryptedKey, resolveCredential } from "~/server/utils/credentialHelper";
 import {
   testZulipConnection,
   fetchZulipUsers,
@@ -472,25 +472,14 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      const tokenCredential = integration.credentials.find(
-        (c) =>
-          c.keyType === "access_token" ||
-          c.keyType === "ACCESS_TOKEN" ||
-          c.keyType === "API_KEY",
-      );
-
-      if (!tokenCredential) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No access token found for this Notion integration",
-        });
-      }
-
-      const accessToken = getDecryptedKey(tokenCredential);
+      const accessToken = await resolveCredential(integration.credentials, [
+        "access_token",
+        "api_key",
+      ]);
       if (!accessToken) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to decrypt Notion access token",
+          code: "NOT_FOUND",
+          message: "No usable access token found for this Notion integration",
         });
       }
 
@@ -535,25 +524,14 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      const tokenCredential = integration.credentials.find(
-        (c) =>
-          c.keyType === "access_token" ||
-          c.keyType === "ACCESS_TOKEN" ||
-          c.keyType === "API_KEY",
-      );
-
-      if (!tokenCredential) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No access token found for this Notion integration",
-        });
-      }
-
-      const accessToken = getDecryptedKey(tokenCredential);
+      const accessToken = await resolveCredential(integration.credentials, [
+        "access_token",
+        "api_key",
+      ]);
       if (!accessToken) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to decrypt Notion access token",
+          code: "NOT_FOUND",
+          message: "No usable access token found for this Notion integration",
         });
       }
 
@@ -1976,21 +1954,16 @@ export const integrationRouter = createTRPCRouter({
       }
 
       if (integration.provider === "notion") {
-        const accessTokenCredential = integration.credentials.find(
-          (c) => c.keyType === "ACCESS_TOKEN" || c.keyType === "API_KEY",
+        // Case-insensitive aliases: the OAuth flow writes lowercase
+        // "access_token" while manual setup writes "ACCESS_TOKEN"/"API_KEY".
+        const notionAccessToken = await resolveCredential(
+          integration.credentials,
+          ["access_token", "api_key"],
         );
-        if (!accessTokenCredential) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "No access token found for this Notion integration",
-          });
-        }
-
-        const notionAccessToken = getDecryptedKey(accessTokenCredential);
         if (!notionAccessToken) {
           throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to decrypt Notion access token",
+            code: "NOT_FOUND",
+            message: "No usable access token found for this Notion integration",
           });
         }
 
@@ -2004,9 +1977,7 @@ export const integrationRouter = createTRPCRouter({
         }
 
         // Also fetch databases for Notion
-        const databasesResult = await fetchNotionDatabases(
-          accessTokenCredential.key,
-        );
+        const databasesResult = await fetchNotionDatabases(notionAccessToken);
         return {
           success: result.success,
           error: result.error,
@@ -2017,17 +1988,17 @@ export const integrationRouter = createTRPCRouter({
       }
 
       if (integration.provider === "monday") {
-        const apiKeyCredential = integration.credentials.find(
-          (c) => c.keyType === "API_KEY",
-        );
-        if (!apiKeyCredential) {
+        const mondayApiKey = await resolveCredential(integration.credentials, [
+          "API_KEY",
+        ]);
+        if (!mondayApiKey) {
           throw new TRPCError({
             code: "NOT_FOUND",
-            message: "No API key found for this Monday.com integration",
+            message: "No usable API key found for this Monday.com integration",
           });
         }
 
-        const result = await testMondayConnection(apiKeyCredential.key);
+        const result = await testMondayConnection(mondayApiKey);
         if (!result.success) {
           return {
             success: result.success,
@@ -2037,7 +2008,7 @@ export const integrationRouter = createTRPCRouter({
         }
 
         // Also fetch boards with columns for Monday.com
-        const mondayService = new MondayService(apiKeyCredential.key);
+        const mondayService = new MondayService(mondayApiKey);
         let boardsWithColumns: Array<any> = [];
         try {
           boardsWithColumns = await mondayService.getBoardsWithColumns();
@@ -2106,14 +2077,15 @@ export const integrationRouter = createTRPCRouter({
       }
 
       // Get access token
-      const accessTokenCredential = integration.credentials.find(
-        (c) => c.keyType === "access_token" || c.keyType === "ACCESS_TOKEN",
+      const notionAccessToken = await resolveCredential(
+        integration.credentials,
+        ["access_token", "api_key"],
       );
 
-      if (!accessTokenCredential) {
+      if (!notionAccessToken) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "No access token found for this Notion integration",
+          message: "No usable access token found for this Notion integration",
         });
       }
 
@@ -2124,7 +2096,7 @@ export const integrationRouter = createTRPCRouter({
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${accessTokenCredential.key}`,
+              Authorization: `Bearer ${notionAccessToken}`,
               "Notion-Version": "2022-06-28",
               "Content-Type": "application/json",
             },

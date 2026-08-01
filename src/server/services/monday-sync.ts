@@ -1,5 +1,6 @@
 import { db } from '~/server/db';
 import { MondayService } from './MondayService';
+import { resolveCredential } from '~/server/utils/credentialHelper';
 import type { Workflow, Action } from '@prisma/client';
 
 interface MondayTodo {
@@ -54,12 +55,14 @@ export class MondaySyncService {
       throw new Error('Integration not found');
     }
 
-    const apiKeyCredential = integration.credentials.find(c => c.keyType === 'api_key');
-    if (!apiKeyCredential) {
-      throw new Error('Monday.com API key not found');
+    // Case-insensitive: the write path stores "API_KEY" (projectWorkflow.ts)
+    // while this lookup historically searched 'api_key' and never matched.
+    const apiKey = await resolveCredential(integration.credentials, ['API_KEY']);
+    if (!apiKey) {
+      throw new Error('Monday.com API key not found or undecryptable');
     }
 
-    const mondayService = new MondayService(apiKeyCredential.key);
+    const mondayService = new MondayService(apiKey);
     const todos: MondayTodo[] = [];
 
     // Get items from all configured boards

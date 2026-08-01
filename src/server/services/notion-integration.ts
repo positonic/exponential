@@ -1,6 +1,6 @@
 import { db } from '~/server/db';
 import type { Integration, IntegrationCredential } from '@prisma/client';
-import { encryptCredential } from '~/server/utils/credentialHelper';
+import { encryptCredential, resolveCredential } from '~/server/utils/credentialHelper';
 
 interface NotionIntegration extends Integration {
   credentials: IntegrationCredential[];
@@ -26,15 +26,16 @@ interface NotionDatabase {
 
 class NotionIntegrationService {
   private async getAccessToken(integration: NotionIntegration): Promise<string> {
-    const tokenCredential = integration.credentials.find(
-      cred => cred.keyType === 'access_token'
-    );
-    
-    if (!tokenCredential) {
-      throw new Error('Notion access token not found');
+    const accessToken = await resolveCredential(integration.credentials, [
+      'access_token',
+      'api_key',
+    ]);
+
+    if (!accessToken) {
+      throw new Error('Notion access token not found or undecryptable');
     }
 
-    return tokenCredential.key;
+    return accessToken;
   }
 
   private async makeNotionRequest(

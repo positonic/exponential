@@ -1,4 +1,5 @@
 import { db } from "~/server/db";
+import { resolveCredential } from '~/server/utils/credentialHelper';
 
 export class WhatsAppNotificationService {
   private static instance: WhatsAppNotificationService;
@@ -39,9 +40,7 @@ export class WhatsAppNotificationService {
         };
       }
 
-      const accessToken = integration.credentials.find(
-        (c) => c.keyType === 'ACCESS_TOKEN'
-      )?.key;
+      const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
       const phoneNumberId = integration.whatsappConfig.phoneNumberId;
 
       if (!accessToken || !phoneNumberId) {
@@ -121,9 +120,7 @@ export class WhatsAppNotificationService {
         };
       }
 
-      const accessToken = integration.credentials.find(
-        (c) => c.keyType === 'ACCESS_TOKEN'
-      )?.key;
+      const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
       const phoneNumberId = integration.whatsappConfig.phoneNumberId;
 
       if (!accessToken || !phoneNumberId) {
@@ -217,9 +214,7 @@ export class WhatsAppNotificationService {
         };
       }
 
-      const accessToken = integration.credentials.find(
-        (c) => c.keyType === 'ACCESS_TOKEN'
-      )?.key;
+      const accessToken = await resolveCredential(integration.credentials, ['ACCESS_TOKEN']);
 
       if (!accessToken) {
         return {
