@@ -14,12 +14,19 @@ vi.hoisted(() => {
   delete process.env.DATABASE_ENCRYPTION_KEY;
 });
 
-import { encryptCredential } from "~/server/utils/credentialHelper";
+import { encryptCredential, decryptCredentialResult } from "~/server/utils/credentialHelper";
 
 describe("encryptCredential without DATABASE_ENCRYPTION_KEY", () => {
   it("throws instead of returning plaintext", () => {
     expect(() => encryptCredential("super-secret")).toThrow(
       /DATABASE_ENCRYPTION_KEY is not set/,
     );
+  });
+
+  it("decryptCredentialResult reports no_key for encrypted rows", () => {
+    expect(decryptCredentialResult("v1:whatever", true)).toEqual({
+      ok: false,
+      reason: "no_key",
+    });
   });
 });

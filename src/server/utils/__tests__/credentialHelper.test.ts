@@ -19,12 +19,39 @@ vi.mock("~/server/db", () => ({
 }));
 
 import {
+  decryptCredentialResult,
   encryptCredential,
   findCredential,
   getDecryptedKey,
   resolveCredential,
 } from "~/server/utils/credentialHelper";
 import { encryptToBase64 } from "~/server/utils/encryption";
+
+describe("decryptCredentialResult", () => {
+  it("passes plaintext rows through", () => {
+    expect(decryptCredentialResult("plain", false)).toEqual({ ok: true, value: "plain" });
+  });
+
+  it("decrypts real ciphertext", () => {
+    expect(decryptCredentialResult(encryptToBase64("s3cret"), true)).toEqual({
+      ok: true,
+      value: "s3cret",
+    });
+  });
+
+  it("reports auth_failed for plausible ciphertext under the wrong key", () => {
+    // 44 random bytes: structurally valid (>= iv12+tag16) but never authentic.
+    const forged = Buffer.alloc(44, 7).toString("base64");
+    expect(decryptCredentialResult(forged, true)).toEqual({ ok: false, reason: "auth_failed" });
+  });
+
+  it("reports not_ciphertext for values too short to be ciphertext", () => {
+    expect(decryptCredentialResult("xoxb-raw-token", true)).toEqual({
+      ok: false,
+      reason: "not_ciphertext",
+    });
+  });
+});
 
 describe("encryptCredential", () => {
   it("encrypts for real and round-trips through getDecryptedKey", () => {

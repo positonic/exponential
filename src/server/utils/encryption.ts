@@ -64,24 +64,58 @@ export function encryptToBase64(plaintext: string): string {
 }
 
 /**
- * Decrypt a (possibly version-prefixed) base64-encoded encrypted string.
- * Accepts both `v1:<base64>` and legacy unprefixed `<base64>` (treated as v1).
+ * Why a decrypt failed. `no_key` — DATABASE_ENCRYPTION_KEY absent;
+ * `not_ciphertext` — the value cannot be iv12+tag16+ct (too short / empty);
+ * `auth_failed` — structurally plausible ciphertext whose GCM auth tag did
+ * not verify: wrong/rotated key, corruption, or mislabelled plaintext.
+ * The distinction is what makes a key-rotation mistake alertable instead of
+ * looking like "the user never configured this integration".
  */
-export function decryptFromBase64(base64Encrypted: string | null | undefined): string | null {
-  if (!base64Encrypted) return null;
+export type DecryptFailureReason = 'no_key' | 'auth_failed' | 'not_ciphertext';
+
+export type DecryptResult =
+  | { ok: true; value: string }
+  | { ok: false; reason: DecryptFailureReason };
+
+/**
+ * Decrypt a (possibly version-prefixed) base64-encoded encrypted string,
+ * reporting WHY on failure. Accepts both `v1:<base64>` and legacy unprefixed
+ * `<base64>` (treated as v1).
+ */
+export function decryptFromBase64Result(
+  base64Encrypted: string | null | undefined,
+): DecryptResult {
+  if (!base64Encrypted) return { ok: false, reason: 'not_ciphertext' };
+  if (!KEY_ENV) return { ok: false, reason: 'no_key' };
+
   const base64 = base64Encrypted.startsWith(CIPHERTEXT_V1_PREFIX)
     ? base64Encrypted.slice(CIPHERTEXT_V1_PREFIX.length)
     : base64Encrypted;
+
+  // NOTE: Buffer.from(x, 'base64') does not throw on non-base64 input — it
+  // decodes what it can, so length is the only structural signal here.
+  const buf = Buffer.from(base64, 'base64');
+  if (buf.length < 28) return { ok: false, reason: 'not_ciphertext' }; // iv(12) + tag(16)
+
   try {
-    const buf = Buffer.from(base64, 'base64');
-    return decryptBuffer(buf);
+    const value = decryptBuffer(buf);
+    if (value === null) return { ok: false, reason: 'not_ciphertext' };
+    return { ok: true, value };
   } catch {
-    // NOTE: Buffer.from(x, 'base64') does not throw on non-base64 input — it
-    // decodes what it can. What lands here is the GCM auth-tag failure from
-    // decryptBuffer (wrong key, corruption, or a plaintext value that
-    // happened to be long enough to attempt).
-    return null;
+    // GCM auth-tag verification failure (or an invalid key).
+    return { ok: false, reason: 'auth_failed' };
   }
+}
+
+/**
+ * Decrypt a (possibly version-prefixed) base64-encoded encrypted string.
+ * Accepts both `v1:<base64>` and legacy unprefixed `<base64>` (treated as v1).
+ * Collapses all failures to null — prefer decryptFromBase64Result where the
+ * failure reason matters.
+ */
+export function decryptFromBase64(base64Encrypted: string | null | undefined): string | null {
+  const result = decryptFromBase64Result(base64Encrypted);
+  return result.ok ? result.value : null;
 }
 
 /**

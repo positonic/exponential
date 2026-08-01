@@ -1,4 +1,9 @@
-import { encryptToBase64, decryptFromBase64, isEncryptionAvailable } from './encryption';
+import {
+  encryptToBase64,
+  decryptFromBase64Result,
+  isEncryptionAvailable,
+  type DecryptResult,
+} from './encryption';
 
 /**
  * Helper for managing integration credentials with encryption support.
@@ -26,27 +31,38 @@ export function encryptCredential(plaintext: string): { key: string; isEncrypted
 }
 
 /**
- * Decrypt a credential value.
+ * Decrypt a credential value, reporting WHY on failure.
  * Handles both encrypted and plaintext credentials based on isEncrypted flag.
  */
-export function decryptCredential(key: string, isEncrypted: boolean): string | null {
+export function decryptCredentialResult(key: string, isEncrypted: boolean): DecryptResult {
   if (!isEncrypted) {
-    // Plaintext credential (legacy or encryption unavailable)
-    return key;
+    // Plaintext credential (legacy) — the flag decides, never the caller.
+    return { ok: true, value: key };
   }
+  return decryptFromBase64Result(key);
+}
 
-  try {
-    const decrypted = decryptFromBase64(key);
-    if (decrypted === null) {
-      // Decryption failed - might be corrupted or wrong key
-      console.error('Failed to decrypt credential - returning null');
-      return null;
-    }
-    return decrypted;
-  } catch (error) {
-    console.error('Credential decryption error:', error);
+/**
+ * Decrypt a credential value, collapsing failures to null (after logging the
+ * reason). Prefer decryptCredentialResult where the caller can surface the
+ * distinction — an `auth_failed` here usually means a wrong or rotated
+ * DATABASE_ENCRYPTION_KEY, which must be alertable, not mistaken for an
+ * unconfigured integration.
+ */
+export function decryptCredential(key: string, isEncrypted: boolean): string | null {
+  const result = decryptCredentialResult(key, isEncrypted);
+  if (!result.ok) {
+    console.error(
+      `[credentialHelper] Failed to decrypt credential (reason: ${result.reason})` +
+        (result.reason === 'auth_failed'
+          ? ' — ciphertext did not authenticate; check DATABASE_ENCRYPTION_KEY (wrong or rotated key?)'
+          : result.reason === 'no_key'
+            ? ' — DATABASE_ENCRYPTION_KEY is not set'
+            : ' — value is not ciphertext (mislabelled row?)'),
+    );
     return null;
   }
+  return result.value;
 }
 
 /**
