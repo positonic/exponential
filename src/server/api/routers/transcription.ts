@@ -1425,7 +1425,9 @@ export const transcriptionRouter = createTRPCRouter({
             message: "You do not have access to this project",
           });
         }
-        // Get Fireflies integrations associated with this project through workflows
+        // Get Fireflies integrations associated with this project through
+        // workflows. Only the EMAIL credential (display label) is returned to
+        // the client — the API_KEY must never leave the server.
         const projectWorkflows = await ctx.db.workflow.findMany({
           where: {
             projectId: input.projectId,
@@ -1437,8 +1439,19 @@ export const transcriptionRouter = createTRPCRouter({
               include: {
                 credentials: {
                   where: {
-                    keyType: {
-                      in: ["API_KEY", "EMAIL"],
+                    keyType: "EMAIL",
+                  },
+                  select: {
+                    key: true,
+                    keyType: true,
+                  },
+                },
+                _count: {
+                  select: {
+                    credentials: {
+                      where: {
+                        keyType: { in: ["API_KEY", "EMAIL"] },
+                      },
                     },
                   },
                 },
@@ -1452,7 +1465,7 @@ export const transcriptionRouter = createTRPCRouter({
           .filter(
             (workflow) =>
               workflow.integration &&
-              workflow.integration.credentials.length > 0,
+              workflow.integration._count.credentials > 0,
           )
           .map((workflow) => ({
             id: workflow.integration.id,

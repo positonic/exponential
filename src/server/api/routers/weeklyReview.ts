@@ -428,7 +428,12 @@ export const weeklyReviewRouter = createTRPCRouter({
       
       return {
         summary,
-        availableIntegrations,
+        // Strip to the fields the UI uses — the raw service rows carry
+        // BOT_TOKEN credential rows that must never reach the client.
+        availableIntegrations: availableIntegrations.map((integration) => ({
+          id: integration.id,
+          name: integration.name,
+        })),
         defaultChannel
       };
     }),
