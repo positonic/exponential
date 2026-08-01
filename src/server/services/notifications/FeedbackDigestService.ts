@@ -311,10 +311,13 @@ export class FeedbackDigestService {
               status: "ACTIVE",
             },
             include: {
+              // Presence check only — SlackNotificationService does its own
+              // decrypted read; never fetch the secret here.
               credentials: {
                 where: {
                   keyType: "BOT_TOKEN",
                 },
+                select: { id: true },
                 take: 1,
               },
             },

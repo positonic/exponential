@@ -193,6 +193,8 @@ export class SlackActionProcessor extends ActionProcessor {
             where: {
               keyType: 'BOT_TOKEN',
             },
+            // Presence check only — never fetch the secret itself here.
+            select: { id: true },
             take: 1,
           },
         },

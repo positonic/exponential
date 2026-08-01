@@ -2224,15 +2224,16 @@ export const integrationRouter = createTRPCRouter({
       const botTokenCredential = integration.credentials.find(
         (c) => c.keyType === "BOT_TOKEN",
       );
-      if (!botTokenCredential) {
+      const botToken = botTokenCredential ? getDecryptedKey(botTokenCredential) : null;
+      if (!botToken) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "No bot token found for this Slack integration",
+          message: "No usable bot token found for this Slack integration",
         });
       }
 
       // Test the connection and get latest team info
-      const testResult = await testSlackConnection(botTokenCredential.key);
+      const testResult = await testSlackConnection(botToken);
       if (!testResult.success) {
         throw new TRPCError({
           code: "BAD_REQUEST",
