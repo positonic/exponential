@@ -95,6 +95,7 @@
     "@trpc/react-query": "^11.0.0-rc.446",
     "@trpc/server": "^11.0.0-rc.446",
     "@types/jsonwebtoken": "^9.0.9",
+    "@types/turndown": "^5.0.6",
     "@vercel/analytics": "^1.5.0",
     "@vercel/blob": "^0.27.3",
     "@xyflow/react": "^12.10.2",
@@ -135,6 +136,8 @@
     "simli-client": "^1.2.8",
     "superjson": "^2.2.1",
     "tiptap-markdown": "^0.9.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
     "web-push": "^3.6.7",
     "zod": "^3.23.3"
   },

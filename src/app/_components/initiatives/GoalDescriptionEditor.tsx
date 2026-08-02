@@ -1,16 +1,9 @@
 "use client";
 
-import { useCallback, useRef } from "react";
-import { RichTextEditor } from "@mantine/tiptap";
-import { BubbleMenu, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Highlight from "@tiptap/extension-highlight";
-import Underline from "@tiptap/extension-underline";
-import Link from "@tiptap/extension-link";
-import Placeholder from "@tiptap/extension-placeholder";
-import DOMPurify from "dompurify";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "~/trpc/react";
-import "@mantine/tiptap/styles.css";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { detectContentType, htmlToMarkdown } from "~/lib/content/contentFormat";
 
 interface GoalDescriptionEditorProps {
   goalId: number;
@@ -18,12 +11,35 @@ interface GoalDescriptionEditorProps {
   initialContent: string | null;
 }
 
+/**
+ * Convert a stored description into editable Markdown. Legacy values authored by
+ * the old Tiptap editor are stored as HTML — convert those once, on open. Values
+ * already stored as Markdown (or plain text) pass through unchanged. This is the
+ * "convert-on-edit" pattern from ADR-0017: HTML ages out lazily as descriptions
+ * are edited; nothing is bulk-migrated.
+ */
+function toEditableMarkdown(content: string | null): string {
+  if (!content) return "";
+  return detectContentType(content) === "html"
+    ? htmlToMarkdown(content)
+    : content;
+}
+
+/**
+ * Objective (Goal) description editor. Emits canonical Markdown via the shared
+ * MarkdownInput; autosaves debounced while typing and flushes on blur/unmount.
+ * Display is handled elsewhere by the HTML-tolerant MarkdownRenderer, so an
+ * un-edited legacy HTML description still renders without conversion.
+ */
 export function GoalDescriptionEditor({
   goalId,
   goalTitle,
   initialContent,
 }: GoalDescriptionEditorProps) {
   const utils = api.useUtils();
+  const [value, setValue] = useState(() => toEditableMarkdown(initialContent));
+  const valueRef = useRef(value);
+  const lastSavedRef = useRef(value);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateGoal = api.goal.updateGoal.useMutation({
@@ -32,128 +48,58 @@ export function GoalDescriptionEditor({
     },
   });
 
-  const saveDescription = useCallback(
-    (html: string) => {
-      const sanitized = DOMPurify.sanitize(html, {
-        ALLOWED_TAGS: [
-          "p",
-          "br",
-          "strong",
-          "em",
-          "u",
-          "s",
-          "a",
-          "h1",
-          "h2",
-          "h3",
-          "h4",
-          "ul",
-          "ol",
-          "li",
-          "blockquote",
-          "code",
-          "pre",
-          "mark",
-          "hr",
-        ],
-        ALLOWED_ATTR: ["href", "target", "rel", "class"],
-        ALLOW_DATA_ATTR: false,
-      });
-      // Treat empty editor as null
-      const isEmpty = sanitized === "<p></p>" || sanitized === "";
+  const save = useCallback(
+    (markdown: string) => {
+      // Skip no-op saves — including the very first blur on an unchanged legacy
+      // description, so opening a Goal never rewrites HTML to Markdown until the
+      // user actually edits it.
+      if (markdown === lastSavedRef.current) return;
+      lastSavedRef.current = markdown;
       updateGoal.mutate({
         id: goalId,
         title: goalTitle,
-        description: isEmpty ? "" : sanitized,
+        description: markdown.trim() === "" ? "" : markdown,
       });
     },
     [goalId, goalTitle, updateGoal],
   );
 
-  const debouncedSave = useCallback(
-    (html: string) => {
+  const handleChange = useCallback(
+    (next: string) => {
+      setValue(next);
+      valueRef.current = next;
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => saveDescription(html), 1000);
+      debounceRef.current = setTimeout(() => save(next), 1000);
     },
-    [saveDescription],
+    [save],
   );
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Underline,
-      Highlight,
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: "text-brand-primary underline cursor-pointer",
-        },
-      }),
-      Placeholder.configure({
-        placeholder: "Add a description...",
-      }),
-    ],
-    content: initialContent ?? "",
-    immediatelyRender: false,
-    onUpdate: ({ editor: e }) => {
-      debouncedSave(e.getHTML());
-    },
-    onBlur: ({ editor: e }) => {
-      // Save immediately on blur
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      saveDescription(e.getHTML());
-    },
-    editorProps: {
-      attributes: {
-        class: "prose prose-invert max-w-none focus:outline-none",
-      },
-    },
-  });
+  const flush = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    save(valueRef.current);
+  }, [save]);
 
+  // Flush any pending edit on unmount without re-subscribing the effect on
+  // every render (a ref keeps the latest flush).
+  const flushRef = useRef(flush);
+  useEffect(() => {
+    flushRef.current = flush;
+  }, [flush]);
+  useEffect(() => () => flushRef.current(), []);
+
+  // onBlur bubbles from the textarea (React uses focusout), so a wrapper here
+  // catches focus leaving the input and saves immediately.
   return (
-    <RichTextEditor
-      editor={editor}
-      styles={{
-        root: {
-          border: "none",
-          backgroundColor: "transparent",
-        },
-        content: {
-          backgroundColor: "transparent",
-          color: "var(--color-text-primary)",
-          fontSize: "14px",
-          padding: 0,
-          "& .ProseMirror": {
-            padding: "4px 0",
-            minHeight: "1.5em",
-          },
-          "& .ProseMirror p.is-editor-empty:first-of-type::before": {
-            color: "var(--mantine-color-dimmed)",
-            fontStyle: "italic",
-          },
-        },
-      }}
-    >
-      {editor && (
-        <BubbleMenu
-          editor={editor}
-          tippyOptions={{ duration: 150 }}
-        >
-          <RichTextEditor.ControlsGroup>
-            <RichTextEditor.Bold />
-            <RichTextEditor.Italic />
-            <RichTextEditor.Underline />
-            <RichTextEditor.Strikethrough />
-            <RichTextEditor.Code />
-            <RichTextEditor.Link />
-            <RichTextEditor.H1 />
-            <RichTextEditor.H2 />
-            <RichTextEditor.H3 />
-            <RichTextEditor.H4 />
-          </RichTextEditor.ControlsGroup>
-        </BubbleMenu>
-      )}
-      <RichTextEditor.Content />
-    </RichTextEditor>
+    <div onBlur={flush}>
+      <MarkdownInput
+        value={value}
+        onChange={handleChange}
+        placeholder="Add a description..."
+        minRows={2}
+      />
+    </div>
   );
 }
