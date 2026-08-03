@@ -18,8 +18,14 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# PKCE: 32 random bytes → base64url verifier, S256 challenge.
+base64 = "0.22"
+getrandom = "0.3"
+sha2 = "0.10"
 
 [profile.dev]
 # The shell is a thin wrapper around a remote page; incremental debug builds are

@@ -7,7 +7,11 @@ fn main() {
     // origin. Every new command needs a line here *and* a grant there.
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(
-            tauri_build::AppManifest::new().commands(&["desktop_shell_info"]),
+            tauri_build::AppManifest::new().commands(&[
+                "desktop_shell_info",
+                "desktop_start_login",
+                "desktop_get_pending_auth",
+            ]),
         ),
     )
     .expect("failed to run tauri-build");

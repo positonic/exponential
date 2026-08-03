@@ -8,10 +8,16 @@
     "devUrl": "http://localhost:3000"
   },
   "app": {
-    "withGlobalTauri": true,
     "windows": [],
     "security": {
       "csp": null
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["exponential-beta"]
+      }
     }
   },
   "bundle": {
