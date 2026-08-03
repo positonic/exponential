@@ -35,11 +35,14 @@ async function getTicketProgressByFeature(
   featureIds: string[],
 ): Promise<Map<string, { done: number; total: number }>> {
   const progress = new Map<string, { done: number; total: number }>();
-  if (featureIds.length === 0) return progress;
+  // The same feature may execute several key results in one response
+  // (getByObjective) — dedupe before querying.
+  const uniqueIds = [...new Set(featureIds)];
+  if (uniqueIds.length === 0) return progress;
 
   const grouped = await db.ticket.groupBy({
     by: ["featureId", "status"],
-    where: { featureId: { in: featureIds } },
+    where: { featureId: { in: uniqueIds } },
     _count: { _all: true },
   });
 
@@ -350,6 +353,17 @@ export const keyResultRouter = createTRPCRouter({
         orderBy: { title: "asc" },
       });
 
+      // V2 delivery signal (ADR-0050): one groupBy across every linked
+      // feature in the response, attached as done/total per feature below.
+      const progressByFeature = await getTicketProgressByFeature(
+        ctx.db,
+        goals.flatMap((goal) =>
+          goal.keyResults.flatMap((kr) =>
+            kr.features.map((link) => link.feature.id),
+          ),
+        ),
+      );
+
       // Calculate progress for each objective. A manual progressOverride wins
       // over the KR-derived mean (see goalProgress.ts); falls back to 0 when a
       // goal has neither an override nor measurable key results.
@@ -368,6 +382,17 @@ export const keyResultRouter = createTRPCRouter({
 
         return {
           ...goal,
+          keyResults: keyResults.map((kr) => ({
+            ...kr,
+            features: kr.features.map((link) => ({
+              ...link,
+              feature: {
+                ...link.feature,
+                ticketProgress:
+                  progressByFeature.get(link.feature.id) ?? null,
+              },
+            })),
+          })),
           progress: resolved,
           statusCounts,
         };
