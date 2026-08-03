@@ -199,6 +199,44 @@ pub struct WikiPage {
     pub bytes: u64,
 }
 
+/// What the app needs to decide between "offer to create a wiki" and "chat".
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiStatus {
+    /// Where it would live, whether or not it does — the first-run panel names
+    /// this so the user knows what is about to appear on their disk.
+    pub root: String,
+    pub exists: bool,
+    /// Whether the folder is a git repo. False for a folder restored from a
+    /// backup that lost `.git`, which still counts as existing.
+    pub git: bool,
+    pub page_count: usize,
+}
+
+/// Report on the wiki **without creating it**.
+///
+/// The distinction from `wiki_init` is the whole point: creating a folder in
+/// someone's Documents should be something they chose, not a side effect of
+/// asking a question. This is what the first-run panel asks before offering the
+/// button, so it must stay free of side effects.
+#[tauri::command]
+pub fn wiki_status(state: tauri::State<WikiRoot>) -> WikiStatus {
+    let root = current_root(&state);
+    status_at(&root)
+}
+
+pub fn status_at(root: &Path) -> WikiStatus {
+    let exists = root.is_dir();
+    WikiStatus {
+        root: root.to_string_lossy().into_owned(),
+        exists,
+        git: exists && root.join(".git").exists(),
+        // `list_pages` on a missing folder is an empty list, not an error, so
+        // this is safe to call either way.
+        page_count: list_pages(root).map(|p| p.len()).unwrap_or(0),
+    }
+}
+
 /// Create the wiki if it isn't there yet, and report where it is.
 ///
 /// Idempotent, and that matters: this runs at the start of a chat turn, so it
@@ -598,6 +636,49 @@ mod tests {
         // Writing a new page must work; only *escaping* is refused.
         let wiki = TempWiki::new("new-page");
         assert!(resolve(&wiki.root, "brand/new/page.md").is_ok());
+    }
+
+    #[test]
+    fn status_does_not_create_the_wiki() {
+        // The load-bearing property: the first-run panel calls this to decide
+        // whether to offer the button, so if it created anything the button
+        // would be asking permission for something already done.
+        let root = std::env::temp_dir().join("exp-wiki-status-none");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let status = status_at(&root);
+        assert!(!status.exists);
+        assert!(!status.git);
+        assert_eq!(status.page_count, 0);
+        assert!(!root.exists(), "asking must not create");
+        // It still reports where the wiki *would* go, because the panel names
+        // the path before the user agrees to it.
+        assert_eq!(status.root, root.to_string_lossy());
+    }
+
+    #[test]
+    fn status_sees_a_wiki_that_exists() {
+        let wiki = TempWiki::new("status-exists");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+
+        let status = status_at(&wiki.root);
+        assert!(status.exists);
+        assert!(status.git);
+        assert_eq!(status.page_count, 4, "three seeds plus the page");
+    }
+
+    #[test]
+    fn a_wiki_without_git_still_counts_as_existing() {
+        // A folder restored from a backup that lost .git is still the user's
+        // wiki; offering to "create" it again would be wrong.
+        let wiki = TempWiki::new("status-nogit");
+        init_at(&wiki.root).expect("init");
+        std::fs::remove_dir_all(wiki.root.join(".git")).unwrap();
+
+        let status = status_at(&wiki.root);
+        assert!(status.exists);
+        assert!(!status.git);
     }
 
     #[test]

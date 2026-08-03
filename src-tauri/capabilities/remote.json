@@ -25,6 +25,7 @@
     "allow-wiki-commit-turn",
     "allow-wiki-search",
     "allow-wiki-get-root",
+    "allow-wiki-status",
     "allow-wiki-fetch-url",
     "allow-wiki-read-external"
   ]

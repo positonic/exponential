@@ -112,6 +112,7 @@ pub fn run() {
             wiki::wiki_commit_turn,
             wiki::wiki_search,
             wiki::wiki_get_root,
+            wiki::wiki_status,
             source::wiki_fetch_url,
             source::wiki_read_external,
         ])

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-status"
+description = "Enables the wiki_status command without any pre-configured scope."
+commands.allow = ["wiki_status"]
+
+[[permission]]
+identifier = "deny-wiki-status"
+description = "Denies the wiki_status command without any pre-configured scope."
+commands.deny = ["wiki_status"]
