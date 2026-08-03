@@ -36,19 +36,20 @@ Add one scheduled **GitHub Actions** workflow (`.github/workflows/ai-bug-fixer.y
 plus two small helper scripts (`scripts/ai-bug-fixer/`). **No app code, no schema
 changes, no new tRPC procedures.**
 
-- **Marker:** a human opts a bug in by adding the **`ai-fixable`** label to a
-  `type = BUG` ticket in `READY_TO_PLAN`. Exclusions are enforced in the worker:
-  any ticket also tagged `security`, or with `priority = 0` (critical), is never
-  attempted. Reuses the existing tag system — no new field.
+- **Marker:** a human opts work in by adding a **trigger label** to a ticket in
+  `READY_TO_PLAN` — **`ai-fixable`** for bugs, **`ai-buildable`** for features
+  (see *Amendment*). Exclusions are enforced in the worker: any ticket also
+  tagged `security`, or with `priority = 0` (critical), is never attempted.
+  Reuses the existing tag system — no new field.
 - **Trigger:** the workflow polls hourly (`schedule`) plus `workflow_dispatch`.
   Polling is used because **no outbound event path from Exponential exists today**;
   a `repository_dispatch` upgrade is left as future work.
 - **Orchestration is GitHub Actions** because the fix needs a repo checkout, a
   coding agent, and a PR — all native to Actions, and the repo already
   standardises on Actions. No new queue/worker infrastructure.
-- **Coding agent:** `anthropics/claude-code-action`, authenticated with a Claude
-  subscription token (`CLAUDE_CODE_OAUTH_TOKEN`, a flat fee) and defaulting to a
-  cheap model (`claude-haiku-4-5`). Model and auth are configurable via repo vars.
+- **Coding agent:** the Claude Code CLI, called directly (see *Amendment*;
+  originally `anthropics/claude-code-action` with a Claude subscription token).
+  Model, endpoint and spend ceiling are configurable via repo vars.
 - **Worker interface is the `exponential` CLI + a bot JWT** (`EXPONENTIAL_TOKEN`),
   mirroring `setup-merge-hook`. Zero new API surface.
 - **Soft lock:** a single-runner `concurrency` group plus a `READY_TO_PLAN →
@@ -79,5 +80,66 @@ hourly / manual → scan (CLI only): pick oldest eligible bug, minus security/cr
 - If validation fails, the agent makes no change, or the agent flags the bug as
   needing a human, the ticket is **released back to `READY_TO_PLAN`** with an
   explanatory comment — never left silently stuck in `IN_PROGRESS`.
+
+## Amendment (2026-07-30): OpenRouter, a second label, and a direct CLI call
+
+Three changes. The shape of the decision above — Actions, CLI-as-interface, PR
+for human review, no app code — is unchanged.
+
+**1. The coding agent is the Claude Code CLI, called directly.** Not
+`anthropics/claude-code-action`. The action authenticates via OIDC against
+Anthropic and does not support a third-party endpoint, which the model change
+below requires. It also rewrote `remote.origin.url` to embed its own bot token,
+which the workflow had to undo before every push. Decisively: the action step is
+`continue-on-error`, so its failures surfaced as a **green run that produced no
+PR** — a total outage went unnoticed for five weeks. A direct call yields a plain
+exit code, and the workflow turns a non-zero agent exit into a **red** run (only
+an honest "couldn't do it" — bail, empty diff, failed validation — stays green).
+The `id-token: write` permission and the remote-URL workaround are both gone.
+The agent is allow-listed to `Read,Write,Edit,Glob,Grep` and **Bash is
+explicitly denied** (`--disallowedTools`). The deny is what does the work: an
+allow-list alone does not restrict, and the repo's checked-in
+`.claude/settings.json` would otherwise merge its own `Bash(...)` allow rules
+into the agent's permissions. With the deny in place, an agent holding an API
+key in a public repo's runner cannot shell out.
+
+**2. The model is served by OpenRouter, defaulting to `z-ai/glm-5.2`.** Both
+profiles, not just features. OpenRouter's Anthropic-compatible endpoint
+(`https://openrouter.ai/api` — note `/api`, not `/api/v1`) means "which
+provider" collapses to a model string: OpenAI and Anthropic models are reachable
+the same way. Set `AI_BUILDER_BASE_URL` to `https://api.anthropic.com` to talk to
+Anthropic directly — clearing it merely restores the OpenRouter default, since an
+Actions `||` expression cannot tell an unset variable from an empty one. The
+workflow picks the auth header per endpoint: `x-api-key` (`ANTHROPIC_API_KEY`)
+for Anthropic direct, `Authorization: Bearer` (`ANTHROPIC_AUTH_TOKEN`) for
+everything else — still exactly one credential secret either way.
+
+*Consequence, and it is a real one:* the flat-fee subscription token named as a
+cost control above is gone. Billing is per-token. `--max-budget-usd` was added as
+a per-run ceiling to compensate — with a caveat: the CLI prices spend from an
+internal per-model table, and for a proxy-served model id it does not know the
+computed cost can be $0.00, leaving `--max-turns` and a provider-side key spend
+limit as the real bounds (see the *Cost controls* caveat in
+[docs/agents/ai-bug-fixer.md](../agents/ai-bug-fixer.md)). Rejected: keeping the subscription for bugs
+and OpenRouter for features — two auth paths and two failure modes to keep alive,
+for a worker with almost no track record to protect.
+
+**3. A second trigger label, `ai-buildable`, for features.** `--label` on the CLI
+ANDs, so "either label" cannot be one query; the scan runs one list per label and
+`select-candidate.mjs` merges them, recording which query matched. A ticket with
+both is worked as `ai-fixable` — the narrow-fix profile. (Deliberate consequence:
+the diff gate below is keyed to the `ai-buildable` trigger, so a both-labelled
+ticket is not diff-gated; its schema edits reach human review like any bug
+fix's.) `ai-buildable` adds one
+gate: **schema and migration edits are rejected by diff**, not by prompt.
+Rationale — preview deploys run `next build` only, never `prisma migrate deploy`,
+so a schema change cannot reach a preview database and the feature would appear
+broken for reasons unrelated to the agent.
+
+**Deliberately still not done:** no per-workspace provider configuration in the
+app, and no stored LLM credentials. Each repo holds its own key in its own GitHub
+secrets. Considered and rejected: storing customer keys and shipping them to a
+runner at run time — it would make the app a key-distribution service and break
+the standing invariant that decrypted credentials never leave the server process.
 
 See [docs/agents/ai-bug-fixer.md](../agents/ai-bug-fixer.md) for setup and operations.

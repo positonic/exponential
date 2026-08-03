@@ -175,7 +175,9 @@ export class ThreadScoreDigestService {
           integrations: {
             where: { provider: "slack", status: "ACTIVE" },
             include: {
-              credentials: { where: { keyType: "BOT_TOKEN" }, take: 1 },
+              // Presence check only — SlackNotificationService does its own
+              // decrypted read; never fetch the secret here.
+              credentials: { where: { keyType: "BOT_TOKEN" }, select: { id: true }, take: 1 },
             },
           },
         },

@@ -81,6 +81,21 @@ export const voiceRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { userId } = await resolveVoiceCaller(ctx);
 
+      // ADR-0049: this procedure returns a minted JWT, so External-agent
+      // principals are denied — a revocable agent key must never be exchanged
+      // for a stateless token. Checked here (not via humanOnlyProcedure)
+      // because the voice gate is public + any-of-credential.
+      const caller = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { isAgent: true },
+      });
+      if (caller?.isAgent) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This operation is not available to external agents",
+        });
+      }
+
       // Resolve (and validate) the session's workspace once, here — the result
       // is baked into the voice-session JWT as a verified claim so the device
       // cannot tamper with the workspace the brain operates in.

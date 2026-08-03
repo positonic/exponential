@@ -23,6 +23,11 @@ import {
   type DrawerSize,
 } from "~/providers/AgentModalProvider";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import {
+  LOCAL_WIKI_AGENT_ID,
+  LOCAL_WIKI_AGENT_NAME,
+  isLocalWikiAvailable,
+} from "~/lib/localWiki";
 import { api } from "~/trpc/react";
 import classes from "./ZoeDrawer.module.css";
 
@@ -147,8 +152,23 @@ export function ZoeDrawer() {
     [setWorkspaceId, setProjectId],
   );
 
+  // The local-wiki librarian is offered only where its tools can actually run —
+  // inside the Tauri shell, which owns the jailed filesystem. It is added here
+  // rather than to `getMastraAgents`' server-side list on purpose: that list
+  // feeds every chat surface, so an entry there would show the librarian on the
+  // web and in Electron, where every turn would fail on the first tool call.
+  //
+  // Resolved after mount because the shell is detected from a global the webview
+  // injects; deciding during SSR would always say "no".
+  const [localWikiAvailable, setLocalWikiAvailable] = useState(false);
+  useEffect(() => setLocalWikiAvailable(isLocalWikiAvailable()), []);
+
   const handleSelectAgent = useCallback(
     (agentName: string) => {
+      if (agentName === LOCAL_WIKI_AGENT_NAME) {
+        setDefaultAgent({ id: LOCAL_WIKI_AGENT_ID, name: LOCAL_WIKI_AGENT_NAME });
+        return;
+      }
       const agent = agents?.find((a) => a.name.toLowerCase() === agentName.toLowerCase());
       if (agent) setDefaultAgent({ id: agent.id, name: agent.name });
     },
@@ -253,6 +273,25 @@ export function ZoeDrawer() {
                   @{agent.name}
                 </Menu.Item>
               ))}
+              {localWikiAvailable && (
+                <>
+                  <Menu.Divider />
+                  <Menu.Label>On this device</Menu.Label>
+                  <Menu.Item
+                    onClick={() => handleSelectAgent(LOCAL_WIKI_AGENT_NAME)}
+                    leftSection={
+                      <Avatar size="xs" radius="xl">
+                        {getInitials(LOCAL_WIKI_AGENT_NAME)}
+                      </Avatar>
+                    }
+                    className={
+                      activeAgentName === LOCAL_WIKI_AGENT_NAME ? "bg-surface-secondary" : ""
+                    }
+                  >
+                    {LOCAL_WIKI_AGENT_NAME}
+                  </Menu.Item>
+                </>
+              )}
             </Menu.Dropdown>
           </Menu>
 

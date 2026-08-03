@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { NotionService } from "../NotionService";
-import { getDecryptedKey } from "~/server/utils/credentialHelper";
+import { decryptCredentialResult } from "~/server/utils/credentialHelper";
 import { firstOptionName, readOptionNames } from "./mapping";
 import type { RemoteTicketRow, TicketSyncRemoteAdapter } from "./engine";
 import type { TicketPushAdapter } from "./push";
@@ -134,7 +134,9 @@ export class NotionTicketSyncAdapter
       .map((page) => this.projectRow(page));
 
     // Resolve cycle relation ids → page titles, one concurrent lookup per
-    // unique cycle (resolvePageTitle already swallows per-page failures).
+    // unique cycle. An unreadable page (connection lacks access to the Cycles
+    // database) is flagged, NOT collapsed into "no cycle" — the engine treats
+    // the remote cycle as unknown and surfaces a warning (frosty.flame).
     const uniqueCycleIds = [
       ...new Set(
         rows
@@ -145,26 +147,34 @@ export class NotionTicketSyncAdapter
     const titleCache = new Map(
       await Promise.all(
         uniqueCycleIds.map(
-          async (id) => [id, await this.resolvePageTitle(id)] as const,
+          async (id) => [id, await this.resolveCycleTitle(id)] as const,
         ),
       ),
     );
     for (const row of rows) {
       if (!row.cycleRelationId) continue;
-      row.cycleName = titleCache.get(row.cycleRelationId) ?? null;
+      const resolved = titleCache.get(row.cycleRelationId);
+      row.cycleName = resolved?.title ?? null;
+      if (resolved?.unreadable) row.cycleUnreadable = true;
     }
 
     return rows;
   }
 
-  private async resolvePageTitle(pageId: string): Promise<string | null> {
+  private async resolveCycleTitle(
+    pageId: string,
+  ): Promise<{ title: string | null; unreadable: boolean }> {
     try {
       const page = (await this.notion.getPage(pageId)) as RawNotionPage;
-      return NotionService.extractTitleFromProperties(page.properties ?? {});
+      return {
+        title: NotionService.extractTitleFromProperties(page.properties ?? {}),
+        unreadable: false,
+      };
     } catch {
-      return null;
+      return { title: null, unreadable: true };
     }
   }
+
 
   private projectRow(
     page: RawNotionPage,
@@ -221,7 +231,9 @@ export class NotionTicketSyncAdapter
     }
     const row = this.projectRow(page);
     if (row.cycleRelationId) {
-      row.cycleName = await this.resolvePageTitle(row.cycleRelationId);
+      const resolved = await this.resolveCycleTitle(row.cycleRelationId);
+      row.cycleName = resolved.title;
+      if (resolved.unreadable) row.cycleUnreadable = true;
     }
     const { cycleRelationId: _cycleRelationId, ...rest } = row;
     return rest;
@@ -409,10 +421,24 @@ export async function createNotionTicketSyncAdapter(
     return { ok: false, error: "No access token on the Notion integration" };
   }
 
-  const accessToken = getDecryptedKey(tokenCredential);
-  if (!accessToken) {
-    return { ok: false, error: "Failed to decrypt the Notion access token" };
+  const tokenResult = decryptCredentialResult(tokenCredential.key, tokenCredential.isEncrypted);
+  if (!tokenResult.ok) {
+    // Distinguish a key problem from a missing credential — a wrong/rotated
+    // DATABASE_ENCRYPTION_KEY must be alertable, not read as "not configured".
+    console.error(
+      `[notionAdapter] Notion access token exists but cannot be decrypted (reason: ${tokenResult.reason}) for integration ${integration.id}`,
+    );
+    return {
+      ok: false,
+      error:
+        tokenResult.reason === 'auth_failed'
+          ? "Notion access token failed to decrypt (wrong or rotated encryption key?)"
+          : tokenResult.reason === 'no_key'
+            ? "Notion access token is encrypted but DATABASE_ENCRYPTION_KEY is not set"
+            : "Notion access token row is not valid ciphertext",
+    };
   }
+  const accessToken = tokenResult.value;
 
   let botId: string | null = null;
   const metadataCredential = integration.credentials.find(

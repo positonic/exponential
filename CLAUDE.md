@@ -105,6 +105,7 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 - `npm run test:integration` — Run integration tests (~75s, requires Docker/OrbStack)
 - `npm run test:all` — Run both unit and integration tests
 - `npm run check` — Lint + typecheck (always run before committing)
+- `npm run test:e2e` — Playwright visual/E2E suite: boots `next dev` on :3100, seeds the disposable `dev-fixture` workspace, mints a session (no OAuth), runs `e2e/*.spec.ts`. For ad-hoc authenticated browsing use `npm run dev:seed-fixture` + `npm run dev:session`. **See `/dev-docs/AGENT_VISUAL_TESTING.md`** — this is how to visually verify UI changes without a login wall.
 
 **Unit tests** (`*.test.ts`) — pure function tests, no DB needed:
 - Access control permissions (`src/server/services/access/__tests__/`)

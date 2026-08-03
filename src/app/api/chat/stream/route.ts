@@ -11,6 +11,7 @@ interface CoreMessage {
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { db } from "~/server/db";
+import { getDecryptedKey } from "~/server/utils/credentialHelper";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
@@ -47,14 +48,15 @@ async function resolveSlackChannelId(
   try {
     const credential = await db.integrationCredential.findFirst({
       where: { integrationId, keyType: "BOT_TOKEN" },
-      select: { key: true },
+      select: { key: true, isEncrypted: true },
     });
-    if (!credential?.key) return null;
+    const botToken = credential ? getDecryptedKey(credential) : null;
+    if (!botToken) return null;
 
     const nameWithoutHash = channelName.replace(/^#/, "");
     const response = await fetch(
       "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=1000",
-      { headers: { Authorization: `Bearer ${credential.key}` } }
+      { headers: { Authorization: `Bearer ${botToken}` } }
     );
     const data = await response.json() as { ok: boolean; channels?: Array<{ id: string; name: string }> };
     if (!data.ok || !data.channels) return null;

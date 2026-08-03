@@ -41,7 +41,7 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import { createHash } from "crypto";
 
 // Keep in-memory store for development/debugging
@@ -296,7 +296,7 @@ async function upsertMeetingParticipant(
     name =
       [contact.firstName, contact.lastName].filter(Boolean).join(" ") || null;
 
-    const existingEmail = decryptBuffer(contact.email);
+    const existingEmail = decryptBufferSafe(contact.email);
     if (existingEmail) {
       email = existingEmail;
     } else if (person.email) {
@@ -1425,7 +1425,9 @@ export const transcriptionRouter = createTRPCRouter({
             message: "You do not have access to this project",
           });
         }
-        // Get Fireflies integrations associated with this project through workflows
+        // Get Fireflies integrations associated with this project through
+        // workflows. Only the EMAIL credential (display label) is returned to
+        // the client — the API_KEY must never leave the server.
         const projectWorkflows = await ctx.db.workflow.findMany({
           where: {
             projectId: input.projectId,
@@ -1437,8 +1439,19 @@ export const transcriptionRouter = createTRPCRouter({
               include: {
                 credentials: {
                   where: {
-                    keyType: {
-                      in: ["API_KEY", "EMAIL"],
+                    keyType: "EMAIL",
+                  },
+                  select: {
+                    key: true,
+                    keyType: true,
+                  },
+                },
+                _count: {
+                  select: {
+                    credentials: {
+                      where: {
+                        keyType: { in: ["API_KEY", "EMAIL"] },
+                      },
                     },
                   },
                 },
@@ -1452,7 +1465,7 @@ export const transcriptionRouter = createTRPCRouter({
           .filter(
             (workflow) =>
               workflow.integration &&
-              workflow.integration.credentials.length > 0,
+              workflow.integration._count.credentials > 0,
           )
           .map((workflow) => ({
             id: workflow.integration.id,

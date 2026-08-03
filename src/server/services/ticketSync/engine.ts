@@ -14,6 +14,8 @@ import {
   resolveCycleIdByName,
 } from "./resolvers";
 import {
+  CYCLE_UNREADABLE_WARNING,
+  fieldEquals,
   mergeSyncedFields,
   SYNCED_FIELD_KEYS,
   type SyncedFieldKey,
@@ -44,6 +46,12 @@ export interface RemoteTicketRow {
   labels: string[];
   /** Resolved title of the first page in the cycle relation, if any. */
   cycleName: string | null;
+  /**
+   * True when the cycle relation points at a page the connection cannot read
+   * (typically: the Cycles database is not shared with the integration). The
+   * remote cycle is then UNKNOWN — not empty — and must never be applied.
+   */
+  cycleUnreadable?: boolean;
   /** Email of the first person in the assignee property, if visible. */
   assigneeEmail: string | null;
   lastEditedAt: Date;
@@ -112,6 +120,7 @@ const SCALAR_FIELDS: SyncedFieldKey[] = [
   "type",
   "points",
 ];
+
 
 type StatusMap = Record<string, TicketStatus>;
 
@@ -240,7 +249,7 @@ export async function runInboundTicketSync(
   adapter: TicketSyncRemoteAdapter,
   params: {
     configId: string;
-    trigger: "manual" | "cron" | "agent";
+    trigger: "manual" | "cron" | "agent" | "webhook";
     dryRun?: boolean;
     /** Acting user for the run ledger; null for cron/agent triggers. */
     triggeredById?: string | null;
@@ -275,6 +284,11 @@ export async function runInboundTicketSync(
   const items: SyncRunItem[] = [];
   const counts = { created: 0, updated: 0, skipped: 0, conflicts: 0, archived: 0, failed: 0 };
   const statusMap = (config.statusMap ?? null) as StatusMap | null;
+  // Set when any row's cycle relation could not be read. While true, the
+  // incremental window is NOT advanced, so the affected rows are re-scanned on
+  // every run and the pending cycle applies automatically once access is
+  // granted — no manual re-edit needed (frosty.flame).
+  let sawUnreadableRelation = false;
 
   try {
     // ------------------------------------------------------------------
@@ -436,19 +450,22 @@ export async function runInboundTicketSync(
           continue;
         }
 
-        if (row.lastEditedByBot) {
+        const record = recordByExternalId.get(row.externalId);
+
+        // Echo suppression for rows we never linked stays row-level: an unseen
+        // bot-edited row can only be our own residue, never a pending human
+        // change. Linked rows are handled snapshot-aware below (smoky.wolf).
+        if (row.lastEditedByBot && !record) {
           counts.skipped++;
           items.push({
             externalId: row.externalId,
-            ticketId: recordByExternalId.get(row.externalId)?.ticketId ?? null,
+            ticketId: null,
             title: row.title,
             action: "skipped",
             reason: "last edit was ours (echo suppression)",
           });
           continue;
         }
-
-        const record = recordByExternalId.get(row.externalId);
 
         if (!record) {
           // ----------------------------------------------------------
@@ -457,6 +474,13 @@ export async function runInboundTicketSync(
           const { fields, warnings } = rowToSyncedFields(row, statusMap, {
             labels: row.labels,
           });
+
+          // Unknown remote cycle: create the ticket without one, but say so —
+          // and hold the window (flag) so the cycle lands once readable.
+          if (row.cycleUnreadable) {
+            warnings.push(CYCLE_UNREADABLE_WARNING);
+            sawUnreadableRelation = true;
+          }
 
           if (dryRun) {
             warnings.push(
@@ -622,11 +646,49 @@ export async function runInboundTicketSync(
           labels: local.labels,
         });
 
+        // An unreadable cycle relation means the remote cycle is UNKNOWN, not
+        // empty. Neutralize it to the local value so the merge can neither
+        // clear the local cycle nor invent a change, surface the cause, and
+        // hold the incremental window (see sawUnreadableRelation) so the value
+        // applies automatically once the Cycles database is shared.
+        if (row.cycleUnreadable) {
+          remote.cycleName = local.cycleName;
+          warnings.push(CYCLE_UNREADABLE_WARNING);
+          sawUnreadableRelation = true;
+        }
+
         // A tombstoned record whose page is out of the trash re-links here:
         // the archive-time snapshot (status ARCHIVED) makes the ticket's
         // ARCHIVED read as unchanged, so the remote status wins the merge.
         const restoring = record.tombstonedAt !== null;
         if (restoring) warnings.unshift("restored from Notion trash");
+
+        // Snapshot-aware echo suppression (smoky.wolf): our own last write is a
+        // pure echo only while every remote field still matches the last-synced
+        // base. A bot last-edit can mask a human change that was still unpulled
+        // when the push wrote (the push flips the page's editor); skipping the
+        // whole row would strand that change forever once the incremental
+        // window advances past it. A dirty or baseless row falls through to the
+        // merge, which reconciles it normally.
+        if (row.lastEditedByBot && !restoring) {
+          const base = (record.snapshot ?? null) as Partial<SyncedFields> | null;
+          const pureEcho =
+            base !== null &&
+            SYNCED_FIELD_KEYS.every((field) =>
+              fieldEquals(base[field], remote[field]),
+            );
+          if (pureEcho) {
+            counts.skipped++;
+            items.push({
+              externalId: row.externalId,
+              ticketId: ticket.id,
+              title: row.title,
+              action: "skipped",
+              reason: "last edit was ours (echo suppression)",
+            });
+            continue;
+          }
+        }
 
         const merged = mergeSyncedFields({
           base: (record.snapshot ?? null) as Partial<SyncedFields> | null,
@@ -819,8 +881,11 @@ export async function runInboundTicketSync(
     });
 
     // Scoped runs saw only a subset — advancing the window would make the
-    // next full run silently skip everything else edited meanwhile.
-    if (!dryRun && !params.scope) {
+    // next full run silently skip everything else edited meanwhile. A run that
+    // hit unreadable cycle relations also holds the window: the affected rows
+    // must stay re-scannable so their cycles apply automatically once the
+    // Cycles database is shared, instead of requiring a manual re-edit.
+    if (!dryRun && !params.scope && !sawUnreadableRelation) {
       await db.ticketSyncConfig.update({
         where: { id: config.id },
         data: { lastPulledAt: startedAt },

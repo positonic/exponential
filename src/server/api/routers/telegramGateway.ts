@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateJWT } from "~/server/utils/jwt";
 
 const TELEGRAM_GATEWAY_URL =
@@ -8,7 +8,7 @@ const TELEGRAM_GATEWAY_URL =
 
 export const telegramGatewayRouter = createTRPCRouter({
   // Check if user has a connected Telegram account
-  getStatus: protectedProcedure.query(async ({ ctx }) => {
+  getStatus: humanOnlyProcedure.query(async ({ ctx }) => {
     const session = await ctx.db.telegramGatewaySession.findUnique({
       where: { userId: ctx.session.user.id },
     });
@@ -90,7 +90,7 @@ export const telegramGatewayRouter = createTRPCRouter({
   }),
 
   // Generate pairing code and return deep link
-  initiatePairing: protectedProcedure
+  initiatePairing: humanOnlyProcedure
     .input(
       z.object({
         agentId: z.string().default("assistant"),
@@ -170,7 +170,7 @@ export const telegramGatewayRouter = createTRPCRouter({
     }),
 
   // Disconnect Telegram account
-  disconnect: protectedProcedure.mutation(async ({ ctx }) => {
+  disconnect: humanOnlyProcedure.mutation(async ({ ctx }) => {
     const authToken = generateJWT(ctx.session.user, {
       tokenType: "telegram-gateway",
     });
@@ -201,7 +201,7 @@ export const telegramGatewayRouter = createTRPCRouter({
   }),
 
   // Update agent selection
-  updateSettings: protectedProcedure
+  updateSettings: humanOnlyProcedure
     .input(
       z.object({
         agentId: z.string(),

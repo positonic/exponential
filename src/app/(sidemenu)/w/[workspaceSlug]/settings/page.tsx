@@ -19,6 +19,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
+  IconRobotFace,
   IconTrash,
   IconPencil,
   IconUserPlus,
@@ -861,8 +862,14 @@ export default function WorkspaceSettingsPage() {
                         {member.user.name?.charAt(0).toUpperCase() ?? 'U'}
                       </Avatar>
                       <div className="min-w-0">
-                        <div className="text-[13px] font-medium text-text-primary truncate">
+                        <div className="flex items-center gap-1.5 text-[13px] font-medium text-text-primary truncate">
                           {member.user.name ?? 'Unknown'}
+                          {member.user.isAgent && (
+                            <span className="inline-flex items-center gap-0.5 rounded border border-border-primary px-1 text-[10px] font-normal text-text-muted">
+                              <IconRobotFace size={10} aria-hidden="true" />
+                              agent
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11.5px] text-text-muted truncate">
                           {member.user.email}

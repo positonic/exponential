@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
-import { encryptString, decryptBuffer } from "~/server/utils/encryption";
+import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
@@ -30,13 +30,13 @@ type DecryptedContact<T extends CrmContact> = Omit<
 function decryptContactPII<T extends CrmContact>(contact: T): DecryptedContact<T> {
   return {
     ...contact,
-    email: decryptBuffer(contact.email) ?? null,
-    phone: decryptBuffer(contact.phone) ?? null,
-    linkedIn: decryptBuffer(contact.linkedIn) ?? null,
-    telegram: decryptBuffer(contact.telegram) ?? null,
-    twitter: decryptBuffer(contact.twitter) ?? null,
-    github: decryptBuffer(contact.github) ?? null,
-    bluesky: decryptBuffer(contact.bluesky) ?? null,
+    email: decryptBufferSafe(contact.email) ?? null,
+    phone: decryptBufferSafe(contact.phone) ?? null,
+    linkedIn: decryptBufferSafe(contact.linkedIn) ?? null,
+    telegram: decryptBufferSafe(contact.telegram) ?? null,
+    twitter: decryptBufferSafe(contact.twitter) ?? null,
+    github: decryptBufferSafe(contact.github) ?? null,
+    bluesky: decryptBufferSafe(contact.bluesky) ?? null,
   };
 }
 

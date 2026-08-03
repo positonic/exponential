@@ -16,6 +16,7 @@ import { type Session } from "next-auth";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import { SECURITY_FIX_TIMESTAMP, CURRENT_SECURITY_VERSION } from "~/server/utils/jwt";
+import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 
 /**
  * 1. CONTEXT
@@ -39,7 +40,54 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      
+
+      // External-agent key (ADR-0049): an opaque `exp_agent_…` credential, never
+      // a JWT. Resolved by hash to the agent's shadow User so the request runs as
+      // that principal. A prefixed token that fails to resolve is unauthenticated
+      // — it can never be a valid JWT, so we don't fall through to jwt.verify.
+      if (isExternalAgentKey(token)) {
+        try {
+          const key = await db.externalAgentKey.findUnique({
+            where: { keyHash: hashExternalAgentKey(token) },
+            include: { agent: { include: { shadowUser: true } } },
+          });
+
+          if (key && (!key.expiresAt || key.expiresAt > new Date())) {
+            // Fire-and-forget: lastUsedAt is observability, not auth.
+            void db.externalAgentKey
+              .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } })
+              .catch((error) => console.error('[external-agent] lastUsedAt update failed:', error));
+
+            const shadowUser = key.agent.shadowUser;
+            const agentSession: Session = {
+              user: {
+                id: shadowUser.id,
+                email: shadowUser.email,
+                name: shadowUser.name,
+                image: shadowUser.image,
+                // Agents are never admins, whatever the row says.
+                isAdmin: false,
+              },
+              expires: (key.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000)).toISOString(),
+            };
+            return {
+              db,
+              session: agentSession,
+              tokenType: 'agent-key' as string | undefined,
+              ...opts,
+            };
+          }
+        } catch (error) {
+          console.error('[external-agent] key resolution failed:', error);
+        }
+        return {
+          db,
+          session: null,
+          tokenType: undefined as string | undefined,
+          ...opts,
+        };
+      }
+
       try {
         // Verify the JWT token
         const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
@@ -81,27 +129,29 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           throw new Error('Invalid token: missing user identifier');
         }
 
-        console.log('🔐 [JWT DEBUG] Token decoded successfully', {
-          userId: userId,
-          userEmail: decoded.email,
-          tokenType: decoded.tokenType,
-          issuedAt: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'not set',
-          expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'not set',
-          securityVersion: decoded.securityVersion
-        });
+        // PII (email, name) must never be logged here — this runs on every
+        // JWT-authenticated request, including production.
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔐 [JWT DEBUG] Token decoded successfully', {
+            userId: userId,
+            tokenType: decoded.tokenType,
+            issuedAt: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'not set',
+            expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'not set',
+            securityVersion: decoded.securityVersion
+          });
+        }
 
         // Find the user
         const user = await db.user.findUnique({
           where: { id: userId }
         });
 
-        console.log('👤 [USER LOOKUP] Database user lookup', {
-          userId: userId,
-          userFound: !!user,
-          userEmail: user?.email || 'not found',
-          userName: user?.name || 'not found',
-          userCreatedAt: 'not available in token'
-        });
+        if (process.env.NODE_ENV === 'development') {
+          console.log('👤 [USER LOOKUP] Database user lookup', {
+            userId: userId,
+            userFound: !!user,
+          });
+        }
 
         if (user) {
           // Create a session-like object from the JWT token
@@ -127,7 +177,11 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           };
         }
       } catch (error) {
-        console.error('JWT verification failed:', error);
+        // Log only the message — never the raw token or decoded payload.
+        console.error(
+          'JWT verification failed:',
+          error instanceof Error ? error.message : 'unknown error',
+        );
       }
     }
   }
@@ -182,33 +236,13 @@ export const createCallerFactory = t.createCallerFactory;
 export const createTRPCRouter = t.router;
 
 /**
- * Middleware for timing procedure execution and adding an artificial delay in development.
- *
- * You can remove this if you don't like it, but it can help catch unwanted waterfalls by simulating
- * network latency that would occur in production but not in local development.
- */
-const timingMiddleware = t.middleware(async ({ next }) => {
-  // if (t._config.isDev) {
-  //   // artificial delay in dev
-  //   const waitMs = Math.floor(Math.random() * 400) + 100;
-  //   await new Promise((resolve) => setTimeout(resolve, waitMs));
-  // }
-
-  const result = await next();
-
-  // console.log(`[TRPC] ${path} took ${end - start}ms to execute`);
-
-  return result;
-});
-
-/**
  * Public (unauthenticated) procedure
  *
  * This is the base piece you use to build new queries and mutations on your tRPC API. It does not
  * guarantee that a user querying is authorized, but you can still access user session data if they
  * are logged in.
  */
-export const publicProcedure = t.procedure.use(timingMiddleware);
+export const publicProcedure = t.procedure;
 
 /**
  * Protected (authenticated) procedure
@@ -219,7 +253,6 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
  * @see https://trpc.io/docs/procedures
  */
 export const protectedProcedure = t.procedure
-  .use(timingMiddleware)
   .use(({ ctx, next }) => {
     if (!ctx.session?.user) {
       throw new TRPCError({ code: "UNAUTHORIZED" });
@@ -231,3 +264,31 @@ export const protectedProcedure = t.procedure
       },
     });
   });
+
+/**
+ * Human-only procedure (ADR-0049)
+ *
+ * The denylist gate for External-agent principals: JWT-minting procedures,
+ * workspace-membership mutations, integration/credential management, and
+ * agent management itself. Keyed on the *principal* (the DB `isAgent` flag),
+ * not on how the caller authenticated — so even a credential laundered into
+ * another token type still cannot reach these procedures. The `tokenType`
+ * check is just a fast path that skips the DB read for the common case.
+ */
+export const humanOnlyProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const FORBIDDEN_FOR_AGENTS = new TRPCError({
+    code: "FORBIDDEN",
+    message: "This operation is not available to external agents",
+  });
+  if (ctx.tokenType === "agent-key") {
+    throw FORBIDDEN_FOR_AGENTS;
+  }
+  const principal = await ctx.db.user.findUnique({
+    where: { id: ctx.session.user.id },
+    select: { isAgent: true },
+  });
+  if (principal?.isAgent) {
+    throw FORBIDDEN_FOR_AGENTS;
+  }
+  return next();
+});

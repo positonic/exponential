@@ -9,8 +9,8 @@ import jwt from "jsonwebtoken";
  *      in `ASWebAuthenticationSession`. The user logs in via any NextAuth
  *      provider (or is already logged in — Safari cookie SSO).
  *   2. `start` mints a short-lived **auth code** (a signed JWT, below) bound to
- *      the userId + PKCE `code_challenge`, and 302s back to
- *      `exponential://auth/callback?code&state`.
+ *      the userId + PKCE `code_challenge`, and 302s back to the allow-listed
+ *      scheme the caller asked for (`ALLOWED_REDIRECT_URIS`).
  *   3. The app POSTs `{code, code_verifier}` to `auth.exchangeAuthCode`, which
  *      verifies the code + PKCE and mints the durable **device-token** pair.
  *
@@ -23,8 +23,30 @@ import jwt from "jsonwebtoken";
  * `jwt.verify(code, AUTH_SECRET)` outright.
  */
 
-/** The only redirect target we will ever emit (matches the app's locked CFBundleURLTypes scheme). */
+/**
+ * The iOS app's and Electron shell's scheme (the locked CFBundleURLTypes value).
+ * Recorded in the ADR-0005 contract in `exponential-ios` — never change it.
+ */
 export const NATIVE_REDIRECT_URI = "exponential://auth/callback";
+
+/**
+ * The Tauri desktop shell's scheme. It needs its own scheme rather than sharing
+ * `exponential://`: macOS resolves a scheme to a single handler app, so with the
+ * Electron app also installed the OS would hand callbacks to whichever it picked
+ * and sign-in would break nondeterministically.
+ */
+export const TAURI_REDIRECT_URI = "exponential-beta://auth/callback";
+
+/**
+ * Every redirect target we will ever emit. Deliberately a closed set of exact
+ * strings: `mintAuthCode` binds the chosen URI into the signed code and the
+ * redeem path re-validates it, so this predicate is the only thing standing
+ * between an attacker-supplied `redirect_uri` and code exfiltration.
+ */
+export const ALLOWED_REDIRECT_URIS: readonly string[] = [
+  NATIVE_REDIRECT_URI,
+  TAURI_REDIRECT_URI,
+];
 
 /** Signed, httpOnly cookie carrying the PKCE request across the NextAuth login bounce. */
 export const NATIVE_AUTH_REQUEST_COOKIE = "native_auth_req";
@@ -88,7 +110,7 @@ export function isValidState(value: string | null | undefined): value is string 
 
 /** Exact-match allow-list — never reflect an arbitrary redirect_uri (open-redirect / code exfiltration). */
 export function isAllowedRedirectUri(value: string | null | undefined): value is string {
-  return value === NATIVE_REDIRECT_URI;
+  return typeof value === "string" && ALLOWED_REDIRECT_URIS.includes(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +122,7 @@ export interface AuthCodeClaims {
   sub: string;
   /** PKCE S256 challenge the redeeming device must prove the verifier for. */
   codeChallenge: string;
-  /** Echoed back so exchange can re-assert the locked redirect target. */
+  /** Which allow-listed scheme this code was issued for; re-asserted on exchange. */
   redirectUri: string;
 }
 

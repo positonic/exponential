@@ -6,7 +6,7 @@ import type {
   Prisma,
   Workflow,
 } from "@prisma/client";
-import { encryptCredential } from "~/server/utils/credentialHelper";
+import { encryptCredential, resolveCredential } from "~/server/utils/credentialHelper";
 import {
   GITHUB_INSTALLATION_PROVIDER,
   GITHUB_INSTALLATION_TYPE,
@@ -70,15 +70,15 @@ class GitHubIntegrationService {
   private async getAccessToken(
     integration: GitHubIntegration,
   ): Promise<string> {
-    const tokenCredential = integration.credentials.find(
-      (cred) => cred.keyType === "access_token",
-    );
+    const accessToken = await resolveCredential(integration.credentials, [
+      "access_token",
+    ]);
 
-    if (!tokenCredential) {
-      throw new Error("GitHub access token not found");
+    if (!accessToken) {
+      throw new Error("GitHub access token not found or undecryptable");
     }
 
-    return tokenCredential.key;
+    return accessToken;
   }
 
   private async makeGitHubRequest(
@@ -337,6 +337,7 @@ class GitHubIntegrationService {
     },
   ) {
     const {
+      accessToken,
       scopes,
       githubUser,
       selectedRepository,
@@ -359,30 +360,45 @@ class GitHubIntegrationService {
       },
     });
 
-    // Store GitHub user info and metadata with only the selected repository
-    await db.integrationCredential.updateMany({
+    // Replace-in-place, scoped by keyType (same pattern as
+    // upsertWorkspaceInstallation): the previous unscoped updateMany turned
+    // EVERY credential row — including access_token — into github_metadata,
+    // silently bricking the integration on reconnect.
+    const encryptedToken = encryptCredential(accessToken);
+    await db.integrationCredential.deleteMany({
       where: {
         integrationId: integrationId,
+        keyType: { in: ["access_token", "github_metadata"] },
       },
-      data: {
-        integrationId: integrationId,
-        key: JSON.stringify({
-          githubUserId: githubUser.id,
-          githubUsername: githubUser.login,
-          avatarUrl: githubUser.avatar_url,
-          scopes,
-          installationId,
-          repository: {
-            id: selectedRepository?.id,
-            name: selectedRepository?.name,
-            fullName: selectedRepository?.full_name,
-            private: selectedRepository?.private,
-            permissions: selectedRepository?.permissions,
-          },
-        }),
-        keyType: "github_metadata",
-        isEncrypted: false,
-      },
+    });
+    await db.integrationCredential.createMany({
+      data: [
+        {
+          integrationId: integrationId,
+          key: encryptedToken.key,
+          keyType: "access_token",
+          isEncrypted: encryptedToken.isEncrypted,
+        },
+        {
+          integrationId: integrationId,
+          key: JSON.stringify({
+            githubUserId: githubUser.id,
+            githubUsername: githubUser.login,
+            avatarUrl: githubUser.avatar_url,
+            scopes,
+            installationId,
+            repository: {
+              id: selectedRepository?.id,
+              name: selectedRepository?.name,
+              fullName: selectedRepository?.full_name,
+              private: selectedRepository?.private,
+              permissions: selectedRepository?.permissions,
+            },
+          }),
+          keyType: "github_metadata",
+          isEncrypted: false,
+        },
+      ],
     });
   }
 

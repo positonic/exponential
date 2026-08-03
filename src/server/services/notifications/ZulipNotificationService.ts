@@ -5,7 +5,7 @@ import {
   type NotificationConfig,
 } from "./NotificationService";
 import { db } from "~/server/db";
-import { getDecryptedKey } from "~/server/utils/credentialHelper";
+import { decryptCredentialResult } from "~/server/utils/credentialHelper";
 
 interface ZulipCredentials {
   serverUrl: string;
@@ -83,11 +83,17 @@ export class ZulipNotificationService extends NotificationService {
       return null;
     }
 
-    const apiToken = getDecryptedKey(apiTokenCred);
-    if (!apiToken) {
+    const tokenResult = decryptCredentialResult(apiTokenCred.key, apiTokenCred.isEncrypted);
+    if (!tokenResult.ok) {
+      // A wrong/rotated DATABASE_ENCRYPTION_KEY must be distinguishable in
+      // logs from "this workspace never configured Zulip".
+      console.error(
+        `[ZulipNotificationService] Zulip API token exists but cannot be decrypted (reason: ${tokenResult.reason}) for integration ${integration.id}`,
+      );
       this.cachedCredentials = null;
       return null;
     }
+    const apiToken = tokenResult.value;
 
     this.cachedCredentials = {
       serverUrl: serverUrlCred.key.replace(/\/+$/, ""),

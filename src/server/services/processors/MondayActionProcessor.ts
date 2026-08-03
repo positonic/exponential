@@ -1,6 +1,7 @@
 import { ActionProcessor, type ParsedActionItem, type ActionProcessorResult, type ActionProcessorConfig } from './ActionProcessor';
 import { MondayService, type CreateItemParams } from '../MondayService';
 import { db } from '~/server/db';
+import { resolveCredential } from '~/server/utils/credentialHelper';
 
 export interface MondayProcessorConfig {
   boardId: string;
@@ -36,18 +37,22 @@ export class MondayActionProcessor extends ActionProcessor {
         where: { id: this.config.integrationId },
         include: {
           credentials: {
-            where: { keyType: 'API_KEY' },
-            take: 1,
+            select: { key: true, keyType: true, isEncrypted: true },
           },
         },
       });
 
-      if (!integration || integration.credentials.length === 0) {
+      if (!integration) {
+        return { valid: false, errors: ['Monday.com integration not found'] };
+      }
+
+      const apiKey = await resolveCredential(integration.credentials, ['API_KEY']);
+      if (!apiKey) {
         return { valid: false, errors: ['Monday.com integration or API key not found'] };
       }
 
       // Initialize Monday service
-      this.mondayService = new MondayService(integration.credentials[0]!.key);
+      this.mondayService = new MondayService(apiKey);
 
       // Test connection
       const connectionTest = await this.mondayService.testConnection();

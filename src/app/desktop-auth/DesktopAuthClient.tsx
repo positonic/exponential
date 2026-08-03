@@ -3,17 +3,16 @@
 import { signIn } from "next-auth/react";
 import { useEffect, useRef, useState } from "react";
 
-import { getElectronAPI } from "~/lib/platform";
+import { getDesktopBridge } from "~/lib/platform";
 
 /**
- * Desktop sign-in bridge (Electron only). After the user completes OAuth in the
- * system browser, the Electron main process loads this page and holds the
- * one-time PKCE auth code + verifier. We fetch that pair **over IPC**, never
- * from the URL — a query string would leak the verifier (the secret that
- * protects the code) into server access logs, browser history, and Referer
- * headers. We then hand it to the `desktop` Credentials provider, which
- * verifies it and establishes the NextAuth session cookie for this in-app web
- * view, and land the user on /home.
+ * Desktop sign-in landing page, shared by both shells. After the user completes
+ * OAuth in the system browser, the shell loads this page and holds the one-time
+ * PKCE auth code + verifier. We fetch that pair **over IPC**, never from the URL
+ * — a query string would leak the verifier (the secret that protects the code)
+ * into server access logs, browser history, and Referer headers. We then hand it
+ * to the `desktop` Credentials provider, which verifies it and establishes the
+ * NextAuth session cookie for this in-app web view, and land the user on /home.
  */
 export function DesktopAuthClient() {
   const started = useRef(false);
@@ -26,9 +25,8 @@ export function DesktopAuthClient() {
     started.current = true;
 
     void (async () => {
-      const api = getElectronAPI();
-      const pending = api ? await api.getPendingAuth() : null;
-      if (!pending?.code || !pending?.verifier) {
+      const pending = (await getDesktopBridge()?.getPendingAuth()) ?? null;
+      if (!pending) {
         setFailed(true);
         return;
       }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -13,7 +13,8 @@ import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { pageRouter } from "./page";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
-import { decryptBuffer, encryptString, encryptToBase64 } from "~/server/utils/encryption";
+import { decryptBufferSafe, encryptString, encryptToBase64 } from "~/server/utils/encryption";
+import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
 import { addDays, startOfDay, endOfDay } from "date-fns";
 import { getCalendarService, getEventsMultiCalendar, checkProviderConnection } from "~/server/services";
 import { userEmailService } from "~/server/services/UserEmailService";
@@ -232,6 +233,51 @@ function parseExpiration(expiresIn: string): number {
 
 
 export const mastraRouter = createTRPCRouter({
+  /**
+   * Mint a short-lived agent JWT for the browser to stream to Mastra with.
+   *
+   * Exists for the local wiki, which is the one chat path that does NOT go
+   * through `/api/chat/stream`: the turn streams from the webview straight to
+   * Mastra so wiki content never passes through this backend. This call is the
+   * single exception — the only moment Vercel is involved in a wiki turn — so
+   * the token is deliberately short-lived and carries nothing but who the user
+   * is.
+   *
+   * The audience is `mastra-agents`, the same claim the Mastra server's JWT
+   * middleware already verifies for every other agent call; this grants no
+   * capability that a normal chat turn doesn't already have.
+   */
+  mintAgentToken: protectedProcedure
+    .output(
+      z.object({
+        token: z.string(),
+        /** Where to stream. The browser cannot read the server's env itself. */
+        mastraUrl: z.string(),
+        expiresInMinutes: z.number(),
+      }),
+    )
+    .mutation(({ ctx }) => {
+      if (!MASTRA_API_URL) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "MASTRA_API_URL is not configured",
+        });
+      }
+      // A wiki turn is not one request: each client-tool round re-POSTs the
+      // whole turn, and the agent is allowed up to twenty steps. If the token
+      // expires partway through, the next round 401s and the user loses the
+      // answer mid-sentence with no recovery path. So this matches the
+      // agent-context default rather than being tightened for its own sake —
+      // the local wiki is not a special case, and the token is a browser-held
+      // bearer either way.
+      const expiresInMinutes = 30;
+      return {
+        token: generateAgentJWT(ctx.session.user, expiresInMinutes),
+        mastraUrl: MASTRA_API_URL,
+        expiresInMinutes,
+      };
+    }),
+
   getMastraAgents: protectedProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {
@@ -451,14 +497,15 @@ export const mastraRouter = createTRPCRouter({
           if (!projectSlackChannelId) {
             const credential = await ctx.db.integrationCredential.findFirst({
               where: { integrationId: projectSlackConfig.integrationId, keyType: "BOT_TOKEN" },
-              select: { key: true },
+              select: { key: true, isEncrypted: true },
             });
-            if (credential?.key) {
+            const botToken = credential ? getDecryptedKey(credential) : null;
+            if (botToken) {
               try {
                 const nameWithoutHash = projectSlackConfig.slackChannel.replace(/^#/, "");
                 const slackRes = await fetch(
                   "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=1000",
-                  { headers: { Authorization: `Bearer ${credential.key}` } }
+                  { headers: { Authorization: `Bearer ${botToken}` } }
                 );
                 const slackData = await slackRes.json() as { ok: boolean; channels?: Array<{ id: string; name: string }> };
                 const match = slackData.ok && slackData.channels?.find((ch) => ch.name === nameWithoutHash);
@@ -627,7 +674,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // API Key Generation for Mastra Agents and Webhooks (32 characters)
-  generateApiToken: protectedProcedure
+  generateApiToken: humanOnlyProcedure
     .input(z.object({
       name: z.string().optional().default('Mastra Agent Key'),
       expiresIn: z.string().optional().default('24h'), // 24h, 7d, 30d, etc.
@@ -704,7 +751,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // List API keys for the current user
-  listApiTokens: protectedProcedure
+  listApiTokens: humanOnlyProcedure
     .output(z.array(z.object({
       tokenId: z.string(),
       name: z.string(),
@@ -763,7 +810,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Revoke API key
-  revokeApiToken: protectedProcedure
+  revokeApiToken: humanOnlyProcedure
     .input(z.object({
       tokenId: z.string(), // This is now the identifier (e.g., "api-key:My Key")
     }))
@@ -1896,12 +1943,13 @@ export const mastraRouter = createTRPCRouter({
         },
       });
 
-      // Create the credential
+      // Create the credential (encrypted at rest)
+      const encryptedApiKey = encryptCredential(input.apiKey);
       await ctx.db.integrationCredential.create({
         data: {
-          key: input.apiKey,
+          key: encryptedApiKey.key,
           keyType: 'API_KEY',
-          isEncrypted: false, // TODO: implement encryption
+          isEncrypted: encryptedApiKey.isEncrypted,
           integrationId: integration.id,
         },
       });
@@ -1967,12 +2015,13 @@ export const mastraRouter = createTRPCRouter({
         where: { integrationId: integration.id },
       });
 
-      // Create new API key credential
+      // Create new API key credential (encrypted at rest)
+      const rotatedApiKey = encryptCredential(input.apiKey);
       await ctx.db.integrationCredential.create({
         data: {
-          key: input.apiKey,
+          key: rotatedApiKey.key,
           keyType: 'API_KEY',
-          isEncrypted: false,
+          isEncrypted: rotatedApiKey.isEncrypted,
           integrationId: integration.id,
         },
       });
@@ -2323,8 +2372,8 @@ export const mastraRouter = createTRPCRouter({
             id: contact.id,
             firstName: contact.firstName,
             lastName: contact.lastName,
-            email: decryptBuffer(contact.email) ?? null,
-            phone: decryptBuffer(contact.phone) ?? null,
+            email: decryptBufferSafe(contact.email) ?? null,
+            phone: decryptBufferSafe(contact.phone) ?? null,
           },
         };
       } catch (e) {
@@ -2602,8 +2651,8 @@ export const mastraRouter = createTRPCRouter({
             id: c.id,
             firstName: c.firstName,
             lastName: c.lastName,
-            email: decryptBuffer(c.email) ?? null,
-            phone: decryptBuffer(c.phone) ?? null,
+            email: decryptBufferSafe(c.email) ?? null,
+            phone: decryptBufferSafe(c.phone) ?? null,
             tags: c.tags,
             organizationName: c.organization?.name ?? null,
             organizationId: c.organizationId,
@@ -2663,12 +2712,12 @@ export const mastraRouter = createTRPCRouter({
           id: contact.id,
           firstName: contact.firstName,
           lastName: contact.lastName,
-          email: decryptBuffer(contact.email) ?? null,
-          phone: decryptBuffer(contact.phone) ?? null,
-          linkedIn: decryptBuffer(contact.linkedIn) ?? null,
-          telegram: decryptBuffer(contact.telegram) ?? null,
-          twitter: decryptBuffer(contact.twitter) ?? null,
-          github: decryptBuffer(contact.github) ?? null,
+          email: decryptBufferSafe(contact.email) ?? null,
+          phone: decryptBufferSafe(contact.phone) ?? null,
+          linkedIn: decryptBufferSafe(contact.linkedIn) ?? null,
+          telegram: decryptBufferSafe(contact.telegram) ?? null,
+          twitter: decryptBufferSafe(contact.twitter) ?? null,
+          github: decryptBufferSafe(contact.github) ?? null,
           about: contact.about,
           skills: contact.skills,
           tags: contact.tags,
@@ -2862,7 +2911,7 @@ export const mastraRouter = createTRPCRouter({
         id: contact.id,
         firstName: contact.firstName,
         lastName: contact.lastName,
-        email: updateData.email !== undefined ? (updateData.email ?? null) : (decryptBuffer(contact.email) ?? null),
+        email: updateData.email !== undefined ? (updateData.email ?? null) : (decryptBufferSafe(contact.email) ?? null),
         updated: true,
       };
     }),

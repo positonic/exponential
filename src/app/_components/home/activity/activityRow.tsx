@@ -11,6 +11,7 @@ import {
   IconMessageCircle,
   IconMessages,
   IconRefresh,
+  IconRobotFace,
   IconStatusChange,
   IconTrophy,
   type Icon as TablerIcon,
@@ -94,13 +95,15 @@ interface SentenceProps {
   template: string;
   actor: string;
   entityRef: string;
+  /** Renders the "agent" chip after the actor name (ADR-0049). */
+  actorIsAgent?: boolean;
 }
 
 /**
  * Render a sentence template into spans, replacing {actor} and {entityRef}
  * tokens with styled inline content.
  */
-function Sentence({ template, actor, entityRef }: SentenceProps) {
+function Sentence({ template, actor, entityRef, actorIsAgent = false }: SentenceProps) {
   const parts: Array<{ kind: 'text' | 'actor' | 'entity'; value: string }> = [];
   const regex = /\{(actor|entityRef)\}/g;
   let cursor = 0;
@@ -126,6 +129,12 @@ function Sentence({ template, actor, entityRef }: SentenceProps) {
           return (
             <span key={i} className="wsa-feed__actor">
               {part.value}
+              {actorIsAgent && (
+                <span className="ml-1 inline-flex items-center gap-0.5 rounded border border-border-primary px-1 align-middle text-[10px] text-text-muted">
+                  <IconRobotFace size={10} aria-hidden="true" />
+                  agent
+                </span>
+              )}
             </span>
           );
         }
@@ -147,7 +156,7 @@ export interface FeedRowEvent {
   createdAt: Date;
   hint: { template: string; iconKind: IconKind };
   entityRef: string;
-  actor: { id: string; name: string | null; image: string | null } | null;
+  actor: { id: string; name: string | null; image: string | null; isAgent?: boolean } | null;
   workspace: { id: string; name: string; slug: string } | null;
   source: string;
   channel: {
@@ -274,6 +283,7 @@ export function ActivityRow({
           template={event.hint.template}
           actor={actorName}
           entityRef={event.entityRef}
+          actorIsAgent={event.actor?.isAgent ?? false}
         />
         {meta}
       </div>

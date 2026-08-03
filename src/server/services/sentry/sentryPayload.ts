@@ -18,6 +18,12 @@ export interface SentryBug {
   url: string | null;
   /** Short, friendly id like "EXPONENTIAL-1AB" (only present on the `issue` resource). */
   shortId: string | null;
+  /**
+   * Sentry project slug the issue belongs to (e.g. "exponential-frontend").
+   * The webhook is org-wide, so this is how we tell this app's errors from
+   * other services' (mastra-agents). Null when the payload omits it.
+   */
+  projectSlug: string | null;
 }
 
 /** Minimal view of the Sentry webhook body — only the fields we read. */
@@ -31,6 +37,7 @@ interface SentryWebhookBody {
       culprit?: string;
       permalink?: string;
       shortId?: string;
+      project?: { slug?: string };
     };
     event?: {
       issue_id?: string | number;
@@ -38,6 +45,7 @@ interface SentryWebhookBody {
       level?: string;
       culprit?: string;
       web_url?: string;
+      project_slug?: string;
     };
   };
 }
@@ -120,6 +128,7 @@ export function normalizeSentryPayload(
       culprit: issue.culprit ?? null,
       url: issue.permalink ?? null,
       shortId: issue.shortId ?? null,
+      projectSlug: issue.project?.slug ?? null,
     };
   }
 
@@ -134,6 +143,7 @@ export function normalizeSentryPayload(
       url: event.web_url ?? null,
       // `event_alert` payloads don't carry a short id.
       shortId: null,
+      projectSlug: event.project_slug ?? null,
     };
   }
 

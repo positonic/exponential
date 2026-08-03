@@ -5,6 +5,7 @@ import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
 import { decryptFromBase64 } from '~/server/utils/encryption';
+import { resolveCredential } from '~/server/utils/credentialHelper';
 import { emitNotification } from '~/server/services/notifications/emit/emitNotification';
 import { NOTIFICATION_CATEGORIES } from '~/server/services/notifications/emit/constants';
 // import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
@@ -308,20 +309,22 @@ async function getFirefliesIntegration(userId: string): Promise<{ apiKey: string
       },
       include: {
         credentials: {
-          where: {
-            keyType: 'API_KEY',
-          },
-          take: 1,
+          select: { key: true, keyType: true, isEncrypted: true },
         },
       },
     });
 
-    if (!integration || integration.credentials.length === 0) {
+    if (!integration) {
+      return null;
+    }
+
+    const apiKey = await resolveCredential(integration.credentials, ['API_KEY']);
+    if (!apiKey) {
       return null;
     }
 
     return {
-      apiKey: integration.credentials[0]!.key,
+      apiKey,
       integrationId: integration.id,
     };
   } catch (error) {

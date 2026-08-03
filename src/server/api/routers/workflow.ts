@@ -1017,14 +1017,18 @@ export const workflowRouter = createTRPCRouter({
       id: z.string(),
     }))
     .query(async ({ ctx, input }) => {
-      const workflow = await ctx.db.workflow.findUnique({
+      const workflow = await ctx.db.workflow.findFirst({
         where: {
           id: input.id,
+          userId: ctx.session.user.id,
         },
         include: {
           integration: {
-            include: {
-              credentials: true,
+            select: {
+              id: true,
+              name: true,
+              provider: true,
+              status: true,
             },
           },
           project: true,

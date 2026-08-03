@@ -45,7 +45,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useMemo } from "react";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import DOMPurify from "dompurify";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { CreateGoalModal } from "../CreateGoalModal";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
 import { GoalProgressControl } from "./GoalProgressControl";
@@ -297,13 +297,12 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                   </Menu>
                 </Group>
                 {goal.description && (
-                  <Text
-                    size="sm"
-                    className="text-text-secondary mt-1"
-                    dangerouslySetInnerHTML={{
-                      __html: DOMPurify.sanitize(goal.description),
-                    }}
-                  />
+                  <div className="text-text-secondary mt-1 text-sm">
+                    <MarkdownRenderer
+                      content={goal.description}
+                      variant="compact"
+                    />
+                  </div>
                 )}
               </div>
             </Group>

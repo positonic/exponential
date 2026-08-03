@@ -39,6 +39,7 @@ const bug: SentryBug = {
   culprit: "app/page.tsx",
   url: "https://sentry.io/issues/42",
   shortId: "EXPONENTIAL-1AB",
+  projectSlug: "exponential-frontend",
 };
 
 beforeEach(() => {
@@ -48,6 +49,7 @@ beforeEach(() => {
   delete process.env.SENTRY_BOT_EMAIL;
   delete process.env.SENTRY_BOT_NAME;
   delete process.env.NEXT_PUBLIC_APP_URL;
+  delete process.env.SENTRY_AI_FIXABLE_PROJECTS;
   dbMock.product.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     {
@@ -114,6 +116,47 @@ describe("ingestSentryBug", () => {
     await ingestSentryBug(dbMock, bug);
     const arg = vi.mocked(createTicketWithNumber).mock.calls[0]![1];
     expect(arg.priority).toBeUndefined();
+  });
+
+  describe("ai-fixable label", () => {
+    it("is not applied when the allowlist is unset (opt-in only)", async () => {
+      await ingestSentryBug(dbMock, bug);
+
+      const slugs = dbMock.tag.upsert.mock.calls.map(
+        (c) => c[0].where.slug_workspaceId?.slug,
+      );
+      expect(slugs).not.toContain("ai-fixable");
+    });
+
+    it("is applied when the issue's Sentry project is allowlisted", async () => {
+      process.env.SENTRY_AI_FIXABLE_PROJECTS = "exponential-frontend";
+
+      await ingestSentryBug(dbMock, bug);
+
+      expect(dbMock.tag.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            slug_workspaceId: { slug: "ai-fixable", workspaceId: "ws-1" },
+          },
+          create: expect.objectContaining({
+            name: "ai-fixable",
+            slug: "ai-fixable",
+            category: "label",
+          }),
+        }),
+      );
+    });
+
+    it("is withheld for a project outside the allowlist (e.g. the backend service)", async () => {
+      process.env.SENTRY_AI_FIXABLE_PROJECTS = "exponential-frontend";
+
+      await ingestSentryBug(dbMock, { ...bug, projectSlug: "mastra-agents" });
+
+      const slugs = dbMock.tag.upsert.mock.calls.map(
+        (c) => c[0].where.slug_workspaceId?.slug,
+      );
+      expect(slugs).not.toContain("ai-fixable");
+    });
   });
 
   it("find-or-creates the 'Sentry' and 'bug' workspace labels and attaches them", async () => {

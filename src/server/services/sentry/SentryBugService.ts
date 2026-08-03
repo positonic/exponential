@@ -3,6 +3,7 @@ import { createTicketWithNumber } from "~/plugins/product/server/services/create
 import { ticketUrlId } from "~/lib/fun-ids";
 import { buildBugBody, type SentryBug } from "./sentryPayload";
 import { notifyZulipOfSentryBug } from "./sentryZulip";
+import { notifyMatrixOfSentryBug } from "./sentryMatrix";
 
 /**
  * Ingests a normalized {@link SentryBug} as a Bug Ticket in Exponential.
@@ -46,6 +47,35 @@ const TICKET_LABELS = [
   { name: "bug", slug: "bug", color: "avatar-red" },
 ] as const;
 
+// Marks the ticket as a candidate for the AI bug fixer. The workflow's real
+// gate is status READY_TO_PLAN (see .github/workflows/ai-bug-fixer.yml) — this
+// label alone does not start a run, so a human still triages the ticket out of
+// BACKLOG before any agent touches it.
+const AI_FIXABLE_LABEL = {
+  name: "ai-fixable",
+  slug: "ai-fixable",
+  color: "avatar-blue",
+} as const;
+
+/**
+ * Whether a Sentry issue's project maps to *this* codebase. The webhook is
+ * org-wide, so mastra-agents errors arrive here too — labelling those
+ * `ai-fixable` would point the fixer (which checks out this repo) at a bug
+ * that doesn't live here.
+ *
+ * `SENTRY_AI_FIXABLE_PROJECTS` is a comma-separated allowlist of Sentry
+ * project slugs. Unset ⇒ no ticket is labelled, so enabling the behaviour is
+ * an explicit, per-environment opt-in.
+ */
+function isAiFixableProject(projectSlug: string | null): boolean {
+  const allowlist = (process.env.SENTRY_AI_FIXABLE_PROJECTS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allowlist.length === 0 || !projectSlug) return false;
+  return allowlist.includes(projectSlug);
+}
+
 /**
  * Find-or-create each workspace label and attach it to the ticket. Idempotent
  * (both upserts) and best-effort — a tagging failure is logged but never breaks
@@ -57,8 +87,9 @@ async function labelTicket(
   ticketId: string,
   workspaceId: string,
   authorId: string,
+  extraLabels: readonly { name: string; slug: string; color: string }[] = [],
 ): Promise<void> {
-  for (const label of TICKET_LABELS) {
+  for (const label of [...TICKET_LABELS, ...extraLabels]) {
     try {
       const tag = await db.tag.upsert({
         where: { slug_workspaceId: { slug: label.slug, workspaceId } },
@@ -148,19 +179,27 @@ export async function ingestSentryBug(
   });
 
   // Tag it with the workspace's "Sentry" and "bug" labels so these are filterable.
-  await labelTicket(db, ticket.id, product.workspaceId, errol.id);
+  await labelTicket(
+    db,
+    ticket.id,
+    product.workspaceId,
+    errol.id,
+    isAiFixableProject(bug.projectSlug) ? [AI_FIXABLE_LABEL] : [],
+  );
 
   // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
   // Only on creation — recurring errors that dedup above do not re-notify.
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
   const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
-  await notifyZulipOfSentryBug(db, {
+  const bugNotification = {
     workspaceId: product.workspaceId,
     authorId: errol.id,
     title: bug.title,
     ticketUrl,
     sentryUrl: bug.url,
-  });
+  };
+  await notifyZulipOfSentryBug(db, bugNotification);
+  await notifyMatrixOfSentryBug(bugNotification);
 
   return { created: true, ticketId: ticket.id };
 }

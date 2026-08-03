@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { detectContentType } from "../contentFormat";
+import { detectContentType, htmlToMarkdown } from "../contentFormat";
 
 // ── detectContentType ────────────────────────────────────────────────
 
@@ -81,5 +81,91 @@ describe("detectContentType", () => {
     it("does not mistake an email's @ for anything", () => {
       expect(detectContentType("ping me at jane@example.com")).toBe("text");
     });
+  });
+});
+
+// ── htmlToMarkdown ───────────────────────────────────────────────────
+
+describe("htmlToMarkdown", () => {
+  it("returns an empty string for empty / whitespace-only input", () => {
+    expect(htmlToMarkdown("")).toBe("");
+    expect(htmlToMarkdown("   \n  ")).toBe("");
+  });
+
+  it("converts headings to ATX style", () => {
+    expect(htmlToMarkdown("<h1>Title</h1>")).toBe("# Title");
+    expect(htmlToMarkdown("<h3>Sub</h3>")).toBe("### Sub");
+  });
+
+  it("converts bold and italic to Markdown emphasis", () => {
+    expect(htmlToMarkdown("<p><strong>bold</strong></p>")).toBe("**bold**");
+    expect(htmlToMarkdown("<p><em>italic</em></p>")).toBe("*italic*");
+  });
+
+  it("converts links inline", () => {
+    expect(htmlToMarkdown('<p>see <a href="https://x.com">docs</a></p>')).toBe(
+      "see [docs](https://x.com)",
+    );
+  });
+
+  it("converts unordered lists with a dash marker", () => {
+    expect(htmlToMarkdown("<ul><li>one</li><li>two</li></ul>")).toBe(
+      "- one\n- two",
+    );
+  });
+
+  it("converts ordered lists", () => {
+    expect(htmlToMarkdown("<ol><li>first</li><li>second</li></ol>")).toBe(
+      "1. first\n2. second",
+    );
+  });
+
+  it("converts nested lists", () => {
+    const html =
+      "<ul><li>parent<ul><li>child</li></ul></li><li>sibling</li></ul>";
+    const md = htmlToMarkdown(html);
+    expect(md).toContain("- parent");
+    expect(md).toMatch(/\n\s+- child/); // indented child bullet
+    expect(md).toContain("- sibling");
+  });
+
+  it("converts inline code and fenced code blocks", () => {
+    expect(htmlToMarkdown("<p>run <code>npm run check</code></p>")).toBe(
+      "run `npm run check`",
+    );
+    const md = htmlToMarkdown("<pre><code>const a = 1;</code></pre>");
+    expect(md).toContain("```");
+    expect(md).toContain("const a = 1;");
+  });
+
+  it("converts a table to a GFM pipe table", () => {
+    const html =
+      "<table><thead><tr><th>a</th><th>b</th></tr></thead>" +
+      "<tbody><tr><td>1</td><td>2</td></tr></tbody></table>";
+    const md = htmlToMarkdown(html);
+    expect(md).toContain("| a | b |");
+    expect(md).toMatch(/\| ?-+ ?\|/); // header separator row
+    expect(md).toContain("| 1 | 2 |");
+  });
+
+  it("degrades unrepresentable inline tags to their text", () => {
+    // <u> (underline) and <mark> (highlight) have no Markdown equivalent.
+    expect(htmlToMarkdown("<p><u>underlined</u></p>")).toBe("underlined");
+    expect(htmlToMarkdown("<p><mark>highlit</mark></p>")).toBe("highlit");
+  });
+
+  it("round-trips a realistic legacy Tiptap goal description", () => {
+    const html =
+      "<h2>Strategic Update</h2><p>After <strong>analysis</strong>:</p>" +
+      "<ul><li>Carrying debt</li><li>Working 7 days/week</li></ul>" +
+      '<p>See <a href="https://x.com">the doc</a>.</p>';
+    const md = htmlToMarkdown(html);
+    expect(md).toContain("## Strategic Update");
+    expect(md).toContain("After **analysis**:");
+    expect(md).toContain("- Carrying debt");
+    expect(md).toContain("- Working 7 days/week");
+    expect(md).toContain("[the doc](https://x.com)");
+    // The output is Markdown, so it must classify as such.
+    expect(detectContentType(md)).toBe("markdown");
   });
 });

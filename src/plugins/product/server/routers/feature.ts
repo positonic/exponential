@@ -374,7 +374,17 @@ export const featureRouter = createTRPCRouter({
       const feature = await ctx.db.feature.findUnique({
         where: { id: input.id },
         include: {
-          product: { select: { id: true, slug: true, workspaceId: true, name: true } },
+          // funTicketIds rides along so the Tickets section can render each
+          // ticket's display ID without a second product fetch.
+          product: {
+            select: {
+              id: true,
+              slug: true,
+              workspaceId: true,
+              name: true,
+              funTicketIds: true,
+            },
+          },
           createdBy: { select: { id: true, name: true, image: true } },
           goal: {
             select: {

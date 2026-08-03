@@ -1,6 +1,7 @@
 import { db } from '~/server/db';
 import type { Workflow, Action, ActionStatus } from '@prisma/client';
 import { resolveNotionConfig } from './notion-config-resolver';
+import { resolveCredential } from '~/server/utils/credentialHelper';
 
 interface NotionTodo {
   id: string;
@@ -315,10 +316,13 @@ export class NotionSyncService {
    * Get pages from a specific Notion database
    */
   private async getDatabasePages(integration: any, databaseId: string) {
-    const accessToken = integration.credentials.find((c: any) => c.keyType === 'access_token')?.key;
-    
+    const accessToken = await resolveCredential(
+      (integration.credentials ?? []) as Array<{ key: string; keyType: string; isEncrypted: boolean }>,
+      ['access_token', 'api_key'],
+    );
+
     if (!accessToken) {
-      throw new Error('Notion access token not found');
+      throw new Error('Notion access token not found or undecryptable');
     }
 
     const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}/query`, {
@@ -350,10 +354,13 @@ export class NotionSyncService {
    * Get database information
    */
   private async getDatabaseInfo(integration: any, databaseId: string) {
-    const accessToken = integration.credentials.find((c: any) => c.keyType === 'access_token')?.key;
-    
+    const accessToken = await resolveCredential(
+      (integration.credentials ?? []) as Array<{ key: string; keyType: string; isEncrypted: boolean }>,
+      ['access_token', 'api_key'],
+    );
+
     if (!accessToken) {
-      throw new Error('Notion access token not found');
+      throw new Error('Notion access token not found or undecryptable');
     }
 
     const response = await fetch(`https://api.notion.com/v1/databases/${databaseId}`, {

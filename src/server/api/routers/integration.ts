@@ -4,17 +4,31 @@ import {
   createTRPCRouter,
   protectedProcedure,
   publicProcedure,
+  humanOnlyProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
 import { WhatsAppVerificationService } from "~/server/services/whatsapp/VerificationService";
-import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
+import { encryptCredential, getDecryptedKey, decryptCredentialResult, resolveCredential } from "~/server/utils/credentialHelper";
 import {
   testZulipConnection,
   fetchZulipUsers,
   fetchZulipStreams,
 } from "~/server/services/notifications/ZulipNotificationService";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
+
+/**
+ * Admin procedure - extends protectedProcedure with isAdmin check
+ */
+const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  if (!ctx.session.user.isAdmin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Admin access required",
+    });
+  }
+  return next();
+});
 
 // Test Fireflies API connection
 export async function testFirefliesConnection(
@@ -459,25 +473,14 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      const tokenCredential = integration.credentials.find(
-        (c) =>
-          c.keyType === "access_token" ||
-          c.keyType === "ACCESS_TOKEN" ||
-          c.keyType === "API_KEY",
-      );
-
-      if (!tokenCredential) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No access token found for this Notion integration",
-        });
-      }
-
-      const accessToken = getDecryptedKey(tokenCredential);
+      const accessToken = await resolveCredential(integration.credentials, [
+        "access_token",
+        "api_key",
+      ]);
       if (!accessToken) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to decrypt Notion access token",
+          code: "NOT_FOUND",
+          message: "No usable access token found for this Notion integration",
         });
       }
 
@@ -522,25 +525,14 @@ export const integrationRouter = createTRPCRouter({
         });
       }
 
-      const tokenCredential = integration.credentials.find(
-        (c) =>
-          c.keyType === "access_token" ||
-          c.keyType === "ACCESS_TOKEN" ||
-          c.keyType === "API_KEY",
-      );
-
-      if (!tokenCredential) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No access token found for this Notion integration",
-        });
-      }
-
-      const accessToken = getDecryptedKey(tokenCredential);
+      const accessToken = await resolveCredential(integration.credentials, [
+        "access_token",
+        "api_key",
+      ]);
       if (!accessToken) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to decrypt Notion access token",
+          code: "NOT_FOUND",
+          message: "No usable access token found for this Notion integration",
         });
       }
 
@@ -614,7 +606,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Create a new integration
-  createIntegration: protectedProcedure
+  createIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -768,7 +760,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Create Slack integration via OAuth
-  createSlackIntegration: protectedProcedure
+  createSlackIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -910,7 +902,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Create WhatsApp integration
-  createWhatsAppIntegration: protectedProcedure
+  createWhatsAppIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -1048,89 +1040,8 @@ export const integrationRouter = createTRPCRouter({
       }
     }),
 
-  // Get WhatsApp config by phone number ID (PUBLIC for webhook)
-  getWhatsAppConfigByPhoneNumberId: publicProcedure
-    .input(
-      z.object({
-        phoneNumberId: z.string(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      const config = await ctx.db.whatsAppConfig.findFirst({
-        where: {
-          phoneNumberId: input.phoneNumberId,
-          integration: {
-            status: "ACTIVE",
-          },
-        },
-        include: {
-          integration: {
-            include: {
-              credentials: true,
-            },
-          },
-        },
-      });
-
-      if (!config) {
-        return null;
-      }
-
-      // For webhook access, we don't check user permissions
-      // The webhook is authenticated via signature verification
-
-      return config;
-    }),
-
-  // Store WhatsApp message (PUBLIC for webhook)
-  storeWhatsAppMessage: publicProcedure
-    .input(
-      z.object({
-        configId: z.string(),
-        messageId: z.string(),
-        phoneNumber: z.string(),
-        direction: z.enum(["INBOUND", "OUTBOUND"]),
-        messageType: z.string(),
-        content: z.any(),
-        status: z.string(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      // For now, we'll just log the message
-      // In a real implementation, you'd store this in a WhatsAppMessageHistory table
-      console.log("Storing WhatsApp message:", input);
-
-      // TODO: Implement actual message storage
-      return { success: true };
-    }),
-
-  // Update WhatsApp message status (PUBLIC for webhook)
-  updateWhatsAppMessageStatus: publicProcedure
-    .input(
-      z.object({
-        messageId: z.string(),
-        status: z.string(),
-        statusDetails: z
-          .object({
-            timestamp: z.string(),
-            recipient: z.string(),
-            errors: z.any().optional(),
-          })
-          .optional(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      // Log the status update
-      console.log("Updating WhatsApp message status:", input);
-
-      // TODO: Implement actual status update in database
-      // In a real implementation, you'd update the message status in a WhatsAppMessageHistory table
-
-      return { success: true };
-    }),
-
   // Map WhatsApp phone number to user
-  mapWhatsAppPhoneToUser: protectedProcedure
+  mapWhatsAppPhoneToUser: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1333,7 +1244,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Remove WhatsApp phone number mapping
-  removeWhatsAppPhoneMapping: protectedProcedure
+  removeWhatsAppPhoneMapping: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1643,7 +1554,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Request WhatsApp verification code
-  requestWhatsAppVerification: protectedProcedure
+  requestWhatsAppVerification: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1726,7 +1637,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Verify WhatsApp phone number
-  verifyWhatsAppPhone: protectedProcedure
+  verifyWhatsAppPhone: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1873,7 +1784,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Delete an integration
-  deleteIntegration: protectedProcedure
+  deleteIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1947,7 +1858,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Test connection for an existing integration
-  testConnection: protectedProcedure
+  testConnection: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1999,15 +1910,21 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const apiKey = getDecryptedKey(apiKeyCredential);
-        if (!apiKey) {
+        const apiKeyResult = decryptCredentialResult(
+          apiKeyCredential.key,
+          apiKeyCredential.isEncrypted,
+        );
+        if (!apiKeyResult.ok) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to decrypt API key",
+            message:
+              apiKeyResult.reason === "auth_failed"
+                ? "Fireflies API key failed to decrypt (wrong or rotated encryption key?)"
+                : "Fireflies API key is stored but unusable (reason: " + apiKeyResult.reason + ")",
           });
         }
 
-        const result = await testFirefliesConnection(apiKey);
+        const result = await testFirefliesConnection(apiKeyResult.value);
         return {
           success: result.success,
           error: result.error,
@@ -2026,15 +1943,21 @@ export const integrationRouter = createTRPCRouter({
           });
         }
 
-        const botToken = getDecryptedKey(botTokenCredential);
-        if (!botToken) {
+        const botTokenResult = decryptCredentialResult(
+          botTokenCredential.key,
+          botTokenCredential.isEncrypted,
+        );
+        if (!botTokenResult.ok) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to decrypt Slack bot token",
+            message:
+              botTokenResult.reason === "auth_failed"
+                ? "Slack bot token failed to decrypt (wrong or rotated encryption key?)"
+                : "Slack bot token is stored but unusable (reason: " + botTokenResult.reason + ")",
           });
         }
 
-        const result = await testSlackConnection(botToken);
+        const result = await testSlackConnection(botTokenResult.value);
         return {
           success: result.success,
           error: result.error,
@@ -2044,21 +1967,16 @@ export const integrationRouter = createTRPCRouter({
       }
 
       if (integration.provider === "notion") {
-        const accessTokenCredential = integration.credentials.find(
-          (c) => c.keyType === "ACCESS_TOKEN" || c.keyType === "API_KEY",
+        // Case-insensitive aliases: the OAuth flow writes lowercase
+        // "access_token" while manual setup writes "ACCESS_TOKEN"/"API_KEY".
+        const notionAccessToken = await resolveCredential(
+          integration.credentials,
+          ["access_token", "api_key"],
         );
-        if (!accessTokenCredential) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "No access token found for this Notion integration",
-          });
-        }
-
-        const notionAccessToken = getDecryptedKey(accessTokenCredential);
         if (!notionAccessToken) {
           throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Failed to decrypt Notion access token",
+            code: "NOT_FOUND",
+            message: "No usable access token found for this Notion integration",
           });
         }
 
@@ -2072,9 +1990,7 @@ export const integrationRouter = createTRPCRouter({
         }
 
         // Also fetch databases for Notion
-        const databasesResult = await fetchNotionDatabases(
-          accessTokenCredential.key,
-        );
+        const databasesResult = await fetchNotionDatabases(notionAccessToken);
         return {
           success: result.success,
           error: result.error,
@@ -2085,17 +2001,17 @@ export const integrationRouter = createTRPCRouter({
       }
 
       if (integration.provider === "monday") {
-        const apiKeyCredential = integration.credentials.find(
-          (c) => c.keyType === "API_KEY",
-        );
-        if (!apiKeyCredential) {
+        const mondayApiKey = await resolveCredential(integration.credentials, [
+          "API_KEY",
+        ]);
+        if (!mondayApiKey) {
           throw new TRPCError({
             code: "NOT_FOUND",
-            message: "No API key found for this Monday.com integration",
+            message: "No usable API key found for this Monday.com integration",
           });
         }
 
-        const result = await testMondayConnection(apiKeyCredential.key);
+        const result = await testMondayConnection(mondayApiKey);
         if (!result.success) {
           return {
             success: result.success,
@@ -2105,7 +2021,7 @@ export const integrationRouter = createTRPCRouter({
         }
 
         // Also fetch boards with columns for Monday.com
-        const mondayService = new MondayService(apiKeyCredential.key);
+        const mondayService = new MondayService(mondayApiKey);
         let boardsWithColumns: Array<any> = [];
         try {
           boardsWithColumns = await mondayService.getBoardsWithColumns();
@@ -2174,14 +2090,15 @@ export const integrationRouter = createTRPCRouter({
       }
 
       // Get access token
-      const accessTokenCredential = integration.credentials.find(
-        (c) => c.keyType === "access_token" || c.keyType === "ACCESS_TOKEN",
+      const notionAccessToken = await resolveCredential(
+        integration.credentials,
+        ["access_token", "api_key"],
       );
 
-      if (!accessTokenCredential) {
+      if (!notionAccessToken) {
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "No access token found for this Notion integration",
+          message: "No usable access token found for this Notion integration",
         });
       }
 
@@ -2192,7 +2109,7 @@ export const integrationRouter = createTRPCRouter({
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${accessTokenCredential.key}`,
+              Authorization: `Bearer ${notionAccessToken}`,
               "Notion-Version": "2022-06-28",
               "Content-Type": "application/json",
             },
@@ -2275,7 +2192,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Refresh Slack integration (fetch latest team info and update database)
-  refreshSlackIntegration: protectedProcedure
+  refreshSlackIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -2320,15 +2237,16 @@ export const integrationRouter = createTRPCRouter({
       const botTokenCredential = integration.credentials.find(
         (c) => c.keyType === "BOT_TOKEN",
       );
-      if (!botTokenCredential) {
+      const botToken = botTokenCredential ? getDecryptedKey(botTokenCredential) : null;
+      if (!botToken) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "No bot token found for this Slack integration",
+          message: "No usable bot token found for this Slack integration",
         });
       }
 
       // Test the connection and get latest team info
-      const testResult = await testSlackConnection(botTokenCredential.key);
+      const testResult = await testSlackConnection(botToken);
       if (!testResult.success) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -2385,63 +2303,8 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  // Get Fireflies API key for a specific user (used by webhook handler)
-  getFirefliesApiKey: protectedProcedure
-    .input(
-      z.object({
-        userId: z.string(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      // Verify the user is requesting their own API key or is authorized
-      if (ctx.session.user.id !== input.userId) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied",
-        });
-      }
-
-      // Get user's team memberships
-      const userTeams = await ctx.db.teamUser.findMany({
-        where: {
-          userId: input.userId,
-        },
-        select: {
-          teamId: true,
-        },
-      });
-
-      const teamIds = userTeams.map((membership) => membership.teamId);
-
-      // Look for personal or team Fireflies integrations
-      const integration = await ctx.db.integration.findFirst({
-        where: {
-          provider: "fireflies",
-          status: "ACTIVE",
-          OR: [
-            { userId: input.userId }, // Personal integration
-            ...(teamIds.length > 0 ? [{ teamId: { in: teamIds } }] : []), // Team integration
-          ],
-        },
-        include: {
-          credentials: {
-            where: {
-              keyType: "API_KEY",
-            },
-            take: 1,
-          },
-        },
-      });
-
-      if (!integration || integration.credentials.length === 0) {
-        return null;
-      }
-
-      return integration.credentials[0]!.key;
-    }),
-
   // Get Slack OAuth URL for integration setup
-  getSlackOAuthUrl: protectedProcedure.query(({ ctx }) => {
+  getSlackOAuthUrl: humanOnlyProcedure.query(({ ctx }) => {
     const clientId = process.env.SLACK_CLIENT_ID;
     const redirectUri =
       process.env.SLACK_REDIRECT_URI ||
@@ -2484,7 +2347,7 @@ export const integrationRouter = createTRPCRouter({
   }),
 
   // Handle Slack OAuth callback
-  handleSlackCallback: protectedProcedure
+  handleSlackCallback: humanOnlyProcedure
     .input(
       z.object({
         code: z.string(),
@@ -2629,7 +2492,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Update integration details
-  updateIntegration: protectedProcedure
+  updateIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -2809,7 +2672,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Complete Slack registration (requires authentication)
-  completeSlackRegistration: protectedProcedure
+  completeSlackRegistration: humanOnlyProcedure
     .input(
       z.object({
         token: z.string(),
@@ -2959,7 +2822,7 @@ export const integrationRouter = createTRPCRouter({
   }),
 
   // Disconnect Slack account
-  disconnectSlack: protectedProcedure
+  disconnectSlack: humanOnlyProcedure
     .input(
       z.object({
         mappingId: z.string(),
@@ -2995,8 +2858,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Admin endpoints for managing all WhatsApp integrations
-  getAllWhatsAppIntegrations: protectedProcedure.query(async ({ ctx }) => {
-    // Only allow admin users (you might want to add proper role checking)
+  getAllWhatsAppIntegrations: adminProcedure.query(async ({ ctx }) => {
     const integrations = await ctx.db.integration.findMany({
       where: {
         provider: "whatsapp",
@@ -3017,7 +2879,7 @@ export const integrationRouter = createTRPCRouter({
     return integrations;
   }),
 
-  getAllWhatsAppUserMappings: protectedProcedure.query(async ({ ctx }) => {
+  getAllWhatsAppUserMappings: adminProcedure.query(async ({ ctx }) => {
     const mappings = await ctx.db.integrationUserMapping.findMany({
       where: {
         integration: {
@@ -3047,7 +2909,7 @@ export const integrationRouter = createTRPCRouter({
     return mappings;
   }),
 
-  getSystemWhatsAppAnalytics: protectedProcedure.query(async ({ ctx }) => {
+  getSystemWhatsAppAnalytics: adminProcedure.query(async ({ ctx }) => {
     // Get system-wide WhatsApp analytics
     const today = new Date();
     const startOfToday = new Date(
@@ -3095,7 +2957,7 @@ export const integrationRouter = createTRPCRouter({
     };
   }),
 
-  adminCreateWhatsAppIntegration: protectedProcedure
+  adminCreateWhatsAppIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string(),
@@ -3132,7 +2994,7 @@ export const integrationRouter = createTRPCRouter({
       return integration;
     }),
 
-  deleteWhatsAppIntegration: protectedProcedure
+  deleteWhatsAppIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3185,7 +3047,7 @@ export const integrationRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  updateWhatsAppIntegrationStatus: protectedProcedure
+  updateWhatsAppIntegrationStatus: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3203,7 +3065,7 @@ export const integrationRouter = createTRPCRouter({
 
   // ==================== EMAIL INTEGRATION ====================
 
-  createEmailIntegration: protectedProcedure
+  createEmailIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -3331,7 +3193,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Remove workspace-specific email integration (reverts to user default)
-  removeWorkspaceEmail: protectedProcedure
+  removeWorkspaceEmail: humanOnlyProcedure
     .input(z.object({
       workspaceId: z.string(),
     }))
@@ -3361,7 +3223,7 @@ export const integrationRouter = createTRPCRouter({
   // EmailService.resolvePostmark() so a workspace's notification / CRM /
   // broadcast email ships from its own sender, falling back to the env default.
 
-  createPostmarkIntegration: protectedProcedure
+  createPostmarkIntegration: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -3456,7 +3318,7 @@ export const integrationRouter = createTRPCRouter({
       return { configured: true as const, fromAddress };
     }),
 
-  removePostmarkIntegration: protectedProcedure
+  removePostmarkIntegration: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const membership = await ctx.db.workspaceUser.findFirst({
@@ -3481,7 +3343,7 @@ export const integrationRouter = createTRPCRouter({
 
   // ==================== ZULIP INTEGRATION ====================
 
-  createZulipIntegration: protectedProcedure
+  createZulipIntegration: humanOnlyProcedure
     .input(
       z.object({
         serverUrl: z.string().url(),
@@ -3627,7 +3489,7 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  removeWorkspaceZulip: protectedProcedure
+  removeWorkspaceZulip: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const membership = await ctx.db.workspaceUser.findFirst({
@@ -3656,8 +3518,15 @@ export const integrationRouter = createTRPCRouter({
         where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
         include: { credentials: true },
       });
-      if (!integration) {
+      if (!integration?.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
       const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
@@ -3683,8 +3552,15 @@ export const integrationRouter = createTRPCRouter({
         where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
         include: { credentials: true },
       });
-      if (!integration) {
+      if (!integration?.workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
       }
 
       const serverUrl = integration.credentials.find((c) => c.keyType === "SERVER_URL")?.key;
@@ -3706,6 +3582,21 @@ export const integrationRouter = createTRPCRouter({
   getZulipUserMappings: protectedProcedure
     .input(z.object({ integrationId: z.string() }))
     .query(async ({ ctx, input }) => {
+      const integration = await ctx.db.integration.findUnique({
+        where: { id: input.integrationId, provider: "zulip", status: "ACTIVE" },
+        select: { workspaceId: true },
+      });
+      if (!integration?.workspaceId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Zulip integration not found" });
+      }
+
+      const membership = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId: integration.workspaceId, userId: ctx.session.user.id },
+      });
+      if (!membership) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
+      }
+
       return ctx.db.integrationUserMapping.findMany({
         where: { integrationId: input.integrationId },
         include: {
@@ -3714,7 +3605,7 @@ export const integrationRouter = createTRPCRouter({
       });
     }),
 
-  mapZulipUser: protectedProcedure
+  mapZulipUser: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3756,7 +3647,7 @@ export const integrationRouter = createTRPCRouter({
       });
     }),
 
-  unmapZulipUser: protectedProcedure
+  unmapZulipUser: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3782,7 +3673,7 @@ export const integrationRouter = createTRPCRouter({
   // `/api/webhooks/sentry` route stays as a fallback. Modeled on Postmark:
   // transactional single-config-per-workspace replace, owner/admin guarded.
 
-  createSentryIntegration: protectedProcedure
+  createSentryIntegration: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -3925,7 +3816,7 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  removeWorkspaceSentry: protectedProcedure
+  removeWorkspaceSentry: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const membership = await ctx.db.workspaceUser.findFirst({

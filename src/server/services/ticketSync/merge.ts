@@ -46,6 +46,14 @@ export const SYNCED_FIELD_KEYS: SyncedFieldKey[] = [
   "assigneeEmail",
 ];
 
+/**
+ * Surfaced on every row whose cycle relation cannot be read (frosty.flame).
+ * Lives here (the dependency-free module) so both engines can import it
+ * without dragging each other's runtime graphs into test files.
+ */
+export const CYCLE_UNREADABLE_WARNING =
+  "cycle page unreadable — share the Cycles database with the Notion connection";
+
 export interface MergeConflict {
   field: SyncedFieldKey;
   winner: "local" | "remote";
@@ -73,7 +81,7 @@ export interface MergeInput {
   remoteEditedAt: Date;
 }
 
-function fieldEquals(
+export function fieldEquals(
   a: SyncedFields[SyncedFieldKey] | undefined,
   b: SyncedFields[SyncedFieldKey] | undefined,
 ): boolean {

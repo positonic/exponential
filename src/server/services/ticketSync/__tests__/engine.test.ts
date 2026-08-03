@@ -834,3 +834,70 @@ describe("runInboundTicketSync — revert-tombstoned links (ADR-0042)", () => {
     expect(item?.reason).toContain("tombstoned by revert");
   });
 });
+
+describe("runInboundTicketSync — unreadable cycle relation (frosty.flame)", () => {
+  it("does not clear the local cycle, surfaces the cause, and holds the window", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        ticketId: "t1",
+        externalId: "page-1",
+        snapshot: snapshotFor({ cycleName: "Sprint 1" }),
+        tombstonedAt: null,
+      },
+    ] as never);
+    db.ticket.findUnique.mockResolvedValue({
+      ...LINKED_TICKET,
+      cycle: { name: "Sprint 1" },
+    } as never);
+
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ cycleName: null, cycleUnreadable: true })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(result.updated).toBe(0);
+    expect(db.ticket.update).not.toHaveBeenCalled();
+    expect(result.items[0]!.reason).toContain("cycle page unreadable");
+    // Window held: the row stays re-scannable so the cycle applies
+    // automatically once the Cycles database is shared.
+    expect(db.ticketSyncConfig.update).not.toHaveBeenCalled();
+  });
+
+  it("advances the window normally when no relation is unreadable", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      {
+        id: "s1",
+        ticketId: "t1",
+        externalId: "page-1",
+        snapshot: snapshotFor(),
+        tombstonedAt: null,
+      },
+    ] as never);
+    db.ticket.findUnique.mockResolvedValue(LINKED_TICKET as never);
+
+    await runInboundTicketSync(db, fakeAdapter([row()]), {
+      configId: "cfg1",
+      trigger: "manual",
+    });
+
+    expect(db.ticketSyncConfig.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastPulledAt: expect.any(Date) }),
+      }),
+    );
+  });
+
+  it("a created row with an unreadable cycle carries the warning and holds the window", async () => {
+    const result = await runInboundTicketSync(
+      db,
+      fakeAdapter([row({ cycleUnreadable: true })]),
+      { configId: "cfg1", trigger: "manual" },
+    );
+
+    expect(result.created).toBe(1);
+    expect(result.items[0]!.reason).toContain("cycle page unreadable");
+    expect(db.ticketSyncConfig.update).not.toHaveBeenCalled();
+  });
+});
