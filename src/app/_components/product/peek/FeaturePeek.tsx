@@ -29,6 +29,7 @@ import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_component
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
 import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection";
+import { FeatureTicketsSection } from "~/app/_components/product/FeatureTicketsSection";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
@@ -467,6 +468,24 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
             requirements={feature.requirements}
             scopes={feature.scopes}
             userStories={feature.userStories}
+          />
+        </CollapsibleSection>
+      </div>
+
+      {/* Tickets - the delivery work implementing this feature. The pill
+          strip above has always advertised a ticket count; this is where it
+          resolves to actual rows. */}
+      <div className="pt-2">
+        <CollapsibleSection
+          title="Tickets"
+          meta={feature._count.tickets > 0 ? String(feature._count.tickets) : undefined}
+        >
+          <FeatureTicketsSection
+            featureId={featureId}
+            productId={feature.product.id}
+            productName={feature.product.name}
+            funTicketIds={feature.product.funTicketIds}
+            ticketsPath={`${basePath}/tickets`}
           />
         </CollapsibleSection>
       </div>
