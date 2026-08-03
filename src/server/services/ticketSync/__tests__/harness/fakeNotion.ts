@@ -37,6 +37,15 @@ export interface FakePage {
   lastEditedAt: Date;
   lastEditedBy: "bot" | "human";
   archived: boolean;
+  /**
+   * Simulates the Cycles database not being shared with the connection: the
+   * page still HAS a cycle (cycleName stays stored as hidden truth), but rows
+   * emitted to the sync report cycleName null + cycleUnreadable, exactly like
+   * the real adapter when the related page 403s. Flip back to false to
+   * simulate access being granted — deliberately WITHOUT bumping
+   * lastEditedAt, since self-healing must not require a re-edit.
+   */
+  cycleUnreadable?: boolean;
   /** Properties written by the sync that the fake has no column for. */
   extra: Record<string, unknown>;
   /** Body blocks passed to createPage, kept for assertions. */
@@ -192,6 +201,7 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
         | "cycleName"
         | "assigneeEmail"
         | "archived"
+        | "cycleUnreadable"
       >
     >,
   ): FakePage {
@@ -317,7 +327,10 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
       rawType: page.rawType,
       rawEffort: page.rawEffort,
       labels: [...page.labels],
-      cycleName: page.cycleName,
+      // Unreadable mode mirrors the real adapter: the relation exists but the
+      // page can't be fetched, so the row reports null + the flag.
+      cycleName: page.cycleUnreadable ? null : page.cycleName,
+      ...(page.cycleUnreadable ? { cycleUnreadable: true } : {}),
       assigneeEmail: page.assigneeEmail,
       lastEditedAt: page.lastEditedAt,
       lastEditedByBot: page.lastEditedBy === "bot",
