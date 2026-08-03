@@ -14,6 +14,8 @@ fn main() {
                 "wiki_init",
                 "wiki_list_pages",
                 "wiki_read_page",
+                "wiki_write_page",
+                "wiki_commit_turn",
             ]),
         ),
     )

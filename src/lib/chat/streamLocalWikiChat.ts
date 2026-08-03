@@ -2,7 +2,7 @@ import { MastraClient } from '@mastra/client-js';
 
 import type { ChatStreamCoreMessage, ChatStreamUpdate } from './streamChatResponse';
 import type { ToolCall } from './streamProtocol';
-import { LOCAL_WIKI_AGENT_ID, type WikiClientTool } from '../localWiki';
+import { LOCAL_WIKI_AGENT_ID, WIKI_WRITE_TOOLS, type WikiClientTool } from '../localWiki';
 
 /**
  * The local wiki's chat transport: webview → Mastra, directly.
@@ -50,6 +50,20 @@ export interface WikiStreamChunk {
 
 export interface StreamLocalWikiOptions {
   onUpdate?: (update: ChatStreamUpdate) => void;
+  /**
+   * Called once at turn end, and only when the turn actually wrote something.
+   *
+   * This is what makes the wiki's history readable: filing a page, linking it
+   * from `index.md` and appending to `log.md` are one change, so they land as
+   * one commit. Committing per write would let you revert the page and leave the
+   * index pointing at a file that no longer exists.
+   */
+  onTurnWrote?: (summary: string) => Promise<void>;
+  /**
+   * Summary for that commit — the user's own message reads better in `git log`
+   * than anything we could synthesise.
+   */
+  turnSummary?: string;
 }
 
 /**
@@ -109,8 +123,12 @@ export async function streamLocalWikiChat(
   clientTools: Record<string, WikiClientTool>,
   options: StreamLocalWikiOptions = {},
 ): Promise<ChatStreamUpdate> {
-  const { onUpdate } = options;
+  const { onUpdate, onTurnWrote, turnSummary } = options;
 
+  // Set the moment a write tool *succeeds*, not when it is called: a write that
+  // failed the path jail changed nothing, and committing for it would produce an
+  // empty commit that implies otherwise.
+  let wroteSomething = false;
   let displayText = '';
   // Insertion-ordered, keyed by tool call id, so a `result` upgrades the chip
   // the `call` created rather than appending a second one.
@@ -160,9 +178,13 @@ export async function streamLocalWikiChat(
           // A result for a call we never saw still deserves a chip; dropping it
           // would hide work that actually touched the user's files.
           const failed = payload.isError === true || payload.error !== undefined;
+          const name = payload.toolName ?? existing?.name ?? 'tool';
+          if (!failed && WIKI_WRITE_TOOLS.has(name)) {
+            wroteSomething = true;
+          }
           toolCallsById.set(id, {
             id,
-            name: payload.toolName ?? existing?.name ?? 'tool',
+            name,
             args: existing?.args,
             status: failed ? 'error' : 'success',
             ...(failed ? { errorMsg: errorMessage(payload) } : {}),
@@ -204,6 +226,12 @@ export async function streamLocalWikiChat(
       }
     },
   });
+
+  // After the stream, so the commit captures every write the turn made — not
+  // just the ones that had landed when some intermediate round finished.
+  if (wroteSomething && onTurnWrote) {
+    await onTurnWrote(turnSummary?.trim() ?? '');
+  }
 
   return snapshot();
 }

@@ -42,6 +42,18 @@ export interface WikiBridge {
   init: () => Promise<WikiInfo>;
   listPages: () => Promise<WikiPage[]>;
   readPage: (path: string) => Promise<string>;
+  writePage: (path: string, content: string) => Promise<void>;
+  /**
+   * Record everything this turn changed as one commit. Called once, at turn end.
+   * Committing nothing is a success — a turn that only answered questions has
+   * nothing to record.
+   */
+  commitTurn: (message: string) => Promise<CommitResult>;
+}
+
+export interface CommitResult {
+  committed: boolean;
+  sha: string | null;
 }
 
 /** Tauri's IPC primitive, as narrowly as we need it. */
@@ -73,6 +85,11 @@ export function getWikiBridge(): WikiBridge | null {
       const content = await invoke("wiki_read_page", { path });
       return typeof content === "string" ? content : "";
     },
+    writePage: async (path: string, content: string) => {
+      await invoke("wiki_write_page", { path, content });
+    },
+    commitTurn: async (message: string) =>
+      (await invoke("wiki_commit_turn", { message })) as CommitResult,
   };
 }
 
@@ -144,5 +161,42 @@ export function buildWikiClientTools(bridge: WikiBridge): Record<string, WikiCli
         return { content: await bridge.readPage(path) };
       },
     },
+    wiki_write_page: {
+      id: "wiki_write_page",
+      description:
+        "Create or replace a page, writing its full markdown content. Use this to file durable " +
+        "knowledge, and remember to update index.md and append to log.md in the same turn, per " +
+        "schema.md. Prefer updating an existing page over creating a near-duplicate.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description:
+              "Page path relative to the wiki root, including the .md extension. Folders are created as needed.",
+          },
+          content: {
+            type: "string",
+            description: "The page's complete markdown. This replaces the file's current contents.",
+          },
+        },
+        required: ["path", "content"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const path = typeof args.path === "string" ? args.path : "";
+        const content = typeof args.content === "string" ? args.content : "";
+        await bridge.writePage(path, content);
+        return { written: path };
+      },
+    },
   };
 }
+
+/**
+ * Tool names that change the wiki.
+ *
+ * The transport watches for these to decide whether a turn needs committing —
+ * the alternative, an empty commit every turn, would bury the real ones.
+ */
+export const WIKI_WRITE_TOOLS: ReadonlySet<string> = new Set(["wiki_write_page"]);

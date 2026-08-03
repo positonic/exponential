@@ -263,6 +263,113 @@ pub fn read_page(root: &Path, rel: &str) -> WikiResult<String> {
     })
 }
 
+/// Write a page, creating parent folders as needed.
+///
+/// Deliberately unconditional: the librarian is allowed to revise a page it (or
+/// the user) wrote before, and `schema.md` tells it to prefer updating an
+/// existing page over starting a near-duplicate. Nothing is lost by overwriting
+/// because every writing turn is committed — `git log` and `git revert` are the
+/// undo, which is most of the reason the wiki is a repo at all.
+#[tauri::command]
+pub fn wiki_write_page(
+    state: tauri::State<WikiRoot>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let root = current_root(&state);
+    write_page(&root, &path, &content).map_err(Into::into)
+}
+
+pub fn write_page(root: &Path, rel: &str, content: &str) -> WikiResult<()> {
+    let target = resolve(root, rel)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| WikiError::Io(e.to_string()))?;
+    }
+    std::fs::write(&target, content).map_err(|e| WikiError::Io(e.to_string()))
+}
+
+/// What a commit did, so the caller can say so.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitResult {
+    /// False when the turn changed nothing — not an error, just nothing to record.
+    pub committed: bool,
+    /// Short hash, when something was committed.
+    pub sha: Option<String>,
+}
+
+/// Record everything this chat turn changed as a **single** commit.
+///
+/// One commit per turn, not per write: a turn that files a page, updates
+/// `index.md` and appends to `log.md` is one coherent change, and splitting it
+/// into three would make the history unreadable and un-revertable — you could
+/// undo the page but keep the index entry pointing at it.
+///
+/// Called once at turn end. Committing nothing is a success: a turn that only
+/// answered questions has nothing to record.
+#[tauri::command]
+pub fn wiki_commit_turn(
+    state: tauri::State<WikiRoot>,
+    message: String,
+) -> Result<CommitResult, String> {
+    let root = current_root(&state);
+    commit_turn(&root, &message).map_err(Into::into)
+}
+
+pub fn commit_turn(root: &Path, message: &str) -> WikiResult<CommitResult> {
+    git(root, &["add", "-A"])?;
+
+    // `diff --cached --quiet` exits non-zero exactly when something is staged.
+    let nothing_staged = git(root, &["diff", "--cached", "--quiet"]).is_ok();
+    if nothing_staged {
+        return Ok(CommitResult {
+            committed: false,
+            sha: None,
+        });
+    }
+
+    let subject = commit_subject(message);
+    // Identity is set per-commit rather than globally: the wiki is the user's
+    // repo and we should not be writing to their git config to use it.
+    git(
+        root,
+        &[
+            "-c",
+            "user.name=Exponential librarian",
+            "-c",
+            "user.email=librarian@exponential.im",
+            "commit",
+            "--quiet",
+            "-m",
+            &subject,
+        ],
+    )?;
+
+    let sha = git(root, &["rev-parse", "--short", "HEAD"])?.trim().to_string();
+    Ok(CommitResult {
+        committed: true,
+        sha: Some(sha),
+    })
+}
+
+/// Turn a turn summary into a one-line commit subject.
+///
+/// `git log --oneline` is how the user reads this history, so a subject that
+/// wraps or carries a stray newline makes the whole log worse.
+fn commit_subject(message: &str) -> String {
+    let first_line = message.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let cleaned = if first_line.is_empty() {
+        "Wiki update"
+    } else {
+        first_line
+    };
+    let mut subject: String = cleaned.chars().take(72).collect();
+    if cleaned.chars().count() > 72 {
+        subject.push('…');
+    }
+    subject
+}
+
 /// Run git in the wiki. Shelling out rather than linking libgit2 keeps the
 /// history in exactly the format the user's own `git log` and editor expect —
 /// the wiki being an ordinary git repo is a feature, not an implementation
@@ -451,6 +558,120 @@ mod tests {
         let mut sorted = paths.clone();
         sorted.sort();
         assert_eq!(paths, sorted);
+    }
+
+    /// `git log --oneline`, as the user would read it.
+    fn log_subjects(root: &Path) -> Vec<String> {
+        git(root, &["log", "--pretty=%s"])
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn writes_a_page_and_creates_its_folder() {
+        let wiki = TempWiki::new("write");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada\n\nWrote the first program.").expect("write");
+        assert!(read_page(&wiki.root, "people/ada.md").unwrap().contains("first program"));
+    }
+
+    #[test]
+    fn writing_obeys_the_same_jail_as_reading() {
+        let wiki = TempWiki::new("write-jail");
+        init_at(&wiki.root).expect("init");
+        assert_eq!(
+            write_page(&wiki.root, "../escaped.md", "nope"),
+            Err(WikiError::OutsideWiki),
+        );
+        assert_eq!(
+            write_page(&wiki.root, "/tmp/escaped.md", "nope"),
+            Err(WikiError::OutsideWiki),
+        );
+    }
+
+    #[test]
+    fn a_turn_that_touches_three_files_is_one_commit() {
+        // The point of commit-per-turn: filing a page, linking it from the index
+        // and logging it are one change. Three commits would let you revert the
+        // page and leave the index pointing at a file that no longer exists.
+        let wiki = TempWiki::new("one-commit");
+        init_at(&wiki.root).expect("init");
+        commit_turn(&wiki.root, "Wiki created").expect("seed commit");
+        let before = log_subjects(&wiki.root).len();
+
+        write_page(&wiki.root, "decisions/why-postgres.md", "# Why Postgres").unwrap();
+        write_page(&wiki.root, "index.md", "# Index\n\n- [[decisions/why-postgres]]").unwrap();
+        write_page(&wiki.root, "log.md", "# Log\n\n- Filed why-postgres.").unwrap();
+
+        let result = commit_turn(&wiki.root, "Why did we pick Postgres?").expect("commit");
+        assert!(result.committed);
+        assert!(result.sha.is_some());
+
+        let subjects = log_subjects(&wiki.root);
+        assert_eq!(subjects.len(), before + 1, "one turn, one commit");
+        assert_eq!(subjects.first().map(String::as_str), Some("Why did we pick Postgres?"));
+    }
+
+    #[test]
+    fn a_turn_that_wrote_nothing_commits_nothing() {
+        // Answering a question is not a change. An empty commit per turn would
+        // bury the real ones.
+        let wiki = TempWiki::new("no-op-commit");
+        init_at(&wiki.root).expect("init");
+        commit_turn(&wiki.root, "Wiki created").expect("seed commit");
+        let before = log_subjects(&wiki.root);
+
+        let result = commit_turn(&wiki.root, "What's in my wiki?").expect("no-op commit");
+        assert!(!result.committed);
+        assert!(result.sha.is_none());
+        assert_eq!(log_subjects(&wiki.root), before);
+    }
+
+    #[test]
+    fn a_deleted_page_is_committed_too() {
+        // `git add -A` rather than `add .`, so a page the librarian removed
+        // doesn't linger in history's working tree.
+        let wiki = TempWiki::new("delete-commit");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "temp.md", "scratch").unwrap();
+        commit_turn(&wiki.root, "Add temp").expect("commit");
+
+        std::fs::remove_file(wiki.root.join("temp.md")).unwrap();
+        let result = commit_turn(&wiki.root, "Remove temp").expect("commit");
+        assert!(result.committed, "a deletion is a change");
+    }
+
+    #[test]
+    fn commit_subjects_stay_one_readable_line() {
+        // `git log --oneline` is how this history gets read.
+        assert_eq!(commit_subject("Ask about Ada"), "Ask about Ada");
+        assert_eq!(commit_subject("first line\nsecond line"), "first line");
+        assert_eq!(commit_subject("   \n\n  real content  "), "real content");
+        assert_eq!(commit_subject(""), "Wiki update");
+        assert_eq!(commit_subject("   "), "Wiki update");
+
+        let long = "x".repeat(200);
+        let subject = commit_subject(&long);
+        assert_eq!(subject.chars().count(), 73, "72 chars plus the ellipsis");
+        assert!(subject.ends_with('…'));
+        assert!(!subject.contains('\n'));
+    }
+
+    #[test]
+    fn committing_does_not_touch_the_users_git_config() {
+        // The wiki is the user's repo. Setting a global identity to make our
+        // commits work would be a side effect well outside our remit.
+        let wiki = TempWiki::new("identity");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "page.md", "content").unwrap();
+        commit_turn(&wiki.root, "Add a page").expect("commit");
+
+        let author = git(&wiki.root, &["log", "-1", "--pretty=%an"]).unwrap();
+        assert_eq!(author.trim(), "Exponential librarian");
+        // No repo-level identity was written either.
+        assert!(git(&wiki.root, &["config", "--local", "user.name"]).is_err());
     }
 
     #[test]

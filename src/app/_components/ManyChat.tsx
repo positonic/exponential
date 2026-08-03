@@ -1307,7 +1307,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               createLocalWikiStreamer(mastraUrl, token),
               coreMessages,
               buildWikiClientTools(wikiBridge),
-              { onUpdate: renderUpdate },
+              {
+                onUpdate: renderUpdate,
+                // The user's own question reads better in `git log` than
+                // anything we could synthesise from the diff.
+                turnSummary: messageToSend,
+                onTurnWrote: async (summary) => {
+                  await wikiBridge.commitTurn(summary);
+                },
+              },
             );
           })()
         : await streamChatResponse(streamPayload, { onUpdate: renderUpdate });

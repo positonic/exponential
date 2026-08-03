@@ -20,6 +20,8 @@
     "allow-desktop-get-pending-auth",
     "allow-wiki-init",
     "allow-wiki-list-pages",
-    "allow-wiki-read-page"
+    "allow-wiki-read-page",
+    "allow-wiki-write-page",
+    "allow-wiki-commit-turn"
   ]
 }
