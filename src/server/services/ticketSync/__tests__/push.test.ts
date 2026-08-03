@@ -598,3 +598,48 @@ describe("runOutboundTicketPush — outbound archive", () => {
     expect(db.ticketSync.update).not.toHaveBeenCalled();
   });
 });
+
+describe("runOutboundTicketPush — unreadable cycle relation (frosty.flame)", () => {
+  it("neutralizes the unknown remote cycle: no write, no local clear, cause surfaced", async () => {
+    // Local ticket carries a cycle; the remote row reports the relation as
+    // unreadable (cycleName null + cycleUnreadable). Without neutralization
+    // the merge would read this as "remote cleared the cycle" and stage a
+    // phantom applyToLocal that clears it locally.
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({
+        snapshot: snapshotFor({ cycleName: "Sprint 1" }),
+        ticket: { cycle: { name: "Sprint 1" } },
+      }) as never,
+    );
+    const adapter = fakeAdapter(
+      remoteRow({ cycleName: null, cycleUnreadable: true }),
+    );
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("skipped");
+    expect(item.reason).toContain("cycle page unreadable");
+    expect(adapter.updates).toHaveLength(0);
+    // Nothing was written in either direction, so the snapshot stays put.
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+
+  it("still pushes unrelated scalar changes while the cycle is unreadable", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({
+        snapshot: snapshotFor({ cycleName: "Sprint 1", title: "Old" }),
+        ticket: { cycle: { name: "Sprint 1" }, title: "New title" },
+      }) as never,
+    );
+    const adapter = fakeAdapter(
+      remoteRow({ title: "Old", cycleName: null, cycleUnreadable: true }),
+    );
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("pushed");
+    expect(item.wrote).toEqual(["title"]);
+    expect(item.reason).toContain("cycle page unreadable");
+    expect(adapter.updates).toHaveLength(1);
+  });
+});

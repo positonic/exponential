@@ -14,6 +14,7 @@ import {
   resolveCycleIdByName,
 } from "./resolvers";
 import {
+  CYCLE_UNREADABLE_WARNING,
   fieldEquals,
   mergeSyncedFields,
   SYNCED_FIELD_KEYS,
@@ -45,6 +46,12 @@ export interface RemoteTicketRow {
   labels: string[];
   /** Resolved title of the first page in the cycle relation, if any. */
   cycleName: string | null;
+  /**
+   * True when the cycle relation points at a page the connection cannot read
+   * (typically: the Cycles database is not shared with the integration). The
+   * remote cycle is then UNKNOWN — not empty — and must never be applied.
+   */
+  cycleUnreadable?: boolean;
   /** Email of the first person in the assignee property, if visible. */
   assigneeEmail: string | null;
   lastEditedAt: Date;
@@ -113,6 +120,7 @@ const SCALAR_FIELDS: SyncedFieldKey[] = [
   "type",
   "points",
 ];
+
 
 type StatusMap = Record<string, TicketStatus>;
 
@@ -276,6 +284,11 @@ export async function runInboundTicketSync(
   const items: SyncRunItem[] = [];
   const counts = { created: 0, updated: 0, skipped: 0, conflicts: 0, archived: 0, failed: 0 };
   const statusMap = (config.statusMap ?? null) as StatusMap | null;
+  // Set when any row's cycle relation could not be read. While true, the
+  // incremental window is NOT advanced, so the affected rows are re-scanned on
+  // every run and the pending cycle applies automatically once access is
+  // granted — no manual re-edit needed (frosty.flame).
+  let sawUnreadableRelation = false;
 
   try {
     // ------------------------------------------------------------------
@@ -462,6 +475,13 @@ export async function runInboundTicketSync(
             labels: row.labels,
           });
 
+          // Unknown remote cycle: create the ticket without one, but say so —
+          // and hold the window (flag) so the cycle lands once readable.
+          if (row.cycleUnreadable) {
+            warnings.push(CYCLE_UNREADABLE_WARNING);
+            sawUnreadableRelation = true;
+          }
+
           if (dryRun) {
             warnings.push(
               ...(await relationalPreviewWarnings(
@@ -625,6 +645,17 @@ export async function runInboundTicketSync(
         const { fields: remote, warnings } = rowToSyncedFields(row, statusMap, {
           labels: local.labels,
         });
+
+        // An unreadable cycle relation means the remote cycle is UNKNOWN, not
+        // empty. Neutralize it to the local value so the merge can neither
+        // clear the local cycle nor invent a change, surface the cause, and
+        // hold the incremental window (see sawUnreadableRelation) so the value
+        // applies automatically once the Cycles database is shared.
+        if (row.cycleUnreadable) {
+          remote.cycleName = local.cycleName;
+          warnings.push(CYCLE_UNREADABLE_WARNING);
+          sawUnreadableRelation = true;
+        }
 
         // A tombstoned record whose page is out of the trash re-links here:
         // the archive-time snapshot (status ARCHIVED) makes the ticket's
@@ -850,8 +881,11 @@ export async function runInboundTicketSync(
     });
 
     // Scoped runs saw only a subset — advancing the window would make the
-    // next full run silently skip everything else edited meanwhile.
-    if (!dryRun && !params.scope) {
+    // next full run silently skip everything else edited meanwhile. A run that
+    // hit unreadable cycle relations also holds the window: the affected rows
+    // must stay re-scannable so their cycles apply automatically once the
+    // Cycles database is shared, instead of requiring a manual re-edit.
+    if (!dryRun && !params.scope && !sawUnreadableRelation) {
       await db.ticketSyncConfig.update({
         where: { id: config.id },
         data: { lastPulledAt: startedAt },

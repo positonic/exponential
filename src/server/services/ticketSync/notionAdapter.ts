@@ -134,7 +134,9 @@ export class NotionTicketSyncAdapter
       .map((page) => this.projectRow(page));
 
     // Resolve cycle relation ids → page titles, one concurrent lookup per
-    // unique cycle (resolvePageTitle already swallows per-page failures).
+    // unique cycle. An unreadable page (connection lacks access to the Cycles
+    // database) is flagged, NOT collapsed into "no cycle" — the engine treats
+    // the remote cycle as unknown and surfaces a warning (frosty.flame).
     const uniqueCycleIds = [
       ...new Set(
         rows
@@ -145,26 +147,34 @@ export class NotionTicketSyncAdapter
     const titleCache = new Map(
       await Promise.all(
         uniqueCycleIds.map(
-          async (id) => [id, await this.resolvePageTitle(id)] as const,
+          async (id) => [id, await this.resolveCycleTitle(id)] as const,
         ),
       ),
     );
     for (const row of rows) {
       if (!row.cycleRelationId) continue;
-      row.cycleName = titleCache.get(row.cycleRelationId) ?? null;
+      const resolved = titleCache.get(row.cycleRelationId);
+      row.cycleName = resolved?.title ?? null;
+      if (resolved?.unreadable) row.cycleUnreadable = true;
     }
 
     return rows;
   }
 
-  private async resolvePageTitle(pageId: string): Promise<string | null> {
+  private async resolveCycleTitle(
+    pageId: string,
+  ): Promise<{ title: string | null; unreadable: boolean }> {
     try {
       const page = (await this.notion.getPage(pageId)) as RawNotionPage;
-      return NotionService.extractTitleFromProperties(page.properties ?? {});
+      return {
+        title: NotionService.extractTitleFromProperties(page.properties ?? {}),
+        unreadable: false,
+      };
     } catch {
-      return null;
+      return { title: null, unreadable: true };
     }
   }
+
 
   private projectRow(
     page: RawNotionPage,
@@ -221,7 +231,9 @@ export class NotionTicketSyncAdapter
     }
     const row = this.projectRow(page);
     if (row.cycleRelationId) {
-      row.cycleName = await this.resolvePageTitle(row.cycleRelationId);
+      const resolved = await this.resolveCycleTitle(row.cycleRelationId);
+      row.cycleName = resolved.title;
+      if (resolved.unreadable) row.cycleUnreadable = true;
     }
     const { cycleRelationId: _cycleRelationId, ...rest } = row;
     return rest;
