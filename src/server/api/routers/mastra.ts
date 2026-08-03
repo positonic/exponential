@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -674,7 +674,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // API Key Generation for Mastra Agents and Webhooks (32 characters)
-  generateApiToken: protectedProcedure
+  generateApiToken: humanOnlyProcedure
     .input(z.object({
       name: z.string().optional().default('Mastra Agent Key'),
       expiresIn: z.string().optional().default('24h'), // 24h, 7d, 30d, etc.
@@ -751,7 +751,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // List API keys for the current user
-  listApiTokens: protectedProcedure
+  listApiTokens: humanOnlyProcedure
     .output(z.array(z.object({
       tokenId: z.string(),
       name: z.string(),
@@ -810,7 +810,7 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Revoke API key
-  revokeApiToken: protectedProcedure
+  revokeApiToken: humanOnlyProcedure
     .input(z.object({
       tokenId: z.string(), // This is now the identifier (e.g., "api-key:My Key")
     }))

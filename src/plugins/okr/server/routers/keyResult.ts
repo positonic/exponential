@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
@@ -12,6 +13,48 @@ import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
 } from "../objectiveActivity";
+
+// "Done" for the delivery signal = the Delivery metrics page's completion
+// definition (ADR-0047, SprintAnalyticsService): DONE or DEPLOYED —
+// deliberately narrower than lib/ticket-statuses' COMPLETED_TICKET_STATUSES,
+// which also counts ARCHIVED.
+const DELIVERY_DONE_STATUSES: ReadonlySet<string> = new Set([
+  "DONE",
+  "DEPLOYED",
+]);
+
+/**
+ * Done/total ticket counts for the given features — the V2 delivery signal on
+ * a key result's "Executing work" list (ADR-0050). Computed read-side on
+ * request, never stored; strictly display context — nothing here ever writes
+ * KeyResult.currentValue. Ticketless features are absent from the map so the
+ * UI renders no chip (never "0/0").
+ */
+async function getTicketProgressByFeature(
+  db: PrismaClient,
+  featureIds: string[],
+): Promise<Map<string, { done: number; total: number }>> {
+  const progress = new Map<string, { done: number; total: number }>();
+  // The same feature may execute several key results in one response
+  // (getByObjective) — dedupe before querying.
+  const uniqueIds = [...new Set(featureIds)];
+  if (uniqueIds.length === 0) return progress;
+
+  const grouped = await db.ticket.groupBy({
+    by: ["featureId", "status"],
+    where: { featureId: { in: uniqueIds } },
+    _count: { _all: true },
+  });
+
+  for (const row of grouped) {
+    if (row.featureId == null) continue;
+    const entry = progress.get(row.featureId) ?? { done: 0, total: 0 };
+    entry.total += row._count._all;
+    if (DELIVERY_DONE_STATUSES.has(row.status)) entry.done += row._count._all;
+    progress.set(row.featureId, entry);
+  }
+  return progress;
+}
 
 // Input validation schemas
 const createKeyResultInput = z.object({
@@ -282,12 +325,44 @@ export const keyResultRouter = createTRPCRouter({
                   },
                 },
               },
+              // Linked Features — the second typed execution edge (ADR-0050).
+              features: {
+                include: {
+                  feature: {
+                    select: {
+                      id: true,
+                      name: true,
+                      status: true,
+                      product: {
+                        select: {
+                          id: true,
+                          name: true,
+                          slug: true,
+                          icon: true,
+                          color: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
             orderBy: { createdAt: "asc" },
           },
         },
         orderBy: { title: "asc" },
       });
+
+      // V2 delivery signal (ADR-0050): one groupBy across every linked
+      // feature in the response, attached as done/total per feature below.
+      const progressByFeature = await getTicketProgressByFeature(
+        ctx.db,
+        goals.flatMap((goal) =>
+          goal.keyResults.flatMap((kr) =>
+            kr.features.map((link) => link.feature.id),
+          ),
+        ),
+      );
 
       // Calculate progress for each objective. A manual progressOverride wins
       // over the KR-derived mean (see goalProgress.ts); falls back to 0 when a
@@ -307,6 +382,17 @@ export const keyResultRouter = createTRPCRouter({
 
         return {
           ...goal,
+          keyResults: keyResults.map((kr) => ({
+            ...kr,
+            features: kr.features.map((link) => ({
+              ...link,
+              feature: {
+                ...link.feature,
+                ticketProgress:
+                  progressByFeature.get(link.feature.id) ?? null,
+              },
+            })),
+          })),
           progress: resolved,
           statusCounts,
         };
@@ -347,6 +433,28 @@ export const keyResultRouter = createTRPCRouter({
               },
             },
           },
+          // Linked Features — the second typed execution edge (ADR-0050).
+          // Lean select only: these payloads transit agent tool calls.
+          features: {
+            include: {
+              feature: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                  product: {
+                    select: {
+                      id: true,
+                      name: true,
+                      slug: true,
+                      icon: true,
+                      color: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
           driUser: {
             select: { id: true, name: true, email: true, image: true },
           },
@@ -360,7 +468,24 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return keyResult;
+      // V2 delivery signal (ADR-0050): attach done/total ticket counts to
+      // each linked feature. Null for ticketless features — the drawer
+      // renders no chip rather than "0/0".
+      const progressByFeature = await getTicketProgressByFeature(
+        ctx.db,
+        keyResult.features.map((link) => link.feature.id),
+      );
+
+      return {
+        ...keyResult,
+        features: keyResult.features.map((link) => ({
+          ...link,
+          feature: {
+            ...link.feature,
+            ticketProgress: progressByFeature.get(link.feature.id) ?? null,
+          },
+        })),
+      };
     }),
 
   // Batch lookup of KR metadata by ids — used by Phase 3 of weekly review
@@ -716,6 +841,326 @@ export const keyResultRouter = createTRPCRouter({
         where: {
           keyResultId: input.keyResultId,
           projectId: input.projectId,
+        },
+      });
+
+      return { success: true };
+    }),
+
+  // ── Feature execution links (ADR-0050) ────────────────────────────────
+  // Features are the second typed execution edge of a key result, mirroring
+  // the project procedures above. KR-side authz matches linkProject (owner OR
+  // workspace membership via the centralized resolver — NOT the owner-only
+  // check updateLinkedProjects uses). Feature-side guard matches
+  // feature.update: the feature must live in the same workspace as the KR and
+  // the caller must be a member of that workspace.
+
+  // Update linked features (batch operation for modal save). Transactional
+  // delete-all-then-recreate mirroring updateLinkedProjects' shape, but with
+  // linkFeature's workspace-member authz (deliberately NOT the owner-only
+  // check updateLinkedProjects retains).
+  updateLinkedFeatures: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        featureIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true, goalId: true },
+      });
+
+      const membership =
+        keyResult?.workspaceId != null
+          ? await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId)
+          : null;
+
+      if (!keyResult || (keyResult.userId !== userId && !membership)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const featureIds = [...new Set(input.featureIds)];
+
+      if (featureIds.length > 0) {
+        const features = await ctx.db.feature.findMany({
+          where: { id: { in: featureIds } },
+          select: {
+            id: true,
+            goalId: true,
+            product: { select: { workspaceId: true } },
+          },
+        });
+
+        if (features.length !== featureIds.length) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "One or more features not found",
+          });
+        }
+
+        if (
+          !keyResult.workspaceId ||
+          features.some(
+            (f) => f.product.workspaceId !== keyResult.workspaceId
+          )
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Feature belongs to a different workspace than this key result",
+          });
+        }
+
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+
+        // Fill-on-null applies to every link the replace creates (ADR-0050):
+        // features with no Objective alignment inherit the KR's Objective;
+        // aligned ones are never overwritten.
+        const unalignedIds = features
+          .filter((f) => f.goalId == null)
+          .map((f) => f.id);
+
+        await ctx.db.$transaction(async (tx) => {
+          await tx.keyResultFeature.deleteMany({
+            where: { keyResultId: input.keyResultId },
+          });
+          await tx.keyResultFeature.createMany({
+            data: featureIds.map((featureId) => ({
+              keyResultId: input.keyResultId,
+              featureId,
+            })),
+          });
+          if (unalignedIds.length > 0) {
+            await tx.feature.updateMany({
+              where: { id: { in: unalignedIds } },
+              data: { goalId: keyResult.goalId },
+            });
+          }
+        });
+      } else {
+        // Clearing the set removes link rows only — no feature-side guard
+        // needed, and no goalId is ever cleared on unlink.
+        await ctx.db.keyResultFeature.deleteMany({
+          where: { keyResultId: input.keyResultId },
+        });
+      }
+
+      // Return the key result with both execution edges, lean select only.
+      return ctx.db.keyResult.findUnique({
+        where: { id: input.keyResultId },
+        include: {
+          projects: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                },
+              },
+            },
+          },
+          features: {
+            include: {
+              feature: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                  product: {
+                    select: {
+                      id: true,
+                      name: true,
+                      slug: true,
+                      icon: true,
+                      color: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+    }),
+
+  // Link a single feature to a key result
+  linkFeature: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        featureId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true, goalId: true },
+      });
+
+      // Resolve workspace membership once — it serves both the KR-side authz
+      // (owner OR member, mirroring linkProject) and the feature-side guard.
+      const membership =
+        keyResult?.workspaceId != null
+          ? await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId)
+          : null;
+
+      if (!keyResult || (keyResult.userId !== userId && !membership)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const feature = await ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        select: {
+          id: true,
+          goalId: true,
+          product: { select: { workspaceId: true } },
+        },
+      });
+
+      if (!feature) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+
+      // Cross-workspace links are rejected: the feature's product must belong
+      // to the key result's workspace.
+      if (
+        !keyResult.workspaceId ||
+        feature.product.workspaceId !== keyResult.workspaceId
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Feature belongs to a different workspace than this key result",
+        });
+      }
+
+      // Parity with feature.update's assertWorkspaceMember guard: the caller
+      // must be a member of the feature's workspace (a KR owner who isn't a
+      // member of the workspace may not link its features).
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this workspace",
+        });
+      }
+
+      // Create the link and apply the Objective-alignment glue in one
+      // transaction (ADR-0050): a feature with no alignment inherits the KR's
+      // Objective; a feature already aligned — same or different Objective —
+      // is never overwritten.
+      await ctx.db.$transaction(async (tx) => {
+        // Idempotent: the unique (keyResultId, featureId) pair is created once.
+        await tx.keyResultFeature.upsert({
+          where: {
+            keyResultId_featureId: {
+              keyResultId: input.keyResultId,
+              featureId: input.featureId,
+            },
+          },
+          create: {
+            keyResultId: input.keyResultId,
+            featureId: input.featureId,
+          },
+          update: {}, // No-op if already exists
+        });
+
+        if (feature.goalId == null) {
+          await tx.feature.update({
+            where: { id: feature.id },
+            data: { goalId: keyResult.goalId },
+          });
+        }
+      });
+
+      return { success: true };
+    }),
+
+  // Unlink a single feature from a key result. Deletes only the link row —
+  // never the feature or the key result on the other side.
+  unlinkFeature: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        featureId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+
+      const membership =
+        keyResult?.workspaceId != null
+          ? await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId)
+          : null;
+
+      if (!keyResult || (keyResult.userId !== userId && !membership)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const feature = await ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        select: {
+          id: true,
+          product: { select: { workspaceId: true } },
+        },
+      });
+
+      if (!feature) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+
+      if (
+        !keyResult.workspaceId ||
+        feature.product.workspaceId !== keyResult.workspaceId
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Feature belongs to a different workspace than this key result",
+        });
+      }
+
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this workspace",
+        });
+      }
+
+      // Delete only the link row. The feature's goalId is deliberately left
+      // untouched — unlink never clears Objective alignment (ADR-0050).
+      await ctx.db.keyResultFeature.deleteMany({
+        where: {
+          keyResultId: input.keyResultId,
+          featureId: input.featureId,
         },
       });
 

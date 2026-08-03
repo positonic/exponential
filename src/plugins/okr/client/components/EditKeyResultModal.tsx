@@ -108,6 +108,7 @@ export function EditKeyResultModal({
   const [status, setStatus] = useState<StatusType>("on-track");
   const [confidence, setConfidence] = useState<number | null>(null);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [selectedFeatureIds, setSelectedFeatureIds] = useState<string[]>([]);
   const [driUserId, setDriUserId] = useState<string | null>(null);
   const [objectiveId, setObjectiveId] = useState<string | null>(null);
 
@@ -120,6 +121,14 @@ export function EditKeyResultModal({
     { workspaceId: workspace?.id ?? createWorkspaceId },
     { enabled: opened && !!(workspace?.id ?? createWorkspaceId) }
   );
+
+  // Fetch the workspace's Products' Features for the second execution edge
+  // (ADR-0050). Reuses the Product Roadmap's lean query — no new procedure.
+  const { data: availableFeatures = [] } =
+    api.product.feature.listForWorkspace.useQuery(
+      { workspaceId: workspace?.id ?? createWorkspaceId ?? "" },
+      { enabled: opened && !!(workspace?.id ?? createWorkspaceId) }
+    );
 
   // Fetch objectives (goals) the user owns in this workspace, for reassignment
   const { data: availableObjectives = [] } = api.okr.getAvailableGoals.useQuery(
@@ -148,6 +157,7 @@ export function EditKeyResultModal({
     setStatus("on-track");
     setConfidence(null);
     setSelectedProjectIds(initialProjectIds ?? []);
+    setSelectedFeatureIds([]);
     setDriUserId(defaultDriUserId ?? currentUser?.id ?? null);
   };
 
@@ -184,6 +194,12 @@ export function EditKeyResultModal({
         (freshKeyResult as { projects?: Array<{ project: { id: string } }> })
           ?.projects?.map((p) => p.project.id) ?? [];
       setSelectedProjectIds(linkedProjectIds);
+
+      // Populate selected features from freshKeyResult if available
+      const linkedFeatureIds =
+        (freshKeyResult as { features?: Array<{ feature: { id: string } }> })
+          ?.features?.map((f) => f.feature.id) ?? [];
+      setSelectedFeatureIds(linkedFeatureIds);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKeyResult, currentUser?.id, freshKeyResult, isCreate, opened]);
@@ -248,6 +264,14 @@ export function EditKeyResultModal({
     },
   });
 
+  // Update linked features mutation (ADR-0050)
+  const updateLinkedFeatures = api.okr.updateLinkedFeatures.useMutation({
+    onSuccess: async () => {
+      await utils.okr.getByObjective.invalidate();
+      await utils.okr.getById.invalidate();
+    },
+  });
+
   // Delete mutation
   const deleteKeyResult = api.okr.delete.useMutation({
     onSuccess: async () => {
@@ -286,6 +310,13 @@ export function EditKeyResultModal({
           });
         }
 
+        if (selectedFeatureIds.length > 0) {
+          await updateLinkedFeatures.mutateAsync({
+            keyResultId: created.id,
+            featureIds: selectedFeatureIds,
+          });
+        }
+
         onSuccess?.();
         onClose();
         return;
@@ -315,6 +346,12 @@ export function EditKeyResultModal({
       updateLinkedProjects.mutate({
         keyResultId: currentKeyResult.id,
         projectIds: selectedProjectIds,
+      });
+
+      // Save linked features
+      updateLinkedFeatures.mutate({
+        keyResultId: currentKeyResult.id,
+        featureIds: selectedFeatureIds,
       });
 
       onSuccess?.();
@@ -540,7 +577,7 @@ export function EditKeyResultModal({
             </>
           )}
 
-          <Divider label="Linked Projects" labelPosition="center" />
+          <Divider label="Executing Work" labelPosition="center" />
 
           {/* Project Selection */}
           <MultiSelect
@@ -553,6 +590,22 @@ export function EditKeyResultModal({
             }))}
             value={selectedProjectIds}
             onChange={setSelectedProjectIds}
+            searchable
+            clearable
+            styles={selectStyles}
+          />
+
+          {/* Feature Selection (ADR-0050) */}
+          <MultiSelect
+            label="Linked features"
+            description="Select features that execute this key result"
+            placeholder="Choose features..."
+            data={availableFeatures.map((f) => ({
+              value: f.id,
+              label: `${f.name} (${f.product.name})`,
+            }))}
+            value={selectedFeatureIds}
+            onChange={setSelectedFeatureIds}
             searchable
             clearable
             styles={selectStyles}
@@ -582,7 +635,8 @@ export function EditKeyResultModal({
                 loading={
                   updateKeyResult.isPending ||
                   createKeyResult.isPending ||
-                  updateLinkedProjects.isPending
+                  updateLinkedProjects.isPending ||
+                  updateLinkedFeatures.isPending
                 }
                 disabled={!title}
               >

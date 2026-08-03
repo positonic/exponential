@@ -41,6 +41,8 @@ export interface ActivityFeedEvent {
     id: string;
     name: string | null;
     image: string | null;
+    /** True when the actor is an External agent's shadow user (ADR-0049). */
+    isAgent: boolean;
   } | null;
   /**
    * Originating workspace. Only populated by the aggregated cross-workspace
@@ -133,7 +135,7 @@ interface FeedRow {
   entityId: string;
   action: string;
   metadata: Prisma.JsonValue | null;
-  user: { id: string; name: string | null; image: string | null } | null;
+  user: { id: string; name: string | null; image: string | null; isAgent: boolean } | null;
   workspace?: { id: string; name: string; slug: string } | null;
 }
 
@@ -261,7 +263,7 @@ export async function getActivityFeed(
       action: true,
       metadata: true,
       user: {
-        select: { id: true, name: true, image: true },
+        select: { id: true, name: true, image: true, isAgent: true },
       },
     },
   });
@@ -345,7 +347,7 @@ export async function getAggregatedActivityFeed(
       action: true,
       metadata: true,
       user: {
-        select: { id: true, name: true, image: true },
+        select: { id: true, name: true, image: true, isAgent: true },
       },
       workspace: {
         select: { id: true, name: true, slug: true },

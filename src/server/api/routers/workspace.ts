@@ -1,6 +1,10 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure, publicProcedure, humanOnlyProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import {
+  cascadeOwnerRemovedFromWorkspace,
+  cascadeOwnerRoleChanged,
+} from "~/server/services/externalAgentAccess";
 import {
   getWorkspaceMembership,
   buildWorkspaceAccessWhere,
@@ -258,6 +262,7 @@ export const workspaceRouter = createTRPCRouter({
                   name: true,
                   email: true,
                   image: true,
+                  isAgent: true,
                 },
               },
             },
@@ -556,7 +561,7 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Add a member to the workspace (or create invitation if user doesn't exist)
-  addMember: protectedProcedure
+  addMember: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -749,7 +754,7 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Remove a member from the workspace
-  removeMember: protectedProcedure
+  removeMember: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -804,11 +809,15 @@ export const workspaceRouter = createTRPCRouter({
         },
       });
 
+      // Delegation invariant (ADR-0049): the removed member's external agents
+      // lose their memberships here too — agent access never outlives its owner's.
+      await cascadeOwnerRemovedFromWorkspace(ctx.db, input.userId, input.workspaceId);
+
       return { success: true };
     }),
 
   // Update member role
-  updateMemberRole: protectedProcedure
+  updateMemberRole: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -846,6 +855,10 @@ export const workspaceRouter = createTRPCRouter({
           role: input.role,
         },
       });
+
+      // Delegation invariant (ADR-0049): demotion to viewer means this member
+      // can no longer delegate member-level access — their agents lose membership.
+      await cascadeOwnerRoleChanged(ctx.db, input.userId, input.workspaceId, input.role);
 
       return updatedMember;
     }),
@@ -1051,7 +1064,7 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Cancel a pending invitation
-  cancelInvitation: protectedProcedure
+  cancelInvitation: humanOnlyProcedure
     .input(z.object({ invitationId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const invitation = await ctx.db.workspaceInvitation.findUnique({
@@ -1089,7 +1102,7 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Resend an invitation (regenerate token and extend expiry)
-  resendInvitation: protectedProcedure
+  resendInvitation: humanOnlyProcedure
     .input(z.object({ invitationId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const invitation = await ctx.db.workspaceInvitation.findUnique({
@@ -1157,7 +1170,7 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Accept an invitation (called by the invitee)
-  acceptInvitation: protectedProcedure
+  acceptInvitation: humanOnlyProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const invitation = await ctx.db.workspaceInvitation.findUnique({
@@ -1325,7 +1338,7 @@ export const workspaceRouter = createTRPCRouter({
   // ============================================
 
   // Link a team to this workspace
-  linkTeam: protectedProcedure
+  linkTeam: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -1389,7 +1402,7 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Unlink a team from this workspace
-  unlinkTeam: protectedProcedure
+  unlinkTeam: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
