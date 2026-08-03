@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { generateJWT } from "~/server/utils/jwt";
 
@@ -16,14 +16,14 @@ interface WhatsAppGroup {
 
 export const whatsappGatewayRouter = createTRPCRouter({
   // Check if gateway is configured
-  isConfigured: protectedProcedure.query(() => {
+  isConfigured: humanOnlyProcedure.query(() => {
     return {
       configured: !!WHATSAPP_GATEWAY_URL,
     };
   }),
 
   // Initiate login session
-  initiateLogin: protectedProcedure.mutation(async ({ ctx }) => {
+  initiateLogin: humanOnlyProcedure.mutation(async ({ ctx }) => {
     if (!WHATSAPP_GATEWAY_URL) {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
@@ -84,7 +84,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
   }),
 
   // Get QR code for session
-  getQrCode: protectedProcedure
+  getQrCode: humanOnlyProcedure
     .input(
       z.object({
         sessionId: z.string(),
@@ -149,7 +149,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
     }),
 
   // Check session status
-  getSessionStatus: protectedProcedure
+  getSessionStatus: humanOnlyProcedure
     .input(
       z.object({
         sessionId: z.string(),
@@ -232,7 +232,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
   // `GET /sessions/{sessionId}/groups`. Degrades gracefully: returns an empty
   // list (never throws) when the gateway is unconfigured, no session is
   // connected, or the gateway call fails — the card renders a connect hint.
-  getGroups: protectedProcedure.query(async ({ ctx }) => {
+  getGroups: humanOnlyProcedure.query(async ({ ctx }) => {
     const empty = {
       configured: false,
       connected: false,
@@ -295,7 +295,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
   }),
 
   // List user's sessions
-  listSessions: protectedProcedure.query(async ({ ctx }) => {
+  listSessions: humanOnlyProcedure.query(async ({ ctx }) => {
     const sessions = await ctx.db.whatsAppGatewaySession.findMany({
       where: {
         userId: ctx.session.user.id,
@@ -316,7 +316,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
   }),
 
   // Disconnect a session
-  disconnectSession: protectedProcedure
+  disconnectSession: humanOnlyProcedure
     .input(
       z.object({
         sessionId: z.string(),
@@ -372,7 +372,7 @@ export const whatsappGatewayRouter = createTRPCRouter({
     }),
 
   // Delete session record (cleanup) - also removes from gateway
-  deleteSession: protectedProcedure
+  deleteSession: humanOnlyProcedure
     .input(
       z.object({
         id: z.string(),

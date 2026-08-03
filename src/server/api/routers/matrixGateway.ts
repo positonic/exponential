@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateJWT } from "~/server/utils/jwt";
 
 const MATRIX_GATEWAY_URL =
@@ -16,7 +16,7 @@ const MXID_PATTERN = /^@[^:\s]+:\S+$/;
  */
 export const matrixGatewayRouter = createTRPCRouter({
   // Check if user has a connected Matrix account
-  getStatus: protectedProcedure.query(async ({ ctx }) => {
+  getStatus: humanOnlyProcedure.query(async ({ ctx }) => {
     try {
       const authToken = generateJWT(ctx.session.user, {
         tokenType: "matrix-gateway",
@@ -52,7 +52,7 @@ export const matrixGatewayRouter = createTRPCRouter({
   }),
 
   // Begin pairing: the gateway creates the unencrypted DM and returns the code
-  initiatePairing: protectedProcedure
+  initiatePairing: humanOnlyProcedure
     .input(
       z.object({
         mxid: z
@@ -124,7 +124,7 @@ export const matrixGatewayRouter = createTRPCRouter({
     }),
 
   // Disconnect Matrix account
-  disconnect: protectedProcedure.mutation(async ({ ctx }) => {
+  disconnect: humanOnlyProcedure.mutation(async ({ ctx }) => {
     const authToken = generateJWT(ctx.session.user, {
       tokenType: "matrix-gateway",
     });

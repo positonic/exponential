@@ -16,6 +16,7 @@ import { type Session } from "next-auth";
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
 import { SECURITY_FIX_TIMESTAMP, CURRENT_SECURITY_VERSION } from "~/server/utils/jwt";
+import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 
 /**
  * 1. CONTEXT
@@ -39,7 +40,54 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      
+
+      // External-agent key (ADR-0049): an opaque `exp_agent_…` credential, never
+      // a JWT. Resolved by hash to the agent's shadow User so the request runs as
+      // that principal. A prefixed token that fails to resolve is unauthenticated
+      // — it can never be a valid JWT, so we don't fall through to jwt.verify.
+      if (isExternalAgentKey(token)) {
+        try {
+          const key = await db.externalAgentKey.findUnique({
+            where: { keyHash: hashExternalAgentKey(token) },
+            include: { agent: { include: { shadowUser: true } } },
+          });
+
+          if (key && (!key.expiresAt || key.expiresAt > new Date())) {
+            // Fire-and-forget: lastUsedAt is observability, not auth.
+            void db.externalAgentKey
+              .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } })
+              .catch((error) => console.error('[external-agent] lastUsedAt update failed:', error));
+
+            const shadowUser = key.agent.shadowUser;
+            const agentSession: Session = {
+              user: {
+                id: shadowUser.id,
+                email: shadowUser.email,
+                name: shadowUser.name,
+                image: shadowUser.image,
+                // Agents are never admins, whatever the row says.
+                isAdmin: false,
+              },
+              expires: (key.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000)).toISOString(),
+            };
+            return {
+              db,
+              session: agentSession,
+              tokenType: 'agent-key' as string | undefined,
+              ...opts,
+            };
+          }
+        } catch (error) {
+          console.error('[external-agent] key resolution failed:', error);
+        }
+        return {
+          db,
+          session: null,
+          tokenType: undefined as string | undefined,
+          ...opts,
+        };
+      }
+
       try {
         // Verify the JWT token
         const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
@@ -231,3 +279,31 @@ export const protectedProcedure = t.procedure
       },
     });
   });
+
+/**
+ * Human-only procedure (ADR-0049)
+ *
+ * The denylist gate for External-agent principals: JWT-minting procedures,
+ * workspace-membership mutations, integration/credential management, and
+ * agent management itself. Keyed on the *principal* (the DB `isAgent` flag),
+ * not on how the caller authenticated — so even a credential laundered into
+ * another token type still cannot reach these procedures. The `tokenType`
+ * check is just a fast path that skips the DB read for the common case.
+ */
+export const humanOnlyProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const FORBIDDEN_FOR_AGENTS = new TRPCError({
+    code: "FORBIDDEN",
+    message: "This operation is not available to external agents",
+  });
+  if (ctx.tokenType === "agent-key") {
+    throw FORBIDDEN_FOR_AGENTS;
+  }
+  const principal = await ctx.db.user.findUnique({
+    where: { id: ctx.session.user.id },
+    select: { isAgent: true },
+  });
+  if (principal?.isAgent) {
+    throw FORBIDDEN_FOR_AGENTS;
+  }
+  return next();
+});

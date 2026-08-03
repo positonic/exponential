@@ -287,6 +287,11 @@ model User {
   preMeetingBriefs            PreMeetingBrief[]
   reminderLogs                ReminderLog[]
   pendingDriveUploads         PendingDriveUpload[]
+  /// True for an External agent's shadow principal (ADR-0049). Never signs in;
+  /// gates the human-only procedure denylist.
+  isAgent                     Boolean                         @default(false)
+  ownedExternalAgents         ExternalAgent[]                 @relation("ExternalAgentOwner")
+  externalAgentShadow         ExternalAgent?                  @relation("ExternalAgentShadowUser")
 }
 
 model VerificationToken {
@@ -298,6 +303,49 @@ model VerificationToken {
 
   @@unique([identifier, token])
   @@index([userId])
+}
+
+// ============================================
+// External Agents (ADR-0049)
+// ============================================
+
+/// Third-party autonomous agent software as a first-class principal (ADR-0049).
+/// User-owned; acts through its shadow User row (User.isAgent), whose WorkspaceUser
+/// memberships are capped by the owner's under the delegation invariant.
+model ExternalAgent {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  ownerId      String
+  /// The agent's own principal — a User row with isAgent=true that never signs in.
+  shadowUserId String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  owner      User               @relation("ExternalAgentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  shadowUser User               @relation("ExternalAgentShadowUser", fields: [shadowUserId], references: [id], onDelete: Cascade)
+  keys       ExternalAgentKey[]
+
+  @@index([ownerId])
+}
+
+/// Opaque credential for an ExternalAgent: SHA-256 hash of an `exp_agent_…` secret,
+/// shown once at creation. Revocation = row delete, effective next request.
+model ExternalAgentKey {
+  id         String    @id @default(cuid())
+  agentId    String
+  /// Owner-facing label ("laptop", "vps").
+  name       String
+  keyHash    String    @unique
+  /// Non-secret display fragment ("exp_agent_ab12…") for the settings list.
+  keyPrefix  String
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  agent ExternalAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
 }
 
 // ============================================

@@ -4,6 +4,7 @@ import {
   createTRPCRouter,
   protectedProcedure,
   publicProcedure,
+  humanOnlyProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { MondayService } from "~/server/services/MondayService";
@@ -605,7 +606,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Create a new integration
-  createIntegration: protectedProcedure
+  createIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -759,7 +760,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Create Slack integration via OAuth
-  createSlackIntegration: protectedProcedure
+  createSlackIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -901,7 +902,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Create WhatsApp integration
-  createWhatsAppIntegration: protectedProcedure
+  createWhatsAppIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -1040,7 +1041,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Map WhatsApp phone number to user
-  mapWhatsAppPhoneToUser: protectedProcedure
+  mapWhatsAppPhoneToUser: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1243,7 +1244,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Remove WhatsApp phone number mapping
-  removeWhatsAppPhoneMapping: protectedProcedure
+  removeWhatsAppPhoneMapping: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1553,7 +1554,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Request WhatsApp verification code
-  requestWhatsAppVerification: protectedProcedure
+  requestWhatsAppVerification: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1636,7 +1637,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Verify WhatsApp phone number
-  verifyWhatsAppPhone: protectedProcedure
+  verifyWhatsAppPhone: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1783,7 +1784,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Delete an integration
-  deleteIntegration: protectedProcedure
+  deleteIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -1857,7 +1858,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Test connection for an existing integration
-  testConnection: protectedProcedure
+  testConnection: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -2191,7 +2192,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Refresh Slack integration (fetch latest team info and update database)
-  refreshSlackIntegration: protectedProcedure
+  refreshSlackIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -2303,7 +2304,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Get Slack OAuth URL for integration setup
-  getSlackOAuthUrl: protectedProcedure.query(({ ctx }) => {
+  getSlackOAuthUrl: humanOnlyProcedure.query(({ ctx }) => {
     const clientId = process.env.SLACK_CLIENT_ID;
     const redirectUri =
       process.env.SLACK_REDIRECT_URI ||
@@ -2346,7 +2347,7 @@ export const integrationRouter = createTRPCRouter({
   }),
 
   // Handle Slack OAuth callback
-  handleSlackCallback: protectedProcedure
+  handleSlackCallback: humanOnlyProcedure
     .input(
       z.object({
         code: z.string(),
@@ -2491,7 +2492,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Update integration details
-  updateIntegration: protectedProcedure
+  updateIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -2671,7 +2672,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Complete Slack registration (requires authentication)
-  completeSlackRegistration: protectedProcedure
+  completeSlackRegistration: humanOnlyProcedure
     .input(
       z.object({
         token: z.string(),
@@ -2821,7 +2822,7 @@ export const integrationRouter = createTRPCRouter({
   }),
 
   // Disconnect Slack account
-  disconnectSlack: protectedProcedure
+  disconnectSlack: humanOnlyProcedure
     .input(
       z.object({
         mappingId: z.string(),
@@ -2956,7 +2957,7 @@ export const integrationRouter = createTRPCRouter({
     };
   }),
 
-  adminCreateWhatsAppIntegration: protectedProcedure
+  adminCreateWhatsAppIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string(),
@@ -2993,7 +2994,7 @@ export const integrationRouter = createTRPCRouter({
       return integration;
     }),
 
-  deleteWhatsAppIntegration: protectedProcedure
+  deleteWhatsAppIntegration: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3046,7 +3047,7 @@ export const integrationRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  updateWhatsAppIntegrationStatus: protectedProcedure
+  updateWhatsAppIntegrationStatus: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3064,7 +3065,7 @@ export const integrationRouter = createTRPCRouter({
 
   // ==================== EMAIL INTEGRATION ====================
 
-  createEmailIntegration: protectedProcedure
+  createEmailIntegration: humanOnlyProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -3192,7 +3193,7 @@ export const integrationRouter = createTRPCRouter({
     }),
 
   // Remove workspace-specific email integration (reverts to user default)
-  removeWorkspaceEmail: protectedProcedure
+  removeWorkspaceEmail: humanOnlyProcedure
     .input(z.object({
       workspaceId: z.string(),
     }))
@@ -3222,7 +3223,7 @@ export const integrationRouter = createTRPCRouter({
   // EmailService.resolvePostmark() so a workspace's notification / CRM /
   // broadcast email ships from its own sender, falling back to the env default.
 
-  createPostmarkIntegration: protectedProcedure
+  createPostmarkIntegration: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -3317,7 +3318,7 @@ export const integrationRouter = createTRPCRouter({
       return { configured: true as const, fromAddress };
     }),
 
-  removePostmarkIntegration: protectedProcedure
+  removePostmarkIntegration: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const membership = await ctx.db.workspaceUser.findFirst({
@@ -3342,7 +3343,7 @@ export const integrationRouter = createTRPCRouter({
 
   // ==================== ZULIP INTEGRATION ====================
 
-  createZulipIntegration: protectedProcedure
+  createZulipIntegration: humanOnlyProcedure
     .input(
       z.object({
         serverUrl: z.string().url(),
@@ -3488,7 +3489,7 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  removeWorkspaceZulip: protectedProcedure
+  removeWorkspaceZulip: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const membership = await ctx.db.workspaceUser.findFirst({
@@ -3604,7 +3605,7 @@ export const integrationRouter = createTRPCRouter({
       });
     }),
 
-  mapZulipUser: protectedProcedure
+  mapZulipUser: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3646,7 +3647,7 @@ export const integrationRouter = createTRPCRouter({
       });
     }),
 
-  unmapZulipUser: protectedProcedure
+  unmapZulipUser: humanOnlyProcedure
     .input(
       z.object({
         integrationId: z.string(),
@@ -3672,7 +3673,7 @@ export const integrationRouter = createTRPCRouter({
   // `/api/webhooks/sentry` route stays as a fallback. Modeled on Postmark:
   // transactional single-config-per-workspace replace, owner/admin guarded.
 
-  createSentryIntegration: protectedProcedure
+  createSentryIntegration: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -3815,7 +3816,7 @@ export const integrationRouter = createTRPCRouter({
       };
     }),
 
-  removeWorkspaceSentry: protectedProcedure
+  removeWorkspaceSentry: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const membership = await ctx.db.workspaceUser.findFirst({

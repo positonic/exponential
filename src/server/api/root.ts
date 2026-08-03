@@ -40,6 +40,7 @@ import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
+import { externalAgentRouter } from "./routers/externalAgent";
 import { resourceRouter } from "./routers/resource";
 import { knowledgeChunkRouter } from "./routers/knowledgeChunk";
 import { transcriptionSessionParticipantRouter } from "./routers/transcriptionSessionParticipant";
@@ -121,6 +122,7 @@ export const appRouter = createTRPCRouter({
   whatsappGateway: whatsappGatewayRouter,
   telegramGateway: telegramGatewayRouter,
   matrixGateway: matrixGatewayRouter,
+  externalAgent: externalAgentRouter,
   notification: notificationRouter,
   pushSubscription: pushSubscriptionRouter,
   weeklyPlanning: weeklyPlanningRouter,

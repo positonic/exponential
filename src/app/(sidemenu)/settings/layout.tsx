@@ -10,6 +10,7 @@ import {
   IconBrain,
   IconSparkles,
   IconRobot,
+  IconRobotFace,
   IconBell,
   IconSettings,
 } from '@tabler/icons-react';
@@ -41,6 +42,7 @@ const GROUPS: SidebarGroup<string>[] = [
     items: [
       { id: '/settings/integrations', label: 'Integrations', icon: IconPlug, href: '/settings/integrations' },
       { id: '/settings/api-keys', label: 'API keys', icon: IconKey, href: '/settings/api-keys' },
+      { id: '/settings/agents', label: 'Agents', icon: IconRobotFace, href: '/settings/agents' },
     ],
   },
   {

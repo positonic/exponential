@@ -441,6 +441,9 @@ export const actionRouter = createTRPCRouter({
         ...input,
         createdById: ctx.session.user.id,
         ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
+        // External-agent principals stamp their surface (ADR-0049); the *who*
+        // is createdById (the agent's shadow user), the *how* is source.
+        ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
       };
 
       if (input.projectId && !input.workspaceId && projectWorkspaceId) {
