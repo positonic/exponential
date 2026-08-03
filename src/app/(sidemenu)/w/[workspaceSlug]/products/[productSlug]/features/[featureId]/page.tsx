@@ -51,6 +51,7 @@ import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection
 import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection";
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
+import { FeatureTicketsSection } from "~/app/_components/product/FeatureTicketsSection";
 import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
 import {
   FEATURE_STATUS_OPTIONS,
@@ -311,6 +312,22 @@ export default function FeatureDetailPage() {
               requirements={feature.requirements}
               scopes={feature.scopes}
               userStories={feature.userStories}
+            />
+          </CollapsibleSection>
+
+          {/* Tickets - the delivery work implementing this feature. The
+              properties sidebar has always shown a ticket count; this is
+              where it resolves to actual rows. */}
+          <CollapsibleSection
+            title="Tickets"
+            meta={feature._count.tickets > 0 ? String(feature._count.tickets) : undefined}
+          >
+            <FeatureTicketsSection
+              featureId={featureId}
+              productId={feature.product.id}
+              productName={feature.product.name}
+              funTicketIds={feature.product.funTicketIds}
+              ticketsPath={`/w/${workspace?.slug}/products/${productSlug}/tickets`}
             />
           </CollapsibleSection>
 
