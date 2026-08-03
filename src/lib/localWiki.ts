@@ -43,6 +43,7 @@ export interface WikiBridge {
   listPages: () => Promise<WikiPage[]>;
   readPage: (path: string) => Promise<string>;
   writePage: (path: string, content: string) => Promise<void>;
+  search: (query: string) => Promise<SearchHit[]>;
   /**
    * Record everything this turn changed as one commit. Called once, at turn end.
    * Committing nothing is a success — a turn that only answered questions has
@@ -54,6 +55,13 @@ export interface WikiBridge {
 export interface CommitResult {
   committed: boolean;
   sha: string | null;
+}
+
+export interface SearchHit {
+  path: string;
+  /** The filename matched, so a page named for its subject surfaces regardless. */
+  pathMatched: boolean;
+  lines: string[];
 }
 
 /** Tauri's IPC primitive, as narrowly as we need it. */
@@ -88,6 +96,8 @@ export function getWikiBridge(): WikiBridge | null {
     writePage: async (path: string, content: string) => {
       await invoke("wiki_write_page", { path, content });
     },
+    search: async (query: string) =>
+      ((await invoke("wiki_search", { query })) ?? []) as SearchHit[],
     commitTurn: async (message: string) =>
       (await invoke("wiki_commit_turn", { message })) as CommitResult,
   };
@@ -159,6 +169,25 @@ export function buildWikiClientTools(bridge: WikiBridge): Record<string, WikiCli
         // malformed call from becoming a confusing filesystem error.)
         const path = typeof args.path === "string" ? args.path : "";
         return { content: await bridge.readPage(path) };
+      },
+    },
+    wiki_search: {
+      id: "wiki_search",
+      description:
+        "Search page text and filenames for a phrase. Plain substring matching — no stemming or " +
+        "synonyms — so try a distinctive word from the thing you're looking for. Use this when " +
+        "index.md and its wikilinks don't lead you to the answer.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Text to look for in page contents and names." },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const query = typeof args.query === "string" ? args.query : "";
+        return { hits: await bridge.search(query) };
       },
     },
     wiki_write_page: {

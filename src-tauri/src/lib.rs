@@ -108,6 +108,7 @@ pub fn run() {
             wiki::wiki_read_page,
             wiki::wiki_write_page,
             wiki::wiki_commit_turn,
+            wiki::wiki_search,
         ])
         .setup(|app| {
             build_main_window(app.handle())?;

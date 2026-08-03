@@ -263,6 +263,67 @@ pub fn read_page(root: &Path, rel: &str) -> WikiResult<String> {
     })
 }
 
+/// One page that matched a search, with the lines that matched.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub path: String,
+    /// True when the *filename* matched, so a page called `ada.md` surfaces for
+    /// "ada" even if the word never appears in its body.
+    pub path_matched: bool,
+    /// Matching lines, trimmed. Capped — the result goes into a prompt.
+    pub lines: Vec<String>,
+}
+
+/// Plain text and filename search across the wiki.
+///
+/// No embeddings, no index: the wiki is small, and this is what the Karpathy
+/// pattern actually calls for — the librarian navigates by `index.md` and
+/// `[[wikilinks]]`, and searches when that comes up short. An embedding index
+/// would be a second source of truth to keep in sync with the files for no gain
+/// at this size. Revisit only if retrieval quality actually disappoints.
+#[tauri::command]
+pub fn wiki_search(state: tauri::State<WikiRoot>, query: String) -> Result<Vec<SearchHit>, String> {
+    let root = current_root(&state);
+    search(&root, &query).map_err(Into::into)
+}
+
+/// Matching lines kept per page, so a big page can't crowd out the others.
+const MAX_LINES_PER_HIT: usize = 5;
+/// Pages returned, so a single-letter query can't blow the model's context.
+const MAX_HITS: usize = 20;
+
+pub fn search(root: &Path, query: &str) -> WikiResult<Vec<SearchHit>> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut hits = Vec::new();
+    for page in list_pages(root)? {
+        let path_matched = page.path.to_lowercase().contains(&needle);
+        let content = read_page(root, &page.path).unwrap_or_default();
+        let lines: Vec<String> = content
+            .lines()
+            .filter(|line| line.to_lowercase().contains(&needle))
+            .take(MAX_LINES_PER_HIT)
+            .map(|line| line.trim().to_string())
+            .collect();
+
+        if path_matched || !lines.is_empty() {
+            hits.push(SearchHit {
+                path: page.path,
+                path_matched,
+                lines,
+            });
+        }
+        if hits.len() >= MAX_HITS {
+            break;
+        }
+    }
+    Ok(hits)
+}
+
 /// Write a page, creating parent folders as needed.
 ///
 /// Deliberately unconditional: the librarian is allowed to revise a page it (or
@@ -672,6 +733,95 @@ mod tests {
         assert_eq!(author.trim(), "Exponential librarian");
         // No repo-level identity was written either.
         assert!(git(&wiki.root, &["config", "--local", "user.name"]).is_err());
+    }
+
+    #[test]
+    fn search_finds_a_page_by_its_contents() {
+        let wiki = TempWiki::new("search-body");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada\n\nWrote the first program.").unwrap();
+        write_page(&wiki.root, "tools/ripgrep.md", "Fast search.").unwrap();
+
+        let hits = search(&wiki.root, "first program").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, "people/ada.md");
+        assert_eq!(hits[0].lines, vec!["Wrote the first program."]);
+    }
+
+    #[test]
+    fn search_finds_a_page_by_its_filename() {
+        // The page whose subject *is* its name often never repeats that name in
+        // the body — "ada" should still find people/ada.md.
+        let wiki = TempWiki::new("search-name");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "Wrote the first program.").unwrap();
+
+        let hit = search(&wiki.root, "ada")
+            .unwrap()
+            .into_iter()
+            .find(|h| h.path == "people/ada.md")
+            .expect("the page named for the subject should be found");
+        assert!(hit.path_matched);
+        assert!(hit.lines.is_empty(), "matched on the name, not the body");
+    }
+
+    #[test]
+    fn search_ignores_case_and_surrounding_whitespace() {
+        let wiki = TempWiki::new("search-case");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "note.md", "Postgres was chosen for JSONB.").unwrap();
+
+        let hit = search(&wiki.root, "  POSTGRES  ")
+            .unwrap()
+            .into_iter()
+            .find(|h| h.path == "note.md")
+            .expect("case and padding should not matter");
+        assert_eq!(hit.lines, vec!["Postgres was chosen for JSONB."]);
+    }
+
+    #[test]
+    fn search_matches_substrings_including_inside_words() {
+        // Plain substring matching, as specified — no stemming, no word
+        // boundaries. So "ada" also hits "readable". The librarian reads the
+        // hits and decides, and MAX_HITS bounds the noise; documented here so
+        // the looseness is a known property rather than a surprise.
+        let wiki = TempWiki::new("search-substring");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "prose.md", "This history is readable.").unwrap();
+
+        let hit = search(&wiki.root, "ada")
+            .unwrap()
+            .into_iter()
+            .find(|h| h.path == "prose.md");
+        assert!(hit.is_some(), "substring matching is the documented behaviour");
+    }
+
+    #[test]
+    fn an_empty_query_finds_nothing_rather_than_everything() {
+        // Guards the obvious footgun: "contains empty string" is true for every
+        // line of every page, which would dump the whole wiki into the prompt.
+        let wiki = TempWiki::new("search-empty");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "note.md", "content").unwrap();
+        assert!(search(&wiki.root, "").unwrap().is_empty());
+        assert!(search(&wiki.root, "   ").unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_results_are_bounded_so_they_fit_in_a_prompt() {
+        let wiki = TempWiki::new("search-bounded");
+        init_at(&wiki.root).expect("init");
+        let many_lines = (0..50).map(|i| format!("needle {i}")).collect::<Vec<_>>().join("\n");
+        write_page(&wiki.root, "big.md", &many_lines).unwrap();
+        for i in 0..40 {
+            write_page(&wiki.root, &format!("page-{i}.md"), "needle").unwrap();
+        }
+
+        let hits = search(&wiki.root, "needle").unwrap();
+        assert!(hits.len() <= MAX_HITS, "capped at {MAX_HITS} pages");
+        for hit in &hits {
+            assert!(hit.lines.len() <= MAX_LINES_PER_HIT);
+        }
     }
 
     #[test]
