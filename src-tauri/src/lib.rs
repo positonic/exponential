@@ -97,6 +97,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(auth::LoginState::default())
         .manage(wiki::WikiRoot::default())
         .invoke_handler(tauri::generate_handler![
@@ -109,8 +110,10 @@ pub fn run() {
             wiki::wiki_write_page,
             wiki::wiki_commit_turn,
             wiki::wiki_search,
+            wiki::wiki_get_root,
         ])
         .setup(|app| {
+            resolve_wiki_root(app.handle());
             build_main_window(app.handle())?;
 
             let handle = app.handle().clone();
@@ -124,6 +127,39 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Exponential Beta");
+}
+
+/// Settle where the wiki lives, once, at startup.
+///
+/// Resolving here rather than per-call means the root cannot change underneath a
+/// turn that is halfway through reading and writing pages. The resolved value is
+/// written back to the store so the choice survives a restart — including a
+/// first run, where it pins the default rather than leaving it implicit and
+/// liable to move if the default ever changes.
+fn resolve_wiki_root(app: &tauri::AppHandle) {
+    use tauri_plugin_store::StoreExt;
+
+    let stored = app
+        .store(wiki::STORE_FILE)
+        .ok()
+        .and_then(|store| store.get(wiki::STORE_KEY))
+        .and_then(|value| value.as_str().map(str::to_owned));
+
+    let root = wiki::resolve_root(stored);
+
+    if let Ok(store) = app.store(wiki::STORE_FILE) {
+        store.set(wiki::STORE_KEY, root.to_string_lossy().to_string());
+        // Best-effort: a wiki that works but forgets its location next launch
+        // beats refusing to start.
+        if let Err(e) = store.save() {
+            eprintln!("[wiki] could not persist the wiki root: {e}");
+        }
+    }
+
+    *app.state::<wiki::WikiRoot>()
+        .0
+        .lock()
+        .expect("wiki root mutex poisoned") = Some(root);
 }
 
 /// Create the single app window pointed at the remote web app.

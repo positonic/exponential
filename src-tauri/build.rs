@@ -17,6 +17,7 @@ fn main() {
                 "wiki_write_page",
                 "wiki_commit_turn",
                 "wiki_search",
+                "wiki_get_root",
             ]),
         ),
     )

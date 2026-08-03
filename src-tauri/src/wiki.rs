@@ -30,16 +30,43 @@ const INDEX_MD: &str = include_str!("../seeds/index.md");
 const LOG_MD: &str = include_str!("../seeds/log.md");
 const SCHEMA_MD: &str = include_str!("../seeds/schema.md");
 
-/// Where the wiki lives. Held in managed state; `wiki_set_root` swaps it and
-/// every command re-jails against whatever is current.
+/// Where the wiki lives. Resolved once at startup and held here; every command
+/// jails against whatever is current, so pointing it somewhere else moves the
+/// jail with it.
 #[derive(Default)]
 pub struct WikiRoot(pub Mutex<Option<PathBuf>>);
 
+/// Store file the resolved root is persisted to, so it survives a restart.
+pub const STORE_FILE: &str = "wiki.json";
+/// Key within that store.
+pub const STORE_KEY: &str = "root";
+/// Dev override, read at startup and then persisted like any other choice.
+pub const ROOT_ENV: &str = "EXPONENTIAL_WIKI_ROOT";
+
 /// Default location — visible in Finder on purpose. The wiki is the user's, and
 /// a folder they can open, edit, and `git log` is the whole point.
-fn default_root() -> PathBuf {
+pub fn default_root() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     Path::new(&home).join("Documents").join("exponential-wiki")
+}
+
+/// Decide the root from what's available: an explicit override wins, then a
+/// previously stored choice, then the default.
+///
+/// **There is deliberately no command to change this from the page.** The jail
+/// is only worth anything if the thing being jailed cannot move the walls, and
+/// these commands are reachable from a remote origin — a page-callable setter
+/// would turn "read inside the wiki" into "read anywhere" for any script running
+/// on that origin. Configuring the root is therefore an out-of-band act (the env
+/// var, or a future native settings UI), never an in-page one.
+pub fn resolve_root(stored: Option<String>) -> PathBuf {
+    if let Some(from_env) = std::env::var(ROOT_ENV).ok().filter(|v| !v.trim().is_empty()) {
+        return PathBuf::from(from_env);
+    }
+    match stored.filter(|v| !v.trim().is_empty()) {
+        Some(path) => PathBuf::from(path),
+        None => default_root(),
+    }
 }
 
 fn current_root(state: &WikiRoot) -> PathBuf {
@@ -49,6 +76,13 @@ fn current_root(state: &WikiRoot) -> PathBuf {
         .expect("wiki root mutex poisoned")
         .clone()
         .unwrap_or_else(default_root)
+}
+
+/// Where the wiki is, so the app can tell the user rather than making them guess.
+/// Read-only by design — see `resolve_root`.
+#[tauri::command]
+pub fn wiki_get_root(state: tauri::State<WikiRoot>) -> String {
+    current_root(&state).to_string_lossy().into_owned()
 }
 
 /// Anything a wiki command can refuse to do. Rendered to the caller as a string;
@@ -733,6 +767,71 @@ mod tests {
         assert_eq!(author.trim(), "Exponential librarian");
         // No repo-level identity was written either.
         assert!(git(&wiki.root, &["config", "--local", "user.name"]).is_err());
+    }
+
+    /// Serialises the tests that read `EXPONENTIAL_WIKI_ROOT`, since env vars are
+    /// process-global and vitest-style parallelism would make them flaky.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn the_root_falls_back_to_the_default() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(ROOT_ENV);
+        assert_eq!(resolve_root(None), default_root());
+        assert_eq!(resolve_root(Some("   ".into())), default_root());
+    }
+
+    #[test]
+    fn a_stored_root_survives_a_restart() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(ROOT_ENV);
+        assert_eq!(
+            resolve_root(Some("/tmp/my-wiki".into())),
+            PathBuf::from("/tmp/my-wiki"),
+        );
+    }
+
+    #[test]
+    fn the_env_override_wins_over_the_stored_root() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var(ROOT_ENV, "/tmp/override-wiki");
+        assert_eq!(
+            resolve_root(Some("/tmp/stored-wiki".into())),
+            PathBuf::from("/tmp/override-wiki"),
+        );
+        std::env::remove_var(ROOT_ENV);
+    }
+
+    #[test]
+    fn the_jail_follows_the_configured_root() {
+        // Moving the root moves the walls with it: what was inside the old wiki
+        // must be outside the new one, or "configurable root" would quietly be a
+        // way to widen the jail.
+        let old = TempWiki::new("jail-old");
+        let new = TempWiki::new("jail-new");
+        init_at(&old.root).expect("init old");
+        init_at(&new.root).expect("init new");
+        write_page(&old.root, "secret.md", "old wiki content").unwrap();
+
+        assert!(read_page(&old.root, "secret.md").is_ok());
+        assert_eq!(read_page(&new.root, "secret.md"), Err(WikiError::NotFound));
+
+        // And no relative path from the new root can reach into the old one.
+        let hop = format!("../{}/secret.md", old.root.file_name().unwrap().to_string_lossy());
+        assert_eq!(read_page(&new.root, &hop), Err(WikiError::OutsideWiki));
+    }
+
+    #[test]
+    fn two_wikis_stay_independent() {
+        let a = TempWiki::new("independent-a");
+        let b = TempWiki::new("independent-b");
+        init_at(&a.root).expect("init a");
+        init_at(&b.root).expect("init b");
+        write_page(&a.root, "only-in-a.md", "a").unwrap();
+
+        let b_paths: Vec<String> = list_pages(&b.root).unwrap().into_iter().map(|p| p.path).collect();
+        assert!(!b_paths.contains(&"only-in-a.md".to_string()));
+        assert!(a.root.join("only-in-a.md").exists(), "the other wiki is untouched");
     }
 
     #[test]

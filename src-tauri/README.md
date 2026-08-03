@@ -46,6 +46,31 @@ Completing sign-in needs one manual step that no shell can avoid: browsers ask
 "Open Exponential Beta?" before handing a custom scheme to the OS. The Electron
 shell prompts identically.
 
+## The local wiki
+
+A git-backed folder of markdown the librarian agent maintains, at
+`~/Documents/exponential-wiki` by default. Point a build somewhere else with:
+
+```bash
+EXPONENTIAL_WIKI_ROOT=/tmp/scratch-wiki npm run tauri:dev
+```
+
+The resolved root is settled once at startup and persisted to the Tauri store, so
+it survives a restart and cannot change underneath a turn that is halfway through
+reading and writing pages.
+
+**There is deliberately no command to change the root from the page.** The wiki
+commands are reachable from a remote origin, and a jail whose walls the caller
+can move is not a jail — a page-callable setter would turn "read inside the wiki"
+into "read anywhere" for any script running on that origin. Configuring the root
+is an out-of-band act.
+
+`seeds/schema.md` is the wiki's contract: naming, `[[wikilinks]]`, index/log
+discipline, and etiquette between multiple agents. It is seeded once and never
+overwritten, because the user owns it — editing it is how they change how their
+librarian behaves, and other agents (Claude Code, MCP, a local model later) read
+it too.
+
 ## Adding a command
 
 Remote pages are not trusted by default, so a new `#[tauri::command]` needs three

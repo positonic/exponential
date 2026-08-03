@@ -45,6 +45,12 @@ export interface WikiBridge {
   writePage: (path: string, content: string) => Promise<void>;
   search: (query: string) => Promise<SearchHit[]>;
   /**
+   * Where the wiki lives, so the app can say so instead of making the user
+   * guess. Read-only: there is deliberately no setter reachable from the page,
+   * because a jail whose walls the caller can move is not a jail.
+   */
+  getRoot: () => Promise<string>;
+  /**
    * Record everything this turn changed as one commit. Called once, at turn end.
    * Committing nothing is a success — a turn that only answered questions has
    * nothing to record.
@@ -98,6 +104,10 @@ export function getWikiBridge(): WikiBridge | null {
     },
     search: async (query: string) =>
       ((await invoke("wiki_search", { query })) ?? []) as SearchHit[],
+    getRoot: async () => {
+      const root = await invoke("wiki_get_root");
+      return typeof root === "string" ? root : "";
+    },
     commitTurn: async (message: string) =>
       (await invoke("wiki_commit_turn", { message })) as CommitResult,
   };

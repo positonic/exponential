@@ -23,6 +23,7 @@
     "allow-wiki-read-page",
     "allow-wiki-write-page",
     "allow-wiki-commit-turn",
-    "allow-wiki-search"
+    "allow-wiki-search",
+    "allow-wiki-get-root"
   ]
 }
