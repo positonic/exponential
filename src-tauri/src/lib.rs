@@ -26,7 +26,7 @@ mod auth;
 use std::sync::OnceLock;
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Manager, Url};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Production origin the packaged shell loads.
@@ -128,10 +128,32 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         .parse()
         .unwrap_or_else(|e| panic!("{BASE_URL_ENV} is not a valid URL: {e}"));
 
+    let opener = app.clone();
+    let new_window_opener = app.clone();
+
     let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
         .title("Exponential Beta")
         .inner_size(1400.0, 900.0)
-        .min_inner_size(800.0, 600.0);
+        .min_inner_size(800.0, 600.0)
+        // The page is remote and takes a moment to paint; without this the window
+        // opens as a white flash before the app's dark surface arrives.
+        .background_color(window_background())
+        .on_navigation(move |url| {
+            if stays_in_app(url) {
+                return true;
+            }
+            open_externally(&opener, url.as_str());
+            false
+        })
+        // `target="_blank"` and `window.open` would otherwise spawn a bare second
+        // window with no chrome and no way back.
+        .on_new_window(move |url, _features| {
+            if stays_in_app(&url) {
+                return tauri::webview::NewWindowResponse::Allow;
+            }
+            open_externally(&new_window_opener, url.as_str());
+            tauri::webview::NewWindowResponse::Deny
+        });
 
     // Match the Electron shell's `hiddenInset` chrome: the traffic lights float
     // over the page instead of sitting in a separate title bar.
@@ -142,4 +164,146 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     builder.build()?;
     Ok(())
+}
+
+/// Hand a URL to the user's default browser.
+fn open_externally(app: &tauri::AppHandle, url: &str) {
+    use tauri_plugin_opener::OpenerExt;
+    if let Err(e) = app.opener().open_url(url, None::<&str>) {
+        eprintln!("[shell] could not open {url} externally: {e}");
+    }
+}
+
+/// Should this navigation happen inside the app window, or in the browser?
+///
+/// Mirrors the Electron shell's `will-navigate` rule. Two things are allowed to
+/// stay: the app's own origin, and the OAuth providers — those must complete
+/// in-window or the integration flows (Notion, Google, …) would finish in a
+/// browser tab the app can never hear back from. Everything else is someone
+/// else's website and belongs in the user's real browser.
+///
+/// Non-http(s) schemes (`about:`, `blob:`, `data:`) are the page's own business
+/// and pass through untouched — handing them to the browser would break previews
+/// and downloads.
+fn stays_in_app(url: &Url) -> bool {
+    if !matches!(url.scheme(), "http" | "https") {
+        return true;
+    }
+    is_app_origin(url) || is_oauth_provider(url)
+}
+
+/// OAuth provider hosts, matched on suffix so regional and per-tenant subdomains
+/// come along. Same list as the Electron shell.
+const OAUTH_PROVIDERS: &[&str] = &[
+    "accounts.google.com",
+    "discord.com",
+    "api.notion.com",
+    "github.com",
+    "login.microsoftonline.com",
+];
+
+fn is_oauth_provider(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    OAUTH_PROVIDERS
+        .iter()
+        .any(|provider| host == *provider || host.ends_with(&format!(".{provider}")))
+}
+
+/// Is this the web app itself?
+fn is_app_origin(url: &Url) -> bool {
+    app_base_url()
+        .parse::<Url>()
+        .is_ok_and(|base| same_site(url, &base))
+}
+
+/// Same origin, give or take a `www`.
+///
+/// The apex domain 301s to `www`, so treating the two as different origins would
+/// bounce the very first navigation out to the browser and leave an empty shell.
+/// Only the leading `www.` is folded — nothing else about the host is relaxed, so
+/// a lookalike like `exponential.im.evil.test` still fails.
+fn same_site(url: &Url, base: &Url) -> bool {
+    fn bare_host(url: &Url) -> &str {
+        url.host_str()
+            .unwrap_or_default()
+            .trim_start_matches("www.")
+    }
+    url.scheme() == base.scheme()
+        && bare_host(url) == bare_host(base)
+        && url.port_or_known_default() == base.port_or_known_default()
+}
+
+/// Window background behind the remote page.
+///
+/// Hardcoded here for the same reason `electron/colors.ts` exists: a native API
+/// needs a literal colour before any stylesheet has loaded. Must stay in step
+/// with `--background-primary` (dark) in `src/styles/colors.ts`.
+fn window_background() -> tauri::utils::config::Color {
+    tauri::utils::config::Color(0x1a, 0x1b, 0x1e, 0xff)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn url(raw: &str) -> Url {
+        raw.parse().expect("test URL must parse")
+    }
+
+    #[test]
+    fn the_app_itself_stays_in_the_window() {
+        // Debug builds resolve app_base_url() to the dev server.
+        assert!(stays_in_app(&url("http://localhost:3000/home")));
+        assert!(stays_in_app(&url("http://localhost:3000/w/syntrofi/projects?tab=tasks")));
+    }
+
+    #[test]
+    fn a_www_redirect_is_still_the_app() {
+        // The regression this guards against presents as "the app opens an empty
+        // window and launches my browser instead": exponential.im 301s to www.
+        let base = url("https://exponential.im");
+        assert!(same_site(&url("https://www.exponential.im/home"), &base));
+        assert!(same_site(&url("https://exponential.im/home"), &base));
+        assert!(same_site(&url("https://exponential.im/home"), &url("https://www.exponential.im")));
+    }
+
+    #[test]
+    fn folding_www_does_not_relax_anything_else() {
+        let base = url("https://exponential.im");
+        assert!(!same_site(&url("https://exponential.im.evil.test/"), &base));
+        assert!(!same_site(&url("https://notexponential.im/"), &base));
+        assert!(!same_site(&url("https://staging.exponential.im/"), &base));
+        assert!(!same_site(&url("http://exponential.im/"), &base));
+        assert!(!same_site(&url("https://exponential.im:8443/"), &base));
+    }
+
+    #[test]
+    fn other_websites_go_to_the_browser() {
+        assert!(!stays_in_app(&url("https://example.com/")));
+        assert!(!stays_in_app(&url("https://exponential.im.evil.test/")));
+        assert!(!stays_in_app(&url("https://notexponential.im/")));
+    }
+
+    #[test]
+    fn oauth_providers_complete_in_window() {
+        // Integration connect flows redirect back to the app; sending them to the
+        // browser would strand the callback where the app cannot see it.
+        assert!(stays_in_app(&url("https://accounts.google.com/o/oauth2/auth")));
+        assert!(stays_in_app(&url("https://api.notion.com/v1/oauth/authorize")));
+        assert!(stays_in_app(&url("https://login.microsoftonline.com/common/oauth2/authorize")));
+    }
+
+    #[test]
+    fn a_provider_lookalike_is_not_a_provider() {
+        assert!(!stays_in_app(&url("https://github.com.evil.test/")));
+        assert!(!stays_in_app(&url("https://evil-github.com/")));
+    }
+
+    #[test]
+    fn page_internal_schemes_pass_through() {
+        assert!(stays_in_app(&url("about:blank")));
+        assert!(stays_in_app(&url("blob:http://localhost:3000/abc-123")));
+    }
 }
