@@ -81,6 +81,7 @@ describe("normalizeSentryPayload", () => {
           culprit: "app/page.tsx",
           permalink: "https://sentry.io/issues/42",
           shortId: "EXPONENTIAL-1AB",
+          project: { slug: "exponential-frontend" },
         },
       },
     });
@@ -91,7 +92,16 @@ describe("normalizeSentryPayload", () => {
       culprit: "app/page.tsx",
       url: "https://sentry.io/issues/42",
       shortId: "EXPONENTIAL-1AB",
+      projectSlug: "exponential-frontend",
     });
+  });
+
+  it("leaves projectSlug null when the payload omits the project", () => {
+    const bug = normalizeSentryPayload("issue", {
+      action: "created",
+      data: { issue: { id: 7, title: "No project in payload" } },
+    });
+    expect(bug?.projectSlug).toBeNull();
   });
 
   it("returns null for issue/created without an id (malformed)", () => {
@@ -123,6 +133,7 @@ describe("normalizeSentryPayload", () => {
           level: "fatal",
           culprit: "lib/parse.ts",
           web_url: "https://sentry.io/issues/99/events/abc",
+          project_slug: "exponential-frontend",
         },
       },
     });
@@ -133,6 +144,7 @@ describe("normalizeSentryPayload", () => {
       culprit: "lib/parse.ts",
       url: "https://sentry.io/issues/99/events/abc",
       shortId: null,
+      projectSlug: "exponential-frontend",
     });
   });
 

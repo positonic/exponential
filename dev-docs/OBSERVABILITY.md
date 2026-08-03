@@ -57,6 +57,17 @@ announcements to **Zulip** (`sentryZulip.ts`) and **Matrix**
 `.env.example`); the room must be unencrypted and the bot joined. Recurring
 errors that dedup onto an existing ticket do not re-notify.
 
+Tickets are labelled `Sentry` + `bug`, and additionally `ai-fixable` when the
+issue's Sentry project is listed in `SENTRY_AI_FIXABLE_PROJECTS` — the
+allowlist exists because the webhook is org-wide and a bug from another
+service's project lives in another repo, where the AI bug fixer (which checks
+out *this* repo) could not fix it.
+
+**The label alone does not start an AI run.** `.github/workflows/ai-bug-fixer.yml`
+selects on `--status READY_TO_PLAN --label ai-fixable`, and Sentry files
+tickets as `BACKLOG`. A human moving the ticket to `READY_TO_PLAN` is what
+arms it — deliberate, since a raw stack trace is rarely a sufficient spec.
+
 ## Other signals
 
 - **Vercel function logs** — tRPC internal errors are also `console.error`ed
