@@ -40,23 +40,32 @@ export async function POST(request: NextRequest) {
       body = null;
     }
 
-    // Subscription-verification handshake: unsigned, carries only a
-    // verification_token. Log it clearly and acknowledge — this is the one
-    // request the signature check legitimately does not cover.
-    if (
-      !signature &&
-      body &&
-      typeof body === "object" &&
-      typeof (body as Record<string, unknown>).verification_token === "string"
-    ) {
-      const token = (body as Record<string, unknown>).verification_token;
-      console.log(
-        `[NotionWebhook] subscription verification_token (copy into Notion to confirm): ${String(token)}`,
-      );
-      return NextResponse.json({ ok: true }, { status: 200 });
-    }
-
     const secret = process.env.NOTION_WEBHOOK_SECRET;
+
+    // Subscription-verification handshake: carries a verification_token —
+    // and, in practice, Notion SIGNS it (keyed by that same token), so it
+    // cannot pass the normal signature check before the operator has stored
+    // the token as NOTION_WEBHOOK_SECRET. Bootstrap rule:
+    // - no secret configured yet → we cannot verify anything; log the token
+    //   for the operator and acknowledge (the whole point of the handshake);
+    // - secret configured → the handshake must verify like any other request
+    //   (an unsigned/forged token body must not be able to poison the logs
+    //   and trick the operator into rotating the secret).
+    const verificationToken =
+      body && typeof body === "object"
+        ? (body as Record<string, unknown>).verification_token
+        : undefined;
+    if (typeof verificationToken === "string") {
+      const trusted =
+        !secret || (signature !== null && verifySignature(raw, signature, secret));
+      if (trusted) {
+        console.log(
+          `[NotionWebhook] subscription verification_token (copy into Notion to confirm): ${verificationToken}`,
+        );
+        return NextResponse.json({ ok: true }, { status: 200 });
+      }
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     // Fail closed: without the shared secret we cannot verify a single event,
     // so we must never process one.
     if (!secret) {

@@ -126,15 +126,49 @@ describe("POST /api/webhooks/notion", () => {
     expect(runInboundMock).not.toHaveBeenCalled();
   });
 
-  it("acknowledges the unsigned subscription handshake with 200 and logs the token", async () => {
+  it("acknowledges the handshake during bootstrap (no secret configured) with 200 and logs the token", async () => {
+    // Notion signs the verification request keyed by the token itself, which
+    // the operator has not stored yet — so during bootstrap ANY handshake must
+    // be acknowledged or the subscription can never be created (the 503
+    // chicken-and-egg observed live).
+    delete process.env.NOTION_WEBHOOK_SECRET;
     const logSpy = vi.spyOn(console, "log");
     const raw = JSON.stringify({ verification_token: "verif_tok_xyz" });
 
-    const response = await POST(makeRequest(raw));
+    const response = await POST(
+      makeRequest(raw, { "x-notion-signature": sign(raw, "verif_tok_xyz") }),
+    );
 
     expect(response.status).toBe(200);
     expect(runInboundMock).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("verif_tok_xyz"));
+  });
+
+  it("acknowledges a correctly-signed handshake when the secret is configured", async () => {
+    const logSpy = vi.spyOn(console, "log");
+    const raw = JSON.stringify({ verification_token: "verif_tok_resend" });
+
+    const response = await POST(
+      makeRequest(raw, { "x-notion-signature": sign(raw) }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("verif_tok_resend"),
+    );
+  });
+
+  it("rejects an unsigned handshake once a secret is configured (log-poisoning guard)", async () => {
+    const logSpy = vi.spyOn(console, "log");
+    const raw = JSON.stringify({ verification_token: "attacker_token" });
+
+    const response = await POST(makeRequest(raw));
+
+    expect(response.status).toBe(401);
+    expect(runInboundMock).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("attacker_token"),
+    );
   });
 
   it("returns 200 no-op for a verified event whose database matches no config", async () => {
