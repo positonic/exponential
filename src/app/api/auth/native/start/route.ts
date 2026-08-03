@@ -3,7 +3,6 @@ import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "~/server/auth";
 import {
   NATIVE_AUTH_REQUEST_COOKIE,
-  NATIVE_REDIRECT_URI,
   REQUEST_COOKIE_TTL_SECONDS,
   isAllowedRedirectUri,
   isValidCodeChallenge,
@@ -23,7 +22,8 @@ import {
  *     signed, httpOnly cookie set before we bounced the user to `/signin`.
  *
  * If authenticated → mint a 60s auth code bound to the userId + PKCE challenge
- * and 302 to `exponential://auth/callback?code&state`. If not → stash the
+ * and 302 back to the caller's own allow-listed scheme (`exponential://` for iOS
+ * and the Electron shell, `exponential-beta://` for the Tauri shell). If not → stash the
  * request in a signed cookie and redirect to `/signin`, which returns here.
  *
  * This handler is its own post-login callback — there is intentionally no
@@ -81,7 +81,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const code = mintAuthCode({ sub: session.user.id, codeChallenge, redirectUri });
-  const location = `${NATIVE_REDIRECT_URI}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  // Echo the caller's own (allow-listed) redirect target — each shell has its own
+  // scheme, so a fixed constant here would send the Tauri shell's callback to the
+  // Electron/iOS one. `redirectUri` is safe to reflect: it survived
+  // `isAllowedRedirectUri` above, whether it came from the query or the cookie.
+  const location = `${redirectUri}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
 
   // Custom-scheme redirect — build the response by hand (NextResponse.redirect
   // validates http(s) URLs and would reject the custom scheme).

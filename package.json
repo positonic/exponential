@@ -34,6 +34,9 @@
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",
     "electron:build:linux": "npm run electron:build -- --linux",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "score-threads": "tsx scripts/score-threads.ts",
     "eval-prompt": "tsx scripts/eval-prompt.ts",
     "file-failures": "tsx scripts/file-failures.ts",
@@ -143,6 +146,7 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^18.0.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@testcontainers/postgresql": "^11.12.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.6.4",
