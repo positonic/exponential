@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
@@ -12,6 +13,45 @@ import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
 } from "../objectiveActivity";
+
+// "Done" for the delivery signal = the Delivery metrics page's completion
+// definition (ADR-0047, SprintAnalyticsService): DONE or DEPLOYED —
+// deliberately narrower than lib/ticket-statuses' COMPLETED_TICKET_STATUSES,
+// which also counts ARCHIVED.
+const DELIVERY_DONE_STATUSES: ReadonlySet<string> = new Set([
+  "DONE",
+  "DEPLOYED",
+]);
+
+/**
+ * Done/total ticket counts for the given features — the V2 delivery signal on
+ * a key result's "Executing work" list (ADR-0050). Computed read-side on
+ * request, never stored; strictly display context — nothing here ever writes
+ * KeyResult.currentValue. Ticketless features are absent from the map so the
+ * UI renders no chip (never "0/0").
+ */
+async function getTicketProgressByFeature(
+  db: PrismaClient,
+  featureIds: string[],
+): Promise<Map<string, { done: number; total: number }>> {
+  const progress = new Map<string, { done: number; total: number }>();
+  if (featureIds.length === 0) return progress;
+
+  const grouped = await db.ticket.groupBy({
+    by: ["featureId", "status"],
+    where: { featureId: { in: featureIds } },
+    _count: { _all: true },
+  });
+
+  for (const row of grouped) {
+    if (row.featureId == null) continue;
+    const entry = progress.get(row.featureId) ?? { done: 0, total: 0 };
+    entry.total += row._count._all;
+    if (DELIVERY_DONE_STATUSES.has(row.status)) entry.done += row._count._all;
+    progress.set(row.featureId, entry);
+  }
+  return progress;
+}
 
 // Input validation schemas
 const createKeyResultInput = z.object({
@@ -403,7 +443,24 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return keyResult;
+      // V2 delivery signal (ADR-0050): attach done/total ticket counts to
+      // each linked feature. Null for ticketless features — the drawer
+      // renders no chip rather than "0/0".
+      const progressByFeature = await getTicketProgressByFeature(
+        ctx.db,
+        keyResult.features.map((link) => link.feature.id),
+      );
+
+      return {
+        ...keyResult,
+        features: keyResult.features.map((link) => ({
+          ...link,
+          feature: {
+            ...link.feature,
+            ticketProgress: progressByFeature.get(link.feature.id) ?? null,
+          },
+        })),
+      };
     }),
 
   // Batch lookup of KR metadata by ids — used by Phase 3 of weekly review
