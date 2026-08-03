@@ -10,6 +10,11 @@ const config = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   experimental: {
+    // Keep the build inside Vercel's 8GB container: source-map emission
+    // raised webpack's footprint, and static-gen workers inherit the raised
+    // NODE_OPTIONS heap cap, so bound both.
+    webpackMemoryOptimizations: true,
+    cpus: 2,
     turbo: {
       resolveAlias: {
         "markdown-it": "markdown-it/dist/index.cjs.js",
