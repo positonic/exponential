@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Exponential Beta",
+  "version": "0.1.0",
+  "identifier": "im.exponential.beta",
+  "build": {
+    "frontendDist": "https://exponential.im",
+    "devUrl": "http://localhost:3000"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "Productivity",
+    "copyright": "Copyright © 2026 Exponential",
+    "icon": ["icons/icon.icns"],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}
