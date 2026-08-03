@@ -249,7 +249,7 @@ export async function runInboundTicketSync(
   adapter: TicketSyncRemoteAdapter,
   params: {
     configId: string;
-    trigger: "manual" | "cron" | "agent";
+    trigger: "manual" | "cron" | "agent" | "webhook";
     dryRun?: boolean;
     /** Acting user for the run ledger; null for cron/agent triggers. */
     triggeredById?: string | null;
