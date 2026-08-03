@@ -107,3 +107,8 @@ db-backups/
 .claude/skills/impeccable/
 .claude/skills/verify/
 .env*
+
+# Playwright (agent visual testing)
+/e2e/.auth/
+/e2e/.results/
+/playwright-report/

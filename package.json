@@ -43,7 +43,10 @@
     "okr": "npx tsx scripts/okr-cli.ts",
     "okr:list": "npx tsx scripts/okr-cli.ts list",
     "okr:stats": "npx tsx scripts/okr-cli.ts stats",
-    "okr:workspaces": "npx tsx scripts/okr-cli.ts workspaces"
+    "okr:workspaces": "npx tsx scripts/okr-cli.ts workspaces",
+    "test:e2e": "playwright test",
+    "dev:session": "tsx scripts/dev-session.ts",
+    "dev:seed-fixture": "tsx scripts/seed-dev-fixture.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
@@ -146,6 +149,7 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^18.0.1",
+    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2.11.4",
     "@testcontainers/postgresql": "^11.12.0",
     "@testing-library/dom": "^10.4.1",
