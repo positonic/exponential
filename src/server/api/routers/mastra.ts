@@ -263,10 +263,14 @@ export const mastraRouter = createTRPCRouter({
           message: "MASTRA_API_URL is not configured",
         });
       }
-      // Long enough for a wiki turn and its client-tool rounds, short enough
-      // that a token scraped out of a devtools panel is worthless by the time
-      // anyone finds it.
-      const expiresInMinutes = 10;
+      // A wiki turn is not one request: each client-tool round re-POSTs the
+      // whole turn, and the agent is allowed up to twenty steps. If the token
+      // expires partway through, the next round 401s and the user loses the
+      // answer mid-sentence with no recovery path. So this matches the
+      // agent-context default rather than being tightened for its own sake —
+      // the local wiki is not a special case, and the token is a browser-held
+      // bearer either way.
+      const expiresInMinutes = 30;
       return {
         token: generateAgentJWT(ctx.session.user, expiresInMinutes),
         mastraUrl: MASTRA_API_URL,

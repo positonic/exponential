@@ -134,6 +134,14 @@ type WikiResult<T> = Result<T, WikiError>;
 ///
 /// Step 1 alone would miss symlinks; step 2 alone would miss `..` into a
 /// not-yet-existing path. Both are tested.
+///
+/// There is a time-of-check/time-of-use gap between step 2's check and the
+/// caller's eventual open, and it is not closed here — any path-based check has
+/// one. Exploiting it means swapping a symlink into the wiki folder in the
+/// window between the two, which requires local write access inside the user's
+/// own wiki; anyone holding that can simply read the files directly, so the
+/// check buys nothing extra. The threat this function actually defends against
+/// is a *path* the model was talked into emitting, and that it does close.
 pub fn resolve(root: &Path, rel: &str) -> WikiResult<PathBuf> {
     if rel.trim().is_empty() {
         return Err(WikiError::BadPath);
@@ -156,13 +164,19 @@ pub fn resolve(root: &Path, rel: &str) -> WikiResult<PathBuf> {
     let joined = canonical_root.join(rel_path);
 
     // Walk up to the nearest existing ancestor: a write to a new page has no
-    // canonical path of its own yet, but its parent directory does.
+    // canonical path of its own yet, but its parent directory does. The walk
+    // stops at the root — which always exists, having just been canonicalized —
+    // so it can never wander up into the rest of the filesystem looking for
+    // something that exists.
     let mut probe = joined.as_path();
     let existing = loop {
         if probe.exists() {
             break probe;
         }
-        match probe.parent() {
+        if probe == canonical_root {
+            return Err(WikiError::OutsideWiki);
+        }
+        match probe.parent().filter(|p| p.starts_with(&canonical_root)) {
             Some(parent) => probe = parent,
             None => return Err(WikiError::OutsideWiki),
         }

@@ -229,6 +229,15 @@ fn open_externally(app: &tauri::AppHandle, url: &str) {
 /// Non-http(s) schemes (`about:`, `blob:`, `data:`) are the page's own business
 /// and pass through untouched — handing them to the browser would break previews
 /// and downloads.
+///
+/// The obvious worry about keeping providers in-window is whether a page on
+/// `accounts.google.com` — or an XSS on one — inherits this window's IPC access
+/// and can then call the wiki commands. It does not. Tauri evaluates the
+/// capability against the webview's *current* URL, so an origin absent from
+/// `remote.urls` gets the injected global but no granted commands. Verified on a
+/// release build: navigating this window to `https://github.com` and invoking
+/// `desktop_shell_info` returns "Command desktop_shell_info not allowed by ACL".
+/// Re-check this if the capability ever gains a wildcard origin.
 fn stays_in_app(url: &Url) -> bool {
     if !matches!(url.scheme(), "http" | "https") {
         return true;
