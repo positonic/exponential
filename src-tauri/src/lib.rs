@@ -205,9 +205,17 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     // Match the Electron shell's `hiddenInset` chrome: the traffic lights float
     // over the page instead of sitting in a separate title bar.
+    //
+    // `hidden_title` is part of that match, not a nicety: `Overlay` alone keeps
+    // drawing the window title, which lands on top of the page's own top-left
+    // chrome (the sidebar's workspace switcher). Electron's `hiddenInset` hides
+    // the title for us; Tauri needs to be told. The page still needs to keep its
+    // content clear of the traffic lights themselves — see `--titlebar-inset` in
+    // `src/app/_components/layout/sidebar.css`.
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
 
     builder.build()?;
