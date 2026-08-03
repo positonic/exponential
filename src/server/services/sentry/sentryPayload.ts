@@ -51,6 +51,110 @@ interface SentryWebhookBody {
 }
 
 /**
+ * Minimal view of a GlitchTip *generic* (Slack-compatible) webhook body.
+ *
+ * GlitchTip has two outbound webhook modes. Its Sentry-compatible mode sends
+ * the nested `{action, data.issue}` shape handled above; its generic mode —
+ * the one its Alert Rule UI offers by default — sends this flat, Slack-styled
+ * shape instead, with no `Sentry-Hook-Resource` header.
+ */
+interface GlitchtipWebhookBody {
+  /** Event type slug, e.g. "issue.new" / "issue.resolved". Sometimes a bot name. */
+  alias?: string;
+  /** Human-readable summary; often boilerplate like "GlitchTip Alert". */
+  text?: string;
+  /** GlitchTip sends the issue id at the top level. */
+  issue_id?: string | number;
+  /** Project slug as a bare string (Sentry nests it under `project.slug`). */
+  project?: string | { slug?: string };
+  culprit?: string;
+  level?: string;
+  /** Slack-style content — the real error title/link live here. */
+  attachments?: {
+    title?: string;
+    title_link?: string;
+    text?: string;
+  }[];
+}
+
+/**
+ * Aliases we file a bug for. Anything else dotted (`issue.resolved`,
+ * `issue.archived`, …) is ignored. Dedup makes a mistake here cheap — a second
+ * event for a known issue id collapses onto the existing ticket — but not
+ * filing on resolutions keeps the backlog honest.
+ */
+const GLITCHTIP_NEW_ISSUE_ALIASES = ["issue.new", "issue.regression"];
+
+/** Trailing issue id in a GlitchTip issue URL: `…/issues/12345`. */
+const GLITCHTIP_ISSUE_URL = /\/issues\/(\d+)/;
+
+/**
+ * Turn a GlitchTip generic-webhook body into a normalized {@link SentryBug}, or
+ * `null` if it isn't a new-issue event we file.
+ */
+export function normalizeGlitchtipPayload(body: unknown): SentryBug | null {
+  const payload = (body ?? {}) as GlitchtipWebhookBody;
+
+  // `alias` is the event type when dotted. Some GlitchTip versions put a bot
+  // name there instead, so only *dotted* values are treated as a filter —
+  // otherwise we'd ignore every event on a deployment that sends "GlitchTip".
+  const alias = payload.alias;
+  if (
+    typeof alias === "string" &&
+    alias.includes(".") &&
+    !GLITCHTIP_NEW_ISSUE_ALIASES.includes(alias)
+  ) {
+    return null;
+  }
+
+  const attachment = payload.attachments?.[0];
+  const url = attachment?.title_link ?? null;
+
+  // Prefer the explicit id; fall back to parsing the issue URL so this still
+  // works on versions that omit `issue_id`. Without either we have no dedup
+  // key, so the event is not fileable.
+  const issueId =
+    payload.issue_id !== undefined && payload.issue_id !== null
+      ? String(payload.issue_id)
+      : (GLITCHTIP_ISSUE_URL.exec(url ?? "")?.[1] ?? null);
+  if (!issueId) return null;
+
+  // The attachment title carries the actual error; `text` is often boilerplate.
+  const title = attachment?.title ?? payload.text ?? "Untitled GlitchTip issue";
+
+  const projectSlug =
+    typeof payload.project === "string"
+      ? payload.project
+      : (payload.project?.slug ?? null);
+
+  return {
+    issueId,
+    title,
+    level: payload.level ?? null,
+    culprit: payload.culprit ?? null,
+    url,
+    // GlitchTip's generic payload has no Sentry-style short id.
+    shortId: null,
+    projectSlug,
+  };
+}
+
+/**
+ * Normalize an inbound issue webhook from either sender.
+ *
+ * Sentry always sends a `Sentry-Hook-Resource` header; GlitchTip's generic
+ * webhook sends none, so its absence is the discriminator.
+ */
+export function normalizeIssueWebhook(
+  resource: string | null,
+  body: unknown,
+): SentryBug | null {
+  return resource
+    ? normalizeSentryPayload(resource, body)
+    : normalizeGlitchtipPayload(body);
+}
+
+/**
  * Verify a Sentry integration-platform webhook signature.
  *
  * Sentry signs the raw request body with HMAC-SHA256 using the integration's
