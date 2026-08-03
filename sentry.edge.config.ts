@@ -1,9 +1,14 @@
 import * as Sentry from "@sentry/nextjs";
 
-if (process.env.VERCEL_ENV === "production") {
+const vercelEnv = process.env.VERCEL_ENV;
+
+// Report from production AND preview deploys; local dev stays silent.
+if (vercelEnv === "production" || vercelEnv === "preview") {
   Sentry.init({
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-    tracesSampleRate: 1.0,
+    environment: vercelEnv,
+    // Errors are always captured — this rate only samples performance traces.
+    tracesSampleRate: vercelEnv === "production" ? 0.1 : 1.0,
     sendDefaultPii: false,
     release: process.env.VERCEL_GIT_COMMIT_SHA,
   });

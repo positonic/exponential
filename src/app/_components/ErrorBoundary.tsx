@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from '@sentry/nextjs';
 import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Paper, Text, Button, Stack, Alert, Group } from '@mantine/core';
 import { IconAlertTriangle, IconRefresh, IconBug } from '@tabler/icons-react';
@@ -40,6 +41,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    Sentry.captureException(error, {
+      extra: { componentStack: errorInfo.componentStack },
+    });
     this.setState({
       errorInfo,
     });
