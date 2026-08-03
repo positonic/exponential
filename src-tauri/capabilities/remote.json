@@ -24,6 +24,8 @@
     "allow-wiki-write-page",
     "allow-wiki-commit-turn",
     "allow-wiki-search",
-    "allow-wiki-get-root"
+    "allow-wiki-get-root",
+    "allow-wiki-fetch-url",
+    "allow-wiki-read-external"
   ]
 }

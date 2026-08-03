@@ -26,6 +26,10 @@ serde_json = "1"
 base64 = "0.22"
 getrandom = "0.3"
 sha2 = "0.10"
+# Ingest fetches sources Rust-side: the webview cannot reach arbitrary
+# origins, and doing it here is what makes the SSRF guard in source.rs possible.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset"] }
+url = "2"
 tauri-plugin-store = "2.4.4"
 
 [profile.dev]

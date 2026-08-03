@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-read-external"
+description = "Enables the wiki_read_external command without any pre-configured scope."
+commands.allow = ["wiki_read_external"]
+
+[[permission]]
+identifier = "deny-wiki-read-external"
+description = "Denies the wiki_read_external command without any pre-configured scope."
+commands.deny = ["wiki_read_external"]

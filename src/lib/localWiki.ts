@@ -51,6 +51,16 @@ export interface WikiBridge {
    */
   getRoot: () => Promise<string>;
   /**
+   * Fetch a public web page for ingestion.
+   *
+   * Deliberately not a wiki path operation: ingest brings outside material *in*,
+   * so it reads somewhere the jail knows nothing about. The Rust side carries
+   * its own guard (public addresses only) rather than widening the wiki jail.
+   */
+  fetchUrl: (url: string) => Promise<FetchedSource>;
+  /** Read a file from the user's machine for ingestion. Guarded separately too. */
+  readExternal: (path: string) => Promise<FetchedSource>;
+  /**
    * Record everything this turn changed as one commit. Called once, at turn end.
    * Committing nothing is a success — a turn that only answered questions has
    * nothing to record.
@@ -61,6 +71,16 @@ export interface WikiBridge {
 export interface CommitResult {
   committed: boolean;
   sha: string | null;
+}
+
+/** Outside material handed to the librarian to fold into the wiki. */
+export interface FetchedSource {
+  /** Echoed back so the librarian can cite where a page came from. */
+  source: string;
+  title: string | null;
+  text: string;
+  /** True when the source was longer than we carry into a prompt. */
+  truncated: boolean;
 }
 
 export interface SearchHit {
@@ -108,6 +128,9 @@ export function getWikiBridge(): WikiBridge | null {
       const root = await invoke("wiki_get_root");
       return typeof root === "string" ? root : "";
     },
+    fetchUrl: async (url: string) => (await invoke("wiki_fetch_url", { url })) as FetchedSource,
+    readExternal: async (path: string) =>
+      (await invoke("wiki_read_external", { path })) as FetchedSource,
     commitTurn: async (message: string) =>
       (await invoke("wiki_commit_turn", { message })) as CommitResult,
   };
@@ -198,6 +221,47 @@ export function buildWikiClientTools(bridge: WikiBridge): Record<string, WikiCli
       execute: async (args) => {
         const query = typeof args.query === "string" ? args.query : "";
         return { hits: await bridge.search(query) };
+      },
+    },
+    wiki_fetch_url: {
+      id: "wiki_fetch_url",
+      description:
+        "Fetch a public web page and return its text, for ingesting into the wiki. Only http(s) " +
+        "URLs on the public internet. Long pages come back truncated — say so if that happens " +
+        "rather than implying you read all of it.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "The http(s) URL to fetch." },
+        },
+        required: ["url"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const url = typeof args.url === "string" ? args.url : "";
+        return bridge.fetchUrl(url);
+      },
+    },
+    wiki_read_external: {
+      id: "wiki_read_external",
+      description:
+        "Read a text file from the user's machine for ingesting into the wiki — a path they gave " +
+        "you, like '~/Downloads/notes.md'. This reads OUTSIDE the wiki, so only use it when the " +
+        "user asked you to ingest that file. Files under home only, nothing hidden, text only.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Path to the file, absolute or starting with ~/.",
+          },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        const path = typeof args.path === "string" ? args.path : "";
+        return bridge.readExternal(path);
       },
     },
     wiki_write_page: {
