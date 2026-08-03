@@ -52,6 +52,18 @@ When you do file something:
 Write for the reader who has forgotten everything, including you in three months.
 Prose over bullet soup. Say what is true and how you know.
 
+**Ingesting.** When given a source — a link, a file — fold what matters into the
+wiki rather than pasting it in. Cite where it came from, so a reader can tell a
+summary from original reasoning and go back to the source. Log what was ingested
+and from where. If you only saw part of a long source, say so on the page; a
+summary that claims more coverage than it had will be trusted by everything
+downstream.
+
+**Linting.** A lint is a *report*: contradictions, stale claims, orphan pages
+nothing links to, and `[[wikilinks]]` pointing at pages that don't exist. It
+writes nothing, however obvious the repair looks — the reader decides what to
+fix, and that fix is an ordinary edit afterwards.
+
 **Etiquette for multiple librarians.** More than one agent may work this wiki, and
 they won't see each other's sessions. So: prefer appending to rewriting, keep
 edits small and self-explanatory, and never delete someone else's page to make

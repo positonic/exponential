@@ -18,6 +18,8 @@ fn main() {
                 "wiki_commit_turn",
                 "wiki_search",
                 "wiki_get_root",
+                "wiki_fetch_url",
+                "wiki_read_external",
             ]),
         ),
     )

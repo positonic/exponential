@@ -22,6 +22,7 @@
 //! confirm it is talking to the shell.
 
 mod auth;
+mod source;
 mod wiki;
 
 use std::sync::OnceLock;
@@ -111,6 +112,8 @@ pub fn run() {
             wiki::wiki_commit_turn,
             wiki::wiki_search,
             wiki::wiki_get_root,
+            source::wiki_fetch_url,
+            source::wiki_read_external,
         ])
         .setup(|app| {
             resolve_wiki_root(app.handle());

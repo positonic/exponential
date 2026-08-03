@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-fetch-url"
+description = "Enables the wiki_fetch_url command without any pre-configured scope."
+commands.allow = ["wiki_fetch_url"]
+
+[[permission]]
+identifier = "deny-wiki-fetch-url"
+description = "Denies the wiki_fetch_url command without any pre-configured scope."
+commands.deny = ["wiki_fetch_url"]
