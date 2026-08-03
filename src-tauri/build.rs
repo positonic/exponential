@@ -11,6 +11,9 @@ fn main() {
                 "desktop_shell_info",
                 "desktop_start_login",
                 "desktop_get_pending_auth",
+                "wiki_init",
+                "wiki_list_pages",
+                "wiki_read_page",
             ]),
         ),
     )

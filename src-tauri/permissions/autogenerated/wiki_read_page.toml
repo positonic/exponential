@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-read-page"
+description = "Enables the wiki_read_page command without any pre-configured scope."
+commands.allow = ["wiki_read_page"]
+
+[[permission]]
+identifier = "deny-wiki-read-page"
+description = "Denies the wiki_read_page command without any pre-configured scope."
+commands.deny = ["wiki_read_page"]

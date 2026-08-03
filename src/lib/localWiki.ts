@@ -1,0 +1,148 @@
+/**
+ * The local wiki's tool contract, as the web app sees it.
+ *
+ * This module is the seam between "a wiki operation" and "however this device
+ * happens to perform it". Today the only implementation is the Tauri shell's
+ * IPC; the point of naming the operations here, in plain data, is that the next
+ * one — a local inference loop, an MCP server, a different shell — implements
+ * the same five calls without anything upstream noticing.
+ *
+ * The schemas are hand-written JSON Schema rather than zod, and that is not a
+ * style choice. `@mastra/client-js` runs anything zod-shaped through a converter
+ * that mangles this app's zod build into `{"anyOf":[{},{"type":"null"}]}`, which
+ * the model provider rejects outright — the turn dies before the model sees
+ * anything. Non-zod objects are forwarded untouched. (Found by the V2 spike; see
+ * `/dev/mastra-client-tools`.) Plain JSON Schema also happens to be what a
+ * brain-agnostic contract wants.
+ */
+
+import { getDesktopBridge } from "./platform";
+
+/** Where the wiki lives and whether it has history. */
+export interface WikiInfo {
+  root: string;
+  /** True when this call created the folder — the UI can mention it once. */
+  created: boolean;
+  /** False when git was unavailable; the wiki still works, without history. */
+  git: boolean;
+}
+
+export interface WikiPage {
+  /** Path relative to the wiki root — the handle every other call takes. */
+  path: string;
+  bytes: number;
+}
+
+/**
+ * Wiki operations available on this device, or null when there is no device to
+ * ask (a browser, or the Electron shell).
+ */
+export interface WikiBridge {
+  /** Create the wiki if absent. Idempotent; safe to call every turn. */
+  init: () => Promise<WikiInfo>;
+  listPages: () => Promise<WikiPage[]>;
+  readPage: (path: string) => Promise<string>;
+}
+
+/** Tauri's IPC primitive, as narrowly as we need it. */
+type TauriWindow = Window & {
+  __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
+};
+
+function invoker(): ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null {
+  if (getDesktopBridge()?.shell !== "tauri") return null;
+  const invoke = (window as TauriWindow).__TAURI_INTERNALS__?.invoke;
+  return typeof invoke === "function" ? invoke : null;
+}
+
+/**
+ * The wiki bridge for this device, or null if there isn't one.
+ *
+ * Null is the normal case: on the web and in the Electron shell there is no
+ * jailed filesystem to talk to, which is exactly why the librarian is not
+ * offered there.
+ */
+export function getWikiBridge(): WikiBridge | null {
+  const invoke = invoker();
+  if (!invoke) return null;
+
+  return {
+    init: async () => (await invoke("wiki_init")) as WikiInfo,
+    listPages: async () => ((await invoke("wiki_list_pages")) ?? []) as WikiPage[],
+    readPage: async (path: string) => {
+      const content = await invoke("wiki_read_page", { path });
+      return typeof content === "string" ? content : "";
+    },
+  };
+}
+
+/** Is this device able to host a local wiki at all? */
+export function isLocalWikiAvailable(): boolean {
+  return getWikiBridge() !== null;
+}
+
+/**
+ * The librarian agent's id on the Mastra server.
+ *
+ * Deliberately absent from `getMastraAgents`' server-side allow-list: that list
+ * feeds every chat surface, and an entry there would offer the librarian on the
+ * web and in Electron, where its tools cannot run and every turn would fail.
+ * The picker entry is injected client-side instead, only where the bridge exists.
+ */
+export const LOCAL_WIKI_AGENT_ID = "localWikiAgent";
+
+/** Name shown in the picker and on the agent's chat bubbles. */
+export const LOCAL_WIKI_AGENT_NAME = "Local wiki";
+
+/** One tool as `@mastra/client-js` wants it: schema, plus a local `execute`. */
+export interface WikiClientTool {
+  id: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  execute: (args: Record<string, unknown>) => Promise<unknown>;
+}
+
+const NO_ARGS = { type: "object", properties: {}, additionalProperties: false } as const;
+
+/**
+ * The tools handed to the librarian for one turn, each executing on this device.
+ *
+ * Descriptions are written for the model, not for us: they say what the tool is
+ * for and when to reach for it, because that text is the only guidance the model
+ * gets at the moment it decides.
+ */
+export function buildWikiClientTools(bridge: WikiBridge): Record<string, WikiClientTool> {
+  return {
+    wiki_list_pages: {
+      id: "wiki_list_pages",
+      description:
+        "List every page in the wiki, by path. Use this to find out what exists before answering.",
+      inputSchema: { ...NO_ARGS },
+      execute: async () => ({ pages: await bridge.listPages() }),
+    },
+    wiki_read_page: {
+      id: "wiki_read_page",
+      description:
+        "Read one page's markdown. Paths are relative to the wiki root, e.g. 'index.md' or " +
+        "'people/ada.md'. Start with index.md and follow its [[wikilinks]].",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Page path relative to the wiki root, including the .md extension.",
+          },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      execute: async (args) => {
+        // The model supplies this, so treat it as untrusted input rather than a
+        // string. (The Rust side jails it regardless; this just keeps a
+        // malformed call from becoming a confusing filesystem error.)
+        const path = typeof args.path === "string" ? args.path : "";
+        return { content: await bridge.readPage(path) };
+      },
+    },
+  };
+}

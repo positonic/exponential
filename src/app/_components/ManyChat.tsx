@@ -31,7 +31,14 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 import { classifyStreamError } from '~/lib/chat/streamProtocol';
 import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
-import { streamChatResponse } from '~/lib/chat/streamChatResponse';
+import { streamChatResponse, type ChatStreamUpdate } from '~/lib/chat/streamChatResponse';
+import { createLocalWikiStreamer, streamLocalWikiChat } from '~/lib/chat/streamLocalWikiChat';
+import {
+  LOCAL_WIKI_AGENT_ID,
+  LOCAL_WIKI_AGENT_NAME,
+  buildWikiClientTools,
+  getWikiBridge,
+} from '~/lib/localWiki';
 import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdown';
 import { failureCopy } from '~/lib/chat/failureCopy';
 import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
@@ -665,6 +672,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const [isStreaming, setIsStreaming] = useState(false);
   const transcribeAudio = api.tools.transcribe.useMutation();
   const chooseAgent = api.mastra.chooseAgent.useMutation();
+  // The one call to our own backend a local-wiki turn makes. Everything after it
+  // goes browser → Mastra directly, so wiki content never reaches Vercel.
+  const mintAgentToken = api.mastra.mintAgentToken.useMutation();
   // Server-side /api/chat/stream now logs interactions (with full token/cache
   // data) and surfaces the row id back via the meta frame. The previous
   // client-side logInteraction.mutateAsync was removed to fix double-logging.
@@ -1161,7 +1171,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       const startTime = Date.now();
 
       // Get agent name for display — use custom assistant name if active
-      const agentName = customAssistant && targetAgentId === 'assistantAgent'
+      // The librarian is injected into the picker client-side (it only exists
+      // where its tools can run), so it is deliberately absent from mastraAgents.
+      const agentName = targetAgentId === LOCAL_WIKI_AGENT_ID
+        ? LOCAL_WIKI_AGENT_NAME
+        : customAssistant && targetAgentId === 'assistantAgent'
         ? customAssistant.name
         : mastraAgents?.find(a => a.id === targetAgentId)?.name ?? 'Agent';
 
@@ -1256,23 +1270,47 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       // stripping, idle-timeout watchdog) live in ~/lib/chat so every chat
       // surface consumes one implementation. Each update rewrites the trailing
       // AI bubble with the cumulative parsed state.
-      const streamResult = await streamChatResponse(streamPayload, {
-        onUpdate: (update) => {
-          streamedChars = update.rawLength;
-          setMessages(prev => {
-            const updated = [...prev];
-            const lastMessage = updated[updated.length - 1];
-            if (lastMessage && lastMessage.type === 'ai') {
-              updated[updated.length - 1] = {
-                ...lastMessage,
-                content: update.displayText,
-                ...(update.toolCalls.length > 0 ? { toolCalls: update.toolCalls } : {}),
-              };
-            }
-            return updated;
-          });
-        },
-      });
+      const renderUpdate = (update: ChatStreamUpdate) => {
+        streamedChars = update.rawLength;
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastMessage = updated[updated.length - 1];
+          if (lastMessage && lastMessage.type === 'ai') {
+            updated[updated.length - 1] = {
+              ...lastMessage,
+              content: update.displayText,
+              ...(update.toolCalls.length > 0 ? { toolCalls: update.toolCalls } : {}),
+            };
+          }
+          return updated;
+        });
+      };
+
+      // The local wiki is the one agent that does NOT stream through our backend.
+      // Its tools operate on files on this machine, so the turn runs browser ↔
+      // Mastra directly and executes them here; routing it through
+      // /api/chat/stream would both break the tools (that protocol is one-shot)
+      // and put wiki content through Vercel, which is the thing we're avoiding.
+      const wikiBridge = targetAgentId === LOCAL_WIKI_AGENT_ID ? getWikiBridge() : null;
+      if (targetAgentId === LOCAL_WIKI_AGENT_ID && !wikiBridge) {
+        throw new Error('The local wiki is only available in the desktop app.');
+      }
+
+      const streamResult = wikiBridge
+        ? await (async () => {
+            // Idempotent, and cheap enough to do every turn — it guarantees the
+            // folder, its git repo and the seeded conventions exist before the
+            // librarian is asked to read them.
+            await wikiBridge.init();
+            const { token, mastraUrl } = await mintAgentToken.mutateAsync();
+            return streamLocalWikiChat(
+              createLocalWikiStreamer(mastraUrl, token),
+              coreMessages,
+              buildWikiClientTools(wikiBridge),
+              { onUpdate: renderUpdate },
+            );
+          })()
+        : await streamChatResponse(streamPayload, { onUpdate: renderUpdate });
       const fullResponse = streamResult.displayText;
       const interactionId = streamResult.interactionId;
 

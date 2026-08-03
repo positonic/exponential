@@ -22,6 +22,7 @@
 //! confirm it is talking to the shell.
 
 mod auth;
+mod wiki;
 
 use std::sync::OnceLock;
 
@@ -97,10 +98,14 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .manage(auth::LoginState::default())
+        .manage(wiki::WikiRoot::default())
         .invoke_handler(tauri::generate_handler![
             desktop_shell_info,
             auth::desktop_start_login,
             auth::desktop_get_pending_auth,
+            wiki::wiki_init,
+            wiki::wiki_list_pages,
+            wiki::wiki_read_page,
         ])
         .setup(|app| {
             build_main_window(app.handle())?;

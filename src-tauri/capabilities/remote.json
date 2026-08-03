@@ -17,6 +17,9 @@
     "opener:allow-open-url",
     "allow-desktop-shell-info",
     "allow-desktop-start-login",
-    "allow-desktop-get-pending-auth"
+    "allow-desktop-get-pending-auth",
+    "allow-wiki-init",
+    "allow-wiki-list-pages",
+    "allow-wiki-read-page"
   ]
 }
