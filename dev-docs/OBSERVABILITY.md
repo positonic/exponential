@@ -47,6 +47,16 @@ Deploy a preview and trigger any error (previews report with
 Sentry issue has a readable (non-minified) stack trace — if not, source-map
 upload is broken.
 
+## Alerting
+
+New Sentry issues flow through the inbound webhook
+(`/api/webhooks/sentry`) → bug Ticket (authored by Errol) → best-effort
+announcements to **Zulip** (`sentryZulip.ts`) and **Matrix**
+(`sentryMatrix.ts`). The Matrix leg needs `MATRIX_HOMESERVER_URL`,
+`MATRIX_BOT_ACCESS_TOKEN`, and `MATRIX_SENTRY_ROOM_ID` set (see
+`.env.example`); the room must be unencrypted and the bot joined. Recurring
+errors that dedup onto an existing ticket do not re-notify.
+
 ## Other signals
 
 - **Vercel function logs** — tRPC internal errors are also `console.error`ed

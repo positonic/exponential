@@ -3,6 +3,7 @@ import { createTicketWithNumber } from "~/plugins/product/server/services/create
 import { ticketUrlId } from "~/lib/fun-ids";
 import { buildBugBody, type SentryBug } from "./sentryPayload";
 import { notifyZulipOfSentryBug } from "./sentryZulip";
+import { notifyMatrixOfSentryBug } from "./sentryMatrix";
 
 /**
  * Ingests a normalized {@link SentryBug} as a Bug Ticket in Exponential.
@@ -154,13 +155,15 @@ export async function ingestSentryBug(
   // Only on creation — recurring errors that dedup above do not re-notify.
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
   const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
-  await notifyZulipOfSentryBug(db, {
+  const bugNotification = {
     workspaceId: product.workspaceId,
     authorId: errol.id,
     title: bug.title,
     ticketUrl,
     sentryUrl: bug.url,
-  });
+  };
+  await notifyZulipOfSentryBug(db, bugNotification);
+  await notifyMatrixOfSentryBug(bugNotification);
 
   return { created: true, ticketId: ticket.id };
 }

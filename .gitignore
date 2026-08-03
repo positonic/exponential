@@ -106,3 +106,4 @@ db-backups/
 .impeccable/
 .claude/skills/impeccable/
 .claude/skills/verify/
+.env*
