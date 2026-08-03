@@ -73,7 +73,7 @@ export interface MergeInput {
   remoteEditedAt: Date;
 }
 
-function fieldEquals(
+export function fieldEquals(
   a: SyncedFields[SyncedFieldKey] | undefined,
   b: SyncedFields[SyncedFieldKey] | undefined,
 ): boolean {
