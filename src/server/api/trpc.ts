@@ -81,27 +81,29 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           throw new Error('Invalid token: missing user identifier');
         }
 
-        console.log('🔐 [JWT DEBUG] Token decoded successfully', {
-          userId: userId,
-          userEmail: decoded.email,
-          tokenType: decoded.tokenType,
-          issuedAt: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'not set',
-          expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'not set',
-          securityVersion: decoded.securityVersion
-        });
+        // PII (email, name) must never be logged here — this runs on every
+        // JWT-authenticated request, including production.
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔐 [JWT DEBUG] Token decoded successfully', {
+            userId: userId,
+            tokenType: decoded.tokenType,
+            issuedAt: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'not set',
+            expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'not set',
+            securityVersion: decoded.securityVersion
+          });
+        }
 
         // Find the user
         const user = await db.user.findUnique({
           where: { id: userId }
         });
 
-        console.log('👤 [USER LOOKUP] Database user lookup', {
-          userId: userId,
-          userFound: !!user,
-          userEmail: user?.email || 'not found',
-          userName: user?.name || 'not found',
-          userCreatedAt: 'not available in token'
-        });
+        if (process.env.NODE_ENV === 'development') {
+          console.log('👤 [USER LOOKUP] Database user lookup', {
+            userId: userId,
+            userFound: !!user,
+          });
+        }
 
         if (user) {
           // Create a session-like object from the JWT token
@@ -127,7 +129,11 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           };
         }
       } catch (error) {
-        console.error('JWT verification failed:', error);
+        // Log only the message — never the raw token or decoded payload.
+        console.error(
+          'JWT verification failed:',
+          error instanceof Error ? error.message : 'unknown error',
+        );
       }
     }
   }
