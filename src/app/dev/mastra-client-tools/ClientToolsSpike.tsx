@@ -3,6 +3,8 @@
 import { MastraClient } from "@mastra/client-js";
 import { useRef, useState } from "react";
 
+import { api } from "~/trpc/react";
+
 /**
  * V2 transport spike: can a browser stream a turn to the Mastra server and
  * execute a tool *locally* mid-turn?
@@ -23,13 +25,6 @@ interface Event {
   at: number;
   kind: "info" | "tool-call" | "local-exec" | "text" | "error" | "done";
   detail: string;
-}
-
-interface TokenResponse {
-  token: string;
-  userId: string;
-  synthetic: boolean;
-  mastraUrl: string;
 }
 
 /** Agent to drive. The weather demo agent touches no user data. */
@@ -55,6 +50,7 @@ const PROMPT =
   "Name the city in your answer.";
 
 export function ClientToolsSpike() {
+  const mintAgentToken = api.mastra.mintAgentToken.useMutation();
   const [events, setEvents] = useState<Event[]>([]);
   const [running, setRunning] = useState(false);
   const executed = useRef(0);
@@ -72,10 +68,14 @@ export function ClientToolsSpike() {
     setRunning(true);
 
     try {
-      const res = await fetch("/api/dev/mastra-agent-token");
-      if (!res.ok) throw new Error(`token mint failed: ${res.status}`);
-      const { token, userId, synthetic, mastraUrl } = (await res.json()) as TokenResponse;
-      log("info", `minted agent JWT for ${userId}${synthetic ? " (synthetic)" : ""}`);
+      // The same protected procedure the local wiki uses in anger. The spike
+      // originally had its own dev-only route that minted a token for a
+      // synthetic user when nobody was signed in — convenient for driving this
+      // page headlessly, and a credential-minting endpoint with no
+      // authentication behind a single NODE_ENV check. Reusing the real
+      // procedure costs a sign-in and removes the endpoint entirely.
+      const { token, mastraUrl } = await mintAgentToken.mutateAsync();
+      log("info", `minted agent JWT via mastra.mintAgentToken`);
       log("info", `streaming to ${mastraUrl} as ${SPIKE_AGENT_ID}`);
 
       // Straight from the browser to Mastra — no Next.js route in between. If

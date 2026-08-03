@@ -46,6 +46,52 @@ Completing sign-in needs one manual step that no shell can avoid: browsers ask
 "Open Exponential Beta?" before handing a custom scheme to the OS. The Electron
 shell prompts identically.
 
+## The local wiki
+
+A git-backed folder of markdown the librarian agent maintains, at
+`~/Documents/exponential-wiki` by default. Point a build somewhere else with:
+
+```bash
+EXPONENTIAL_WIKI_ROOT=/tmp/scratch-wiki npm run tauri:dev
+```
+
+The resolved root is settled once at startup and persisted to the Tauri store, so
+it survives a restart and cannot change underneath a turn that is halfway through
+reading and writing pages.
+
+**There is deliberately no command to change the root from the page.** The wiki
+commands are reachable from a remote origin, and a jail whose walls the caller
+can move is not a jail — a page-callable setter would turn "read inside the wiki"
+into "read anywhere" for any script running on that origin. Configuring the root
+is an out-of-band act.
+
+`seeds/schema.md` is the wiki's contract: naming, `[[wikilinks]]`, index/log
+discipline, and etiquette between multiple agents. It is seeded once and never
+overwritten, because the user owns it — editing it is how they change how their
+librarian behaves, and other agents (Claude Code, MCP, a local model later) read
+it too.
+
+## Security notes
+
+Answers to the three things reviewers reasonably ask about this shell.
+
+**Does a page on an OAuth provider inherit IPC access?** No. `stays_in_app` keeps
+provider domains in-window (otherwise integration connect flows would finish in a
+browser tab the app can never hear back from), but Tauri evaluates the capability
+against the webview's *current* URL. An origin absent from `remote.urls` gets the
+injected global and no granted commands. Verified on a release build: navigating
+to `https://github.com` and invoking `desktop_shell_info` returns *"Command
+desktop_shell_info not allowed by ACL"*.
+
+**Why is `csp` null?** Because the window loads a *remote* page, and Tauri's CSP
+setting governs content Tauri itself serves. The policy that matters for
+`exponential.im` is the one that origin sends. Setting a value here would look
+like defence and provide none. (The web app not sending a CSP is a real gap, but
+it's the web app's to close, and it affects browsers equally.)
+
+**Can the page move the wiki root?** No — see the wiki section above. That is the
+one deliberate omission from the command surface.
+
 ## Adding a command
 
 Remote pages are not trusted by default, so a new `#[tauri::command]` needs three

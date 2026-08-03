@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-search"
+description = "Enables the wiki_search command without any pre-configured scope."
+commands.allow = ["wiki_search"]
+
+[[permission]]
+identifier = "deny-wiki-search"
+description = "Denies the wiki_search command without any pre-configured scope."
+commands.deny = ["wiki_search"]

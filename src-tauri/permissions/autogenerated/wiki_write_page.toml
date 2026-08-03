@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-write-page"
+description = "Enables the wiki_write_page command without any pre-configured scope."
+commands.allow = ["wiki_write_page"]
+
+[[permission]]
+identifier = "deny-wiki-write-page"
+description = "Denies the wiki_write_page command without any pre-configured scope."
+commands.deny = ["wiki_write_page"]

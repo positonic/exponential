@@ -233,6 +233,51 @@ function parseExpiration(expiresIn: string): number {
 
 
 export const mastraRouter = createTRPCRouter({
+  /**
+   * Mint a short-lived agent JWT for the browser to stream to Mastra with.
+   *
+   * Exists for the local wiki, which is the one chat path that does NOT go
+   * through `/api/chat/stream`: the turn streams from the webview straight to
+   * Mastra so wiki content never passes through this backend. This call is the
+   * single exception — the only moment Vercel is involved in a wiki turn — so
+   * the token is deliberately short-lived and carries nothing but who the user
+   * is.
+   *
+   * The audience is `mastra-agents`, the same claim the Mastra server's JWT
+   * middleware already verifies for every other agent call; this grants no
+   * capability that a normal chat turn doesn't already have.
+   */
+  mintAgentToken: protectedProcedure
+    .output(
+      z.object({
+        token: z.string(),
+        /** Where to stream. The browser cannot read the server's env itself. */
+        mastraUrl: z.string(),
+        expiresInMinutes: z.number(),
+      }),
+    )
+    .mutation(({ ctx }) => {
+      if (!MASTRA_API_URL) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "MASTRA_API_URL is not configured",
+        });
+      }
+      // A wiki turn is not one request: each client-tool round re-POSTs the
+      // whole turn, and the agent is allowed up to twenty steps. If the token
+      // expires partway through, the next round 401s and the user loses the
+      // answer mid-sentence with no recovery path. So this matches the
+      // agent-context default rather than being tightened for its own sake —
+      // the local wiki is not a special case, and the token is a browser-held
+      // bearer either way.
+      const expiresInMinutes = 30;
+      return {
+        token: generateAgentJWT(ctx.session.user, expiresInMinutes),
+        mastraUrl: MASTRA_API_URL,
+        expiresInMinutes,
+      };
+    }),
+
   getMastraAgents: protectedProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {

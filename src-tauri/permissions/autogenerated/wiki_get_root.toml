@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-get-root"
+description = "Enables the wiki_get_root command without any pre-configured scope."
+commands.allow = ["wiki_get_root"]
+
+[[permission]]
+identifier = "deny-wiki-get-root"
+description = "Denies the wiki_get_root command without any pre-configured scope."
+commands.deny = ["wiki_get_root"]

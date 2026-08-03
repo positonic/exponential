@@ -22,6 +22,7 @@
 //! confirm it is talking to the shell.
 
 mod auth;
+mod wiki;
 
 use std::sync::OnceLock;
 
@@ -96,13 +97,23 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(auth::LoginState::default())
+        .manage(wiki::WikiRoot::default())
         .invoke_handler(tauri::generate_handler![
             desktop_shell_info,
             auth::desktop_start_login,
             auth::desktop_get_pending_auth,
+            wiki::wiki_init,
+            wiki::wiki_list_pages,
+            wiki::wiki_read_page,
+            wiki::wiki_write_page,
+            wiki::wiki_commit_turn,
+            wiki::wiki_search,
+            wiki::wiki_get_root,
         ])
         .setup(|app| {
+            resolve_wiki_root(app.handle());
             build_main_window(app.handle())?;
 
             let handle = app.handle().clone();
@@ -116,6 +127,39 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Exponential Beta");
+}
+
+/// Settle where the wiki lives, once, at startup.
+///
+/// Resolving here rather than per-call means the root cannot change underneath a
+/// turn that is halfway through reading and writing pages. The resolved value is
+/// written back to the store so the choice survives a restart — including a
+/// first run, where it pins the default rather than leaving it implicit and
+/// liable to move if the default ever changes.
+fn resolve_wiki_root(app: &tauri::AppHandle) {
+    use tauri_plugin_store::StoreExt;
+
+    let stored = app
+        .store(wiki::STORE_FILE)
+        .ok()
+        .and_then(|store| store.get(wiki::STORE_KEY))
+        .and_then(|value| value.as_str().map(str::to_owned));
+
+    let root = wiki::resolve_root(stored);
+
+    if let Ok(store) = app.store(wiki::STORE_FILE) {
+        store.set(wiki::STORE_KEY, root.to_string_lossy().to_string());
+        // Best-effort: a wiki that works but forgets its location next launch
+        // beats refusing to start.
+        if let Err(e) = store.save() {
+            eprintln!("[wiki] could not persist the wiki root: {e}");
+        }
+    }
+
+    *app.state::<wiki::WikiRoot>()
+        .0
+        .lock()
+        .expect("wiki root mutex poisoned") = Some(root);
 }
 
 /// Create the single app window pointed at the remote web app.
@@ -185,6 +229,15 @@ fn open_externally(app: &tauri::AppHandle, url: &str) {
 /// Non-http(s) schemes (`about:`, `blob:`, `data:`) are the page's own business
 /// and pass through untouched — handing them to the browser would break previews
 /// and downloads.
+///
+/// The obvious worry about keeping providers in-window is whether a page on
+/// `accounts.google.com` — or an XSS on one — inherits this window's IPC access
+/// and can then call the wiki commands. It does not. Tauri evaluates the
+/// capability against the webview's *current* URL, so an origin absent from
+/// `remote.urls` gets the injected global but no granted commands. Verified on a
+/// release build: navigating this window to `https://github.com` and invoking
+/// `desktop_shell_info` returns "Command desktop_shell_info not allowed by ACL".
+/// Re-check this if the capability ever gains a wildcard origin.
 fn stays_in_app(url: &Url) -> bool {
     if !matches!(url.scheme(), "http" | "https") {
         return true;

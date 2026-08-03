@@ -38,6 +38,43 @@ jobs:
           SKIP_ENV_VALIDATION: true
           AUTH_SECRET: test-secret-for-ci
 
+  # The Tauri shell's Rust tests. Worth its own job rather than being left to
+  # whoever remembers to run `cargo test` locally: the wiki commands are
+  # reachable from a remote page, so the path-jail tests here are the thing
+  # standing between a model-supplied path and the user's filesystem. They are
+  # dependency-free (temp dirs and the git binary, which the runner has), so the
+  # job is cheap.
+  #
+  # Only runs when src-tauri changes — most PRs never touch it, and the Rust
+  # toolchain plus a cold cargo build is minutes.
+  tauri-tests:
+    name: Tauri (Rust) Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changes
+        name: Did anything in src-tauri change?
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -q '^src-tauri/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.changed == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          workspaces: src-tauri
+      - name: cargo test
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: src-tauri
+        run: cargo test
+
   # Dedicated merge gate: apply every migration from scratch against a real
   # Postgres. Fails the PR (once required in branch protection) if any migration
   # errors — bad SQL, a reference to a not-yet-created column, ordering drift, or

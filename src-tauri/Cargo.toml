@@ -26,6 +26,7 @@ serde_json = "1"
 base64 = "0.22"
 getrandom = "0.3"
 sha2 = "0.10"
+tauri-plugin-store = "2.4.4"
 
 [profile.dev]
 # The shell is a thin wrapper around a remote page; incremental debug builds are
