@@ -24,10 +24,29 @@ import { LOCAL_WIKI_AGENT_ID, WIKI_WRITE_TOOLS, type WikiClientTool } from '../l
  * requests, and `toolCalls` grows across them.
  */
 
+/**
+ * How many model↔tool rounds one turn may take before we stop.
+ *
+ * The tools run on the user's machine, so an agent that keeps calling them is
+ * spending their disk and their tokens. Matches the agent's own `maxSteps`.
+ */
+const MAX_TOOL_ROUNDS = 20;
+
+/**
+ * A message in the turn's history.
+ *
+ * Wider than `ChatStreamCoreMessage` because continuing a turn means sending
+ * back the assistant's tool calls and their results, which are structured parts
+ * rather than prose.
+ */
+export type WikiTurnMessage =
+  | ChatStreamCoreMessage
+  | { role: 'assistant' | 'tool'; content: Record<string, unknown>[] };
+
 /** Just enough of `@mastra/client-js` to stream a turn — injectable for tests. */
 export interface WikiAgentStreamer {
   stream: (
-    messages: ChatStreamCoreMessage[],
+    messages: WikiTurnMessage[],
     options: {
       clientTools: Record<string, WikiClientTool>;
     },
@@ -85,9 +104,6 @@ interface ToolCallPayload {
   toolName?: string;
   toolCallId?: string;
   args?: Record<string, unknown>;
-  result?: unknown;
-  error?: unknown;
-  isError?: boolean;
 }
 
 interface TextPayload {
@@ -102,13 +118,15 @@ function toolPayload(payload: unknown): ToolCallPayload {
   return (asRecord(payload) ?? {}) as ToolCallPayload;
 }
 
-/** Error text for a tool chip, without dumping an object into the UI. */
-function errorMessage(payload: ToolCallPayload): string | undefined {
-  const raw = payload.error;
-  if (typeof raw === 'string') return raw;
-  const record = asRecord(raw);
-  const message = record?.message;
-  return typeof message === 'string' ? message : undefined;
+/**
+ * Readable text for something a tool threw. The Rust side rejects with a plain
+ * string (`"path is outside the wiki folder"`), so that case matters most.
+ */
+function thrownMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  const message = asRecord(error)?.message;
+  return typeof message === 'string' ? message : 'The wiki tool failed';
 }
 
 /**
@@ -157,102 +175,140 @@ export async function streamLocalWikiChat(
     rawLength,
   });
 
-  const response = await agent.stream(messages, { clientTools });
+  // Tool schemas only — no `execute`.
+  //
+  // Handing client-js an executable tool makes it drive the continuation itself,
+  // and on this build that continuation re-POSTs only the messages accumulated
+  // during the stream: the user's own message is dropped. The model gets a tool
+  // result with no idea what was asked, and answers by introducing itself. So we
+  // declare the contract to the server and run the loop below ourselves, which
+  // is also the honest shape — the tools are ours, executing on this device.
+  const declaredTools = Object.fromEntries(
+    Object.entries(clientTools).map(([name, { execute: _execute, ...schema }]) => [name, schema]),
+  ) as Record<string, WikiClientTool>;
 
-  await response.processDataStream({
-    onChunk: (chunk) => {
-      // Once the turn has failed, stop folding later chunks into the answer —
-      // whatever follows an error frame is not part of a reply the user should
-      // see.
-      if (failure.error) return;
+  // A turn is a conversation, not a request. Bounded so a model that keeps
+  // calling tools cannot spin forever on the user's machine.
+  const history: WikiTurnMessage[] = [...messages];
 
-      switch (chunk.type) {
-        case 'text-delta': {
-          const text = (asRecord(chunk.payload) as TextPayload | null)?.text;
-          if (typeof text === 'string' && text) {
-            displayText += text;
-            rawLength += text.length;
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    const pending: { id: string; name: string; args: Record<string, unknown> }[] = [];
+
+    const response = await agent.stream(history, { clientTools: declaredTools });
+    await response.processDataStream({
+      onChunk: (chunk) => {
+        if (failure.error) return;
+
+        switch (chunk.type) {
+          case 'text-delta': {
+            const text = (asRecord(chunk.payload) as TextPayload | null)?.text;
+            if (typeof text === 'string' && text) {
+              displayText += text;
+              rawLength += text.length;
+              onUpdate?.(snapshot());
+            }
+            return;
+          }
+          case 'tool-call': {
+            const payload = toolPayload(chunk.payload);
+            const name = payload.toolName ?? 'tool';
+            const id = payload.toolCallId ?? `${name}-${toolCallsById.size}`;
+            const args = payload.args ?? {};
+            pending.push({ id, name, args });
+            toolCallsById.set(id, { id, name, args, status: 'running' });
+            rawLength += 1;
             onUpdate?.(snapshot());
+            return;
           }
-          return;
-        }
-        case 'tool-call': {
-          const payload = toolPayload(chunk.payload);
-          const id = payload.toolCallId ?? payload.toolName ?? `tool-${toolCallsById.size}`;
-          toolCallsById.set(id, {
-            id,
-            name: payload.toolName ?? 'tool',
-            args: payload.args,
-            status: 'running',
-          });
-          rawLength += 1;
-          onUpdate?.(snapshot());
-          return;
-        }
-        case 'tool-result': {
-          const payload = toolPayload(chunk.payload);
-          const id = payload.toolCallId ?? payload.toolName ?? '';
-          const existing = toolCallsById.get(id);
-          // A result for a call we never saw still deserves a chip; dropping it
-          // would hide work that actually touched the user's files.
-          const failed = payload.isError === true || payload.error !== undefined;
-          const name = payload.toolName ?? existing?.name ?? 'tool';
-          if (!failed && WIKI_WRITE_TOOLS.has(name)) {
-            wroteSomething = true;
+          case 'error': {
+            // Ends the turn. Surfacing it as a rejection rather than resolving
+            // with half an answer is what lets the caller reuse the existing
+            // failure/retry handling.
+            const record = asRecord(chunk.payload);
+            const nested = asRecord(record?.error);
+            failure.error = new Error(
+              (typeof nested?.message === 'string' ? nested.message : undefined) ??
+                (typeof record?.message === 'string' ? record.message : undefined) ??
+                'The local wiki agent stream failed',
+            );
+            return;
           }
-          toolCallsById.set(id, {
-            id,
-            name,
-            args: existing?.args,
-            status: failed ? 'error' : 'success',
-            ...(failed ? { errorMsg: errorMessage(payload) } : {}),
-          });
-          rawLength += 1;
-          onUpdate?.(snapshot());
-          return;
+          default:
+            // Unrecognised chunk types are not our business.
+            return;
         }
-        case 'tool-error': {
-          const payload = toolPayload(chunk.payload);
-          const id = payload.toolCallId ?? payload.toolName ?? '';
-          const existing = toolCallsById.get(id);
-          toolCallsById.set(id, {
-            id,
-            name: payload.toolName ?? existing?.name ?? 'tool',
-            args: existing?.args,
-            status: 'error',
-            errorMsg: errorMessage(payload),
-          });
-          rawLength += 1;
-          onUpdate?.(snapshot());
-          return;
-        }
-        case 'error': {
-          // A stream-level error ends the turn. Surfacing it as a rejection
-          // rather than resolving with half an answer is what lets the caller
-          // reuse the existing failure/retry handling.
-          const record = asRecord(chunk.payload);
-          const nested = asRecord(record?.error);
-          const message =
-            (typeof nested?.message === 'string' ? nested.message : undefined) ??
-            (typeof record?.message === 'string' ? record.message : undefined) ??
-            'The local wiki agent stream failed';
-          failure.error = new Error(message);
-          return;
-        }
-        default:
-          // Unrecognised chunk types are not our business.
-          return;
+      },
+    });
+
+    if (failure.error) break;
+    // No tools asked for: the model has said its piece and the turn is done.
+    if (pending.length === 0) return await finish();
+
+    // Run them here, on this device, and fold the outcome in ourselves. The
+    // stream carries no `tool-result` event on this build — the result reaches
+    // the model only by going back up in the next request — so our own call is
+    // the single source of truth for whether a tool ran and what it returned.
+    const results: WikiTurnMessage[] = [];
+    for (const call of pending) {
+      let result: unknown;
+      let failed: unknown;
+      try {
+        result = await clientTools[call.name]?.execute(call.args);
+        if (WIKI_WRITE_TOOLS.has(call.name)) wroteSomething = true;
+      } catch (error) {
+        failed = error;
+        // The model is told, so it can apologise or try a different path rather
+        // than pretending the write happened.
+        result = { error: thrownMessage(error) };
       }
-    },
-  });
+      toolCallsById.set(call.id, {
+        id: call.id,
+        name: call.name,
+        args: call.args,
+        status: failed ? 'error' : 'success',
+        ...(failed ? { errorMsg: thrownMessage(failed) } : {}),
+      });
+      rawLength += 1;
+      onUpdate?.(snapshot());
 
-  if (failure.error) throw failure.error;
+      results.push({
+        role: 'tool',
+        content: [
+          { type: 'tool-result', toolCallId: call.id, toolName: call.name, result },
+        ],
+      });
+    }
 
-  // After the stream, so the commit captures every write the turn made — not
-  // just the ones that had landed when some intermediate round finished.
-  if (wroteSomething && onTurnWrote) {
-    await onTurnWrote(turnSummary?.trim() ?? '');
+    // Carry the whole conversation forward — crucially including the user's
+    // original message, which is exactly what the library's own continuation
+    // loses.
+    history.push({
+      role: 'assistant',
+      content: pending.map((call) => ({
+        type: 'tool-call',
+        toolCallId: call.id,
+        toolName: call.name,
+        args: call.args,
+      })),
+    });
+    history.push(...results);
   }
 
-  return snapshot();
+  return finish();
+
+  /**
+   * End the turn: surface any stream failure, then commit once if it wrote.
+   *
+   * Committing here rather than per write is what makes the history readable —
+   * filing a page, linking it from `index.md` and appending to `log.md` are one
+   * change, and splitting them would let you revert the page while leaving the
+   * index pointing at a file that no longer exists.
+   */
+  async function finish(): Promise<ChatStreamUpdate> {
+    if (failure.error) throw failure.error;
+    if (wroteSomething && onTurnWrote) {
+      await onTurnWrote(turnSummary?.trim() ?? '');
+    }
+    return snapshot();
+  }
 }
