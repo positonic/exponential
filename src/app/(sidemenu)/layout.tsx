@@ -25,6 +25,7 @@ import { ZoeDrawer, ZoeFab } from '~/app/_components/layout/ZoeDrawer';
 import { CommandPalette } from '~/app/_components/layout/CommandPalette';
 import { ColorSchemeScript } from '@mantine/core';
 import { ThemeInitScript } from '~/app/_components/layout/ThemeInitScript';
+import { DesktopChromeScript } from '~/app/_components/layout/DesktopChromeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { SessionProvider } from "next-auth/react";
 import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
@@ -59,6 +60,8 @@ export default async function RootLayout({
             the (possibly just-migrated) mantine-color-scheme-value key. */}
         <ThemeInitScript />
         <ColorSchemeScript defaultColorScheme="dark" />
+        {/* Reserves the top-left corner for the desktop shells' window controls. */}
+        <DesktopChromeScript />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
