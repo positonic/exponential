@@ -1,0 +1,52 @@
+# Nightly live smoke test of the Notion ↔ Exponential ticket sync (chief.sage).
+#
+# Runs scripts/notion-sync-smoke.ts against PRODUCTION exponential.im using a
+# dedicated test product ("sync-smoke-test") and a sandbox Notion database
+# whose title must contain "SYNC-TEST" (the script hard-refuses anything else).
+# It exercises the real Notion API, the encrypted credential path, and the
+# deployed engine end-to-end: outbound mirror → inbound human edit → quiescence.
+#
+# Deliberately NOT run per-PR: it is slow, needs live secrets, and writes to a
+# live (sandbox) Notion database. Failure = red run in the Actions tab.
+#
+# Required repository secrets:
+#   EXPONENTIAL_TOKEN         API token for exponential.im (CLI-style token)
+#   NOTION_TEST_TOKEN         Internal-integration secret scoped to the sandbox
+#                             database only (a DIFFERENT bot than the sync's own
+#                             connection, so its edits read as human)
+#   NOTION_TEST_DATABASE_URL  Browser URL of the "Backlog SYNC-TEST" database
+
+name: Notion Sync Smoke Test
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # nightly 03:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: notion-sync-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Live sync smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run smoke test
+        env:
+          EXPONENTIAL_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+          NOTION_TEST_TOKEN: ${{ secrets.NOTION_TEST_TOKEN }}
+          NOTION_TEST_DATABASE_URL: ${{ secrets.NOTION_TEST_DATABASE_URL }}
+          SKIP_ENV_VALIDATION: "1"
+        run: npx tsx scripts/notion-sync-smoke.ts
