@@ -282,6 +282,27 @@ export const keyResultRouter = createTRPCRouter({
                   },
                 },
               },
+              // Linked Features — the second typed execution edge (ADR-0050).
+              features: {
+                include: {
+                  feature: {
+                    select: {
+                      id: true,
+                      name: true,
+                      status: true,
+                      product: {
+                        select: {
+                          id: true,
+                          name: true,
+                          slug: true,
+                          icon: true,
+                          color: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
             orderBy: { createdAt: "asc" },
           },
@@ -751,6 +772,146 @@ export const keyResultRouter = createTRPCRouter({
   // check updateLinkedProjects uses). Feature-side guard matches
   // feature.update: the feature must live in the same workspace as the KR and
   // the caller must be a member of that workspace.
+
+  // Update linked features (batch operation for modal save). Transactional
+  // delete-all-then-recreate mirroring updateLinkedProjects' shape, but with
+  // linkFeature's workspace-member authz (deliberately NOT the owner-only
+  // check updateLinkedProjects retains).
+  updateLinkedFeatures: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        featureIds: z.array(z.string()),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true, goalId: true },
+      });
+
+      const membership =
+        keyResult?.workspaceId != null
+          ? await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId)
+          : null;
+
+      if (!keyResult || (keyResult.userId !== userId && !membership)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const featureIds = [...new Set(input.featureIds)];
+
+      if (featureIds.length > 0) {
+        const features = await ctx.db.feature.findMany({
+          where: { id: { in: featureIds } },
+          select: {
+            id: true,
+            goalId: true,
+            product: { select: { workspaceId: true } },
+          },
+        });
+
+        if (features.length !== featureIds.length) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "One or more features not found",
+          });
+        }
+
+        if (
+          !keyResult.workspaceId ||
+          features.some(
+            (f) => f.product.workspaceId !== keyResult.workspaceId
+          )
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Feature belongs to a different workspace than this key result",
+          });
+        }
+
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+
+        // Fill-on-null applies to every link the replace creates (ADR-0050):
+        // features with no Objective alignment inherit the KR's Objective;
+        // aligned ones are never overwritten.
+        const unalignedIds = features
+          .filter((f) => f.goalId == null)
+          .map((f) => f.id);
+
+        await ctx.db.$transaction(async (tx) => {
+          await tx.keyResultFeature.deleteMany({
+            where: { keyResultId: input.keyResultId },
+          });
+          await tx.keyResultFeature.createMany({
+            data: featureIds.map((featureId) => ({
+              keyResultId: input.keyResultId,
+              featureId,
+            })),
+          });
+          if (unalignedIds.length > 0) {
+            await tx.feature.updateMany({
+              where: { id: { in: unalignedIds } },
+              data: { goalId: keyResult.goalId },
+            });
+          }
+        });
+      } else {
+        // Clearing the set removes link rows only — no feature-side guard
+        // needed, and no goalId is ever cleared on unlink.
+        await ctx.db.keyResultFeature.deleteMany({
+          where: { keyResultId: input.keyResultId },
+        });
+      }
+
+      // Return the key result with both execution edges, lean select only.
+      return ctx.db.keyResult.findUnique({
+        where: { id: input.keyResultId },
+        include: {
+          projects: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                },
+              },
+            },
+          },
+          features: {
+            include: {
+              feature: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                  product: {
+                    select: {
+                      id: true,
+                      name: true,
+                      slug: true,
+                      icon: true,
+                      color: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+    }),
 
   // Link a single feature to a key result
   linkFeature: protectedProcedure
