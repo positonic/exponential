@@ -1994,6 +1994,7 @@ export function OkrDetailDrawer({
                         name: p.project.name,
                         status: p.project.status,
                         href: null as string | null,
+                        progress: null as { done: number; total: number } | null,
                       })),
                       ...view.features.map((f) => ({
                         key: `feature-${f.feature.id}`,
@@ -2003,6 +2004,9 @@ export function OkrDetailDrawer({
                         href: workspace?.slug
                           ? `/w/${workspace.slug}/products/${f.feature.product.slug}/features/${f.feature.id}`
                           : null,
+                        // V2 delivery signal (ADR-0050): null for ticketless
+                        // features — no chip, never "0/0".
+                        progress: f.feature.ticketProgress ?? null,
                       })),
                     ].map((row, idx) => {
                       const rowClass = `grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3 ${
@@ -2024,8 +2028,15 @@ export function OkrDetailDrawer({
                               {row.status}
                             </div>
                           </div>
-                          <span className="rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
-                            {row.typeLabel}
+                          <span className="flex items-center gap-1.5">
+                            {row.progress && (
+                              <span className="rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">
+                                {row.progress.done}/{row.progress.total} tickets
+                              </span>
+                            )}
+                            <span className="rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+                              {row.typeLabel}
+                            </span>
                           </span>
                         </>
                       );
