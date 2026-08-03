@@ -24,6 +24,11 @@ export const FIXTURE = {
   productSlug: "fixture",
   productName: "Fixture Product",
   featureName: "Tickets accordion fixture",
+  objectiveTitle: "Fixture objective for OKR execution links",
+  keyResultTitle: "Linked work renders under the KR accordion",
+  okrPeriod: "Annual-2026",
+  projectName: "Fixture Linked Project",
+  projectSlug: "fixture-linked-project",
 } as const;
 
 export interface SeededFixture {
@@ -39,6 +44,8 @@ export interface SeededFixture {
   featureTicketCount: number;
   /** Total tickets seeded, including the scope-only one the accordion hides. */
   totalTicketCount: number;
+  /** App-relative URL of the OKR dashboard holding the seeded objective. */
+  okrUrl: string;
 }
 
 interface TicketSpec {
@@ -171,6 +178,68 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
   });
 
+  // OKR execution links (ADR-0050): one objective → one KR carrying BOTH a
+  // linked Project and a linked Feature, so the KR accordion on the OKRs tab
+  // renders one row of each kind (Project pill / Feature pill).
+  const project = await db.project.upsert({
+    where: { slug: FIXTURE.projectSlug },
+    update: {},
+    create: {
+      name: FIXTURE.projectName,
+      slug: FIXTURE.projectSlug,
+      status: "ACTIVE",
+      createdById: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  let objective = await db.goal.findFirst({
+    where: { workspaceId: workspace.id, title: FIXTURE.objectiveTitle },
+  });
+  objective ??= await db.goal.create({
+    data: {
+      title: FIXTURE.objectiveTitle,
+      period: FIXTURE.okrPeriod,
+      userId: user.id,
+      driUserId: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  let keyResult = await db.keyResult.findFirst({
+    where: { goalId: objective.id, title: FIXTURE.keyResultTitle },
+  });
+  keyResult ??= await db.keyResult.create({
+    data: {
+      title: FIXTURE.keyResultTitle,
+      targetValue: 100,
+      currentValue: 40,
+      startValue: 0,
+      unit: "percent",
+      period: FIXTURE.okrPeriod,
+      goalId: objective.id,
+      userId: user.id,
+      driUserId: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  await db.keyResultProject.upsert({
+    where: {
+      keyResultId_projectId: { keyResultId: keyResult.id, projectId: project.id },
+    },
+    update: {},
+    create: { keyResultId: keyResult.id, projectId: project.id },
+  });
+
+  await db.keyResultFeature.upsert({
+    where: {
+      keyResultId_featureId: { keyResultId: keyResult.id, featureId: feature.id },
+    },
+    update: {},
+    create: { keyResultId: keyResult.id, featureId: feature.id },
+  });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
     userId: user.id,
@@ -181,5 +250,6 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
+    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?tab=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }

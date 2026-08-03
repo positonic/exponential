@@ -10,6 +10,7 @@ import {
   IconTrash,
   IconMessageCircle,
   IconBriefcase,
+  IconBulb,
 } from "@tabler/icons-react";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -52,6 +53,33 @@ interface LinkedProject {
   };
 }
 
+/** The second typed execution edge on a KR (ADR-0050). */
+interface LinkedFeature {
+  feature: {
+    id: string;
+    name: string;
+    status: string;
+    product: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+    // V2 delivery signal (ADR-0050): null for ticketless features — no chip,
+    // never "0/0".
+    ticketProgress?: { done: number; total: number } | null;
+  };
+}
+
+/** One row in a KR's "executing work" list — a Project or a Feature. */
+interface LinkedWorkRow {
+  key: string;
+  kind: "project" | "feature";
+  name: string;
+  status: string;
+  href: string | null;
+  ticketProgress: { done: number; total: number } | null;
+}
+
 export interface ObjectiveCardKeyResult {
   id: string;
   title: string;
@@ -69,6 +97,7 @@ export interface ObjectiveCardKeyResult {
   user?: KrUser | null;
   driUser?: KrUser | null;
   projects?: LinkedProject[];
+  features?: LinkedFeature[];
 }
 
 interface LifeDomain {
@@ -283,8 +312,35 @@ function KrLine({
   const updated = relativeTimeLabel(latestCheckIn?.createdAt);
   const owner = kr.driUser ?? kr.user;
   const projects = kr.projects ?? [];
-  const hasProjects = projects.length > 0;
+  const features = kr.features ?? [];
   const projectCount = projects.length;
+  const featureCount = features.length;
+
+  // One merged "executing work" list: linked Projects and linked Features,
+  // each row tagged with its type (ADR-0050) — mirrors the detail drawer.
+  const linkedWork: LinkedWorkRow[] = [
+    ...projects.map(({ project }) => ({
+      key: `project-${project.id}`,
+      kind: "project" as const,
+      name: project.name,
+      status: project.status,
+      href: workspaceSlug
+        ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+        : `/projects/${project.slug}-${project.id}`,
+      ticketProgress: null,
+    })),
+    ...features.map(({ feature }) => ({
+      key: `feature-${feature.id}`,
+      kind: "feature" as const,
+      name: feature.name,
+      status: feature.status,
+      href: workspaceSlug
+        ? `/w/${workspaceSlug}/products/${feature.product.slug}/features/${feature.id}`
+        : null,
+      ticketProgress: feature.ticketProgress ?? null,
+    })),
+  ];
+  const hasLinkedWork = linkedWork.length > 0;
 
   return (
     <div className="border-t border-border-primary first:border-t-0">
@@ -336,7 +392,7 @@ function KrLine({
         {/* Value + bar */}
         <div className="flex w-[180px] flex-col items-end gap-1.5">
           <div className="flex items-center gap-2">
-            {hasProjects && (
+            {projectCount > 0 && (
               <Tooltip
                 label={`${projectCount} linked ${
                   projectCount === 1 ? "project" : "projects"
@@ -345,6 +401,18 @@ function KrLine({
                 <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
                   <IconBriefcase size={10} />
                   {projectCount}
+                </span>
+              </Tooltip>
+            )}
+            {featureCount > 0 && (
+              <Tooltip
+                label={`${featureCount} linked ${
+                  featureCount === 1 ? "feature" : "features"
+                }`}
+              >
+                <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
+                  <IconBulb size={10} />
+                  {featureCount}
                 </span>
               </Tooltip>
             )}
@@ -447,36 +515,55 @@ function KrLine({
         </div>
       </div>
 
-      {/* Linked projects panel */}
+      {/* Executing work panel: linked projects + linked features */}
       <Collapse in={isExpanded}>
         <div className="space-y-1 pb-3 pl-7 pr-7 pt-1">
-          {hasProjects ? (
-            projects.map(({ project }) => (
-              <Link
-                key={project.id}
-                href={
-                  workspaceSlug
-                    ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
-                    : `/projects/${project.slug}-${project.id}`
-                }
-                className="group/project flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
-                <IconBriefcase size={12} className="flex-shrink-0 text-text-muted" />
-                <span className="truncate text-xs text-text-secondary transition-colors group-hover/project:text-brand-primary">
-                  {project.name}
-                </span>
-                <Badge size="xs" variant="light" color="gray">
-                  {project.status}
-                </Badge>
-              </Link>
-            ))
+          {hasLinkedWork ? (
+            linkedWork.map((row) => {
+              const RowIcon = row.kind === "feature" ? IconBulb : IconBriefcase;
+              const rowClass =
+                "group/link flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover";
+              const content = (
+                <>
+                  <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
+                  <RowIcon size={12} className="flex-shrink-0 text-text-muted" />
+                  <span className="truncate text-xs text-text-secondary transition-colors group-hover/link:text-brand-primary">
+                    {row.name}
+                  </span>
+                  <Badge size="xs" variant="light" color="gray">
+                    {row.status}
+                  </Badge>
+                  {row.ticketProgress && (
+                    <span className="flex-shrink-0 rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">
+                      {row.ticketProgress.done}/{row.ticketProgress.total}{" "}
+                      tickets
+                    </span>
+                  )}
+                  <span className="ml-auto flex-shrink-0 rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+                    {row.kind === "feature" ? "Feature" : "Project"}
+                  </span>
+                </>
+              );
+              return row.href ? (
+                <Link
+                  key={row.key}
+                  href={row.href}
+                  className={rowClass}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {content}
+                </Link>
+              ) : (
+                <div key={row.key} className={rowClass}>
+                  {content}
+                </div>
+              );
+            })
           ) : (
             <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted">
               <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
               <IconBriefcase size={12} className="flex-shrink-0" />
-              <span>No linked projects</span>
+              <span>No linked projects or features</span>
             </div>
           )}
         </div>
