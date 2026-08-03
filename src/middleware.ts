@@ -67,11 +67,12 @@ export const config = {
     /*
      * Match all request paths except for the ones starting with:
      * - api (API routes)
+     * - monitoring (Sentry browser-event tunnel)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - signin (login page)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|signin).*)',
+    '/((?!api|monitoring|_next/static|_next/image|favicon.ico|signin).*)',
   ],
 }; 

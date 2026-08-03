@@ -3,6 +3,7 @@
  * for Docker builds.
  */
 import "./src/env.js";
+import { withSentryConfig } from "@sentry/nextjs";
 
 /** @type {import("next").NextConfig} */
 const config = {
@@ -33,4 +34,26 @@ const config = {
   },
 };
 
-export default config;
+export default withSentryConfig(config, {
+  // Source-map upload happens only when SENTRY_AUTH_TOKEN is set (Vercel
+  // build env). Without it the plugin logs a warning and the build still
+  // succeeds — but production stack traces stay minified.
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  // Upload a wider set of source maps so server-component and vendored
+  // frames symbolicate too.
+  widenClientFileUpload: true,
+  // Don't ship source maps to the public — delete them after upload.
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
+  // Proxy browser events through /monitoring so ad blockers can't drop them.
+  tunnelRoute: "/monitoring",
+  // Strip Sentry debug-logger calls from client bundles.
+  disableLogger: true,
+  telemetry: false,
+  // Create Sentry cron monitors for the vercel.json crons so silent cron
+  // failures become visible.
+  automaticVercelMonitors: true,
+});
