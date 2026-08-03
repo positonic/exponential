@@ -1694,6 +1694,7 @@ export function OkrDetailDrawer({
       trend,
       checkIns: kr.checkIns ?? [],
       projects: kr.projects ?? [],
+      features: kr.features ?? [],
       latestUpdate,
     };
   }, [
@@ -1741,7 +1742,11 @@ export function OkrDetailDrawer({
     }
     return [
       { id: "overview", label: "Overview" },
-      { id: "projects", label: "Projects", count: view.projects.length },
+      {
+        id: "projects",
+        label: "Projects",
+        count: view.projects.length + view.features.length,
+      },
       {
         id: "activity",
         label: "Activity",
@@ -1957,7 +1962,7 @@ export function OkrDetailDrawer({
               <>
                 <SectionHeader
                   title="Linked projects"
-                  count={view.projects.length}
+                  count={view.projects.length + view.features.length}
                   action={
                     <button
                       type="button"
@@ -1967,7 +1972,7 @@ export function OkrDetailDrawer({
                     </button>
                   }
                 />
-                {view.projects.length === 0 ? (
+                {view.projects.length + view.features.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border-primary p-8 text-center text-sm text-text-muted">
                     No projects linked to this key result yet.
                   </div>
@@ -1992,6 +1997,31 @@ export function OkrDetailDrawer({
                           </div>
                           <div className="text-[11px] text-text-muted">
                             {p.project.status}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {view.features.map((f, idx) => (
+                      <div
+                        key={f.feature.id}
+                        className={`grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3 ${
+                          view.projects.length + idx > 0
+                            ? "border-t border-border-secondary"
+                            : ""
+                        }`}
+                      >
+                        <div
+                          className="grid h-8 w-8 place-items-center rounded-md text-xs font-semibold text-text-inverse"
+                          style={{ background: "var(--color-brand-primary)" }}
+                        >
+                          {(f.feature.name ?? "·").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-text-primary">
+                            {f.feature.name}
+                          </div>
+                          <div className="text-[11px] text-text-muted">
+                            {f.feature.status}
                           </div>
                         </div>
                       </div>

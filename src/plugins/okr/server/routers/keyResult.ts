@@ -347,6 +347,28 @@ export const keyResultRouter = createTRPCRouter({
               },
             },
           },
+          // Linked Features — the second typed execution edge (ADR-0050).
+          // Lean select only: these payloads transit agent tool calls.
+          features: {
+            include: {
+              feature: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                  product: {
+                    select: {
+                      id: true,
+                      name: true,
+                      slug: true,
+                      icon: true,
+                      color: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
           driUser: {
             select: { id: true, name: true, email: true, image: true },
           },
@@ -717,6 +739,100 @@ export const keyResultRouter = createTRPCRouter({
           keyResultId: input.keyResultId,
           projectId: input.projectId,
         },
+      });
+
+      return { success: true };
+    }),
+
+  // ── Feature execution links (ADR-0050) ────────────────────────────────
+  // Features are the second typed execution edge of a key result, mirroring
+  // the project procedures above. KR-side authz matches linkProject (owner OR
+  // workspace membership via the centralized resolver — NOT the owner-only
+  // check updateLinkedProjects uses). Feature-side guard matches
+  // feature.update: the feature must live in the same workspace as the KR and
+  // the caller must be a member of that workspace.
+
+  // Link a single feature to a key result
+  linkFeature: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        featureId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true, goalId: true },
+      });
+
+      // Resolve workspace membership once — it serves both the KR-side authz
+      // (owner OR member, mirroring linkProject) and the feature-side guard.
+      const membership =
+        keyResult?.workspaceId != null
+          ? await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId)
+          : null;
+
+      if (!keyResult || (keyResult.userId !== userId && !membership)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const feature = await ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        select: {
+          id: true,
+          goalId: true,
+          product: { select: { workspaceId: true } },
+        },
+      });
+
+      if (!feature) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+
+      // Cross-workspace links are rejected: the feature's product must belong
+      // to the key result's workspace.
+      if (
+        !keyResult.workspaceId ||
+        feature.product.workspaceId !== keyResult.workspaceId
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Feature belongs to a different workspace than this key result",
+        });
+      }
+
+      // Parity with feature.update's assertWorkspaceMember guard: the caller
+      // must be a member of the feature's workspace (a KR owner who isn't a
+      // member of the workspace may not link its features).
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this workspace",
+        });
+      }
+
+      // Idempotent: the unique (keyResultId, featureId) pair is created once.
+      await ctx.db.keyResultFeature.upsert({
+        where: {
+          keyResultId_featureId: {
+            keyResultId: input.keyResultId,
+            featureId: input.featureId,
+          },
+        },
+        create: {
+          keyResultId: input.keyResultId,
+          featureId: input.featureId,
+        },
+        update: {}, // No-op if already exists
       });
 
       return { success: true };

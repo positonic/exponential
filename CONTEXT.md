@@ -238,7 +238,7 @@ A strategic outcome — what Exponential schemas call `Goal`. Use the word "Obje
 _Avoid_: OKR (overloaded — see below), goal (only in code/schema references).
 
 **Key result**:
-The measurable arm of an Objective, stored as `KeyResult`. Has `currentValue`, `targetValue`, `status` (`on-track | at-risk | off-track | achieved`), and a `confidence` score. Lives under exactly one Objective via `keyResult.goalId`.
+The measurable arm of an Objective, stored as `KeyResult`. Has `currentValue`, `targetValue`, `status` (`on-track | at-risk | off-track | achieved`), and a `confidence` score. Lives under exactly one Objective via `keyResult.goalId`. Its execution links — the work moving its number — are typed joins to both **Projects** (`KeyResultProject`) and **Features** (`KeyResultFeature`), rendered as one "Executing work" list; `currentValue` is never derived from linked work — check-ins remain the only write path ([ADR-0050](docs/adr/0050-key-results-accept-feature-execution-links.md)).
 
 **OKR**:
 Shorthand for the *pair* (Objective + its Key results). Never use "OKR" to mean a single Objective or a single Key result on its own — be specific.
