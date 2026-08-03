@@ -15,15 +15,16 @@ import type { SentryBugNotification } from "./sentryZulip";
  * participate in E2E encryption.
  *
  * Env:
- * - MATRIX_HOMESERVER_URL   e.g. https://matrix.syntro.fi
- * - MATRIX_BOT_ACCESS_TOKEN access token of the posting bot account
- * - MATRIX_SENTRY_ROOM_ID   internal room id (!abc123:syntro.fi), not an alias
+ * - MATRIX_HOMESERVER_URL e.g. https://matrix.syntro.fi
+ * - MATRIX_ACCESS_TOKEN   access token of the posting bot account (same
+ *                         variable name the mastra gateway uses)
+ * - MATRIX_SENTRY_ROOM_ID internal room id (!abc123:syntro.fi), not an alias
  */
 export async function notifyMatrixOfSentryBug(
   notification: SentryBugNotification,
 ): Promise<void> {
   const homeserver = process.env.MATRIX_HOMESERVER_URL;
-  const token = process.env.MATRIX_BOT_ACCESS_TOKEN;
+  const token = process.env.MATRIX_ACCESS_TOKEN;
   const roomId = process.env.MATRIX_SENTRY_ROOM_ID;
   if (!homeserver || !token || !roomId) return;
 
