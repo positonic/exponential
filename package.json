@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "build": "next build",
+    "build": "NODE_OPTIONS=\"--max-old-space-size=8192\" next build",
     "check": "NODE_OPTIONS=\"--max-old-space-size=4096\" next lint && tsc --noEmit",
     "db:generate": "prisma migrate dev",
     "db:migrate": "prisma migrate deploy",
