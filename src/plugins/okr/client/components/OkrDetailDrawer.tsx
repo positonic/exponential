@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Drawer, Tooltip, ActionIcon, Skeleton, Textarea, Menu } from "@mantine/core";
 import {
   IconTarget,
@@ -23,6 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useFavorite } from "~/app/_components/shared/useFavorite";
 import {
   clamp01,
@@ -1387,6 +1389,8 @@ export function OkrDetailDrawer({
   const utils = api.useUtils();
   const [tab, setTab] = useState<string>("overview");
   const [size, setSize] = useState<TopBarSize>("m");
+  // Workspace slug for feature deep-links in the "Executing work" list.
+  const { workspace } = useWorkspace();
 
   // The "krs" / "projects" tabs are entity-specific, so a tab that's valid for
   // one entity renders a blank body for another. Reset to "overview" whenever
@@ -1744,7 +1748,7 @@ export function OkrDetailDrawer({
       { id: "overview", label: "Overview" },
       {
         id: "projects",
-        label: "Projects",
+        label: "Executing work",
         count: view.projects.length + view.features.length,
       },
       {
@@ -1961,71 +1965,84 @@ export function OkrDetailDrawer({
             {tab === "projects" && view.kind === "keyResult" && (
               <>
                 <SectionHeader
-                  title="Linked projects"
+                  title="Executing work"
                   count={view.projects.length + view.features.length}
                   action={
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-hover hover:text-text-primary"
                     >
-                      <IconLink size={11} /> Link project
+                      <IconLink size={11} /> Link work
                     </button>
                   }
                 />
                 {view.projects.length + view.features.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border-primary p-8 text-center text-sm text-text-muted">
-                    No projects linked to this key result yet.
+                    No work linked to this key result yet.
                   </div>
                 ) : (
                   <div className="overflow-hidden rounded-xl border border-border-secondary">
-                    {view.projects.map((p, idx) => (
-                      <div
-                        key={p.project.id}
-                        className={`grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3 ${
-                          idx > 0 ? "border-t border-border-secondary" : ""
-                        }`}
-                      >
-                        <div
-                          className="grid h-8 w-8 place-items-center rounded-md text-xs font-semibold text-text-inverse"
-                          style={{ background: "var(--color-brand-primary)" }}
+                    {[
+                      // One merged "Executing work" list: linked Projects and
+                      // linked Features, each row tagged with its type
+                      // (ADR-0050). Feature rows deep-link into the products
+                      // area; project rows keep their current (non-link)
+                      // rendering.
+                      ...view.projects.map((p) => ({
+                        key: `project-${p.project.id}`,
+                        typeLabel: "Project" as const,
+                        name: p.project.name,
+                        status: p.project.status,
+                        href: null as string | null,
+                      })),
+                      ...view.features.map((f) => ({
+                        key: `feature-${f.feature.id}`,
+                        typeLabel: "Feature" as const,
+                        name: f.feature.name,
+                        status: f.feature.status,
+                        href: workspace?.slug
+                          ? `/w/${workspace.slug}/products/${f.feature.product.slug}/features/${f.feature.id}`
+                          : null,
+                      })),
+                    ].map((row, idx) => {
+                      const rowClass = `grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3 ${
+                        idx > 0 ? "border-t border-border-secondary" : ""
+                      }`;
+                      const content = (
+                        <>
+                          <div
+                            className="grid h-8 w-8 place-items-center rounded-md text-xs font-semibold text-text-inverse"
+                            style={{ background: "var(--color-brand-primary)" }}
+                          >
+                            {(row.name ?? "·").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-text-primary">
+                              {row.name}
+                            </div>
+                            <div className="text-[11px] text-text-muted">
+                              {row.status}
+                            </div>
+                          </div>
+                          <span className="rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+                            {row.typeLabel}
+                          </span>
+                        </>
+                      );
+                      return row.href ? (
+                        <Link
+                          key={row.key}
+                          href={row.href}
+                          className={`${rowClass} hover:bg-surface-hover`}
                         >
-                          {(p.project.name ?? "·").slice(0, 2).toUpperCase()}
+                          {content}
+                        </Link>
+                      ) : (
+                        <div key={row.key} className={rowClass}>
+                          {content}
                         </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-text-primary">
-                            {p.project.name}
-                          </div>
-                          <div className="text-[11px] text-text-muted">
-                            {p.project.status}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {view.features.map((f, idx) => (
-                      <div
-                        key={f.feature.id}
-                        className={`grid grid-cols-[32px_1fr_auto] items-center gap-3 px-4 py-3 ${
-                          view.projects.length + idx > 0
-                            ? "border-t border-border-secondary"
-                            : ""
-                        }`}
-                      >
-                        <div
-                          className="grid h-8 w-8 place-items-center rounded-md text-xs font-semibold text-text-inverse"
-                          style={{ background: "var(--color-brand-primary)" }}
-                        >
-                          {(f.feature.name ?? "·").slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-text-primary">
-                            {f.feature.name}
-                          </div>
-                          <div className="text-[11px] text-text-muted">
-                            {f.feature.status}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
