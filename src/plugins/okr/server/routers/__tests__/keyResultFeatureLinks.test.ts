@@ -110,6 +110,12 @@ describe("okr.linkFeature / okr.unlinkFeature", () => {
     db.feature.findUnique.mockResolvedValue(FEATURE_ROW as never);
     // No team-derived access in these tests; direct membership is set per test.
     db.teamUser.findFirst.mockResolvedValue(null as never);
+    // Interactive-transaction passthrough: run the callback against the same
+    // mock so per-model assertions observe writes made inside $transaction.
+    db.$transaction.mockImplementation((async (arg: unknown) =>
+      typeof arg === "function"
+        ? (arg as (tx: PrismaClient) => unknown)(db)
+        : Promise.all(arg as Promise<unknown>[])) as never);
   });
 
   function grantMembership() {
@@ -212,6 +218,51 @@ describe("okr.linkFeature / okr.unlinkFeature", () => {
         caller.okr.linkFeature({ keyResultId: KR_ID, featureId: "feat-missing" }),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(db.keyResultFeature.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("linkFeature — goalId fill-on-null (ADR-0050)", () => {
+    it("sets a null goalId to the key result's Objective when linking", async () => {
+      grantMembership();
+      // FEATURE_ROW has goalId: null.
+      const caller = createMockCaller({ userId: MEMBER_ID, db });
+
+      await caller.okr.linkFeature({ keyResultId: KR_ID, featureId: FEATURE_ID });
+
+      expect(db.feature.update).toHaveBeenCalledTimes(1);
+      expect(db.feature.update).toHaveBeenCalledWith({
+        where: { id: FEATURE_ID },
+        data: { goalId: KR_ROW.goalId },
+      });
+    });
+
+    it("leaves a feature already aligned to the same Objective unchanged", async () => {
+      grantMembership();
+      db.feature.findUnique.mockResolvedValue({
+        ...FEATURE_ROW,
+        goalId: KR_ROW.goalId,
+      } as never);
+      const caller = createMockCaller({ userId: MEMBER_ID, db });
+
+      await caller.okr.linkFeature({ keyResultId: KR_ID, featureId: FEATURE_ID });
+
+      expect(db.keyResultFeature.upsert).toHaveBeenCalledTimes(1);
+      expect(db.feature.update).not.toHaveBeenCalled();
+    });
+
+    it("never overwrites alignment to a different Objective", async () => {
+      grantMembership();
+      db.feature.findUnique.mockResolvedValue({
+        ...FEATURE_ROW,
+        goalId: 999, // aligned elsewhere
+      } as never);
+      const caller = createMockCaller({ userId: MEMBER_ID, db });
+
+      await caller.okr.linkFeature({ keyResultId: KR_ID, featureId: FEATURE_ID });
+
+      expect(db.keyResultFeature.upsert).toHaveBeenCalledTimes(1);
+      expect(db.feature.update).not.toHaveBeenCalled();
+      expect(db.feature.updateMany).not.toHaveBeenCalled();
     });
   });
 

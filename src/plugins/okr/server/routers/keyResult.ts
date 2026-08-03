@@ -820,19 +820,32 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      // Idempotent: the unique (keyResultId, featureId) pair is created once.
-      await ctx.db.keyResultFeature.upsert({
-        where: {
-          keyResultId_featureId: {
+      // Create the link and apply the Objective-alignment glue in one
+      // transaction (ADR-0050): a feature with no alignment inherits the KR's
+      // Objective; a feature already aligned — same or different Objective —
+      // is never overwritten.
+      await ctx.db.$transaction(async (tx) => {
+        // Idempotent: the unique (keyResultId, featureId) pair is created once.
+        await tx.keyResultFeature.upsert({
+          where: {
+            keyResultId_featureId: {
+              keyResultId: input.keyResultId,
+              featureId: input.featureId,
+            },
+          },
+          create: {
             keyResultId: input.keyResultId,
             featureId: input.featureId,
           },
-        },
-        create: {
-          keyResultId: input.keyResultId,
-          featureId: input.featureId,
-        },
-        update: {}, // No-op if already exists
+          update: {}, // No-op if already exists
+        });
+
+        if (feature.goalId == null) {
+          await tx.feature.update({
+            where: { id: feature.id },
+            data: { goalId: keyResult.goalId },
+          });
+        }
       });
 
       return { success: true };
