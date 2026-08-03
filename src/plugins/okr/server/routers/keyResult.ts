@@ -838,6 +838,79 @@ export const keyResultRouter = createTRPCRouter({
       return { success: true };
     }),
 
+  // Unlink a single feature from a key result. Deletes only the link row —
+  // never the feature or the key result on the other side.
+  unlinkFeature: protectedProcedure
+    .input(
+      z.object({
+        keyResultId: z.string(),
+        featureId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const keyResult = await ctx.db.keyResult.findFirst({
+        where: { id: input.keyResultId },
+        select: { id: true, userId: true, workspaceId: true },
+      });
+
+      const membership =
+        keyResult?.workspaceId != null
+          ? await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId)
+          : null;
+
+      if (!keyResult || (keyResult.userId !== userId && !membership)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Key result not found",
+        });
+      }
+
+      const feature = await ctx.db.feature.findUnique({
+        where: { id: input.featureId },
+        select: {
+          id: true,
+          product: { select: { workspaceId: true } },
+        },
+      });
+
+      if (!feature) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Feature not found",
+        });
+      }
+
+      if (
+        !keyResult.workspaceId ||
+        feature.product.workspaceId !== keyResult.workspaceId
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Feature belongs to a different workspace than this key result",
+        });
+      }
+
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this workspace",
+        });
+      }
+
+      // Delete only the link row. The feature's goalId is deliberately left
+      // untouched — unlink never clears Objective alignment (ADR-0050).
+      await ctx.db.keyResultFeature.deleteMany({
+        where: {
+          keyResultId: input.keyResultId,
+          featureId: input.featureId,
+        },
+      });
+
+      return { success: true };
+    }),
+
   // Get available periods (quarters)
   getPeriods: protectedProcedure.query(() => {
     const currentYear = new Date().getFullYear();
