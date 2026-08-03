@@ -53,7 +53,7 @@ New Sentry issues flow through the inbound webhook
 (`/api/webhooks/sentry`) → bug Ticket (authored by Errol) → best-effort
 announcements to **Zulip** (`sentryZulip.ts`) and **Matrix**
 (`sentryMatrix.ts`). The Matrix leg needs `MATRIX_HOMESERVER_URL`,
-`MATRIX_BOT_ACCESS_TOKEN`, and `MATRIX_SENTRY_ROOM_ID` set (see
+`MATRIX_ACCESS_TOKEN`, and `MATRIX_SENTRY_ROOM_ID` set (see
 `.env.example`); the room must be unencrypted and the bot joined. Recurring
 errors that dedup onto an existing ticket do not re-notify.
 
