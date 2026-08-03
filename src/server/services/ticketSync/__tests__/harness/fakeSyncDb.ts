@@ -67,10 +67,18 @@ export interface FakeConfig {
 }
 
 export interface DbWrite {
-  model: "ticket" | "ticketSync" | "ticketSyncConfig" | "ticketSyncRun";
+  model: "ticket" | "ticketSync" | "ticketSyncConfig" | "ticketSyncRun" | "list";
   op: "create" | "update" | "delete";
   id: string | null;
   data: unknown;
+}
+
+/** Same slug rule as resolvers.ts, so slug-clash lookups behave identically. */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 interface WhereById {
@@ -81,12 +89,18 @@ export class FakeSyncDb {
   readonly tickets = new Map<string, FakeTicket>();
   readonly syncs = new Map<string, FakeSyncRecord>();
   readonly runs = new Map<string, Record<string, unknown>>();
+  /** Workspace cycles (Prisma `List` rows, listType SPRINT): id → row. */
+  readonly cyclesById = new Map<string, { name: string; slug: string }>();
+  /** Workspace members: userId → email. */
+  readonly membersById = new Map<string, string>();
   readonly writeLog: DbWrite[] = [];
   readonly config: FakeConfig;
 
   private ticketCounter = 0;
   private syncCounter = 0;
   private runCounter = 0;
+  private cycleCounter = 0;
+  private memberCounter = 0;
 
   constructor(
     private readonly clock: TestClock,
@@ -156,6 +170,20 @@ export class FakeSyncDb {
     };
     this.syncs.set(record.id, record);
     return record;
+  }
+
+  /** Register a workspace cycle (SPRINT list) the resolvers can find. */
+  seedCycle(name: string): string {
+    const id = `cycle${++this.cycleCounter}`;
+    this.cyclesById.set(id, { name, slug: slugify(name) });
+    return id;
+  }
+
+  /** Register a workspace member the assignee resolver can match. */
+  seedMember(email: string): string {
+    const id = `member${++this.memberCounter}`;
+    this.membersById.set(id, email);
+    return id;
   }
 
   /** Simulate a user editing the ticket in Exponential (not a sync write). */
@@ -271,10 +299,32 @@ export class FakeSyncDb {
               (t as Record<string, unknown>)[key] = args.data[key];
             }
           }
-          if ("cycleId" in args.data || "assigneeId" in args.data) {
-            throw new Error(
-              "FakeSyncDb: relational id writes not supported yet — extend the fake",
-            );
+          // Relational id writes store back as name/email (the shape the rest
+          // of the fake reads), resolved through the registered cycle/member
+          // tables — mirroring what ticketView would render after a real write.
+          if ("cycleId" in args.data) {
+            const cycleId = args.data.cycleId as string | null;
+            if (cycleId === null) {
+              t.cycleName = null;
+            } else {
+              const cycle = this.cyclesById.get(cycleId);
+              if (!cycle) {
+                throw new Error(`FakeSyncDb: unknown cycle ${cycleId}`);
+              }
+              t.cycleName = cycle.name;
+            }
+          }
+          if ("assigneeId" in args.data) {
+            const assigneeId = args.data.assigneeId as string | null;
+            if (assigneeId === null) {
+              t.assigneeEmail = null;
+            } else {
+              const email = this.membersById.get(assigneeId);
+              if (!email) {
+                throw new Error(`FakeSyncDb: unknown member ${assigneeId}`);
+              }
+              t.assigneeEmail = email;
+            }
           }
           t.updatedAt = this.clock.now();
           this.writeLog.push({
@@ -376,6 +426,65 @@ export class FakeSyncDb {
             data: null,
           });
           return Promise.resolve({});
+        },
+      },
+
+      // Cycles are Prisma `List` rows (listType SPRINT); the resolvers look
+      // them up by insensitive name / unique slug and auto-create on miss.
+      list: {
+        findFirst: (args: {
+          where: { name?: { equals: string } };
+        }) => {
+          const wanted = args.where.name?.equals.toLowerCase();
+          if (wanted === undefined) {
+            return Promise.reject(
+              new Error("FakeSyncDb: unsupported list.findFirst shape"),
+            );
+          }
+          for (const [id, cycle] of this.cyclesById) {
+            if (cycle.name.toLowerCase() === wanted) {
+              return Promise.resolve({ id });
+            }
+          }
+          return Promise.resolve(null);
+        },
+        findUnique: (args: {
+          where: { workspaceId_slug: { slug: string } };
+        }) => {
+          for (const [id, cycle] of this.cyclesById) {
+            if (cycle.slug === args.where.workspaceId_slug.slug) {
+              return Promise.resolve({ id });
+            }
+          }
+          return Promise.resolve(null);
+        },
+        create: (args: { data: { name: string; slug: string } }) => {
+          const id = `cycle${++this.cycleCounter}`;
+          this.cyclesById.set(id, {
+            name: args.data.name,
+            slug: args.data.slug,
+          });
+          this.writeLog.push({
+            model: "list",
+            op: "create",
+            id,
+            data: args.data,
+          });
+          return Promise.resolve({ id });
+        },
+      },
+
+      workspaceUser: {
+        findFirst: (args: {
+          where: { user: { email: { equals: string } } };
+        }) => {
+          const wanted = args.where.user.email.equals.toLowerCase();
+          for (const [userId, email] of this.membersById) {
+            if (email.toLowerCase() === wanted) {
+              return Promise.resolve({ userId });
+            }
+          }
+          return Promise.resolve(null);
         },
       },
 
