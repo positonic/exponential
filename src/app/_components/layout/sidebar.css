@@ -55,6 +55,16 @@ html[data-titlebar="overlay"] {
   }
 }
 
+/* Collapsed, the main column inherits the top-left corner from the sidebar —
+   window controls and all — so the inset has to move with it. Margin rather
+   than padding: it stacks on whatever responsive padding <main> has at this
+   breakpoint instead of replacing it, and rides the same 300ms transition as
+   the collapse, so the content slides down with the sidebar rather than
+   snapping. */
+html[data-titlebar="overlay"][data-sidebar="closed"] .sidebar-offset {
+  margin-top: var(--titlebar-inset);
+}
+
 /* ============================================================
    Create Action - soft tinted CTA
    ============================================================ */
