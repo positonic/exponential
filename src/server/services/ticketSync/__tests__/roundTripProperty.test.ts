@@ -24,18 +24,17 @@
  * reproducible: the thrown error carries the seed AND the full operation
  * sequence, and the seed alone re-runs the identical scenario.
  *
- * ── A REAL CONVERGENCE DEFECT THIS TEST FOUND ────────────────────────────────
- * ~18% of random sequences do NOT converge, all via one mechanism: a human edit
- * to field B of a Notion page that is still pending (unpulled) when an outbound
- * push writes a DIFFERENT field A to that same page flips the whole page's
- * "last edited by" to the integration bot; the next inbound pull then hits
- * engine.ts' row-level echo suppression (`if (row.lastEditedByBot) skip`) and
- * skips the page entirely, and the incremental `lastPulledAt` window advances
- * past the human's edit — so field B's remote change is never reconciled (a lost
- * remote update). This is NOT papered over: the exact seeds that hit it in the
- * property band are pinned in KNOWN_DEFECT_SEEDS and actively asserted to still
- * reproduce it, and `roundTripProperty.test.ts` carries a named deterministic
- * regression test at the bottom. See the PR body for the full write-up.
+ * ── A REAL CONVERGENCE DEFECT THIS TEST FOUND (fixed: smoky.wolf) ────────────
+ * Originally ~18% of random sequences did NOT converge, all via one mechanism:
+ * a human edit to field B of a Notion page that was still pending (unpulled)
+ * when an outbound push wrote a DIFFERENT field A to that same page flipped the
+ * whole page's "last edited by" to the integration bot; the old row-level echo
+ * suppression (`if (row.lastEditedByBot) skip`) then skipped the page entirely
+ * and the incremental `lastPulledAt` window advanced past the human's edit — a
+ * lost remote update. The engine now applies echo suppression snapshot-aware
+ * (a bot-edited row is only skipped while its remote fields match the last-
+ * synced base), the once-failing seeds run in the normal invariant band, and a
+ * named deterministic regression test at the bottom pins the minimal case.
  *
  * The engine imports createTicketWithNumber / the tag helpers / recordActivity
  * directly (not injectable), so — like engine.test.ts and roundTrip.test.ts —
@@ -412,50 +411,35 @@ async function runScenario(seed: number): Promise<void> {
 }
 
 /**
- * Seeds in the [1..40] property band that exercise the echo-suppression
- * convergence defect documented at the top of this file and reproduced
- * deterministically by the regression test below. They are NOT silently
- * skipped: the `it.each(KNOWN_DEFECT_SEEDS)` block asserts each one still fails
- * to converge, so if the engine is fixed (or the generator drifts) these tests
- * go red and force this list — and the regression test — to be revisited.
+ * All 40 seeds run the full invariant suite. Seeds 3, 6, 13, 18, 30 and 37
+ * originally exposed the echo-suppression lost-update defect (smoky.wolf) and
+ * were pinned as known-failing until the engine gained snapshot-aware echo
+ * suppression; they are deliberately kept in the band as regression sentinels.
  */
-const KNOWN_DEFECT_SEEDS = [3, 6, 13, 18, 30, 37];
-
 const ALL_SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
-const CONVERGING_SEEDS = ALL_SEEDS.filter((s) => !KNOWN_DEFECT_SEEDS.includes(s));
 
 describe("round-trip convergence (property-based)", () => {
-  it.each(CONVERGING_SEEDS)(
+  it.each(ALL_SEEDS)(
     "seed %i converges, terminates, and invents nothing",
     async (seed) => {
       await runScenario(seed);
     },
   );
 
-  it.each(KNOWN_DEFECT_SEEDS)(
-    "seed %i still reproduces the known echo-suppression convergence defect",
-    async (seed) => {
-      // Documented, not ignored: assert the defect is still present. When the
-      // engine is fixed this rejects-expectation fails and the seed graduates
-      // to CONVERGING_SEEDS.
-      await expect(runScenario(seed)).rejects.toThrow(/did not converge/);
-    },
-  );
-
   /**
-   * KNOWN DEFECT — deterministic minimal reproduction (see the file header and
-   * the PR body for the full analysis).
+   * REGRESSION (smoky.wolf) — deterministic minimal case for the lost-update
+   * defect this suite originally found.
    *
    * A human changes field B (status) on a page; before any inbound pull applies
    * it, a local change to field A (priority) makes the next outbound push write
-   * to the same page, flipping its "last edited by" to the integration bot. The
-   * following inbound pull then hits row-level echo suppression and skips the
-   * whole page, and the `lastPulledAt` window advances past the human's edit —
-   * so the status change is stranded forever. Correct behavior would apply the
-   * remote-only status change locally; when that is fixed, the assertions marked
-   * "(would be … if fixed)" below flip and this test must be updated.
+   * to the same page, flipping its "last edited by" to the integration bot.
+   * Row-level echo suppression used to skip the whole page on the next pull and
+   * the `lastPulledAt` window advanced past the human's edit — stranding it
+   * forever. With snapshot-aware echo suppression the pull must detect that the
+   * remote row differs from the last-synced base, apply the pending status, and
+   * then go quiet.
    */
-  it("KNOWN DEFECT: a remote edit still pending at push time is stranded by row-level echo suppression", async () => {
+  it("REGRESSION: a remote edit still pending at push time survives the push's bot flip", async () => {
     const w = createRoundTripWorld();
     const { ticket, page } = w.seedSyncedTicket({
       status: "IN_PROGRESS",
@@ -470,31 +454,27 @@ describe("round-trip convergence (property-based)", () => {
     const pushes = await w.pushAll();
     expect(pushes.map((p) => p.action)).toEqual(["pushed"]);
     // Only priority is pushed; the status change is remote-ahead (push is
-    // outbound-only), yet the write still marks the whole page a bot edit.
+    // outbound-only), and the write marks the whole page a bot edit.
     expect(pushes[0]?.wrote).toEqual(["priority"]);
     expect(page.lastEditedBy).toBe("bot");
 
-    // Drive reconciling cycles; none can recover the stranded status.
-    let echoSuppressed = false;
-    for (let i = 0; i < 3; i++) {
-      const pull = await w.pull();
-      const item = pull.items.find((it2) => it2.externalId === page.externalId);
-      if (
-        item?.action === "skipped" &&
-        item.reason?.includes("echo suppression")
-      ) {
-        echoSuppressed = true;
-      }
-      await w.pushAll();
-    }
-
-    // The defect: echo suppression skipped the page and the status never applied.
-    expect(echoSuppressed).toBe(true);
-    expect(w.db.tickets.get(ticket.id)?.status).toBe("IN_PROGRESS"); // (would be DONE if fixed)
-    expect(page.rawStatus).toBe(STATUS_TO_RAW.DONE); // page keeps the human's value
-    // Ticket and page disagree on status — no convergence.
-    expect(RAW_TO_STATUS[page.rawStatus!]).not.toBe(
+    // The next pull must NOT treat the bot-edited row as a pure echo: the
+    // remote status differs from the snapshot, so the pending change applies.
+    const pull = await w.pull();
+    expect(pull.updated).toBe(1);
+    expect(w.db.tickets.get(ticket.id)?.status).toBe("DONE");
+    expect(w.db.tickets.get(ticket.id)?.priority).toBe(3);
+    expect(page.rawStatus).toBe(STATUS_TO_RAW.DONE);
+    expect(RAW_TO_STATUS[page.rawStatus!]).toBe(
       w.db.tickets.get(ticket.id)?.status,
     );
+
+    // And the exchange terminates: one more full cycle is a strict no-op.
+    w.clearWrites();
+    const cycle = await w.cycle();
+    expect(cycle.pull.updated).toBe(0);
+    expect(cycle.pushes.every((p) => p.action === "skipped")).toBe(true);
+    expect(w.ticketWrites()).toHaveLength(0);
+    expect(w.notionWrites()).toHaveLength(0);
   });
 });

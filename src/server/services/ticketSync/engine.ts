@@ -14,6 +14,7 @@ import {
   resolveCycleIdByName,
 } from "./resolvers";
 import {
+  fieldEquals,
   mergeSyncedFields,
   SYNCED_FIELD_KEYS,
   type SyncedFieldKey,
@@ -436,19 +437,22 @@ export async function runInboundTicketSync(
           continue;
         }
 
-        if (row.lastEditedByBot) {
+        const record = recordByExternalId.get(row.externalId);
+
+        // Echo suppression for rows we never linked stays row-level: an unseen
+        // bot-edited row can only be our own residue, never a pending human
+        // change. Linked rows are handled snapshot-aware below (smoky.wolf).
+        if (row.lastEditedByBot && !record) {
           counts.skipped++;
           items.push({
             externalId: row.externalId,
-            ticketId: recordByExternalId.get(row.externalId)?.ticketId ?? null,
+            ticketId: null,
             title: row.title,
             action: "skipped",
             reason: "last edit was ours (echo suppression)",
           });
           continue;
         }
-
-        const record = recordByExternalId.get(row.externalId);
 
         if (!record) {
           // ----------------------------------------------------------
@@ -627,6 +631,33 @@ export async function runInboundTicketSync(
         // ARCHIVED read as unchanged, so the remote status wins the merge.
         const restoring = record.tombstonedAt !== null;
         if (restoring) warnings.unshift("restored from Notion trash");
+
+        // Snapshot-aware echo suppression (smoky.wolf): our own last write is a
+        // pure echo only while every remote field still matches the last-synced
+        // base. A bot last-edit can mask a human change that was still unpulled
+        // when the push wrote (the push flips the page's editor); skipping the
+        // whole row would strand that change forever once the incremental
+        // window advances past it. A dirty or baseless row falls through to the
+        // merge, which reconciles it normally.
+        if (row.lastEditedByBot && !restoring) {
+          const base = (record.snapshot ?? null) as Partial<SyncedFields> | null;
+          const pureEcho =
+            base !== null &&
+            SYNCED_FIELD_KEYS.every((field) =>
+              fieldEquals(base[field], remote[field]),
+            );
+          if (pureEcho) {
+            counts.skipped++;
+            items.push({
+              externalId: row.externalId,
+              ticketId: ticket.id,
+              title: row.title,
+              action: "skipped",
+              reason: "last edit was ours (echo suppression)",
+            });
+            continue;
+          }
+        }
 
         const merged = mergeSyncedFields({
           base: (record.snapshot ?? null) as Partial<SyncedFields> | null,
