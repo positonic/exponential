@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
 import {
+  CYCLE_UNREADABLE_WARNING,
   mergeSyncedFields,
   SYNCED_FIELD_KEYS,
   type SyncedFieldKey,
@@ -358,6 +359,17 @@ export async function runOutboundTicketPush(
   }
 
   const remote = rowToRemoteFields(row, statusMap);
+
+  // An unreadable cycle relation means the remote cycle is UNKNOWN, not empty:
+  // neutralize it to the local value so the merge can neither clear the local
+  // cycle (a phantom applyToLocal) nor push over a value it cannot see. The
+  // cause is surfaced on the item; the inbound engine holds its window until
+  // access is restored (frosty.flame).
+  const cycleUnreadable = row.cycleUnreadable === true;
+  if (cycleUnreadable) {
+    remote.cycleName = local.cycleName;
+  }
+
   const merged = mergeSyncedFields({
     base: (sync.snapshot ?? null) as Partial<SyncedFields> | null,
     local,
@@ -370,6 +382,7 @@ export async function runOutboundTicketPush(
   const warnings: string[] = merged.conflicts.map(
     (c) => `conflict on ${c.field}: ${c.winner} wins`,
   );
+  if (cycleUnreadable) warnings.push(CYCLE_UNREADABLE_WARNING);
 
   // Nothing to push. Either fully in sync, or the only divergence is a
   // remote-only change (or a conflict the remote won) — both are the inbound
@@ -383,7 +396,7 @@ export async function runOutboundTicketPush(
       reason:
         merged.conflicts.length > 0
           ? warnings.join("; ")
-          : "in sync — nothing to push",
+          : ["in sync — nothing to push", ...warnings].join("; "),
     };
   }
 
