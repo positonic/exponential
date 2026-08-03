@@ -157,6 +157,61 @@ describe('stream errors', () => {
       'The local wiki agent stream failed',
     );
   });
+
+  it('still fails the turn if the stream library swallows callback errors', async () => {
+    // We record the error and re-throw after the stream rather than throwing
+    // from inside onChunk. The pinned client-js build does propagate a throw,
+    // but it is an OM snapshot we pin because it moves — and if a future build
+    // caught and logged instead, the alternative would be a failed turn quietly
+    // resolving as a partial answer. This stub is that future build.
+    const swallowing = {
+      stream: vi.fn().mockResolvedValue({
+        processDataStream: async ({
+          onChunk,
+        }: {
+          onChunk: (chunk: WikiStreamChunk) => void | Promise<void>;
+        }) => {
+          for (const chunk of [
+            text('half an answer'),
+            { type: 'error', payload: { error: { message: 'model exploded' } } },
+          ]) {
+            try {
+              await onChunk(chunk);
+            } catch {
+              /* swallowed, as a future client-js might */
+            }
+          }
+        },
+      }),
+    };
+
+    await expect(
+      streamLocalWikiChat(swallowing, [{ role: 'user', content: 'hi' }], NO_TOOLS),
+    ).rejects.toThrow('model exploded');
+  });
+
+  it('stops folding chunks into the answer once the turn has failed', async () => {
+    // Whatever follows an error frame is not part of a reply the user should
+    // see. Deferring the throw to the end of the stream must not mean the rest
+    // of the stream keeps appending to the answer in the meantime.
+    const updates: ChatStreamUpdate[] = [];
+    await expect(
+      streamLocalWikiChat(
+        agentEmitting([
+          text('before'),
+          { type: 'error', payload: { error: { message: 'boom' } } },
+          text('after'),
+        ]),
+        [{ role: 'user', content: 'hi' }],
+        NO_TOOLS,
+        { onUpdate: (u) => updates.push(structuredClone(u)) },
+      ),
+    ).rejects.toThrow('boom');
+
+    const rendered = updates.map((u) => u.displayText);
+    expect(rendered).toContain('before');
+    expect(rendered.some((t) => t.includes('after'))).toBe(false);
+  });
 });
 
 describe('commit per turn', () => {

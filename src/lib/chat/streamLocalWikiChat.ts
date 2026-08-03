@@ -137,6 +137,19 @@ export async function streamLocalWikiChat(
   // failed turn "had content" — a turn that only ran tools still did real work
   // and must not be silently auto-retried.
   let rawLength = 0;
+  // A stream-level error is recorded rather than thrown from inside `onChunk`,
+  // then re-thrown once the stream is done.
+  //
+  // Throwing from the callback does work against the pinned client-js build —
+  // it awaits `onChunk` inside a `try`/`finally`, not a `try`/`catch`, so the
+  // rejection propagates. But that is an internal of an OM snapshot build we
+  // pin precisely because it moves, and if a future version ever caught and
+  // logged instead, a failed turn would silently resolve as a partial answer.
+  // Recording it costs nothing and cannot regress that way.
+  //
+  // Held in an object rather than a bare `let` so TypeScript doesn't narrow it
+  // to `never` — it can't see that the callback below assigns to it.
+  const failure: { error?: Error } = {};
 
   const snapshot = (): ChatStreamUpdate => ({
     displayText,
@@ -148,6 +161,11 @@ export async function streamLocalWikiChat(
 
   await response.processDataStream({
     onChunk: (chunk) => {
+      // Once the turn has failed, stop folding later chunks into the answer —
+      // whatever follows an error frame is not part of a reply the user should
+      // see.
+      if (failure.error) return;
+
       switch (chunk.type) {
         case 'text-delta': {
           const text = (asRecord(chunk.payload) as TextPayload | null)?.text;
@@ -209,16 +227,17 @@ export async function streamLocalWikiChat(
           return;
         }
         case 'error': {
-          // A stream-level error ends the turn. Throwing here rather than
-          // resolving with half an answer is what lets the caller reuse the
-          // existing failure/retry handling.
+          // A stream-level error ends the turn. Surfacing it as a rejection
+          // rather than resolving with half an answer is what lets the caller
+          // reuse the existing failure/retry handling.
           const record = asRecord(chunk.payload);
           const nested = asRecord(record?.error);
           const message =
             (typeof nested?.message === 'string' ? nested.message : undefined) ??
             (typeof record?.message === 'string' ? record.message : undefined) ??
             'The local wiki agent stream failed';
-          throw new Error(message);
+          failure.error = new Error(message);
+          return;
         }
         default:
           // Unrecognised chunk types are not our business.
@@ -226,6 +245,8 @@ export async function streamLocalWikiChat(
       }
     },
   });
+
+  if (failure.error) throw failure.error;
 
   // After the stream, so the commit captures every write the turn made — not
   // just the ones that had landed when some intermediate round finished.
