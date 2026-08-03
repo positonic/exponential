@@ -3099,6 +3099,7 @@ model KeyResult {
   checkIns  KeyResultCheckIn[]
   comments  KeyResultComment[] // Discussion comments on this key result
   projects  KeyResultProject[] // Projects linked to this key result
+  features  KeyResultFeature[] // Features linked to this key result (ADR-0050)
 
   @@index([goalId])
   @@index([userId])
@@ -3136,6 +3137,23 @@ model KeyResultProject {
   @@unique([keyResultId, projectId])
   @@index([keyResultId])
   @@index([projectId])
+}
+
+// Typed execution edge from a Key result to a Feature, mirroring
+// KeyResultProject. A KR's execution set is the union of its linked Projects
+// and linked Features (ADR-0050).
+model KeyResultFeature {
+  id          String   @id @default(cuid())
+  keyResultId String
+  featureId   String
+  assignedAt  DateTime @default(now())
+
+  keyResult KeyResult @relation(fields: [keyResultId], references: [id], onDelete: Cascade)
+  feature   Feature   @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@unique([keyResultId, featureId])
+  @@index([keyResultId])
+  @@index([featureId])
 }
 
 // ============================================
@@ -4141,6 +4159,7 @@ model Feature {
   tags                FeatureTag[]
   comments            FeatureComment[]
   pages               FeaturePage[]
+  keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
 
   @@index([productId])
   @@index([goalId])
