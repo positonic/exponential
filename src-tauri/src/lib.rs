@@ -282,6 +282,9 @@ const TITLEBAR_MARKER_SCRIPT: &str = r#"
     if (!root) return false;
     root.setAttribute('data-shell', 'tauri');
     root.setAttribute('data-titlebar', 'overlay');
+    // Only the tabbed shell stamps this; sidebar.css keys the main column's
+    // top clearance on it, so the live V1 shell is unaffected.
+    root.setAttribute('data-tabs', 'native');
     return true;
   }
   try {
@@ -354,8 +357,17 @@ fn push_titlebar_inset(window: &tauri::WebviewWindow) {
 
     // A hidden tab bar reports the plain titlebar height; both cases are just
     // "whatever AppKit says", which is the whole point.
+    //
+    // The body padding is SPIKE-ONLY: the packaged build loads production, whose
+    // stylesheet doesn't yet have the `html[data-tabs="native"] .sidebar-offset`
+    // rule that will do this properly, so the shell pads the page itself to make
+    // the fix visible on a real build. V2 pushes only the variable and lets the
+    // deployed CSS consume it — shipping both would double the inset.
     let _ = window.eval(&format!(
-        "document.documentElement.style.setProperty('--titlebar-inset','{inset:.0}px')"
+        "(function() {{\
+           document.documentElement.style.setProperty('--titlebar-inset','{inset:.0}px');\
+           if (document.body) document.body.style.paddingTop = '{inset:.0}px';\
+         }})()"
     ));
 }
 
