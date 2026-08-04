@@ -66,7 +66,9 @@ export function WorkspaceTopbar() {
     <div className={styles.topbar}>
       <div className={styles.crumb}>
         <IconFolder size={14} stroke={1.75} style={{ color: 'var(--color-text-muted)' }} />
-        <span className={styles.crumbCurrent}>{workspace.name}</span>
+        <Link href={`/w/${workspaceSlug}`} className={styles.crumbRoot}>
+          {workspace.name}
+        </Link>
         {pageLabel && (
           <>
             <span className={styles.crumbSep}>/</span>
