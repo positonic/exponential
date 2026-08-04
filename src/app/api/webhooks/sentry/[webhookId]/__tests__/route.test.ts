@@ -39,14 +39,22 @@ function fakeRequest(opts: {
   body: string;
   resource?: string;
   signature?: string;
+  tokenQuery?: string;
+  service?: string;
+  product?: string;
 }): NextRequest {
   const headers = new Map<string, string>();
   if (opts.signature !== undefined)
     headers.set("sentry-hook-signature", opts.signature);
   if (opts.resource !== undefined)
     headers.set("sentry-hook-resource", opts.resource);
+  const searchParams = new URLSearchParams();
+  if (opts.tokenQuery !== undefined) searchParams.set("token", opts.tokenQuery);
+  if (opts.service !== undefined) searchParams.set("service", opts.service);
+  if (opts.product !== undefined) searchParams.set("product", opts.product);
   return {
     headers: { get: (k: string) => headers.get(k.toLowerCase()) ?? null },
+    nextUrl: { searchParams },
     text: () => Promise.resolve(opts.body),
   } as unknown as NextRequest;
 }
@@ -84,7 +92,9 @@ describe("POST /api/webhooks/sentry/[webhookId]", () => {
     expect(res.status).toBe(200);
     expect(ingestSentryBug).toHaveBeenCalledTimes(1);
     // Routed to the per-workspace product, not the global default.
-    expect(ingestSentryBug.mock.calls[0]![2]).toEqual({ productId: "prod-1" });
+    expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+      productId: "prod-1",
+    });
   });
 
   it("returns 404 for an unknown webhookId and does not ingest", async () => {
@@ -153,5 +163,91 @@ describe("POST /api/webhooks/sentry/[webhookId]", () => {
     );
     expect(res.status).toBe(200);
     expect(ingestSentryBug).not.toHaveBeenCalled();
+  });
+
+  describe("unsigned GlitchTip requests", () => {
+    const glitchtipBody = JSON.stringify({
+      alias: "issue.new",
+      issue_id: 555,
+      project: "clear-pipeline",
+      attachments: [{ title: "OperationalError: connection reset" }],
+    });
+
+    it("accepts the integration's own secret as a query token", async () => {
+      const res = await POST(
+        fakeRequest({ body: glitchtipBody, tokenQuery: SECRET }),
+        ctx,
+      );
+
+      expect(res.status).toBe(200);
+      expect(ingestSentryBug).toHaveBeenCalledTimes(1);
+      const arg = ingestSentryBug.mock.calls[0]![1] as unknown as {
+        issueId: string;
+        projectSlug: string;
+      };
+      expect(arg.issueId).toBe("555");
+      expect(arg.projectSlug).toBe("clear-pipeline");
+      // Routed to this tenant's configured product, as for signed requests.
+      expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+        productId: "prod-1",
+      });
+    });
+
+    it("passes ?service= through for source labelling", async () => {
+      await POST(
+        fakeRequest({
+          body: glitchtipBody,
+          tokenQuery: SECRET,
+          service: "clear-pipeline",
+        }),
+        ctx,
+      );
+      expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+        sourceSlug: "clear-pipeline",
+      });
+    });
+
+    it("accepts ?product= as an alias for ?service=", async () => {
+      await POST(
+        fakeRequest({
+          body: glitchtipBody,
+          tokenQuery: SECRET,
+          product: "clear-api",
+        }),
+        ctx,
+      );
+      expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+        sourceSlug: "clear-api",
+      });
+    });
+
+    it("rejects a wrong query token with 401", async () => {
+      const res = await POST(
+        fakeRequest({ body: glitchtipBody, tokenQuery: "not-the-secret" }),
+        ctx,
+      );
+      expect(res.status).toBe(401);
+      expect(ingestSentryBug).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unsigned request carrying no token at all", async () => {
+      const res = await POST(fakeRequest({ body: glitchtipBody }), ctx);
+      expect(res.status).toBe(401);
+      expect(ingestSentryBug).not.toHaveBeenCalled();
+    });
+
+    it("never lets a valid token rescue a request whose signature is invalid", async () => {
+      // Security boundary: offering a signature commits the sender to HMAC.
+      const res = await POST(
+        fakeRequest({
+          body: glitchtipBody,
+          signature: "deadbeef",
+          tokenQuery: SECRET,
+        }),
+        ctx,
+      );
+      expect(res.status).toBe(401);
+      expect(ingestSentryBug).not.toHaveBeenCalled();
+    });
   });
 });

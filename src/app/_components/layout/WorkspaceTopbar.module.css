@@ -6,6 +6,20 @@
   border-bottom: 1px solid var(--color-border-primary);
   flex-shrink: 0;
   gap: 8px;
+  /* Matches the 300ms sidebar collapse, so the crumb slides across with it
+     instead of jumping when the gutter below appears/disappears. */
+  transition: padding-left 300ms ease-in-out;
+}
+
+/* Collapsed, the sidebar's re-open button parks in this row's left gutter
+   (fixed, 12px from the viewport edge, ~32px wide) and the 40px padding
+   leaves the crumb almost touching it. On sm+ the topbar is edge-to-edge,
+   so it owns that corner and has to give the button its own space; below
+   640px <main>'s own padding already keeps the two apart. */
+@media (min-width: 640px) {
+  :global(html[data-sidebar='closed']) .topbar {
+    padding-left: 60px;
+  }
 }
 
 .crumb {

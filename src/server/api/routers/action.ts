@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -10,8 +10,8 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
+import { findUserByEmailInWorkspace, getWorkspaceMembership, canEditWorkspaceContent } from "~/server/services/access/resolvers/workspaceResolver";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -27,6 +27,33 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { partitionActions } from "~/lib/actions/partition";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
+/**
+ * Guard a caller-supplied `workspaceId` on a write.
+ *
+ * `workspaceId` arrives as free-form input on `create`/`update`, so membership
+ * is never implied by having reached the mutation: without this check any
+ * authenticated user could inject rows into an arbitrary workspace's task list
+ * by guessing its CUID.
+ *
+ * Membership alone isn't sufficient either — `viewer` is a read-only role — so
+ * this asserts `canEditWorkspaceContent` (member and above). Project-only
+ * members ("guests") have no WorkspaceUser row and are refused here by design;
+ * their writes are authorised through the project path instead, which is why
+ * callers must skip this check for a workspace derived from the project.
+ */
+async function assertCanWriteToWorkspace(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+) {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!canEditWorkspaceContent(membership?.role ?? null)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You don't have permission to add actions to this workspace",
+    });
+  }
+}
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
@@ -437,13 +464,43 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // `input.workspaceId` is spread straight into the create below, so an
+      // unchecked value plants the action — and the `created` activity event
+      // fired for it further down — inside a workspace the caller has no
+      // relationship to, where that workspace's members then see it in their
+      // feed. The project branch above only gates the *project*.
+      //
+      // A project dictates its own workspace, so it takes precedence over any
+      // caller-supplied `workspaceId`. The old precedence ran the other way,
+      // which let a caller attach a project they can genuinely edit while
+      // naming a foreign workspace, laundering the row into that workspace.
+      // `input.workspaceId` therefore only applies when there is no project, or
+      // when the project is personal (no workspace of its own).
+      const targetWorkspaceId = projectWorkspaceId ?? input.workspaceId ?? null;
+
+      // Authorise the destination workspace whenever it came from the caller
+      // rather than from the project. Skipping the project-derived case keeps
+      // project-only members ("guests") working — `canEditProject` above is
+      // their authorisation, and a bare `input.workspaceId` check would refuse
+      // them, since a guest has no WorkspaceUser row but every client sends
+      // workspaceId alongside projectId.
+      if (targetWorkspaceId && targetWorkspaceId !== projectWorkspaceId) {
+        await assertCanWriteToWorkspace(
+          ctx.db,
+          ctx.session.user.id,
+          targetWorkspaceId,
+        );
+      }
+
       // A linked epic must live in the action's own workspace, or its name and
-      // status leak back through the `epic` include below.
+      // status leak back through the `epic` include below (PR 481). Resolved
+      // against `targetWorkspaceId` — the workspace the action will actually
+      // land in — rather than a caller-supplied id that may not be it.
       if (input.epicId) {
         await assertWorkspaceScopedRefs(
           ctx.db,
           ctx.session.user.id,
-          input.workspaceId ?? projectWorkspaceId,
+          targetWorkspaceId,
           { epicId: input.epicId },
         );
       }
@@ -451,16 +508,15 @@ export const actionRouter = createTRPCRouter({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionData: any = {
         ...input,
+        // Overrides the `workspaceId` spread from `...input`, which is exactly
+        // the field that was previously written through unchecked.
+        workspaceId: targetWorkspaceId ?? undefined,
         createdById: ctx.session.user.id,
         ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
         // External-agent principals stamp their surface (ADR-0049); the *who*
         // is createdById (the agent's shadow user), the *how* is source.
         ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
       };
-
-      if (input.projectId && !input.workspaceId && projectWorkspaceId) {
-        actionData.workspaceId = projectWorkspaceId;
-      }
 
       if (input.projectId) {
         actionData.kanbanStatus = "TODO";
@@ -529,6 +585,14 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Same free-form `workspaceId` as `create`, and it lands in the same
+      // place — `db.action.create` below — so it needs the same guard. Without
+      // it, any authenticated user can drop a prompt action into an arbitrary
+      // workspace's task list by guessing its CUID.
+      if (input?.workspaceId) {
+        await assertCanWriteToWorkspace(ctx.db, userId, input.workspaceId);
+      }
 
       const today = startOfDay(new Date());
       const tomorrow = new Date(today);
@@ -652,15 +716,47 @@ export const actionRouter = createTRPCRouter({
         validateScheduledTimes(resolvedStart, resolvedEnd);
       }
 
-      // Sync workspaceId when projectId changes
+      // Re-targeting the action. `projectId` and `workspaceId` are both
+      // free-form input, and `canEditAction` above only proves the caller may
+      // edit the action where it currently lives — not that they may move it
+      // somewhere else. Each destination needs its own authorisation.
       if (updateData.projectId) {
-        const newProject = await ctx.db.project.findUnique({
-          where: { id: updateData.projectId },
-          select: { workspaceId: true },
-        });
+        const [targetProjectAccess, newProject] = await Promise.all([
+          getProjectAccess(ctx.db, ctx.session.user.id, updateData.projectId),
+          ctx.db.project.findUnique({
+            where: { id: updateData.projectId },
+            select: { workspaceId: true },
+          }),
+        ]);
+
+        if (!canEditProject(targetProjectAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have permission to move this action to that project",
+          });
+        }
+
+        // Sync workspaceId from the project, which wins over any caller-supplied
+        // value (same precedence as `create`). Only a personal project — one
+        // with no workspace — leaves `input.workspaceId` in play.
         if (newProject?.workspaceId) {
           updateData.workspaceId = newProject.workspaceId;
+        } else if (updateData.workspaceId) {
+          await assertCanWriteToWorkspace(
+            ctx.db,
+            ctx.session.user.id,
+            updateData.workspaceId,
+          );
         }
+      } else if (updateData.workspaceId) {
+        // Moving the action into a workspace by id alone. `null` falls through
+        // unchecked on purpose: detaching an action the caller can already edit
+        // grants no access to anything.
+        await assertCanWriteToWorkspace(
+          ctx.db,
+          ctx.session.user.id,
+          updateData.workspaceId,
+        );
       }
 
       // Same-workspace guard as create, resolved against the workspace the
@@ -1799,21 +1895,28 @@ export const actionRouter = createTRPCRouter({
             (member: { userId: string }) => member.userId === userId,
           );
         }
-        // No project or team - allow assignment to any user
+        // No project and no team: this used to allow assigning ANY user id,
+        // and the include below returns `user.email` — the same PII leak the
+        // ticket assignee guard closes. Fall back to the action's workspace
+        // and the caller's teams, which is exactly what the picker offers.
         else {
-          canAssign = true;
+          canAssign = await canAssignToUnscopedAction(
+            ctx.db,
+            ctx.session.user.id,
+            action.workspaceId,
+            userId,
+          );
         }
 
         if (!canAssign) {
-          const user = await ctx.db.user.findUnique({
-            where: { id: userId },
-            select: { name: true, email: true },
+          // Deliberately does NOT name the rejected user. The old message
+          // looked them up and echoed `name ?? email` back, which handed the
+          // caller a stranger's identity on exactly the path where they had
+          // just been told they have no relationship to them.
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"}`,
           });
-          const userName = user?.name ?? user?.email ?? userId;
-
-          throw new Error(
-            `User ${userName} cannot be assigned to this action. They must be a member of the ${action.projectId ? "project" : "team"}.`,
-          );
         }
       }
 
@@ -2007,21 +2110,24 @@ export const actionRouter = createTRPCRouter({
               (member: { userId: string }) => member.userId === userId,
             );
           }
-          // No project or team - allow assignment to any user
+          // Same fallback as `assign`: no project and no team means the
+          // action's workspace and the caller's teams decide, not "anyone".
           else {
-            canAssign = true;
+            canAssign = await canAssignToUnscopedAction(
+              ctx.db,
+              ctx.session.user.id,
+              action.workspaceId,
+              userId,
+            );
           }
 
           if (!canAssign) {
-            const user = await ctx.db.user.findUnique({
-              where: { id: userId },
-              select: { name: true, email: true },
+            // Names the action (the caller owns it) but never the rejected
+            // user — see the matching guard in `assign`.
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"} (action "${action.name}")`,
             });
-            const userName = user?.name ?? user?.email ?? userId;
-
-            throw new Error(
-              `User ${userName} cannot be assigned to action "${action.name}". They must be a member of the ${action.projectId ? "project" : "team"}.`,
-            );
           }
         }
       }

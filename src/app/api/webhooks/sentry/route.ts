@@ -2,26 +2,35 @@ import { type NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
 import { ingestSentryBug } from "~/server/services/sentry/SentryBugService";
 import {
-  normalizeSentryPayload,
+  normalizeIssueWebhook,
   verifySentrySignature,
   verifyWebhookToken,
 } from "~/server/services/sentry/sentryPayload";
 
 /**
- * Sentry → Exponential bug webhook (ADR-0027).
+ * Sentry / GlitchTip → Exponential bug webhook (ADR-0027).
  *
- * Configure a Sentry internal integration to POST here on the `issue` (created)
- * resource. Each new Sentry issue becomes a Bug Ticket (`type: BUG`,
- * `status: BACKLOG`) in the configured product, authored by the Errol system
- * user. Recurring errors are collapsed onto one ticket in a later slice (dedup).
+ * Each new issue becomes a Bug Ticket (`type: BUG`, `status: BACKLOG`) in the
+ * configured product, authored by the Errol system user. Recurring errors are
+ * collapsed onto one ticket (dedup on the issue id).
+ *
+ * Two senders, distinguished by the `Sentry-Hook-Resource` header:
+ *  - **Sentry** sends the header plus a nested `{action, data.issue}` body.
+ *  - **GlitchTip's generic webhook** sends no header and a flat, Slack-styled
+ *    body. Its Alert Rule UI accepts only a URL — no custom headers — so the
+ *    shared secret may also travel as a `?token=` query param.
  *
  * Auth: two independent gates, each active only when its env var is set.
- *  - `SENTRY_WEBHOOK_TOKEN`: a shared secret the sender echoes in the
- *    `X-Webhook-Token` header. For senders that can set headers but can't sign
- *    the body (e.g. Glitchtip, which has no HMAC signing yet).
+ *  - `SENTRY_WEBHOOK_TOKEN`: a shared secret echoed in the `X-Webhook-Token`
+ *    header, or (for GlitchTip) the `token` query param. The header is
+ *    preferred: query strings are far more likely to be captured in proxy and
+ *    access logs, so the param exists only because GlitchTip allows nothing
+ *    else.
  *  - `SENTRY_WEBHOOK_SECRET`: real Sentry signs the raw body with HMAC-SHA256
  *    using the integration's Client Secret and sends it in
  *    `Sentry-Hook-Signature`. Verification is one-way, like the GitHub webhook.
+ *    GlitchTip cannot sign, so a GlitchTip-only deployment should configure
+ *    the token and leave the secret unset.
  * If both are set, both must pass; if neither is set, the endpoint is open
  * (logged). Configure at least one in any internet-facing deployment.
  */
@@ -33,7 +42,9 @@ export async function POST(request: NextRequest) {
 
     const token = process.env.SENTRY_WEBHOOK_TOKEN;
     if (token) {
-      const provided = request.headers.get("x-webhook-token");
+      const provided =
+        request.headers.get("x-webhook-token") ??
+        request.nextUrl.searchParams.get("token");
       if (!provided || !verifyWebhookToken(provided, token)) {
         console.error("[sentry webhook] invalid or missing webhook token");
         return NextResponse.json({ error: "Invalid token" }, { status: 401 });
@@ -57,20 +68,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!resource) {
-      return NextResponse.json(
-        { error: "Missing Sentry-Hook-Resource header" },
-        { status: 400 },
-      );
-    }
-
-    const bug = normalizeSentryPayload(resource, JSON.parse(rawBody) as unknown);
+    // No resource header ⇒ treat as GlitchTip's generic webhook.
+    const bug = normalizeIssueWebhook(resource, JSON.parse(rawBody) as unknown);
     if (!bug) {
       // Not an event we file as a bug (installation, comment, resolved, etc.).
-      return NextResponse.json({ message: `Ignored Sentry ${resource} event` });
+      return NextResponse.json({
+        message: `Ignored ${resource ?? "glitchtip"} event`,
+      });
     }
 
-    const result = await ingestSentryBug(db, bug);
+    // Which codebase the error came from, for labelling (`service`, or
+    // `product` as an alias). Does not affect the destination product.
+    const sourceSlug =
+      request.nextUrl.searchParams.get("service") ??
+      request.nextUrl.searchParams.get("product");
+
+    const result = await ingestSentryBug(db, bug, { sourceSlug });
     console.log(
       `[sentry webhook] issue ${bug.issueId} -> ticket ${result.ticketId} (created=${result.created})`,
     );

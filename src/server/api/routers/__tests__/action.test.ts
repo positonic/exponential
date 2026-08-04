@@ -626,6 +626,23 @@ describe("action router (mocked)", () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any;
       dbMock.action.create.mockResolvedValue(created);
+      // `create` now verifies membership before writing into an explicit
+      // workspace, so this fixture has to make the caller a member — the
+      // subject under test here is the instrumentation catch, not access.
+      dbMock.workspaceUser.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { userId: callerId, workspaceId: wsId, role: "member" } as any,
+      );
+
+      // `create` authorises a caller-supplied workspaceId before writing, so
+      // the caller needs a writing role to reach the instrumentation at all.
+      dbMock.workspaceUser.findUnique.mockResolvedValue({
+        userId: callerId,
+        workspaceId: wsId,
+        role: "member",
+        joinedAt: new Date(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
@@ -889,6 +906,404 @@ describe("action router (mocked)", () => {
       const result = await caller.action.getAssignableUsers({ actionId: "a1" });
 
       expect(result.assignableUsers.map((u) => u.id).sort()).toEqual([callerId, "u2"]);
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // create — workspace containment
+  // ────────────────────────────────────────────────────────────────────
+  describe("create workspace containment", () => {
+    const callerId = "caller-1";
+    const workspaceId = "w1";
+
+    /** Only `memberIds` belong to `workspaceId`. */
+    function stubMembers(memberIds: string[]) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.workspaceUser.findUnique.mockImplementation((args: any) => {
+        const userId = args?.where?.userId_workspaceId?.userId as
+          | string
+          | undefined;
+        return Promise.resolve(
+          userId && memberIds.includes(userId)
+            ? { userId, workspaceId, role: "member", joinedAt: new Date() }
+            : null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ) as any;
+      });
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
+    }
+
+    it("refuses to plant an action in a workspace the caller is not in", async () => {
+      // No projectId, so nothing else in `create` ever looks at workspaceId —
+      // it was spread straight into the row, and the `created` activity event
+      // fired into that workspace's feed.
+      stubMembers([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.create({ name: "Trespass", workspaceId }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    it("allows a member to create an action in their own workspace", async () => {
+      stubMembers([callerId]);
+      dbMock.action.create.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "a1", name: "Mine", workspaceId, project: null } as any,
+      );
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.create({ name: "Mine", workspaceId });
+
+      expect(dbMock.action.create).toHaveBeenCalled();
+    });
+
+    it("needs no membership probe when no workspaceId is supplied", async () => {
+      dbMock.action.create.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "a1", name: "Personal", workspaceId: null, project: null } as any,
+      );
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.create({ name: "Personal" });
+
+      expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
+      expect(dbMock.action.create).toHaveBeenCalled();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // assign — assignee containment on project-less, team-less actions
+  // ────────────────────────────────────────────────────────────────────
+  describe("assign assignee containment", () => {
+    const callerId = "caller-1";
+    const workspaceId = "w1";
+    const outsiderId = "user-outsider";
+    const actionId = "a1";
+
+    /** An action with neither project nor team — the branch that used to
+     *  allow assigning literally any user id. */
+    function stubUnscopedAction(opts?: { workspaceId?: string | null }) {
+      dbMock.action.findUnique.mockResolvedValue({
+        id: actionId,
+        name: "Loose end",
+        projectId: null,
+        project: null,
+        teamId: null,
+        team: null,
+        workspaceId: opts?.workspaceId ?? null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      // Caller passes buildActionAccessWhere (they created it).
+      dbMock.action.findFirst.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: actionId } as any,
+      );
+    }
+
+    it("refuses an arbitrary user id, which used to leak their email back", async () => {
+      stubUnscopedAction();
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null as never);
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
+      dbMock.team.findFirst.mockResolvedValue(null as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.assign({ actionId, userIds: [outsiderId] }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      expect(dbMock.actionAssignee.createMany).not.toHaveBeenCalled();
+    });
+
+    it("does not name the rejected user in the error", async () => {
+      stubUnscopedAction();
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null as never);
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
+      dbMock.team.findFirst.mockResolvedValue(null as never);
+      // If the router still looked the user up to build the message, this
+      // identity would end up in the error string.
+      dbMock.user.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { name: "Ada Lovelace", email: "ada@example.com" } as any,
+      );
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const err = await caller.action
+        .assign({ actionId, userIds: [outsiderId] })
+        .catch((e: unknown) => e);
+
+      expect(String((err as Error).message)).not.toContain("ada@example.com");
+      expect(String((err as Error).message)).not.toContain("Ada Lovelace");
+    });
+
+    it("still allows a member of the action's workspace", async () => {
+      stubUnscopedAction({ workspaceId });
+      dbMock.workspaceUser.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { role: "member", workspaceId } as any,
+      );
+      dbMock.actionAssignee.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.assign({ actionId, userIds: ["user-colleague"] });
+
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
+    });
+
+    it("still allows self-assignment on a context-less action", async () => {
+      stubUnscopedAction();
+      dbMock.actionAssignee.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.assign({ actionId, userIds: [callerId] });
+
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // create / update — workspace write authorisation
+  //
+  // `workspaceId` is free-form input on both mutations. Before this suite
+  // existed, `create` only checked access inside `if (input.projectId)`, so
+  // a caller supplying `workspaceId` alone wrote straight through to
+  // `db.action.create` with no membership check at all.
+  // ────────────────────────────────────────────────────────────────────
+  describe("workspace write authorisation", () => {
+    const callerId = "caller-1";
+
+    /** Caller reaches the workspace by no path at all. */
+    function stubNoMembership() {
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+    }
+
+    /** Caller holds `role` via a direct WorkspaceUser row. */
+    function stubWorkspaceRole(workspaceId: string, role: string) {
+      dbMock.workspaceUser.findUnique.mockResolvedValue({
+        userId: callerId,
+        workspaceId,
+        role,
+        joinedAt: new Date(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+    }
+
+    describe("create", () => {
+      it("refuses a workspaceId the caller has no membership in", async () => {
+        stubNoMembership();
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.create({ name: "Injected", workspaceId: "w-foreign" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        // The whole point: no row lands in the foreign workspace.
+        expect(dbMock.action.create).not.toHaveBeenCalled();
+      });
+
+      it("refuses a workspace the caller is only a viewer of", async () => {
+        // Membership alone is not authority to write — `viewer` is read-only.
+        stubWorkspaceRole("w1", "viewer");
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.create({ name: "Read-only", workspaceId: "w1" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        expect(dbMock.action.create).not.toHaveBeenCalled();
+      });
+
+      it("lets a workspace member create, persisting the workspaceId", async () => {
+        stubWorkspaceRole("w1", "member");
+        dbMock.action.create.mockResolvedValue({
+          id: "a1",
+          name: "Mine",
+          workspaceId: "w1",
+          project: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        await caller.action.create({ name: "Mine", workspaceId: "w1" });
+
+        const data = dbMock.action.create.mock.calls[0]![0]!.data;
+        expect(data).toMatchObject({ workspaceId: "w1", createdById: callerId });
+      });
+
+      it("takes the workspace from the project, ignoring a foreign workspaceId", async () => {
+        // Caller genuinely owns the project (isCreator ⇒ canEditProject), but
+        // names someone else's workspace. The project must win, or project
+        // edit rights become a laundering route into any workspace.
+        dbMock.project.findUnique.mockResolvedValue({
+          createdById: callerId,
+          teamId: null,
+          workspaceId: "w-legit",
+          isPublic: false,
+          isRestricted: false,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        dbMock.projectMember.findFirst.mockResolvedValue(null);
+        dbMock.action.findFirst.mockResolvedValue(null);
+        stubNoMembership();
+        dbMock.action.create.mockResolvedValue({
+          id: "a1",
+          name: "Scoped",
+          workspaceId: "w-legit",
+          project: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        await caller.action.create({
+          name: "Scoped",
+          projectId: "p1",
+          workspaceId: "w-foreign",
+        });
+
+        const data = dbMock.action.create.mock.calls[0]![0]!.data;
+        expect(data).toMatchObject({ workspaceId: "w-legit" });
+      });
+    });
+
+    describe("update", () => {
+      /** Caller is the action's creator, so `canEditAction` passes. */
+      function stubOwnedAction() {
+        dbMock.action.findUnique.mockResolvedValue({
+          createdById: callerId,
+          projectId: null,
+          assignees: [],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      }
+
+      it("refuses moving an action into a workspace the caller isn't in", async () => {
+        // Editing the action where it lives ≠ permission to relocate it.
+        stubOwnedAction();
+        stubNoMembership();
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.update({ id: "a1", workspaceId: "w-foreign" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
+
+      it("refuses moving an action into a project the caller can't edit", async () => {
+        stubOwnedAction();
+        dbMock.project.findUnique.mockResolvedValue({
+          createdById: "someone-else",
+          teamId: null,
+          workspaceId: "w-foreign",
+          isPublic: false,
+          isRestricted: false,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        dbMock.projectMember.findFirst.mockResolvedValue(null);
+        stubNoMembership();
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.update({ id: "a1", projectId: "p-foreign" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
+
+      it("refuses moving an action into a project the caller can't edit (epic guard unreached)", async () => {
+        // Regression guard for ordering: the project check must fire before
+        // anything downstream consumes the re-targeted workspace.
+        stubOwnedAction();
+        dbMock.project.findUnique.mockResolvedValue({
+          createdById: "someone-else",
+          teamId: null,
+          workspaceId: "w-foreign",
+          isPublic: false,
+          isRestricted: false,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        dbMock.projectMember.findFirst.mockResolvedValue(null);
+        stubNoMembership();
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.update({
+            id: "a1",
+            projectId: "p-foreign",
+            epicId: "e-foreign",
+          }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
+
+      it("allows clearing the workspace without a membership probe", async () => {
+        // Detaching an action the caller can already edit grants no access.
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1", workspaceId: null } as any);
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        await caller.action.update({ id: "a1", workspaceId: null });
+
+        expect(dbMock.action.update).toHaveBeenCalled();
+        expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("ensureDailyPlanPromptAction", () => {
+      it("refuses a workspaceId the caller has no membership in", async () => {
+        // Called on every app load, and writes a row into whatever workspace
+        // it is handed — same hole as `create`, same guard.
+        stubNoMembership();
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.ensureDailyPlanPromptAction({ workspaceId: "w-foreign" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+        expect(dbMock.action.create).not.toHaveBeenCalled();
+        // Refused before even probing for an existing prompt action.
+        expect(dbMock.action.findFirst).not.toHaveBeenCalled();
+      });
+
+      it("lets a workspace member through", async () => {
+        stubWorkspaceRole("w1", "member");
+        dbMock.action.findFirst.mockResolvedValue(null);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.create.mockResolvedValue({ id: "a1" } as any);
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        const result = await caller.action.ensureDailyPlanPromptAction({
+          workspaceId: "w1",
+        });
+
+        expect(result).toMatchObject({ created: true, actionId: "a1" });
+        const data = dbMock.action.create.mock.calls[0]![0]!.data;
+        expect(data).toMatchObject({ workspaceId: "w1" });
+      });
+
+      it("needs no membership probe when no workspaceId is given", async () => {
+        dbMock.action.findFirst.mockResolvedValue(null);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.create.mockResolvedValue({ id: "a1" } as any);
+
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        await caller.action.ensureDailyPlanPromptAction({});
+
+        expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
+        expect(dbMock.action.create).toHaveBeenCalled();
+      });
     });
   });
 });

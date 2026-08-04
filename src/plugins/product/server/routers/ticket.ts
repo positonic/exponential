@@ -2,7 +2,10 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
-import { assertWorkspaceScopedRefs } from "~/server/services/access";
+import {
+  assertWorkspaceScopedRefs,
+  assertAssignableUser,
+} from "~/server/services/access";
 import type { PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { createTicketWithNumber } from "../services/createTicket";
@@ -355,6 +358,15 @@ export const ticketRouter = createTRPCRouter({
         scopeId: input.scopeId,
       });
 
+      // Same reasoning for the assignee, whose name and email come back through
+      // `getById`'s include: only someone who could already read this ticket
+      // may be assigned it.
+      await assertAssignableUser(
+        ctx.db,
+        product.workspaceId,
+        input.assigneeId,
+      );
+
       // If templateId provided, load its body as the starting body (unless body already given)
       let body = input.body;
       if (!body && input.templateId) {
@@ -443,6 +455,12 @@ export const ticketRouter = createTRPCRouter({
           cycleId: input.cycleId,
           scopeId: input.scopeId,
         },
+      );
+
+      await assertAssignableUser(
+        ctx.db,
+        previousTicket.product.workspaceId,
+        input.assigneeId,
       );
 
       const { id, ...rest } = input;
@@ -575,6 +593,18 @@ export const ticketRouter = createTRPCRouter({
       );
       for (const workspaceId of workspaceIds) {
         await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+
+        // The same link and assignee guards as `create`/`update` — this path
+        // writes the identical foreign keys and its tickets are read back
+        // through the identical includes. The patch applies uniformly, so a
+        // reference must be valid in *every* workspace the selection spans.
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          ctx.session.user.id,
+          workspaceId,
+          { epicId: input.epicId, cycleId: input.cycleId },
+        );
+        await assertAssignableUser(ctx.db, workspaceId, input.assigneeId);
       }
 
       const data: Record<string, unknown> = Object.fromEntries(fields);
