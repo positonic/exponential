@@ -55,15 +55,11 @@ html[data-titlebar="overlay"] {
   }
 }
 
-/* Collapsed, the main column inherits the top-left corner from the sidebar —
-   window controls and all — so the inset has to move with it. Margin rather
-   than padding: it stacks on whatever responsive padding <main> has at this
-   breakpoint instead of replacing it, and rides the same 300ms transition as
-   the collapse, so the content slides down with the sidebar rather than
-   snapping. */
-html[data-titlebar="overlay"][data-sidebar="closed"] .sidebar-offset {
-  margin-top: var(--titlebar-inset);
-}
+/* Collapsing the sidebar used to drop the whole main column by the inset, on the
+   grounds that it inherited the top-left corner and the traffic lights with it.
+   Removed: the re-open button below carries its own inset, so it still clears
+   the controls, and dropping the entire column was a visible lurch to buy
+   clearance for one button. */
 
 /* ============================================================
    Create Action - soft tinted CTA

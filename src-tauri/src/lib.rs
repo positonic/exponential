@@ -85,6 +85,76 @@ fn desktop_shell_info() -> ShellInfo {
     }
 }
 
+/// SPIKE (cool.lark) — throwaway. The shell has run Tauri's default menu until
+/// now, and the tab shortcuts do not survive that.
+///
+/// AppKit is supposed to inject Show Next/Previous Tab into whatever submenu is
+/// registered as `NSApp.windowsMenu`, and the preconditions all hold — tao
+/// leaves `allowsAutomaticWindowTabbing` on, and Tauri does call
+/// `set_as_windows_menu_for_nsapp` for the submenu tagged `WINDOW_SUBMENU_ID`.
+/// The items still never reached the keyboard, so they are declared explicitly
+/// here. The actions are AppKit's own, so the behaviour is Safari's — cycling
+/// wraps, the overview is the real overview — rather than a reimplementation.
+///
+/// Built by *extending* `Menu::default`, never by constructing a menu from
+/// scratch. A fresh menu has no submenu carrying `WINDOW_SUBMENU_ID`, so
+/// `set_as_windows_menu_for_nsapp` never fires and macOS silently loses the
+/// window list and its tab handling. Adding a tab shortcut that way would remove
+/// the others.
+#[cfg(target_os = "macos")]
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+
+    let menu = Menu::default(app)?;
+
+    let new_tab = MenuItem::with_id(app, "new-tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
+    let next_tab = MenuItem::with_id(app, "next-tab", "Show Next Tab", true, Some("Ctrl+Tab"))?;
+    let prev_tab = MenuItem::with_id(
+        app,
+        "prev-tab",
+        "Show Previous Tab",
+        true,
+        Some("Ctrl+Shift+Tab"),
+    )?;
+    let overview = MenuItem::with_id(
+        app,
+        "tab-overview",
+        "Show All Tabs",
+        true,
+        Some("CmdOrCtrl+Shift+Backslash"),
+    )?;
+
+    // New Tab sits above Close Window in File, where Safari puts it.
+    if let Some(file) = submenu_named(&menu, "File") {
+        file.insert(&new_tab, 0)?;
+    }
+
+    if let Some(window) = menu
+        .get(tauri::menu::WINDOW_SUBMENU_ID)
+        .and_then(|item| item.as_submenu().cloned())
+    {
+        window.append(&PredefinedMenuItem::separator(app)?)?;
+        window.append(&next_tab)?;
+        window.append(&prev_tab)?;
+        window.append(&overview)?;
+    }
+
+    Ok(menu)
+}
+
+/// The default menu gives its submenus no ids except Window and Help, so File
+/// has to be found by the label the user reads.
+#[cfg(target_os = "macos")]
+fn submenu_named(
+    menu: &tauri::menu::Menu<tauri::Wry>,
+    name: &str,
+) -> Option<tauri::menu::Submenu<tauri::Wry>> {
+    menu.items().ok()?.into_iter().find_map(|item| {
+        let submenu = item.as_submenu()?;
+        (submenu.text().ok()? == name).then(|| submenu.clone())
+    })
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Single-instance must be registered first (plugin's own requirement).
@@ -99,6 +169,22 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .menu(|app| {
+            #[cfg(target_os = "macos")]
+            return build_menu(app);
+            #[cfg(not(target_os = "macos"))]
+            return tauri::menu::Menu::default(app);
+        })
+        .on_menu_event(|_app, _event| {
+            #[cfg(target_os = "macos")]
+            match _event.id().as_ref() {
+                "new-tab" => tabs::open(_app),
+                "next-tab" => tabs::select_next(_app),
+                "prev-tab" => tabs::select_previous(_app),
+                "tab-overview" => tabs::toggle_overview(_app),
+                _ => {}
+            }
+        })
         .manage(auth::LoginState::default())
         .manage(wiki::WikiRoot::default())
         .invoke_handler(tauri::generate_handler![
@@ -292,6 +378,92 @@ fn push_titlebar_inset(window: &tauri::WebviewWindow) {
     let _ = window.eval(&format!(
         "document.documentElement.style.setProperty('--titlebar-inset','{inset:.0}px')"
     ));
+}
+
+/// SPIKE (cool.lark) — throwaway. Tab commands, sent to whichever window is
+/// frontmost.
+///
+/// `selectNextTab:`, `selectPreviousTab:` and `toggleTabOverview:` are AppKit's
+/// own actions, so the behaviour is Safari's by construction — cycling wraps,
+/// the overview is the real overview — rather than something reimplemented and
+/// approximately right.
+#[cfg(target_os = "macos")]
+mod tabs {
+    use objc2::runtime::AnyObject;
+    use tauri::Manager;
+
+    /// Labels are `tab-<n>` to match the capability glob. Nothing reads them.
+    static NEXT_LABEL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
+    pub fn next_label() -> String {
+        let n = NEXT_LABEL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("tab-{n}")
+    }
+
+    pub fn frontmost(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+        let windows = app.webview_windows();
+        windows
+            .values()
+            .find(|w| w.is_focused().unwrap_or(false))
+            .or_else(|| windows.values().next())
+            .cloned()
+    }
+
+    fn ns_window(window: &tauri::WebviewWindow) -> Option<*mut AnyObject> {
+        window.ns_window().ok().map(|ptr| ptr as *mut AnyObject)
+    }
+
+    pub fn select_next(app: &tauri::AppHandle) {
+        if let Some(ns) = frontmost(app).as_ref().and_then(ns_window) {
+            unsafe {
+                let _: () = objc2::msg_send![ns, selectNextTab: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+
+    pub fn select_previous(app: &tauri::AppHandle) {
+        if let Some(ns) = frontmost(app).as_ref().and_then(ns_window) {
+            unsafe {
+                let _: () = objc2::msg_send![ns, selectPreviousTab: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+
+    pub fn toggle_overview(app: &tauri::AppHandle) {
+        if let Some(ns) = frontmost(app).as_ref().and_then(ns_window) {
+            unsafe {
+                let _: () = objc2::msg_send![ns, toggleTabOverview: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+
+    /// Open a tab in the frontmost window's tab group.
+    ///
+    /// `addTabbedWindow:` rather than trusting the shared identifier: AppKit only
+    /// auto-merges when the user's global `AppleWindowTabbingMode` is `always`,
+    /// and Apple's default is "In Full Screen Only" — so without this an ordinary
+    /// user gets a detached window and no tab at all.
+    pub fn open(app: &tauri::AppHandle) {
+        let host = frontmost(app);
+        let Ok(()) = super::build_window(app, &next_label()) else {
+            return;
+        };
+        let Some(host_ns) = host.as_ref().and_then(ns_window) else {
+            return;
+        };
+        // The window just built is the newest one; find it by the label we used.
+        let Some(added) = app
+            .webview_windows()
+            .values()
+            .max_by_key(|w| w.label().to_owned())
+            .and_then(|w| ns_window(w))
+        else {
+            return;
+        };
+        unsafe {
+            let _: () = objc2::msg_send![host_ns, addTabbedWindow: added, ordered: 1isize];
+        }
+    }
 }
 
 fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
