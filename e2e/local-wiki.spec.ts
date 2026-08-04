@@ -259,6 +259,37 @@ test("a page changed on disk mid-edit is not silently overwritten", async ({ pag
   );
 });
 
+test("navigating away from an open editor does not carry the draft to the next page", async ({
+  page,
+}) => {
+  await installWikiStub(page);
+  await page.goto("/wiki/index");
+  await expect(page.getByRole("heading", { name: "Index" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  // Straight from one page to another — no trip through the list, which would
+  // unmount the view and hide the problem.
+  await page.locator("a.wiki-link", { hasText: "people/ada" }).click();
+  await expect(page.getByRole("heading", { name: "Ada Lovelace" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await page.getByRole("textbox").fill("# Ada\n\nUnsaved edits to Ada.\n");
+
+  // Both pages are the same route with different params, so the view is
+  // reused rather than remounted. An editor left open must not follow.
+  await page.goBack();
+
+  await expect(page).toHaveURL(/\/wiki\/index$/);
+  await expect(page.getByRole("heading", { name: "Index" })).toBeVisible();
+  // Reading index.md, not editing it with Ada's text.
+  await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+
+  // And Ada's unsaved draft never reached index.md.
+  expect(await fileOnDisk(page, "index.md")).toBe(FILES["index.md"]!);
+});
+
 test("in a browser, the wiki says where it actually lives", async ({ page }) => {
   // No stub: this is what a non-desktop visitor gets.
   await page.goto("/wiki");

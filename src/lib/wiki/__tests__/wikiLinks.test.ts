@@ -75,6 +75,13 @@ describe("wiki paths", () => {
     expect(pageTitle("notes.md", "intro\n\n# Later heading")).toBe("Later heading");
   });
 
+  it("does not take a title from inside a fenced code block", () => {
+    const md = "```bash\n# install the thing\nbrew install thing\n```\n\n# Real Title\n";
+    expect(pageTitle("tools/thing.md", md)).toBe("Real Title");
+    // With no heading outside the fence, fall back to the filename.
+    expect(pageTitle("tools/thing.md", "```bash\n# install\n```\n")).toBe("thing");
+  });
+
   it("reports the folder a page sits in", () => {
     expect(pageFolder("people/ada.md")).toBe("people");
     expect(pageFolder("index.md")).toBeNull();

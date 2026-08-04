@@ -71,7 +71,10 @@ export function segmentsToPath(segments: string[] | undefined): string | null {
  * for one), and it reads better than a slug.
  */
 export function pageTitle(path: string, content?: string): string {
-  const heading = content ? /^#\s+(.+)$/m.exec(content)?.[1]?.trim() : undefined;
+  // Fenced blocks first: a page that opens with a shell snippet would otherwise
+  // be titled by its first comment line.
+  const prose = content?.replace(/^```[\s\S]*?^```/gm, "");
+  const heading = prose ? /^#\s+(.+)$/m.exec(prose)?.[1]?.trim() : undefined;
   if (heading) return heading;
   const base = pathToTarget(path).split("/").pop() ?? path;
   return base.replace(/[-_]/g, " ");

@@ -59,6 +59,7 @@ export function WikiPageView({ path }: { path: string }) {
       if (!pages.some((p) => p.path === path)) {
         setMissing(true);
         setContent(null);
+        setError(null);
         baseline.current = null;
         return;
       }

@@ -26,6 +26,14 @@ export function useWikiBridge(): { bridge: WikiBridge | null; ready: boolean } {
 }
 
 /**
+ * Whether this device can host a local wiki at all — for surfaces that only
+ * need to know whether to offer it (the sidebar entry), not to talk to it.
+ */
+export function useLocalWikiAvailable(): boolean {
+  return useWikiBridge().bridge !== null;
+}
+
+/**
  * Run `refresh` whenever the window regains focus.
  *
  * The librarian writes to the same files this UI is showing, from a chat in
