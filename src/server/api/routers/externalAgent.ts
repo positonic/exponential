@@ -182,7 +182,9 @@ export const externalAgentRouter = createTRPCRouter({
     }),
 
   grantWorkspaces: humanOnlyProcedure
-    .input(z.object({ agentId: z.string(), workspaceIds: z.array(z.string()).min(1) }))
+    // `.max` is a sanity bound, not a product limit — it caps the `IN` clause and
+    // the `$transaction` batch, both sized directly by this input.
+    .input(z.object({ agentId: z.string(), workspaceIds: z.array(z.string()).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
       const workspaceIds = [...new Set(input.workspaceIds)];
@@ -198,10 +200,20 @@ export const externalAgentRouter = createTRPCRouter({
         ownerMemberships.filter((m) => m.role !== "viewer").map((m) => m.workspaceId),
       );
       if (delegable.size !== workspaceIds.length) {
+        // Name the offenders — the picker is fed by `workspace.list`, which also
+        // surfaces team-based and project-guest workspaces where the owner holds
+        // no `WorkspaceUser` row at all. Without names, recovering from a
+        // rejected batch means bisecting the selection by hand.
+        const rejected = await ctx.db.workspace.findMany({
+          where: { id: { in: workspaceIds.filter((id) => !delegable.has(id)) } },
+          select: { name: true },
+        });
+        const names = rejected.map((w) => w.name).join(", ");
         throw new TRPCError({
           code: "FORBIDDEN",
-          message:
-            "You need at least member access in every workspace you add your agent to — nothing was granted",
+          message: names
+            ? `You need at least member access to add your agent to ${names} — nothing was granted`
+            : "You need at least member access in every workspace you add your agent to — nothing was granted",
         });
       }
 
