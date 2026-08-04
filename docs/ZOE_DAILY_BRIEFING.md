@@ -97,22 +97,42 @@ boxes; only the first was ever true. Re-verify before trusting it again.
 
 ### What shipped instead
 
-The AI card on `/today` is a different implementation that bypasses everything
+The AI card on `/today` is a different implementation from the one designed
 above: `scheduling.getSchedulingSuggestions`
-(`src/server/api/routers/scheduling.ts`) → Mastra's `ashAgent`, rendered by
-`ZoePanel`. Three ways it diverges from this design, each worth knowing before
-you build on it:
+(`src/server/api/routers/scheduling.ts`), rendered by `ZoePanel`. It now writes
+to these tables, so the two paths have partly converged:
 
-- **It regenerates on page load** — a `useQuery` with `staleTime: 5min`, firing an
-  LLM round-trip per render. That is precisely the first entry under
-  [Gotchas](#gotchas) below.
-- **Nothing is persisted.** No `DailyBriefing` row, no `promptVersion`, no
-  `inputSnapshot`, no interaction log. Dismissal is React state and dies on
-  reload. So none of the metrics below can currently be computed, and there is
-  no replayable input for the autoresearch loop.
-- **It is not Zoe.** `ashAgent` is a tool-less GPT-4o lean-startup persona whose
-  instructions are overridden by a per-call system message. Model, prompt, and
-  persona are all unrelated to the branding on the card.
+- **It no longer regenerates on page load.** Each call builds a deterministic
+  `SuggestionInputSnapshot` (the overdue actions, calendar busy-intervals, and
+  already-scheduled actions the prompt reads), hashes it, and reuses today's
+  `DailyBriefing` row when the hash matches. The model is called only when the
+  input actually changed. This closes the first entry under
+  [Gotchas](#gotchas).
+- **Briefings are persisted** with `promptVersion`, `modelId`, `inputSnapshot`,
+  `outputText`, `outputStructured` and `latencyMs` — so the replayable input the
+  autoresearch loop needs now exists. `scheduling.recordBriefingInteraction`
+  writes `BriefingInteraction`, so acceptance and dismissal rates are
+  computable.
+- **It is Zoe now.** Generation was pointed at `ashAgent` — a tool-less GPT-4o
+  lean-startup persona whose instructions were overridden per call, so model,
+  prompt, and persona all disagreed with the branding on the card. It now calls
+  `zoeAgent`.
+
+Still divergent from the design above:
+
+- **`promptVersion` is `zoe-scheduling-v1`**, not `zoe-daily-vN` — this is the
+  scheduling-suggestions prompt, a different prompt from the "take on your day"
+  paragraph described here. Bump it on any change to
+  `SCHEDULING_SYSTEM_PROMPT` or `buildSchedulingPrompt`.
+- **No `zoeBriefing` router, no opt-in toggle, no admin page.** Generation is
+  still implicit rather than user-triggered — it happens on first render of a
+  day, not on a "Generate" click.
+- **`tokensIn` / `tokensOut` are unpopulated** — the Mastra generate endpoint's
+  response doesn't surface usage on this path yet, so cost metrics can't be
+  sliced.
+- **Dismissal is still React state** and dies on reload. Persisting *per
+  suggestion* needs an `actionId` on `BriefingInteraction`, i.e. a migration;
+  briefing-level interactions work today.
 
 ## Roadmap to the autoresearch loop
 
