@@ -45,6 +45,19 @@
   border-bottom: 1px solid var(--td-hair);
   white-space: nowrap;
   flex-shrink: 0;
+  /* Matches the sidebar's own collapse animation, so the title slides aside
+     rather than jumping when the corner button appears. */
+  transition: padding-left 300ms ease-in-out;
+}
+
+/* Collapsed, the sidebar leaves a fixed re-open button in the window's
+   top-left corner (x 12–44). This page goes full-bleed, so its bar starts at
+   the very edge of the content column and is the one header the button lands
+   on — 20px puts the title straight under it. WorkspaceTopbar sidesteps this
+   with a flat 40px; here the extra space is only spent while the button is
+   actually there. */
+html[data-sidebar="closed"] .td-topbar {
+  padding-left: 52px;
 }
 
 .td-topbar__title {
