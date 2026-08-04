@@ -119,6 +119,10 @@ pub fn run() {
         .setup(|app| {
             resolve_wiki_root(app.handle());
             build_main_window(app.handle())?;
+            // SPIKE (cool.lark) — throwaway. Second window sharing the tabbing
+            // identifier, so a release build opens with a native tab bar and the
+            // two questions can be looked at. Delete with the rest of the spike.
+            spike_second_window(app.handle())?;
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -207,6 +211,18 @@ const TITLEBAR_MARKER_SCRIPT: &str = "";
 /// URL is build-dependent (dev server vs production) and a `WebviewUrl::External`
 /// in static config cannot express that.
 fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    build_window(app, "main")
+}
+
+/// SPIKE (cool.lark) — throwaway. A second window with the same tabbing
+/// identifier, labelled `tab-2` so the capability glob (`"windows": ["main",
+/// "tab-*"]`, also spike-only) gets exercised at the same time: if the bridge
+/// reaches this window, `desktop_shell_info` answers from inside the tab.
+fn spike_second_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    build_window(app, "tab-2")
+}
+
+fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
     let url = app_base_url()
         .parse()
         .unwrap_or_else(|e| panic!("{BASE_URL_ENV} is not a valid URL: {e}"));
@@ -214,8 +230,10 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let opener = app.clone();
     let new_window_opener = app.clone();
 
-    let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
-        .title("Exponential Beta")
+    let builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External(url))
+        // SPIKE (cool.lark) — throwaway. Distinct per window, so the tab bar
+        // shows whether AppKit reads the (hidden) window title for its label.
+        .title(format!("Exponential Beta — {label}"))
         .inner_size(1400.0, 900.0)
         .min_inner_size(800.0, 600.0)
         // The page is remote and takes a moment to paint; without this the window
@@ -252,7 +270,10 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
+        .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0))
+        // SPIKE (cool.lark) — throwaway. Shared identifier is the whole native
+        // tabbing mechanism; AppKit draws the tab bar from it.
+        .tabbing_identifier("im.exponential.beta.tabs");
 
     builder.build()?;
     Ok(())
