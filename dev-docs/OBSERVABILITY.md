@@ -57,6 +57,28 @@ announcements to **Zulip** (`sentryZulip.ts`) and **Matrix**
 `.env.example`); the room must be unencrypted and the bot joined. Recurring
 errors that dedup onto an existing ticket do not re-notify.
 
+### GlitchTip senders
+
+The same endpoints accept GlitchTip's **generic (Slack-compatible) webhook**,
+which other services in this org use. Two differences from Sentry, both
+handled automatically:
+
+- **No `Sentry-Hook-Resource` header.** Its absence is what selects the
+  GlitchTip parser (`normalizeGlitchtipPayload`), which reads the flat
+  `{alias, issue_id, project, attachments[0].title/title_link}` shape instead
+  of Sentry's nested `data.issue`. Only `issue.new` / `issue.regression` file
+  a ticket; resolutions are ignored. If `issue_id` is missing the id is
+  recovered from the issue URL.
+- **No HMAC.** GlitchTip cannot sign the body, and its Alert Rule UI accepts
+  only a URL — no custom headers — so the shared secret may travel as a
+  `?token=` query param. On the per-workspace route the token is the
+  integration's own secret. Prefer the `X-Webhook-Token` header where the
+  sender supports it: query strings are more likely to be captured in proxy
+  and access logs.
+
+Security boundary: presenting a `Sentry-Hook-Signature` commits the sender to
+HMAC. An invalid signature is always a 401 — a valid token never rescues it.
+
 Tickets are labelled `Sentry` + `bug`, and additionally `ai-fixable` when the
 issue's Sentry project is listed in `SENTRY_AI_FIXABLE_PROJECTS` — the
 allowlist exists because the webhook is org-wide and a bug from another
