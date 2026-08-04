@@ -83,6 +83,15 @@ describe('WorkspaceTopbar', () => {
     );
   });
 
+  it('shows no section crumb at the workspace root', () => {
+    mockUsePathname.mockReturnValue('/w/syntrofi');
+
+    render(<WorkspaceTopbar />);
+
+    expect(screen.getByRole('link', { name: 'Syntrofi' })).toBeInTheDocument();
+    expect(screen.queryByText('W')).not.toBeInTheDocument();
+  });
+
   it('leaves the section crumb as text on global routes', () => {
     // Global segments like `/recording/{id}` have no index page to land on.
     mockUsePathname.mockReturnValue('/recording/abc123');

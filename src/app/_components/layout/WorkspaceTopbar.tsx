@@ -36,6 +36,10 @@ function getSectionCrumb(
   workspaceSlug: string,
 ): { label: string; href: string | null } {
   const prefix = `/w/${workspaceSlug}/`;
+  // The workspace root redirects onwards, so it has no section of its own —
+  // without this it would parse as the segment "w" and render a "W" crumb.
+  if (pathname === `/w/${workspaceSlug}`) return { label: '', href: null };
+
   const underWorkspace = pathname.startsWith(prefix);
   const rest = underWorkspace
     ? pathname.slice(prefix.length)
