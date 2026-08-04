@@ -109,6 +109,13 @@ const MODE_TYPES: Record<Exclude<Mode, 'ai'>, SearchType[] | null> = {
   goals: ['goal', 'keyResult', 'outcome'],
 };
 
+// Each search fans out to one `contains` query per entity type, and none of
+// those columns are trigram-indexed, so a query that matches nothing scans
+// every table. One character matches almost everything and tells you almost
+// nothing, so it isn't worth the round trip — navigation still filters from
+// the first keystroke.
+const MIN_SEARCH_LENGTH = 2;
+
 const SUGGESTED = [
   { icon: IconFlag, label: 'Run weekly plan', sub: 'Keystone ritual · 45 min' },
   { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe' },
@@ -163,7 +170,7 @@ export function CommandPalette() {
   const { data: searchData, isFetching: searchFetching } = api.search.global.useQuery(
     { query: debouncedQuery, workspaceId: workspaceId ?? undefined, limit: 5 },
     {
-      enabled: isOpen && mode !== 'ai' && debouncedQuery.length > 0,
+      enabled: isOpen && mode !== 'ai' && debouncedQuery.length >= MIN_SEARCH_LENGTH,
       // Keep the previous matches on screen while the next query is in flight,
       // instead of blanking the list on every keystroke.
       placeholderData: (previous) => previous,
@@ -307,7 +314,13 @@ export function CommandPalette() {
           row({
             key: `${section.type}-${item.id}`,
             label: item.title,
-            sub: item.subtitle ?? section.label,
+            // On routes with no workspace context (/calendar, a recording)
+            // the search spans workspaces, so name the one each result lives
+            // in — otherwise two same-named meetings are indistinguishable.
+            sub:
+              item.workspace && item.workspace.id !== workspaceId
+                ? item.workspace.name
+                : item.subtitle ?? section.label,
             icon: section.icon,
             href: item.url ?? '',
             accent: false,
@@ -336,7 +349,7 @@ export function CommandPalette() {
     }
 
     return sections;
-  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, workspaceSlug]);
+  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, workspaceSlug, workspaceId]);
 
   const allResults = useMemo(
     () => resultSections.flatMap((section) => section.rows),
@@ -348,7 +361,8 @@ export function CommandPalette() {
   const isSearching = q.length > 0 && (debouncedQuery !== trimmedQuery || searchFetching);
 
   const showSkeleton = isSearching && allResults.length === 0;
-  const showNoResults = q.length > 0 && !isSearching && allResults.length === 0;
+  const showNoResults =
+    q.length >= MIN_SEARCH_LENGTH && !isSearching && allResults.length === 0;
 
   const navigate = useCallback(
     (path: string) => {
@@ -386,9 +400,11 @@ export function CommandPalette() {
     [highlightedIndex, allResults, q, close, navigate, handleAskZoe],
   );
 
+  // Switching filter chips rebuilds the list, so a held index would point at
+  // an unrelated row.
   useEffect(() => {
     setHighlightedIndex(null);
-  }, [query]);
+  }, [query, mode]);
 
   const renderRow = (row: PaletteRow) => {
     const Icon = row.icon;
