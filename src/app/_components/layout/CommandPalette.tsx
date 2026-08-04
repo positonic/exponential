@@ -357,9 +357,11 @@ export function CommandPalette() {
     [resultSections],
   );
 
-  // True from the first keystroke until results for that exact query land, so
-  // a slow search never flashes "No matches".
-  const isSearching = q.length > 0 && (debouncedQuery !== trimmedQuery || searchFetching);
+  // True from the first searchable keystroke until results for that exact
+  // query land, so a slow search never flashes "No matches" — and a query too
+  // short to search never flashes a skeleton for a request that won't be made.
+  const isSearching =
+    q.length >= MIN_SEARCH_LENGTH && (debouncedQuery !== trimmedQuery || searchFetching);
 
   const showSkeleton = isSearching && allResults.length === 0;
   const showNoResults =
