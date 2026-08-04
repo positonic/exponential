@@ -166,6 +166,41 @@ fn resolve_wiki_root(app: &tauri::AppHandle) {
         .expect("wiki root mutex poisoned") = Some(root);
 }
 
+/// Tells the page it is inside this shell, so it can keep its own chrome out
+/// from under the window controls.
+///
+/// The page cannot reliably work this out for itself. It used to sniff
+/// `window.__TAURI_INTERNALS__` from an inline `<head>` script, but on a remote
+/// page that global lands *after* the document's own head scripts run — so the
+/// check was made too early, found nothing, and the inset was silently skipped.
+/// IPC worked fine a moment later, which is what made the bug so quiet.
+///
+/// An initialization script has no such race: whenever it runs, setting the
+/// attribute is enough, because the CSS keyed off it applies the moment it
+/// appears. `documentElement` may not exist yet at injection time, hence the
+/// `DOMContentLoaded` retry.
+#[cfg(target_os = "macos")]
+const TITLEBAR_MARKER_SCRIPT: &str = r#"
+(function () {
+  function mark() {
+    var root = document && document.documentElement;
+    if (!root) return false;
+    root.setAttribute('data-shell', 'tauri');
+    root.setAttribute('data-titlebar', 'overlay');
+    return true;
+  }
+  try {
+    if (!mark()) {
+      document.addEventListener('DOMContentLoaded', mark);
+    }
+  } catch (e) {}
+})();
+"#;
+
+/// Non-macOS shells keep their native chrome, so there is nothing to mark.
+#[cfg(not(target_os = "macos"))]
+const TITLEBAR_MARKER_SCRIPT: &str = "";
+
 /// Create the single app window pointed at the remote web app.
 ///
 /// The window is built here rather than declared in `tauri.conf.json` because the
@@ -186,6 +221,7 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         // The page is remote and takes a moment to paint; without this the window
         // opens as a white flash before the app's dark surface arrives.
         .background_color(window_background())
+        .initialization_script(TITLEBAR_MARKER_SCRIPT)
         .on_navigation(move |url| {
             if stays_in_app(url) {
                 return true;
