@@ -25,6 +25,7 @@ import {
 } from "~/server/services/projectActivity";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { partitionActions } from "~/lib/actions/partition";
+import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
 
 export const actionRouter = createTRPCRouter({
@@ -1059,6 +1060,94 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
+  // Why is the overdue pile the size it is? `getTodaysActions` answers "what is
+  // overdue"; this answers "what kind of overdue", which is what anyone (human
+  // or agent) needs before proposing a disposition.
+  //
+  // The signal is the anchor timestamp. A human dating actions one at a time
+  // produces distinct times; a bulk write — a generated project plan, an
+  // import, a template — stamps every row with a single millisecond-identical
+  // value. So actions sharing an exact anchor are a **cohort**: almost
+  // certainly never individually due, and the right disposition is amnesty
+  // (`bulkDefer`), not another reschedule. Everything else is `loose` — real,
+  // individually-dated debt worth actually looking at.
+  getOverdueTriage: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Same ownership and scoping rules as getTodaysActions, so the triage
+      // view and the /today page always describe the same pile.
+      const actions = await ctx.db.action.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { createdById: userId, assignees: { none: {} } },
+                { assignees: { some: { userId } } },
+              ],
+            },
+            ...(input?.workspaceId
+              ? [
+                  {
+                    OR: [
+                      { workspaceId: input.workspaceId },
+                      { project: { workspaceId: input.workspaceId } },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          scheduledStart: true,
+          dueDate: true,
+          projectId: true,
+          completedAt: true,
+          project: { select: { name: true } },
+        },
+      });
+
+      const today = new Date();
+      const { overdue } = partitionActions(actions, { today });
+      const triage = groupOverdueCohorts(overdue, { today });
+
+      const toRow = (a: (typeof overdue)[number]) => ({
+        id: a.id,
+        name: a.name,
+        priority: a.priority,
+        scheduledStart: a.scheduledStart,
+        dueDate: a.dueDate,
+        projectName: a.project?.name ?? null,
+        daysOverdue: daysOverdue(a, today),
+      });
+
+      return {
+        totalOverdue: triage.totalOverdue,
+        cohortCount: triage.cohortCount,
+        cohorts: triage.cohorts.map((c) => ({
+          stampedAt: c.stampedAt,
+          daysOverdue: c.daysOverdue,
+          count: c.count,
+          projectNames: c.projectNames,
+          actionIds: c.actionIds,
+          actions: c.actions.map(toRow),
+        })),
+        loose: triage.loose.map(toRow),
+      };
+    }),
+
   getByDateRange: protectedProcedure
     .input(
       z.object({
@@ -1483,6 +1572,69 @@ export const actionRouter = createTRPCRouter({
       return {
         count: input.actionIds.length,
         actionIds: input.actionIds,
+      };
+    }),
+
+  // Amnesty: un-date actions back to their project backlog.
+  //
+  // Deliberately distinct from `bulkReschedule({ dueDate: null })`, which has
+  // the same effect on the rows. The difference is intent, and intent is what
+  // callers (and agents doing tool discovery) need to express: rescheduling
+  // says "this is still due, later"; deferring says "this was never really due
+  // — stop counting it against me". Most large overdue piles are the second
+  // case (a project plan bulk-stamped with one date), and rescheduling them
+  // just re-inflicts the pile tomorrow.
+  //
+  // Only the dates are touched. Kanban status is left alone on purpose: an
+  // action can be untimed and still be IN_PROGRESS on a board.
+  bulkDefer: protectedProcedure
+    .input(z.object({
+      actionIds: z.array(z.string()).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Snapshot before clearing so the activity rows record what was lost.
+      const toDefer = await ctx.db.action.findMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        select: { id: true, projectId: true, dueDate: true, scheduledStart: true },
+      });
+
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: toDefer.map((a) => a.id) },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        data: {
+          scheduledStart: null,
+          scheduledEnd: null,
+          dueDate: null,
+        },
+      });
+
+      const projectScoped = toDefer.filter((a) => a.projectId !== null);
+      if (projectScoped.length > 0) {
+        void Promise.all(
+          projectScoped.map((a) =>
+            logProjectActivity(ctx.db, {
+              projectId: a.projectId!,
+              actionId: a.id,
+              type: PROJECT_ACTIVITY_TYPES.DUE_DATE_CHANGED,
+              fromValue: (a.dueDate ?? a.scheduledStart)?.toISOString() ?? null,
+              toValue: null,
+              changedById: ctx.session.user.id,
+            }),
+          ),
+        ).catch((err: unknown) => {
+          console.error("[projectActivity] bulkDefer:", err);
+        });
+      }
+
+      return {
+        count: result.count,
+        actionIds: toDefer.map((a) => a.id),
+        message: `Deferred ${result.count} action${result.count === 1 ? '' : 's'} back to the backlog`,
       };
     }),
 

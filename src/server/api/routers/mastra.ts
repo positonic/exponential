@@ -4325,6 +4325,13 @@ export const mastraRouter = createTRPCRouter({
       priority: z.enum(PRIORITY_VALUES).optional(),
       status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional(),
       dueDate: z.string().nullable().optional(), // ISO string
+      // The "do date" and its block. Without these an agent can propose a time
+      // but never move the action to it — the /today partition keys off
+      // scheduledStart (schedule wins over dueDate), so rescheduling anything
+      // out of the overdue bucket requires writing this field.
+      scheduledStart: z.string().nullable().optional(), // ISO string
+      scheduledEnd: z.string().nullable().optional(), // ISO string
+      duration: z.number().int().positive().nullable().optional(), // minutes
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -4366,6 +4373,19 @@ export const mastraRouter = createTRPCRouter({
       if (fields.priority !== undefined) updateData.priority = fields.priority;
       if (fields.dueDate !== undefined) {
         updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
+      }
+      if (fields.scheduledStart !== undefined) {
+        updateData.scheduledStart = fields.scheduledStart
+          ? new Date(fields.scheduledStart)
+          : null;
+      }
+      if (fields.scheduledEnd !== undefined) {
+        updateData.scheduledEnd = fields.scheduledEnd
+          ? new Date(fields.scheduledEnd)
+          : null;
+      }
+      if (fields.duration !== undefined) {
+        updateData.duration = fields.duration;
       }
 
       // Handle status change
@@ -4415,6 +4435,9 @@ export const mastraRouter = createTRPCRouter({
           status: action.status,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
+          scheduledEnd: action.scheduledEnd?.toISOString(),
+          duration: action.duration,
           projectId: action.projectId,
           project: action.project,
         },

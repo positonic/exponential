@@ -1,7 +1,9 @@
 # Zoe Daily Briefing — Internal Reference
 
 > **Audience:** future-you + collaborators. Not user-facing. Not linked from any public docs site.
-> **Status:** v1 (logging infrastructure). Eval loop not yet built.
+> **Status:** **Design only — not implemented.** Everything below is the intended
+> design. Only the schema exists; see [Current state](#current-state) for what is
+> actually built, and what shipped instead.
 
 ## What this is
 
@@ -78,14 +80,39 @@ Computed by the admin page at `/admin/daily-briefing` (when built).
 
 **Pick one primary metric.** Default: top-1 execution rate. Acceptance rate is the fastest signal but easiest to goodhart.
 
-## Current state (v1)
+## Current state
 
-- [x] Schema: `DailyBriefing`, `BriefingInteraction`, `NavigationPreference.showDailyBriefing`
-- [x] Opt-in toggle in `/settings`
-- [x] tRPC router `zoeBriefing` (generate, getCurrent, refresh, recordInteraction)
-- [x] `DailyBriefingCard` on `/today` (renders when filter=today AND preference enabled)
-- [x] Admin page at `/admin/daily-briefing` for metrics
-- [ ] **Not built yet:** eval harness, fixture set, prompt variant scoring
+Verified 2026-08-04. An earlier revision of this file checked five of these
+boxes; only the first was ever true. Re-verify before trusting it again.
+
+- [x] Schema: `DailyBriefing` (`prisma/schema.prisma:1897`), `BriefingInteraction`
+      (`:1920`), `NavigationPreference.showDailyBriefing` (`:1888`) — **all three
+      exist and none is read or written anywhere in `src/`.** Dead tables.
+- [ ] Opt-in toggle in `/settings` — `showDailyBriefing` appears zero times in `src/`.
+- [ ] tRPC router `zoeBriefing` — does not exist. (`src/server/api/routers/briefing.ts`
+      is the unrelated data-aggregation router; there is no `zoeBriefing.ts`.)
+- [ ] `DailyBriefingCard` on `/today` — no such component.
+- [ ] Admin page at `/admin/daily-briefing` — no such route.
+- [ ] Eval harness, fixture set, prompt variant scoring.
+
+### What shipped instead
+
+The AI card on `/today` is a different implementation that bypasses everything
+above: `scheduling.getSchedulingSuggestions`
+(`src/server/api/routers/scheduling.ts`) → Mastra's `ashAgent`, rendered by
+`ZoePanel`. Three ways it diverges from this design, each worth knowing before
+you build on it:
+
+- **It regenerates on page load** — a `useQuery` with `staleTime: 5min`, firing an
+  LLM round-trip per render. That is precisely the first entry under
+  [Gotchas](#gotchas) below.
+- **Nothing is persisted.** No `DailyBriefing` row, no `promptVersion`, no
+  `inputSnapshot`, no interaction log. Dismissal is React state and dies on
+  reload. So none of the metrics below can currently be computed, and there is
+  no replayable input for the autoresearch loop.
+- **It is not Zoe.** `ashAgent` is a tool-less GPT-4o lean-startup persona whose
+  instructions are overridden by a per-call system message. Model, prompt, and
+  persona are all unrelated to the branding on the card.
 
 ## Roadmap to the autoresearch loop
 
