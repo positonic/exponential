@@ -77,6 +77,7 @@ export { getTeamMembership, getUserTeams } from "./resolvers/teamResolver";
 export {
   getProjectAccess,
   hasProjectAccess,
+  isProjectInsider,
   canEditProject,
   canManageProjectMembers,
   buildProjectAccessWhere,

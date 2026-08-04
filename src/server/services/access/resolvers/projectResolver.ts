@@ -125,6 +125,32 @@ export function hasProjectAccess(access: ProjectAccess): boolean {
   return access.isTeamMember || access.isWorkspaceMember;
 }
 
+/**
+ * Does this access carry a *membership* path to the project, rather than mere
+ * public visibility?
+ *
+ * `hasProjectAccess` short-circuits to true for ANY authenticated caller when
+ * the project is public, which makes it the wrong gate for anything that
+ * exposes the organisation *around* the project — workspace member rosters,
+ * sibling projects, workspace settings. Public visibility grants the project,
+ * never the workspace behind it.
+ *
+ * Concretely: bounty action ids for public projects are served by the
+ * unauthenticated `/api/bounties` feed, and public projects are SEO-indexed via
+ * the sitemap. So "caller passed hasProjectAccess" can mean nothing more than
+ * "caller read a public URL and signed up".
+ *
+ * This is `hasProjectAccess` minus the `isPublic` short-circuit.
+ */
+export function isProjectInsider(access: ProjectAccess): boolean {
+  if (access.isCreator) return true;
+  if (access.isMember) return true;
+  if (access.isRestricted) {
+    return isWorkspaceEscapeHatch(access);
+  }
+  return access.isTeamMember || access.isWorkspaceMember;
+}
+
 /** Check if user can edit a project */
 export function canEditProject(access: ProjectAccess): boolean {
   if (access.isCreator) return true;
