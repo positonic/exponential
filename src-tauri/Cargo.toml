@@ -31,6 +31,9 @@ sha2 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset"] }
 url = "2"
 tauri-plugin-store = "2.4.4"
+# Cmd/Ctrl+L copies the frontmost tab's URL. Written from Rust, so it needs no
+# ACL grant and works on every platform the shell ever targets.
+tauri-plugin-clipboard-manager = "2"
 
 # SPIKE (cool.lark) — throwaway. Sharing a tabbing identifier only makes windows
 # *tabbable*; AppKit merges them automatically only when the user's global

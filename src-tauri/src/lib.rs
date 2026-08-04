@@ -101,42 +101,64 @@ fn desktop_shell_info() -> ShellInfo {
 /// `set_as_windows_menu_for_nsapp` never fires and macOS silently loses the
 /// window list and its tab handling. Adding a tab shortcut that way would remove
 /// the others.
-#[cfg(target_os = "macos")]
+///
+/// Cross-platform on purpose, even though tabs are macOS-only: Copy Page URL is
+/// wanted everywhere the shell might run, and `CmdOrCtrl` resolves per platform.
+/// (Linux's default menu has no File submenu, so the item is macOS/Windows —
+/// acceptable for a shell that only targets macOS today.)
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tauri::menu::{Menu, MenuItem};
 
     let menu = Menu::default(app)?;
 
-    let new_tab = MenuItem::with_id(app, "new-tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
-    let next_tab = MenuItem::with_id(app, "next-tab", "Show Next Tab", true, Some("Ctrl+Tab"))?;
-    let prev_tab = MenuItem::with_id(
+    // ⌘L. Safari focuses the address bar; with no address bar, copying the URL
+    // is the useful half of the gesture.
+    let copy_url = MenuItem::with_id(
         app,
-        "prev-tab",
-        "Show Previous Tab",
+        "copy-url",
+        "Copy Page URL",
         true,
-        Some("Ctrl+Shift+Tab"),
+        Some("CmdOrCtrl+L"),
     )?;
-    let overview = MenuItem::with_id(
-        app,
-        "tab-overview",
-        "Show All Tabs",
-        true,
-        Some("CmdOrCtrl+Shift+Backslash"),
-    )?;
-
-    // New Tab sits above Close Window in File, where Safari puts it.
     if let Some(file) = submenu_named(&menu, "File") {
-        file.insert(&new_tab, 0)?;
+        file.insert(&copy_url, 0)?;
     }
 
-    if let Some(window) = menu
-        .get(tauri::menu::WINDOW_SUBMENU_ID)
-        .and_then(|item| item.as_submenu().cloned())
+    #[cfg(target_os = "macos")]
     {
-        window.append(&PredefinedMenuItem::separator(app)?)?;
-        window.append(&next_tab)?;
-        window.append(&prev_tab)?;
-        window.append(&overview)?;
+        use tauri::menu::PredefinedMenuItem;
+
+        let new_tab = MenuItem::with_id(app, "new-tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
+        let next_tab = MenuItem::with_id(app, "next-tab", "Show Next Tab", true, Some("Ctrl+Tab"))?;
+        let prev_tab = MenuItem::with_id(
+            app,
+            "prev-tab",
+            "Show Previous Tab",
+            true,
+            Some("Ctrl+Shift+Tab"),
+        )?;
+        let overview = MenuItem::with_id(
+            app,
+            "tab-overview",
+            "Show All Tabs",
+            true,
+            Some("CmdOrCtrl+Shift+Backslash"),
+        )?;
+
+        // New Tab sits above Close Window in File, where Safari puts it.
+        if let Some(file) = submenu_named(&menu, "File") {
+            file.insert(&new_tab, 0)?;
+        }
+
+        if let Some(window) = menu
+            .get(tauri::menu::WINDOW_SUBMENU_ID)
+            .and_then(|item| item.as_submenu().cloned())
+        {
+            window.append(&PredefinedMenuItem::separator(app)?)?;
+            window.append(&next_tab)?;
+            window.append(&prev_tab)?;
+            window.append(&overview)?;
+        }
     }
 
     Ok(menu)
@@ -144,7 +166,6 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 
 /// The default menu gives its submenus no ids except Window and Help, so File
 /// has to be found by the label the user reads.
-#[cfg(target_os = "macos")]
 fn submenu_named(
     menu: &tauri::menu::Menu<tauri::Wry>,
     name: &str,
@@ -169,21 +190,19 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .menu(|app| {
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .menu(build_menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "copy-url" => copy_current_url(app),
             #[cfg(target_os = "macos")]
-            return build_menu(app);
-            #[cfg(not(target_os = "macos"))]
-            return tauri::menu::Menu::default(app);
-        })
-        .on_menu_event(|_app, _event| {
+            "new-tab" => tabs::open(app),
             #[cfg(target_os = "macos")]
-            match _event.id().as_ref() {
-                "new-tab" => tabs::open(_app),
-                "next-tab" => tabs::select_next(_app),
-                "prev-tab" => tabs::select_previous(_app),
-                "tab-overview" => tabs::toggle_overview(_app),
-                _ => {}
-            }
+            "next-tab" => tabs::select_next(app),
+            #[cfg(target_os = "macos")]
+            "prev-tab" => tabs::select_previous(app),
+            #[cfg(target_os = "macos")]
+            "tab-overview" => tabs::toggle_overview(app),
+            _ => {}
         })
         .manage(auth::LoginState::default())
         .manage(wiki::WikiRoot::default())
@@ -291,6 +310,22 @@ const TITLEBAR_MARKER_SCRIPT: &str = r#"
     if (!mark()) {
       document.addEventListener('DOMContentLoaded', mark);
     }
+    // Overlay titlebars hit-test through to the page (tauri#9503), so without
+    // this the window cannot be dragged at all: the traffic-light row delivers
+    // its mousedowns to the webview, which ignores them. Any press in the
+    // chrome strip hands off to a native window drag. The tab bar itself is an
+    // opaque native view whose events never reach the page, so this only fires
+    // where AppKit isn't already handling the gesture. Costs titlebar
+    // double-click-to-zoom, which was equally unreachable before.
+    document.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      var inset = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--titlebar-inset')
+      ) || 0;
+      if (inset <= 0 || e.clientY >= inset) return;
+      var t = window.__TAURI_INTERNALS__;
+      if (t && t.invoke) t.invoke('plugin:window|start_dragging');
+    });
   } catch (e) {}
 })();
 "#;
@@ -358,15 +393,24 @@ fn push_titlebar_inset(window: &tauri::WebviewWindow) {
     // A hidden tab bar reports the plain titlebar height; both cases are just
     // "whatever AppKit says", which is the whole point.
     //
-    // The body padding is SPIKE-ONLY: the packaged build loads production, whose
-    // stylesheet doesn't yet have the `html[data-tabs="native"] .sidebar-offset`
-    // rule that will do this properly, so the shell pads the page itself to make
-    // the fix visible on a real build. V2 pushes only the variable and lets the
-    // deployed CSS consume it — shipping both would double the inset.
+    // Everything past the variable push is SPIKE-ONLY: the packaged build loads
+    // production, whose stylesheet doesn't yet have the `data-tabs="native"`
+    // rules that will do this properly, so the shell applies their effect itself
+    // to make the fix visible on a real build — body padding for the page, and
+    // an injected copy of the modal rule, because modals portal to <body> with
+    // position: fixed and no amount of body padding reaches them. V2 pushes only
+    // the variable and lets the deployed CSS consume it — shipping both would
+    // double the inset.
     let _ = window.eval(&format!(
         "(function() {{\
            document.documentElement.style.setProperty('--titlebar-inset','{inset:.0}px');\
            if (document.body) document.body.style.paddingTop = '{inset:.0}px';\
+           if (document.head && !document.getElementById('__spike_tabs_css')) {{\
+             var s = document.createElement('style');\
+             s.id = '__spike_tabs_css';\
+             s.textContent = '.mantine-Modal-inner {{ padding-top: calc(var(--titlebar-inset) + 16px) !important; }}';\
+             document.head.appendChild(s);\
+           }}\
          }})()"
     ));
 }
@@ -381,7 +425,6 @@ fn push_titlebar_inset(window: &tauri::WebviewWindow) {
 #[cfg(target_os = "macos")]
 mod tabs {
     use objc2::runtime::AnyObject;
-    use tauri::Manager;
 
     /// Labels are `tab-<n>` to match the capability glob. Nothing reads them.
     static NEXT_LABEL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
@@ -391,21 +434,12 @@ mod tabs {
         format!("tab-{n}")
     }
 
-    pub fn frontmost(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
-        let windows = app.webview_windows();
-        windows
-            .values()
-            .find(|w| w.is_focused().unwrap_or(false))
-            .or_else(|| windows.values().next())
-            .cloned()
-    }
-
     fn ns_window(window: &tauri::WebviewWindow) -> Option<*mut AnyObject> {
         window.ns_window().ok().map(|ptr| ptr as *mut AnyObject)
     }
 
     pub fn select_next(app: &tauri::AppHandle) {
-        if let Some(ns) = frontmost(app).as_ref().and_then(ns_window) {
+        if let Some(ns) = super::frontmost_window(app).as_ref().and_then(ns_window) {
             unsafe {
                 let _: () = objc2::msg_send![ns, selectNextTab: std::ptr::null::<AnyObject>()];
             }
@@ -413,7 +447,7 @@ mod tabs {
     }
 
     pub fn select_previous(app: &tauri::AppHandle) {
-        if let Some(ns) = frontmost(app).as_ref().and_then(ns_window) {
+        if let Some(ns) = super::frontmost_window(app).as_ref().and_then(ns_window) {
             unsafe {
                 let _: () = objc2::msg_send![ns, selectPreviousTab: std::ptr::null::<AnyObject>()];
             }
@@ -421,7 +455,7 @@ mod tabs {
     }
 
     pub fn toggle_overview(app: &tauri::AppHandle) {
-        if let Some(ns) = frontmost(app).as_ref().and_then(ns_window) {
+        if let Some(ns) = super::frontmost_window(app).as_ref().and_then(ns_window) {
             unsafe {
                 let _: () = objc2::msg_send![ns, toggleTabOverview: std::ptr::null::<AnyObject>()];
             }
@@ -435,7 +469,7 @@ mod tabs {
     /// and Apple's default is "In Full Screen Only" — so without this an ordinary
     /// user gets a detached window and no tab at all.
     pub fn open(app: &tauri::AppHandle) {
-        let host = frontmost(app);
+        let host = super::frontmost_window(app);
         let Ok(created) = super::build_window(app, &next_label()) else {
             return;
         };
@@ -449,6 +483,36 @@ mod tabs {
             let _: () = objc2::msg_send![host_ns, addTabbedWindow: created_ns, ordered: 1isize];
         }
         let _ = created.set_focus();
+    }
+}
+
+/// The window the user is looking at, or any window as a fallback.
+///
+/// The fallback matters at startup and in menu handlers that can fire while no
+/// window reports focus; "some window" beats a silently dead menu item.
+fn frontmost_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    let windows = app.webview_windows();
+    windows
+        .values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| windows.values().next())
+        .cloned()
+}
+
+/// Cmd/Ctrl+L. In a browser that focuses the address bar; the shell has no
+/// address bar, so it copies the frontmost tab's URL instead — the half of ⌘L
+/// people actually want here (grabbing a link to the page they're on).
+fn copy_current_url(app: &tauri::AppHandle) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    let Some(window) = frontmost_window(app) else {
+        return;
+    };
+    let Ok(url) = window.url() else {
+        return;
+    };
+    if let Err(e) = app.clipboard().write_text(url.to_string()) {
+        eprintln!("[shell] could not copy the current URL: {e}");
     }
 }
 

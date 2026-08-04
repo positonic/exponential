@@ -73,6 +73,15 @@ html[data-tabs="native"] .sidebar-offset {
   padding-top: var(--titlebar-inset);
 }
 
+/* Modals portal to <body> with position: fixed, so neither the column padding
+   above nor anything else in page flow keeps them clear of the tab bar.
+   !important is load-bearing: CreateActionModal (and friends) set the inner
+   padding as an inline style, which would beat a plain rule. One selector
+   covers every Mantine modal rather than chasing them per-component. */
+html[data-tabs="native"] .mantine-Modal-inner {
+  padding-top: calc(var(--titlebar-inset) + 16px) !important;
+}
+
 /* ============================================================
    Create Action - soft tinted CTA
    ============================================================ */
