@@ -40,6 +40,8 @@ tauri-plugin-store = "2.4.4"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = "0.3"
+# NSEvent local monitor blocks (⌃Tab has to be caught before WKWebView eats it).
+block2 = "0.6"
 
 [profile.dev]
 # The shell is a thin wrapper around a remote page; incremental debug builds are

@@ -204,7 +204,12 @@ pub fn run() {
         ])
         .setup(|app| {
             resolve_wiki_root(app.handle());
-            build_main_window(app.handle())?;
+            let _main = build_main_window(app.handle())?;
+            #[cfg(target_os = "macos")]
+            {
+                install_tab_key_monitor(app.handle());
+                install_plus_button(app.handle(), &_main);
+            }
             // SPIKE (cool.lark) — throwaway. Second window sharing the tabbing
             // identifier, so a release build opens with a native tab bar and the
             // two questions can be looked at. Delete with the rest of the spike.
@@ -296,53 +301,27 @@ const TITLEBAR_MARKER_SCRIPT: &str = "";
 /// The window is built here rather than declared in `tauri.conf.json` because the
 /// URL is build-dependent (dev server vs production) and a `WebviewUrl::External`
 /// in static config cannot express that.
-fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
     build_window(app, "main")
 }
 
-/// SPIKE (cool.lark) — throwaway. A second window with the same tabbing
-/// identifier, labelled `tab-2` so the capability glob (`"windows": ["main",
-/// "tab-*"]`, also spike-only) gets exercised at the same time: if the bridge
-/// reaches this window, `desktop_shell_info` answers from inside the tab.
+/// SPIKE (cool.lark) — throwaway. A second tab at startup, so the build opens
+/// with a tab bar to inspect and the capability glob (`"windows": ["main",
+/// "tab-*"]`, also spike-only) gets exercised: if the bridge reaches the second
+/// window, `desktop_shell_info` answers from inside a tab.
 ///
-/// The identifier alone is not enough to produce a tab. It makes the windows
-/// *tabbable*; AppKit only merges them on its own when the user's global
+/// The shared tabbing identifier alone is not enough to produce a tab. It makes
+/// windows *tabbable*; AppKit only merges them on its own when the user's global
 /// `AppleWindowTabbingMode` is `always`, and Apple ships that preference
 /// defaulting to "In Full Screen Only". Left there, the second window opens as a
-/// plain window behind the first and there is no tab bar to inspect at all —
-/// which is exactly what the first spike build showed.
-///
-/// `-[NSWindow addTabbedWindow:ordered:]` merges regardless of the preference,
-/// and is the only way to get a tab deterministically. Neither tao nor tauri
-/// wraps it, so this goes through `ns_window()`.
+/// plain window behind the first and there is no tab bar at all — which is
+/// exactly what the first spike build showed. `tabs::open` goes through
+/// `-[NSWindow addTabbedWindow:ordered:]`, which merges deterministically.
 fn spike_second_window(app: &tauri::AppHandle) -> tauri::Result<()> {
-    build_window(app, "tab-2")?;
-
     #[cfg(target_os = "macos")]
-    {
-        use objc2::runtime::AnyObject;
-
-        // NSWindowOrderingMode::Above.
-        const NS_WINDOW_ABOVE: isize = 1;
-
-        let (Some(first), Some(second)) = (
-            app.get_webview_window("main"),
-            app.get_webview_window("tab-2"),
-        ) else {
-            eprintln!("[spike] a window went missing before tabs could be merged");
-            return Ok(());
-        };
-
-        let first = first.ns_window()? as *mut AnyObject;
-        let second = second.ns_window()? as *mut AnyObject;
-
-        // Safe: both pointers come from live windows, and `setup` runs on the
-        // main thread, which is where AppKit requires this call.
-        unsafe {
-            let _: () = objc2::msg_send![first, addTabbedWindow: second, ordered: NS_WINDOW_ABOVE];
-        }
-    }
-
+    tabs::open(app);
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
     Ok(())
 }
 
@@ -445,28 +424,116 @@ mod tabs {
     /// user gets a detached window and no tab at all.
     pub fn open(app: &tauri::AppHandle) {
         let host = frontmost(app);
-        let Ok(()) = super::build_window(app, &next_label()) else {
+        let Ok(created) = super::build_window(app, &next_label()) else {
             return;
         };
-        let Some(host_ns) = host.as_ref().and_then(ns_window) else {
-            return;
-        };
-        // The window just built is the newest one; find it by the label we used.
-        let Some(added) = app
-            .webview_windows()
-            .values()
-            .max_by_key(|w| w.label().to_owned())
-            .and_then(|w| ns_window(w))
+        let (Some(host_ns), Some(created_ns)) =
+            (host.as_ref().and_then(ns_window), ns_window(&created))
         else {
             return;
         };
+        // NSWindowOrderingMode::Above — new tab lands after the current one.
         unsafe {
-            let _: () = objc2::msg_send![host_ns, addTabbedWindow: added, ordered: 1isize];
+            let _: () = objc2::msg_send![host_ns, addTabbedWindow: created_ns, ordered: 1isize];
         }
+        let _ = created.set_focus();
     }
 }
 
-fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
+/// SPIKE (cool.lark) — throwaway. ⌃Tab / ⌃⇧Tab, caught the way Safari catches
+/// them: before the web view sees the key.
+///
+/// These cannot be menu key equivalents. AppKit matches a non-⌘ equivalent only
+/// after the responder chain declines the key, and WKWebView consumes Tab —
+/// which is why the menu items alone (previous build) never fired. A local
+/// NSEvent monitor runs before dispatch, so it wins regardless of what the
+/// webview would do with the key. The menu items stay for discoverability; the
+/// monitor swallowing the event just means they are never reached by keyboard.
+#[cfg(target_os = "macos")]
+fn install_tab_key_monitor(app: &tauri::AppHandle) {
+    use objc2::runtime::AnyObject;
+
+    const KEY_DOWN_MASK: u64 = 1 << 10; // NSEventMaskKeyDown
+    const SHIFT: u64 = 1 << 17; // NSEventModifierFlagShift
+    const CONTROL: u64 = 1 << 18; // NSEventModifierFlagControl
+    const OPTION: u64 = 1 << 19; // NSEventModifierFlagOption
+    const COMMAND: u64 = 1 << 20; // NSEventModifierFlagCommand
+    const TAB_KEY_CODE: u16 = 48;
+
+    let handle = app.clone();
+    let block = block2::RcBlock::new(move |event: *mut AnyObject| -> *mut AnyObject {
+        let (key_code, flags): (u16, u64) = unsafe {
+            (
+                objc2::msg_send![event, keyCode],
+                objc2::msg_send![event, modifierFlags],
+            )
+        };
+        if key_code == TAB_KEY_CODE && flags & CONTROL != 0 && flags & (COMMAND | OPTION) == 0 {
+            if flags & SHIFT != 0 {
+                tabs::select_previous(&handle);
+            } else {
+                tabs::select_next(&handle);
+            }
+            return std::ptr::null_mut(); // swallowed — the webview never tabs focus
+        }
+        event
+    });
+
+    // The monitor and its block live for the life of the app; there is no
+    // teardown moment, so leaking both is the correct lifetime.
+    unsafe {
+        let _monitor: *mut AnyObject = objc2::msg_send![
+            objc2::class!(NSEvent),
+            addLocalMonitorForEventsMatchingMask: KEY_DOWN_MASK,
+            handler: &*block
+        ];
+    }
+    std::mem::forget(block);
+}
+
+/// SPIKE (cool.lark) — throwaway. The `+` at the right end of the tab bar.
+///
+/// AppKit draws Safari's plus button by itself the moment any responder in the
+/// window's chain implements `newWindowForTab:` — the button *is* that check.
+/// Neither tao nor tauri implements it, so it is added to the window's own class
+/// at runtime, once; the class is tao's window subclass, so every tab gets the
+/// button from the same patch.
+#[cfg(target_os = "macos")]
+static TAB_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn install_plus_button(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    use objc2::runtime::AnyObject;
+
+    let _ = TAB_APP_HANDLE.set(app.clone());
+
+    extern "C-unwind" fn new_window_for_tab(
+        _this: *mut AnyObject,
+        _sel: objc2::runtime::Sel,
+        _sender: *mut AnyObject,
+    ) {
+        // Runs on the main thread — AppKit action dispatch, same as a menu item.
+        if let Some(app) = TAB_APP_HANDLE.get() {
+            tabs::open(app);
+        }
+    }
+
+    let Ok(ptr) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let ns = ptr as *mut AnyObject;
+        let class: *mut objc2::runtime::AnyClass = objc2::msg_send![ns, class];
+        let imp = std::mem::transmute::<
+            extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel, *mut AnyObject),
+            objc2::runtime::Imp,
+        >(new_window_for_tab);
+        // "v@:@" — returns void, takes self, _cmd, sender.
+        objc2::ffi::class_addMethod(class, objc2::sel!(newWindowForTab:), imp, c"v@:@".as_ptr());
+    }
+}
+
+fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<tauri::WebviewWindow> {
     let url = app_base_url()
         .parse()
         .unwrap_or_else(|e| panic!("{BASE_URL_ENV} is not a valid URL: {e}"));
@@ -553,7 +620,7 @@ fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
         });
     }
 
-    Ok(())
+    Ok(window)
 }
 
 /// Hand a URL to the user's default browser.

@@ -1003,6 +1003,7 @@ name = "exponential-beta"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "getrandom 0.3.4",
  "objc2",
  "objc2-app-kit",
