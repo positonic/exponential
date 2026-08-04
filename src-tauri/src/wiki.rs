@@ -40,7 +40,8 @@ pub struct WikiRoot(pub Mutex<Option<PathBuf>>);
 pub const STORE_FILE: &str = "wiki.json";
 /// Key within that store.
 pub const STORE_KEY: &str = "root";
-/// Dev override, read at startup and then persisted like any other choice.
+/// Dev override, read at startup. Applies to that launch only — see
+/// `resolve_root_for_launch` for why it is deliberately never persisted.
 pub const ROOT_ENV: &str = "EXPONENTIAL_WIKI_ROOT";
 
 /// Default location — visible in Finder on purpose. The wiki is the user's, and
@@ -60,13 +61,34 @@ pub fn default_root() -> PathBuf {
 /// on that origin. Configuring the root is therefore an out-of-band act (the env
 /// var, or a future native settings UI), never an in-page one.
 pub fn resolve_root(stored: Option<String>) -> PathBuf {
+    resolve_root_for_launch(stored).root
+}
+
+/// The root for this launch, and whether it is ours to remember.
+pub struct RootChoice {
+    pub root: PathBuf,
+    /// False for an env override: that path is this launch's business only.
+    pub persist: bool,
+}
+
+/// Same decision as `resolve_root`, plus whether the answer should be written
+/// back to the store.
+///
+/// The env override is deliberately **not** persisted. It used to be, and that
+/// turned a one-off `EXPONENTIAL_WIKI_ROOT=/tmp/scratch` test run into the
+/// permanent setting: every later launch read that path back out of the store,
+/// so the app believed a wiki existed, the first-run panel never appeared, and
+/// the librarian read and wrote a throwaway folder the user had forgotten about.
+/// A variable set for one command should not outlive it.
+pub fn resolve_root_for_launch(stored: Option<String>) -> RootChoice {
     if let Some(from_env) = std::env::var(ROOT_ENV).ok().filter(|v| !v.trim().is_empty()) {
-        return PathBuf::from(from_env);
+        return RootChoice { root: PathBuf::from(from_env), persist: false };
     }
-    match stored.filter(|v| !v.trim().is_empty()) {
+    let root = match stored.filter(|v| !v.trim().is_empty()) {
         Some(path) => PathBuf::from(path),
         None => default_root(),
-    }
+    };
+    RootChoice { root, persist: true }
 }
 
 fn current_root(state: &WikiRoot) -> PathBuf {
@@ -895,6 +917,28 @@ mod tests {
             PathBuf::from("/tmp/override-wiki"),
         );
         std::env::remove_var(ROOT_ENV);
+    }
+
+    #[test]
+    fn the_env_override_is_not_remembered() {
+        // Regression: it used to be written back to the store, so a single
+        // `EXPONENTIAL_WIKI_ROOT=/tmp/scratch` run silently repointed the wiki
+        // for good — the app then believed a wiki existed and never offered to
+        // create the real one.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var(ROOT_ENV, "/tmp/override-wiki");
+        let choice = resolve_root_for_launch(Some("/tmp/stored-wiki".into()));
+        assert_eq!(choice.root, PathBuf::from("/tmp/override-wiki"));
+        assert!(!choice.persist, "an env override must not outlive its launch");
+        std::env::remove_var(ROOT_ENV);
+    }
+
+    #[test]
+    fn a_root_the_user_chose_is_remembered() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(ROOT_ENV);
+        assert!(resolve_root_for_launch(None).persist);
+        assert!(resolve_root_for_launch(Some("/tmp/my-wiki".into())).persist);
     }
 
     #[test]
