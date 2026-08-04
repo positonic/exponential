@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import * as Sentry from '@sentry/nextjs';
 import { api } from "~/trpc/react";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
@@ -31,6 +30,7 @@ import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/A
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 import { classifyStreamError, describeStreamError } from '~/lib/chat/streamProtocol';
+import { reportHandledError } from '~/lib/reportHandledError';
 import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
 import { streamChatResponse, type ChatStreamUpdate } from '~/lib/chat/streamChatResponse';
 import { createLocalWikiStreamer, streamLocalWikiChat } from '~/lib/chat/streamLocalWikiChat';
@@ -713,7 +713,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         status = await getWikiBridge()?.status();
       } catch (error) {
         console.error('[ManyChat] wiki_status failed — cannot tell if a wiki exists', error);
-        Sentry.captureException(error, { tags: { area: 'local-wiki-status' } });
+        reportHandledError(error, { area: 'local-wiki-status' });
       }
       if (!cancelled) setWikiStatus(status);
     })();
@@ -1490,15 +1490,22 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       //    it as a normal answer with a subtle "ended early" + Retry footer.
       //  • !hadContent → nothing usable arrived. Convert the empty placeholder
       //    into a calm, single-line error with a Retry button.
-      // Nothing else reports this. The catch above swallows the error, so
-      // Sentry's automatic capture (unhandled errors only) never sees it — which
-      // is how a turn failing on "your credit balance is too low" produced no
-      // trace anywhere: not in Sentry, and so not in the Bug tickets the Sentry
-      // webhook files. Sentry only initialises on Vercel prod/preview, so this
-      // is a no-op in local dev.
-      Sentry.captureException(error, {
-        tags: { area: 'chat-stream', failureKind: kind, agentId: targetAgentId ?? 'unknown' },
-        extra: { hadContent, projectId, conversationId, attempt },
+      // Nothing else reports this. The catch above handles the error — rightly,
+      // the user gets a calm message and a Retry — but handling it is exactly
+      // why Sentry's automatic capture never saw it, and so why a turn failing
+      // on "your credit balance is too low" left no trace anywhere. Reported
+      // explicitly instead: to Sentry, and to a Bug Ticket, which unlike Sentry
+      // also works when the app is running against a local server.
+      reportHandledError(error, {
+        area: 'chat-stream',
+        kind,
+        context: {
+          agentId: targetAgentId ?? 'unknown',
+          hadContent: String(hadContent),
+          attempt: String(attempt),
+          ...(projectId ? { projectId } : {}),
+          conversationId,
+        },
       });
 
       const severity: 'error' | 'incomplete' = hadContent ? 'incomplete' : 'error';
