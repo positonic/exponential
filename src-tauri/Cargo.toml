@@ -42,7 +42,6 @@ tauri-plugin-clipboard-manager = "2"
 # the spike reaches for it through ns_window(). Already a transitive dep.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = "0.3"
 # NSEvent local monitor blocks (⌃Tab has to be caught before WKWebView eats it).
 block2 = "0.6"
 

@@ -61,26 +61,10 @@ html[data-titlebar="overlay"] {
    the controls, and dropping the entire column was a visible lurch to buy
    clearance for one button. */
 
-/* Native tab bar (Tauri V2 shell). Unlike the overlay titlebar — transparent
-   chrome with two floating buttons in the sidebar's corner — a tab bar is an
-   opaque strip across the whole window, so the main column has to clear it too,
-   not just the sidebar. Keyed on data-tabs, which only the tabbed shell stamps:
-   the live V1 shell stamps data-titlebar="overlay" alone, and keying on that
-   would drop the main column 38px in a shell that has no tab bar. The shell
-   measures the real chrome height (titlebar + tab bar, or just titlebar when a
-   lone tab hides the bar) and keeps --titlebar-inset current. */
-html[data-tabs="native"] .sidebar-offset {
-  padding-top: var(--titlebar-inset);
-}
-
-/* Modals portal to <body> with position: fixed, so neither the column padding
-   above nor anything else in page flow keeps them clear of the tab bar.
-   !important is load-bearing: CreateActionModal (and friends) set the inner
-   padding as an inline style, which would beat a plain rule. One selector
-   covers every Mantine modal rather than chasing them per-component. */
-html[data-tabs="native"] .mantine-Modal-inner {
-  padding-top: calc(var(--titlebar-inset) + 16px) !important;
-}
+/* The tabbed Tauri shell (V2) uses a visible native titlebar — Safari-style —
+   so the page starts below the chrome and needs no inset at all. It stamps
+   data-shell="tauri" but deliberately NOT data-titlebar="overlay"; only the
+   Electron shell and the pre-tabs Tauri shell take the 38px above. */
 
 /* ============================================================
    Create Action - soft tinted CTA

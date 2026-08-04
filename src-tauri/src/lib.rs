@@ -280,19 +280,19 @@ fn resolve_wiki_root(app: &tauri::AppHandle) {
         .expect("wiki root mutex poisoned") = Some(root);
 }
 
-/// Tells the page it is inside this shell, so it can keep its own chrome out
-/// from under the window controls.
+/// Tells the page it is inside this shell.
 ///
 /// The page cannot reliably work this out for itself. It used to sniff
 /// `window.__TAURI_INTERNALS__` from an inline `<head>` script, but on a remote
 /// page that global lands *after* the document's own head scripts run — so the
-/// check was made too early, found nothing, and the inset was silently skipped.
-/// IPC worked fine a moment later, which is what made the bug so quiet.
+/// check was made too early, found nothing, and the marking was silently
+/// skipped. IPC worked fine a moment later, which is what made the bug so
+/// quiet. An initialization script has no such race; `documentElement` may not
+/// exist yet at injection time, hence the `DOMContentLoaded` retry.
 ///
-/// An initialization script has no such race: whenever it runs, setting the
-/// attribute is enough, because the CSS keyed off it applies the moment it
-/// appears. `documentElement` may not exist yet at injection time, hence the
-/// `DOMContentLoaded` retry.
+/// With the Safari-style chrome this stamps only `data-shell` — the overlay-era
+/// `data-titlebar` marking (and the 38px sidebar inset it switched on) is
+/// deliberately gone, because the page no longer sits under any chrome.
 #[cfg(target_os = "macos")]
 const TITLEBAR_MARKER_SCRIPT: &str = r#"
 (function () {
@@ -300,32 +300,15 @@ const TITLEBAR_MARKER_SCRIPT: &str = r#"
     var root = document && document.documentElement;
     if (!root) return false;
     root.setAttribute('data-shell', 'tauri');
-    root.setAttribute('data-titlebar', 'overlay');
-    // Only the tabbed shell stamps this; sidebar.css keys the main column's
-    // top clearance on it, so the live V1 shell is unaffected.
-    root.setAttribute('data-tabs', 'native');
+    // Deliberately NOT stamping data-titlebar="overlay": with the Safari-style
+    // visible titlebar the page starts below the chrome, so the 38px inset that
+    // attribute switches on in sidebar.css would be pure dead space.
     return true;
   }
   try {
     if (!mark()) {
       document.addEventListener('DOMContentLoaded', mark);
     }
-    // Overlay titlebars hit-test through to the page (tauri#9503), so without
-    // this the window cannot be dragged at all: the traffic-light row delivers
-    // its mousedowns to the webview, which ignores them. Any press in the
-    // chrome strip hands off to a native window drag. The tab bar itself is an
-    // opaque native view whose events never reach the page, so this only fires
-    // where AppKit isn't already handling the gesture. Costs titlebar
-    // double-click-to-zoom, which was equally unreachable before.
-    document.addEventListener('mousedown', function (e) {
-      if (e.button !== 0) return;
-      var inset = parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue('--titlebar-inset')
-      ) || 0;
-      if (inset <= 0 || e.clientY >= inset) return;
-      var t = window.__TAURI_INTERNALS__;
-      if (t && t.invoke) t.invoke('plugin:window|start_dragging');
-    });
   } catch (e) {}
 })();
 "#;
@@ -361,58 +344,6 @@ fn spike_second_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     let _ = app;
     Ok(())
-}
-
-/// SPIKE (cool.lark) — throwaway. Tell the page how much room the chrome is
-/// actually taking, instead of letting it guess.
-///
-/// `sidebar.css` hardcodes `--titlebar-inset: 38px`, a number tuned for the
-/// squashed 30pt titlebar the old traffic-light inset forced. With native tabs
-/// the row is titlebar + tab bar, so 38px is ~22pt short and the sidebar
-/// collides with the tabs. A bigger constant would be just as wrong the other
-/// way: macOS hides the tab bar at one tab, and then 60px is 30pt of dead space.
-///
-/// `contentLayoutRect` is AppKit's own answer — the part of the window not
-/// covered by titlebar, toolbar, or tab bar. Under `FullSizeContentView` the
-/// window frame and the content view are the same height, so the difference
-/// between them is exactly the inset the page needs to clear. An inline style
-/// on `documentElement` outranks the stylesheet's attribute selector, so this
-/// wins without the web app having to change.
-#[cfg(target_os = "macos")]
-fn push_titlebar_inset(window: &tauri::WebviewWindow) {
-    let Ok(ptr) = window.ns_window() else {
-        return;
-    };
-
-    // Safe: the pointer comes from a live window, and this only reads geometry.
-    let inset = unsafe {
-        let ns = &*(ptr as *const objc2_app_kit::NSWindow);
-        ns.frame().size.height - ns.contentLayoutRect().size.height
-    };
-
-    // A hidden tab bar reports the plain titlebar height; both cases are just
-    // "whatever AppKit says", which is the whole point.
-    //
-    // Everything past the variable push is SPIKE-ONLY: the packaged build loads
-    // production, whose stylesheet doesn't yet have the `data-tabs="native"`
-    // rules that will do this properly, so the shell applies their effect itself
-    // to make the fix visible on a real build — body padding for the page, and
-    // an injected copy of the modal rule, because modals portal to <body> with
-    // position: fixed and no amount of body padding reaches them. V2 pushes only
-    // the variable and lets the deployed CSS consume it — shipping both would
-    // double the inset.
-    let _ = window.eval(&format!(
-        "(function() {{\
-           document.documentElement.style.setProperty('--titlebar-inset','{inset:.0}px');\
-           if (document.body) document.body.style.paddingTop = '{inset:.0}px';\
-           if (document.head && !document.getElementById('__spike_tabs_css')) {{\
-             var s = document.createElement('style');\
-             s.id = '__spike_tabs_css';\
-             s.textContent = '.mantine-Modal-inner {{ padding-top: calc(var(--titlebar-inset) + 16px) !important; }}';\
-             document.head.appendChild(s);\
-           }}\
-         }})()"
-    ));
 }
 
 /// SPIKE (cool.lark) — throwaway. Tab commands, sent to whichever window is
@@ -642,60 +573,34 @@ fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<tauri::Web
             }
             open_externally(&new_window_opener, url.as_str());
             tauri::webview::NewWindowResponse::Deny
-        })
-        // SPIKE (cool.lark) — throwaway. `eval` runs against the *current*
-        // document, so an inset pushed before the page loads is thrown away with
-        // the empty document it landed in. Every load has to re-push.
-        .on_page_load(|window, _| {
-            #[cfg(target_os = "macos")]
-            push_titlebar_inset(&window);
-            let _ = &window;
         });
 
-    // Match the Electron shell's `hiddenInset` chrome: the traffic lights float
-    // over the page instead of sitting in a separate title bar.
+    // SPIKE (cool.lark) — the chrome decision this spike exists to test, and
+    // the overlay LOST. Safari-style chrome (a standard titlebar; the web view
+    // starts below it) instead of Electron-matching overlay chrome, because on
+    // a real build the overlay fought native tabs at every layer:
     //
-    // `hidden_title` is part of that match, not a nicety: `Overlay` alone keeps
-    // drawing the window title, which lands on top of the page's own top-left
-    // chrome (the sidebar's workspace switcher). Electron's `hiddenInset` hides
-    // the title for us; Tauri needs to be told. The page still needs to keep its
-    // content clear of the traffic lights themselves — see `--titlebar-inset` in
-    // `src/app/_components/layout/sidebar.css`.
+    //   - `traffic_light_position` shrinks the titlebar container the tab bar
+    //     lives in (tao's inset hack re-runs every drawRect:), squashing the
+    //     bar and hiding the lights;
+    //   - the full-size content view puts the page under the chrome, so
+    //     scrolled content and the scrollbar showed through the titlebar row,
+    //     fixed-position modals opened under the tab bar, and the transparent
+    //     titlebar hit-tested through to the page, leaving the window
+    //     undraggable (tauri#9503);
+    //   - each had a workaround, and each workaround was another moving part.
+    //
+    // A visible titlebar dissolves all of it: AppKit lays content below the
+    // chrome, dragging/zoom/scrollbars behave natively, and the page needs no
+    // inset at all. `hidden_title` keeps the empty titlebar row from drawing a
+    // window title over its middle; tab labels are unaffected (they read
+    // NSWindow.tab.title, not the titlebar drawing).
     #[cfg(target_os = "macos")]
     let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        // SPIKE (cool.lark) — throwaway. `.traffic_light_position(16, 16)` is
-        // deliberately *not* here. tao implements it by shrinking the entire
-        // titlebar container view to `button height + y` and pinning it to the
-        // window top (view.rs `inset_traffic_lights`), re-running on every
-        // drawRect:. The native tab bar lives in that same container, so the
-        // inset squashes it and the traffic lights vanish behind it — which is
-        // what the previous spike build showed. Left off here to see whether
-        // AppKit's default placement lays the tab bar out after the lights, the
-        // way Safari and Finder do.
         .tabbing_identifier("im.exponential.beta.tabs");
 
     let window = builder.build()?;
-
-    // SPIKE (cool.lark) — throwaway. Closing a tab down to one makes macOS hide
-    // the tab bar, which changes the inset without reloading anything, so
-    // `on_page_load` alone would leave the page reserving a row that is no
-    // longer there. Focus is the cheap catch-all: it fires on tab switch and
-    // after a close, which is every moment the answer can have changed.
-    #[cfg(target_os = "macos")]
-    {
-        let watched = window.clone();
-        window.on_window_event(move |event| {
-            if matches!(
-                event,
-                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true)
-            ) {
-                push_titlebar_inset(&watched);
-            }
-        });
-    }
-
     Ok(window)
 }
 
