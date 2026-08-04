@@ -322,7 +322,15 @@ async function installUncreatedWikiStub(page: Page, { initFails = false } = {}) 
         calls.push(cmd);
         switch (cmd) {
           case "wiki_status":
-            return Promise.resolve({ root, exists, git: exists, pageCount: 0 });
+            // pageCount derived, not hardcoded: the real command counts the
+            // folder, and a stub that reports 0 pages while wiki_list_pages
+            // returns three is a lie the next reader would have to discover.
+            return Promise.resolve({
+              root,
+              exists,
+              git: exists,
+              pageCount: Object.keys(store).length,
+            });
           case "wiki_init": {
             if (failing) {
               return Promise.reject(new Error("Permission denied (os error 13)"));
@@ -377,8 +385,11 @@ test("with no wiki yet, arriving at /wiki offers to create one — and creates n
   // what the reader cares about, and waiting on it means the call log below
   // is read after the handler has run rather than racing it.
   await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible();
-  for (const seed of ["index.md", "schema.md", "log.md"]) {
-    await expect(page.getByText(seed, { exact: true })).toBeVisible();
+  // Asserted on the row's link target rather than its text: it pins that the
+  // seed is listed *and* points at the right page, and it can't be made
+  // ambiguous later by a breadcrumb or header repeating the filename.
+  for (const seed of ["index", "schema", "log"]) {
+    await expect(page.locator(`a[href="/wiki/${seed}"]`)).toBeVisible();
   }
   expect(await commandsCalled(page)).toContain("wiki_init");
 });
