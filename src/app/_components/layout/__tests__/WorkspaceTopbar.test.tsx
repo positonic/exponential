@@ -52,6 +52,49 @@ describe('WorkspaceTopbar', () => {
     expect(screen.getByText('Products')).toBeInTheDocument();
   });
 
+  it('links the section crumb to its index when we are below it', () => {
+    render(<WorkspaceTopbar />);
+
+    expect(screen.getByRole('link', { name: 'Products' })).toHaveAttribute(
+      'href',
+      '/w/syntrofi/products',
+    );
+  });
+
+  it('leaves the section crumb as text on the section index itself', () => {
+    mockUsePathname.mockReturnValue('/w/syntrofi/products');
+
+    render(<WorkspaceTopbar />);
+
+    expect(screen.getByText('Products')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Products' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('still links a page-detail route back to the pages index', () => {
+    mockUsePathname.mockReturnValue('/w/syntrofi/pages/page-1');
+
+    render(<WorkspaceTopbar />);
+
+    expect(screen.getByRole('link', { name: 'Pages' })).toHaveAttribute(
+      'href',
+      '/w/syntrofi/pages',
+    );
+  });
+
+  it('leaves the section crumb as text on global routes', () => {
+    // Global segments like `/recording/{id}` have no index page to land on.
+    mockUsePathname.mockReturnValue('/recording/abc123');
+
+    render(<WorkspaceTopbar />);
+
+    expect(screen.getByText('Recording')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: 'Recording' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('renders nothing without a workspace', () => {
     mockUseWorkspace.mockReturnValue({ workspace: null, workspaceSlug: null });
 
