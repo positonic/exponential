@@ -158,6 +158,22 @@ describe("applyWikiLinks", () => {
     expect(text(tree)).toBe("nothing [[]] here");
   });
 
+  // An empty match is skipped without advancing the write cursor, so the text
+  // around it is only ever emitted by a later slice. Easy to break by
+  // "tidying" that cursor handling; these pin every ordering.
+  it.each([
+    "see [[index]] and [[]] end",
+    "[[]] then [[index]]",
+    "a [[index]] b [[]] c [[schema]] d",
+    "[[]][[index]][[]]",
+  ])("loses no text around an empty link: %s", (source) => {
+    const tree = parse(source);
+    applyWikiLinks(tree, KNOWN);
+
+    // Rendered links drop their brackets; everything else survives verbatim.
+    expect(text(tree)).toBe(source.replace(/\[\[(index|schema)]]/g, "$1"));
+  });
+
   it("does not treat a bracket pair spanning a line break as a link", () => {
     const tree = parse("open [[\nclosed]]");
     applyWikiLinks(tree, KNOWN);
