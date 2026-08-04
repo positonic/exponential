@@ -297,3 +297,102 @@ test("in a browser, the wiki says where it actually lives", async ({ page }) => 
     timeout: FIRST_PAINT_TIMEOUT,
   });
 });
+
+/**
+ * A desktop shell whose wiki folder does not exist yet — what a first-time
+ * user actually meets. `initFails` makes `wiki_init` reject, standing in for
+ * the realistic failure: a folder the app may not write to.
+ */
+async function installUncreatedWikiStub(page: Page, { initFails = false } = {}) {
+  await page.addInitScript((failing: boolean) => {
+    const store: Record<string, string> = {};
+    let exists = false;
+    const calls: string[] = [];
+    (window as unknown as { __WIKI_CALLS__: string[] }).__WIKI_CALLS__ = calls;
+    const root = "/Users/dev/Documents/exponential-wiki";
+
+    (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__ = {
+      invoke: (cmd: string, args?: Record<string, unknown>) => {
+        calls.push(cmd);
+        switch (cmd) {
+          case "wiki_status":
+            return Promise.resolve({ root, exists, git: exists, pageCount: 0 });
+          case "wiki_init": {
+            if (failing) {
+              return Promise.reject(new Error("Permission denied (os error 13)"));
+            }
+            exists = true;
+            // The three fixed files `init_at` seeds.
+            store["index.md"] = "# Index\n";
+            store["schema.md"] = "# How this wiki works\n";
+            store["log.md"] = "# Log\n";
+            return Promise.resolve({ root, created: true, git: true });
+          }
+          case "wiki_list_pages":
+            return Promise.resolve(
+              Object.keys(store)
+                .sort()
+                .map((path) => ({ path, bytes: (store[path] ?? "").length })),
+            );
+          case "wiki_read_page":
+            return Promise.resolve(store[String(args?.path)] ?? "");
+          case "wiki_get_root":
+            return Promise.resolve(root);
+          default:
+            return Promise.reject(new Error(`unexpected command ${cmd}`));
+        }
+      },
+    };
+  }, initFails);
+}
+
+const commandsCalled = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __WIKI_CALLS__: string[] }).__WIKI_CALLS__);
+
+test("with no wiki yet, arriving at /wiki offers to create one — and creates nothing on its own", async ({
+  page,
+}) => {
+  await installUncreatedWikiStub(page);
+  await page.goto("/wiki");
+
+  await expect(page.getByText("Create your local wiki")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  // It names the folder it would create before creating it.
+  await expect(page.getByText("/Users/dev/Documents/exponential-wiki")).toBeVisible();
+
+  // The guarantee worth protecting: a folder and a git repo appear in someone's
+  // Documents because they chose it, never as a side effect of navigation.
+  expect(await commandsCalled(page)).not.toContain("wiki_init");
+
+  await page.getByRole("button", { name: "Create wiki" }).click();
+
+  // Created, seeded, and listed.
+  expect(await commandsCalled(page)).toContain("wiki_init");
+  await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible();
+  for (const seed of ["index.md", "schema.md", "log.md"]) {
+    await expect(page.getByText(seed, { exact: true })).toBeVisible();
+  }
+});
+
+test("a wiki that cannot be created says why", async ({ page }) => {
+  await installUncreatedWikiStub(page, { initFails: true });
+  await page.goto("/wiki");
+
+  await expect(page.getByText("Create your local wiki")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await page.getByRole("button", { name: "Create wiki" }).click();
+
+  // The reason, not a spinner that never resolves. Scoped to <main>, since
+  // Next's route announcer is also a role="alert" living outside it.
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Permission denied");
+  // And the button comes back, so a fixed permission can be retried.
+  await expect(page.getByRole("button", { name: "Create wiki" })).toBeEnabled();
+});
