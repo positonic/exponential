@@ -493,7 +493,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // A linked epic must live in the action's own workspace, or its name and
-      // status leak back through the `epic` include below (#481). Resolved
+      // status leak back through the `epic` include below (PR 481). Resolved
       // against `targetWorkspaceId` — the workspace the action will actually
       // land in — rather than a caller-supplied id that may not be it.
       if (input.epicId) {
@@ -585,6 +585,14 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Same free-form `workspaceId` as `create`, and it lands in the same
+      // place — `db.action.create` below — so it needs the same guard. Without
+      // it, any authenticated user can drop a prompt action into an arbitrary
+      // workspace's task list by guessing its CUID.
+      if (input?.workspaceId) {
+        await assertCanWriteToWorkspace(ctx.db, userId, input.workspaceId);
+      }
 
       const today = startOfDay(new Date());
       const tomorrow = new Date(today);
