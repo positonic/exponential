@@ -218,8 +218,80 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// identifier, labelled `tab-2` so the capability glob (`"windows": ["main",
 /// "tab-*"]`, also spike-only) gets exercised at the same time: if the bridge
 /// reaches this window, `desktop_shell_info` answers from inside the tab.
+///
+/// The identifier alone is not enough to produce a tab. It makes the windows
+/// *tabbable*; AppKit only merges them on its own when the user's global
+/// `AppleWindowTabbingMode` is `always`, and Apple ships that preference
+/// defaulting to "In Full Screen Only". Left there, the second window opens as a
+/// plain window behind the first and there is no tab bar to inspect at all —
+/// which is exactly what the first spike build showed.
+///
+/// `-[NSWindow addTabbedWindow:ordered:]` merges regardless of the preference,
+/// and is the only way to get a tab deterministically. Neither tao nor tauri
+/// wraps it, so this goes through `ns_window()`.
 fn spike_second_window(app: &tauri::AppHandle) -> tauri::Result<()> {
-    build_window(app, "tab-2")
+    build_window(app, "tab-2")?;
+
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::runtime::AnyObject;
+
+        // NSWindowOrderingMode::Above.
+        const NS_WINDOW_ABOVE: isize = 1;
+
+        let (Some(first), Some(second)) = (
+            app.get_webview_window("main"),
+            app.get_webview_window("tab-2"),
+        ) else {
+            eprintln!("[spike] a window went missing before tabs could be merged");
+            return Ok(());
+        };
+
+        let first = first.ns_window()? as *mut AnyObject;
+        let second = second.ns_window()? as *mut AnyObject;
+
+        // Safe: both pointers come from live windows, and `setup` runs on the
+        // main thread, which is where AppKit requires this call.
+        unsafe {
+            let _: () = objc2::msg_send![first, addTabbedWindow: second, ordered: NS_WINDOW_ABOVE];
+        }
+    }
+
+    Ok(())
+}
+
+/// SPIKE (cool.lark) — throwaway. Tell the page how much room the chrome is
+/// actually taking, instead of letting it guess.
+///
+/// `sidebar.css` hardcodes `--titlebar-inset: 38px`, a number tuned for the
+/// squashed 30pt titlebar the old traffic-light inset forced. With native tabs
+/// the row is titlebar + tab bar, so 38px is ~22pt short and the sidebar
+/// collides with the tabs. A bigger constant would be just as wrong the other
+/// way: macOS hides the tab bar at one tab, and then 60px is 30pt of dead space.
+///
+/// `contentLayoutRect` is AppKit's own answer — the part of the window not
+/// covered by titlebar, toolbar, or tab bar. Under `FullSizeContentView` the
+/// window frame and the content view are the same height, so the difference
+/// between them is exactly the inset the page needs to clear. An inline style
+/// on `documentElement` outranks the stylesheet's attribute selector, so this
+/// wins without the web app having to change.
+#[cfg(target_os = "macos")]
+fn push_titlebar_inset(window: &tauri::WebviewWindow) {
+    let Ok(ptr) = window.ns_window() else {
+        return;
+    };
+
+    // Safe: the pointer comes from a live window, and this only reads geometry.
+    let inset = unsafe {
+        let ns = &*(ptr as *const objc2_app_kit::NSWindow);
+        ns.frame().size.height - ns.contentLayoutRect().size.height
+    };
+
+    // A hidden tab bar reports the plain titlebar height; both cases are just
+    // "whatever AppKit says", which is the whole point.
+    let _ = window.eval(&format!(
+        "document.documentElement.style.setProperty('--titlebar-inset','{inset:.0}px')"
+    ));
 }
 
 fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
@@ -255,6 +327,14 @@ fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
             }
             open_externally(&new_window_opener, url.as_str());
             tauri::webview::NewWindowResponse::Deny
+        })
+        // SPIKE (cool.lark) — throwaway. `eval` runs against the *current*
+        // document, so an inset pushed before the page loads is thrown away with
+        // the empty document it landed in. Every load has to re-push.
+        .on_page_load(|window, _| {
+            #[cfg(target_os = "macos")]
+            push_titlebar_inset(&window);
+            let _ = &window;
         });
 
     // Match the Electron shell's `hiddenInset` chrome: the traffic lights float
@@ -270,12 +350,37 @@ fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<()> {
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0))
-        // SPIKE (cool.lark) — throwaway. Shared identifier is the whole native
-        // tabbing mechanism; AppKit draws the tab bar from it.
+        // SPIKE (cool.lark) — throwaway. `.traffic_light_position(16, 16)` is
+        // deliberately *not* here. tao implements it by shrinking the entire
+        // titlebar container view to `button height + y` and pinning it to the
+        // window top (view.rs `inset_traffic_lights`), re-running on every
+        // drawRect:. The native tab bar lives in that same container, so the
+        // inset squashes it and the traffic lights vanish behind it — which is
+        // what the previous spike build showed. Left off here to see whether
+        // AppKit's default placement lays the tab bar out after the lights, the
+        // way Safari and Finder do.
         .tabbing_identifier("im.exponential.beta.tabs");
 
-    builder.build()?;
+    let window = builder.build()?;
+
+    // SPIKE (cool.lark) — throwaway. Closing a tab down to one makes macOS hide
+    // the tab bar, which changes the inset without reloading anything, so
+    // `on_page_load` alone would leave the page reserving a row that is no
+    // longer there. Focus is the cheap catch-all: it fires on tab switch and
+    // after a close, which is every moment the answer can have changed.
+    #[cfg(target_os = "macos")]
+    {
+        let watched = window.clone();
+        window.on_window_event(move |event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(true)
+            ) {
+                push_titlebar_inset(&watched);
+            }
+        });
+    }
+
     Ok(())
 }
 
