@@ -85,15 +85,15 @@ fn desktop_shell_info() -> ShellInfo {
     }
 }
 
-/// SPIKE (cool.lark) — throwaway. The shell has run Tauri's default menu until
-/// now, and the tab shortcuts do not survive that.
+/// The app menu: Tauri's default, extended with tab items (ADR-0053).
 ///
-/// AppKit is supposed to inject Show Next/Previous Tab into whatever submenu is
-/// registered as `NSApp.windowsMenu`, and the preconditions all hold — tao
-/// leaves `allowsAutomaticWindowTabbing` on, and Tauri does call
-/// `set_as_windows_menu_for_nsapp` for the submenu tagged `WINDOW_SUBMENU_ID`.
-/// The items still never reached the keyboard, so they are declared explicitly
-/// here. The actions are AppKit's own, so the behaviour is Safari's — cycling
+/// The tab shortcuts have to be declared explicitly. AppKit is supposed to
+/// inject Show Next/Previous Tab into whatever submenu is registered as
+/// `NSApp.windowsMenu`, and the preconditions all hold — tao leaves
+/// `allowsAutomaticWindowTabbing` on, and Tauri does call
+/// `set_as_windows_menu_for_nsapp` for the submenu tagged `WINDOW_SUBMENU_ID` —
+/// but on a real build the injected items never reached the keyboard. The
+/// actions dispatched are AppKit's own, so the behaviour is Safari's — cycling
 /// wraps, the overview is the real overview — rather than a reimplementation.
 ///
 /// Built by *extending* `Menu::default`, never by constructing a menu from
@@ -229,10 +229,6 @@ pub fn run() {
                 install_tab_key_monitor(app.handle());
                 install_plus_button(app.handle(), &_main);
             }
-            // SPIKE (cool.lark) — throwaway. Second window sharing the tabbing
-            // identifier, so a release build opens with a native tab bar and the
-            // two questions can be looked at. Delete with the rest of the spike.
-            spike_second_window(app.handle())?;
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -326,28 +322,8 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWind
     build_window(app, "main")
 }
 
-/// SPIKE (cool.lark) — throwaway. A second tab at startup, so the build opens
-/// with a tab bar to inspect and the capability glob (`"windows": ["main",
-/// "tab-*"]`, also spike-only) gets exercised: if the bridge reaches the second
-/// window, `desktop_shell_info` answers from inside a tab.
-///
-/// The shared tabbing identifier alone is not enough to produce a tab. It makes
-/// windows *tabbable*; AppKit only merges them on its own when the user's global
-/// `AppleWindowTabbingMode` is `always`, and Apple ships that preference
-/// defaulting to "In Full Screen Only". Left there, the second window opens as a
-/// plain window behind the first and there is no tab bar at all — which is
-/// exactly what the first spike build showed. `tabs::open` goes through
-/// `-[NSWindow addTabbedWindow:ordered:]`, which merges deterministically.
-fn spike_second_window(app: &tauri::AppHandle) -> tauri::Result<()> {
-    #[cfg(target_os = "macos")]
-    tabs::open(app);
-    #[cfg(not(target_os = "macos"))]
-    let _ = app;
-    Ok(())
-}
-
-/// SPIKE (cool.lark) — throwaway. Tab commands, sent to whichever window is
-/// frontmost.
+/// Native macOS window tabs (ADR-0053). Tab commands are sent to whichever
+/// window is frontmost.
 ///
 /// `selectNextTab:`, `selectPreviousTab:` and `toggleTabOverview:` are AppKit's
 /// own actions, so the behaviour is Safari's by construction — cycling wraps,
@@ -447,8 +423,8 @@ fn copy_current_url(app: &tauri::AppHandle) {
     }
 }
 
-/// SPIKE (cool.lark) — throwaway. ⌃Tab / ⌃⇧Tab, caught the way Safari catches
-/// them: before the web view sees the key.
+/// ⌃Tab / ⌃⇧Tab, caught the way Safari catches them: before the web view sees
+/// the key.
 ///
 /// These cannot be menu key equivalents. AppKit matches a non-⌘ equivalent only
 /// after the responder chain declines the key, and WKWebView consumes Tab —
@@ -498,7 +474,7 @@ fn install_tab_key_monitor(app: &tauri::AppHandle) {
     std::mem::forget(block);
 }
 
-/// SPIKE (cool.lark) — throwaway. The `+` at the right end of the tab bar.
+/// The `+` at the right end of the tab bar.
 ///
 /// AppKit draws Safari's plus button by itself the moment any responder in the
 /// window's chain implements `newWindowForTab:` — the button *is* that check.
@@ -549,9 +525,10 @@ fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<tauri::Web
     let new_window_opener = app.clone();
 
     let builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External(url))
-        // SPIKE (cool.lark) — throwaway. Distinct per window, so the tab bar
-        // shows whether AppKit reads the (hidden) window title for its label.
-        .title(format!("Exponential Beta — {label}"))
+        // Also each tab's label, via NSWindow.tab.title. URL-derived per-tab
+        // titles are the V2 ticket's next action; until then every tab reads
+        // the same, which is the known gap, not a bug.
+        .title("Exponential Beta")
         .inner_size(1400.0, 900.0)
         .min_inner_size(800.0, 600.0)
         // The page is remote and takes a moment to paint; without this the window
@@ -575,10 +552,10 @@ fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<tauri::Web
             tauri::webview::NewWindowResponse::Deny
         });
 
-    // SPIKE (cool.lark) — the chrome decision this spike exists to test, and
-    // the overlay LOST. Safari-style chrome (a standard titlebar; the web view
-    // starts below it) instead of Electron-matching overlay chrome, because on
-    // a real build the overlay fought native tabs at every layer:
+    // Safari-style chrome: a standard titlebar, with the web view laid out
+    // below it — NOT the Electron-matching overlay chrome this shell used
+    // before tabs. The cool.lark spike tried overlay + native tabs on a real
+    // build, and the overlay lost at every layer (ADR-0053):
     //
     //   - `traffic_light_position` shrinks the titlebar container the tab bar
     //     lives in (tao's inset hack re-runs every drawRect:), squashing the

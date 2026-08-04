@@ -35,11 +35,11 @@ tauri-plugin-store = "2.4.4"
 # ACL grant and works on every platform the shell ever targets.
 tauri-plugin-clipboard-manager = "2"
 
-# SPIKE (cool.lark) — throwaway. Sharing a tabbing identifier only makes windows
+# Native window tabs (ADR-0053). Sharing a tabbing identifier only makes windows
 # *tabbable*; AppKit merges them automatically only when the user's global
 # AppleWindowTabbingMode is "always", and Apple's default is "In Full Screen
 # Only". Neither tao nor tauri exposes -[NSWindow addTabbedWindow:ordered:], so
-# the spike reaches for it through ns_window(). Already a transitive dep.
+# the shell reaches for it through ns_window(). Already a transitive dep.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # NSEvent local monitor blocks (⌃Tab has to be caught before WKWebView eats it).
