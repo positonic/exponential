@@ -30,9 +30,21 @@
   color: var(--color-text-secondary);
 }
 
-.crumbCurrent {
+/* The workspace name links back to the workspace root. It keeps the emphasised
+   look of the leading crumb, so hover has to be an underline rather than the
+   colour shift the dimmer .crumbLink crumbs use. */
+.crumbRoot {
   color: var(--color-text-primary);
   font-weight: 500;
+  text-decoration: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumbRoot:hover {
+  text-decoration: underline;
 }
 
 .crumbSep {
