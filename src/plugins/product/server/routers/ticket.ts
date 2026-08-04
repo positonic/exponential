@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import { assertWorkspaceScopedRefs } from "~/server/services/access";
 import type { PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { createTicketWithNumber } from "../services/createTicket";
@@ -345,6 +346,15 @@ export const ticketRouter = createTRPCRouter({
         input.productId,
       );
 
+      // A linked epic/feature/cycle/scope must live in the product's own
+      // workspace, or its fields leak back through this ticket's includes.
+      await assertWorkspaceScopedRefs(ctx.db, ctx.session.user.id, product.workspaceId, {
+        epicId: input.epicId,
+        featureId: input.featureId,
+        cycleId: input.cycleId,
+        scopeId: input.scopeId,
+      });
+
       // If templateId provided, load its body as the starting body (unless body already given)
       let body = input.body;
       if (!body && input.templateId) {
@@ -419,6 +429,20 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+      );
+
+      // Same-workspace guard as create — `rest` is spread straight into the
+      // update, so a foreign epic/feature/cycle/scope id would otherwise stick.
+      await assertWorkspaceScopedRefs(
+        ctx.db,
+        ctx.session.user.id,
+        previousTicket.product.workspaceId,
+        {
+          epicId: input.epicId,
+          featureId: input.featureId,
+          cycleId: input.cycleId,
+          scopeId: input.scopeId,
+        },
       );
 
       const { id, ...rest } = input;

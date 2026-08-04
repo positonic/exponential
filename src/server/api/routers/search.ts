@@ -329,13 +329,13 @@ async function searchFeatures({ db, userId, q, workspaceId, limit }: SearchArgs)
   }));
 }
 
-// Mirrors the epic router's gate: DIRECT workspace membership only (team-based
-// members are denied there, so they are denied here too).
+// Mirrors the epic router's gate: direct or team-based workspace membership
+// (getWorkspaceMembership; guests denied).
 async function searchEpics({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
   const epics = await db.epic.findMany({
     where: {
       ...(workspaceId ? { workspaceId } : {}),
-      workspace: { members: { some: { userId } } },
+      workspace: { is: buildWorkspaceAccessWhere(userId) },
       name: insensitive(q),
     },
     select: {

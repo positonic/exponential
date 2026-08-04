@@ -192,3 +192,59 @@ describe("ticket router — list Area filter (mocked)", () => {
     expect(findManyWhere(dbMock)).toMatchObject({ tags: { some: { tagId: areaTagId } } });
   });
 });
+
+describe("ticket router — cross-workspace link guard (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubProductLookup(dbMock);
+    stubMembership(dbMock, true);
+  });
+
+  it("refuses to create a ticket linked to an epic in another workspace", async () => {
+    dbMock.epic.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { workspaceId: "ws-other" } as any,
+    );
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.create({
+        productId,
+        title: "Borrowed epic",
+        epicId: "epic-foreign",
+      }),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "Epic not found in this workspace",
+    });
+
+    expect(dbMock.ticket.create).not.toHaveBeenCalled();
+  });
+
+  it("allows an epic from the product's own workspace", async () => {
+    dbMock.epic.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { workspaceId } as any,
+    );
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    // The create path continues into createTicketWithNumber (counter +
+    // transaction), which this mock DB does not model — reaching past the
+    // guard is the assertion, so any later failure is not a guard rejection.
+    await caller.product.ticket
+      .create({ productId, title: "Own epic", epicId: "epic-1" })
+      .catch((err: unknown) => {
+        expect(err).not.toMatchObject({
+          message: "Epic not found in this workspace",
+        });
+      });
+
+    expect(dbMock.epic.findUnique).toHaveBeenCalledWith({
+      where: { id: "epic-1" },
+      select: { workspaceId: true },
+    });
+  });
+});

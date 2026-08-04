@@ -1,10 +1,31 @@
 import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { getWorkspaceMembership } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const epicStatusSchema = z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]);
 const epicPrioritySchema = z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]);
+
+/**
+ * Ensure the caller is a member of the workspace (directly or via a team).
+ * Throws FORBIDDEN otherwise.
+ */
+async function assertWorkspaceMember(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+) {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You must be a member of this workspace",
+    });
+  }
+  return membership;
+}
 
 export const epicRouter = createTRPCRouter({
   // List all epics for a workspace
@@ -16,21 +37,7 @@ export const epicRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace",
-        });
-      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
 
       return ctx.db.epic.findMany({
         where: {
@@ -85,6 +92,8 @@ export const epicRouter = createTRPCRouter({
         });
       }
 
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, epic.workspaceId);
+
       return epic;
     }),
 
@@ -101,21 +110,7 @@ export const epicRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to create epics",
-        });
-      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
 
       return ctx.db.epic.create({
         data: {
@@ -157,21 +152,7 @@ export const epicRouter = createTRPCRouter({
         });
       }
 
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: epic.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to update epics",
-        });
-      }
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, epic.workspaceId);
 
       return ctx.db.epic.update({
         where: { id },
@@ -194,21 +175,11 @@ export const epicRouter = createTRPCRouter({
         });
       }
 
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: epic.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to delete epics",
-        });
-      }
+      const member = await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        epic.workspaceId,
+      );
 
       const canDelete =
         member.role === "owner" ||

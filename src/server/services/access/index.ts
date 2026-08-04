@@ -103,3 +103,7 @@ export {
   buildKnowledgePageAccessWhere,
 } from "./resolvers/knowledgePageResolver";
 export type { KnowledgePageAccessInfo } from "./resolvers/knowledgePageResolver";
+
+// Cross-workspace link guards (epic/feature/cycle/scope foreign keys)
+export { assertWorkspaceScopedRefs } from "./workspaceRefs";
+export type { WorkspaceScopedRefs } from "./workspaceRefs";

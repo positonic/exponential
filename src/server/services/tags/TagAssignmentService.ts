@@ -1,6 +1,10 @@
 import type { PrismaClient, Tag } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { canEditAction, getActionAccess } from "~/server/services/access";
+import {
+  canEditAction,
+  getActionAccess,
+  getWorkspaceMembership,
+} from "~/server/services/access";
 
 export type TagEntityType = "action" | "ticket" | "feature" | "epic";
 
@@ -127,9 +131,9 @@ async function requireWorkspaceMember(
   userId: string,
   workspaceId: string,
 ): Promise<void> {
-  const membership = await db.workspaceUser.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-  });
+  // Centralized resolver: direct OR team-based membership. A hand-rolled
+  // workspaceUser lookup here used to deny team-based members.
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
   if (!membership) {
     throw new TRPCError({
       code: "FORBIDDEN",
