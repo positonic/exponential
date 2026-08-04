@@ -250,6 +250,10 @@ pub fn run() {
 /// written back to the store so the choice survives a restart — including a
 /// first run, where it pins the default rather than leaving it implicit and
 /// liable to move if the default ever changes.
+///
+/// An `EXPONENTIAL_WIKI_ROOT` override is the exception: it applies to the launch
+/// that set it and is never written back, so a throwaway test root cannot become
+/// the permanent setting. See `wiki::resolve_root_for_launch`.
 fn resolve_wiki_root(app: &tauri::AppHandle) {
     use tauri_plugin_store::StoreExt;
 
@@ -259,14 +263,16 @@ fn resolve_wiki_root(app: &tauri::AppHandle) {
         .and_then(|store| store.get(wiki::STORE_KEY))
         .and_then(|value| value.as_str().map(str::to_owned));
 
-    let root = wiki::resolve_root(stored);
+    let wiki::RootChoice { root, persist } = wiki::resolve_root_for_launch(stored);
 
-    if let Ok(store) = app.store(wiki::STORE_FILE) {
-        store.set(wiki::STORE_KEY, root.to_string_lossy().to_string());
-        // Best-effort: a wiki that works but forgets its location next launch
-        // beats refusing to start.
-        if let Err(e) = store.save() {
-            eprintln!("[wiki] could not persist the wiki root: {e}");
+    if persist {
+        if let Ok(store) = app.store(wiki::STORE_FILE) {
+            store.set(wiki::STORE_KEY, root.to_string_lossy().to_string());
+            // Best-effort: a wiki that works but forgets its location next launch
+            // beats refusing to start.
+            if let Err(e) = store.save() {
+                eprintln!("[wiki] could not persist the wiki root: {e}");
+            }
         }
     }
 

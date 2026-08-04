@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import * as Sentry from '@sentry/nextjs';
 import { api } from "~/trpc/react";
 import DOMPurify from 'dompurify';
 import ReactMarkdown from 'react-markdown';
@@ -29,7 +30,7 @@ import { DraftFeaturesReviewCard } from './DraftFeaturesReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
-import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { classifyStreamError, describeStreamError } from '~/lib/chat/streamProtocol';
 import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
 import { streamChatResponse, type ChatStreamUpdate } from '~/lib/chat/streamChatResponse';
 import { createLocalWikiStreamer, streamLocalWikiChat } from '~/lib/chat/streamLocalWikiChat';
@@ -370,23 +371,32 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                     </div>
                   )}
                   {message.failure && (
-                    <div className="mt-1.5 flex items-center gap-2 text-text-muted text-xs">
-                      {/* Show the failure note when the main block above isn't
-                          already showing it: always for 'incomplete' (the block
-                          shows the partial answer), and for a contentless error. */}
-                      {(message.failure.severity === 'incomplete' || message.content === '') && (
-                        <span>{failureCopy(message.failure.kind, message.failure.severity)}</span>
-                      )}
-                      {message.failure.canRetry && message.failure.retryText && (
-                        <Button
-                          size="compact-xs"
-                          variant="subtle"
-                          color="gray"
-                          leftSection={<IconRefresh size={13} />}
-                          onClick={() => onRetry(message.failure!.retryText!)}
-                        >
-                          Try again
-                        </Button>
+                    <div className="mt-1.5 text-text-muted text-xs">
+                      <div className="flex items-center gap-2">
+                        {/* Show the failure note when the main block above isn't
+                            already showing it: always for 'incomplete' (the block
+                            shows the partial answer), and for a contentless error. */}
+                        {(message.failure.severity === 'incomplete' || message.content === '') && (
+                          <span>{failureCopy(message.failure.kind, message.failure.severity)}</span>
+                        )}
+                        {message.failure.canRetry && message.failure.retryText && (
+                          <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            color="gray"
+                            leftSection={<IconRefresh size={13} />}
+                            onClick={() => onRetry(message.failure!.retryText!)}
+                          >
+                            Try again
+                          </Button>
+                        )}
+                      </div>
+                      {/* The thrown error's own words. Small and secondary, but
+                          present: without it a specific, fixable cause (an expired
+                          key, an empty credit balance) is indistinguishable from a
+                          passing network blip. */}
+                      {message.failure.detail && (
+                        <div className="mt-1 break-words opacity-70">{message.failure.detail}</div>
                       )}
                     </div>
                   )}
@@ -694,7 +704,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
     let cancelled = false;
     void (async () => {
-      const status = await getWikiBridge()?.status();
+      // A rejected `wiki_status` used to leave this undefined for good, which
+      // renders as "the wiki exists" — the first-run panel is gated on a
+      // *known* absent wiki. The user then talks to a librarian with nothing to
+      // read. Say so instead of failing invisibly.
+      let status: WikiStatus | undefined;
+      try {
+        status = await getWikiBridge()?.status();
+      } catch (error) {
+        console.error('[ManyChat] wiki_status failed — cannot tell if a wiki exists', error);
+        Sentry.captureException(error, { tags: { area: 'local-wiki-status' } });
+      }
       if (!cancelled) setWikiStatus(status);
     })();
     return () => {
@@ -1470,12 +1490,24 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       //    it as a normal answer with a subtle "ended early" + Retry footer.
       //  • !hadContent → nothing usable arrived. Convert the empty placeholder
       //    into a calm, single-line error with a Retry button.
+      // Nothing else reports this. The catch above swallows the error, so
+      // Sentry's automatic capture (unhandled errors only) never sees it — which
+      // is how a turn failing on "your credit balance is too low" produced no
+      // trace anywhere: not in Sentry, and so not in the Bug tickets the Sentry
+      // webhook files. Sentry only initialises on Vercel prod/preview, so this
+      // is a no-op in local dev.
+      Sentry.captureException(error, {
+        tags: { area: 'chat-stream', failureKind: kind, agentId: targetAgentId ?? 'unknown' },
+        extra: { hadContent, projectId, conversationId, attempt },
+      });
+
       const severity: 'error' | 'incomplete' = hadContent ? 'incomplete' : 'error';
       const failure: NonNullable<Message['failure']> = {
         severity,
         kind,
         canRetry: kind !== 'auth',
         retryText: text,
+        detail: describeStreamError(error),
       };
 
       setMessages((prev) => {

@@ -59,6 +59,17 @@ export interface ChatMessage {
     kind: 'transport' | 'idle-timeout' | 'auth' | 'model' | 'unknown';
     canRetry: boolean;
     retryText?: string;
+    /**
+     * What actually went wrong, in the words of whatever threw — shown beneath
+     * the calm copy above.
+     *
+     * Added because the copy alone is a dead end when the cause is real and
+     * specific: a provider that says "your credit balance is too low" rendered
+     * as "Something went wrong handling that request" leaves the user (and
+     * anyone they report it to) with nothing to act on. Undefined when there is
+     * nothing to add beyond the copy.
+     */
+    detail?: string;
   };
 }
 
