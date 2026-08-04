@@ -427,7 +427,10 @@ export const featureRouter = createTRPCRouter({
             },
           },
           tags: { include: { tag: true } },
-          _count: { select: { tickets: true } },
+          // `comments` is a count, not the list: the UI loads the thread lazily
+          // via `featureComment.list`, and API callers need to know a discussion
+          // exists before paying for it.
+          _count: { select: { tickets: true, comments: true } },
         },
       });
       if (!feature) {

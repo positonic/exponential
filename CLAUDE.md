@@ -648,6 +648,10 @@ Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-iss
 
 Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 
+### Commenting and @mentions
+
+Features, tickets, actions, pages, and goals all take comments from the CLI (`exponential <entity> comment add`). Mentions are the literal markup `@[Name](userId)` — plain `@andi` notifies nobody. Use `--mention andi` to expand it, and `exponential workspaces members` to look someone up. See [`docs/agents/commenting.md`](docs/agents/commenting.md).
+
 ### Triage labels
 
 Exponential uses **ticket statuses** as triage routing — no labels. Canonical role → status mapping (e.g. `ready-for-agent` → `READY_TO_PLAN`, `wontfix` → `ARCHIVED`) lives in [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md).
