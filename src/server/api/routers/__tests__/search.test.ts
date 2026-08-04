@@ -91,7 +91,10 @@ vi.mock("~/lib/blob", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
-import { buildActionAccessWhere } from "~/server/services/access";
+import {
+  buildActionAccessWhere,
+  buildWorkspaceAccessWhere,
+} from "~/server/services/access";
 
 const callerId = "user-1";
 const workspaceId = "ws-1";
@@ -180,6 +183,16 @@ describe("search router — global (mocked)", () => {
     expect(where?.status).toEqual({ notIn: ["DELETED", "DRAFT"] });
     // Access scoping comes from buildActionAccessWhere, not a hand-rolled copy.
     expect(where?.OR).toEqual(buildActionAccessWhere(callerId).OR);
+  });
+
+  it("scopes epics to direct-or-team workspace membership, like the epic router", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.search.global({ query: "brew" });
+
+    const epicWhere = dbMock.epic.findMany.mock.calls[0]?.[0]?.where;
+    // Access scoping comes from buildWorkspaceAccessWhere (direct OR
+    // team-based membership), not a hand-rolled direct-members-only copy.
+    expect(epicWhere?.workspace).toEqual({ is: buildWorkspaceAccessWhere(callerId) });
   });
 
   it("workspace-scoped search filters projects/goals to the workspace for members", async () => {

@@ -11,7 +11,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere } from "~/server/services/access";
+import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -436,6 +436,16 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // A linked epic must live in the action's own workspace, or its name and
+      // status leak back through the `epic` include below.
+      if (input.epicId) {
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          input.workspaceId ?? projectWorkspaceId,
+          { epicId: input.epicId },
+        );
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionData: any = {
         ...input,
@@ -649,6 +659,19 @@ export const actionRouter = createTRPCRouter({
         if (newProject?.workspaceId) {
           updateData.workspaceId = newProject.workspaceId;
         }
+      }
+
+      // Same-workspace guard as create, resolved against the workspace the
+      // action will have *after* any projectId-driven move above.
+      if (updateData.epicId) {
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          updateData.workspaceId ??
+            currentAction?.workspaceId ??
+            currentAction?.project?.workspaceId ??
+            null,
+          { epicId: updateData.epicId },
+        );
       }
 
       // Set completedAt timestamp when completing, clear when uncompleting
