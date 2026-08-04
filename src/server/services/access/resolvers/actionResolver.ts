@@ -12,13 +12,19 @@
 
 import type { PrismaClient } from "@prisma/client";
 import type { Permission } from "../types";
-import { getProjectAccess, hasProjectAccess, canEditProject } from "./projectResolver";
+import { getProjectAccess, hasProjectAccess, canEditProject, isProjectInsider } from "./projectResolver";
 
 interface ActionAccessInfo {
   isCreator: boolean;
   isAssignee: boolean;
   hasProjectAccess: boolean;
   canEditProject: boolean;
+  /**
+   * Project access via a membership path, NOT mere `isPublic` visibility.
+   * Use this — never `hasProjectAccess` — to gate anything that exposes the
+   * workspace around the action (member rosters, org-wide data).
+   */
+  isProjectInsider: boolean;
 }
 
 export async function getActionAccess(
@@ -51,6 +57,7 @@ export async function getActionAccess(
     isAssignee,
     hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
     canEditProject: projectAccess ? canEditProject(projectAccess) : false,
+    isProjectInsider: projectAccess ? isProjectInsider(projectAccess) : false,
   };
 }
 

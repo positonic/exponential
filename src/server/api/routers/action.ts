@@ -11,7 +11,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { findUserByEmailInWorkspace, getWorkspaceMembership, canEditWorkspaceContent } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -2155,17 +2155,33 @@ export const actionRouter = createTRPCRouter({
       actionId: z.string(),
     }))
     .query(async ({ ctx, input }) => {
-      // Get the action to verify it exists and get context
-      const action = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        include: {
-          project: true,
-          team: true,
-        },
-      });
+      // Get the action to verify it exists and get context. The access probe
+      // runs alongside it — both are independent reads keyed off actionId.
+      const [action, access] = await Promise.all([
+        ctx.db.action.findUnique({
+          where: { id: input.actionId },
+          include: {
+            project: true,
+            team: true,
+          },
+        }),
+        getActionAccess(ctx.db, ctx.session.user.id, input.actionId),
+      ]);
 
-      if (!action) {
-        throw new Error("Action not found");
+      // Without this, naming any action id returned its whole assignable
+      // roster — every workspace and project member, emails included — to any
+      // logged-in caller. View access is the right bar: assignment itself is
+      // separately gated on canEditAction, and a viewer legitimately needs the
+      // roster to render existing assignees.
+      //
+      // Missing and forbidden collapse into the same NOT_FOUND deliberately:
+      // distinguishable responses would confirm which action CUIDs exist. Same
+      // rule as `getById` above and as `assignability.ts`.
+      if (!action || !access || !canViewAction(access)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Action not found or access denied",
+        });
       }
 
       // Collect assignable users from multiple sources
@@ -2206,7 +2222,13 @@ export const actionRouter = createTRPCRouter({
       // 2. Get workspace members (if action belongs to a project in a workspace).
       //    On restricted projects, only owner/admin workspace roles are eligible
       //    (they are escape-hatch project editors).
-      if (action.project?.workspaceId) {
+      //
+      //    Gated on `isProjectInsider`, NOT `canViewAction`: a public project
+      //    satisfies the view gate for any authenticated caller, and bounty
+      //    action ids for public projects are published by the unauthenticated
+      //    /api/bounties feed. Public visibility grants the project, never the
+      //    workspace roster behind it.
+      if (action.project?.workspaceId && access.isProjectInsider) {
         const workspaceUsers = await ctx.db.workspaceUser.findMany({
           where: {
             workspaceId: action.project.workspaceId,
@@ -2285,6 +2307,10 @@ export const actionRouter = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       let project: { id: string; name: string; workspaceId: string | null; isRestricted: boolean } | null = null;
+      // Whether the caller reached the project by a membership path rather than
+      // by its `isPublic` flag. Only an insider inherits the workspace roster
+      // below — see the precedence comment further down.
+      let projectInsider = false;
       if (input.projectId) {
         const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
         if (!hasProjectAccess(access)) {
@@ -2293,13 +2319,43 @@ export const actionRouter = createTRPCRouter({
             message: "You don't have access to this project",
           });
         }
+        projectInsider = isProjectInsider(access);
         project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { id: true, name: true, workspaceId: true, isRestricted: true },
         });
       }
 
-      const effectiveWorkspaceId = project?.workspaceId ?? input.workspaceId ?? null;
+      // Workspace precedence, and why the two paths are gated differently:
+      // a workspace reached *through* a project the caller is an insider on is
+      // already covered by the project check above, and must NOT be re-checked
+      // — workspace guests (project-only members with no WorkspaceUser row)
+      // would fail a membership probe and lose the roster on their own
+      // projects.
+      // `isProjectInsider`, not `hasProjectAccess`: the latter is satisfied by
+      // a merely *public* project, so inheriting the workspace from it would
+      // hand the whole roster to any authenticated caller holding a public
+      // project id — the same leak this guard exists to close.
+      // A caller-supplied `workspaceId` has no such backing, so it needs an
+      // explicit check: without one, any logged-in user who knows or guesses a
+      // workspace CUID got back every member's id, name, email and avatar.
+      // Plain membership is the bar — this is a read, so viewers pass.
+      let effectiveWorkspaceId = projectInsider ? (project?.workspaceId ?? null) : null;
+      if (!effectiveWorkspaceId && input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+        effectiveWorkspaceId = input.workspaceId;
+      }
+
       const isRestrictedProject = project?.isRestricted ?? false;
 
       const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
