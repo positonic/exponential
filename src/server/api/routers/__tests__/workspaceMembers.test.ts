@@ -76,12 +76,19 @@ function caller(db: DeepMockProxy<PrismaClient>) {
   return createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient });
 }
 
-/** Make the caller a member so the access gate passes. */
+/**
+ * Satisfy `requireWorkspaceMembership("view")`, which resolves through
+ * AccessControlService rather than reading WorkspaceUser inline.
+ */
 function grantAccess(db: DeepMockProxy<PrismaClient>) {
   db.workspaceUser.findUnique.mockResolvedValue({
     userId: USER_ID,
     workspaceId: WORKSPACE_ID,
     role: "owner",
+  } as never);
+  db.workspace.findUnique.mockResolvedValue({
+    id: WORKSPACE_ID,
+    ownerId: USER_ID,
   } as never);
 }
 
@@ -107,10 +114,11 @@ describe("workspace.listMembers", () => {
 
   it("refuses callers who are not members", async () => {
     db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.workspace.findUnique.mockResolvedValue(null);
 
     await expect(
       caller(db).workspace.listMembers({ workspaceId: WORKSPACE_ID }),
-    ).rejects.toThrow(/don't have access/i);
+    ).rejects.toThrow();
   });
 
   it("returns direct members with ready-to-paste mention syntax", async () => {
@@ -146,6 +154,10 @@ describe("workspace.listMembers", () => {
     expect(members[0]).toMatchObject({
       id: "u2",
       source: "team",
+      // The TEAM role is "member" here, but the point is that a team role
+      // never lands in `role` — it is reported separately.
+      role: "member",
+      teamRole: "member",
       mentionSyntax: "@[Team Only](u2)",
     });
     expect(members[0]?.teams).toEqual([{ id: "team-1", name: "Platform" }]);
@@ -168,10 +180,28 @@ describe("workspace.listMembers", () => {
     expect(members[0]).toMatchObject({
       id: "u1",
       role: "owner",
+      teamRole: null,
       source: "workspace",
     });
     // The team still shows up, so callers can see how the access is granted.
     expect(members[0]?.teams).toEqual([{ id: "team-1", name: "Platform" }]);
+  });
+
+  it("never reports a team role as the workspace role", async () => {
+    grantAccess(db);
+    db.workspaceUser.findMany.mockResolvedValue([] as never);
+    db.teamUser.findMany.mockResolvedValue([
+      teamRow("u9", "Team Owner", "owner"),
+    ] as never);
+
+    const members = await caller(db).workspace.listMembers({
+      workspaceId: WORKSPACE_ID,
+    });
+
+    // A team owner has no workspace-level authority — callers reading `role`
+    // to gate on owner/admin must not be misled.
+    expect(members[0]?.role).toBe("member");
+    expect(members[0]?.teamRole).toBe("owner");
   });
 
   it("falls back to the email when a member has no display name", async () => {

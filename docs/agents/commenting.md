@@ -42,6 +42,8 @@ exponential workspaces members --search andi --json
 
 Each row carries a `mentionSyntax` field — the ready-to-paste token — plus `source`, which is `workspace` for a direct member or `team` for someone who reaches the workspace through a linked team.
 
+`role` is always the **workspace** role. Team-based members report `member` there no matter their team role; their team role is in `teamRole`. Don't gate on `role` expecting a team `owner` to appear as a workspace owner — they hold no workspace authority.
+
 That distinction matters if you ever write the markup by hand: the name-only form `@[Andi Stanner]` only resolves against **direct** members, so team-based members must be mentioned by id. `mentionSyntax` is always the id form and always works.
 
 Mentions naming a non-member (or an agent principal) are silently dropped by the server — comment content never leaks outside the workspace.

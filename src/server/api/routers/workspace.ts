@@ -10,6 +10,7 @@ import {
   buildWorkspaceAccessWhere,
   buildWorkspaceVisibilityWhere,
 } from "~/server/services/access";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   generateSecureToken,
@@ -1503,19 +1504,8 @@ export const workspaceRouter = createTRPCRouter({
   // direct members only, so team-based members must be mentioned by id.
   listMembers: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
-      const membership = await getWorkspaceMembership(
-        ctx.db,
-        ctx.session.user.id,
-        input.workspaceId,
-      );
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have access to this workspace",
-        });
-      }
-
       const userSelect = {
         id: true,
         name: true,
@@ -1546,7 +1536,15 @@ export const workspaceRouter = createTRPCRouter({
         name: string | null;
         email: string | null;
         image: string | null;
+        /**
+         * The member's WORKSPACE role. Team-based members get "member", the
+         * same synthesized role `workspace.list` gives them — a team `owner`
+         * is not a workspace owner, so their team role must never land here
+         * where a caller would read it as workspace authority.
+         */
         role: string;
+        /** The team role, when access is team-based. Null for direct members. */
+        teamRole: string | null;
         source: "workspace" | "team";
         teams: { id: string; name: string }[];
         mentionSyntax: string;
@@ -1560,6 +1558,7 @@ export const workspaceRouter = createTRPCRouter({
       const members: Member[] = direct.map((m) => ({
         ...m.user,
         role: m.role,
+        teamRole: null,
         source: "workspace",
         teams: [],
         mentionSyntax: mention(m.user),
@@ -1577,7 +1576,10 @@ export const workspaceRouter = createTRPCRouter({
         }
         const added: Member = {
           ...t.user,
-          role: t.role,
+          // Not `t.role` — that is the team role, and surfacing it as `role`
+          // would let a team admin read as a workspace admin.
+          role: "member",
+          teamRole: t.role,
           source: "team",
           teams: [t.team],
           mentionSyntax: mention(t.user),
