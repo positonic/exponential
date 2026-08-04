@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   Timeline,
   Text,
@@ -16,6 +16,7 @@ import {
   Loader,
   Center,
   UnstyledButton,
+  Alert,
 } from "@mantine/core";
 import { api } from "~/trpc/react";
 import { format, startOfDay } from "date-fns";
@@ -31,7 +32,9 @@ import {
   IconRefresh,
   IconRocket,
   IconPlus,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
+import { reportHandledError } from "~/lib/reportHandledError";
 import type {
   GitHubCommit,
   GitHubRelease,
@@ -186,9 +189,69 @@ export function ProductTimelineClient() {
   const isLoading = queries.some((q) => q.isLoading);
   const hasNextPage = lastQuery?.data?.hasNextPage ?? false;
 
+  // The commit feed is the page; releases only decorate it. So a failed commit
+  // fetch is fatal to the view while a failed release fetch is not — but both
+  // get reported, because the failure mode that hid this page for days was an
+  // expired GITHUB_TOKEN rendering as a silent empty timeline.
+  const commitsErrorMessage =
+    queries.find((q) => q.error)?.error?.message ?? null;
+  const releasesErrorMessage = releasesQuery.error?.message ?? null;
+
+  // `error` alone is not enough. A query can also come to rest at
+  // `status: "pending" / fetchStatus: "paused"` — no data, no error, and
+  // `isLoading` false, because React Query only reports `isLoading` while a
+  // fetch is actually in flight. Nothing is pending and nothing failed, so
+  // every guard keyed on `error` or `isLoading` falls through and the timeline
+  // renders empty. That is indistinguishable, on screen, from "we shipped
+  // nothing" — which is the bug this page had. Treat "no commits and nobody is
+  // working on it" as a failure regardless of which state produced it.
+  const isFetchingCommits = queries.some((q) => q.fetchStatus === "fetching");
+  // `settled` keeps this from firing on the very first render, before the
+  // fetch has been dispatched: a query that has never run is not a failure.
+  const commitsSettled = queries.some(
+    (q) => q.isFetched || q.fetchStatus === "paused",
+  );
+  const commitsUnavailable =
+    allCommits.length === 0 &&
+    !isLoading &&
+    !isFetchingCommits &&
+    commitsSettled;
+
+  // Report the silent variant too. If we only reported `error`, the state that
+  // actually hid this page — settled, empty, no error — would still reach the
+  // user as a polite message and reach us as nothing at all.
+  const commitsFailure =
+    commitsErrorMessage ??
+    (commitsUnavailable
+      ? "Commit history unavailable: query settled with no data and no error"
+      : null);
+
+  useEffect(() => {
+    if (!commitsFailure) return;
+    reportHandledError(new Error(commitsFailure), {
+      area: "product-timeline-commits",
+      context: { repo: "positonic/exponential", branch: "main" },
+    });
+  }, [commitsFailure]);
+
+  useEffect(() => {
+    if (!releasesErrorMessage) return;
+    reportHandledError(new Error(releasesErrorMessage), {
+      area: "product-timeline-releases",
+      context: { repo: "positonic/exponential" },
+    });
+  }, [releasesErrorMessage]);
+
   const loadMore = useCallback(() => {
     setPages((prev) => [...prev, (prev[prev.length - 1] ?? 0) + 1]);
   }, []);
+
+  // Not memoized: it closes over the per-page query handles, which change with
+  // `pages`, and it only ever renders on an error path.
+  const retry = () => {
+    for (const query of queries) void query.refetch();
+    void releasesQuery.refetch();
+  };
 
   const entries = buildTimeline(allCommits, releases);
 
@@ -198,6 +261,45 @@ export function ProductTimelineClient() {
         <Center py="xl">
           <Loader />
         </Center>
+      </Container>
+    );
+  }
+
+  // Nothing to show and nothing in flight: say so, rather than rendering an
+  // empty timeline that reads as "we shipped nothing".
+  if (commitsUnavailable) {
+    return (
+      <Container size="md" py="xl">
+        <Title order={1}>Product Timeline</Title>
+        <Text c="dimmed" mb="xl">
+          Every change we make to {PRODUCT_NAME}, straight from our git history.
+        </Text>
+        <Alert
+          variant="light"
+          color="red"
+          icon={<IconAlertTriangle size={16} />}
+          title="Couldn't load the timeline"
+        >
+          <Stack gap="sm" align="flex-start">
+            <Text size="sm">
+              We couldn&apos;t reach GitHub to read our commit history. This is
+              our problem, not yours — the timeline itself is fine.
+            </Text>
+            {commitsErrorMessage && (
+              <Text size="xs" c="dimmed">
+                {commitsErrorMessage}
+              </Text>
+            )}
+            <Button
+              variant="light"
+              size="xs"
+              leftSection={<IconRefresh size={14} />}
+              onClick={retry}
+            >
+              Try again
+            </Button>
+          </Stack>
+        </Alert>
       </Container>
     );
   }
@@ -224,6 +326,34 @@ export function ProductTimelineClient() {
       <Text c="dimmed" mb="xl">
         Every change we make to {PRODUCT_NAME}, straight from our git history.
       </Text>
+
+      {/* Partial failure: we have commits to show, but a later page or the
+          release list didn't load. Say what's missing instead of quietly
+          rendering a shorter timeline. */}
+      {(commitsErrorMessage ?? releasesErrorMessage) && (
+        <Alert
+          variant="light"
+          color="yellow"
+          icon={<IconAlertTriangle size={16} />}
+          mb="lg"
+        >
+          <Group justify="space-between" align="center" wrap="nowrap">
+            <Text size="sm">
+              {commitsErrorMessage
+                ? "Some commits couldn't be loaded, so this timeline is incomplete."
+                : "Releases couldn't be loaded, so only commits are shown."}
+            </Text>
+            <Button
+              variant="subtle"
+              size="xs"
+              leftSection={<IconRefresh size={14} />}
+              onClick={retry}
+            >
+              Retry
+            </Button>
+          </Group>
+        </Alert>
+      )}
 
       <Timeline active={entries.length - 1} bulletSize={24} lineWidth={2}>
         {entries.map((entry) => {
