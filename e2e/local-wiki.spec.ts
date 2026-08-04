@@ -373,12 +373,14 @@ test("with no wiki yet, arriving at /wiki offers to create one — and creates n
 
   await page.getByRole("button", { name: "Create wiki" }).click();
 
-  // Created, seeded, and listed.
-  expect(await commandsCalled(page)).toContain("wiki_init");
+  // Created, seeded, and listed. The visible result is asserted first: it's
+  // what the reader cares about, and waiting on it means the call log below
+  // is read after the handler has run rather than racing it.
   await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible();
   for (const seed of ["index.md", "schema.md", "log.md"]) {
     await expect(page.getByText(seed, { exact: true })).toBeVisible();
   }
+  expect(await commandsCalled(page)).toContain("wiki_init");
 });
 
 test("a wiki that cannot be created says why", async ({ page }) => {
