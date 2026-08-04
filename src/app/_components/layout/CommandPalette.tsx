@@ -141,6 +141,7 @@ export function CommandPalette() {
   const [mode, setMode] = useState<Mode>('all');
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { workspaceId, workspaceSlug } = useWorkspace();
   const { openModal } = useAgentModal();
@@ -406,12 +407,23 @@ export function CommandPalette() {
     setHighlightedIndex(null);
   }, [query, mode]);
 
+  // The results area scrolls, and twelve sections overflow it easily — without
+  // this, arrowing past the fold moves the selection somewhere you can't see
+  // and Enter navigates to a row you never read.
+  useEffect(() => {
+    if (highlightedIndex === null) return;
+    listRef.current
+      ?.querySelector(`[data-palette-index="${highlightedIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIndex]);
+
   const renderRow = (row: PaletteRow) => {
     const Icon = row.icon;
     return (
       <UnstyledButton
         key={row.key}
         className={styles.resultRow}
+        data-palette-index={row.index}
         data-highlighted={highlightedIndex === row.index ? 'true' : 'false'}
         onClick={() => navigate(row.href)}
       >
@@ -522,7 +534,7 @@ export function CommandPalette() {
         })}
       </Group>
 
-      <div style={{ marginTop: 20, maxHeight: '52vh', overflowY: 'auto' }}>
+      <div ref={listRef} style={{ marginTop: 20, maxHeight: '52vh', overflowY: 'auto' }}>
         {showSkeleton ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} height={36} mb={4} radius="sm" />
@@ -601,12 +613,28 @@ export function CommandPalette() {
             })}
           </>
         ) : (
-          resultSections.map((section, i) => (
-            <div key={section.key} style={{ marginTop: i === 0 ? 0 : 14 }}>
-              <div className={styles.colHeading}>{section.heading}</div>
-              {section.rows.map(renderRow)}
-            </div>
-          ))
+          <>
+            {resultSections.map((section, i) => (
+              <div key={section.key} style={{ marginTop: i === 0 ? 0 : 14 }}>
+                <div className={styles.colHeading}>{section.heading}</div>
+                {section.rows.map(renderRow)}
+              </div>
+            ))}
+            {/* Below the minimum the search hasn't run, so say so rather than
+                leaving an empty panel that reads as "nothing found". */}
+            {q.length < MIN_SEARCH_LENGTH && (
+              <Text
+                size="xs"
+                style={{
+                  color: 'var(--color-text-muted)',
+                  padding: resultSections.length > 0 ? '14px 0 0' : '24px 0',
+                  textAlign: resultSections.length > 0 ? 'left' : 'center',
+                }}
+              >
+                Keep typing to search…
+              </Text>
+            )}
+          </>
         )}
       </div>
     </Modal>
