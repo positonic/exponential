@@ -1538,14 +1538,31 @@ export const workspaceRouter = createTRPCRouter({
         }),
       ]);
 
-      const members = direct.map((m) => ({
+      // Named so the array admits both sources — inferring it from the direct
+      // rows alone would narrow `source` to "workspace" and reject the team
+      // rows appended below.
+      interface Member {
+        id: string;
+        name: string | null;
+        email: string | null;
+        image: string | null;
+        role: string;
+        source: "workspace" | "team";
+        teams: { id: string; name: string }[];
+        mentionSyntax: string;
+      }
+
+      const mention = (user: { id: string; name: string | null; email: string | null }) =>
+        // Both forms work; the id form is unambiguous when two members share a
+        // display name, and is the only form that reaches team-based members.
+        `@[${user.name ?? user.email ?? "Unknown"}](${user.id})`;
+
+      const members: Member[] = direct.map((m) => ({
         ...m.user,
         role: m.role,
-        source: "workspace" as const,
-        teams: [] as { id: string; name: string }[],
-        // Both forms work; the id form is unambiguous when two members share
-        // a display name, and is the only form that reaches team-based members.
-        mentionSyntax: `@[${m.user.name ?? m.user.email ?? "Unknown"}](${m.user.id})`,
+        source: "workspace",
+        teams: [],
+        mentionSyntax: mention(m.user),
       }));
 
       const byId = new Map(members.map((m) => [m.id, m]));
@@ -1558,12 +1575,12 @@ export const workspaceRouter = createTRPCRouter({
           existing.teams.push(t.team);
           continue;
         }
-        const added = {
+        const added: Member = {
           ...t.user,
           role: t.role,
-          source: "team" as const,
+          source: "team",
           teams: [t.team],
-          mentionSyntax: `@[${t.user.name ?? t.user.email ?? "Unknown"}](${t.user.id})`,
+          mentionSyntax: mention(t.user),
         };
         byId.set(t.user.id, added);
         members.push(added);
