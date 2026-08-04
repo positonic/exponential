@@ -11,7 +11,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -2049,17 +2049,33 @@ export const actionRouter = createTRPCRouter({
       actionId: z.string(),
     }))
     .query(async ({ ctx, input }) => {
-      // Get the action to verify it exists and get context
-      const action = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        include: {
-          project: true,
-          team: true,
-        },
-      });
+      // Get the action to verify it exists and get context. The access probe
+      // runs alongside it — both are independent reads keyed off actionId.
+      const [action, access] = await Promise.all([
+        ctx.db.action.findUnique({
+          where: { id: input.actionId },
+          include: {
+            project: true,
+            team: true,
+          },
+        }),
+        getActionAccess(ctx.db, ctx.session.user.id, input.actionId),
+      ]);
 
       if (!action) {
         throw new Error("Action not found");
+      }
+
+      // Without this, naming any action id returned its whole assignable
+      // roster — every workspace and project member, emails included — to any
+      // logged-in caller. View access is the right bar: assignment itself is
+      // separately gated on canEditAction, and a viewer legitimately needs the
+      // roster to render existing assignees.
+      if (!access || !canViewAction(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this action",
+        });
       }
 
       // Collect assignable users from multiple sources
@@ -2193,7 +2209,31 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      const effectiveWorkspaceId = project?.workspaceId ?? input.workspaceId ?? null;
+      // Workspace precedence, and why the two paths are gated differently:
+      // a workspace reached *through* an authorised project is already covered
+      // by the project check above, and must NOT be re-checked — workspace
+      // guests (project-only members with no WorkspaceUser row) would fail a
+      // membership probe and lose the roster on their own projects.
+      // A caller-supplied `workspaceId` has no such backing, so it needs an
+      // explicit check: without one, any logged-in user who knows or guesses a
+      // workspace CUID got back every member's id, name, email and avatar.
+      // Plain membership is the bar — this is a read, so viewers pass.
+      let effectiveWorkspaceId = project?.workspaceId ?? null;
+      if (!effectiveWorkspaceId && input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+        effectiveWorkspaceId = input.workspaceId;
+      }
+
       const isRestrictedProject = project?.isRestricted ?? false;
 
       const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
