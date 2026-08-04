@@ -19,6 +19,7 @@
 
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
+import { getWorkspaceMembership } from "./resolvers/workspaceResolver";
 
 /**
  * Workspace-scoped rows a ticket or action can reference. A `null` or
@@ -33,14 +34,22 @@ export interface WorkspaceScopedRefs {
 }
 
 /**
- * Throw unless every supplied reference resolves to `workspaceId`.
+ * Throw unless the caller may link every supplied reference.
  *
- * `workspaceId` is the effective workspace of the pointing row. It may be
- * null (an action with no workspace), in which case any workspace-scoped
- * reference is incoherent and rejected.
+ * `workspaceId` is the effective workspace of the pointing row:
+ *
+ *  - When set, the reference must live in that same workspace (containment).
+ *    Tickets always take this path — a ticket's workspace comes from its
+ *    product, so a reference from anywhere else is incoherent.
+ *  - When null — an action with no workspace and no project — containment is
+ *    undefined, so fall back to the security requirement itself: the caller
+ *    must be a member of the reference's own workspace. `EditActionModal`
+ *    offers the context workspace's epics for such actions, so rejecting
+ *    outright would break a supported flow.
  */
 export async function assertWorkspaceScopedRefs(
   db: PrismaClient,
+  userId: string,
   workspaceId: string | null,
   refs: WorkspaceScopedRefs,
 ): Promise<void> {
@@ -109,11 +118,25 @@ export async function assertWorkspaceScopedRefs(
   if (lookups.length === 0) return;
 
   for (const { label, refWorkspaceId } of await Promise.all(lookups)) {
-    if (!refWorkspaceId || refWorkspaceId !== workspaceId) {
+    if (!refWorkspaceId) {
       throw new TRPCError({
         code: "NOT_FOUND",
         message: `${label} not found in this workspace`,
       });
     }
+
+    if (refWorkspaceId === workspaceId) continue;
+
+    // Pointing row has no workspace of its own: membership in the
+    // reference's workspace is the check that matters.
+    if (workspaceId === null) {
+      const membership = await getWorkspaceMembership(db, userId, refWorkspaceId);
+      if (membership) continue;
+    }
+
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: `${label} not found in this workspace`,
+    });
   }
 }

@@ -348,7 +348,7 @@ export const ticketRouter = createTRPCRouter({
 
       // A linked epic/feature/cycle/scope must live in the product's own
       // workspace, or its fields leak back through this ticket's includes.
-      await assertWorkspaceScopedRefs(ctx.db, product.workspaceId, {
+      await assertWorkspaceScopedRefs(ctx.db, ctx.session.user.id, product.workspaceId, {
         epicId: input.epicId,
         featureId: input.featureId,
         cycleId: input.cycleId,
@@ -433,12 +433,17 @@ export const ticketRouter = createTRPCRouter({
 
       // Same-workspace guard as create — `rest` is spread straight into the
       // update, so a foreign epic/feature/cycle/scope id would otherwise stick.
-      await assertWorkspaceScopedRefs(ctx.db, previousTicket.product.workspaceId, {
-        epicId: input.epicId,
-        featureId: input.featureId,
-        cycleId: input.cycleId,
-        scopeId: input.scopeId,
-      });
+      await assertWorkspaceScopedRefs(
+        ctx.db,
+        ctx.session.user.id,
+        previousTicket.product.workspaceId,
+        {
+          epicId: input.epicId,
+          featureId: input.featureId,
+          cycleId: input.cycleId,
+          scopeId: input.scopeId,
+        },
+      );
 
       const { id, ...rest } = input;
       const data: Record<string, unknown> = { ...rest };

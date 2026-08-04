@@ -441,6 +441,7 @@ export const actionRouter = createTRPCRouter({
       if (input.epicId) {
         await assertWorkspaceScopedRefs(
           ctx.db,
+          ctx.session.user.id,
           input.workspaceId ?? projectWorkspaceId,
           { epicId: input.epicId },
         );
@@ -666,6 +667,7 @@ export const actionRouter = createTRPCRouter({
       if (updateData.epicId) {
         await assertWorkspaceScopedRefs(
           ctx.db,
+          ctx.session.user.id,
           updateData.workspaceId ??
             currentAction?.workspaceId ??
             currentAction?.project?.workspaceId ??
