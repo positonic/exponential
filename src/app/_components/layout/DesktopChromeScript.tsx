@@ -1,26 +1,26 @@
 // Marks the document with the desktop shell hosting it, as early as possible.
 //
-// Both shells use the macOS overlay title bar (Electron `hiddenInset`, Tauri
-// `TitleBarStyle::Overlay`), so the traffic lights float over the page's
-// top-left corner — which is the sidebar's workspace switcher. CSS reserves
-// room for them off `data-titlebar="overlay"`; running here rather than in a
-// client component keeps the sidebar from painting in the wrong place and then
-// jumping.
+// The Electron shell uses the macOS overlay title bar (`hiddenInset`), so the
+// traffic lights float over the page's top-left corner — which is the
+// sidebar's workspace switcher. CSS reserves room for them off
+// `data-titlebar="overlay"`; running here rather than in a client component
+// keeps the sidebar from painting in the wrong place and then jumping.
+//
+// The overlay stamp is Electron-ONLY. The tabbed Tauri shell (ADR-0053) uses
+// Safari-style chrome — a visible titlebar with the webview laid out below it —
+// and needs no inset at all; it stamps `data-shell` itself from an
+// initialization script (`TITLEBAR_MARKER_SCRIPT` in `src-tauri/src/lib.rs`)
+// and deliberately does not stamp `data-titlebar`. Stamping overlay here on
+// detecting Tauri would resurrect a 38px dead inset in that shell, so don't.
+// (Pre-tab Tauri binaries older than PR 482 relied on this fallback for their
+// overlay inset; they lose it, and the answer is to update the app.)
 //
 // Detection mirrors `~/lib/platform.ts` and is duplicated as a string on
 // purpose: this runs in <head>, ahead of any bundle.
 //
-// It retries because a single early check is not enough. Electron's preload
-// defines `window.electron` before any page script, but Tauri injects
-// `__TAURI_INTERNALS__` into a *remote* page after the document's own head
-// scripts have run — so the first check finds nothing, and the shipped version
-// of this file gave up there and left the inset at 0px. The bug was invisible:
-// IPC worked moments later, so nothing else looked wrong.
-//
-// The Tauri shell now stamps the attributes itself from an initialization
-// script (see `TITLEBAR_MARKER_SCRIPT` in `src-tauri/src/lib.rs`), which is the
-// race-free path. These retries stay as the fallback for a shell binary older
-// than that change, and for Electron. Marking twice is harmless — same values.
+// It retries because a single early check is not enough: Electron's preload
+// defines `window.electron` before any page script, but on a slow bridge the
+// first check can still miss. Marking twice is harmless — same values.
 export function DesktopChromeScript() {
   const script = `
     (function () {
@@ -30,9 +30,9 @@ export function DesktopChromeScript() {
         if (!shell) return false;
         var root = document.documentElement;
         root.setAttribute('data-shell', shell);
-        // The overlay title bar is a macOS arrangement; other platforms keep
-        // their native chrome and need no inset.
-        if (/Mac/i.test(navigator.userAgent)) {
+        // Overlay inset is Electron-only (macOS arrangement); the tabbed Tauri
+        // shell sits below a real titlebar and must NOT get the inset.
+        if (shell === 'electron' && /Mac/i.test(navigator.userAgent)) {
           root.setAttribute('data-titlebar', 'overlay');
         }
         return true;
