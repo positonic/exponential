@@ -70,10 +70,13 @@ function buildComponents(
 
   // Shared inline elements (identical across variants)
   const inlineComponents: Partial<Components> = {
-    a: ({ href, children }) => (
+    // `className` carries any classes a remark plugin tagged the link with
+    // (e.g. an unresolved wikilink), so a host can style those links without
+    // the renderer knowing what they mean.
+    a: ({ href, children, className }) => (
       <a
         href={href}
-        className="text-blue-500 underline decoration-blue-500/30 underline-offset-2 transition-colors hover:decoration-blue-500"
+        className={`text-blue-500 underline decoration-blue-500/30 underline-offset-2 transition-colors hover:decoration-blue-500 ${normalizeClassName(className)}`.trimEnd()}
         target={href?.startsWith("http") ? "_blank" : undefined}
         rel={href?.startsWith("http") ? "noopener noreferrer" : undefined}
       >
@@ -348,6 +351,13 @@ interface MarkdownRendererProps {
   mentionNames?: string[];
   /** Owner-only image delete handler (compact surfaces, e.g. comments). */
   onDeleteImage?: (url: string) => void;
+  /**
+   * Extra remark plugins, appended after the built-in ones. For syntax that
+   * belongs to one surface rather than to the app's canonical Markdown — the
+   * local wiki's `[[wikilinks]]`, say. Keeps that surface from importing
+   * react-markdown itself, which ADR-0017 forbids.
+   */
+  extraRemarkPlugins?: PluggableList;
   className?: string;
 }
 
@@ -357,6 +367,7 @@ export function MarkdownRenderer({
   softBreaks,
   mentionNames,
   onDeleteImage,
+  extraRemarkPlugins,
   className,
 }: MarkdownRendererProps) {
   // Tolerate legacy HTML on read (sanitised). New writes are always Markdown.
@@ -381,6 +392,7 @@ export function MarkdownRenderer({
   if (mentionNames && mentionNames.length > 0) {
     remarkPlugins.push([remarkMentions, mentionNames]);
   }
+  if (extraRemarkPlugins?.length) remarkPlugins.push(...extraRemarkPlugins);
 
   const body = (
     <ReactMarkdown

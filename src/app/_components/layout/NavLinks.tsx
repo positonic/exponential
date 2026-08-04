@@ -20,6 +20,7 @@ import {
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
+import { LocalWikiNavLink } from "./LocalWikiNavLink";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { parseNavLayout, NAV_ITEM_CONFIG } from "~/lib/navLayout";
@@ -126,6 +127,9 @@ export function NavLinks(): React.ReactElement {
       <NavLink href="/today" icon={IconClock} count={<TodayCount />}>
         Today
       </NavLink>
+      {/* Desktop shell only, and global — the wiki belongs to the device, not
+          to a workspace. Renders nothing in a browser. */}
+      <LocalWikiNavLink />
 
       {workspaceSlug && !isGuest && (
         <>

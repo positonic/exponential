@@ -1,0 +1,23 @@
+/**
+ * Wiki-page presentation. Only what the shared MarkdownRenderer can't express:
+ * the "red link" style for a page that doesn't exist yet.
+ */
+
+/*
+ * A link to a page nobody has written. Per `schema.md` this is a normal and
+ * useful thing to find in the wiki — it marks work worth doing — so it stays
+ * clickable (following it offers to create the page) but reads as unwritten
+ * rather than as an ordinary link.
+ *
+ * Two classes deep, so it outranks the renderer's single-class link utilities.
+ */
+.body :global(.wiki-link--missing) {
+  color: var(--color-text-muted);
+  text-decoration-style: dashed;
+  text-decoration-color: var(--color-text-muted);
+}
+
+.body :global(.wiki-link--missing:hover) {
+  color: var(--color-text-secondary);
+  text-decoration-color: var(--color-text-secondary);
+}
