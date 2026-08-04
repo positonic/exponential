@@ -181,44 +181,56 @@ export const externalAgentRouter = createTRPCRouter({
       return { success: true };
     }),
 
-  grantWorkspace: humanOnlyProcedure
-    .input(z.object({ agentId: z.string(), workspaceId: z.string() }))
+  grantWorkspaces: humanOnlyProcedure
+    // `.max` is a sanity bound, not a product limit — it caps the `IN` clause and
+    // the `$transaction` batch, both sized directly by this input.
+    .input(z.object({ agentId: z.string(), workspaceIds: z.array(z.string()).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+      const workspaceIds = [...new Set(input.workspaceIds)];
 
       // Delegation invariant, grant-time half: the owner must hold at least
-      // `member` in the target workspace themselves. A viewer cannot delegate
-      // member-level access (ADR-0049).
-      const ownerMembership = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
+      // `member` in every target workspace themselves. A viewer cannot delegate
+      // member-level access (ADR-0049). All-or-nothing — a partial grant would
+      // read as a full one in the UI.
+      const ownerMemberships = await ctx.db.workspaceUser.findMany({
+        where: { userId: ctx.session.user.id, workspaceId: { in: workspaceIds } },
       });
-      if (!ownerMembership || ownerMembership.role === "viewer") {
+      const delegable = new Set(
+        ownerMemberships.filter((m) => m.role !== "viewer").map((m) => m.workspaceId),
+      );
+      if (delegable.size !== workspaceIds.length) {
+        // Name the offenders — the picker is fed by `workspace.list`, which also
+        // surfaces team-based and project-guest workspaces where the owner holds
+        // no `WorkspaceUser` row at all. Without names, recovering from a
+        // rejected batch means bisecting the selection by hand.
+        const rejected = await ctx.db.workspace.findMany({
+          where: { id: { in: workspaceIds.filter((id) => !delegable.has(id)) } },
+          select: { name: true },
+        });
+        const names = rejected.map((w) => w.name).join(", ");
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "You need at least member access in a workspace to add your agent to it",
+          message: names
+            ? `You need at least member access to add your agent to ${names} — nothing was granted`
+            : "You need at least member access in every workspace you add your agent to — nothing was granted",
         });
       }
 
-      return ctx.db.workspaceUser.upsert({
-        where: {
-          userId_workspaceId: {
-            userId: agent.shadowUserId,
-            workspaceId: input.workspaceId,
-          },
-        },
-        // Agents only ever hold `member` (ADR-0049).
-        create: {
-          userId: agent.shadowUserId,
-          workspaceId: input.workspaceId,
-          role: "member",
-        },
-        update: { role: "member" },
-      });
+      await ctx.db.$transaction(
+        workspaceIds.map((workspaceId) =>
+          ctx.db.workspaceUser.upsert({
+            where: {
+              userId_workspaceId: { userId: agent.shadowUserId, workspaceId },
+            },
+            // Agents only ever hold `member` (ADR-0049).
+            create: { userId: agent.shadowUserId, workspaceId, role: "member" },
+            update: { role: "member" },
+          }),
+        ),
+      );
+
+      return { granted: workspaceIds.length };
     }),
 
   revokeWorkspace: humanOnlyProcedure

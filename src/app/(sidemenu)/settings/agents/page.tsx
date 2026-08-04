@@ -9,8 +9,8 @@ import {
   CopyButton,
   Group,
   Modal,
+  MultiSelect,
   Paper,
-  Select,
   Stack,
   Table,
   Text,
@@ -48,9 +48,14 @@ export default function ExternalAgentsPage() {
   const [keyModalAgentId, setKeyModalAgentId] = useState<string | null>(null);
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null);
   const [grantAgentId, setGrantAgentId] = useState<string | null>(null);
-  const [grantWorkspaceId, setGrantWorkspaceId] = useState<string | null>(null);
+  const [grantWorkspaceIds, setGrantWorkspaceIds] = useState<string[]>([]);
 
   const invalidate = () => utils.externalAgent.list.invalidate();
+
+  const closeGrantModal = () => {
+    setGrantAgentId(null);
+    setGrantWorkspaceIds([]);
+  };
 
   const createAgent = api.externalAgent.create.useMutation({
     onSuccess: async () => {
@@ -84,14 +89,13 @@ export default function ExternalAgentsPage() {
       notifications.show({ title: 'Could not revoke key', message: error.message, color: 'red' }),
   });
 
-  const grantWorkspace = api.externalAgent.grantWorkspace.useMutation({
+  const grantWorkspaces = api.externalAgent.grantWorkspaces.useMutation({
     onSuccess: async () => {
-      setGrantAgentId(null);
-      setGrantWorkspaceId(null);
+      closeGrantModal();
       await invalidate();
     },
     onError: (error) =>
-      notifications.show({ title: 'Could not add to workspace', message: error.message, color: 'red' }),
+      notifications.show({ title: 'Could not add to workspaces', message: error.message, color: 'red' }),
   });
 
   const revokeWorkspace = api.externalAgent.revokeWorkspace.useMutation({
@@ -113,6 +117,12 @@ export default function ExternalAgentsPage() {
       name: (value) => (value.trim().length === 0 ? 'Key label is required' : null),
     },
   });
+
+  // Only offer workspaces the agent isn't already in — re-granting is a no-op
+  // server-side, but listing them reads as if the agent lacked access.
+  const grantAgent = agents.find((agent) => agent.id === grantAgentId);
+  const grantedWorkspaceIds = new Set(grantAgent?.workspaces.map((ws) => ws.id) ?? []);
+  const grantableWorkspaces = workspaces.filter((ws) => !grantedWorkspaceIds.has(ws.id));
 
   const closeKeyModal = () => {
     setKeyModalAgentId(null);
@@ -353,47 +363,50 @@ export default function ExternalAgentsPage() {
         )}
       </Modal>
 
-      {/* Grant workspace */}
+      {/* Grant workspaces */}
       <Modal
         opened={grantAgentId !== null}
-        onClose={() => {
-          setGrantAgentId(null);
-          setGrantWorkspaceId(null);
-        }}
-        title="Add agent to workspace"
+        onClose={closeGrantModal}
+        title="Add agent to workspaces"
       >
         <Stack>
           <Text size="sm" c="dimmed">
             The agent joins as a member. You can only add it to workspaces where you have
             at least member access, and it loses access if you do.
           </Text>
-          <Select
-            label="Workspace"
-            placeholder="Pick a workspace"
-            data={workspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
-            value={grantWorkspaceId}
-            onChange={setGrantWorkspaceId}
-          />
+          {grantableWorkspaces.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              This agent is already in every workspace you can add it to.
+            </Text>
+          ) : (
+            <MultiSelect
+              label="Workspaces"
+              placeholder={grantWorkspaceIds.length > 0 ? undefined : 'Pick one or more workspaces'}
+              data={grantableWorkspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
+              value={grantWorkspaceIds}
+              onChange={setGrantWorkspaceIds}
+              searchable
+              clearable
+              hidePickedOptions
+            />
+          )}
           <Group justify="flex-end">
-            <Button
-              variant="default"
-              onClick={() => {
-                setGrantAgentId(null);
-                setGrantWorkspaceId(null);
-              }}
-            >
+            <Button variant="default" onClick={closeGrantModal}>
               Cancel
             </Button>
             <Button
-              disabled={!grantWorkspaceId}
-              loading={grantWorkspace.isPending}
+              disabled={grantWorkspaceIds.length === 0}
+              loading={grantWorkspaces.isPending}
               onClick={() => {
-                if (grantAgentId && grantWorkspaceId) {
-                  grantWorkspace.mutate({ agentId: grantAgentId, workspaceId: grantWorkspaceId });
+                if (grantAgentId && grantWorkspaceIds.length > 0) {
+                  grantWorkspaces.mutate({
+                    agentId: grantAgentId,
+                    workspaceIds: grantWorkspaceIds,
+                  });
                 }
               }}
             >
-              Add
+              {grantWorkspaceIds.length > 1 ? `Add to ${grantWorkspaceIds.length}` : 'Add'}
             </Button>
           </Group>
         </Stack>
