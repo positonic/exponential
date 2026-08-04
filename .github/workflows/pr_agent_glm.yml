@@ -24,7 +24,9 @@ jobs:
         uses: qodo-ai/pr-agent@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Dotted, matching ANTHROPIC.KEY in pr_agent.yml — the action maps
+          # env vars to settings by literal dot, not by dunder.
+          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # These env vars override the repo-root .pr_agent.toml, which is read
           # by BOTH workflows. Anything that must differ per reviewer belongs
           # here, not in that file.
