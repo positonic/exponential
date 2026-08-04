@@ -40,6 +40,8 @@ function fakeRequest(opts: {
   resource?: string;
   signature?: string;
   tokenQuery?: string;
+  service?: string;
+  product?: string;
 }): NextRequest {
   const headers = new Map<string, string>();
   if (opts.signature !== undefined)
@@ -48,6 +50,8 @@ function fakeRequest(opts: {
     headers.set("sentry-hook-resource", opts.resource);
   const searchParams = new URLSearchParams();
   if (opts.tokenQuery !== undefined) searchParams.set("token", opts.tokenQuery);
+  if (opts.service !== undefined) searchParams.set("service", opts.service);
+  if (opts.product !== undefined) searchParams.set("product", opts.product);
   return {
     headers: { get: (k: string) => headers.get(k.toLowerCase()) ?? null },
     nextUrl: { searchParams },
@@ -88,7 +92,9 @@ describe("POST /api/webhooks/sentry/[webhookId]", () => {
     expect(res.status).toBe(200);
     expect(ingestSentryBug).toHaveBeenCalledTimes(1);
     // Routed to the per-workspace product, not the global default.
-    expect(ingestSentryBug.mock.calls[0]![2]).toEqual({ productId: "prod-1" });
+    expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+      productId: "prod-1",
+    });
   });
 
   it("returns 404 for an unknown webhookId and does not ingest", async () => {
@@ -182,8 +188,36 @@ describe("POST /api/webhooks/sentry/[webhookId]", () => {
       expect(arg.issueId).toBe("555");
       expect(arg.projectSlug).toBe("clear-pipeline");
       // Routed to this tenant's configured product, as for signed requests.
-      expect(ingestSentryBug.mock.calls[0]![2]).toEqual({
+      expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
         productId: "prod-1",
+      });
+    });
+
+    it("passes ?service= through for source labelling", async () => {
+      await POST(
+        fakeRequest({
+          body: glitchtipBody,
+          tokenQuery: SECRET,
+          service: "clear-pipeline",
+        }),
+        ctx,
+      );
+      expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+        sourceSlug: "clear-pipeline",
+      });
+    });
+
+    it("accepts ?product= as an alias for ?service=", async () => {
+      await POST(
+        fakeRequest({
+          body: glitchtipBody,
+          tokenQuery: SECRET,
+          product: "clear-api",
+        }),
+        ctx,
+      );
+      expect(ingestSentryBug.mock.calls[0]![2]).toMatchObject({
+        sourceSlug: "clear-api",
       });
     });
 

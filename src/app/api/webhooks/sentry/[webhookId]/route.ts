@@ -133,7 +133,15 @@ export async function POST(
       );
     }
 
-    const result = await ingestSentryBug(db, bug, { productId });
+    // Which codebase the error came from, for labelling. `service` is the
+    // canonical name; `product` is accepted as an alias because it reads
+    // naturally in a URL — note it does *not* choose the destination Product,
+    // which is fixed per integration.
+    const sourceSlug =
+      request.nextUrl.searchParams.get("service") ??
+      request.nextUrl.searchParams.get("product");
+
+    const result = await ingestSentryBug(db, bug, { productId, sourceSlug });
     console.log(
       `[sentry webhook ${webhookId}] issue ${bug.issueId} -> ticket ${result.ticketId} (created=${result.created})`,
     );

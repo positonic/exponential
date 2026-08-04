@@ -27,7 +27,7 @@ vi.mock("../sentryZulip", () => ({
 
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { notifyZulipOfSentryBug } from "../sentryZulip";
-import { ingestSentryBug } from "../SentryBugService";
+import { ingestSentryBug, sourceLabel } from "../SentryBugService";
 import { type SentryBug } from "../sentryPayload";
 
 const dbMock: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
@@ -162,7 +162,9 @@ describe("ingestSentryBug", () => {
   it("find-or-creates the 'Sentry' and 'bug' workspace labels and attaches them", async () => {
     await ingestSentryBug(dbMock, bug);
 
-    expect(dbMock.tag.upsert).toHaveBeenCalledTimes(2);
+    // Two standard labels plus the source label derived from the project slug
+    // (see the "source label" suite below).
+    expect(dbMock.tag.upsert).toHaveBeenCalledTimes(3);
     expect(dbMock.tag.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { slug_workspaceId: { slug: "sentry", workspaceId: "ws-1" } },
@@ -185,7 +187,7 @@ describe("ingestSentryBug", () => {
         }),
       }),
     );
-    expect(dbMock.ticketTag.upsert).toHaveBeenCalledTimes(2);
+    expect(dbMock.ticketTag.upsert).toHaveBeenCalledTimes(3);
     expect(dbMock.ticketTag.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { ticketId_tagId: { ticketId: "ticket-1", tagId: "tag-1" } },
@@ -258,5 +260,78 @@ describe("ingestSentryBug", () => {
       expect(createTicketWithNumber).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ created: true, ticketId: "ticket-1" });
     });
+  });
+
+  describe("source label", () => {
+    /** Slugs passed to tag.upsert for the current call. */
+    function labelSlugs(): (string | undefined)[] {
+      return dbMock.tag.upsert.mock.calls.map(
+        (c) => c[0].where.slug_workspaceId?.slug,
+      );
+    }
+
+    it("labels the ticket from an explicit ?service= value", async () => {
+      await ingestSentryBug(dbMock, bug, { sourceSlug: "clear-pipeline" });
+      expect(labelSlugs()).toContain("clear-pipeline");
+    });
+
+    it("falls back to the sender's project slug when none is given", async () => {
+      await ingestSentryBug(dbMock, bug);
+      // `bug.projectSlug` is exponential-frontend in this fixture.
+      expect(labelSlugs()).toContain("exponential-frontend");
+    });
+
+    it("prefers the explicit value over the payload's project slug", async () => {
+      await ingestSentryBug(dbMock, bug, { sourceSlug: "clear-api" });
+      const slugs = labelSlugs();
+      expect(slugs).toContain("clear-api");
+      expect(slugs).not.toContain("exponential-frontend");
+    });
+
+    it("adds no source label when neither is available", async () => {
+      await ingestSentryBug(
+        dbMock,
+        { ...bug, projectSlug: null },
+        { sourceSlug: null },
+      );
+      // Only the two standard labels.
+      expect(labelSlugs()).toEqual(["sentry", "bug"]);
+    });
+  });
+});
+
+describe("sourceLabel", () => {
+  it("passes through an already-clean slug", () => {
+    expect(sourceLabel("clear-pipeline")).toEqual({
+      name: "clear-pipeline",
+      slug: "clear-pipeline",
+      color: "avatar-blue",
+    });
+  });
+
+  it("normalizes case and separators", () => {
+    expect(sourceLabel("  CLEAR Context_Pipeline  ")?.slug).toBe(
+      "clear-context-pipeline",
+    );
+  });
+
+  it("strips characters that would be unsafe or ugly in a tag", () => {
+    expect(sourceLabel("../../etc/passwd")?.slug).toBe("etc-passwd");
+    expect(sourceLabel("<script>alert(1)</script>")?.slug).toBe(
+      "script-alert-1-script",
+    );
+  });
+
+  it("bounds the length and leaves no trailing dash", () => {
+    const slug = sourceLabel("a".repeat(40) + " tail")!.slug;
+    expect(slug).toHaveLength(32);
+    expect(slug.endsWith("-")).toBe(false);
+  });
+
+  it("returns null for empty or punctuation-only input", () => {
+    expect(sourceLabel(null)).toBeNull();
+    expect(sourceLabel("")).toBeNull();
+    expect(sourceLabel("   ")).toBeNull();
+    expect(sourceLabel("---")).toBeNull();
   });
 });
