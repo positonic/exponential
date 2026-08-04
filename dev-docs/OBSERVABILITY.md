@@ -79,6 +79,24 @@ handled automatically:
 Security boundary: presenting a `Sentry-Hook-Signature` commits the sender to
 HMAC. An invalid signature is always a 401 — a valid token never rescues it.
 
+### Telling services apart in one product
+
+A workspace has exactly one Sentry integration, pointing at one destination
+Product — so several codebases reporting into it would otherwise be
+indistinguishable. Each ticket therefore also gets a **source label** naming
+the service it came from:
+
+```
+…/api/webhooks/sentry/<webhookId>?token=<secret>&service=clear-pipeline
+```
+
+`?product=` is accepted as an alias, but note it does **not** choose the
+destination Product (that is fixed per integration) — it only labels. When
+neither is given the label falls back to the project slug in the payload, so
+Sentry's own projects (`exponential-frontend`, `mastra-agents`) self-label
+without any configuration. The value is reduced to a bounded `[a-z0-9-]` slug
+before use.
+
 Tickets are labelled `Sentry` + `bug`, and additionally `ai-fixable` when the
 issue's Sentry project is listed in `SENTRY_AI_FIXABLE_PROJECTS` — the
 allowlist exists because the webhook is org-wide and a bug from another
