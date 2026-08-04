@@ -6,6 +6,7 @@ import { AutoSchedulingService } from "~/server/services/AutoSchedulingService";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { addMinutes, format } from "date-fns";
 import { setTimeInUserTimezone, validateScheduledTimes } from "~/lib/dateUtils";
+import { partitionActions } from "~/lib/actions/partition";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
@@ -349,15 +350,21 @@ export const schedulingRouter = createTRPCRouter({
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + input.days);
 
-      // 1. Fetch overdue actions with projects and outcomes
-      const overdueActions = await ctx.db.action.findMany({
+      // 1. Fetch overdue actions with projects and outcomes.
+      //
+      // Overdue is resolved through the shared `partitionActions()` rule
+      // (ADR-0034) rather than a local `dueDate < today` filter. The panel that
+      // renders these suggestions is *gated* on the client partition, so a
+      // narrower rule here meant the banner could appear on a pile it then had
+      // nothing to say about — and it silently ignored every scheduled-but-
+      // never-due action, which is the most common overdue shape.
+      const candidates = await ctx.db.action.findMany({
         where: {
           OR: [
             { createdById: userId, assignees: { none: {} } },
             { assignees: { some: { userId: userId } } },
           ],
           status: "ACTIVE",
-          dueDate: { lt: today },
           ...(input.actionIds ? { id: { in: input.actionIds } } : {}),
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
@@ -372,11 +379,11 @@ export const schedulingRouter = createTRPCRouter({
             },
           },
         },
-        orderBy: [
-          { dueDate: "asc" }, // Oldest overdue first
-        ],
-        take: 20, // Limit to 20 overdue actions to avoid huge prompts
       });
+
+      // Partition sorts overdue by priority, then oldest debt first.
+      const overdueActions = partitionActions(candidates, { today: now }).overdue
+        .slice(0, 20); // Cap to avoid huge prompts
 
       if (overdueActions.length === 0) {
         return { suggestions: [], calendarConnected: true };
