@@ -11,7 +11,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
+import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -434,6 +434,26 @@ export const actionRouter = createTRPCRouter({
           nextKanbanOrder = maxOrderAcrossBoard.kanbanOrder + 1;
         } else {
           nextKanbanOrder = 1;
+        }
+      }
+
+      // `input.workspaceId` is spread straight into the create below, so an
+      // unchecked value plants the action — and the `created` activity event
+      // fired for it further down — inside a workspace the caller has no
+      // relationship to, where that workspace's members then see it in their
+      // feed. The project branch above only gates the *project*; when no
+      // projectId is supplied nothing else looks at this field at all.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
         }
       }
 
@@ -1799,21 +1819,28 @@ export const actionRouter = createTRPCRouter({
             (member: { userId: string }) => member.userId === userId,
           );
         }
-        // No project or team - allow assignment to any user
+        // No project and no team: this used to allow assigning ANY user id,
+        // and the include below returns `user.email` — the same PII leak the
+        // ticket assignee guard closes. Fall back to the action's workspace
+        // and the caller's teams, which is exactly what the picker offers.
         else {
-          canAssign = true;
+          canAssign = await canAssignToUnscopedAction(
+            ctx.db,
+            ctx.session.user.id,
+            action.workspaceId,
+            userId,
+          );
         }
 
         if (!canAssign) {
-          const user = await ctx.db.user.findUnique({
-            where: { id: userId },
-            select: { name: true, email: true },
+          // Deliberately does NOT name the rejected user. The old message
+          // looked them up and echoed `name ?? email` back, which handed the
+          // caller a stranger's identity on exactly the path where they had
+          // just been told they have no relationship to them.
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"}`,
           });
-          const userName = user?.name ?? user?.email ?? userId;
-
-          throw new Error(
-            `User ${userName} cannot be assigned to this action. They must be a member of the ${action.projectId ? "project" : "team"}.`,
-          );
         }
       }
 
@@ -2007,21 +2034,24 @@ export const actionRouter = createTRPCRouter({
               (member: { userId: string }) => member.userId === userId,
             );
           }
-          // No project or team - allow assignment to any user
+          // Same fallback as `assign`: no project and no team means the
+          // action's workspace and the caller's teams decide, not "anyone".
           else {
-            canAssign = true;
+            canAssign = await canAssignToUnscopedAction(
+              ctx.db,
+              ctx.session.user.id,
+              action.workspaceId,
+              userId,
+            );
           }
 
           if (!canAssign) {
-            const user = await ctx.db.user.findUnique({
-              where: { id: userId },
-              select: { name: true, email: true },
+            // Names the action (the caller owns it) but never the rejected
+            // user — see the matching guard in `assign`.
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"} (action "${action.name}")`,
             });
-            const userName = user?.name ?? user?.email ?? userId;
-
-            throw new Error(
-              `User ${userName} cannot be assigned to action "${action.name}". They must be a member of the ${action.projectId ? "project" : "team"}.`,
-            );
           }
         }
       }
