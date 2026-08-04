@@ -5,8 +5,13 @@
 [config]
 # Keep both the primary and fallback on Anthropic so PR-Agent never tries to
 # initialise an OpenAI client (which would require OPENAI_API_KEY).
-model = "anthropic/claude-sonnet-4-6"
+model = "anthropic/claude-opus-5"
 fallback_models = ["anthropic/claude-sonnet-4-6"]
+# Declared so PR-Agent can budget the diff even when the bundled litellm build
+# predates this model and has no registry entry for it (without this, an
+# unregistered model errors during token counting). This is only the ceiling —
+# the effective diff budget is PR-Agent's own max_model_tokens, 32k by default.
+custom_model_max_tokens = 200000
 # Markdown rendering of the model's suggestions.
 publish_output = true
 
@@ -15,7 +20,9 @@ publish_output = true
 require_score_review = false
 require_tests_review = true
 require_security_review = true
-num_max_findings = 4
+# Raised from 4: Opus 5 follows caps and severity filters literally, so a tight
+# limit discards findings it would otherwise surface.
+num_max_findings = 8
 # Don't re-post the whole review on every push; update the existing comment.
 persistent_comment = true
 final_update_message = false
