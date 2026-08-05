@@ -378,6 +378,12 @@ model Workspace {
   // When on, creating a CRM contact enqueues an async web-search enrichment job
   // (drained by the enrich-pending-contacts cron → Mastra enrichmentAgent).
   enableAutoEnrichContacts Boolean    @default(false)
+  // Key Results / OKR UI. Nullable on purpose — unlike the flags above there is
+  // no single sensible default: null means "follow the workspace type"
+  // (team/org on, personal off), which is the behaviour that predates this
+  // column. Setting it true/false is an explicit per-workspace override, so a
+  // personal workspace can opt into KRs. Resolved in `useTerminology`.
+  enableKeyResults         Boolean?
 
   // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
   notionDefaultConfig Json?
