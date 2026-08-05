@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
 
 /**
  * External-agent management (ADR-0049).
@@ -15,6 +16,15 @@ import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
  */
 
 const MAX_KEYS_PER_AGENT = 10;
+// The base64 payload expands by roughly 4/3 inside the tRPC JSON request.
+// 3 MB stays below Vercel's 4.5 MB function request-body ceiling.
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
+const MAX_AVATAR_BASE64_LENGTH = Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 4;
+const AVATAR_EXTENSIONS = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+} as const;
 
 async function requireOwnedAgent(
   db: PrismaClient | Prisma.TransactionClient,
@@ -23,7 +33,7 @@ async function requireOwnedAgent(
 ) {
   const agent = await db.externalAgent.findFirst({
     where: { id: agentId, ownerId },
-    include: { shadowUser: { select: { id: true } } },
+    include: { shadowUser: { select: { id: true, image: true } } },
   });
   if (!agent) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
@@ -51,6 +61,7 @@ export const externalAgentRouter = createTRPCRouter({
         shadowUser: {
           select: {
             id: true,
+            image: true,
             workspaceMemberships: {
               select: {
                 role: true,
@@ -68,6 +79,7 @@ export const externalAgentRouter = createTRPCRouter({
       description: agent.description,
       createdAt: agent.createdAt,
       shadowUserId: agent.shadowUserId,
+      avatarUrl: agent.shadowUser.image,
       keys: agent.keys,
       workspaces: agent.shadowUser.workspaceMemberships.map((m) => ({
         id: m.workspace.id,
@@ -104,6 +116,47 @@ export const externalAgentRouter = createTRPCRouter({
       });
     }),
 
+  uploadAvatar: humanOnlyProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        base64Data: z.string().min(1).max(MAX_AVATAR_BASE64_LENGTH),
+        contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+
+      if (Buffer.byteLength(input.base64Data, "base64") > MAX_AVATAR_BYTES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Avatar must be 3MB or smaller",
+        });
+      }
+
+      const extension = AVATAR_EXTENSIONS[input.contentType];
+      const filename = `external-agent-avatars/${agent.id}-${Date.now()}.${extension}`;
+      const blob = await uploadToBlob(input.base64Data, filename, input.contentType);
+
+      let updatedUser: { image: string | null };
+      try {
+        updatedUser = await ctx.db.user.update({
+          where: { id: agent.shadowUserId },
+          data: { image: blob.url },
+          select: { image: true },
+        });
+      } catch (error) {
+        await deleteFromBlob(blob.url).catch(() => undefined);
+        throw error;
+      }
+
+      if (agent.shadowUser.image && agent.shadowUser.image !== blob.url) {
+        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
+      }
+
+      return { avatarUrl: updatedUser.image };
+    }),
+
   delete: humanOnlyProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -130,6 +183,13 @@ export const externalAgentRouter = createTRPCRouter({
           return { success: true, shadowUserRetained: true };
         }
         throw error;
+      }
+
+      // A retained shadow user still needs its image for historical
+      // attribution. Once the row is gone, the blob is unreachable and can be
+      // cleaned up without affecting deletion if storage is temporarily down.
+      if (agent.shadowUser.image) {
+        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
       }
       return { success: true, shadowUserRetained: false };
     }),
