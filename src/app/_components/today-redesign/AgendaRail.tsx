@@ -1,5 +1,6 @@
 import React from "react";
 import type { RailBlock } from "~/lib/actions/railBlocks";
+import { layoutRailBlock } from "~/lib/actions/railLayout";
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
 import { stripHtml } from "~/lib/utils";
 
@@ -59,23 +60,27 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
           )}
 
           {blocks.map((b) => {
-            const clampedStart = Math.max(b.start, START_HR);
-            const clampedEnd = Math.min(b.end, END_HR);
-            if (clampedEnd <= clampedStart) return null;
+            const layout = layoutRailBlock(b, {
+              rangeStart: START_HR,
+              rangeEnd: END_HR,
+              hourPx: HOUR_PX,
+            });
+            if (!layout) return null;
             const tone = b.kind === "cal" ? "blue" : "amber";
             return (
               <div
                 key={b.id}
                 className={`td-event td-event--${tone}`}
-                style={{
-                  top: (clampedStart - START_HR) * HOUR_PX,
-                  height: (clampedEnd - clampedStart) * HOUR_PX - 4,
-                }}
+                data-floored={layout.isFloored ? "true" : undefined}
+                style={{ top: layout.top, height: layout.height }}
+                title={`${stripHtml(b.title)} · ${formatHourMinute12(b.start)} – ${formatHourMinute12(b.end)}`}
               >
                 <div className="td-event__title">{stripHtml(b.title)}</div>
-                <div className="td-event__meta">
-                  {formatHourMinute12(b.start)} – {formatHourMinute12(b.end)}
-                </div>
+                {layout.showMeta && (
+                  <div className="td-event__meta">
+                    {formatHourMinute12(b.start)} – {formatHourMinute12(b.end)}
+                  </div>
+                )}
               </div>
             );
           })}
