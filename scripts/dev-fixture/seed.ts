@@ -187,7 +187,10 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // screen, so it stays at the root and names its parent instead).
   const project = await db.project.upsert({
     where: { slug: FIXTURE.projectSlug },
-    update: {},
+    // Re-assert the workspace on re-seed: the project is reached through a
+    // workspace-scoped route, so a project that drifted out of the workspace
+    // makes its own Goals tab unreachable.
+    update: { workspaceId: workspace.id, status: "ACTIVE" },
     create: {
       slug: FIXTURE.projectSlug,
       name: FIXTURE.projectName,

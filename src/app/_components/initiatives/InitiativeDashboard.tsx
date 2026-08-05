@@ -151,13 +151,23 @@ function buildGoalTree(goals: GoalRow[]): GoalTreeNode[] {
   return roots;
 }
 
-/** Depth-first flatten, skipping the children of collapsed rows. */
-function flattenGoalTree(nodes: GoalTreeNode[], collapsedIds: Set<number>): GoalTreeNode[] {
-  return nodes.flatMap((node) =>
-    collapsedIds.has(node.goal.id)
+/**
+ * Depth-first flatten, skipping the children of collapsed rows. `emitted`
+ * guarantees one row per goal even if a parent cycle left a node reachable from
+ * two places — a duplicate row would also collide on React's key.
+ */
+function flattenGoalTree(
+  nodes: GoalTreeNode[],
+  collapsedIds: Set<number>,
+  emitted = new Set<number>(),
+): GoalTreeNode[] {
+  return nodes.flatMap((node) => {
+    if (emitted.has(node.goal.id)) return [];
+    emitted.add(node.goal.id);
+    return collapsedIds.has(node.goal.id)
       ? [node]
-      : [node, ...flattenGoalTree(node.children, collapsedIds)],
-  );
+      : [node, ...flattenGoalTree(node.children, collapsedIds, emitted)];
+  });
 }
 
 function InitiativeRow({
@@ -217,6 +227,14 @@ function InitiativeRow({
               aria-hidden="true"
             />
           )}
+          {/* The indent and the ↳ carry the nesting visually; this spells the
+              relationship out for assistive tech. It sits outside the Link so
+              it stays separate content rather than joining the link's name. */}
+          {isNested && parentTitle && (
+            <VisuallyHidden>
+              {subGoalLabel} of {parentTitle}
+            </VisuallyHidden>
+          )}
           <Link
             href={`/w/${workspaceSlug}/goals/${goal.id}`}
             className="no-underline min-w-0 flex-1"
@@ -230,13 +248,6 @@ function InitiativeRow({
                   <Text size="sm" fw={500} className="text-text-primary" truncate="end">
                     {goal.title}
                   </Text>
-                  {/* The indent and the ↳ carry the nesting visually; this
-                      spells the relationship out for assistive tech. */}
-                  {isNested && parentTitle && (
-                    <VisuallyHidden>
-                      {subGoalLabel} of {parentTitle}
-                    </VisuallyHidden>
-                  )}
                   {childCount > 0 && !isExpanded && (
                     <Badge size="xs" variant="light" color="gray">
                       {childCount} {subGoalLabel.toLowerCase()}{childCount === 1 ? "" : "s"}
