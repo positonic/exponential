@@ -36,6 +36,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
       { id: 'projects', hidden: false },
       { id: 'products', hidden: false },
       { id: 'metrics', hidden: false },
+      { id: 'shipped', hidden: false },
       { id: 'pages', hidden: false },
     ],
   },
@@ -93,6 +94,14 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
     label: 'Metrics',
     href: (s) => `/w/${s}/metrics`,
     requiresPlugin: 'product',
+  },
+  // The per-workspace shipping timeline. Routed at `product-timeline` (the
+  // workspace sibling of the public changelog) rather than `timeline`, which is
+  // already the projects Gantt view.
+  shipped: {
+    label: 'Shipped',
+    href: (s) => `/w/${s}/product-timeline`,
+    matchSegments: ['product-timeline'],
   },
   pages: {
     label: 'Pages',
