@@ -37,10 +37,17 @@ export interface BodyRepairResult {
   repaired: number;
   failed: number;
   items: BodyRepairItem[];
+  /**
+   * Continuation cursor (last processed sync id) when more created pages
+   * remain; null when the sweep is complete. A page repair costs ~10-30
+   * Notion API calls, so a full product cannot fit in one serverless
+   * request — callers loop with the cursor.
+   */
+  nextCursor: string | null;
 }
 
-/** Hard cap per invocation — rerun for more (matches backfill's cap ethos). */
-const MAX_REPAIR_PAGES = 200;
+/** Pages per invocation — small enough to finish inside a function timeout. */
+const DEFAULT_BATCH_SIZE = 3;
 
 interface NotionBlockOps {
   listBlockChildrenIds(blockId: string): Promise<string[]>;
@@ -78,6 +85,10 @@ export async function rerenderCreatedPageBodies(
   db: PrismaClient,
   params: {
     configId: string;
+    /** Resume after this sync id (the previous call's nextCursor). */
+    cursor?: string;
+    /** Pages this invocation may repair (keep small: serverless timeout). */
+    limit?: number;
     deps?: { notionFactory?: NotionFactory };
   },
 ): Promise<BodyRepairResult> {
@@ -101,12 +112,22 @@ export async function rerenderCreatedPageBodies(
       repaired: 0,
       failed: 0,
       items: [],
+      nextCursor: null,
     };
   }
 
+  const limit = Math.max(1, Math.min(params.limit ?? DEFAULT_BATCH_SIZE, 10));
+
   const resolved = await notionFactory(db, config.integrationId);
   if (!resolved.ok) {
-    return { ok: false, error: resolved.error, repaired: 0, failed: 0, items: [] };
+    return {
+      ok: false,
+      error: resolved.error,
+      repaired: 0,
+      failed: 0,
+      items: [],
+      nextCursor: null,
+    };
   }
   const notion = resolved.notion;
 
@@ -118,7 +139,7 @@ export async function rerenderCreatedPageBodies(
   });
   const createdIds = createdExternalIdsFromLedger(runs);
   if (createdIds.size === 0) {
-    return { ok: true, repaired: 0, failed: 0, items: [] };
+    return { ok: true, repaired: 0, failed: 0, items: [], nextCursor: null };
   }
 
   const syncs = await db.ticketSync.findMany({
@@ -126,7 +147,9 @@ export async function rerenderCreatedPageBodies(
       configId: config.id,
       externalId: { in: [...createdIds] },
       tombstonedAt: null,
+      ...(params.cursor ? { id: { gt: params.cursor } } : {}),
     },
+    orderBy: { id: "asc" },
     select: {
       id: true,
       externalId: true,
@@ -134,7 +157,7 @@ export async function rerenderCreatedPageBodies(
         select: { id: true, title: true, body: true, number: true },
       },
     },
-    take: MAX_REPAIR_PAGES,
+    take: limit,
   });
 
   const base = getPublicBaseUrlFromEnv();
@@ -175,5 +198,7 @@ export async function rerenderCreatedPageBodies(
     }
   }
 
-  return { ok: true, repaired, failed, items };
+  const nextCursor =
+    syncs.length === limit ? (syncs[syncs.length - 1]?.id ?? null) : null;
+  return { ok: true, repaired, failed, items, nextCursor };
 }

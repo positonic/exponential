@@ -273,7 +273,15 @@ export const ticketSyncRouter = createTRPCRouter({
    * created pages are touched — imported/adopted pages are never rewritten.
    */
   rerenderCreatedBodies: protectedProcedure
-    .input(z.object({ productId: z.string() }))
+    .input(
+      z.object({
+        productId: z.string(),
+        // A page repair costs ~10-30 Notion calls; a whole product cannot fit
+        // in one serverless request. Callers loop on the returned nextCursor.
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(10).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
       const config = await ctx.db.ticketSyncConfig.findUnique({
@@ -301,7 +309,11 @@ export const ticketSyncRouter = createTRPCRouter({
           message: "Enable push before re-rendering page bodies",
         });
       }
-      return rerenderCreatedPageBodies(ctx.db, { configId: config.id });
+      return rerenderCreatedPageBodies(ctx.db, {
+        configId: config.id,
+        cursor: input.cursor,
+        limit: input.limit,
+      });
     }),
 
   syncNow: protectedProcedure
