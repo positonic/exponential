@@ -257,6 +257,7 @@ export function OkrDashboard({
             user: kr.user,
             driUser: kr.driUser,
             projects: kr.projects,
+            features: kr.features,
           }),
         ),
       }));
