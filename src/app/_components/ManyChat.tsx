@@ -831,7 +831,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // could never join the text chat (ADR-0006). conversationId is set on mount
   // (or a fallback id if init fails), so this gate clears within a tick.
   const startVoice = voice.start;
-  const canStartVoice = !!conversationId;
+  // Also blocked mid-stream, so the exclusion is symmetric: handleSubmit already
+  // refuses to type while voice is live. Without this the seeded thread captures
+  // the half-written assistant bubble as a finished turn, and the router reasons
+  // from half a sentence — on top of the stream/transcript race on `messages`
+  // that the typed-side guard exists to prevent.
+  const canStartVoice = !!conversationId && !isStreaming;
   const handleVoiceToggle = useCallback(() => {
     if (voiceActive) {
       stopVoice();
@@ -1665,7 +1670,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                 color={voiceActive ? "blue" : undefined}
                 size="lg"
                 radius="xl"
-                title={!voiceActive && !canStartVoice ? "Preparing conversation…" : "Voice mode — talk to zoe"}
+                title={
+                  voiceActive || canStartVoice
+                    ? "Voice mode — talk to zoe"
+                    : isStreaming
+                      ? "Wait for the reply to finish"
+                      : "Preparing conversation…"
+                }
                 aria-label="Toggle voice mode"
                 className={`${voice.state === 'listening' ? "animate-pulse" : "text-text-primary hover:bg-surface-hover"}`}
               >
