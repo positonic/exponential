@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { getWikiBridge, type WikiBridge } from "~/lib/localWiki";
+import { reportHandledError } from "~/lib/reportHandledError";
 
 /**
  * The local wiki bridge for this device, resolved after mount.
@@ -47,4 +48,30 @@ export function useRefreshOnFocus(refresh: () => void): void {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
+}
+
+/**
+ * Run `refresh` whenever the wiki changes on disk, and when the window regains
+ * focus.
+ *
+ * Both, not either. The shell's event is the good signal — the librarian files
+ * a page from the chat drawer and the list beside it updates immediately,
+ * where before you had to click away and back. Focus stays as the backstop for
+ * the changes no event covers: the user editing a page in their own editor, or
+ * `git pull` in the wiki folder, neither of which goes through our commands.
+ */
+export function useRefreshOnWikiChange(bridge: WikiBridge | null, refresh: () => void): void {
+  useRefreshOnFocus(refresh);
+
+  useEffect(() => {
+    if (!bridge) return;
+    try {
+      return bridge.onChanged(() => refresh());
+    } catch (e) {
+      // A view that can't subscribe still works, just at focus speed — so
+      // report it rather than letting it take the render down.
+      reportHandledError(e, { area: "local-wiki-change-subscription" });
+      return;
+    }
+  }, [bridge, refresh]);
 }

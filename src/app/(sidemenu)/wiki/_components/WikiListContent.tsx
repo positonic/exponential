@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Alert, Skeleton, Text, TextInput } from "@mantine/core";
+import { Alert, SegmentedControl, Skeleton, Text, TextInput } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import {
   IconBook2,
@@ -12,10 +12,11 @@ import {
 } from "@tabler/icons-react";
 
 import { LocalWikiFirstRun } from "~/app/_components/LocalWikiFirstRun";
-import type { SearchHit, WikiPage, WikiStatus } from "~/lib/localWiki";
+import type { SearchHit, WikiCommit, WikiPage, WikiStatus } from "~/lib/localWiki";
 import { reportHandledError } from "~/lib/reportHandledError";
 import { pageFolder, pageTitle, wikiHref } from "~/lib/wiki/wikiLinks";
-import { useRefreshOnFocus, useWikiBridge } from "~/lib/wiki/useWikiBridge";
+import { useRefreshOnWikiChange, useWikiBridge } from "~/lib/wiki/useWikiBridge";
+import { WikiCommitList } from "./WikiCommitList";
 
 /**
  * The three fixed files `schema.md` names — the wiki's spine. They sort first
@@ -64,6 +65,9 @@ function formatBytes(bytes: number): string {
  * against a pathological folder, not an expected path.
  */
 const TITLE_READ_LIMIT = 300;
+
+/** Commits in the "Recent changes" view — a session's worth, not the whole log. */
+const RECENT_CHANGES_LIMIT = 30;
 
 function PageRow({ page, title }: { page: WikiPage; title?: string }) {
   return (
@@ -156,6 +160,9 @@ export function WikiListContent() {
   const [debouncedSearch] = useDebouncedValue(search, 200);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
 
+  const [view, setView] = useState<"pages" | "changes">("pages");
+  const [changes, setChanges] = useState<WikiCommit[] | null>(null);
+
   const load = useCallback(async () => {
     if (!bridge) return;
     try {
@@ -163,6 +170,7 @@ export function WikiListContent() {
       setStatus(next);
       const list = next.exists ? await bridge.listPages() : [];
       setPages(list);
+      setChanges(next.exists ? await bridge.recentChanges(RECENT_CHANGES_LIMIT) : []);
       setError(null);
 
       // Title each page by its own `# Heading` — what the librarian actually
@@ -192,9 +200,10 @@ export function WikiListContent() {
     void load();
   }, [load]);
 
-  // The librarian writes these same files from the chat drawer, and the shell
-  // has no change event yet, so re-read whenever the window comes back.
-  useRefreshOnFocus(useCallback(() => void load(), [load]));
+  // The librarian writes these same files from the chat drawer: re-read when
+  // the shell says the folder changed, and on focus for the changes it can't
+  // see (the user's own editor, a git pull).
+  useRefreshOnWikiChange(bridge, useCallback(() => void load(), [load]));
 
   useEffect(() => {
     const query = debouncedSearch.trim();
@@ -271,15 +280,28 @@ export function WikiListContent() {
         </Text>
       ) : null}
 
-      <TextInput
-        leftSection={<IconSearch size={14} />}
-        placeholder="Search the wiki…"
-        value={search}
-        onChange={(e) => setSearch(e.currentTarget.value)}
-        size="sm"
+      <SegmentedControl
+        value={view}
+        onChange={(next) => setView(next === "changes" ? "changes" : "pages")}
+        data={[
+          { value: "pages", label: "Pages" },
+          { value: "changes", label: "Recent changes" },
+        ]}
+        size="xs"
         mb="md"
-        className="max-w-sm"
       />
+
+      {view === "pages" ? (
+        <TextInput
+          leftSection={<IconSearch size={14} />}
+          placeholder="Search the wiki…"
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          size="sm"
+          mb="md"
+          className="max-w-sm"
+        />
+      ) : null}
 
       {error ? (
         <Alert color="red" mb="md" title="Couldn't read the wiki">
@@ -287,7 +309,24 @@ export function WikiListContent() {
         </Alert>
       ) : null}
 
-      {hits !== null ? (
+      {view === "changes" ? (
+        changes === null ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton height={56} />
+            <Skeleton height={56} />
+          </div>
+        ) : (
+          <WikiCommitList
+            commits={changes}
+            showPaths
+            emptyMessage={
+              status && !status.git
+                ? "This wiki isn't a git repository, so there's no history to show."
+                : "Nothing committed yet. Every writing turn lands here as one commit."
+            }
+          />
+        )
+      ) : hits !== null ? (
         <SearchResults hits={hits} titles={titles} />
       ) : pages === null ? (
         <div className="flex flex-col gap-2">

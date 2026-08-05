@@ -11,10 +11,16 @@ import type { PluggableList } from "unified";
 
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import type { WikiCommit } from "~/lib/localWiki";
 import { reportHandledError } from "~/lib/reportHandledError";
 import { pageTitle, remarkWikiLinks, WIKI_ROUTE } from "~/lib/wiki/wikiLinks";
-import { useRefreshOnFocus, useWikiBridge } from "~/lib/wiki/useWikiBridge";
+import { useRefreshOnWikiChange, useWikiBridge } from "~/lib/wiki/useWikiBridge";
+import { WikiCommitList } from "./WikiCommitList";
+import { WikiPageActions } from "./WikiPageActions";
 import styles from "./wiki.module.css";
+
+/** Commits shown under a page. Enough to see how it got here, not a full log. */
+const PAGE_HISTORY_LIMIT = 10;
 
 /** What a page that doesn't exist yet starts as, once you choose to write it. */
 function seedFor(path: string): string {
@@ -41,6 +47,7 @@ export function WikiPageView({ path }: { path: string }) {
   const [content, setContent] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [knownPaths, setKnownPaths] = useState<ReadonlySet<string>>(new Set());
+  const [history, setHistory] = useState<WikiCommit[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [draft, setDraft] = useState<string | null>(null);
@@ -55,6 +62,17 @@ export function WikiPageView({ path }: { path: string }) {
     try {
       const pages = await bridge.listPages();
       setKnownPaths(new Set(pages.map((p) => p.path)));
+
+      // Read separately from the page itself: a page can have history it no
+      // longer has content for (deleted, or renamed away), and one failing
+      // must not blank the other.
+      bridge
+        .pageHistory(path, PAGE_HISTORY_LIMIT)
+        .then(setHistory)
+        .catch((e: unknown) => {
+          setHistory([]);
+          reportHandledError(e, { area: "local-wiki-page-history" });
+        });
 
       if (!pages.some((p) => p.path === path)) {
         setMissing(true);
@@ -81,7 +99,8 @@ export function WikiPageView({ path }: { path: string }) {
 
   // Don't clobber an open draft with what the librarian just wrote; only
   // refresh the read view.
-  useRefreshOnFocus(
+  useRefreshOnWikiChange(
+    bridge,
     useCallback(() => {
       if (draft === null) void load();
     }, [draft, load]),
@@ -221,13 +240,16 @@ export function WikiPageView({ path }: { path: string }) {
             </Button>
           </Group>
         ) : (
-          <Button
-            variant="default"
-            leftSection={<IconPencil size={16} />}
-            onClick={() => setDraft(content ?? "")}
-          >
-            Edit
-          </Button>
+          <Group gap="xs" wrap="nowrap">
+            <Button
+              variant="default"
+              leftSection={<IconPencil size={16} />}
+              onClick={() => setDraft(content ?? "")}
+            >
+              Edit
+            </Button>
+            <WikiPageActions bridge={bridge} path={path} onChanged={() => void load()} />
+          </Group>
         )}
       </Group>
 
@@ -281,6 +303,17 @@ export function WikiPageView({ path }: { path: string }) {
           />
         </div>
       )}
+
+      {/* Hidden while editing: the draft is the subject then, not the past.
+          Absent when there is no history at all, so a wiki without git — or a
+          page written but not yet committed — shows nothing rather than an
+          empty box asking to be explained. */}
+      {!editing && history.length > 0 ? (
+        <div className="mt-10 border-t border-border-primary pt-6">
+          <Text className="mb-3 text-sm font-semibold text-text-secondary">History</Text>
+          <WikiCommitList commits={history} emptyMessage="No commits touch this page yet." />
+        </div>
+      ) : null}
     </div>
   );
 }
