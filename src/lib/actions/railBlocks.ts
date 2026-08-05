@@ -44,7 +44,7 @@ const MS_MINUTE = 60_000;
  * span, so a malformed `scheduledEnd` can't collapse the block to nothing.
  */
 export function resolveActionDurationMinutes(
-  action: Pick<RailSchedulableAction, "scheduledStart" | "scheduledEnd" | "duration">,
+  action: Pick<RailSchedulableAction, "scheduledEnd" | "duration">,
   start: Date,
 ): number {
   if (action.duration != null && action.duration > 0) return action.duration;
