@@ -195,6 +195,29 @@ export class NotionService {
     return blocks;
   }
 
+  /** Ids of a block's (or page's) direct children, in order. */
+  async listBlockChildrenIds(blockId: string): Promise<string[]> {
+    const blocks = await this.getAllBlocks(blockId);
+    return blocks
+      .map((b) => (b as { id?: string }).id)
+      .filter((id): id is string => typeof id === "string");
+  }
+
+  /** Move one block to the trash (Notion has no hard delete via API). */
+  async deleteBlock(blockId: string): Promise<void> {
+    await this.client.blocks.delete({ block_id: blockId });
+  }
+
+  /** Append children to a page/block, batching under Notion's 100-per-call cap. */
+  async appendBlockChildren(blockId: string, children: unknown[]): Promise<void> {
+    for (let i = 0; i < children.length; i += 90) {
+      await this.client.blocks.children.append({
+        block_id: blockId,
+        children: children.slice(i, i + 90) as any,
+      });
+    }
+  }
+
   /** Pull the title text out of a page's property bag (the `title`-typed property). */
   static extractTitleFromProperties(properties: Record<string, any>): string {
     for (const value of Object.values(properties)) {

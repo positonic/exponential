@@ -13,6 +13,7 @@ import {
   enqueueBackfill,
   planBackfill,
 } from "~/server/services/ticketSync/pushRunner";
+import { rerenderCreatedPageBodies } from "~/server/services/ticketSync/bodyRepair";
 
 /**
  * ticketSync — configuration surface for the product ↔ Notion backlog sync.
@@ -263,6 +264,44 @@ export const ticketSyncRouter = createTRPCRouter({
         });
       }
       return enqueueBackfill(ctx.db, { configId: config.id });
+    }),
+
+  /**
+   * Maintenance: re-render the page CONTENT of pages this sync created
+   * (ivory.pike). Body is written once at creation; pages created before the
+   * Markdown renderer landed show literal Markdown. Only ledger-recorded
+   * created pages are touched — imported/adopted pages are never rewritten.
+   */
+  rerenderCreatedBodies: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true, integrationId: true, pushEnabled: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+      if (!config.integrationId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Notion sync is disconnected for this product",
+        });
+      }
+      // Same stance as backfill: content repair is an outbound write.
+      if (!config.pushEnabled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Enable push before re-rendering page bodies",
+        });
+      }
+      return rerenderCreatedPageBodies(ctx.db, { configId: config.id });
     }),
 
   syncNow: protectedProcedure

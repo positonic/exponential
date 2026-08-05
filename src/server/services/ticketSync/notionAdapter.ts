@@ -394,18 +394,21 @@ function renderBlock(block: Record<string, unknown>): string | null {
  * Returns null (with a reason) when the credential is unusable — callers
  * surface that as a connection error, not a crash.
  */
-export async function createNotionTicketSyncAdapter(
+/**
+ * Resolve a working NotionService (and bot id) for a Notion integration's
+ * stored credential. Shared by the sync adapter factory and maintenance
+ * paths (e.g. the body re-render repair) that need raw block access the
+ * adapter interfaces deliberately don't expose.
+ */
+export async function resolveNotionServiceForIntegration(
   db: PrismaClient,
-  config: {
-    integrationId: string;
-    propertyNames: unknown;
-  },
+  integrationId: string,
 ): Promise<
-  | { ok: true; adapter: NotionTicketSyncAdapter }
+  | { ok: true; notion: NotionService; botId: string | null }
   | { ok: false; error: string }
 > {
   const integration = await db.integration.findFirst({
-    where: { id: config.integrationId, provider: "notion" },
+    where: { id: integrationId, provider: "notion" },
     include: {
       credentials: { select: { key: true, keyType: true, isEncrypted: true } },
     },
@@ -453,12 +456,31 @@ export async function createNotionTicketSyncAdapter(
     }
   }
 
+  return { ok: true, notion: new NotionService(accessToken), botId };
+}
+
+export async function createNotionTicketSyncAdapter(
+  db: PrismaClient,
+  config: {
+    integrationId: string;
+    propertyNames: unknown;
+  },
+): Promise<
+  | { ok: true; adapter: NotionTicketSyncAdapter }
+  | { ok: false; error: string }
+> {
+  const resolved = await resolveNotionServiceForIntegration(
+    db,
+    config.integrationId,
+  );
+  if (!resolved.ok) return resolved;
+
   return {
     ok: true,
     adapter: new NotionTicketSyncAdapter(
-      new NotionService(accessToken),
+      resolved.notion,
       resolvePropertyNames(config.propertyNames),
-      botId,
+      resolved.botId,
     ),
   };
 }
