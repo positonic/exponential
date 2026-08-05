@@ -29,6 +29,14 @@ export const FIXTURE = {
   okrPeriod: "Annual-2026",
   projectName: "Fixture Linked Project",
   projectSlug: "fixture-linked-project",
+  // A second project, kept separate from the OKR one so each fixture stays
+  // legible: this one carries the goal hierarchy the Goals tab renders.
+  goalProjectSlug: "goal-hierarchy-fixture",
+  goalProjectName: "Goal hierarchy fixture",
+  parentGoalTitle: "Grow the fixture business",
+  childGoalTitle: "Ship the goal hierarchy affordance",
+  offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
+  detachedChildGoalTitle: "Sub-goal whose parent is off-project",
 } as const;
 
 export interface SeededFixture {
@@ -46,6 +54,10 @@ export interface SeededFixture {
   totalTicketCount: number;
   /** App-relative URL of the OKR dashboard holding the seeded objective. */
   okrUrl: string;
+  /** App-relative URL of the seeded project's Goals tab (the goal hierarchy). */
+  projectGoalsUrl: string;
+  /** Goals on that project: a parent, its sub-goal, and a detached sub-goal. */
+  goalIds: { parent: number; child: number; offProjectParent: number; detachedChild: number };
 }
 
 interface TicketSpec {
@@ -200,6 +212,68 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
   });
 
+  // A second project carrying a goal hierarchy, so the Goals tab's nesting
+  // affordance is observable: a parent with a sub-goal under it, plus a
+  // sub-goal whose parent is NOT on this project (it can't nest under anything
+  // on screen, so it stays at the root and names its parent instead).
+  // Same SetNull caveat as above — the Goals tab is reached through a
+  // workspace-scoped route, so re-assert the workspace on every seed.
+  const goalProject = await db.project.upsert({
+    where: { slug: FIXTURE.goalProjectSlug },
+    update: { workspaceId: workspace.id, status: "ACTIVE" },
+    create: {
+      slug: FIXTURE.goalProjectSlug,
+      name: FIXTURE.goalProjectName,
+      description: "Seeded for visual verification of sub-goal nesting on the project Goals tab.",
+      status: "ACTIVE",
+      priority: "HIGH",
+      createdById: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  const upsertGoal = async (
+    title: string,
+    opts: { description?: string; parentGoalId?: number; onProject: boolean; displayOrder: number },
+  ) => {
+    const existing = await db.goal.findFirst({ where: { userId: user.id, title } });
+    const data = {
+      description: opts.description ?? null,
+      status: "active",
+      parentGoalId: opts.parentGoalId ?? null,
+      displayOrder: opts.displayOrder,
+      workspaceId: workspace.id,
+      ...(opts.onProject ? { projects: { connect: { id: goalProject.id } } } : {}),
+    };
+    return existing
+      ? await db.goal.update({ where: { id: existing.id }, data })
+      : await db.goal.create({
+          data: { title, userId: user.id, ...data },
+        });
+  };
+
+  const parentGoal = await upsertGoal(FIXTURE.parentGoalTitle, {
+    description: "Root objective — the sub-goal below nests under it.",
+    onProject: true,
+    displayOrder: 0,
+  });
+  const childGoal = await upsertGoal(FIXTURE.childGoalTitle, {
+    description: "Nested one level under its parent.",
+    parentGoalId: parentGoal.id,
+    onProject: true,
+    displayOrder: 1,
+  });
+  const offProjectParentGoal = await upsertGoal(FIXTURE.offProjectParentGoalTitle, {
+    onProject: false,
+    displayOrder: 2,
+  });
+  const detachedChildGoal = await upsertGoal(FIXTURE.detachedChildGoalTitle, {
+    description: "Its parent isn't on this project, so the row names the parent.",
+    parentGoalId: offProjectParentGoal.id,
+    onProject: true,
+    displayOrder: 3,
+  });
+
   // Matched on title alone (not workspaceId) so an orphaned goal is found and
   // re-homed rather than duplicated.
   const existingObjective = await db.goal.findFirst({
@@ -261,6 +335,13 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
 
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
+    goalIds: {
+      parent: parentGoal.id,
+      child: childGoal.id,
+      offProjectParent: offProjectParentGoal.id,
+      detachedChild: detachedChildGoal.id,
+    },
     userId: user.id,
     workspaceSlug: FIXTURE.workspaceSlug,
     productSlug: FIXTURE.productSlug,
