@@ -40,7 +40,10 @@ export interface SeedableMessage {
 }
 
 export interface BuildVoiceSeedContextOptions {
-  /** Ceiling for the whole block. Default 2k tokens (~8k chars). */
+  /**
+   * Ceiling for the transcript body. The header/footer framing (~95 tokens) is
+   * added on top of this, so the emitted block is that much larger. Default 2k.
+   */
   tokenBudget?: number;
   /** Hard cap on turns before the token budget applies. Default 20. */
   maxTurns?: number;
