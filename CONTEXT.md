@@ -146,6 +146,14 @@ _Avoid_: Today's plan (reserved — that's the narrower voice **Daily brief**), 
 The short, **speakable** morning summary built by `generateBriefingData` and surfaced by voice's `get_todays_plan` **coarse tool** and the web morning briefing. **Narrower than Today's actions on purpose**: it counts only **due-today** (`dueDate` in `[startOfDay, endOfDay]`) and **overdue-by-`dueDate`** actions plus low-progress projects — it does **not** include scheduled-today or inbox actions. So the **Daily brief** and **Today's actions** can legitimately disagree on what "today" contains (the brief omits a scheduled-but-not-due "Pay Malte"). This divergence is **known and accepted for now**; converging voice onto the **Today's actions** definition is deferred, not done. See [ADR-0034](docs/adr/0034-todays-actions-shared-partition.md).
 _Avoid_: Treating the brief as the source of truth for `/today`; "today's plan" for the `/today` list.
 
+**Overdue cohort**:
+A set of overdue **Actions** sharing one *exact* anchor instant (`scheduledStart`, else `dueDate`, to the millisecond) — the fingerprint of a single bulk write: a generated project plan, a template, an import. Hand-entered dates carry the millisecond the user hit save and effectively never collide, so ≥3 actions on one instant means one writer created them all. Surfaced by `action.getOverdueTriage`, which splits an overdue pile into **cohorts** and **loose** debt. The distinction matters because it changes the disposition: cohort members were never individually due and deserve **amnesty**; loose actions are real missed commitments. Typically most of a large overdue count is cohorts — 21 of 40 in the case that motivated this.
+_Avoid_: Batch, cluster, group (all used for unrelated concepts); "duplicate" (cohort members are distinct actions).
+
+**Amnesty**:
+Clearing an **Action**'s dates (`scheduledStart`, `scheduledEnd`, `dueDate`) so it returns to its **Project** backlog untimed, via `action.bulkDefer`. The counterpart to rescheduling, and the right move for an **Overdue cohort**: rescheduling says "still due, later" and re-inflicts the pile tomorrow, amnesty says "this was never really due — stop counting it against me". Deliberately a distinct verb from `action.bulkReschedule({ dueDate: null })` even though the row effect is identical, because intent is what callers and agent tool-discovery need to express. Kanban status is untouched — an Action can be untimed and still in progress.
+_Avoid_: Snooze (implies it comes back), dismiss/archive/delete (the Action stays ACTIVE and live), defer *as a user-facing word* (that's the procedure name, not the concept).
+
 ### Weekly planning
 
 **Weekly plan**:

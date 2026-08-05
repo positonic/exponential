@@ -36,6 +36,9 @@ interface Workspace {
   logoUrl: string | null;
   type: string;
   homeLayout: HomeLayout;
+  // null = follow the workspace type (team/org on, personal off). See the
+  // column comment in schema.prisma and the resolution in useTerminology.
+  enableKeyResults: boolean | null;
   members?: WorkspaceMember[];
 }
 

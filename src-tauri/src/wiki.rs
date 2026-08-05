@@ -40,7 +40,8 @@ pub struct WikiRoot(pub Mutex<Option<PathBuf>>);
 pub const STORE_FILE: &str = "wiki.json";
 /// Key within that store.
 pub const STORE_KEY: &str = "root";
-/// Dev override, read at startup and then persisted like any other choice.
+/// Dev override, read at startup. Applies to that launch only — see
+/// `resolve_root_for_launch` for why it is deliberately never persisted.
 pub const ROOT_ENV: &str = "EXPONENTIAL_WIKI_ROOT";
 
 /// Default location — visible in Finder on purpose. The wiki is the user's, and
@@ -60,13 +61,34 @@ pub fn default_root() -> PathBuf {
 /// on that origin. Configuring the root is therefore an out-of-band act (the env
 /// var, or a future native settings UI), never an in-page one.
 pub fn resolve_root(stored: Option<String>) -> PathBuf {
+    resolve_root_for_launch(stored).root
+}
+
+/// The root for this launch, and whether it is ours to remember.
+pub struct RootChoice {
+    pub root: PathBuf,
+    /// False for an env override: that path is this launch's business only.
+    pub persist: bool,
+}
+
+/// Same decision as `resolve_root`, plus whether the answer should be written
+/// back to the store.
+///
+/// The env override is deliberately **not** persisted. It used to be, and that
+/// turned a one-off `EXPONENTIAL_WIKI_ROOT=/tmp/scratch` test run into the
+/// permanent setting: every later launch read that path back out of the store,
+/// so the app believed a wiki existed, the first-run panel never appeared, and
+/// the librarian read and wrote a throwaway folder the user had forgotten about.
+/// A variable set for one command should not outlive it.
+pub fn resolve_root_for_launch(stored: Option<String>) -> RootChoice {
     if let Some(from_env) = std::env::var(ROOT_ENV).ok().filter(|v| !v.trim().is_empty()) {
-        return PathBuf::from(from_env);
+        return RootChoice { root: PathBuf::from(from_env), persist: false };
     }
-    match stored.filter(|v| !v.trim().is_empty()) {
+    let root = match stored.filter(|v| !v.trim().is_empty()) {
         Some(path) => PathBuf::from(path),
         None => default_root(),
-    }
+    };
+    RootChoice { root, persist: true }
 }
 
 fn current_root(state: &WikiRoot) -> PathBuf {
@@ -197,6 +219,44 @@ pub struct WikiPage {
     /// Path relative to the wiki root — the same string every command takes back.
     pub path: String,
     pub bytes: u64,
+}
+
+/// What the app needs to decide between "offer to create a wiki" and "chat".
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiStatus {
+    /// Where it would live, whether or not it does — the first-run panel names
+    /// this so the user knows what is about to appear on their disk.
+    pub root: String,
+    pub exists: bool,
+    /// Whether the folder is a git repo. False for a folder restored from a
+    /// backup that lost `.git`, which still counts as existing.
+    pub git: bool,
+    pub page_count: usize,
+}
+
+/// Report on the wiki **without creating it**.
+///
+/// The distinction from `wiki_init` is the whole point: creating a folder in
+/// someone's Documents should be something they chose, not a side effect of
+/// asking a question. This is what the first-run panel asks before offering the
+/// button, so it must stay free of side effects.
+#[tauri::command]
+pub fn wiki_status(state: tauri::State<WikiRoot>) -> WikiStatus {
+    let root = current_root(&state);
+    status_at(&root)
+}
+
+pub fn status_at(root: &Path) -> WikiStatus {
+    let exists = root.is_dir();
+    WikiStatus {
+        root: root.to_string_lossy().into_owned(),
+        exists,
+        git: exists && root.join(".git").exists(),
+        // `list_pages` on a missing folder is an empty list, not an error, so
+        // this is safe to call either way.
+        page_count: list_pages(root).map(|p| p.len()).unwrap_or(0),
+    }
 }
 
 /// Create the wiki if it isn't there yet, and report where it is.
@@ -601,6 +661,49 @@ mod tests {
     }
 
     #[test]
+    fn status_does_not_create_the_wiki() {
+        // The load-bearing property: the first-run panel calls this to decide
+        // whether to offer the button, so if it created anything the button
+        // would be asking permission for something already done.
+        let root = std::env::temp_dir().join("exp-wiki-status-none");
+        let _ = std::fs::remove_dir_all(&root);
+
+        let status = status_at(&root);
+        assert!(!status.exists);
+        assert!(!status.git);
+        assert_eq!(status.page_count, 0);
+        assert!(!root.exists(), "asking must not create");
+        // It still reports where the wiki *would* go, because the panel names
+        // the path before the user agrees to it.
+        assert_eq!(status.root, root.to_string_lossy());
+    }
+
+    #[test]
+    fn status_sees_a_wiki_that_exists() {
+        let wiki = TempWiki::new("status-exists");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+
+        let status = status_at(&wiki.root);
+        assert!(status.exists);
+        assert!(status.git);
+        assert_eq!(status.page_count, 4, "three seeds plus the page");
+    }
+
+    #[test]
+    fn a_wiki_without_git_still_counts_as_existing() {
+        // A folder restored from a backup that lost .git is still the user's
+        // wiki; offering to "create" it again would be wrong.
+        let wiki = TempWiki::new("status-nogit");
+        init_at(&wiki.root).expect("init");
+        std::fs::remove_dir_all(wiki.root.join(".git")).unwrap();
+
+        let status = status_at(&wiki.root);
+        assert!(status.exists);
+        assert!(!status.git);
+    }
+
+    #[test]
     fn init_seeds_the_conventions_and_a_git_repo() {
         let wiki = TempWiki::new("init");
         let info = init_at(&wiki.root).expect("init");
@@ -814,6 +917,28 @@ mod tests {
             PathBuf::from("/tmp/override-wiki"),
         );
         std::env::remove_var(ROOT_ENV);
+    }
+
+    #[test]
+    fn the_env_override_is_not_remembered() {
+        // Regression: it used to be written back to the store, so a single
+        // `EXPONENTIAL_WIKI_ROOT=/tmp/scratch` run silently repointed the wiki
+        // for good — the app then believed a wiki existed and never offered to
+        // create the real one.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var(ROOT_ENV, "/tmp/override-wiki");
+        let choice = resolve_root_for_launch(Some("/tmp/stored-wiki".into()));
+        assert_eq!(choice.root, PathBuf::from("/tmp/override-wiki"));
+        assert!(!choice.persist, "an env override must not outlive its launch");
+        std::env::remove_var(ROOT_ENV);
+    }
+
+    #[test]
+    fn a_root_the_user_chose_is_remembered() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(ROOT_ENV);
+        assert!(resolve_root_for_launch(None).persist);
+        assert!(resolve_root_for_launch(Some("/tmp/my-wiki".into())).persist);
     }
 
     #[test]

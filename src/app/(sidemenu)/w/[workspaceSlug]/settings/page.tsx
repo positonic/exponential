@@ -40,6 +40,7 @@ import {
   IconSettings,
   IconPalette,
   IconLayoutList,
+  IconTarget,
   IconFlame,
   IconClock,
   IconPlus,
@@ -163,6 +164,10 @@ export default function WorkspaceSettingsPage() {
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
   const autoEnrichContactsEnabled = workspaceData?.enableAutoEnrichContacts ?? false;
+  // null = never set, so fall back to the workspace-type default (same
+  // resolution as useTerminology: team/org on, personal off).
+  const keyResultsEnabled =
+    workspaceData?.enableKeyResults ?? (workspaceData?.type !== 'personal');
   const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
 
   const featureSuccess = (message: string) => () => {
@@ -234,6 +239,12 @@ export default function WorkspaceSettingsPage() {
       autoEnrichContactsEnabled
         ? 'Contact auto-enrichment has been disabled'
         : 'Contact auto-enrichment has been enabled'
+    ),
+  });
+
+  const updateKeyResultsMutation = api.workspace.update.useMutation({
+    onSuccess: featureSuccess(
+      keyResultsEnabled ? 'Key results have been disabled' : 'Key results have been enabled'
     ),
   });
 
@@ -578,6 +589,7 @@ export default function WorkspaceSettingsPage() {
     advancedActionsEnabled,
     detailedActionsEnabled,
     bountiesEnabled,
+    keyResultsEnabled,
     dailyPlanBannerEnabled,
     weeklyReviewBannerEnabled,
     emailNotificationsEnabled,
@@ -1085,6 +1097,18 @@ export default function WorkspaceSettingsPage() {
               onToggle={(checked) => {
                 if (!workspaceId) return;
                 updateBountiesMutation.mutate({ workspaceId, enableBounties: checked });
+              }}
+            />
+            <FeatureRow
+              icon={IconTarget}
+              tag="Product"
+              title="Key Results"
+              description="Track measurable key results against goals, with start and target values, units, and periods. On by default for team workspaces."
+              enabled={keyResultsEnabled}
+              disabled={!canEdit || updateKeyResultsMutation.isPending}
+              onToggle={(checked) => {
+                if (!workspaceId) return;
+                updateKeyResultsMutation.mutate({ workspaceId, enableKeyResults: checked });
               }}
             />
             <FeatureRow

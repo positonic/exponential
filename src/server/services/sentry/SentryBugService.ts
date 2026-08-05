@@ -51,6 +51,40 @@ const TICKET_LABELS = [
 // gate is status READY_TO_PLAN (see .github/workflows/ai-bug-fixer.yml) — this
 // label alone does not start a run, so a human still triages the ticket out of
 // BACKLOG before any agent touches it.
+/**
+ * Colour for the per-service source label (see {@link sourceLabel}).
+ */
+const SOURCE_LABEL_COLOR = "avatar-blue";
+
+/** Upper bound on a generated label slug, so a hostile value can't bloat a tag. */
+const SOURCE_SLUG_MAX_LENGTH = 32;
+
+/**
+ * Build a label identifying which service an error came from, so a single
+ * destination product can carry bugs from several codebases and still be
+ * filterable (`clear-api` vs `clear-pipeline` …).
+ *
+ * The value arrives either from the webhook's `?service=` query param or, when
+ * absent, from the sender's own project slug. Both are attacker-influencable in
+ * principle — the token gate makes them semi-trusted at best — so the string is
+ * reduced to a bounded `[a-z0-9-]` slug rather than used verbatim.
+ */
+export function sourceLabel(
+  raw: string | null | undefined,
+): { name: string; slug: string; color: string } | null {
+  if (!raw) return null;
+  const slug = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, SOURCE_SLUG_MAX_LENGTH)
+    // A trailing dash can survive the truncation above.
+    .replace(/-+$/g, "");
+  if (!slug) return null;
+  return { name: slug, slug, color: SOURCE_LABEL_COLOR };
+}
+
 const AI_FIXABLE_LABEL = {
   name: "ai-fixable",
   slug: "ai-fixable",
@@ -87,9 +121,9 @@ async function labelTicket(
   ticketId: string,
   workspaceId: string,
   authorId: string,
-  extraLabels: readonly { name: string; slug: string; color: string }[] = [],
+  labels: readonly { name: string; slug: string; color: string }[],
 ): Promise<void> {
-  for (const label of [...TICKET_LABELS, ...extraLabels]) {
+  for (const label of labels) {
     try {
       const tag = await db.tag.upsert({
         where: { slug_workspaceId: { slug: label.slug, workspaceId } },
@@ -126,7 +160,22 @@ export interface IngestResult {
 export async function ingestSentryBug(
   db: PrismaClient,
   bug: SentryBug,
-  options?: { productId?: string },
+  options?: {
+    productId?: string;
+    sourceSlug?: string | null;
+    /**
+     * Ticket body, when the caller isn't Sentry. Defaults to `buildBugBody`,
+     * which opens with "Reported automatically from Sentry" — true for the
+     * webhook, a lie for anything else (see `clientErrorBug`).
+     */
+    body?: string;
+    /**
+     * Labels in place of the default "Sentry" + "bug" pair. A handled client
+     * error is a bug, but it did not come from Sentry, and filtering on that
+     * label should keep meaning what it says.
+     */
+    labels?: readonly { name: string; slug: string; color: string }[];
+  },
 ): Promise<IngestResult> {
   // Destination precedence: an explicit per-workspace product (from a
   // workspace-scoped Sentry integration) wins; otherwise fall back to the
@@ -171,21 +220,27 @@ export async function ingestSentryBug(
     workspaceId: product.workspaceId,
     createdById: errol.id,
     title: bug.title,
-    body: buildBugBody(bug),
+    body: options?.body ?? buildBugBody(bug),
     type: "BUG",
     status: "BACKLOG",
     // Priority is left unset — a human assigns it during triage.
+    // `sentryIssueId` stays the key for non-Sentry origins too: it is the dedup
+    // path queried above, and a second path would mean a second lookup for no
+    // gain. The value's `client:` prefix says where it came from.
     links: { sentryIssueId: bug.issueId, sentryUrl: bug.url },
   });
 
-  // Tag it with the workspace's "Sentry" and "bug" labels so these are filterable.
-  await labelTicket(
-    db,
-    ticket.id,
-    product.workspaceId,
-    errol.id,
-    isAiFixableProject(bug.projectSlug) ? [AI_FIXABLE_LABEL] : [],
-  );
+  // Tag it so these are filterable. `labelTicket` now takes the complete set
+  // rather than prepending its own, so the origin's labels are named here.
+  const source = sourceLabel(options?.sourceSlug ?? bug.projectSlug);
+  await labelTicket(db, ticket.id, product.workspaceId, errol.id, [
+    // "Sentry" + "bug" unless the caller is not Sentry and says otherwise.
+    ...(options?.labels ?? TICKET_LABELS),
+    ...(isAiFixableProject(bug.projectSlug) ? [AI_FIXABLE_LABEL] : []),
+    // Which codebase this came from. An explicit `?service=` wins; otherwise
+    // fall back to the slug the sender put in the payload.
+    ...(source ? [source] : []),
+  ]);
 
   // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
   // Only on creation — recurring errors that dedup above do not re-notify.

@@ -240,7 +240,6 @@ export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverv
                       dueDate: goal.dueDate,
                       period: goal.period ?? null,
                       lifeDomainId: goal.lifeDomainId,
-                      outcomes: goal.outcomes,
                     }}
                     trigger={
                       <div className={styles.rowBody}>

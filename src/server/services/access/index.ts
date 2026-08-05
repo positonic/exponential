@@ -77,6 +77,7 @@ export { getTeamMembership, getUserTeams } from "./resolvers/teamResolver";
 export {
   getProjectAccess,
   hasProjectAccess,
+  isProjectInsider,
   canEditProject,
   canManageProjectMembers,
   buildProjectAccessWhere,
@@ -103,3 +104,13 @@ export {
   buildKnowledgePageAccessWhere,
 } from "./resolvers/knowledgePageResolver";
 export type { KnowledgePageAccessInfo } from "./resolvers/knowledgePageResolver";
+
+// Cross-workspace link guards (epic/feature/cycle/scope foreign keys)
+export { assertWorkspaceScopedRefs } from "./workspaceRefs";
+export type { WorkspaceScopedRefs } from "./workspaceRefs";
+
+// Assignability guards (assigneeId / ActionAssignee foreign keys to User)
+export {
+  assertAssignableUser,
+  canAssignToUnscopedAction,
+} from "./assignability";

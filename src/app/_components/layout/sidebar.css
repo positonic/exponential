@@ -3,7 +3,28 @@
    .app-sidebar; this file uses only var().
    ============================================================ */
 
+/* ============================================================
+   Desktop-shell title bar inset
+
+   The Electron and Tauri shells both use the macOS overlay title
+   bar, so the traffic lights float over the page's top-left
+   corner — right where the sidebar header sits. DesktopChromeScript
+   stamps data-titlebar="overlay" on <html> before first paint;
+   everything anchored to the top-left leaves room for the controls
+   when it is set, and is untouched in the browser.
+   ============================================================ */
+:root {
+  --titlebar-inset: 0px;
+}
+
+html[data-titlebar="overlay"] {
+  /* Traffic lights sit at (16, 16) and are ~14px tall — clear them
+     plus a little breathing room. */
+  --titlebar-inset: 38px;
+}
+
 .app-sidebar {
+  padding-top: var(--titlebar-inset);
   background: var(--sb-bg);
   border-right: 1px solid var(--sb-hair);
   font-family: var(--sb-font);
@@ -13,6 +34,12 @@
 
 .app-sidebar .sb-workspace-divider {
   border-bottom: 1px solid var(--sb-hair);
+}
+
+/* Re-open button, shown in the same corner once the sidebar is closed —
+   so it has to clear the window controls too. */
+.sb-toggle {
+  top: calc(0.5rem + env(safe-area-inset-top) + var(--titlebar-inset));
 }
 
 /* ============================================================
@@ -27,6 +54,17 @@
     margin-left: 0;
   }
 }
+
+/* Collapsing the sidebar used to drop the whole main column by the inset, on the
+   grounds that it inherited the top-left corner and the traffic lights with it.
+   Removed: the re-open button below carries its own inset, so it still clears
+   the controls, and dropping the entire column was a visible lurch to buy
+   clearance for one button. */
+
+/* The tabbed Tauri shell (V2) uses a visible native titlebar — Safari-style —
+   so the page starts below the chrome and needs no inset at all. It stamps
+   data-shell="tauri" but deliberately NOT data-titlebar="overlay"; only the
+   Electron shell and the pre-tabs Tauri shell take the 38px above. */
 
 /* ============================================================
    Create Action - soft tinted CTA

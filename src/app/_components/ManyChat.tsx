@@ -29,7 +29,8 @@ import { DraftFeaturesReviewCard } from './DraftFeaturesReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
-import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { classifyStreamError, describeStreamError } from '~/lib/chat/streamProtocol';
+import { reportHandledError } from '~/lib/reportHandledError';
 import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
 import { streamChatResponse, type ChatStreamUpdate } from '~/lib/chat/streamChatResponse';
 import { createLocalWikiStreamer, streamLocalWikiChat } from '~/lib/chat/streamLocalWikiChat';
@@ -38,10 +39,12 @@ import {
   LOCAL_WIKI_AGENT_NAME,
   buildWikiClientTools,
   getWikiBridge,
+  type WikiStatus,
 } from '~/lib/localWiki';
 import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdown';
 import { failureCopy } from '~/lib/chat/failureCopy';
 import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
+import { LocalWikiFirstRun } from './LocalWikiFirstRun';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -368,23 +371,32 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                     </div>
                   )}
                   {message.failure && (
-                    <div className="mt-1.5 flex items-center gap-2 text-text-muted text-xs">
-                      {/* Show the failure note when the main block above isn't
-                          already showing it: always for 'incomplete' (the block
-                          shows the partial answer), and for a contentless error. */}
-                      {(message.failure.severity === 'incomplete' || message.content === '') && (
-                        <span>{failureCopy(message.failure.kind, message.failure.severity)}</span>
-                      )}
-                      {message.failure.canRetry && message.failure.retryText && (
-                        <Button
-                          size="compact-xs"
-                          variant="subtle"
-                          color="gray"
-                          leftSection={<IconRefresh size={13} />}
-                          onClick={() => onRetry(message.failure!.retryText!)}
-                        >
-                          Try again
-                        </Button>
+                    <div className="mt-1.5 text-text-muted text-xs">
+                      <div className="flex items-center gap-2">
+                        {/* Show the failure note when the main block above isn't
+                            already showing it: always for 'incomplete' (the block
+                            shows the partial answer), and for a contentless error. */}
+                        {(message.failure.severity === 'incomplete' || message.content === '') && (
+                          <span>{failureCopy(message.failure.kind, message.failure.severity)}</span>
+                        )}
+                        {message.failure.canRetry && message.failure.retryText && (
+                          <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            color="gray"
+                            leftSection={<IconRefresh size={13} />}
+                            onClick={() => onRetry(message.failure!.retryText!)}
+                          >
+                            Try again
+                          </Button>
+                        )}
+                      </div>
+                      {/* The thrown error's own words. Small and secondary, but
+                          present: without it a specific, fixable cause (an expired
+                          key, an empty credit balance) is indistinguishable from a
+                          passing network blip. */}
+                      {message.failure.detail && (
+                        <div className="mt-1 break-words opacity-70">{message.failure.detail}</div>
                       )}
                     </div>
                   )}
@@ -675,6 +687,40 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // The one call to our own backend a local-wiki turn makes. Everything after it
   // goes browser → Mastra directly, so wiki content never reaches Vercel.
   const mintAgentToken = api.mastra.mintAgentToken.useMutation();
+
+  // Whether this machine has a wiki yet. `undefined` means we haven't looked —
+  // which is the state on every surface that isn't the Tauri shell, since there
+  // is nothing to look at.
+  const [wikiStatus, setWikiStatus] = useState<WikiStatus | undefined>(undefined);
+  const localWikiSelected = defaultAgentId === LOCAL_WIKI_AGENT_ID;
+
+  // Ask (without creating) whenever the librarian is selected. Re-checked on
+  // selection rather than cached for the session, so deleting the wiki folder by
+  // hand brings the panel back instead of leaving the chat pointing at nothing.
+  useEffect(() => {
+    if (!localWikiSelected) {
+      setWikiStatus(undefined);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      // A rejected `wiki_status` used to leave this undefined for good, which
+      // renders as "the wiki exists" — the first-run panel is gated on a
+      // *known* absent wiki. The user then talks to a librarian with nothing to
+      // read. Say so instead of failing invisibly.
+      let status: WikiStatus | undefined;
+      try {
+        status = await getWikiBridge()?.status();
+      } catch (error) {
+        console.error('[ManyChat] wiki_status failed — cannot tell if a wiki exists', error);
+        reportHandledError(error, { area: 'local-wiki-status' });
+      }
+      if (!cancelled) setWikiStatus(status);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [localWikiSelected]);
   // Server-side /api/chat/stream now logs interactions (with full token/cache
   // data) and surfaces the row id back via the meta frame. The previous
   // client-side logInteraction.mutateAsync was removed to fix double-logging.
@@ -1298,10 +1344,11 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
 
       const streamResult = wikiBridge
         ? await (async () => {
-            // Idempotent, and cheap enough to do every turn — it guarantees the
-            // folder, its git repo and the seeded conventions exist before the
-            // librarian is asked to read them.
-            await wikiBridge.init();
+            // Deliberately no init() here. The wiki comes into being when the
+            // user presses the button in the first-run panel, and nowhere else —
+            // creating a folder in someone's Documents as a side effect of
+            // sending a message is not a decision they made. The panel replaces
+            // the composer until it exists, so a turn can only start once it does.
             const { token, mastraUrl } = await mintAgentToken.mutateAsync();
             return streamLocalWikiChat(
               createLocalWikiStreamer(mastraUrl, token),
@@ -1443,12 +1490,31 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       //    it as a normal answer with a subtle "ended early" + Retry footer.
       //  • !hadContent → nothing usable arrived. Convert the empty placeholder
       //    into a calm, single-line error with a Retry button.
+      // Nothing else reports this. The catch above handles the error — rightly,
+      // the user gets a calm message and a Retry — but handling it is exactly
+      // why Sentry's automatic capture never saw it, and so why a turn failing
+      // on "your credit balance is too low" left no trace anywhere. Reported
+      // explicitly instead: to Sentry, and to a Bug Ticket, which unlike Sentry
+      // also works when the app is running against a local server.
+      reportHandledError(error, {
+        area: 'chat-stream',
+        kind,
+        context: {
+          agentId: targetAgentId ?? 'unknown',
+          hadContent: String(hadContent),
+          attempt: String(attempt),
+          ...(projectId ? { projectId } : {}),
+          conversationId,
+        },
+      });
+
       const severity: 'error' | 'incomplete' = hadContent ? 'incomplete' : 'error';
       const failure: NonNullable<Message['failure']> = {
         severity,
         kind,
         canRetry: kind !== 'auth',
         retryText: text,
+        detail: describeStreamError(error),
       };
 
       setMessages((prev) => {
@@ -1497,6 +1563,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
         </div>
       )}
 
+      {/* First run: the wiki does not exist until the user asks for it. */}
+      {localWikiSelected && wikiStatus && !wikiStatus.exists ? (
+        <LocalWikiFirstRun
+          status={wikiStatus}
+          onCreate={async () => {
+            await getWikiBridge()?.init();
+            setWikiStatus(await getWikiBridge()?.status());
+          }}
+        />
+      ) : (
+        <>
       {/* Messages Area */}
       <MessageList messages={messages} conversationId={conversationId} isStreaming={isStreaming} onRetry={retryTurn} />
       
@@ -1664,6 +1741,8 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           </div>
         )}
       </div>
+        </>
+      )}
 
     </div>
   );

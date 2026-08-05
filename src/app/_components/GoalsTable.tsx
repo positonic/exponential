@@ -138,7 +138,6 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
                           dueDate: goal.dueDate,
                           period: goal.period,
                           lifeDomainId: goal.lifeDomainId,
-                          outcomes: goal.outcomes,
                         }}
                         trigger={
                           <ActionIcon

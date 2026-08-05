@@ -27,6 +27,15 @@ export interface WikiInfo {
   git: boolean;
 }
 
+/** Whether there is a wiki yet, and where it would go if not. */
+export interface WikiStatus {
+  /** Where it lives, or would live — the first-run panel names this. */
+  root: string;
+  exists: boolean;
+  git: boolean;
+  pageCount: number;
+}
+
 export interface WikiPage {
   /** Path relative to the wiki root — the handle every other call takes. */
   path: string;
@@ -38,7 +47,15 @@ export interface WikiPage {
  * ask (a browser, or the Electron shell).
  */
 export interface WikiBridge {
-  /** Create the wiki if absent. Idempotent; safe to call every turn. */
+  /**
+   * Report on the wiki **without creating it**.
+   *
+   * The distinction from `init` is the point: creating a folder in someone's
+   * Documents should be something they chose. This is what the first-run panel
+   * asks before offering to create anything.
+   */
+  status: () => Promise<WikiStatus>;
+  /** Create the wiki. Idempotent, so pressing the button twice is harmless. */
   init: () => Promise<WikiInfo>;
   listPages: () => Promise<WikiPage[]>;
   readPage: (path: string) => Promise<string>;
@@ -113,6 +130,7 @@ export function getWikiBridge(): WikiBridge | null {
   if (!invoke) return null;
 
   return {
+    status: async () => (await invoke("wiki_status")) as WikiStatus,
     init: async () => (await invoke("wiki_init")) as WikiInfo,
     listPages: async () => ((await invoke("wiki_list_pages")) ?? []) as WikiPage[],
     readPage: async (path: string) => {

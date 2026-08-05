@@ -23,17 +23,39 @@ const PAGE_LABELS: Record<string, string> = {
   inbox: 'Inbox',
 };
 
-function getCurrentPageLabel(pathname: string, workspaceSlug: string): string {
+/**
+ * The section crumb: the label for the area we're in, plus where it links.
+ *
+ * `href` is null when there is nowhere to go — either we're already on the
+ * section's own index (the crumb is the current page), or we're on a global
+ * route like `/recording/{id}`, where the leading segment isn't guaranteed to
+ * have an index page to land on. Every `/w/{slug}/{segment}` does have one.
+ */
+function getSectionCrumb(
+  pathname: string,
+  workspaceSlug: string,
+): { label: string; href: string | null } {
   const prefix = `/w/${workspaceSlug}/`;
-  let segment = '';
-  if (pathname.startsWith(prefix)) {
-    segment = pathname.slice(prefix.length).split('/')[0] ?? '';
-  } else {
-    // Global routes like /today, /inbox: take the first non-empty path segment.
-    segment = pathname.replace(/^\//, '').split('/')[0] ?? '';
-  }
-  if (!segment) return '';
-  return PAGE_LABELS[segment] ?? segment.charAt(0).toUpperCase() + segment.slice(1);
+  // The workspace root redirects onwards, so it has no section of its own —
+  // without this it would parse as the segment "w" and render a "W" crumb.
+  if (pathname === `/w/${workspaceSlug}`) return { label: '', href: null };
+
+  const underWorkspace = pathname.startsWith(prefix);
+  const rest = underWorkspace
+    ? pathname.slice(prefix.length)
+    : // Global routes like /today, /inbox: take the first non-empty segment.
+      pathname.replace(/^\//, '');
+
+  const parts = rest.split('/').filter(Boolean);
+  const segment = parts[0] ?? '';
+  if (!segment) return { label: '', href: null };
+
+  const label =
+    PAGE_LABELS[segment] ?? segment.charAt(0).toUpperCase() + segment.slice(1);
+  const href =
+    underWorkspace && parts.length > 1 ? `${prefix}${segment}` : null;
+
+  return { label, href };
 }
 
 /** Extract the page id when on a page-detail route (`/w/{slug}/pages/{id}`). */
@@ -60,22 +82,24 @@ export function WorkspaceTopbar() {
 
   if (!workspace || !workspaceSlug) return null;
 
-  const pageLabel = getCurrentPageLabel(pathname, workspaceSlug);
+  const section = getSectionCrumb(pathname, workspaceSlug);
 
   return (
     <div className={styles.topbar}>
       <div className={styles.crumb}>
         <IconFolder size={14} stroke={1.75} style={{ color: 'var(--color-text-muted)' }} />
-        <span className={styles.crumbCurrent}>{workspace.name}</span>
-        {pageLabel && (
+        <Link href={`/w/${workspaceSlug}`} className={styles.crumbRoot}>
+          {workspace.name}
+        </Link>
+        {section.label && (
           <>
             <span className={styles.crumbSep}>/</span>
-            {pageDetailId ? (
-              <Link href={`/w/${workspaceSlug}/pages`} className={styles.crumbLink}>
-                {pageLabel}
+            {section.href ? (
+              <Link href={section.href} className={styles.crumbLink}>
+                {section.label}
               </Link>
             ) : (
-              <span>{pageLabel}</span>
+              <span>{section.label}</span>
             )}
           </>
         )}

@@ -45,6 +45,19 @@
   border-bottom: 1px solid var(--td-hair);
   white-space: nowrap;
   flex-shrink: 0;
+  /* Matches the sidebar's own collapse animation, so the title slides aside
+     rather than jumping when the corner button appears. */
+  transition: padding-left 300ms ease-in-out;
+}
+
+/* Collapsed, the sidebar leaves a fixed re-open button in the window's
+   top-left corner (x 12–44). This page goes full-bleed, so its bar starts at
+   the very edge of the content column and is the one header the button lands
+   on — 20px puts the title straight under it. WorkspaceTopbar sidesteps this
+   with a flat 40px; here the extra space is only spent while the button is
+   actually there. */
+html[data-sidebar="closed"] .td-topbar {
+  padding-left: 52px;
 }
 
 .td-topbar__title {
@@ -625,3 +638,79 @@
    the redesign. (Used by the original top bar in DoPageContent
    when filter !== 'today'.)
    ============================================================ */
+
+/* ---- Overdue amnesty ----------------------------------------------------
+   Surfaces bulk-written cohorts inside the overdue section. A large overdue
+   count is usually a few batch writes, not a lot of missed commitments, and
+   "Reschedule all → Today" is the wrong move for those — it re-inflicts the
+   pile tomorrow. See ADR-0052. */
+.td-amnesty {
+  padding: 12px 24px 14px;
+  border-bottom: 1px solid var(--td-hair);
+  background: var(--td-prio-urgent-10);
+}
+
+.td-amnesty__lede {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--td-text);
+}
+
+.td-amnesty__cohort {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.td-amnesty__detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.td-amnesty__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text);
+  white-space: nowrap;
+}
+
+.td-amnesty__meta {
+  font-size: 11px;
+  color: var(--td-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td .td-amnesty__action {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--td-prio-urgent-dim);
+  color: var(--td-prio-urgent);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+.td .td-amnesty__action:hover:not(:disabled) {
+  background: var(--td-prio-urgent-10);
+}
+
+.td .td-amnesty__action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.td-amnesty__note {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  color: var(--td-muted);
+}

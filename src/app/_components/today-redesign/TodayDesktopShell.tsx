@@ -13,6 +13,7 @@ import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useDayRollover } from "~/hooks/useDayRollover";
 import { formatRelativeDueAge, hourFloat } from "~/lib/actions/dates";
 import { overdueAnchor } from "~/lib/actions/partition";
+import { groupOverdueCohorts } from "~/lib/actions/triage";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
 import { EditActionModal } from "../EditActionModal";
@@ -141,7 +142,12 @@ export function TodayDesktopShell({
 
   // ---- Mutations -----------------------------------------------------------
   const { updateAction } = useActionMutations({ viewName: "today" });
-  const { bulkReschedule, bulkDelete } = useBulkActionMutations({
+  const {
+    bulkReschedule,
+    bulkDelete,
+    bulkDefer,
+    isMutating: isBulkMutating,
+  } = useBulkActionMutations({
     viewName: "today",
   });
   const handleComplete = (id: string) => {
@@ -265,6 +271,23 @@ export function TodayDesktopShell({
       fromOverdue: true,
     });
   }, [bulkReschedule, partition.overdue]);
+
+  // Most large overdue piles are a few bulk writes, not a lot of missed
+  // commitments. Computed client-side from the same `partition.overdue` the
+  // rows below render, using the same pure function as `action.getOverdueTriage`
+  // and the agent tools — so the page, the endpoint, and Zoe cannot disagree,
+  // and it costs no extra fetch (ADR-0052).
+  const overdueTriage = useMemo(
+    () => groupOverdueCohorts(partition.overdue, { today }),
+    [partition.overdue, today],
+  );
+
+  const handleDeferCohort = useCallback(
+    (actionIds: string[]) => {
+      bulkDefer({ actionIds, fromOverdue: true });
+    },
+    [bulkDefer],
+  );
 
   // ---- Bulk selection -----------------------------------------------------
   const selection = useBulkSelection(
@@ -469,6 +492,48 @@ export function TodayDesktopShell({
                             Reschedule all → Today
                           </button>
                         )}
+                      </div>
+                    )}
+                    {overdueOpen && overdueTriage.cohorts.length > 0 && !bulkMode && (
+                      <div className="td-amnesty">
+                        <p className="td-amnesty__lede">
+                          {overdueTriage.cohortCount} of these{" "}
+                          {overdueTriage.totalOverdue} were created in one go —
+                          they were probably never really due on that date.
+                        </p>
+                        {overdueTriage.cohorts.map((cohort) => (
+                          <div
+                            key={cohort.stampedAt.toISOString()}
+                            className="td-amnesty__cohort"
+                          >
+                            <div className="td-amnesty__detail">
+                              <span className="td-amnesty__count">
+                                {cohort.count} actions
+                              </span>
+                              <span className="td-amnesty__meta">
+                                {cohort.daysOverdue === 1
+                                  ? "dated yesterday"
+                                  : `dated ${cohort.daysOverdue}d ago`}
+                                {cohort.projectNames.length > 0 &&
+                                  ` · ${cohort.projectNames.slice(0, 3).join(", ")}`}
+                                {cohort.projectNames.length > 3 &&
+                                  ` +${cohort.projectNames.length - 3} more`}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="td-amnesty__action"
+                              disabled={isBulkMutating}
+                              onClick={() => handleDeferCohort(cohort.actionIds)}
+                            >
+                              Back to backlog
+                            </button>
+                          </div>
+                        ))}
+                        <p className="td-amnesty__note">
+                          Nothing is deleted — they stay in their projects,
+                          just without a date.
+                        </p>
                       </div>
                     )}
                     {overdueOpen &&

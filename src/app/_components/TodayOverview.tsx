@@ -268,7 +268,6 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
                     dueDate: goal.dueDate,
                     period: goal.period ?? null,
                     lifeDomainId: goal.lifeDomainId,
-                    outcomes: goal.outcomes,
                   }}
                   trigger={
                     <div className="cursor-pointer rounded-md p-2 hover:bg-surface-hover">

@@ -6,6 +6,15 @@ import { AutoSchedulingService } from "~/server/services/AutoSchedulingService";
 import { generateAgentJWT } from "~/server/utils/jwt";
 import { addMinutes, format } from "date-fns";
 import { setTimeInUserTimezone, validateScheduledTimes } from "~/lib/dateUtils";
+import { partitionActions } from "~/lib/actions/partition";
+import {
+  BRIEFING_INTERACTION_TYPES,
+  briefingDate,
+  buildInputSnapshot,
+  findReusableBriefing,
+  persistBriefing,
+  snapshotHash,
+} from "~/server/services/schedulingBriefing";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
 
@@ -349,15 +358,21 @@ export const schedulingRouter = createTRPCRouter({
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + input.days);
 
-      // 1. Fetch overdue actions with projects and outcomes
-      const overdueActions = await ctx.db.action.findMany({
+      // 1. Fetch overdue actions with projects and outcomes.
+      //
+      // Overdue is resolved through the shared `partitionActions()` rule
+      // (ADR-0034) rather than a local `dueDate < today` filter. The panel that
+      // renders these suggestions is *gated* on the client partition, so a
+      // narrower rule here meant the banner could appear on a pile it then had
+      // nothing to say about — and it silently ignored every scheduled-but-
+      // never-due action, which is the most common overdue shape.
+      const candidates = await ctx.db.action.findMany({
         where: {
           OR: [
             { createdById: userId, assignees: { none: {} } },
             { assignees: { some: { userId: userId } } },
           ],
           status: "ACTIVE",
-          dueDate: { lt: today },
           ...(input.actionIds ? { id: { in: input.actionIds } } : {}),
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
@@ -372,11 +387,11 @@ export const schedulingRouter = createTRPCRouter({
             },
           },
         },
-        orderBy: [
-          { dueDate: "asc" }, // Oldest overdue first
-        ],
-        take: 20, // Limit to 20 overdue actions to avoid huge prompts
       });
+
+      // Partition sorts overdue by priority, then oldest debt first.
+      const overdueActions = partitionActions(candidates, { today: now }).overdue
+        .slice(0, 20); // Cap to avoid huge prompts
 
       if (overdueActions.length === 0) {
         return { suggestions: [], calendarConnected: true };
@@ -422,7 +437,41 @@ export const schedulingRouter = createTRPCRouter({
         orderBy: { scheduledStart: "asc" },
       });
 
-      // 4. Build the prompt and call Mastra agent
+      // 4. Reuse today's briefing when nothing the prompt reads has changed.
+      //
+      // This query used to call the model on every /today render (a useQuery
+      // with a 5-minute staleTime), which is exactly what
+      // docs/ZOE_DAILY_BRIEFING.md's first Gotcha forbids: briefings cost
+      // seconds and thousands of tokens, so they must not regenerate on page
+      // load. Suggestions are advice about a set of actions and a calendar; if
+      // neither moved, the advice is the same. Persisting also gives the eval
+      // loop the replayable inputSnapshot it was designed around.
+      const snapshot = buildInputSnapshot({
+        days: input.days,
+        overdueActions,
+        calendarEvents,
+        scheduledActions,
+      });
+      const hash = snapshotHash(snapshot);
+      const date = briefingDate(now);
+
+      const reusable = await findReusableBriefing(ctx.db, {
+        userId,
+        workspaceId: input.workspaceId,
+        date,
+        hash,
+      });
+      if (reusable) {
+        console.log(`[scheduling] reusing briefing ${reusable.id} (snapshot unchanged)`);
+        return {
+          suggestions: reusable.suggestions as SchedulingSuggestion[],
+          calendarConnected,
+          overdueCount: overdueActions.length,
+          briefingId: reusable.id,
+        };
+      }
+
+      // 5. Build the prompt and call Mastra agent
       const userPrompt = buildSchedulingPrompt(
         overdueActions,
         calendarEvents,
@@ -435,11 +484,17 @@ export const schedulingRouter = createTRPCRouter({
         return { suggestions: [], calendarConnected, overdueCount: overdueActions.length };
       }
 
+      const startedAt = Date.now();
+
       try {
         const agentJWT = generateAgentJWT(ctx.session.user, 30);
 
         const response = await fetch(
-          `${MASTRA_API_URL}/api/agents/ashAgent/generate`,
+          // zoeAgent, not ashAgent: these suggestions are shown to the user
+          // under Zoe's name. ashAgent is a tool-less lean-startup persona
+          // whose instructions were being overridden per call anyway, so the
+          // branding, model, and prompt all disagreed with the surface.
+          `${MASTRA_API_URL}/api/agents/zoeAgent/generate`,
           {
             method: "POST",
             headers: {
@@ -476,10 +531,23 @@ export const schedulingRouter = createTRPCRouter({
         const validActionIds = new Set(overdueActions.map((a) => a.id));
         const validSuggestions = suggestions.filter((s) => validActionIds.has(s.actionId));
 
+        const briefingId = await persistBriefing(ctx.db, {
+          userId,
+          workspaceId: input.workspaceId,
+          date,
+          modelId: "zoeAgent",
+          snapshot,
+          hash,
+          outputText: responseText,
+          suggestions: validSuggestions,
+          latencyMs: Date.now() - startedAt,
+        });
+
         return {
           suggestions: validSuggestions,
           calendarConnected,
           overdueCount: overdueActions.length,
+          briefingId,
         };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -488,6 +556,35 @@ export const schedulingRouter = createTRPCRouter({
         // Return empty suggestions instead of failing - the UI can still function without AI suggestions
         return { suggestions: [], calendarConnected, overdueCount: overdueActions.length };
       }
+    }),
+
+  // How a briefing was received. Without this, none of the metrics in
+  // docs/ZOE_DAILY_BRIEFING.md can be computed — acceptance rate, dismissal
+  // rate, and top-1 execution rate all read from BriefingInteraction, a table
+  // that existed but was never written to.
+  recordBriefingInteraction: protectedProcedure
+    .input(
+      z.object({
+        briefingId: z.string(),
+        type: z.enum(BRIEFING_INTERACTION_TYPES),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Scope to the caller's own briefings — briefingId is a client-supplied
+      // id, so an unscoped write would let anyone append to anyone's metrics.
+      const briefing = await ctx.db.dailyBriefing.findFirst({
+        where: { id: input.briefingId, userId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!briefing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Briefing not found" });
+      }
+
+      await ctx.db.briefingInteraction.create({
+        data: { briefingId: briefing.id, type: input.type },
+      });
+
+      return { success: true };
     }),
 
   // Auto-schedule a single task
