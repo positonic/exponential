@@ -16,8 +16,8 @@ import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
  */
 
 const MAX_KEYS_PER_AGENT = 10;
-// Avatars travel as base64 inside a tRPC JSON request. Three raw MiB expands
-// to four MiB, leaving room under Vercel Functions' 4.5 MB request-body cap.
+// The base64 payload expands by roughly 4/3 inside the tRPC JSON request.
+// 3 MB stays below Vercel's 4.5 MB function request-body ceiling.
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 const MAX_AVATAR_BASE64_LENGTH = Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 4;
 const AVATAR_EXTENSIONS = {
@@ -184,6 +184,10 @@ export const externalAgentRouter = createTRPCRouter({
         }
         throw error;
       }
+
+      // A retained shadow user still needs its image for historical
+      // attribution. Once the row is gone, the blob is unreachable and can be
+      // cleaned up without affecting deletion if storage is temporarily down.
       if (agent.shadowUser.image) {
         await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
       }

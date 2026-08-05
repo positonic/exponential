@@ -80,6 +80,16 @@
   color: var(--pri-urgent);
 }
 
+/* See the matching rule in today-desktop.css: the unscheduled marker is the
+   quietest thing on the row — icon only, no chip frame, no text. */
+.chipUnscheduled {
+  padding: 2px 4px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+  gap: 0;
+}
+
 .chipSuggest {
   background: color-mix(in srgb, var(--accent-meetings) 10%, transparent);
   border-color: color-mix(in srgb, var(--accent-meetings) 28%, transparent);

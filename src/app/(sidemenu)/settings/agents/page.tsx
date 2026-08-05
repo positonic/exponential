@@ -39,8 +39,8 @@ import {
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 
-// Base64 transport expands this to 4 MiB, safely below Vercel's 4.5 MB
-// function request limit once the surrounding tRPC JSON is included.
+// tRPC carries the image as base64 JSON. Keep the encoded request comfortably
+// below Vercel's 4.5 MB function-body limit (3 MB becomes ~4 MB as base64).
 const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
