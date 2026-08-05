@@ -173,7 +173,8 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
     for (const s of activeSuggestions) handleAcceptSuggestion(s);
   };
 
-  // "Now", not midnight — see TodayDesktopShell.handleRescheduleAllOverdue.
+  // The current instant, not midnight — see
+  // TodayDesktopShell.handleRescheduleAllOverdue for why it no longer matters.
   const handleRescheduleAllOverdue = useCallback(
     (ids: string[]) =>
       bulkReschedule({

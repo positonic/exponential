@@ -1641,54 +1641,33 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions (update scheduledStart/doDate and dueDate)
+  // Bulk reschedule actions: moves the deadline (`dueDate`) only.
+  //
+  // This deliberately does NOT touch `scheduledStart`. It used to — an earlier
+  // comment here called scheduledStart the "do date" and always stamped it with
+  // the new value. But "Reschedule all overdue" passes the current instant, so
+  // that wrote a wall-clock time nobody chose onto every action in the pile,
+  // and the agenda rail drew each one as an hour-long block seconds apart.
+  // `scheduledStart` means "a slot the user deliberately placed"; a bulk
+  // reschedule expresses a deadline and nothing more. Actions that already have
+  // a real time-block keep it.
+  //
+  // To clear every date instead, use `bulkDefer` — that is its whole job.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
       dueDate: z.date().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Always update scheduledStart (the "do date" - when the action is scheduled)
-      // Also update dueDate if it would be before the new scheduledStart
-      if (input.dueDate) {
-        // First: update scheduledStart for all actions
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-          },
-          data: {
-            scheduledStart: input.dueDate,
-          },
-        });
-
-        // Second: update dueDate only for actions where dueDate is before the new date (or null)
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-            OR: [
-              { dueDate: null },
-              { dueDate: { lt: input.dueDate } },
-            ],
-          },
-          data: {
-            dueDate: input.dueDate,
-          },
-        });
-      } else {
-        // Clearing the schedule: remove both dates
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-          },
-          data: {
-            scheduledStart: null,
-            dueDate: null,
-          },
-        });
-      }
+      await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        data: {
+          dueDate: input.dueDate,
+        },
+      });
 
       return {
         count: input.actionIds.length,
@@ -1698,13 +1677,14 @@ export const actionRouter = createTRPCRouter({
 
   // Amnesty: un-date actions back to their project backlog.
   //
-  // Deliberately distinct from `bulkReschedule({ dueDate: null })`, which has
-  // the same effect on the rows. The difference is intent, and intent is what
-  // callers (and agents doing tool discovery) need to express: rescheduling
-  // says "this is still due, later"; deferring says "this was never really due
-  // — stop counting it against me". Most large overdue piles are the second
-  // case (a project plan bulk-stamped with one date), and rescheduling them
-  // just re-inflicts the pile tomorrow.
+  // Deliberately distinct from `bulkReschedule({ dueDate: null })`. The two no
+  // longer have the same effect on the rows: reschedule touches `dueDate` only,
+  // while defer clears the time-block as well. The difference is intent, and
+  // intent is what callers (and agents doing tool discovery) need to express:
+  // rescheduling says "this is still due, later"; deferring says "this was
+  // never really due — stop counting it against me". Most large overdue piles
+  // are the second case (a project plan bulk-stamped with one date), and
+  // rescheduling them just re-inflicts the pile tomorrow.
   //
   // Only the dates are touched. Kanban status is left alone on purpose: an
   // action can be untimed and still be IN_PROGRESS on a board.

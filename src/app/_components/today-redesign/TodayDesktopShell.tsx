@@ -23,7 +23,10 @@ import {
   BulkEditToolbar,
   type BulkActionDef,
 } from "../actions/components/BulkEditToolbar";
-import type { RescheduleChoice } from "../actions/components/ReschedulePopover";
+import {
+  rescheduleUpdateFields,
+  type RescheduleChoice,
+} from "~/lib/actions/reschedule";
 import { useActionMutations } from "../actions/hooks/useActionMutations";
 import { useActionPartition } from "../actions/hooks/useActionPartition";
 import { useBulkActionMutations } from "../actions/hooks/useBulkActionMutations";
@@ -162,9 +165,9 @@ export function TodayDesktopShell({
     });
   };
 
+  // Moves the deadline, not the time-block — see `rescheduleUpdateFields`.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    const newDate = choice.date ?? null;
-    updateAction({ id, scheduledStart: newDate, dueDate: newDate });
+    updateAction({ id, ...rescheduleUpdateFields(choice) });
   };
 
   const handleAcceptSuggestion = (s: {
@@ -238,10 +241,10 @@ export function TodayDesktopShell({
     return [...overdue, ...todays];
   }, [partition.overdue, partition.todays]);
 
-  // "Now", not the midnight `today` from useDayRollover: bulkReschedule also
-  // sets scheduledStart, and a midnight date would render the rescheduled
-  // items as 12:00 AM blocks on the agenda rail (ReschedulePopover's "Today"
-  // quick option makes the same choice).
+  // The current instant rather than the midnight `today` from useDayRollover.
+  // The time-of-day is immaterial now that this only writes `dueDate`, which
+  // every consumer compares at day granularity — and bulkReschedule no longer
+  // stamps it into scheduledStart, so it can't reach the agenda rail.
   const handleRescheduleAllOverdue = useCallback(() => {
     bulkReschedule({
       actionIds: partition.overdue.map((a) => a.id),
