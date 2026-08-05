@@ -239,44 +239,48 @@ export default function ExternalAgentsPage() {
               </Button>
             </Group>
             {agent.keys.length > 0 && (
-              <Table>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Label</Table.Th>
-                    <Table.Th>Key</Table.Th>
-                    <Table.Th>Last used</Table.Th>
-                    <Table.Th>Expires</Table.Th>
-                    <Table.Th />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {agent.keys.map((key) => (
-                    <Table.Tr key={key.id}>
-                      <Table.Td>{key.name}</Table.Td>
-                      <Table.Td>
-                        <Code>{key.keyPrefix}</Code>
-                      </Table.Td>
-                      <Table.Td>
-                        {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'never'}
-                      </Table.Td>
-                      <Table.Td>
-                        {key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : '—'}
-                      </Table.Td>
-                      <Table.Td>
-                        <Tooltip label="Revoke — takes effect on the agent's next request">
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            onClick={() => revokeKey.mutate({ agentId: agent.id, keyId: key.id })}
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </Table.Td>
+              /* Without a scroll container the table overflows the page on narrow
+                 viewports, which inflates 100vw and pushes modals off-screen. */
+              <Table.ScrollContainer minWidth={480}>
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Label</Table.Th>
+                      <Table.Th>Key</Table.Th>
+                      <Table.Th>Last used</Table.Th>
+                      <Table.Th>Expires</Table.Th>
+                      <Table.Th />
                     </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {agent.keys.map((key) => (
+                      <Table.Tr key={key.id}>
+                        <Table.Td>{key.name}</Table.Td>
+                        <Table.Td>
+                          <Code>{key.keyPrefix}</Code>
+                        </Table.Td>
+                        <Table.Td>
+                          {key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'never'}
+                        </Table.Td>
+                        <Table.Td>
+                          {key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : '—'}
+                        </Table.Td>
+                        <Table.Td>
+                          <Tooltip label="Revoke — takes effect on the agent's next request">
+                            <ActionIcon
+                              variant="subtle"
+                              color="red"
+                              onClick={() => revokeKey.mutate({ agentId: agent.id, keyId: key.id })}
+                            >
+                              <IconTrash size={14} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
             )}
           </Stack>
         </Paper>
@@ -313,6 +317,7 @@ export default function ExternalAgentsPage() {
       <Modal
         opened={keyModalAgentId !== null}
         onClose={closeKeyModal}
+        size={generatedSecret ? 'lg' : 'md'}
         title={generatedSecret ? 'Copy your key now' : 'New agent key'}
       >
         {generatedSecret ? (
@@ -321,8 +326,19 @@ export default function ExternalAgentsPage() {
               This is the only time the key is shown. Store it in your agent&apos;s
               configuration — if you lose it, revoke it and create a new one.
             </Alert>
-            <Group wrap="nowrap" gap="xs">
-              <Code block style={{ flex: 1, wordBreak: 'break-all' }}>
+            <Group wrap="nowrap" align="flex-start" gap="xs">
+              {/* The key is a single unbroken token: without pre-wrap the <pre>
+                  keeps it on one line and grows its own scrollbar. */}
+              <Code
+                block
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  overflowX: 'hidden',
+                }}
+              >
                 {generatedSecret}
               </Code>
               <CopyButton value={generatedSecret}>
