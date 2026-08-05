@@ -480,10 +480,26 @@ export function useVoiceSession(
       tokenRef.current = mint.voiceSessionToken;
       // Captured before the data channel exists, so configureSession() (which
       // runs on dc.onopen) always sees this session's own persona/catalog.
-      sessionConfigRef.current =
-        mint.routerInstructions && mint.toolCatalog
-          ? { instructions: mint.routerInstructions, tools: mint.toolCatalog }
-          : null;
+      // Both or neither: a server persona paired with a bundled catalog (or the
+      // reverse) is a worse failure than falling back cleanly to both bundled.
+      if (mint.routerInstructions && mint.toolCatalog) {
+        sessionConfigRef.current = {
+          instructions: mint.routerInstructions,
+          tools: mint.toolCatalog,
+        };
+      } else {
+        // Say so. Silent fallback means a server-side persona change appears to
+        // ship and simply doesn't take effect — with nothing anywhere to explain
+        // why the model is still following last release's instructions.
+        console.warn(
+          "[useVoiceSession] mint omitted routerInstructions/toolCatalog — using the bundled persona and catalog; server-side persona changes will NOT apply",
+          {
+            hasRouterInstructions: !!mint.routerInstructions,
+            hasToolCatalog: !!mint.toolCatalog,
+          },
+        );
+        sessionConfigRef.current = null;
+      }
       micRef.current = mic;
 
       const pc = new RTCPeerConnection();

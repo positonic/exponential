@@ -106,6 +106,10 @@ export function buildVoiceSeedContext(
   const { messages: kept } = trimByTokenBudget(turns.slice(-maxTurns), tokenBudget);
   if (kept.length === 0) return null;
 
+  // A sentinel split across two turns ("…[END CONVERSATION" / "SO FAR]…") is out
+  // of reach of the per-turn escaping above — but it cannot reassemble either,
+  // because every join inserts "\n<Label>: " between the halves. The speaker
+  // label is load-bearing, not decoration: drop it and the split becomes live.
   const transcript = kept
     .map((t) => `${t.role === "user" ? "User" : assistantLabel}: ${t.content}`)
     .join("\n");
@@ -133,7 +137,14 @@ function collapseWhitespace(text: string): string {
  * would address the router at top level.
  */
 function neutralizeSentinels(text: string): string {
-  return text.replace(/\[(\/?END )?CONVERSATION SO FAR/gi, "(conversation so far");
+  // Deliberately loose: anything bracket-opening that reaches "CONVERSATION SO
+  // FAR" is defanged, whatever slashes, END, or whitespace it wears. A narrow
+  // pattern is worse than none — it reads as protection while a closing-tag
+  // variant like "[/CONVERSATION SO FAR]" walks straight through it.
+  return text.replace(
+    /\[[\s/]*(END[\s/]*)?CONVERSATION\s+SO\s+FAR/gi,
+    "(conversation so far",
+  );
 }
 
 function capped(text: string, cap: number): string {
