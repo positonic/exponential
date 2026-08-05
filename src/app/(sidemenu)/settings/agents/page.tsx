@@ -39,7 +39,9 @@ import {
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 
-const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+// tRPC carries the image as base64 JSON. Keep the encoded request comfortably
+// below Vercel's 4.5 MB function-body limit (3 MB becomes ~4 MB as base64).
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 /**
@@ -178,7 +180,7 @@ export default function ExternalAgentsPage() {
     if (file.size > MAX_AVATAR_BYTES) {
       notifications.show({
         title: 'File too large',
-        message: 'Please choose an image no larger than 5MB.',
+        message: 'Please choose an image no larger than 3MB.',
         color: 'red',
       });
       return;

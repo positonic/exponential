@@ -16,7 +16,9 @@ import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
  */
 
 const MAX_KEYS_PER_AGENT = 10;
-const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+// The base64 payload expands by roughly 4/3 inside the tRPC JSON request.
+// 3 MB stays below Vercel's 4.5 MB function request-body ceiling.
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 const MAX_AVATAR_BASE64_LENGTH = Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 4;
 const AVATAR_EXTENSIONS = {
   "image/jpeg": "jpg",
@@ -128,7 +130,7 @@ export const externalAgentRouter = createTRPCRouter({
       if (Buffer.byteLength(input.base64Data, "base64") > MAX_AVATAR_BYTES) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Avatar must be 5MB or smaller",
+          message: "Avatar must be 3MB or smaller",
         });
       }
 

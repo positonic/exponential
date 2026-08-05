@@ -77,7 +77,7 @@ const AGENT_ID = "agent-1";
 const SHADOW_ID = "shadow-1";
 const OLD_AVATAR_URL = "https://blob.example/old.png";
 const NEW_AVATAR_URL = "https://blob.example/new.png";
-const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 
 function caller(db: DeepMockProxy<PrismaClient>) {
   return createMockCaller({
@@ -149,14 +149,14 @@ describe("externalAgent.uploadAvatar", () => {
     expect(db.user.update).not.toHaveBeenCalled();
   });
 
-  it("rejects images larger than 5MB before uploading them", async () => {
+  it("rejects images larger than 3MB before uploading them", async () => {
     await expect(
       caller(db).externalAgent.uploadAvatar({
         agentId: AGENT_ID,
         base64Data: Buffer.alloc(MAX_AVATAR_BYTES + 1).toString("base64"),
         contentType: "image/png",
       }),
-    ).rejects.toThrow(/5MB or smaller/);
+    ).rejects.toThrow(/3MB or smaller/);
 
     expect(blobMocks.uploadToBlob).not.toHaveBeenCalled();
     expect(db.user.update).not.toHaveBeenCalled();
