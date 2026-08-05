@@ -246,11 +246,22 @@ export function ProductTimelineClient() {
     setPages((prev) => [...prev, (prev[prev.length - 1] ?? 0) + 1]);
   }, []);
 
-  // Not memoized: it closes over the per-page query handles, which change with
-  // `pages`, and it only ever renders on an error path.
-  const retry = () => {
+  // Not memoized: these close over the per-page query handles, which change
+  // with `pages`, and they only ever render on an error path.
+
+  // Partial failure: we still have commits on screen, so refetch in place
+  // rather than throwing away the pages the reader already has.
+  const retryInPlace = () => {
     for (const query of queries) void query.refetch();
     void releasesQuery.refetch();
+  };
+
+  // Total failure: there is nothing on screen to preserve, and `refetch()` is
+  // not dependable here — a query that came to rest at `fetchStatus: "paused"`
+  // just pauses again, leaving the button looking broken. A reload always does
+  // something, and costs nothing when the page is already empty.
+  const retryFromScratch = () => {
+    window.location.reload();
   };
 
   const entries = buildTimeline(allCommits, releases);
@@ -294,7 +305,7 @@ export function ProductTimelineClient() {
               variant="light"
               size="xs"
               leftSection={<IconRefresh size={14} />}
-              onClick={retry}
+              onClick={retryFromScratch}
             >
               Try again
             </Button>
@@ -347,7 +358,7 @@ export function ProductTimelineClient() {
               variant="subtle"
               size="xs"
               leftSection={<IconRefresh size={14} />}
-              onClick={retry}
+              onClick={retryInPlace}
             >
               Retry
             </Button>

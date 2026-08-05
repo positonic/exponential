@@ -127,6 +127,27 @@ describe("ProductTimelineClient", () => {
     expect(reportHandledError).not.toHaveBeenCalled();
   });
 
+  it("retries a total failure with a reload, not a refetch", () => {
+    // `refetch()` is not dependable from the paused state — it just pauses
+    // again, leaving the button looking broken. There is nothing on screen to
+    // preserve here, so a reload is the honest action.
+    const refetch = vi.fn();
+    mockListCommits.mockReturnValue(
+      queryResult({ fetchStatus: "paused", isFetched: false, refetch }),
+    );
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+
+    render(<ProductTimelineClient />);
+    screen.getByRole("button", { name: /Try again/i }).click();
+
+    expect(reload).toHaveBeenCalled();
+    expect(refetch).not.toHaveBeenCalled();
+  });
+
   it("renders commits and no error banner on the happy path", () => {
     mockListCommits.mockReturnValue(queryResult({ data: ONE_COMMIT }));
 
