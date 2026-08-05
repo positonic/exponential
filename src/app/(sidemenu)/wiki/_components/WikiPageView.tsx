@@ -248,7 +248,7 @@ export function WikiPageView({ path }: { path: string }) {
             >
               Edit
             </Button>
-            <WikiPageActions bridge={bridge} path={path} onChanged={() => void load()} />
+            <WikiPageActions bridge={bridge} path={path} />
           </Group>
         )}
       </Group>

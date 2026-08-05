@@ -24,12 +24,9 @@ import { WIKI_ROUTE, wikiHref } from "~/lib/wiki/wikiLinks";
 export function WikiPageActions({
   bridge,
   path,
-  onChanged,
 }: {
   bridge: WikiBridge;
   path: string;
-  /** Re-read after a rename that stayed on the same route. */
-  onChanged: () => void;
 }) {
   const router = useRouter();
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -56,8 +53,11 @@ export function WikiPageActions({
                   count === 1 ? "page" : "pages"
                 }.`,
         });
+        // The route change is the reload: this view is keyed on the path, so
+        // navigating to the new one re-reads it. Asking for a refresh here too
+        // would re-read the *old* path first and flash "nobody has written
+        // this page yet" on the way out.
         router.replace(wikiHref(result.to));
-        onChanged();
       } catch (e) {
         reportHandledError(e, { area: "local-wiki-rename" });
         notifications.show({
@@ -69,7 +69,7 @@ export function WikiPageActions({
         setBusy(false);
       }
     },
-    [bridge, path, router, onChanged],
+    [bridge, path, router],
   );
 
   const remove = useCallback(async () => {
