@@ -43,8 +43,12 @@ export function itemsOverlap(a: CalendarItem, b: CalendarItem): boolean {
  * Build clusters of items that transitively overlap with each other.
  * Items in the same cluster share column space, while separate clusters
  * are positioned independently.
+ *
+ * Exported because the Today agenda rail needs cluster membership, not just
+ * per-item columns: it caps lanes and has to know which blocks belong to the
+ * same pile-up in order to collapse the overflow. See `~/lib/actions/railLayout`.
  */
-function buildOverlapClusters(
+export function buildOverlapClusters(
   items: PositionedCalendarItem[]
 ): PositionedCalendarItem[][] {
   if (items.length === 0) return [];
