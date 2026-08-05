@@ -24,6 +24,12 @@ export const FIXTURE = {
   productSlug: "fixture",
   productName: "Fixture Product",
   featureName: "Tickets accordion fixture",
+  projectSlug: "goal-hierarchy-fixture",
+  projectName: "Goal hierarchy fixture",
+  parentGoalTitle: "Grow the fixture business",
+  childGoalTitle: "Ship the goal hierarchy affordance",
+  offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
+  detachedChildGoalTitle: "Sub-goal whose parent is off-project",
 } as const;
 
 export interface SeededFixture {
@@ -39,6 +45,10 @@ export interface SeededFixture {
   featureTicketCount: number;
   /** Total tickets seeded, including the scope-only one the accordion hides. */
   totalTicketCount: number;
+  /** App-relative URL of the seeded project's Goals tab (the goal hierarchy). */
+  projectGoalsUrl: string;
+  /** Goals on that project: a parent, its sub-goal, and a detached sub-goal. */
+  goalIds: { parent: number; child: number; offProjectParent: number; detachedChild: number };
 }
 
 interface TicketSpec {
@@ -171,8 +181,74 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
   });
 
+  // A project carrying a goal hierarchy, so the Goals tab's nesting affordance
+  // is observable: a parent with a sub-goal under it, plus a sub-goal whose
+  // parent is NOT on this project (it can't be nested under anything on
+  // screen, so it stays at the root and names its parent instead).
+  const project = await db.project.upsert({
+    where: { slug: FIXTURE.projectSlug },
+    update: {},
+    create: {
+      slug: FIXTURE.projectSlug,
+      name: FIXTURE.projectName,
+      description: "Seeded for visual verification of sub-goal nesting on the project Goals tab.",
+      status: "ACTIVE",
+      priority: "HIGH",
+      createdById: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  const upsertGoal = async (
+    title: string,
+    opts: { description?: string; parentGoalId?: number; onProject: boolean; displayOrder: number },
+  ) => {
+    const existing = await db.goal.findFirst({ where: { userId: user.id, title } });
+    const data = {
+      description: opts.description ?? null,
+      status: "active",
+      parentGoalId: opts.parentGoalId ?? null,
+      displayOrder: opts.displayOrder,
+      ...(opts.onProject ? { projects: { connect: { id: project.id } } } : {}),
+    };
+    return existing
+      ? await db.goal.update({ where: { id: existing.id }, data })
+      : await db.goal.create({
+          data: { title, userId: user.id, workspaceId: workspace.id, ...data },
+        });
+  };
+
+  const parentGoal = await upsertGoal(FIXTURE.parentGoalTitle, {
+    description: "Root objective — the sub-goal below nests under it.",
+    onProject: true,
+    displayOrder: 0,
+  });
+  const childGoal = await upsertGoal(FIXTURE.childGoalTitle, {
+    description: "Nested one level under its parent.",
+    parentGoalId: parentGoal.id,
+    onProject: true,
+    displayOrder: 1,
+  });
+  const offProjectParentGoal = await upsertGoal(FIXTURE.offProjectParentGoalTitle, {
+    onProject: false,
+    displayOrder: 2,
+  });
+  const detachedChildGoal = await upsertGoal(FIXTURE.detachedChildGoalTitle, {
+    description: "Its parent isn't on this project, so the row names the parent.",
+    parentGoalId: offProjectParentGoal.id,
+    onProject: true,
+    displayOrder: 3,
+  });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=goals`,
+    goalIds: {
+      parent: parentGoal.id,
+      child: childGoal.id,
+      offProjectParent: offProjectParentGoal.id,
+      detachedChild: detachedChildGoal.id,
+    },
     userId: user.id,
     workspaceSlug: FIXTURE.workspaceSlug,
     productSlug: FIXTURE.productSlug,

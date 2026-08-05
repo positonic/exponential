@@ -148,7 +148,8 @@ export async function getAllMyGoals({ ctx }: { ctx: Context }) {
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true
+      outcomes: true,
+      parentGoal: { select: { id: true, title: true } }
     }
   });
 }
@@ -365,7 +366,11 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
       lifeDomain: true,
       projects: true,
       outcomes: true,
+      // The list nests sub-goals under their parent; the parent's title is what
+      // labels a sub-goal whose parent isn't itself on this project.
+      parentGoal: { select: { id: true, title: true } },
     },
+    orderBy: { displayOrder: "asc" },
   });
 }
 

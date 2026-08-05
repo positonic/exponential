@@ -12,6 +12,7 @@ import {
   Skeleton,
   Stack,
   ActionIcon,
+  VisuallyHidden,
 } from "@mantine/core";
 import {
   IconPlus,
@@ -22,6 +23,9 @@ import {
   IconClockFilled,
   IconUsers,
   IconChartBar,
+  IconChevronDown,
+  IconChevronRight,
+  IconCornerDownRight,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -92,53 +96,180 @@ interface GoalRow {
   icon: string | null;
   iconColor: string | null;
   projects: { id: string; name: string; progress: number; status: string }[];
-  childGoals: { id: number; title: string; status: string; health: string | null }[];
+  parentGoal?: { id: number; title: string } | null;
+  childGoals?: { id: number; title: string; status: string; health: string | null }[];
   _count?: { keyResults: number };
 }
 
-function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: string }) {
+/** A goal plus its place in the hierarchy of the rows currently on screen. */
+interface GoalTreeNode {
+  goal: GoalRow;
+  depth: number;
+  children: GoalTreeNode[];
+}
+
+/**
+ * Nests goals under whichever parent is also in `goals`. A goal whose parent is
+ * missing from the list (filtered out by status, or simply not on this project)
+ * stays at the root so it never disappears — it gets a "sub-goal of X" label
+ * instead. Unreachable nodes (a parent cycle) are promoted to roots too.
+ */
+function buildGoalTree(goals: GoalRow[]): GoalTreeNode[] {
+  const nodes = new Map<number, GoalTreeNode>(
+    goals.map((goal) => [goal.id, { goal, depth: 0, children: [] }]),
+  );
+  const roots: GoalTreeNode[] = [];
+
+  for (const goal of goals) {
+    const node = nodes.get(goal.id);
+    if (!node) continue;
+    const parent = goal.parentGoalId !== null ? nodes.get(goal.parentGoalId) : undefined;
+    if (parent && parent !== node) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const seen = new Set<number>();
+  const setDepth = (node: GoalTreeNode, depth: number) => {
+    if (seen.has(node.goal.id)) return;
+    seen.add(node.goal.id);
+    node.depth = depth;
+    node.children.forEach((child) => setDepth(child, depth + 1));
+  };
+  roots.forEach((root) => setDepth(root, 0));
+
+  // Any node a cycle kept out of the walk still deserves a row.
+  for (const node of nodes.values()) {
+    if (!seen.has(node.goal.id)) {
+      setDepth(node, 0);
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+/** Depth-first flatten, skipping the children of collapsed rows. */
+function flattenGoalTree(nodes: GoalTreeNode[], collapsedIds: Set<number>): GoalTreeNode[] {
+  return nodes.flatMap((node) =>
+    collapsedIds.has(node.goal.id)
+      ? [node]
+      : [node, ...flattenGoalTree(node.children, collapsedIds)],
+  );
+}
+
+function InitiativeRow({
+  goal,
+  workspaceSlug,
+  depth,
+  childCount,
+  isExpanded,
+  onToggle,
+  goalLabel,
+}: {
+  goal: GoalRow;
+  workspaceSlug: string;
+  depth: number;
+  childCount: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+  goalLabel: string;
+}) {
   const projectCount = goal.projects.length;
   const activeProjectCount = goal.projects.filter(p => p.status === "ACTIVE").length;
   const krCount = goal._count?.keyResults ?? 0;
+  const isNested = depth > 0;
+  const parentTitle = goal.parentGoal?.title ?? null;
+  // Nesting is only visible when the parent is on screen above this row; if it
+  // isn't, name the parent so the relationship still reads.
+  const detachedParentTitle = !isNested ? parentTitle : null;
+  const subGoalLabel = `Sub-${goalLabel.toLowerCase()}`;
 
   return (
     <Table.Tr
       className="cursor-pointer hover:bg-surface-hover transition-colors"
+      data-goal-depth={depth}
     >
       {/* Name */}
       <Table.Td>
-        <Link
-          href={`/w/${workspaceSlug}/goals/${goal.id}`}
-          className="no-underline"
-        >
-          <Group gap="sm" wrap="nowrap">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
-              <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={16} />
-            </div>
-            <div className="min-w-0">
-              <Group gap={6} wrap="nowrap">
-                <Text size="sm" fw={500} className="text-text-primary" truncate="end">
-                  {goal.title}
-                </Text>
-                {krCount > 0 && (
-                  <Badge
-                    size="xs"
-                    variant="light"
-                    color="brand"
-                    leftSection={<IconChartBar size={10} />}
-                  >
-                    {krCount} KR{krCount === 1 ? "" : "s"}
-                  </Badge>
+        <Group gap={4} wrap="nowrap" style={{ paddingLeft: depth * 28 }}>
+          {childCount > 0 ? (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              className="shrink-0"
+              aria-label={isExpanded ? `Collapse ${subGoalLabel.toLowerCase()}s` : `Expand ${subGoalLabel.toLowerCase()}s`}
+              aria-expanded={isExpanded}
+              onClick={onToggle}
+            >
+              {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+            </ActionIcon>
+          ) : (
+            <div className="w-[22px] shrink-0" aria-hidden="true" />
+          )}
+          {isNested && (
+            <IconCornerDownRight
+              size={14}
+              className="text-text-muted shrink-0"
+              aria-hidden="true"
+            />
+          )}
+          <Link
+            href={`/w/${workspaceSlug}/goals/${goal.id}`}
+            className="no-underline min-w-0 flex-1"
+          >
+            <Group gap="sm" wrap="nowrap">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
+                <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={16} />
+              </div>
+              <div className="min-w-0">
+                <Group gap={6} wrap="nowrap">
+                  <Text size="sm" fw={500} className="text-text-primary" truncate="end">
+                    {goal.title}
+                  </Text>
+                  {/* The indent and the ↳ carry the nesting visually; this
+                      spells the relationship out for assistive tech. */}
+                  {isNested && parentTitle && (
+                    <VisuallyHidden>
+                      {subGoalLabel} of {parentTitle}
+                    </VisuallyHidden>
+                  )}
+                  {childCount > 0 && !isExpanded && (
+                    <Badge size="xs" variant="light" color="gray">
+                      {childCount} {subGoalLabel.toLowerCase()}{childCount === 1 ? "" : "s"}
+                    </Badge>
+                  )}
+                  {krCount > 0 && (
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color="brand"
+                      leftSection={<IconChartBar size={10} />}
+                    >
+                      {krCount} KR{krCount === 1 ? "" : "s"}
+                    </Badge>
+                  )}
+                </Group>
+                {detachedParentTitle && (
+                  <Group gap={4} wrap="nowrap">
+                    <IconCornerDownRight size={12} className="text-text-muted shrink-0" aria-hidden="true" />
+                    <Text size="xs" c="dimmed" lineClamp={1}>
+                      {subGoalLabel} of {detachedParentTitle}
+                    </Text>
+                  </Group>
                 )}
-              </Group>
-              {goal.description && (
-                <Text size="xs" c="dimmed" lineClamp={1}>
-                  {goal.description}
-                </Text>
-              )}
-            </div>
-          </Group>
-        </Link>
+                {goal.description && (
+                  <Text size="xs" c="dimmed" lineClamp={1}>
+                    {goal.description}
+                  </Text>
+                )}
+              </div>
+            </Group>
+          </Link>
+        </Group>
       </Table.Td>
 
       {/* Owner */}
@@ -189,6 +320,7 @@ function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: 
 
 export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [collapsedIds, setCollapsedIds] = useState<Set<number>>(() => new Set());
   const { workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
   const pathname = usePathname();
@@ -204,14 +336,34 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
   );
 
   const isLoading = projectId ? projectGoalsLoading : workspaceGoalsLoading;
-  const goalsSource = projectId ? (projectGoals ?? []) : (allGoals ?? []);
+  const goalsSource = useMemo(
+    () => (projectId ? (projectGoals ?? []) : (allGoals ?? [])),
+    [projectId, projectGoals, allGoals],
+  );
 
-  // Filter goals by status; in workspace mode, show only root-level goals
-  const filteredGoals = goalsSource.filter(g => {
-    if (g.status !== statusFilter) return false;
-    if (!projectId && g.parentGoalId !== null) return false;
-    return true;
-  });
+  // Filter goals by status, then nest sub-goals under whichever parent survived
+  // the filter. Rows are flattened depth-first so the table stays a plain table.
+  const filteredGoals = useMemo(
+    () => goalsSource.filter(g => g.status === statusFilter) as unknown as GoalRow[],
+    [goalsSource, statusFilter],
+  );
+  const goalTree = useMemo(() => buildGoalTree(filteredGoals), [filteredGoals]);
+  const visibleRows = useMemo(
+    () => flattenGoalTree(goalTree, collapsedIds),
+    [goalTree, collapsedIds],
+  );
+
+  const toggleCollapsed = (goalId: number) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(goalId)) {
+        next.delete(goalId);
+      } else {
+        next.add(goalId);
+      }
+      return next;
+    });
+  };
 
   // Register lightweight page context for the AI agent (workspace goals view only —
   // the project-scoped reuse already has project context). Counts only; the agent
@@ -294,11 +446,16 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {filteredGoals.map((goal) => (
+              {visibleRows.map(({ goal, depth, children }) => (
                 <InitiativeRow
                   key={goal.id}
-                  goal={goal as unknown as GoalRow}
+                  goal={goal}
                   workspaceSlug={workspaceSlug ?? ""}
+                  depth={depth}
+                  childCount={children.length}
+                  isExpanded={!collapsedIds.has(goal.id)}
+                  onToggle={() => toggleCollapsed(goal.id)}
+                  goalLabel={terminology.goal}
                 />
               ))}
             </Table.Tbody>
