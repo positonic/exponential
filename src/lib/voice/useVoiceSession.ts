@@ -14,8 +14,11 @@
  *   4. exchanges SDP with OpenAI using the ephemeral client_secret as Bearer
  *      (the durable OPENAI_API_KEY never reaches the browser — only the
  *      short-lived ephemeral key does);
- *   5. registers the 5 voiceToolCatalog tools + router persona via session.update;
- *   6. forwards model tool calls through brainDispatcher and voices the result.
+ *   5. registers the 5 voice tools + router persona via session.update (using
+ *      what the mint issued, per ADR-0005);
+ *   6. seeds the on-screen chat thread as one demoted context item, so the
+ *      router can resolve what the user is referring to;
+ *   7. forwards model tool calls through brainDispatcher and voices the result.
  *
  * Server VAD (the Realtime default) drives turn-taking and barge-in. Per the
  * PRD this transport module is validated by dogfooding, not unit tests.
@@ -29,6 +32,7 @@ import {
 import {
   VOICE_TOOL_CATALOG,
   VOICE_ROUTER_INSTRUCTIONS,
+  type RealtimeToolDescriptor,
 } from "~/lib/voice/voiceToolCatalog";
 
 /** OpenAI Realtime WebRTC SDP-exchange endpoint (GA). */
@@ -46,6 +50,14 @@ export interface VoiceSessionMint {
   openaiEphemeralKey: string;
   voiceSessionToken: string;
   realtime: { model: string };
+  /**
+   * Server-issued persona + catalog (ADR-0005: the server is the single source
+   * of truth for both). Optional here only so an older/partial mint still
+   * starts — we fall back to the bundled constants, which is the same module
+   * the server serves from. iOS, by contrast, fails the session outright.
+   */
+  toolCatalog?: RealtimeToolDescriptor[];
+  routerInstructions?: string;
 }
 
 export interface UseVoiceSessionOptions {
@@ -59,6 +71,18 @@ export interface UseVoiceSessionOptions {
   onUserTranscript?: (text: string) => void;
   /** A committed assistant spoken transcript (one per finished zoe turn). */
   onAssistantTranscript?: (text: string) => void;
+  /**
+   * Snapshot of the on-screen chat thread, seeded into the Realtime session as
+   * one demoted context item the moment the data channel opens (see
+   * `buildVoiceSeedContext`). Read once per `start()`, so it must be a getter
+   * rather than a value — the caller's messages change on every turn and the
+   * hook must not re-render for it.
+   *
+   * This matters most on resume: a session that ends on the silence timer takes
+   * the router's entire conversation with it, and without a reseed the user
+   * picks up mid-thought talking to a stranger.
+   */
+  seedContext?: () => string | null | undefined;
   /**
    * Auto-close the session after this many ms of total silence (no speech, no
    * response activity), to bound Realtime per-minute billing. Default ~25s.
@@ -143,6 +167,11 @@ export function useVoiceSession(
   const micRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const tokenRef = useRef<string | null>(null);
+  // Persona + catalog for the CURRENT session, taken from the mint (ADR-0005).
+  const sessionConfigRef = useRef<{
+    instructions: string;
+    tools: RealtimeToolDescriptor[];
+  } | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Pending grace timer for a transient "disconnected" transport (see below).
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -182,6 +211,7 @@ export function useVoiceSession(
       audioRef.current = null;
     }
     tokenRef.current = null;
+    sessionConfigRef.current = null;
     pendingActionIdRef.current = undefined;
     handledCallIdsRef.current.clear();
     activeResponseRef.current = false;
@@ -239,12 +269,16 @@ export function useVoiceSession(
 
   /** Register the tool catalog + router persona on the live session. */
   const configureSession = useCallback(() => {
+    // Prefer what the server issued for THIS session (ADR-0005) so the persona
+    // can be tuned server-side without shipping a new web bundle; the bundled
+    // constants are the fallback, and are the same module the server serves.
+    const config = sessionConfigRef.current;
     send({
       type: "session.update",
       session: {
         type: "realtime",
-        instructions: VOICE_ROUTER_INSTRUCTIONS,
-        tools: VOICE_TOOL_CATALOG,
+        instructions: config?.instructions ?? VOICE_ROUTER_INSTRUCTIONS,
+        tools: config?.tools ?? VOICE_TOOL_CATALOG,
         tool_choice: "auto",
         // Enable transcription of the USER's speech. Without this, OpenAI never
         // emits `conversation.item.input_audio_transcription.completed`, so
@@ -252,6 +286,25 @@ export function useVoiceSession(
         // (the assistant reply is transcribed by default, which is why only its
         // side showed up). The capability is also bound at mint time server-side.
         audio: { input: { transcription: { model: "whisper-1" } } },
+      },
+    });
+  }, [send]);
+
+  /**
+   * Seed the fresh session with the on-screen thread, as ONE demoted context
+   * item. Deliberately does NOT follow with `response.create`: the user tapped
+   * the mic to talk, not to be greeted, and server VAD will open the first turn
+   * when they actually speak.
+   */
+  const seedConversation = useCallback(() => {
+    const text = optionsRef.current.seedContext?.();
+    if (!text) return;
+    send({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text }],
       },
     });
   }, [send]);
@@ -425,6 +478,28 @@ export function useVoiceSession(
     try {
       const mint = await optionsRef.current.createSession();
       tokenRef.current = mint.voiceSessionToken;
+      // Captured before the data channel exists, so configureSession() (which
+      // runs on dc.onopen) always sees this session's own persona/catalog.
+      // Both or neither: a server persona paired with a bundled catalog (or the
+      // reverse) is a worse failure than falling back cleanly to both bundled.
+      if (mint.routerInstructions && mint.toolCatalog) {
+        sessionConfigRef.current = {
+          instructions: mint.routerInstructions,
+          tools: mint.toolCatalog,
+        };
+      } else {
+        // Say so. Silent fallback means a server-side persona change appears to
+        // ship and simply doesn't take effect — with nothing anywhere to explain
+        // why the model is still following last release's instructions.
+        console.warn(
+          "[useVoiceSession] mint omitted routerInstructions/toolCatalog — using the bundled persona and catalog; server-side persona changes will NOT apply",
+          {
+            hasRouterInstructions: !!mint.routerInstructions,
+            hasToolCatalog: !!mint.toolCatalog,
+          },
+        );
+        sessionConfigRef.current = null;
+      }
       micRef.current = mic;
 
       const pc = new RTCPeerConnection();
@@ -476,6 +551,7 @@ export function useVoiceSession(
       dcRef.current = dc;
       dc.onopen = () => {
         configureSession();
+        seedConversation();
         setState("listening");
         armSilenceTimer();
         // Session is live — mark it so a refresh mid-session can offer resume.
@@ -510,7 +586,14 @@ export function useVoiceSession(
       teardown();
       setState("idle");
     }
-  }, [configureSession, onServerEvent, teardown, armSilenceTimer, endSession]);
+  }, [
+    configureSession,
+    seedConversation,
+    onServerEvent,
+    teardown,
+    armSilenceTimer,
+    endSession,
+  ]);
 
   return { state, start, stop, lastError, permissionDenied, needsResume };
 }
