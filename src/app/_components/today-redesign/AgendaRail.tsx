@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { RailBlock } from "~/lib/actions/railBlocks";
 import { layoutRailBlocks } from "~/lib/actions/railLayout";
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
@@ -18,6 +18,26 @@ interface AgendaRailProps {
 export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailProps) {
   const totalHrs = END_HR - START_HR;
   const [openOverflow, setOpenOverflow] = useState<string | null>(null);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
+
+  // Dismiss the "+N more" panel the way any popover should: click away, or
+  // press Escape. Without this it stays open over other blocks indefinitely.
+  useEffect(() => {
+    if (!openOverflow) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!overflowRef.current?.contains(e.target as Node)) setOpenOverflow(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenOverflow(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openOverflow]);
+
   const { positioned, overflows } = useMemo(
     () =>
       layoutRailBlocks(blocks, {
@@ -97,7 +117,9 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
           {overflows.map((o) => (
             <div
               key={o.key}
+              ref={openOverflow === o.key ? overflowRef : undefined}
               className="td-event-more"
+              data-open={openOverflow === o.key ? "true" : undefined}
               style={{
                 top: o.top,
                 height: o.height,

@@ -218,7 +218,11 @@ export function layoutRailBlocks(
     if (hidden.length > 0) {
       const { leftPct, widthPct } = laneGeometry(visibleLanes, MAX_RAIL_LANES);
       overflows.push({
-        key: `overflow-${hidden[0]!.id}`,
+        // Keyed by where the pile-up sits, not by which block happens to land
+        // first in it. The key doubles as the panel's open/closed identity, so
+        // deriving it from block order would slam the panel shut on any
+        // refetch that reorders the list.
+        key: `overflow-${overflowTop}`,
         top: overflowTop,
         height: Math.max(overflowBottom - overflowTop, MIN_RAIL_BLOCK_PX),
         leftPct: round2(leftPct),

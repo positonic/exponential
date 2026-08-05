@@ -279,3 +279,26 @@ describe("layoutRailBlocks", () => {
     expect(layoutRailBlocks([], RAIL)).toEqual({ positioned: [], overflows: [] });
   });
 });
+
+describe("layoutRailBlocks overflow key", () => {
+  it("stays stable when the input order changes", () => {
+    const blocks = ["a", "b", "c", "d"].map((id) => railBlock(id, 10, 60));
+
+    const forward = layoutRailBlocks(blocks, RAIL).overflows[0]!.key;
+    const reversed = layoutRailBlocks([...blocks].reverse(), RAIL).overflows[0]!.key;
+
+    // The panel's open/closed identity must survive a refetch that reorders
+    // the list, so the key can't depend on which block lands first.
+    expect(forward).toBe(reversed);
+  });
+
+  it("differs between separate pile-ups", () => {
+    const morning = ["a", "b", "c", "d"].map((id) => railBlock(id, 9, 60));
+    const afternoon = ["e", "f", "g", "h"].map((id) => railBlock(id, 15, 60));
+
+    const { overflows } = layoutRailBlocks([...morning, ...afternoon], RAIL);
+
+    expect(overflows).toHaveLength(2);
+    expect(overflows[0]!.key).not.toBe(overflows[1]!.key);
+  });
+});

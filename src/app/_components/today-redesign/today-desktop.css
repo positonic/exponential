@@ -655,6 +655,13 @@ html[data-sidebar="closed"] .td-topbar {
   align-items: flex-start;
 }
 
+/* z-index on the wrapper opens a stacking context, so the panel's own z-index
+   is confined to it and cannot clear the now-line (3) on its own. Lift the
+   whole wrapper while the panel is open instead. */
+.td-event-more[data-open="true"] {
+  z-index: 5;
+}
+
 .td .td-event-more__btn {
   width: 100%;
   padding: 4px 6px;
