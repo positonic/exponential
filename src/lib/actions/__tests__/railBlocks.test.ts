@@ -105,8 +105,12 @@ describe("buildRailBlocks", () => {
     expect(block!.end).toBeCloseTo(10.75, 10);
   });
 
-  it("falls back to a 60-minute block when the action expresses no length", () => {
-    const [block] = buildRailBlocks({ actions: [action()] });
+  it("falls back to a 60-minute block when scheduledEnd is not after the start", () => {
+    // The only route left to the fallback: a length was stated, but a useless
+    // one. `hasUserChosenTime` lets it through; the resolver rescues it.
+    const [block] = buildRailBlocks({
+      actions: [action({ scheduledEnd: at(10, 0) })],
+    });
 
     expect(block!.start).toBe(10.5);
     expect(block!.end).toBe(11.5);
@@ -116,6 +120,39 @@ describe("buildRailBlocks", () => {
     expect(
       buildRailBlocks({ actions: [action({ scheduledStart: null })] }),
     ).toEqual([]);
+  });
+
+  it("skips actions with a scheduledStart but no stated length", () => {
+    expect(buildRailBlocks({ actions: [action()] })).toEqual([]);
+  });
+
+  it("keeps timed actions while dropping untimed ones alongside them", () => {
+    const blocks = buildRailBlocks({
+      actions: [
+        action({ id: "untimed-1" }),
+        action({ id: "untimed-2" }),
+        action({ id: "timed", duration: 30 }),
+      ],
+    });
+
+    expect(blocks.map((b) => b.id)).toEqual(["act-timed"]);
+  });
+
+  it("leaves calendar events alone — they carry their own start and end", () => {
+    const blocks = buildRailBlocks({
+      events: [
+        {
+          id: "ev1",
+          summary: "Standup",
+          start: { dateTime: at(9, 0).toISOString() },
+          end: { dateTime: at(9, 15).toISOString() },
+        },
+      ],
+      actions: [action()], // untimed, dropped
+    });
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ id: "ev1", start: 9, end: 9.25 });
   });
 
   it("maps calendar events to `cal` blocks and skips ones missing a bound", () => {
