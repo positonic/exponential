@@ -142,8 +142,56 @@ describe("rerenderCreatedPageBodies", () => {
       deps: { notionFactory: factoryFor(ops) },
     });
 
-    expect(result).toEqual({ ok: true, repaired: 0, failed: 0, items: [] });
+    expect(result).toEqual({
+      ok: true,
+      repaired: 0,
+      failed: 0,
+      items: [],
+      nextCursor: null,
+    });
     expect(db.ticketSync.findMany).not.toHaveBeenCalled();
+  });
+
+  it("paginates: returns a cursor when a full batch was processed, resumes after it", async () => {
+    db.ticketSyncRun.findMany.mockResolvedValue([
+      ledgerRun([
+        { action: "created", externalId: "page-1" },
+        { action: "created", externalId: "page-2" },
+        { action: "created", externalId: "page-3" },
+      ]),
+    ] as never);
+    db.ticketSync.findMany.mockResolvedValue([
+      syncRow("page-1", "b"),
+      syncRow("page-2", "b"),
+    ] as never);
+    const ops = fakeNotion();
+
+    const first = await rerenderCreatedPageBodies(db, {
+      configId: "cfg1",
+      limit: 2,
+      deps: { notionFactory: factoryFor(ops) },
+    });
+    // Full batch consumed -> a cursor pointing at the last processed sync.
+    expect(first.repaired).toBe(2);
+    expect(first.nextCursor).toBe("s-page-2");
+
+    db.ticketSync.findMany.mockResolvedValue([syncRow("page-3", "b")] as never);
+    const second = await rerenderCreatedPageBodies(db, {
+      configId: "cfg1",
+      cursor: first.nextCursor!,
+      limit: 2,
+      deps: { notionFactory: factoryFor(ops) },
+    });
+    expect(second.repaired).toBe(1);
+    // Short batch -> done.
+    expect(second.nextCursor).toBeNull();
+    // The resume cursor reached the query.
+    expect(db.ticketSync.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { gt: "s-page-2" } }),
+        take: 2,
+      }),
+    );
   });
 
   it("refuses a disconnected config", async () => {
