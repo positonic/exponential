@@ -124,8 +124,13 @@ export default function ExternalAgentsPage() {
   const grantAgent = agents.find((agent) => agent.id === grantAgentId);
   const grantedWorkspaceIds = new Set(grantAgent?.workspaces.map((ws) => ws.id) ?? []);
   const grantableWorkspaces = workspaces.filter((ws) => !grantedWorkspaceIds.has(ws.id));
+  // Membership, not a length match: the agent list can refetch while the modal is
+  // open, shrinking `grantableWorkspaces` while a now-ungrantable id lingers in the
+  // selection — the counts would agree without every workspace actually being picked.
+  const selectedWorkspaceIds = new Set(grantWorkspaceIds);
   const allGrantableSelected =
-    grantableWorkspaces.length > 0 && grantWorkspaceIds.length === grantableWorkspaces.length;
+    grantableWorkspaces.length > 0 &&
+    grantableWorkspaces.every((ws) => selectedWorkspaceIds.has(ws.id));
 
   const closeKeyModal = () => {
     setKeyModalAgentId(null);
