@@ -21,6 +21,7 @@ import {
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff, IconRefresh } from '@tabler/icons-react';
 import { useVoiceSession } from '~/lib/voice/useVoiceSession';
+import { buildVoiceSeedContext } from '~/lib/voice/seedContext';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
 import { ThinkingStatus } from './agent/ThinkingStatus';
@@ -802,6 +803,16 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     },
     onUserTranscript: (text) => recordVoiceTurn('human', text),
     onAssistantTranscript: (text) => recordVoiceTurn('ai', text),
+    // Seed the Realtime router with the thread the user is looking at. Without
+    // this it starts every session blank — you can type for ten minutes, tap the
+    // mic, and be answered by something that has never seen a word of it. The
+    // brain's own recall (shared Mastra thread, ADR-0006) covers the SERVER side;
+    // this covers the router, which is what decides which tool to call and how to
+    // read "that one". Read at start(), so it also reseeds on resume.
+    seedContext: () =>
+      buildVoiceSeedContext(messages, {
+        assistantLabel: customAssistant?.name ?? 'Zoe',
+      }),
   });
   const voiceActive = voice.state !== 'idle';
 
