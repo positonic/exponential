@@ -120,6 +120,27 @@ export interface RailLayoutResult {
   overflows: RailOverflow[];
 }
 
+function maxConcurrencyDuring(
+  target: PositionedCalendarItem,
+  cluster: PositionedCalendarItem[],
+): number {
+  const targetEnd = target.top + target.height;
+  const boundaries = [
+    target.top,
+    ...cluster
+      .filter((item) => item.top > target.top && item.top < targetEnd)
+      .map((item) => item.top),
+  ];
+
+  return Math.max(
+    ...boundaries.map(
+      (at) =>
+        cluster.filter((item) => item.top <= at && item.top + item.height > at)
+          .length,
+    ),
+  );
+}
+
 function laneGeometry(lane: number, lanes: number): { leftPct: number; widthPct: number } {
   const gaps = lanes > 1 ? (lanes - 1) * LANE_GAP_PCT : 0;
   const widthPct = (100 - gaps) / lanes;
@@ -190,17 +211,19 @@ export function layoutRailBlocks(
       continue;
     }
 
-    // Over the cap: the first lanes render as usual, and everything from the
-    // last lane onward collapses into one "+N more" bucket.
+    // Over the cap: the first lanes render as usual. The last lane is reused
+    // once local concurrency drops back under the cap; only genuinely crowded
+    // intervals collapse behind "+N more" buckets.
     const visibleLanes = MAX_RAIL_LANES - 1;
-    const hidden: RailBlock[] = [];
-    let overflowTop = Infinity;
-    let overflowBottom = -Infinity;
+    const hiddenItems: PositionedCalendarItem[] = [];
 
     for (const item of laidOut) {
       const entry = byId.get(item.id);
       if (!entry) continue;
-      if (item.column < visibleLanes) {
+      const canUseLastLane =
+        item.column === visibleLanes &&
+        maxConcurrencyDuring(item, laidOut) <= MAX_RAIL_LANES;
+      if (item.column < visibleLanes || canUseLastLane) {
         const { leftPct, widthPct } = laneGeometry(item.column, MAX_RAIL_LANES);
         positioned.push({
           ...entry.geom,
@@ -209,13 +232,22 @@ export function layoutRailBlocks(
           widthPct: round2(widthPct),
         });
       } else {
-        hidden.push(entry.block);
-        overflowTop = Math.min(overflowTop, entry.geom.top);
-        overflowBottom = Math.max(overflowBottom, entry.geom.top + entry.geom.height);
+        hiddenItems.push(item);
       }
     }
 
-    if (hidden.length > 0) {
+    // A transitive overlap cluster can have separate over-capacity windows.
+    // Bucket them independently so a later block that fits in lane three is
+    // not covered by one giant overflow wrapper spanning the whole cluster.
+    for (const hiddenCluster of buildOverlapClusters(hiddenItems)) {
+      const hidden = hiddenCluster
+        .map((item) => byId.get(item.id)?.block)
+        .filter((block): block is RailBlock => block != null);
+      if (hidden.length === 0) continue;
+      const overflowTop = Math.min(...hiddenCluster.map((item) => item.top));
+      const overflowBottom = Math.max(
+        ...hiddenCluster.map((item) => item.top + item.height),
+      );
       const { leftPct, widthPct } = laneGeometry(visibleLanes, MAX_RAIL_LANES);
       overflows.push({
         // Keyed by where the pile-up sits, not by which block happens to land
