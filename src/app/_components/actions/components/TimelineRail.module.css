@@ -127,8 +127,24 @@
   color: var(--today-rail-focus-text);
 }
 
+.blockTitle {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .blockTime {
   font-size: 10px;
   opacity: 0.8;
   font-variant-numeric: tabular-nums;
+}
+
+/* See the matching rule in today-desktop.css: floored blocks are drawn taller
+   than their duration, so they need an edge to stay distinct from the next. */
+.block[data-floored="true"] {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  outline: 1px solid var(--color-border-primary);
+  outline-offset: -1px;
 }

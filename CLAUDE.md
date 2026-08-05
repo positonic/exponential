@@ -49,8 +49,16 @@ This project uses enhanced ESLint integration with immediate feedback and build-
 - `npm run lint` - Run ESLint only
 - `npm run lint:fix` - Auto-fix ESLint issues
 - `npm run typecheck` - Run TypeScript type checking only
-- `npm run format:write` - Format code with Prettier
-- `npm run format:check` - Check code formatting
+- `npm run format:write` - ⚠️ Format code with Prettier — **rewrites ~1350 files, see below**
+- `npm run format:check` - Check code formatting (currently fails on nearly the whole repo)
+
+**⚠️ This repo is NOT Prettier-formatted.** Nothing enforces `prettier.config.js` — it is
+absent from CI and from `.husky/pre-commit` — and ~1350 of the repo's ~1400 source files
+differ from it. Do NOT run `format:write`, and do NOT enable editor format-on-save
+(`.vscode/settings.json` turns it off): formatting a file you were only editing buries the
+real change in a ~150-line reformat and conflicts with every open branch. Match the
+surrounding style by hand instead. Formatting the repo is worth doing, but as its own PR
+with a `.git-blame-ignore-revs` entry and a CI gate — not as cleanup inside a feature PR.
 
 **MANDATORY ESLint Rules** (build will FAIL if violated):
 - Use `??` instead of `||` for nullish coalescing
@@ -647,6 +655,10 @@ Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-iss
 ### Issue tracker
 
 Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+
+### Commenting and @mentions
+
+Features, tickets, actions, pages, and goals all take comments from the CLI (`exponential <entity> comment add`). Mentions are the literal markup `@[Name](userId)` — plain `@andi` notifies nobody. Use `--mention andi` to expand it, and `exponential workspaces members` to look someone up. See [`docs/agents/commenting.md`](docs/agents/commenting.md).
 
 ### Triage labels
 

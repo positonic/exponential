@@ -10,6 +10,7 @@ import {
   buildWorkspaceAccessWhere,
   buildWorkspaceVisibilityWhere,
 } from "~/server/services/access";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   generateSecureToken,
@@ -1489,6 +1490,107 @@ export const workspaceRouter = createTRPCRouter({
           canLink: userMembership?.role === "owner",
         };
       });
+    }),
+
+  // Roster of everyone who belongs to a workspace: direct WorkspaceUser rows
+  // plus users who reach it through a linked team. Any member can read it —
+  // the same roster the app already ships inside `workspace.list`, exposed as
+  // a first-class query so API and CLI callers can resolve a name to a user id
+  // without fetching every workspace. This is what makes `@[Name](userId)`
+  // mentions writable from outside the app: `mentionSyntax` on each row is the
+  // exact token to paste into a comment body.
+  //
+  // `source` matters for mentions: name-only `@[Name]` markup resolves against
+  // direct members only, so team-based members must be mentioned by id.
+  listMembers: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const userSelect = {
+        id: true,
+        name: true,
+        email: true,
+        image: true,
+      } as const;
+
+      const [direct, viaTeam] = await Promise.all([
+        ctx.db.workspaceUser.findMany({
+          where: { workspaceId: input.workspaceId },
+          select: { role: true, user: { select: userSelect } },
+        }),
+        ctx.db.teamUser.findMany({
+          where: { team: { workspaceId: input.workspaceId } },
+          select: {
+            role: true,
+            user: { select: userSelect },
+            team: { select: { id: true, name: true } },
+          },
+        }),
+      ]);
+
+      // Named so the array admits both sources — inferring it from the direct
+      // rows alone would narrow `source` to "workspace" and reject the team
+      // rows appended below.
+      interface Member {
+        id: string;
+        name: string | null;
+        email: string | null;
+        image: string | null;
+        /**
+         * The member's WORKSPACE role. Team-based members get "member", the
+         * same synthesized role `workspace.list` gives them — a team `owner`
+         * is not a workspace owner, so their team role must never land here
+         * where a caller would read it as workspace authority.
+         */
+        role: string;
+        /** The team role, when access is team-based. Null for direct members. */
+        teamRole: string | null;
+        source: "workspace" | "team";
+        teams: { id: string; name: string }[];
+        mentionSyntax: string;
+      }
+
+      const mention = (user: { id: string; name: string | null; email: string | null }) =>
+        // Both forms work; the id form is unambiguous when two members share a
+        // display name, and is the only form that reaches team-based members.
+        `@[${user.name ?? user.email ?? "Unknown"}](${user.id})`;
+
+      const members: Member[] = direct.map((m) => ({
+        ...m.user,
+        role: m.role,
+        teamRole: null,
+        source: "workspace",
+        teams: [],
+        mentionSyntax: mention(m.user),
+      }));
+
+      const byId = new Map(members.map((m) => [m.id, m]));
+
+      for (const t of viaTeam) {
+        const existing = byId.get(t.user.id);
+        if (existing) {
+          // Already a direct member — record the team but keep the direct role,
+          // matching the role precedence `workspace.list` uses.
+          existing.teams.push(t.team);
+          continue;
+        }
+        const added: Member = {
+          ...t.user,
+          // Not `t.role` — that is the team role, and surfacing it as `role`
+          // would let a team admin read as a workspace admin.
+          role: "member",
+          teamRole: t.role,
+          source: "team",
+          teams: [t.team],
+          mentionSyntax: mention(t.user),
+        };
+        byId.set(t.user.id, added);
+        members.push(added);
+      }
+
+      return members.sort((a, b) =>
+        (a.name ?? a.email ?? "").localeCompare(b.name ?? b.email ?? ""),
+      );
     }),
 
   // List project-only "guests" of a workspace: users with ProjectMember rows

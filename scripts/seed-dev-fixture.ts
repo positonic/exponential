@@ -23,6 +23,7 @@ async function main() {
     console.log(`  feature tickets: ${fixture.featureTicketCount} (of ${fixture.totalTicketCount} seeded - one is scope-only and excluded by design)`);
     console.log(`  feature page:    ${fixture.featureUrl}`);
     console.log(`  peek view:       ${fixture.peekUrl}`);
+    console.log(`  okr dashboard:   ${fixture.okrUrl}`);
     console.log(`\nMint a session for the fixture user with:\n  npx tsx scripts/dev-session.ts`);
   } finally {
     await db.$disconnect();

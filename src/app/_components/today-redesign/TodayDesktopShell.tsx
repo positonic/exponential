@@ -28,7 +28,7 @@ import { useActionMutations } from "../actions/hooks/useActionMutations";
 import { useActionPartition } from "../actions/hooks/useActionPartition";
 import { useBulkActionMutations } from "../actions/hooks/useBulkActionMutations";
 import { useBulkSelection } from "../actions/hooks/useBulkSelection";
-import type { RailBlock } from "../actions/components/TimelineRail";
+import { buildRailBlocks, type RailBlock } from "~/lib/actions/railBlocks";
 import { ScoreRing } from "./ScoreRing";
 import { AgendaRail } from "./AgendaRail";
 import { TaskRow } from "./TaskRow";
@@ -211,35 +211,14 @@ export function TodayDesktopShell({
   }, [actionIdFromUrl, filteredActions]);
 
   // ---- Rail blocks ---------------------------------------------------------
-  const railBlocks: RailBlock[] = useMemo(() => {
-    const blocks: RailBlock[] = [];
-    for (const ev of calendarEventsQuery.data ?? []) {
-      const startStr = ev.start?.dateTime ?? ev.start?.date;
-      const endStr = ev.end?.dateTime ?? ev.end?.date;
-      if (!startStr || !endStr) continue;
-      blocks.push({
-        id: ev.id,
-        title: ev.summary || "Untitled",
-        start: hourFloat(new Date(startStr)),
-        end: hourFloat(new Date(endStr)),
-        kind: "cal",
-      });
-    }
-    for (const a of partition.todays) {
-      if (!a.scheduledStart) continue;
-      const s = new Date(a.scheduledStart);
-      const durationMinutes =
-        (a as ActionData & { duration?: number | null }).duration ?? 60;
-      blocks.push({
-        id: `act-${a.id}`,
-        title: a.name,
-        start: hourFloat(s),
-        end: hourFloat(new Date(s.getTime() + durationMinutes * 60_000)),
-        kind: "task",
-      });
-    }
-    return blocks;
-  }, [calendarEventsQuery.data, partition.todays]);
+  const railBlocks: RailBlock[] = useMemo(
+    () =>
+      buildRailBlocks({
+        events: calendarEventsQuery.data,
+        actions: partition.todays,
+      }),
+    [calendarEventsQuery.data, partition.todays],
+  );
 
   // ---- Day label -----------------------------------------------------------
   const dayLabel = useMemo(() => {
@@ -635,7 +614,7 @@ export function TodayDesktopShell({
 
             <AgendaRail
               dayLabel={dayLabel}
-              eventsCount={(calendarEventsQuery.data ?? []).length}
+              eventsCount={railBlocks.length}
               blocks={railBlocks}
               now={now}
             />

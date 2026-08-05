@@ -51,19 +51,6 @@ pub fn default_root() -> PathBuf {
     Path::new(&home).join("Documents").join("exponential-wiki")
 }
 
-/// Decide the root from what's available: an explicit override wins, then a
-/// previously stored choice, then the default.
-///
-/// **There is deliberately no command to change this from the page.** The jail
-/// is only worth anything if the thing being jailed cannot move the walls, and
-/// these commands are reachable from a remote origin — a page-callable setter
-/// would turn "read inside the wiki" into "read anywhere" for any script running
-/// on that origin. Configuring the root is therefore an out-of-band act (the env
-/// var, or a future native settings UI), never an in-page one.
-pub fn resolve_root(stored: Option<String>) -> PathBuf {
-    resolve_root_for_launch(stored).root
-}
-
 /// The root for this launch, and whether it is ours to remember.
 pub struct RootChoice {
     pub root: PathBuf,
@@ -71,8 +58,16 @@ pub struct RootChoice {
     pub persist: bool,
 }
 
-/// Same decision as `resolve_root`, plus whether the answer should be written
-/// back to the store.
+/// Decide the root from what's available — an explicit override wins, then a
+/// previously stored choice, then the default — and say whether the answer
+/// should be written back to the store.
+///
+/// **There is deliberately no command to change this from the page.** The jail
+/// is only worth anything if the thing being jailed cannot move the walls, and
+/// these commands are reachable from a remote origin — a page-callable setter
+/// would turn "read inside the wiki" into "read anywhere" for any script running
+/// on that origin. Configuring the root is therefore an out-of-band act (the env
+/// var, or a future native settings UI), never an in-page one.
 ///
 /// The env override is deliberately **not** persisted. It used to be, and that
 /// turned a one-off `EXPONENTIAL_WIKI_ROOT=/tmp/scratch` test run into the
@@ -101,7 +96,7 @@ fn current_root(state: &WikiRoot) -> PathBuf {
 }
 
 /// Where the wiki is, so the app can tell the user rather than making them guess.
-/// Read-only by design — see `resolve_root`.
+/// Read-only by design — see `resolve_root_for_launch`.
 #[tauri::command]
 pub fn wiki_get_root(state: tauri::State<WikiRoot>) -> String {
     current_root(&state).to_string_lossy().into_owned()
@@ -117,6 +112,8 @@ pub enum WikiError {
     BadPath,
     /// Nothing there.
     NotFound,
+    /// A rename would land on a page that already exists.
+    AlreadyExists,
     /// The filesystem or git said no.
     Io(String),
 }
@@ -130,6 +127,7 @@ impl std::fmt::Display for WikiError {
             Self::OutsideWiki => write!(f, "path is outside the wiki folder"),
             Self::BadPath => write!(f, "not a valid path inside the wiki"),
             Self::NotFound => write!(f, "no such page"),
+            Self::AlreadyExists => write!(f, "a page already exists there"),
             Self::Io(e) => write!(f, "{e}"),
         }
     }
@@ -441,12 +439,15 @@ pub fn search(root: &Path, query: &str) -> WikiResult<Vec<SearchHit>> {
 /// undo, which is most of the reason the wiki is a repo at all.
 #[tauri::command]
 pub fn wiki_write_page(
+    app: tauri::AppHandle,
     state: tauri::State<WikiRoot>,
     path: String,
     content: String,
 ) -> Result<(), String> {
     let root = current_root(&state);
-    write_page(&root, &path, &content).map_err(Into::into)
+    write_page(&root, &path, &content)?;
+    notify(&app, "write", Some(path));
+    Ok(())
 }
 
 pub fn write_page(root: &Path, rel: &str, content: &str) -> WikiResult<()> {
@@ -455,6 +456,315 @@ pub fn write_page(root: &Path, rel: &str, content: &str) -> WikiResult<()> {
         std::fs::create_dir_all(parent).map_err(|e| WikiError::Io(e.to_string()))?;
     }
     std::fs::write(&target, content).map_err(|e| WikiError::Io(e.to_string()))
+}
+
+/// Remove a page.
+///
+/// Deliberately leaves inbound `[[wikilinks]]` alone, which is the opposite of
+/// what `rename_page` does — and the difference is the point. Per `schema.md` a
+/// link to a page that doesn't exist is not a broken link, it "marks something
+/// worth writing". Deleting a page is a statement that its subject should not
+/// have a page; the links that pointed at it becoming red links records exactly
+/// that, and is how the next reader (or librarian) finds out.
+///
+/// Files only. A caller that hands over a directory gets `NotFound` rather than
+/// a recursive delete, so there is no path through this command that empties
+/// the wiki.
+#[tauri::command]
+pub fn wiki_delete_page(
+    app: tauri::AppHandle,
+    state: tauri::State<WikiRoot>,
+    path: String,
+) -> Result<(), String> {
+    let root = current_root(&state);
+    delete_page(&root, &path)?;
+    notify(&app, "delete", Some(path));
+    Ok(())
+}
+
+pub fn delete_page(root: &Path, rel: &str) -> WikiResult<()> {
+    let target = resolve(root, rel)?;
+    if !target.is_file() {
+        return Err(WikiError::NotFound);
+    }
+    std::fs::remove_file(&target).map_err(|e| WikiError::Io(e.to_string()))?;
+    prune_empty_parent(root, &target);
+    Ok(())
+}
+
+/// What a rename did, so the caller can say so rather than guess.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameResult {
+    /// The paths actually used, after `.md` was filled in.
+    pub from: String,
+    pub to: String,
+    /// Pages whose `[[wikilinks]]` were repointed at the new path. The UI says
+    /// how many, because a rename that quietly edits six other files is a
+    /// surprise the user should not discover from `git log` afterwards.
+    pub relinked: Vec<String>,
+}
+
+/// Move a page, **and repoint every `[[wikilink]]` that pointed at it**.
+///
+/// The decision worth recording, since `schema.md` is the contract other agents
+/// read: a rename rewrites inbound links rather than refusing.
+///
+/// The alternative was to refuse when anything links to the page, and it is
+/// worse. Wikilinks *are* this wiki's navigation model — `index.md` reaches
+/// everything through them and `schema.md` tells the librarian to link
+/// generously — so a rename that left them behind would turn every reference
+/// into a red link, i.e. into a claim that nobody has written that page. The
+/// page is right there under a new name; recording the opposite is a lie the
+/// wiki would then carry forward. And refusing outright would make rename
+/// unusable for exactly the pages that earned a rename by being well linked.
+///
+/// The rewrite is safe to be automatic *because* the wiki is a git repo: the
+/// move and every edit it caused land in one commit, so `git show` reads as one
+/// reviewable change and `git revert` undoes all of it. That is most of the
+/// reason the wiki is a repo at all.
+///
+/// Links are rewritten to the canonical target form (no `.md`), per `schema.md`,
+/// even where the original spelled the extension out.
+#[tauri::command]
+pub fn wiki_rename_page(
+    app: tauri::AppHandle,
+    state: tauri::State<WikiRoot>,
+    from: String,
+    to: String,
+) -> Result<RenameResult, String> {
+    let root = current_root(&state);
+    let result = rename_page(&root, &from, &to)?;
+    notify(&app, "rename", Some(result.to.clone()));
+    Ok(result)
+}
+
+pub fn rename_page(root: &Path, from_rel: &str, to_rel: &str) -> WikiResult<RenameResult> {
+    // Only the extension is filled in. Nothing else about the destination is
+    // "helpfully" normalised — stripping a leading `/` here would turn
+    // `/etc/passwd` into a path inside the wiki instead of the refusal it
+    // should be, and `resolve` is what makes that refusal.
+    let to_rel = with_md_extension(to_rel);
+
+    let from_path = resolve(root, from_rel)?;
+    let to_path = resolve(root, &to_rel)?;
+
+    if !from_path.is_file() {
+        return Err(WikiError::NotFound);
+    }
+
+    let from_clean = clean_rel(from_rel);
+    let to_clean = clean_rel(&to_rel);
+    if from_path == to_path {
+        // Renaming a page to its own name is a no-op, not a collision. Saying
+        // "a page already exists there" about the page you are renaming would
+        // be true and useless.
+        return Ok(RenameResult { from: from_clean, to: to_clean, relinked: Vec::new() });
+    }
+    if to_path.exists() {
+        return Err(WikiError::AlreadyExists);
+    }
+
+    if let Some(parent) = to_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| WikiError::Io(e.to_string()))?;
+    }
+    std::fs::rename(&from_path, &to_path).map_err(|e| WikiError::Io(e.to_string()))?;
+    prune_empty_parent(root, &from_path);
+
+    // Listed *after* the move, so the page itself is walked under its new name
+    // and a link it made to itself is repointed too.
+    let from_target = path_to_target(&from_clean);
+    let to_target = path_to_target(&to_clean);
+    let mut relinked = Vec::new();
+    for page in list_pages(root)? {
+        let content = match read_page(root, &page.path) {
+            Ok(content) => content,
+            // One unreadable page must not abort a rename that has already
+            // moved the file; the rest still get repointed.
+            Err(_) => continue,
+        };
+        if let Some(next) = rewrite_wikilinks(&content, &from_target, &to_target) {
+            write_page(root, &page.path, &next)?;
+            relinked.push(page.path);
+        }
+    }
+    relinked.sort();
+
+    Ok(RenameResult { from: from_clean, to: to_clean, relinked })
+}
+
+/// Drop the page's folder if the page was the last thing in it. Best-effort:
+/// `remove_dir` only succeeds on an empty directory, so this can never take
+/// anything with it. Git wouldn't have tracked the empty folder, but the user
+/// opens this wiki in Finder, and litter there is real.
+fn prune_empty_parent(root: &Path, page: &Path) {
+    let Some(parent) = page.parent() else { return };
+    let Ok(canonical_root) = root.canonicalize() else { return };
+    if parent == canonical_root || !parent.starts_with(&canonical_root) {
+        return;
+    }
+    let _ = std::fs::remove_dir(parent);
+}
+
+/// `people/ada` → `people/ada.md`, leaving an existing extension alone.
+fn with_md_extension(rel: &str) -> String {
+    let trimmed = rel.trim();
+    if trimmed.ends_with(".md") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}.md")
+    }
+}
+
+/// The plain `a/b/c.md` form of a path `resolve` has already accepted.
+///
+/// Safe only *after* `resolve`: it drops non-`Normal` components, and dropping
+/// a `..` rather than refusing it would be a traversal. `resolve` has already
+/// refused those, so all that is left to drop here is a `./`.
+fn clean_rel(rel: &str) -> String {
+    Path::new(rel)
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `people/ada.md` → `people/ada`, the form a `[[wikilink]]` carries.
+///
+/// This mirrors `pathToTarget` in `src/lib/wiki/wikiLinks.ts`, and the
+/// duplication is deliberate: the link syntax is `schema.md`'s contract, not
+/// either implementation's, and both sides need it. Rust needs it because a
+/// rename must be one atomic operation behind one command — a UI looping over
+/// every page over IPC could half-finish — and the renderer needs it in JS.
+/// `schema.md` is what keeps them honest; change the syntax there and both move.
+fn path_to_target(path: &str) -> String {
+    let clean = normalize_target(path);
+    clean.strip_suffix(".md").map(str::to_string).unwrap_or(clean)
+}
+
+/// Trim a link target the way the renderer does, so `[[ ./people/ada ]]` and
+/// `[[people/ada]]` are recognised as the same link.
+fn normalize_target(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let trimmed = trimmed.strip_prefix("./").unwrap_or(trimmed);
+    trimmed.trim_start_matches('/').to_string()
+}
+
+/// Repoint every `[[wikilink]]` aimed at `from_target` to `to_target`, or
+/// `None` when the document has none — so an untouched page is not rewritten
+/// with identical bytes and does not show up as changed.
+///
+/// Code is skipped, and that is not a nicety: `schema.md` documents this very
+/// syntax inside code spans (``[[wikilinks]]``, `[[people/ada]]`), and a plain
+/// find-and-replace would edit the documentation of the feature whenever
+/// someone renamed the page it uses as its example.
+fn rewrite_wikilinks(markdown: &str, from_target: &str, to_target: &str) -> Option<String> {
+    let mut changed = false;
+    let mut in_fence = false;
+    let mut out: Vec<String> = Vec::new();
+
+    for line in markdown.split('\n') {
+        let opens_fence = {
+            let t = line.trim_start();
+            t.starts_with("```") || t.starts_with("~~~")
+        };
+        if opens_fence {
+            in_fence = !in_fence;
+            out.push(line.to_string());
+            continue;
+        }
+        if in_fence {
+            out.push(line.to_string());
+            continue;
+        }
+        out.push(rewrite_line(line, from_target, to_target, &mut changed));
+    }
+
+    changed.then(|| out.join("\n"))
+}
+
+fn rewrite_line(line: &str, from_target: &str, to_target: &str, changed: &mut bool) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] == '`' {
+            // Copy an inline code span through verbatim, backticks and all.
+            let start = i;
+            let run = backtick_run(&chars, i);
+            i += run;
+            let end = match closing_run(&chars, i, run) {
+                Some(end) => end,
+                // Unclosed: the backticks are literal text, so only the run
+                // itself is copied and scanning resumes right after it.
+                None => i,
+            };
+            out.extend(chars[start..end].iter());
+            i = end;
+            continue;
+        }
+
+        if chars[i] == '[' && chars.get(i + 1) == Some(&'[') {
+            if let Some(close) = link_close(&chars, i + 2) {
+                let target: String = chars[i + 2..close].iter().collect();
+                // Compared in target form so `[[people/ada]]` and the equally
+                // valid `[[people/ada.md]]` are recognised as the same link.
+                if path_to_target(&target) == from_target {
+                    out.push_str("[[");
+                    out.push_str(to_target);
+                    out.push_str("]]");
+                    *changed = true;
+                    i = close + 2;
+                    continue;
+                }
+            }
+        }
+
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+fn backtick_run(chars: &[char], from: usize) -> usize {
+    chars[from..].iter().take_while(|c| **c == '`').count()
+}
+
+/// Index just past the next run of exactly `run` backticks, if there is one.
+fn closing_run(chars: &[char], from: usize, run: usize) -> Option<usize> {
+    let mut i = from;
+    while i < chars.len() {
+        if chars[i] == '`' {
+            let here = backtick_run(chars, i);
+            i += here;
+            if here == run {
+                return Some(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// Index of the `]]` closing a link opened at `from`, matching the renderer's
+/// `\[\[([^[\]\n]+)]]` — no brackets and no line break inside a target.
+fn link_close(chars: &[char], from: usize) -> Option<usize> {
+    let mut i = from;
+    while i < chars.len() {
+        match chars[i] {
+            ']' if chars.get(i + 1) == Some(&']') => {
+                return (i > from).then_some(i);
+            }
+            '[' | ']' => return None,
+            _ => i += 1,
+        }
+    }
+    None
 }
 
 /// What a commit did, so the caller can say so.
@@ -478,11 +788,18 @@ pub struct CommitResult {
 /// answered questions has nothing to record.
 #[tauri::command]
 pub fn wiki_commit_turn(
+    app: tauri::AppHandle,
     state: tauri::State<WikiRoot>,
     message: String,
 ) -> Result<CommitResult, String> {
     let root = current_root(&state);
-    commit_turn(&root, &message).map_err(Into::into)
+    let result = commit_turn(&root, &message)?;
+    // Only when something landed: a history view has nothing to re-read after
+    // a turn that changed nothing.
+    if result.committed {
+        notify(&app, "commit", None);
+    }
+    Ok(result)
 }
 
 pub fn commit_turn(root: &Path, message: &str) -> WikiResult<CommitResult> {
@@ -537,6 +854,153 @@ fn commit_subject(message: &str) -> String {
         subject.push('…');
     }
     subject
+}
+
+/// One commit, as `git log` would show it.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiCommit {
+    /// Short hash — what `git show` and `git revert` take.
+    pub sha: String,
+    pub subject: String,
+    pub author: String,
+    /// ISO-8601 with offset, so the page formats it in the reader's locale
+    /// rather than us guessing one here.
+    pub date: String,
+    /// Pages this commit touched. Empty for a single page's history, where the
+    /// answer is always the page you asked about.
+    pub paths: Vec<String>,
+}
+
+/// Most commits any one call will return, however much the caller asks for.
+/// This lands in a UI list and, eventually, in a prompt.
+const MAX_HISTORY: usize = 100;
+
+/// One page's history, following it through renames.
+///
+/// `--follow` is the reason this is worth having over a plain filter: a page
+/// that was renamed keeps its history here, which is exactly the promise
+/// `rename_page` makes when it moves a well-linked page.
+#[tauri::command]
+pub fn wiki_page_history(
+    state: tauri::State<WikiRoot>,
+    path: String,
+    limit: Option<usize>,
+) -> Result<Vec<WikiCommit>, String> {
+    let root = current_root(&state);
+    page_history(&root, &path, limit.unwrap_or(20)).map_err(Into::into)
+}
+
+pub fn page_history(root: &Path, rel: &str, limit: usize) -> WikiResult<Vec<WikiCommit>> {
+    // Jailed like every other path, even though git does the reading: the
+    // argument still reaches a subprocess, and `--` alone is not a boundary.
+    resolve(root, rel)?;
+    git_log(root, &["--follow"], Some(&clean_rel(rel)), limit)
+}
+
+/// What changed across the whole wiki lately, newest first.
+///
+/// The counterpart view to per-page history: the librarian writes while you are
+/// elsewhere in the app, and this is how you find out what it filed.
+#[tauri::command]
+pub fn wiki_recent_changes(
+    state: tauri::State<WikiRoot>,
+    limit: Option<usize>,
+) -> Result<Vec<WikiCommit>, String> {
+    let root = current_root(&state);
+    recent_changes(&root, limit.unwrap_or(20)).map_err(Into::into)
+}
+
+pub fn recent_changes(root: &Path, limit: usize) -> WikiResult<Vec<WikiCommit>> {
+    git_log(root, &["--name-only"], None, limit)
+}
+
+/// Record separator between commits, and field separator within one. Control
+/// characters because a commit subject can contain anything a person can type,
+/// and picking a printable delimiter is how log parsers break.
+const RECORD_SEP: char = '\u{1e}';
+const FIELD_SEP: char = '\u{1f}';
+const LOG_FORMAT: &str = "--pretty=format:%x1e%h%x1f%s%x1f%an%x1f%aI";
+
+fn git_log(
+    root: &Path,
+    extra: &[&str],
+    path: Option<&str>,
+    limit: usize,
+) -> WikiResult<Vec<WikiCommit>> {
+    // A wiki restored from a backup that lost `.git` has no history — that is
+    // an answer, not a failure. `wiki_status` already reports `git: false` so
+    // the UI can say why.
+    if !root.join(".git").exists() {
+        return Ok(Vec::new());
+    }
+    // And a freshly created repo has no HEAD yet, which `git log` reports as an
+    // error rather than as an empty log.
+    if git(root, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err() {
+        return Ok(Vec::new());
+    }
+
+    let capped = limit.clamp(1, MAX_HISTORY).to_string();
+    let mut args = vec!["log", "--max-count", capped.as_str(), LOG_FORMAT];
+    args.extend_from_slice(extra);
+    if let Some(path) = path {
+        args.push("--");
+        args.push(path);
+    }
+
+    Ok(parse_log(&git(root, &args)?))
+}
+
+fn parse_log(raw: &str) -> Vec<WikiCommit> {
+    raw.split(RECORD_SEP)
+        .filter(|record| !record.trim().is_empty())
+        .filter_map(|record| {
+            let mut lines = record.lines();
+            let mut fields = lines.next()?.split(FIELD_SEP);
+            let sha = fields.next()?.trim().to_string();
+            if sha.is_empty() {
+                return None;
+            }
+            Some(WikiCommit {
+                sha,
+                subject: fields.next().unwrap_or_default().to_string(),
+                author: fields.next().unwrap_or_default().to_string(),
+                date: fields.next().unwrap_or_default().trim().to_string(),
+                // Present only with `--name-only`; the blank line git puts
+                // between the subject and the file list drops out here.
+                paths: lines
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Event name the web app listens on. Namespaced because it rides the same bus
+/// as Tauri's own window events.
+pub const CHANGED_EVENT: &str = "wiki://changed";
+
+/// What just changed, for a listener deciding whether to re-read.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiChanged {
+    /// `write`, `delete`, `rename` or `commit`.
+    pub kind: String,
+    /// The page most directly affected, where there is one.
+    pub path: Option<String>,
+}
+
+/// Tell any open wiki view that the folder moved under it.
+///
+/// Before this, `/wiki` only re-read on window focus — so the librarian could
+/// file three pages from the chat drawer and the list sitting next to it went
+/// on showing the old wiki until you clicked away and back. Best-effort by
+/// design: a failed notification must not fail the write it is reporting.
+fn notify(app: &tauri::AppHandle, kind: &str, path: Option<String>) {
+    use tauri::Emitter;
+    let _ = app.emit(CHANGED_EVENT, WikiChanged { kind: kind.to_string(), path });
 }
 
 /// Run git in the wiki. Shelling out rather than linking libgit2 keeps the
@@ -894,8 +1358,8 @@ mod tests {
     fn the_root_falls_back_to_the_default() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var(ROOT_ENV);
-        assert_eq!(resolve_root(None), default_root());
-        assert_eq!(resolve_root(Some("   ".into())), default_root());
+        assert_eq!(resolve_root_for_launch(None).root, default_root());
+        assert_eq!(resolve_root_for_launch(Some("   ".into())).root, default_root());
     }
 
     #[test]
@@ -903,7 +1367,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var(ROOT_ENV);
         assert_eq!(
-            resolve_root(Some("/tmp/my-wiki".into())),
+            resolve_root_for_launch(Some("/tmp/my-wiki".into())).root,
             PathBuf::from("/tmp/my-wiki"),
         );
     }
@@ -913,7 +1377,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var(ROOT_ENV, "/tmp/override-wiki");
         assert_eq!(
-            resolve_root(Some("/tmp/stored-wiki".into())),
+            resolve_root_for_launch(Some("/tmp/stored-wiki".into())).root,
             PathBuf::from("/tmp/override-wiki"),
         );
         std::env::remove_var(ROOT_ENV);
@@ -1060,6 +1524,370 @@ mod tests {
         for hit in &hits {
             assert!(hit.lines.len() <= MAX_LINES_PER_HIT);
         }
+    }
+
+    #[test]
+    fn deletes_a_page() {
+        let wiki = TempWiki::new("delete");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+
+        delete_page(&wiki.root, "people/ada.md").expect("delete");
+        assert_eq!(read_page(&wiki.root, "people/ada.md"), Err(WikiError::NotFound));
+        // The folder went with its last page rather than lingering in Finder.
+        assert!(!wiki.root.join("people").exists());
+    }
+
+    #[test]
+    fn deleting_obeys_the_same_jail_as_writing() {
+        let wiki = TempWiki::new("delete-jail");
+        init_at(&wiki.root).expect("init");
+        assert_eq!(delete_page(&wiki.root, "../outside.md"), Err(WikiError::OutsideWiki));
+        assert_eq!(delete_page(&wiki.root, "/etc/passwd"), Err(WikiError::OutsideWiki));
+        assert_eq!(delete_page(&wiki.root, "nope.md"), Err(WikiError::NotFound));
+    }
+
+    #[test]
+    fn deleting_refuses_a_directory_rather_than_emptying_it() {
+        // The one that would matter: `delete_page("people")` must not be a
+        // recursive remove. There is no path through this command that can
+        // take out more than the page it names.
+        let wiki = TempWiki::new("delete-dir");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+
+        assert_eq!(delete_page(&wiki.root, "people"), Err(WikiError::NotFound));
+        assert!(wiki.root.join("people/ada.md").exists());
+    }
+
+    #[test]
+    fn deleting_leaves_inbound_links_as_red_links() {
+        // The deliberate difference from rename: per schema.md an unresolved
+        // link marks something worth writing, which is exactly the right
+        // record of "this page was deleted".
+        let wiki = TempWiki::new("delete-links");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+        write_page(&wiki.root, "index.md", "- [[people/ada]]\n").unwrap();
+
+        delete_page(&wiki.root, "people/ada.md").expect("delete");
+        assert_eq!(read_page(&wiki.root, "index.md").unwrap(), "- [[people/ada]]\n");
+    }
+
+    #[test]
+    fn renames_a_page_and_repoints_what_linked_to_it() {
+        let wiki = TempWiki::new("rename");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada Lovelace\n").unwrap();
+        write_page(&wiki.root, "index.md", "- [[people/ada]] — first programmer\n").unwrap();
+        write_page(&wiki.root, "notes.md", "See [[people/ada]] and [[people/hopper]].\n").unwrap();
+
+        let result = rename_page(&wiki.root, "people/ada.md", "people/lovelace.md").expect("rename");
+
+        assert_eq!(result.from, "people/ada.md");
+        assert_eq!(result.to, "people/lovelace.md");
+        assert_eq!(result.relinked, vec!["index.md", "notes.md"]);
+
+        assert_eq!(read_page(&wiki.root, "people/lovelace.md").unwrap(), "# Ada Lovelace\n");
+        assert_eq!(read_page(&wiki.root, "people/ada.md"), Err(WikiError::NotFound));
+        assert_eq!(
+            read_page(&wiki.root, "index.md").unwrap(),
+            "- [[people/lovelace]] — first programmer\n",
+        );
+        // The link to an unrelated page is untouched.
+        assert_eq!(
+            read_page(&wiki.root, "notes.md").unwrap(),
+            "See [[people/lovelace]] and [[people/hopper]].\n",
+        );
+    }
+
+    #[test]
+    fn a_rename_and_its_relinks_are_one_commit() {
+        // The property that makes rewriting inbound links safe to do
+        // automatically: the whole rename is one reviewable, revertable change.
+        let wiki = TempWiki::new("rename-commit");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+        write_page(&wiki.root, "index.md", "- [[people/ada]]\n").unwrap();
+        commit_turn(&wiki.root, "Seed").expect("seed commit");
+        let before = log_subjects(&wiki.root).len();
+
+        rename_page(&wiki.root, "people/ada.md", "people/lovelace.md").expect("rename");
+        let result = commit_turn(&wiki.root, "Rename people/ada to people/lovelace").expect("commit");
+
+        assert!(result.committed);
+        assert_eq!(log_subjects(&wiki.root).len(), before + 1);
+    }
+
+    #[test]
+    fn renaming_fills_in_a_missing_extension() {
+        // A destination without `.md` would otherwise create a file that
+        // `list_pages` never shows — the page would vanish from the wiki.
+        let wiki = TempWiki::new("rename-ext");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+
+        let result = rename_page(&wiki.root, "ada.md", "people/lovelace").expect("rename");
+        assert_eq!(result.to, "people/lovelace.md");
+        assert!(wiki.root.join("people/lovelace.md").is_file());
+    }
+
+    #[test]
+    fn renaming_will_not_overwrite_an_existing_page() {
+        let wiki = TempWiki::new("rename-collide");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "a.md", "first").unwrap();
+        write_page(&wiki.root, "b.md", "second").unwrap();
+
+        assert_eq!(rename_page(&wiki.root, "a.md", "b.md"), Err(WikiError::AlreadyExists));
+        assert_eq!(read_page(&wiki.root, "a.md").unwrap(), "first");
+        assert_eq!(read_page(&wiki.root, "b.md").unwrap(), "second");
+    }
+
+    #[test]
+    fn renaming_a_page_to_its_own_name_does_nothing_quietly() {
+        let wiki = TempWiki::new("rename-noop");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+
+        let result = rename_page(&wiki.root, "ada.md", "ada.md").expect("no-op rename");
+        assert!(result.relinked.is_empty());
+        assert_eq!(read_page(&wiki.root, "ada.md").unwrap(), "# Ada");
+    }
+
+    #[test]
+    fn renaming_obeys_the_same_jail_in_both_directions() {
+        let wiki = TempWiki::new("rename-jail");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+
+        assert_eq!(
+            rename_page(&wiki.root, "../outside.md", "ada2.md"),
+            Err(WikiError::OutsideWiki),
+        );
+        for escape in ["../escaped.md", "/tmp/escaped.md", "../../escaped"] {
+            assert_eq!(
+                rename_page(&wiki.root, "ada.md", escape),
+                Err(WikiError::OutsideWiki),
+                "should have refused a destination of {escape}",
+            );
+        }
+        // And the page is still where it was.
+        assert_eq!(read_page(&wiki.root, "ada.md").unwrap(), "# Ada");
+    }
+
+    #[test]
+    fn renaming_a_missing_page_says_so() {
+        let wiki = TempWiki::new("rename-missing");
+        init_at(&wiki.root).expect("init");
+        assert_eq!(rename_page(&wiki.root, "nope.md", "yes.md"), Err(WikiError::NotFound));
+    }
+
+    #[test]
+    fn a_rename_does_not_rewrite_the_syntax_documented_in_code() {
+        // schema.md explains wikilinks *using* `[[people/ada]]` inside a code
+        // span. Renaming that page must not edit the documentation of the
+        // feature — the same reason the renderer walks the AST rather than
+        // replacing strings.
+        let wiki = TempWiki::new("rename-code");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+        let doc = "Use `[[people/ada]]` to link.\n\n```md\n[[people/ada]]\n```\n\nReal: [[people/ada]]\n";
+        write_page(&wiki.root, "doc.md", doc).unwrap();
+
+        rename_page(&wiki.root, "people/ada.md", "people/lovelace.md").expect("rename");
+
+        assert_eq!(
+            read_page(&wiki.root, "doc.md").unwrap(),
+            "Use `[[people/ada]]` to link.\n\n```md\n[[people/ada]]\n```\n\nReal: [[people/lovelace]]\n",
+        );
+    }
+
+    #[test]
+    fn a_page_with_nothing_to_repoint_is_left_byte_identical() {
+        // Rewriting every page with identical bytes would put the whole wiki
+        // in one commit's diff and bury what the rename actually did.
+        let wiki = TempWiki::new("rename-untouched");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+        write_page(&wiki.root, "unrelated.md", "Nothing to see.\n").unwrap();
+
+        let result = rename_page(&wiki.root, "ada.md", "lovelace.md").expect("rename");
+        assert!(!result.relinked.contains(&"unrelated.md".to_string()));
+        assert_eq!(read_page(&wiki.root, "unrelated.md").unwrap(), "Nothing to see.\n");
+    }
+
+    #[test]
+    fn relinking_recognises_the_spellings_the_renderer_accepts() {
+        let wiki = TempWiki::new("rename-spellings");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+        write_page(
+            &wiki.root,
+            "index.md",
+            "[[people/ada]] [[ people/ada ]] [[./people/ada]] [[people/ada.md]] [[people/adam]]\n",
+        )
+        .unwrap();
+
+        rename_page(&wiki.root, "people/ada.md", "lovelace.md").expect("rename");
+
+        // Every spelling of the target is repointed, and rewritten to the
+        // canonical `.md`-less form schema.md specifies. A different page whose
+        // name merely starts the same is not touched.
+        assert_eq!(
+            read_page(&wiki.root, "index.md").unwrap(),
+            "[[lovelace]] [[lovelace]] [[lovelace]] [[lovelace]] [[people/adam]]\n",
+        );
+    }
+
+    #[test]
+    fn a_self_link_is_repointed_too() {
+        let wiki = TempWiki::new("rename-self");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada\n\nSee [[ada]] — that's me.\n").unwrap();
+
+        rename_page(&wiki.root, "ada.md", "lovelace.md").expect("rename");
+        assert_eq!(
+            read_page(&wiki.root, "lovelace.md").unwrap(),
+            "# Ada\n\nSee [[lovelace]] — that's me.\n",
+        );
+    }
+
+    #[test]
+    fn rewriting_leaves_malformed_links_alone() {
+        // `[[]]` is not a link, and neither is an unterminated one. Both are
+        // literal text the author meant, same as in the renderer.
+        assert_eq!(rewrite_wikilinks("[[]] [[ada", "ada", "lovelace"), None);
+        assert_eq!(rewrite_wikilinks("no links here", "ada", "lovelace"), None);
+        // An unclosed code span makes its backtick literal without swallowing
+        // the rest of the line.
+        assert_eq!(
+            rewrite_wikilinks("` [[ada]]", "ada", "lovelace").as_deref(),
+            Some("` [[lovelace]]"),
+        );
+    }
+
+    #[test]
+    fn page_history_reads_the_pages_own_commits() {
+        let wiki = TempWiki::new("history-page");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+        commit_turn(&wiki.root, "File Ada").expect("commit");
+        write_page(&wiki.root, "other.md", "# Other").unwrap();
+        commit_turn(&wiki.root, "File something else").expect("commit");
+        write_page(&wiki.root, "ada.md", "# Ada Lovelace").unwrap();
+        commit_turn(&wiki.root, "Expand Ada").expect("commit");
+
+        let history = page_history(&wiki.root, "ada.md", 20).expect("history");
+        let subjects: Vec<&str> = history.iter().map(|c| c.subject.as_str()).collect();
+
+        // Newest first, and the commit that touched only another page is absent.
+        assert_eq!(subjects, vec!["Expand Ada", "File Ada"]);
+        assert_eq!(history[0].author, "Exponential librarian");
+        assert!(!history[0].sha.is_empty());
+        // ISO-8601, for the page to format however the reader's locale wants.
+        assert!(history[0].date.starts_with("20"), "got {}", history[0].date);
+    }
+
+    #[test]
+    fn page_history_survives_a_rename() {
+        // The promise rename makes: moving a page does not cost it its past.
+        let wiki = TempWiki::new("history-follow");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+        commit_turn(&wiki.root, "File Ada").expect("commit");
+
+        rename_page(&wiki.root, "ada.md", "people/lovelace.md").expect("rename");
+        commit_turn(&wiki.root, "Rename Ada").expect("commit");
+
+        let subjects: Vec<String> = page_history(&wiki.root, "people/lovelace.md", 20)
+            .expect("history")
+            .into_iter()
+            .map(|c| c.subject)
+            .collect();
+        assert_eq!(subjects, vec!["Rename Ada", "File Ada"]);
+    }
+
+    #[test]
+    fn recent_changes_lists_the_wiki_with_the_files_each_commit_touched() {
+        let wiki = TempWiki::new("history-recent");
+        init_at(&wiki.root).expect("init");
+        commit_turn(&wiki.root, "Wiki created").expect("commit");
+        write_page(&wiki.root, "people/ada.md", "# Ada").unwrap();
+        write_page(&wiki.root, "index.md", "- [[people/ada]]\n").unwrap();
+        commit_turn(&wiki.root, "File Ada and link her").expect("commit");
+
+        let changes = recent_changes(&wiki.root, 20).expect("recent");
+        assert_eq!(changes[0].subject, "File Ada and link her");
+        let mut paths = changes[0].paths.clone();
+        paths.sort();
+        assert_eq!(paths, vec!["index.md", "people/ada.md"]);
+        assert_eq!(changes[1].subject, "Wiki created");
+    }
+
+    #[test]
+    fn history_is_bounded_however_much_is_asked_for() {
+        let wiki = TempWiki::new("history-bounded");
+        init_at(&wiki.root).expect("init");
+        for i in 0..8 {
+            write_page(&wiki.root, "page.md", &format!("revision {i}")).unwrap();
+            commit_turn(&wiki.root, &format!("Revision {i}")).expect("commit");
+        }
+
+        assert_eq!(recent_changes(&wiki.root, 3).expect("recent").len(), 3);
+        // A caller asking for everything still gets a list that fits in a UI.
+        assert!(recent_changes(&wiki.root, usize::MAX).expect("recent").len() <= MAX_HISTORY);
+        // And zero is read as "one", not as "no limit" — git treats
+        // --max-count=0 as an empty log, which reads as "no history".
+        assert_eq!(recent_changes(&wiki.root, 0).expect("recent").len(), 1);
+    }
+
+    #[test]
+    fn history_of_a_wiki_without_git_is_empty_rather_than_an_error() {
+        // A folder restored from a backup that lost .git still opens; it just
+        // has no past. wiki_status already reports git: false so the UI can
+        // explain, and a thrown error here would be a worse way to find out.
+        let wiki = TempWiki::new("history-nogit");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "ada.md", "# Ada").unwrap();
+        std::fs::remove_dir_all(wiki.root.join(".git")).unwrap();
+
+        assert_eq!(recent_changes(&wiki.root, 20), Ok(Vec::new()));
+        assert_eq!(page_history(&wiki.root, "ada.md", 20), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn history_of_a_repo_with_no_commits_yet_is_empty() {
+        // `git log` on a fresh repo exits non-zero rather than printing
+        // nothing, so this is a real branch and not a hypothetical one.
+        let wiki = TempWiki::new("history-fresh");
+        init_at(&wiki.root).expect("init");
+        assert_eq!(recent_changes(&wiki.root, 20), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn history_obeys_the_jail() {
+        let wiki = TempWiki::new("history-jail");
+        init_at(&wiki.root).expect("init");
+        commit_turn(&wiki.root, "Wiki created").expect("commit");
+        assert_eq!(
+            page_history(&wiki.root, "../outside.md", 20),
+            Err(WikiError::OutsideWiki),
+        );
+    }
+
+    #[test]
+    fn a_commit_subject_containing_the_log_delimiters_still_parses() {
+        // The subject is user (and model) text. Parsing on control characters
+        // is what keeps a subject full of pipes or tabs from splitting a record.
+        let wiki = TempWiki::new("history-delimiters");
+        init_at(&wiki.root).expect("init");
+        write_page(&wiki.root, "page.md", "x").unwrap();
+        commit_turn(&wiki.root, "Weird | subject\twith\tseparators").expect("commit");
+
+        let changes = recent_changes(&wiki.root, 5).expect("recent");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].subject, "Weird | subject\twith\tseparators");
     }
 
     #[test]

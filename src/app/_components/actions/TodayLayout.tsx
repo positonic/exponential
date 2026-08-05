@@ -9,11 +9,12 @@ import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useDayRollover } from "~/hooks/useDayRollover";
 import { addDays, hourFloat } from "~/lib/actions/dates";
+import { buildRailBlocks, type RailBlock } from "~/lib/actions/railBlocks";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
 import { MobileFAB } from "../today-mobile/MobileFAB";
 import { ActionsList } from "./ActionsList";
-import { TimelineRail, type RailBlock } from "./components/TimelineRail";
+import { TimelineRail } from "./components/TimelineRail";
 import { ZoePanel } from "./components/ZoePanel";
 import { useActionMutations } from "./hooks/useActionMutations";
 import { useBulkActionMutations } from "./hooks/useBulkActionMutations";
@@ -118,41 +119,21 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
   void suggestionProposalByActionId;
 
   // Rail blocks (calendar events + scheduled actions)
-  const railBlocks: RailBlock[] = useMemo(() => {
-    const blocks: RailBlock[] = [];
-    for (const ev of calendarEventsQuery.data ?? []) {
-      const startStr = ev.start?.dateTime ?? ev.start?.date;
-      const endStr = ev.end?.dateTime ?? ev.end?.date;
-      if (!startStr || !endStr) continue;
-      const s = new Date(startStr);
-      const e = new Date(endStr);
-      blocks.push({
-        id: ev.id,
-        title: ev.summary || "Untitled",
-        start: hourFloat(s),
-        end: hourFloat(e),
-        kind: "cal",
-      });
-    }
-    for (const a of partition.todays) {
-      if (!a.scheduledStart) continue;
-      const s = new Date(a.scheduledStart);
-      const durationMinutes =
-        (a as ActionData & { duration?: number | null }).duration ?? 60;
-      const e = new Date(s.getTime() + durationMinutes * 60_000);
-      blocks.push({
-        id: `act-${a.id}`,
-        title: a.name,
-        start: hourFloat(s),
-        end: hourFloat(e),
-        kind: "task",
-      });
-    }
-    return blocks;
-  }, [calendarEventsQuery.data, partition.todays]);
+  const railBlocks: RailBlock[] = useMemo(
+    () =>
+      buildRailBlocks({
+        events: calendarEventsQuery.data,
+        actions: partition.todays,
+      }),
+    [calendarEventsQuery.data, partition.todays],
+  );
 
-  const eventsCount = (calendarEventsQuery.data ?? []).length;
+  // Count what the rail actually draws, not the raw calendar payload — untimed
+  // actions are filtered out of `railBlocks`, and a header that counted the
+  // pre-filter total would promise rows that aren't there. Focus blocks are
+  // excluded because the header reports them separately.
   const focusCount = railBlocks.filter((b) => b.kind === "focus").length;
+  const eventsCount = railBlocks.length - focusCount;
 
   const dayLabel = useMemo(() => {
     const d = new Date();

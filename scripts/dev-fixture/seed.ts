@@ -24,8 +24,15 @@ export const FIXTURE = {
   productSlug: "fixture",
   productName: "Fixture Product",
   featureName: "Tickets accordion fixture",
-  projectSlug: "goal-hierarchy-fixture",
-  projectName: "Goal hierarchy fixture",
+  objectiveTitle: "Fixture objective for OKR execution links",
+  keyResultTitle: "Linked work renders under the KR accordion",
+  okrPeriod: "Annual-2026",
+  projectName: "Fixture Linked Project",
+  projectSlug: "fixture-linked-project",
+  // A second project, kept separate from the OKR one so each fixture stays
+  // legible: this one carries the goal hierarchy the Goals tab renders.
+  goalProjectSlug: "goal-hierarchy-fixture",
+  goalProjectName: "Goal hierarchy fixture",
   parentGoalTitle: "Grow the fixture business",
   childGoalTitle: "Ship the goal hierarchy affordance",
   offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
@@ -45,6 +52,8 @@ export interface SeededFixture {
   featureTicketCount: number;
   /** Total tickets seeded, including the scope-only one the accordion hides. */
   totalTicketCount: number;
+  /** App-relative URL of the OKR dashboard holding the seeded objective. */
+  okrUrl: string;
   /** App-relative URL of the seeded project's Goals tab (the goal hierarchy). */
   projectGoalsUrl: string;
   /** Goals on that project: a parent, its sub-goal, and a detached sub-goal. */
@@ -181,19 +190,40 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
   });
 
-  // A project carrying a goal hierarchy, so the Goals tab's nesting affordance
-  // is observable: a parent with a sub-goal under it, plus a sub-goal whose
-  // parent is NOT on this project (it can't be nested under anything on
-  // screen, so it stays at the root and names its parent instead).
+  // OKR execution links (ADR-0050): one objective → one KR carrying BOTH a
+  // linked Project and a linked Feature, so the KR accordion on the OKRs tab
+  // renders one row of each kind (Project pill / Feature pill).
+  // Project.workspace, Goal.workspace and KeyResult.workspace are all optional
+  // relations with no explicit onDelete, so Prisma defaults them to SetNull:
+  // dropping the `dev-fixture` workspace orphans these rows with a null
+  // workspaceId rather than cascading them away. Every path below therefore
+  // re-attaches `workspaceId`, so a seed → delete-workspace → seed cycle
+  // converges instead of resurrecting a workspace-less fixture the OKR
+  // dashboard (which queries by workspaceId) can't see.
   const project = await db.project.upsert({
     where: { slug: FIXTURE.projectSlug },
-    // Re-assert the workspace on re-seed: the project is reached through a
-    // workspace-scoped route, so a project that drifted out of the workspace
-    // makes its own Goals tab unreachable.
+    update: { workspaceId: workspace.id },
+    create: {
+      name: FIXTURE.projectName,
+      slug: FIXTURE.projectSlug,
+      status: "ACTIVE",
+      createdById: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  // A second project carrying a goal hierarchy, so the Goals tab's nesting
+  // affordance is observable: a parent with a sub-goal under it, plus a
+  // sub-goal whose parent is NOT on this project (it can't nest under anything
+  // on screen, so it stays at the root and names its parent instead).
+  // Same SetNull caveat as above — the Goals tab is reached through a
+  // workspace-scoped route, so re-assert the workspace on every seed.
+  const goalProject = await db.project.upsert({
+    where: { slug: FIXTURE.goalProjectSlug },
     update: { workspaceId: workspace.id, status: "ACTIVE" },
     create: {
-      slug: FIXTURE.projectSlug,
-      name: FIXTURE.projectName,
+      slug: FIXTURE.goalProjectSlug,
+      name: FIXTURE.goalProjectName,
       description: "Seeded for visual verification of sub-goal nesting on the project Goals tab.",
       status: "ACTIVE",
       priority: "HIGH",
@@ -212,12 +242,13 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       status: "active",
       parentGoalId: opts.parentGoalId ?? null,
       displayOrder: opts.displayOrder,
-      ...(opts.onProject ? { projects: { connect: { id: project.id } } } : {}),
+      workspaceId: workspace.id,
+      ...(opts.onProject ? { projects: { connect: { id: goalProject.id } } } : {}),
     };
     return existing
       ? await db.goal.update({ where: { id: existing.id }, data })
       : await db.goal.create({
-          data: { title, userId: user.id, workspaceId: workspace.id, ...data },
+          data: { title, userId: user.id, ...data },
         });
   };
 
@@ -243,9 +274,68 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     displayOrder: 3,
   });
 
+  // Matched on title alone (not workspaceId) so an orphaned goal is found and
+  // re-homed rather than duplicated.
+  const existingObjective = await db.goal.findFirst({
+    where: { title: FIXTURE.objectiveTitle, userId: user.id },
+  });
+  const objective = existingObjective
+    ? await db.goal.update({
+        where: { id: existingObjective.id },
+        data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod },
+      })
+    : await db.goal.create({
+        data: {
+          title: FIXTURE.objectiveTitle,
+          period: FIXTURE.okrPeriod,
+          userId: user.id,
+          driUserId: user.id,
+          workspaceId: workspace.id,
+        },
+      });
+
+  const existingKeyResult = await db.keyResult.findFirst({
+    where: { goalId: objective.id, title: FIXTURE.keyResultTitle },
+  });
+  const keyResult = existingKeyResult
+    ? await db.keyResult.update({
+        where: { id: existingKeyResult.id },
+        data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod },
+      })
+    : await db.keyResult.create({
+        data: {
+          title: FIXTURE.keyResultTitle,
+          targetValue: 100,
+          currentValue: 40,
+          startValue: 0,
+          unit: "percent",
+          period: FIXTURE.okrPeriod,
+          goalId: objective.id,
+          userId: user.id,
+          driUserId: user.id,
+          workspaceId: workspace.id,
+        },
+      });
+
+  await db.keyResultProject.upsert({
+    where: {
+      keyResultId_projectId: { keyResultId: keyResult.id, projectId: project.id },
+    },
+    update: {},
+    create: { keyResultId: keyResult.id, projectId: project.id },
+  });
+
+  await db.keyResultFeature.upsert({
+    where: {
+      keyResultId_featureId: { keyResultId: keyResult.id, featureId: feature.id },
+    },
+    update: {},
+    create: { keyResultId: keyResult.id, featureId: feature.id },
+  });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
-    projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=goals`,
+    projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,
       child: childGoal.id,
@@ -260,5 +350,6 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
+    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?tab=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }

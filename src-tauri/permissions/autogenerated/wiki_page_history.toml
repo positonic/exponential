@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-page-history"
+description = "Enables the wiki_page_history command without any pre-configured scope."
+commands.allow = ["wiki_page_history"]
+
+[[permission]]
+identifier = "deny-wiki-page-history"
+description = "Denies the wiki_page_history command without any pre-configured scope."
+commands.deny = ["wiki_page_history"]

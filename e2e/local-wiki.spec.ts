@@ -37,17 +37,94 @@ async function installWikiStub(page: Page, files: Record<string, string> = FILES
     (window as unknown as { __WIKI_FILES__: typeof store }).__WIKI_FILES__ = store;
 
     const root = "/Users/dev/Documents/exponential-wiki";
+
+    // Stand-in for Tauri's event channel. `transformCallback` hands a JS
+    // function to Rust as an id; here it just goes in a map, and
+    // `__WIKI_EMIT__` lets a test play the shell announcing a change.
+    const handlers = new Map<number, (message: unknown) => void>();
+    let nextId = 1;
+    (window as unknown as { __WIKI_EMIT__: (payload: unknown) => void }).__WIKI_EMIT__ = (
+      payload,
+    ) => {
+      handlers.forEach((handler, id) => handler({ event: "wiki://changed", id, payload }));
+    };
+
+    const history: { sha: string; subject: string; author: string; date: string; paths: string[] }[] =
+      [
+        {
+          sha: "abc1234",
+          subject: "File Ada and link her from the index",
+          author: "Exponential librarian",
+          date: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+          paths: ["index.md", "people/ada.md"],
+        },
+        {
+          sha: "def5678",
+          subject: "Wiki created",
+          author: "Exponential librarian",
+          date: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+          paths: ["index.md", "log.md", "schema.md"],
+        },
+      ];
+
     (
       window as unknown as {
         __TAURI_INTERNALS__: {
           invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+          transformCallback: (cb: (message: unknown) => void) => number;
         };
       }
     ).__TAURI_INTERNALS__ = {
+      transformCallback: (cb) => {
+        const id = nextId++;
+        handlers.set(id, cb);
+        return id;
+      },
       invoke: (cmd: string, args?: Record<string, unknown>) => {
         calls.push({ cmd, args });
         const bytes = (s: string) => new TextEncoder().encode(s).length;
         switch (cmd) {
+          case "plugin:event|listen":
+            // The handler was already registered by transformCallback; the id
+            // it returned doubles as the subscription id.
+            return Promise.resolve(args?.handler);
+          case "plugin:event|unlisten":
+            handlers.delete(Number(args?.eventId));
+            return Promise.resolve(null);
+          case "wiki_page_history":
+            return Promise.resolve(
+              history
+                .filter((c) => c.paths.includes(String(args?.path)))
+                // Per-page history carries no file list, matching the real one.
+                .map((c) => ({ ...c, paths: [] })),
+            );
+          case "wiki_recent_changes":
+            return Promise.resolve(history);
+          case "wiki_delete_page":
+            delete store[String(args?.path)];
+            return Promise.resolve(null);
+          case "wiki_rename_page": {
+            // A stand-in, not a re-implementation: the Rust side owns the real
+            // relinking (and its own tests). This only has to move the page
+            // and report a plausible shape, so the UI's half is exercised.
+            const from = String(args?.from);
+            const to = String(args?.to).endsWith(".md")
+              ? String(args?.to)
+              : `${String(args?.to)}.md`;
+            store[to] = store[from] ?? "";
+            delete store[from];
+            const target = from.replace(/\.md$/, "");
+            const replacement = to.replace(/\.md$/, "");
+            const relinked: string[] = [];
+            for (const path of Object.keys(store)) {
+              const next = (store[path] ?? "").split(`[[${target}]]`).join(`[[${replacement}]]`);
+              if (next !== store[path]) {
+                store[path] = next;
+                relinked.push(path);
+              }
+            }
+            return Promise.resolve({ from, to, relinked });
+          }
           case "wiki_get_root":
             return Promise.resolve(root);
           case "wiki_status":
@@ -290,6 +367,180 @@ test("navigating away from an open editor does not carry the draft to the next p
   expect(await fileOnDisk(page, "index.md")).toBe(FILES["index.md"]!);
 });
 
+/**
+ * Opening the palette. Mantine's `mod+k` accepts either modifier, and
+ * `ControlOrMeta` lets this pass on a Linux CI runner and a Mac alike.
+ */
+async function openPalette(page: Page) {
+  await page.keyboard.press("ControlOrMeta+k");
+  return page.getByRole("dialog");
+}
+
+test("the command palette can reach the wiki, and its pages", async ({ page }) => {
+  await installWikiStub(page);
+  await page.goto("/wiki");
+  await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  const palette = await openPalette(page);
+  // Scoped to the dialog throughout: the page behind it is the wiki, so
+  // "Local wiki" appears in its heading too.
+  await expect(palette.getByText("Local wiki", { exact: true })).toBeVisible();
+
+  // A word that appears in no filename and in no server-side entity — only
+  // inside a wiki page's body.
+  await palette.getByPlaceholder("Search, command, or ask Zoe…").fill("algorithm");
+
+  // Titled by the page's own heading rather than its filename.
+  await expect(palette.getByText("Ada Lovelace")).toBeVisible();
+  await expect(palette.getByText("Wrote the first algorithm intended for a machine.")).toBeVisible();
+
+  // The hits came off the disk, not out of the server's search.
+  expect((await calls(page)).some((c) => c.cmd === "wiki_search")).toBe(true);
+
+  await palette.getByText("Ada Lovelace").click();
+  await expect(page).toHaveURL(/\/wiki\/people\/ada$/);
+
+  await test.info().attach("wiki-command-palette", {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+});
+
+test("without a desktop shell the palette offers no wiki at all", async ({ page }) => {
+  // No stub: in a browser (and in the Electron shell) there is no wiki to
+  // reach, so neither the entry nor a local search may appear.
+  await page.goto("/wiki");
+  await expect(page.getByText("The local wiki lives on your machine")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  const palette = await openPalette(page);
+  await expect(palette.getByPlaceholder("Search, command, or ask Zoe…")).toBeVisible();
+  await expect(palette.getByText("Local wiki", { exact: true })).toHaveCount(0);
+});
+
+test("renaming a page moves it, repoints what linked to it, and says how many", async ({
+  page,
+}) => {
+  await installWikiStub(page);
+  await page.goto("/wiki/people/ada");
+  await expect(page.getByRole("heading", { name: "Ada Lovelace" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  await page.getByRole("button", { name: "Page actions" }).click();
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await page.getByLabel("New path").fill("people/lovelace.md");
+  await page.getByRole("button", { name: "Rename", exact: true }).click();
+
+  // Followed to the new path, and the notification names the collateral: a
+  // rename edits other pages, and finding that out later from `git log` would
+  // be a nasty surprise.
+  await expect(page).toHaveURL(/\/wiki\/people\/lovelace$/);
+  await expect(page.getByText(/Repointed links on 1 other page/)).toBeVisible();
+
+  expect(await fileOnDisk(page, "people/ada.md")).toBeUndefined();
+  expect(await fileOnDisk(page, "people/lovelace.md")).toContain("Ada Lovelace");
+  // index.md now points at where the page actually is.
+  expect(await fileOnDisk(page, "index.md")).toContain("[[people/lovelace]]");
+
+  // And it went into git the same way every other write does.
+  const cmds = (await calls(page)).map((c) => c.cmd);
+  expect(cmds.indexOf("wiki_commit_turn")).toBeGreaterThan(cmds.indexOf("wiki_rename_page"));
+});
+
+test("deleting a page asks first, and backing out changes nothing", async ({ page }) => {
+  await installWikiStub(page);
+  await page.goto("/wiki/people/ada");
+  await expect(page.getByRole("heading", { name: "Ada Lovelace" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  await page.getByRole("button", { name: "Page actions" }).click();
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+
+  // The librarian may have written this page and gets no say, so the person
+  // does — and the dialog says what happens to the links.
+  await expect(page.getByText("Delete this page?")).toBeVisible();
+  await expect(page.getByText(/not written.*yet/s)).toBeVisible();
+
+  await page.getByRole("button", { name: "Keep it" }).click();
+  expect(await fileOnDisk(page, "people/ada.md")).toBe(FILES["people/ada.md"]!);
+  expect((await calls(page)).some((c) => c.cmd === "wiki_delete_page")).toBe(false);
+
+  // Confirming does delete it, and lands back on the list.
+  await page.getByRole("button", { name: "Page actions" }).click();
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/wiki$/);
+  expect(await fileOnDisk(page, "people/ada.md")).toBeUndefined();
+});
+
+test("a page shows its own history, and the wiki shows everyone's", async ({ page }) => {
+  await installWikiStub(page);
+  await page.goto("/wiki/people/ada");
+  await expect(page.getByRole("heading", { name: "Ada Lovelace" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  // Only the commits that touched this page, with the short hash `git show`
+  // takes and a readable age.
+  await expect(page.getByText("History", { exact: true })).toBeVisible();
+  await expect(page.getByText("File Ada and link her from the index")).toBeVisible();
+  await expect(page.getByText("abc1234")).toBeVisible();
+  await expect(page.getByText("3 hours ago")).toBeVisible();
+  await expect(page.getByText("Wiki created")).toHaveCount(0);
+
+  await test.info().attach("wiki-page-history", {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+
+  // The wiki-wide view carries the file list each commit touched, since there
+  // you don't already know which page you're looking at.
+  await page.goto("/wiki");
+  await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible();
+  // The label, not the radio: Mantine's SegmentedControl keeps the input
+  // visually hidden and puts the click target on the label.
+  await page.getByText("Recent changes", { exact: true }).click();
+
+  await expect(page.getByText("Wiki created")).toBeVisible();
+  await expect(page.getByRole("link", { name: "people/ada.md" })).toBeVisible();
+  // Search belongs to the page list, not to a commit log.
+  await expect(page.getByPlaceholder("Search the wiki…")).toHaveCount(0);
+
+  await test.info().attach("wiki-recent-changes", {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+});
+
+test("the list refreshes when the shell says the wiki changed", async ({ page }) => {
+  await installWikiStub(page);
+  await page.goto("/wiki");
+  await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page.getByText("decisions/why-postgres.md", { exact: true })).toHaveCount(0);
+
+  // The librarian files a page from the chat drawer, and the shell announces
+  // it. Before this event existed you had to click away and back.
+  await page.evaluate(() => {
+    (window as unknown as { __WIKI_FILES__: Record<string, string> }).__WIKI_FILES__[
+      "decisions/why-postgres.md"
+    ] = "# Why Postgres\n";
+    (window as unknown as { __WIKI_EMIT__: (p: unknown) => void }).__WIKI_EMIT__({
+      kind: "write",
+      path: "decisions/why-postgres.md",
+    });
+  });
+
+  await expect(page.getByText("decisions/why-postgres.md", { exact: true })).toBeVisible();
+});
+
 test("in a browser, the wiki says where it actually lives", async ({ page }) => {
   // No stub: this is what a non-desktop visitor gets.
   await page.goto("/wiki");
@@ -352,6 +603,8 @@ async function installUncreatedWikiStub(page: Page, { initFails = false } = {}) 
             return Promise.resolve(store[String(args?.path)] ?? "");
           case "wiki_get_root":
             return Promise.resolve(root);
+          case "wiki_recent_changes":
+            return Promise.resolve([]);
           default:
             return Promise.reject(new Error(`unexpected command ${cmd}`));
         }

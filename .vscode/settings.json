@@ -1,0 +1,11 @@
+{
+  // This repo is NOT Prettier-formatted. ~1350 of its ~1400 source files differ
+  // from prettier.config.js, and nothing enforces it — not CI, not the
+  // pre-commit hook. With format-on-save on, opening any file and saving it
+  // rewrites most of that file, burying the actual change in an unrelated
+  // reformat (a one-line fix in a settings page produced a ~150-line diff).
+  //
+  // Off until someone formats the repo in one deliberate pass. See CLAUDE.md.
+  "editor.formatOnSave": false,
+  "editor.formatOnPaste": false
+}

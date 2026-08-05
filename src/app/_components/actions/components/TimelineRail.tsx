@@ -1,13 +1,9 @@
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
+import type { RailBlock } from "~/lib/actions/railBlocks";
+import { layoutRailBlock } from "~/lib/actions/railLayout";
 import styles from "./TimelineRail.module.css";
 
-export interface RailBlock {
-  id: string;
-  title: string;
-  start: number;
-  end: number;
-  kind: "cal" | "task" | "focus";
-}
+export type { RailBlock };
 
 interface TimelineRailProps {
   dayLabel: string;
@@ -62,22 +58,26 @@ export function TimelineRail({
           );
         })}
         {blocks.map((ev) => {
-          const clampedStart = Math.max(ev.start, start);
-          const clampedEnd = Math.min(ev.end, end);
-          if (clampedEnd <= clampedStart) return null;
+          const layout = layoutRailBlock(ev, {
+            rangeStart: start,
+            rangeEnd: end,
+            hourPx: hourHeight,
+          });
+          if (!layout) return null;
           return (
             <div
               key={ev.id}
               className={`${styles.block} ${blockClass[ev.kind]}`}
-              style={{
-                top: (clampedStart - start) * hourHeight + 2,
-                height: (clampedEnd - clampedStart) * hourHeight - 4,
-              }}
+              data-floored={layout.isFloored ? "true" : undefined}
+              style={{ top: layout.top + 2, height: layout.height }}
+              title={`${ev.title} · ${formatHourMinute12(ev.start)} – ${formatHourMinute12(ev.end)}`}
             >
-              <div>{ev.title}</div>
-              <div className={styles.blockTime}>
-                {formatHourMinute12(ev.start)} – {formatHourMinute12(ev.end)}
-              </div>
+              <div className={styles.blockTitle}>{ev.title}</div>
+              {layout.showMeta && (
+                <div className={styles.blockTime}>
+                  {formatHourMinute12(ev.start)} – {formatHourMinute12(ev.end)}
+                </div>
+              )}
             </div>
           );
         })}
