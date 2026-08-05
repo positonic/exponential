@@ -22,6 +22,8 @@ export type IconKind =
   | "milestone"
   | "tracked"
   | "channel_summary"
+  | "github"
+  | "shipped"
   | "fallback";
 
 export interface FeedRenderHint {
@@ -164,6 +166,35 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("ticket_sync_run", "reverted")]: {
     template: "{actor} reverted a ticket sync: {entityRef}",
     iconKind: "status_changed",
+  },
+
+  // GitHub events. Like channel summaries, the feed gives these a bespoke row
+  // (GitHub mark + the author's login as the actor), but the hint still drives
+  // the icon kind and is the fallback for generic renderers such as the weekly
+  // digest. `{entityRef}` resolves to the PR title / head-commit subject.
+  //
+  // A merged PR is the one event that means *work shipped*, so it gets its own
+  // emphasized "shipped" kind rather than sharing the generic GitHub mark — it
+  // is the row you should be able to find by scanning.
+  [key("github_pull_request", "created")]: {
+    template: "{actor} opened {entityRef}",
+    iconKind: "github",
+  },
+  [key("github_pull_request", "completed")]: {
+    template: "{actor} merged {entityRef}",
+    iconKind: "shipped",
+  },
+  [key("github_pull_request", "status_changed")]: {
+    template: "{actor} closed {entityRef}",
+    iconKind: "github",
+  },
+  [key("github_pull_request_review", "commented")]: {
+    template: "{actor} reviewed {entityRef}",
+    iconKind: "github",
+  },
+  [key("github_push", "created")]: {
+    template: "{actor} pushed {entityRef}",
+    iconKind: "github",
   },
 
   // Channel activity summaries (ADR-0023). The feed renders these rows with a

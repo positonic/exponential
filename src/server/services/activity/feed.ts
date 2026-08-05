@@ -4,7 +4,11 @@ import {
   resolveFeedHint,
   type FeedRenderHint,
 } from "./feedRenderHints";
-import { deriveActivitySource } from "./deriveActivitySource";
+import {
+  deriveActivitySource,
+  GITHUB_ENTITY_PREFIX,
+  GITHUB_SOURCE,
+} from "./deriveActivitySource";
 
 /**
  * Channel-summary detail (ADR-0023) attached to `channel_summary` rows so the
@@ -19,6 +23,32 @@ export interface ChannelSummaryRef {
   projectId: string | null;
   projectSlug: string | null;
   projectName: string | null;
+}
+
+/**
+ * GitHub detail attached to `github*` rows so the feed can render the commit or
+ * PR as its own kind of row — repo + branch context, the author's GitHub login
+ * as the actor when no `User` is mapped, and a deep link out to GitHub. `null`
+ * on every other event type.
+ */
+export interface GitHubRef {
+  /** `push` | `pull_request` | `pull_request_review`, derived from entityType. */
+  kind: string;
+  repoFullName: string;
+  repoUrl: string | null;
+  branchName: string | null;
+  prNumber: number | null;
+  prUrl: string | null;
+  /** GitHub login. Used as the actor label when `actor` is null. */
+  author: string | null;
+  /** Push only — how many commits the push carried. */
+  commitCount: number | null;
+  commitSha: string | null;
+  commitUrl: string | null;
+  /** Review only — `approved`, `changes_requested`, `commented`. */
+  reviewState: string | null;
+  /** True when a pull_request row represents a merge, not just a close. */
+  merged: boolean;
 }
 
 /**
@@ -58,6 +88,8 @@ export interface ActivityFeedEvent {
   source: string;
   /** Channel-summary detail; `null` unless `entityType === "channel_summary"`. */
   channel: ChannelSummaryRef | null;
+  /** GitHub detail; `null` unless the row is GitHub-origin. */
+  github: GitHubRef | null;
 }
 
 export interface ActivityFeedPage {
@@ -109,6 +141,45 @@ function readMetaString(metadata: unknown, key: string): string | null {
   return null;
 }
 
+/** Read a numeric field off a Json metadata blob, or null. */
+function readMetaNumber(metadata: unknown, key: string): number | null {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+/** Read a boolean field off a Json metadata blob, defaulting to false. */
+function readMetaBoolean(metadata: unknown, key: string): boolean {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    return (metadata as Record<string, unknown>)[key] === true;
+  }
+  return false;
+}
+
+/**
+ * Build the `GitHubRef` for a GitHub-origin row. The entity type carries the
+ * event kind (`github_push` → `push`), everything else rides in metadata as
+ * written by `toGitHubFeedEvent`.
+ */
+function toGitHubRef(entityType: string, metadata: unknown): GitHubRef {
+  return {
+    kind: entityType.replace(`${GITHUB_ENTITY_PREFIX}_`, ""),
+    repoFullName: readMetaString(metadata, "repoFullName") ?? "",
+    repoUrl: readMetaString(metadata, "repoUrl"),
+    branchName: readMetaString(metadata, "branchName"),
+    prNumber: readMetaNumber(metadata, "prNumber"),
+    prUrl: readMetaString(metadata, "prUrl"),
+    author: readMetaString(metadata, "author"),
+    commitCount: readMetaNumber(metadata, "commitCount"),
+    commitSha: readMetaString(metadata, "commitSha"),
+    commitUrl: readMetaString(metadata, "commitUrl"),
+    reviewState: readMetaString(metadata, "reviewState"),
+    merged: readMetaBoolean(metadata, "merged"),
+  };
+}
+
 /**
  * Translate a `source` filter into a Prisma `where` fragment. `undefined`/`all`
  * → no constraint; `internal` → everything except channel summaries; any other
@@ -119,7 +190,17 @@ function sourceWhere(
 ): Prisma.WorkspaceActivityEventWhereInput {
   if (!source || source === "all") return {};
   if (source === "internal") {
-    return { entityType: { not: "channel_summary" } };
+    // "Internal" means things that happened inside Exponential, so it must
+    // exclude BOTH external origins — channel summaries and GitHub. Excluding
+    // only channel summaries would quietly file every merged PR under
+    // "internal" and make the chip a lie.
+    return {
+      entityType: { not: "channel_summary" },
+      NOT: { entityType: { startsWith: GITHUB_ENTITY_PREFIX } },
+    };
+  }
+  if (source === GITHUB_SOURCE) {
+    return { entityType: { startsWith: GITHUB_ENTITY_PREFIX } };
   }
   return {
     entityType: "channel_summary",
@@ -192,6 +273,10 @@ async function toFeedEvents(
       workspace: row.workspace ?? null,
       source,
       channel,
+      github:
+        source === GITHUB_SOURCE
+          ? toGitHubRef(row.entityType, row.metadata)
+          : null,
     };
   });
 }
