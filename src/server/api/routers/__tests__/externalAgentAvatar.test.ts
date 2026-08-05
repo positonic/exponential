@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 vi.hoisted(() => {
   process.env.OPENAI_API_KEY ??= "sk-test-dummy";
@@ -208,5 +208,48 @@ describe("externalAgent.list", () => {
         avatarUrl: NEW_AVATAR_URL,
       }),
     ]);
+  });
+});
+
+describe("externalAgent.delete", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    vi.clearAllMocks();
+    arrangeOwnedAgent(db);
+    db.$transaction.mockResolvedValue([] as never);
+    db.user.delete.mockResolvedValue({ id: SHADOW_ID } as never);
+    blobMocks.deleteFromBlob.mockResolvedValue(undefined);
+  });
+
+  it("deletes the avatar blob after deleting an unreferenced shadow user", async () => {
+    const result = await caller(db).externalAgent.delete({ agentId: AGENT_ID });
+
+    expect(result).toEqual({ success: true, shadowUserRetained: false });
+    expect(blobMocks.deleteFromBlob).toHaveBeenCalledWith(OLD_AVATAR_URL);
+  });
+
+  it("still succeeds when avatar cleanup fails", async () => {
+    blobMocks.deleteFromBlob.mockRejectedValue(new Error("blob unavailable"));
+
+    await expect(
+      caller(db).externalAgent.delete({ agentId: AGENT_ID }),
+    ).resolves.toEqual({ success: true, shadowUserRetained: false });
+  });
+
+  it("keeps the avatar when historical attribution retains the shadow user", async () => {
+    db.user.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("foreign key constraint", {
+        code: "P2003",
+        clientVersion: "test",
+      }),
+    );
+
+    await expect(
+      caller(db).externalAgent.delete({ agentId: AGENT_ID }),
+    ).resolves.toEqual({ success: true, shadowUserRetained: true });
+    expect(blobMocks.deleteFromBlob).not.toHaveBeenCalled();
   });
 });

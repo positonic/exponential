@@ -184,6 +184,13 @@ export const externalAgentRouter = createTRPCRouter({
         }
         throw error;
       }
+
+      // A retained shadow user still needs its image for historical
+      // attribution. Once the row is gone, the blob is unreachable and can be
+      // cleaned up without affecting deletion if storage is temporarily down.
+      if (agent.shadowUser.image) {
+        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
+      }
       return { success: true, shadowUserRetained: false };
     }),
 
