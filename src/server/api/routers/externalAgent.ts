@@ -16,7 +16,9 @@ import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
  */
 
 const MAX_KEYS_PER_AGENT = 10;
-const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+// Avatars travel as base64 inside a tRPC JSON request. Three raw MiB expands
+// to four MiB, leaving room under Vercel Functions' 4.5 MB request-body cap.
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
 const MAX_AVATAR_BASE64_LENGTH = Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 4;
 const AVATAR_EXTENSIONS = {
   "image/jpeg": "jpg",
@@ -128,7 +130,7 @@ export const externalAgentRouter = createTRPCRouter({
       if (Buffer.byteLength(input.base64Data, "base64") > MAX_AVATAR_BYTES) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Avatar must be 5MB or smaller",
+          message: "Avatar must be 3MB or smaller",
         });
       }
 
@@ -181,6 +183,9 @@ export const externalAgentRouter = createTRPCRouter({
           return { success: true, shadowUserRetained: true };
         }
         throw error;
+      }
+      if (agent.shadowUser.image) {
+        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
       }
       return { success: true, shadowUserRetained: false };
     }),

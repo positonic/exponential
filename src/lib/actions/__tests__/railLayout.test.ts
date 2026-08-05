@@ -236,6 +236,24 @@ describe("layoutRailBlocks", () => {
     expect(bucket.hidden.map((h) => h.id)).toEqual(["c", "d"]);
   });
 
+  it("shows a later third-lane block after a four-way collision ends", () => {
+    const { positioned, overflows } = layoutRailBlocks(
+      [
+        railBlock("a", 10, 120),
+        railBlock("b", 10, 120),
+        railBlock("c", 10, 30),
+        railBlock("d", 10, 30),
+        railBlock("e", 10.5, 30),
+      ],
+      RAIL,
+    );
+
+    expect(positioned.map((item) => item.block.id)).toContain("e");
+    expect(overflows).toHaveLength(1);
+    expect(overflows[0]!.hidden.map((item) => item.id)).toEqual(["c", "d"]);
+    expect(overflows[0]!.height).toBeLessThanOrEqual(30 * (RAIL.hourPx / 60));
+  });
+
   it("keeps separate pile-ups independent of one another", () => {
     const { positioned } = layoutRailBlocks(
       [

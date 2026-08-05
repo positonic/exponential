@@ -122,7 +122,6 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
               data-open={openOverflow === o.key ? "true" : undefined}
               style={{
                 top: o.top,
-                height: o.height,
                 left: `${o.leftPct}%`,
                 width: `${o.widthPct}%`,
               }}
