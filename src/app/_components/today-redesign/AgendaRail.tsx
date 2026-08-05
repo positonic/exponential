@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import type { RailBlock } from "~/lib/actions/railBlocks";
-import { layoutRailBlock } from "~/lib/actions/railLayout";
+import { layoutRailBlocks } from "~/lib/actions/railLayout";
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
 import { stripHtml } from "~/lib/utils";
 
@@ -17,6 +17,16 @@ interface AgendaRailProps {
 
 export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailProps) {
   const totalHrs = END_HR - START_HR;
+  const [openOverflow, setOpenOverflow] = useState<string | null>(null);
+  const { positioned, overflows } = useMemo(
+    () =>
+      layoutRailBlocks(blocks, {
+        rangeStart: START_HR,
+        rangeEnd: END_HR,
+        hourPx: HOUR_PX,
+      }),
+    [blocks],
+  );
   return (
     <aside className="td-rail">
       <div className="td-rail__header">
@@ -59,20 +69,19 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
             </div>
           )}
 
-          {blocks.map((b) => {
-            const layout = layoutRailBlock(b, {
-              rangeStart: START_HR,
-              rangeEnd: END_HR,
-              hourPx: HOUR_PX,
-            });
-            if (!layout) return null;
+          {positioned.map(({ block: b, ...layout }) => {
             const tone = b.kind === "cal" ? "blue" : "amber";
             return (
               <div
                 key={b.id}
                 className={`td-event td-event--${tone}`}
                 data-floored={layout.isFloored ? "true" : undefined}
-                style={{ top: layout.top, height: layout.height }}
+                style={{
+                  top: layout.top,
+                  height: layout.height,
+                  left: `${layout.leftPct}%`,
+                  width: `${layout.widthPct}%`,
+                }}
                 title={`${stripHtml(b.title)} · ${formatHourMinute12(b.start)} – ${formatHourMinute12(b.end)}`}
               >
                 <div className="td-event__title">{stripHtml(b.title)}</div>
@@ -84,6 +93,44 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
               </div>
             );
           })}
+
+          {overflows.map((o) => (
+            <div
+              key={o.key}
+              className="td-event-more"
+              style={{
+                top: o.top,
+                height: o.height,
+                left: `${o.leftPct}%`,
+                width: `${o.widthPct}%`,
+              }}
+            >
+              <button
+                type="button"
+                className="td-event-more__btn"
+                aria-expanded={openOverflow === o.key}
+                onClick={() =>
+                  setOpenOverflow((cur) => (cur === o.key ? null : o.key))
+                }
+              >
+                +{o.hidden.length} more
+              </button>
+              {openOverflow === o.key && (
+                <div className="td-event-more__panel" role="list">
+                  {o.hidden.map((h) => (
+                    <div key={h.id} className="td-event-more__item" role="listitem">
+                      <div className="td-event-more__item-title">
+                        {stripHtml(h.title)}
+                      </div>
+                      <div className="td-event-more__item-time">
+                        {formatHourMinute12(h.start)} – {formatHourMinute12(h.end)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </aside>

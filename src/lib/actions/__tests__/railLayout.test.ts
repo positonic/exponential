@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   layoutRailBlock,
+  layoutRailBlocks,
+  MAX_RAIL_LANES,
   MIN_RAIL_BLOCK_PX,
   RAIL_BLOCK_GAP_PX,
   RAIL_META_MIN_PX,
 } from "~/lib/actions/railLayout";
+import type { RailBlock } from "~/lib/actions/railBlocks";
 
 /** The desktop rail's geometry; the mobile one differs only in range. */
 const RAIL = { rangeStart: 7, rangeEnd: 20, hourPx: 48 };
@@ -112,5 +115,167 @@ describe("layoutRailBlock", () => {
 
     expect(layout!.top).toBe((10.5 - 6) * 48);
     expect(layout!.height).toBe(MIN_RAIL_BLOCK_PX);
+  });
+});
+
+function railBlock(
+  id: string,
+  startHour: number,
+  minutes: number,
+  kind: RailBlock["kind"] = "task",
+): RailBlock {
+  return { id, title: id, start: startHour, end: startHour + minutes / 60, kind };
+}
+
+describe("layoutRailBlocks", () => {
+  it("gives a lone block the full rail width", () => {
+    const { positioned, overflows } = layoutRailBlocks(
+      [railBlock("a", 10, 60)],
+      RAIL,
+    );
+
+    expect(positioned).toHaveLength(1);
+    expect(positioned[0]).toMatchObject({ leftPct: 0, widthPct: 100 });
+    expect(overflows).toEqual([]);
+  });
+
+  it("leaves blocks that do not collide at full width", () => {
+    const { positioned } = layoutRailBlocks(
+      [railBlock("a", 9, 60), railBlock("b", 11, 60)],
+      RAIL,
+    );
+
+    expect(positioned.map((p) => p.widthPct)).toEqual([100, 100]);
+  });
+
+  it("splits two colliding blocks into side-by-side lanes", () => {
+    const { positioned } = layoutRailBlocks(
+      [railBlock("a", 10, 60), railBlock("b", 10.5, 60)],
+      RAIL,
+    );
+
+    expect(positioned).toHaveLength(2);
+    for (const p of positioned) expect(p.widthPct).toBeLessThan(100);
+    // Distinct lanes, and they don't sit on top of each other.
+    const lefts = positioned.map((p) => p.leftPct).sort((x, y) => x - y);
+    expect(lefts[0]).toBe(0);
+    expect(lefts[1]).toBeGreaterThan(0);
+  });
+
+  it("lays a genuine 3-way collision into three lanes with no overflow", () => {
+    const { positioned, overflows } = layoutRailBlocks(
+      [
+        railBlock("cal", 14, 60, "cal"),
+        railBlock("deep-work", 14, 45),
+        railBlock("standup", 14.25, 30),
+      ],
+      RAIL,
+    );
+
+    expect(positioned).toHaveLength(3);
+    expect(overflows).toEqual([]);
+    expect(new Set(positioned.map((p) => p.leftPct)).size).toBe(3);
+    for (const p of positioned) expect(p.widthPct).toBeCloseTo(33, 0);
+  });
+
+  it("caps the lanes and collapses the rest into one overflow bucket", () => {
+    const blocks = Array.from({ length: 6 }, (_, i) =>
+      railBlock(`b${i}`, 10, 60),
+    );
+
+    const { positioned, overflows } = layoutRailBlocks(blocks, RAIL);
+
+    // Two lanes render; everything from the third onward is bucketed.
+    expect(positioned).toHaveLength(MAX_RAIL_LANES - 1);
+    expect(overflows).toHaveLength(1);
+    expect(overflows[0]!.hidden).toHaveLength(6 - (MAX_RAIL_LANES - 1));
+    expect(positioned.length + overflows[0]!.hidden.length).toBe(blocks.length);
+  });
+
+  it("never lets a lane fall below the readable width", () => {
+    const blocks = Array.from({ length: 12 }, (_, i) =>
+      railBlock(`b${i}`, 10, 60),
+    );
+
+    const { positioned, overflows } = layoutRailBlocks(blocks, RAIL);
+
+    for (const p of positioned) expect(p.widthPct).toBeGreaterThanOrEqual(30);
+    expect(overflows[0]!.widthPct).toBeGreaterThanOrEqual(30);
+  });
+
+  it("reuses a lane when a later block starts after the one above it ends", () => {
+    // a and b run 10:00–11:00; c is 10:00–10:30, so d at 10:30 can sit under c
+    // in the same lane. Three lanes suffice and nothing overflows.
+    const { positioned, overflows } = layoutRailBlocks(
+      [
+        railBlock("a", 10, 60),
+        railBlock("b", 10, 60),
+        railBlock("c", 10, 30),
+        railBlock("d", 10.5, 60),
+      ],
+      RAIL,
+    );
+
+    expect(positioned).toHaveLength(4);
+    expect(overflows).toEqual([]);
+    expect(new Set(positioned.map((p) => p.leftPct)).size).toBe(3);
+  });
+
+  it("places the overflow bucket in the last lane, spanning what it hides", () => {
+    // Four blocks all covering the same hour: no lane can be reused.
+    const blocks = ["a", "b", "c", "d"].map((id) => railBlock(id, 10, 60));
+
+    const { positioned, overflows } = layoutRailBlocks(blocks, RAIL);
+    const bucket = overflows[0]!;
+
+    expect(positioned).toHaveLength(MAX_RAIL_LANES - 1);
+    expect(bucket.leftPct).toBeGreaterThan(
+      Math.max(...positioned.map((p) => p.leftPct)),
+    );
+    expect(bucket.height).toBeGreaterThanOrEqual(MIN_RAIL_BLOCK_PX);
+    expect(bucket.hidden.map((h) => h.id)).toEqual(["c", "d"]);
+  });
+
+  it("keeps separate pile-ups independent of one another", () => {
+    const { positioned } = layoutRailBlocks(
+      [
+        // A collides with B in the morning...
+        railBlock("a", 9, 60),
+        railBlock("b", 9.5, 60),
+        // ...while C is alone in the afternoon and keeps the full width.
+        railBlock("c", 15, 60),
+      ],
+      RAIL,
+    );
+
+    const c = positioned.find((p) => p.block.id === "c")!;
+    expect(c.widthPct).toBe(100);
+    expect(positioned.find((p) => p.block.id === "a")!.widthPct).toBeLessThan(100);
+  });
+
+  it("drops out-of-range blocks before laying anything out", () => {
+    const { positioned, overflows } = layoutRailBlocks(
+      [railBlock("early", 3, 60), railBlock("late", 22, 60)],
+      RAIL,
+    );
+
+    expect(positioned).toEqual([]);
+    expect(overflows).toEqual([]);
+  });
+
+  it("treats two floored short blocks as colliding when they visually do", () => {
+    // 10:30 and 10:40 are only 8px apart but both render 22px tall, so they
+    // overlap on screen even though their durations do not.
+    const { positioned } = layoutRailBlocks(
+      [railBlock("a", 10.5, 10), railBlock("b", 10.5 + 10 / 60, 10)],
+      RAIL,
+    );
+
+    expect(positioned).toHaveLength(2);
+    for (const p of positioned) expect(p.widthPct).toBeLessThan(100);
+  });
+
+  it("returns nothing for no blocks", () => {
+    expect(layoutRailBlocks([], RAIL)).toEqual({ positioned: [], overflows: [] });
   });
 });
