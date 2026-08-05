@@ -51,19 +51,6 @@ pub fn default_root() -> PathBuf {
     Path::new(&home).join("Documents").join("exponential-wiki")
 }
 
-/// Decide the root from what's available: an explicit override wins, then a
-/// previously stored choice, then the default.
-///
-/// **There is deliberately no command to change this from the page.** The jail
-/// is only worth anything if the thing being jailed cannot move the walls, and
-/// these commands are reachable from a remote origin — a page-callable setter
-/// would turn "read inside the wiki" into "read anywhere" for any script running
-/// on that origin. Configuring the root is therefore an out-of-band act (the env
-/// var, or a future native settings UI), never an in-page one.
-pub fn resolve_root(stored: Option<String>) -> PathBuf {
-    resolve_root_for_launch(stored).root
-}
-
 /// The root for this launch, and whether it is ours to remember.
 pub struct RootChoice {
     pub root: PathBuf,
@@ -71,8 +58,16 @@ pub struct RootChoice {
     pub persist: bool,
 }
 
-/// Same decision as `resolve_root`, plus whether the answer should be written
-/// back to the store.
+/// Decide the root from what's available — an explicit override wins, then a
+/// previously stored choice, then the default — and say whether the answer
+/// should be written back to the store.
+///
+/// **There is deliberately no command to change this from the page.** The jail
+/// is only worth anything if the thing being jailed cannot move the walls, and
+/// these commands are reachable from a remote origin — a page-callable setter
+/// would turn "read inside the wiki" into "read anywhere" for any script running
+/// on that origin. Configuring the root is therefore an out-of-band act (the env
+/// var, or a future native settings UI), never an in-page one.
 ///
 /// The env override is deliberately **not** persisted. It used to be, and that
 /// turned a one-off `EXPONENTIAL_WIKI_ROOT=/tmp/scratch` test run into the
@@ -101,7 +96,7 @@ fn current_root(state: &WikiRoot) -> PathBuf {
 }
 
 /// Where the wiki is, so the app can tell the user rather than making them guess.
-/// Read-only by design — see `resolve_root`.
+/// Read-only by design — see `resolve_root_for_launch`.
 #[tauri::command]
 pub fn wiki_get_root(state: tauri::State<WikiRoot>) -> String {
     current_root(&state).to_string_lossy().into_owned()
@@ -894,8 +889,8 @@ mod tests {
     fn the_root_falls_back_to_the_default() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var(ROOT_ENV);
-        assert_eq!(resolve_root(None), default_root());
-        assert_eq!(resolve_root(Some("   ".into())), default_root());
+        assert_eq!(resolve_root_for_launch(None).root, default_root());
+        assert_eq!(resolve_root_for_launch(Some("   ".into())).root, default_root());
     }
 
     #[test]
@@ -903,7 +898,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var(ROOT_ENV);
         assert_eq!(
-            resolve_root(Some("/tmp/my-wiki".into())),
+            resolve_root_for_launch(Some("/tmp/my-wiki".into())).root,
             PathBuf::from("/tmp/my-wiki"),
         );
     }
@@ -913,7 +908,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var(ROOT_ENV, "/tmp/override-wiki");
         assert_eq!(
-            resolve_root(Some("/tmp/stored-wiki".into())),
+            resolve_root_for_launch(Some("/tmp/stored-wiki".into())).root,
             PathBuf::from("/tmp/override-wiki"),
         );
         std::env::remove_var(ROOT_ENV);
