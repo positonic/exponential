@@ -91,7 +91,10 @@ export function buildVoiceSeedContext(
     )
     .map((m) => ({
       role: m.type === "human" ? ("user" as const) : ("assistant" as const),
-      content: capped(collapseWhitespace(m.content), perTurnCharCap),
+      content: capped(
+        neutralizeSentinels(collapseWhitespace(m.content)),
+        perTurnCharCap,
+      ),
     }));
 
   if (turns.length === 0) return null;
@@ -114,6 +117,20 @@ export function buildVoiceSeedContext(
  */
 function collapseWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Defang the fence markers so a turn's own text can't close the block early.
+ *
+ * The whole trust posture here is that the router treats everything between the
+ * sentinels as reference. Turn content is untrusted to exactly the degree Zoe's
+ * tools are: she reads email, Slack, meeting transcripts and the web, and quotes
+ * them into her replies, which land in `messages` as assistant turns. A quoted
+ * "[END CONVERSATION SO FAR]" would close the fence, and whatever followed it
+ * would address the router at top level.
+ */
+function neutralizeSentinels(text: string): string {
+  return text.replace(/\[(\/?END )?CONVERSATION SO FAR/gi, "(conversation so far");
 }
 
 function capped(text: string, cap: number): string {
