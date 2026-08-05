@@ -181,9 +181,16 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // OKR execution links (ADR-0050): one objective → one KR carrying BOTH a
   // linked Project and a linked Feature, so the KR accordion on the OKRs tab
   // renders one row of each kind (Project pill / Feature pill).
+  // Project.workspace, Goal.workspace and KeyResult.workspace are all optional
+  // relations with no explicit onDelete, so Prisma defaults them to SetNull:
+  // dropping the `dev-fixture` workspace orphans these rows with a null
+  // workspaceId rather than cascading them away. Every path below therefore
+  // re-attaches `workspaceId`, so a seed → delete-workspace → seed cycle
+  // converges instead of resurrecting a workspace-less fixture the OKR
+  // dashboard (which queries by workspaceId) can't see.
   const project = await db.project.upsert({
     where: { slug: FIXTURE.projectSlug },
-    update: {},
+    update: { workspaceId: workspace.id },
     create: {
       name: FIXTURE.projectName,
       slug: FIXTURE.projectSlug,
@@ -193,36 +200,48 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
   });
 
-  let objective = await db.goal.findFirst({
-    where: { workspaceId: workspace.id, title: FIXTURE.objectiveTitle },
+  // Matched on title alone (not workspaceId) so an orphaned goal is found and
+  // re-homed rather than duplicated.
+  const existingObjective = await db.goal.findFirst({
+    where: { title: FIXTURE.objectiveTitle, userId: user.id },
   });
-  objective ??= await db.goal.create({
-    data: {
-      title: FIXTURE.objectiveTitle,
-      period: FIXTURE.okrPeriod,
-      userId: user.id,
-      driUserId: user.id,
-      workspaceId: workspace.id,
-    },
-  });
+  const objective = existingObjective
+    ? await db.goal.update({
+        where: { id: existingObjective.id },
+        data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod },
+      })
+    : await db.goal.create({
+        data: {
+          title: FIXTURE.objectiveTitle,
+          period: FIXTURE.okrPeriod,
+          userId: user.id,
+          driUserId: user.id,
+          workspaceId: workspace.id,
+        },
+      });
 
-  let keyResult = await db.keyResult.findFirst({
+  const existingKeyResult = await db.keyResult.findFirst({
     where: { goalId: objective.id, title: FIXTURE.keyResultTitle },
   });
-  keyResult ??= await db.keyResult.create({
-    data: {
-      title: FIXTURE.keyResultTitle,
-      targetValue: 100,
-      currentValue: 40,
-      startValue: 0,
-      unit: "percent",
-      period: FIXTURE.okrPeriod,
-      goalId: objective.id,
-      userId: user.id,
-      driUserId: user.id,
-      workspaceId: workspace.id,
-    },
-  });
+  const keyResult = existingKeyResult
+    ? await db.keyResult.update({
+        where: { id: existingKeyResult.id },
+        data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod },
+      })
+    : await db.keyResult.create({
+        data: {
+          title: FIXTURE.keyResultTitle,
+          targetValue: 100,
+          currentValue: 40,
+          startValue: 0,
+          unit: "percent",
+          period: FIXTURE.okrPeriod,
+          goalId: objective.id,
+          userId: user.id,
+          driUserId: user.id,
+          workspaceId: workspace.id,
+        },
+      });
 
   await db.keyResultProject.upsert({
     where: {
