@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Tooltip } from "@mantine/core";
 import { IconCalendar, IconClock, IconSparkles } from "@tabler/icons-react";
 import { HTMLContent } from "../../HTMLContent";
+import { ScheduledIndicator } from "../../shared/ScheduledIndicator";
 import { ActiveTimerIndicator } from "../../ActiveTimerIndicator";
 import { TagBadgeList } from "../../TagBadge";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
@@ -62,7 +62,6 @@ export function ActionRow({
     : null;
   const due = action.dueDate ? new Date(action.dueDate) : null;
   const timeSource = scheduled ?? due;
-  const duration = (action as Action & { duration?: number | null }).duration;
 
   const tags = action.tags?.map((t) => t.tag) ?? [];
 
@@ -132,17 +131,12 @@ export function ActionRow({
                   {formatAprDay(due)}
                 </span>
               )}
-              {scheduled && (
-                <Tooltip
-                  label={`Scheduled${duration ? ` for ${duration} min` : ""}`}
-                  withArrow
-                >
-                  <span className={styles.chip}>
-                    <IconClock size={10} />
-                    {formatClockTime(scheduled)}
-                  </span>
-                </Tooltip>
-              )}
+              <ScheduledIndicator
+                action={action}
+                className={styles.chip}
+                unscheduledClassName={styles.chipUnscheduled}
+                iconSize={10}
+              />
             </>
           )}
           <ProjectChip

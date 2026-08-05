@@ -416,6 +416,15 @@ html[data-sidebar="closed"] .td-topbar {
 
 .td-task__meta-item--overdue { color: var(--td-prio-urgent); }
 
+/* "No time set" is the common case, so its marker is the quietest thing on the
+   row — icon only, dimmed, and it steps back further next to a scheduled row's
+   clock-plus-time. The state is carried by the icon's shape and its label, not
+   by this colour. */
+.td-task__meta-item--unscheduled {
+  color: var(--td-faint);
+  gap: 0;
+}
+
 .td-task__reschedule {
   position: relative;
   display: inline-flex;
