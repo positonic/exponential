@@ -1,4 +1,5 @@
 import { hourFloat } from "~/lib/actions/dates";
+import { hasUserChosenTime, type TimeBlockFields } from "~/lib/actions/scheduling";
 
 /**
  * One positioned block on the Today agenda rail. `start`/`end` are hour floats
@@ -21,12 +22,9 @@ export interface RailCalendarEvent {
 }
 
 /** Structural shape of the Action fields the rail needs. */
-export interface RailSchedulableAction {
+export interface RailSchedulableAction extends TimeBlockFields {
   id: string;
   name: string;
-  scheduledStart?: Date | string | null;
-  scheduledEnd?: Date | string | null;
-  duration?: number | null;
 }
 
 /** Used only when an action expresses no length at all. */
@@ -90,7 +88,12 @@ export function buildRailBlocks({
   }
 
   for (const a of actions ?? []) {
-    if (!a.scheduledStart) continue;
+    // Only actions the user genuinely gave a time. A bare `scheduledStart` is
+    // usually an instant some code path stamped, not a commitment, and drawing
+    // those buried the rail in phantom hour-long blocks. Untimed tasks are
+    // omitted outright rather than shelved in a separate strip — they are
+    // already in the task list beside the rail, so nothing is lost.
+    if (!hasUserChosenTime(a)) continue;
     const start = new Date(a.scheduledStart);
     const durationMinutes = resolveActionDurationMinutes(a, start);
     blocks.push({

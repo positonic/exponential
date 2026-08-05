@@ -128,7 +128,10 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
     [calendarEventsQuery.data, partition.todays],
   );
 
-  const eventsCount = (calendarEventsQuery.data ?? []).length;
+  // Count what the rail actually draws, not the raw calendar payload — untimed
+  // actions are filtered out of `railBlocks`, and a header that counted the
+  // pre-filter total would promise rows that aren't there.
+  const eventsCount = railBlocks.length;
   const focusCount = railBlocks.filter((b) => b.kind === "focus").length;
 
   const dayLabel = useMemo(() => {

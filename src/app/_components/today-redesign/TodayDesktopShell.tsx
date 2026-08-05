@@ -614,7 +614,7 @@ export function TodayDesktopShell({
 
             <AgendaRail
               dayLabel={dayLabel}
-              eventsCount={(calendarEventsQuery.data ?? []).length}
+              eventsCount={railBlocks.length}
               blocks={railBlocks}
               now={now}
             />
