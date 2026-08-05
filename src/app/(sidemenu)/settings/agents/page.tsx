@@ -4,13 +4,16 @@ import { useState } from 'react';
 import {
   Alert,
   Anchor,
+  Avatar,
   Badge,
   Button,
   Code,
   CopyButton,
+  FileButton,
   Group,
   Modal,
   MultiSelect,
+  Loader,
   Paper,
   Stack,
   Table,
@@ -28,12 +31,16 @@ import {
   IconAlertCircle,
   IconCheck,
   IconCopy,
+  IconCamera,
   IconKey,
   IconPlus,
   IconRobotFace,
   IconTrash,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+const ACCEPTED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 /**
  * External agents (ADR-0049): user-owned principals for third-party autonomous
@@ -72,6 +79,24 @@ export default function ExternalAgentsPage() {
     onSuccess: async () => invalidate(),
     onError: (error) =>
       notifications.show({ title: 'Could not delete agent', message: error.message, color: 'red' }),
+  });
+
+  const uploadAvatar = api.externalAgent.uploadAvatar.useMutation({
+    onSuccess: async () => {
+      await invalidate();
+      notifications.show({
+        title: 'Avatar uploaded',
+        message: 'The agent avatar is now used across Exponential.',
+        color: 'green',
+        icon: <IconCheck size={16} />,
+      });
+    },
+    onError: (error) =>
+      notifications.show({
+        title: 'Could not upload avatar',
+        message: error.message,
+        color: 'red',
+      }),
   });
 
   const createKey = api.externalAgent.createKey.useMutation({
@@ -138,6 +163,47 @@ export default function ExternalAgentsPage() {
     keyForm.reset();
   };
 
+  const handleAvatarSelect = (agentId: string, file: File | null) => {
+    if (!file) return;
+
+    if (!ACCEPTED_AVATAR_TYPES.some((type) => type === file.type)) {
+      notifications.show({
+        title: 'Unsupported image',
+        message: 'Please choose a PNG, JPG, or WebP image.',
+        color: 'red',
+      });
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_BYTES) {
+      notifications.show({
+        title: 'File too large',
+        message: 'Please choose an image no larger than 5MB.',
+        color: 'red',
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64Data = typeof reader.result === 'string' ? reader.result.split(',')[1] : null;
+      if (!base64Data) {
+        notifications.show({
+          title: 'Could not read image',
+          message: 'Please try another image.',
+          color: 'red',
+        });
+        return;
+      }
+      uploadAvatar.mutate({
+        agentId,
+        base64Data,
+        contentType: file.type as (typeof ACCEPTED_AVATAR_TYPES)[number],
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <Stack gap="lg">
       <Group justify="space-between">
@@ -172,7 +238,37 @@ export default function ExternalAgentsPage() {
           <Stack gap="sm">
             <Group justify="space-between">
               <Group gap="xs">
-                <IconRobotFace size={20} />
+                <div className="relative">
+                  <Avatar src={agent.avatarUrl} size={40} radius="xl" color="brand">
+                    <IconRobotFace size={20} />
+                  </Avatar>
+                  <FileButton
+                    onChange={(file) => handleAvatarSelect(agent.id, file)}
+                    accept={ACCEPTED_AVATAR_TYPES.join(',')}
+                  >
+                    {(props) => (
+                      <Tooltip label={agent.avatarUrl ? 'Change avatar' : 'Add avatar'}>
+                        <ActionIcon
+                          {...props}
+                          variant="filled"
+                          color="brand"
+                          size="xs"
+                          radius="xl"
+                          className="absolute -bottom-1 -right-1"
+                          disabled={uploadAvatar.isPending}
+                          aria-label={`Upload avatar for ${agent.name}`}
+                        >
+                          {uploadAvatar.isPending &&
+                          uploadAvatar.variables?.agentId === agent.id ? (
+                            <Loader size={10} color="white" />
+                          ) : (
+                            <IconCamera size={11} />
+                          )}
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                  </FileButton>
+                </div>
                 <Text fw={600}>{agent.name}</Text>
                 <Badge variant="light" size="sm">
                   agent
