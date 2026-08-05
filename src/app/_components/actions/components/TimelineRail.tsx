@@ -1,13 +1,8 @@
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
+import type { RailBlock } from "~/lib/actions/railBlocks";
 import styles from "./TimelineRail.module.css";
 
-export interface RailBlock {
-  id: string;
-  title: string;
-  start: number;
-  end: number;
-  kind: "cal" | "task" | "focus";
-}
+export type { RailBlock };
 
 interface TimelineRailProps {
   dayLabel: string;
