@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import {
   Alert,
+  Anchor,
   Badge,
   Button,
   Code,
@@ -123,6 +124,8 @@ export default function ExternalAgentsPage() {
   const grantAgent = agents.find((agent) => agent.id === grantAgentId);
   const grantedWorkspaceIds = new Set(grantAgent?.workspaces.map((ws) => ws.id) ?? []);
   const grantableWorkspaces = workspaces.filter((ws) => !grantedWorkspaceIds.has(ws.id));
+  const allGrantableSelected =
+    grantableWorkspaces.length > 0 && grantWorkspaceIds.length === grantableWorkspaces.length;
 
   const closeKeyModal = () => {
     setKeyModalAgentId(null);
@@ -379,16 +382,37 @@ export default function ExternalAgentsPage() {
               This agent is already in every workspace you can add it to.
             </Text>
           ) : (
-            <MultiSelect
-              label="Workspaces"
-              placeholder={grantWorkspaceIds.length > 0 ? undefined : 'Pick one or more workspaces'}
-              data={grantableWorkspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
-              value={grantWorkspaceIds}
-              onChange={setGrantWorkspaceIds}
-              searchable
-              clearable
-              hidePickedOptions
-            />
+            <Stack gap={4}>
+              <Group justify="space-between" align="center" wrap="nowrap">
+                <Text size="sm" fw={500}>
+                  Workspaces
+                </Text>
+                <Anchor
+                  component="button"
+                  type="button"
+                  size="xs"
+                  onClick={() =>
+                    setGrantWorkspaceIds(
+                      allGrantableSelected ? [] : grantableWorkspaces.map((ws) => ws.id),
+                    )
+                  }
+                >
+                  {allGrantableSelected
+                    ? 'Clear all'
+                    : `Select all (${grantableWorkspaces.length})`}
+                </Anchor>
+              </Group>
+              <MultiSelect
+                aria-label="Workspaces"
+                placeholder={grantWorkspaceIds.length > 0 ? undefined : 'Pick one or more workspaces'}
+                data={grantableWorkspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
+                value={grantWorkspaceIds}
+                onChange={setGrantWorkspaceIds}
+                searchable
+                clearable
+                hidePickedOptions
+              />
+            </Stack>
           )}
           <Group justify="flex-end">
             <Button variant="default" onClick={closeGrantModal}>
