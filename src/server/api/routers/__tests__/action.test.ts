@@ -1436,4 +1436,76 @@ describe("action router (mocked)", () => {
       });
     });
   });
+
+  describe("bulkReschedule", () => {
+    const callerId = "u-resched";
+    const actionIds = ["a1", "a2", "a3"];
+
+    beforeEach(() => {
+      dbMock.action.updateMany.mockResolvedValue({ count: 3 });
+    });
+
+    it("writes dueDate and never touches scheduledStart", async () => {
+      const dueDate = new Date(2026, 7, 5, 14, 37, 12);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, dueDate });
+
+      expect(dbMock.action.updateMany).toHaveBeenCalledTimes(1);
+      const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
+      expect(data).toEqual({ dueDate });
+      expect(data).not.toHaveProperty("scheduledStart");
+      expect(data).not.toHaveProperty("scheduledEnd");
+    });
+
+    it("clears only the deadline when dueDate is null", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, dueDate: null });
+
+      const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
+      // Clearing the time-block as well is `bulkDefer`'s job, not this one's.
+      expect(data).toEqual({ dueDate: null });
+    });
+
+    it("scopes the update to actions the caller may touch", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, dueDate: new Date() });
+
+      const { where } = dbMock.action.updateMany.mock.calls[0]![0]!;
+      expect(where).toMatchObject({ id: { in: actionIds } });
+      // buildActionAccessWhere contributes the permission clause.
+      expect(Object.keys(where!).length).toBeGreaterThan(1);
+    });
+
+    it("rescheduling the same pile repeatedly writes no time-block", async () => {
+      // The pile-up this ticket fixes: "Reschedule all overdue → Today"
+      // clicked in quick succession used to stamp a fresh wall-clock
+      // scheduledStart every time, each drawn as an hour-long rail block.
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      for (let i = 0; i < 3; i++) {
+        await caller.action.bulkReschedule({
+          actionIds,
+          dueDate: new Date(2026, 7, 5, 14, 37, i),
+        });
+      }
+
+      for (const call of dbMock.action.updateMany.mock.calls) {
+        expect(Object.keys(call[0]!.data!)).toEqual(["dueDate"]);
+      }
+    });
+
+    it("still reports the actions it was given", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const result = await caller.action.bulkReschedule({
+        actionIds,
+        dueDate: new Date(),
+      });
+
+      expect(result).toEqual({ count: 3, actionIds });
+    });
+  });
 });
