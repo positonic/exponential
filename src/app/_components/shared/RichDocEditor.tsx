@@ -370,7 +370,7 @@ export function RichDocEditor({
     },
     editorProps: {
       attributes: {
-        class: "prose prose-invert max-w-none focus:outline-none",
+        class: "prose max-w-none text-text-primary focus:outline-none",
       },
       ...(editable && imageHandlers
         ? {
