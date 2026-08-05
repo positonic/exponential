@@ -1,5 +1,5 @@
 import React from "react";
-import type { RailBlock } from "../actions/components/TimelineRail";
+import type { RailBlock } from "~/lib/actions/railBlocks";
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
 import { stripHtml } from "~/lib/utils";
 
