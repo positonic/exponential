@@ -35,11 +35,15 @@ import {
   IconTrophy,
   IconUser,
   IconBuilding,
+  IconNotebook,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useAgentModal } from '~/providers/AgentModalProvider';
+import { reportHandledError } from '~/lib/reportHandledError';
+import { useWikiBridge } from '~/lib/wiki/useWikiBridge';
+import { pageTitle, wikiHref, WIKI_ROUTE } from '~/lib/wiki/wikiLinks';
 import styles from '../home/WorkspaceHomeConceptD.module.css';
 
 type Mode = 'all' | 'projects' | 'tasks' | 'goals' | 'ai';
@@ -116,6 +120,13 @@ const MODE_TYPES: Record<Exclude<Mode, 'ai'>, SearchType[] | null> = {
 // the first keystroke.
 const MIN_SEARCH_LENGTH = 2;
 
+// Local wiki pages shown per search, matching the server search's per-type
+// limit so one source can't crowd out the other.
+const WIKI_RESULT_LIMIT = 5;
+
+/** One local wiki page, ready to render as a palette row. */
+type WikiRow = { path: string; title: string; line?: string };
+
 const SUGGESTED = [
   { icon: IconFlag, label: 'Run weekly plan', sub: 'Keystone ritual · 45 min' },
   { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe' },
@@ -145,6 +156,11 @@ export function CommandPalette() {
   const router = useRouter();
   const { workspaceId, workspaceSlug } = useWorkspace();
   const { openModal } = useAgentModal();
+
+  // The local wiki is a folder on this machine reached over the desktop
+  // shell's IPC. Null in a browser and in the Electron shell, which is what
+  // keeps every wiki row below out of those builds entirely.
+  const { bridge: wikiBridge } = useWikiBridge();
 
   const open = useCallback(() => setIsOpen(true), []);
   const close = useCallback(() => setIsOpen(false), []);
@@ -241,10 +257,78 @@ export function CommandPalette() {
     return { currentWorkspaceNav: current, otherWorkspaceNav: other.slice(0, 10) };
   }, [q, workspacesData, productEnabledByWorkspaceId, workspaceId]);
 
+  // Everywhere the palette can navigate to by name, before filtering. The
+  // wiki is not workspace-scoped — it lives at /wiki, one folder per machine
+  // — so it is listed independently of whether we are inside a workspace.
+  const navPages = useMemo(() => {
+    const rows = workspaceSlug
+      ? PAGES.map((p) => ({
+          key: `page-${p.path}`,
+          label: p.label,
+          icon: p.icon,
+          href: `/w/${workspaceSlug}/${p.path}`,
+        }))
+      : [];
+    if (wikiBridge) {
+      rows.push({ key: 'local-wiki', label: 'Local wiki', icon: IconBook2, href: WIKI_ROUTE });
+    }
+    return rows;
+  }, [workspaceSlug, wikiBridge]);
+
   const filteredPages = useMemo(
-    () => (workspaceSlug ? PAGES.filter((p) => !q || p.label.toLowerCase().includes(q)) : []),
-    [workspaceSlug, q],
+    () => navPages.filter((p) => !q || p.label.toLowerCase().includes(q)),
+    [navPages, q],
   );
+
+  /**
+   * Local wiki pages matching the query.
+   *
+   * **This deliberately does not go through `api.search.global`.** The wiki is
+   * device-local by construction: it is a folder of markdown on this machine
+   * that never leaves it, and that promise is the feature. Sending the query
+   * — let alone page contents — to the server to be searched there would break
+   * it. So the hits come from the shell's own grep over the files, and are
+   * merged into the palette's results here in the browser instead.
+   */
+  const [wikiRows, setWikiRows] = useState<WikiRow[]>([]);
+
+  useEffect(() => {
+    if (!wikiBridge || !isOpen || mode !== 'all' || debouncedQuery.length < MIN_SEARCH_LENGTH) {
+      setWikiRows([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const hits = (await wikiBridge.search(debouncedQuery)).slice(0, WIKI_RESULT_LIMIT);
+        // Title each hit by its own `# Heading` rather than its filename —
+        // "Ada Lovelace" reads better than "ada" in a list you scan. It costs
+        // one local read per hit, which is why it only runs for the handful
+        // that are about to be shown.
+        const rows = await Promise.all(
+          hits.map(async (hit): Promise<WikiRow> => {
+            let title = pageTitle(hit.path);
+            try {
+              title = pageTitle(hit.path, await wikiBridge.readPage(hit.path));
+            } catch {
+              // One unreadable page shouldn't cost the others their titles.
+            }
+            return { path: hit.path, title, line: hit.lines[0] };
+          }),
+        );
+        if (!cancelled) setWikiRows(rows);
+      } catch (e) {
+        if (cancelled) return;
+        setWikiRows([]);
+        // No query and no path in the report: this reporter files a Bug Ticket
+        // on the server, and wiki text is exactly what must not go there.
+        reportHandledError(e, { area: 'command-palette-wiki-search' });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wikiBridge, isOpen, mode, debouncedQuery]);
 
   // Results carry the query they were fetched for. While the next search is in
   // flight we keep the previous ones only if the typed query extends them —
@@ -282,11 +366,11 @@ export function CommandPalette() {
     const navRows: PaletteRow[] = [
       ...filteredPages.map((p) =>
         row({
-          key: `page-${p.path}`,
+          key: p.key,
           label: p.label,
           sub: 'Navigate',
           icon: p.icon,
-          href: `/w/${workspaceSlug}/${p.path}`,
+          href: p.href,
           accent: true,
         }),
       ),
@@ -330,6 +414,27 @@ export function CommandPalette() {
       });
     }
 
+    // Local wiki pages sit after the server's results rather than among them:
+    // they come from a different place entirely, and saying so is the point.
+    if (wikiRows.length > 0) {
+      sections.push({
+        key: 'local-wiki',
+        heading: 'Local wiki',
+        rows: wikiRows.map((page) =>
+          row({
+            key: `wiki-${page.path}`,
+            label: page.title,
+            // The matching line when there is one, else the path — enough to
+            // tell people/ada.md from characters/ada.md at a glance.
+            sub: page.line ?? page.path,
+            icon: IconNotebook,
+            href: wikiHref(page.path),
+            accent: false,
+          }),
+        ),
+      });
+    }
+
     // Other workspaces go last: matching one by name lists all of its
     // sections, which would otherwise bury the results you searched for.
     if (otherWorkspaceNav.length > 0) {
@@ -350,7 +455,7 @@ export function CommandPalette() {
     }
 
     return sections;
-  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, workspaceSlug, workspaceId]);
+  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, wikiRows, workspaceId]);
 
   const allResults = useMemo(
     () => resultSections.flatMap((section) => section.rows),
@@ -563,10 +668,10 @@ export function CommandPalette() {
                   const Icon = page.icon;
                   return (
                     <UnstyledButton
-                      key={page.path}
+                      key={page.key}
                       className={styles.resultRow}
                       data-highlighted={highlightedIndex === i ? 'true' : 'false'}
-                      onClick={() => navigate(`/w/${workspaceSlug}/${page.path}`)}
+                      onClick={() => navigate(page.href)}
                     >
                       <Icon
                         size={14}
