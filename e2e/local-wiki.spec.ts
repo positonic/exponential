@@ -290,6 +290,60 @@ test("navigating away from an open editor does not carry the draft to the next p
   expect(await fileOnDisk(page, "index.md")).toBe(FILES["index.md"]!);
 });
 
+/**
+ * Opening the palette. Mantine's `mod+k` accepts either modifier, and
+ * `ControlOrMeta` lets this pass on a Linux CI runner and a Mac alike.
+ */
+async function openPalette(page: Page) {
+  await page.keyboard.press("ControlOrMeta+k");
+  return page.getByRole("dialog");
+}
+
+test("the command palette can reach the wiki, and its pages", async ({ page }) => {
+  await installWikiStub(page);
+  await page.goto("/wiki");
+  await expect(page.getByRole("heading", { name: "Local wiki" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  const palette = await openPalette(page);
+  // Scoped to the dialog throughout: the page behind it is the wiki, so
+  // "Local wiki" appears in its heading too.
+  await expect(palette.getByText("Local wiki", { exact: true })).toBeVisible();
+
+  // A word that appears in no filename and in no server-side entity — only
+  // inside a wiki page's body.
+  await palette.getByPlaceholder("Search, command, or ask Zoe…").fill("algorithm");
+
+  // Titled by the page's own heading rather than its filename.
+  await expect(palette.getByText("Ada Lovelace")).toBeVisible();
+  await expect(palette.getByText("Wrote the first algorithm intended for a machine.")).toBeVisible();
+
+  // The hits came off the disk, not out of the server's search.
+  expect((await calls(page)).some((c) => c.cmd === "wiki_search")).toBe(true);
+
+  await palette.getByText("Ada Lovelace").click();
+  await expect(page).toHaveURL(/\/wiki\/people\/ada$/);
+
+  await test.info().attach("wiki-command-palette", {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: "image/png",
+  });
+});
+
+test("without a desktop shell the palette offers no wiki at all", async ({ page }) => {
+  // No stub: in a browser (and in the Electron shell) there is no wiki to
+  // reach, so neither the entry nor a local search may appear.
+  await page.goto("/wiki");
+  await expect(page.getByText("The local wiki lives on your machine")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  const palette = await openPalette(page);
+  await expect(palette.getByPlaceholder("Search, command, or ask Zoe…")).toBeVisible();
+  await expect(palette.getByText("Local wiki", { exact: true })).toHaveCount(0);
+});
+
 test("in a browser, the wiki says where it actually lives", async ({ page }) => {
   // No stub: this is what a non-desktop visitor gets.
   await page.goto("/wiki");
