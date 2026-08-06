@@ -289,6 +289,14 @@ export default function TicketDetailPage() {
     }
   }, [ticket]);
 
+  // A draft comment belongs to the ticket it was typed against. The nav arrows
+  // swap tickets without unmounting this page, so without this the draft would
+  // follow you and could be posted against the wrong one. Keyed on the id, not
+  // the ticket object, so an ordinary refetch doesn't discard what you typed.
+  useEffect(() => {
+    setComment("");
+  }, [ticket?.id]);
+
   // Canonicalise the address bar to the clean number form (`/tickets/29`) when
   // the ticket was reached via CUID or a Linear-style id. Legacy tickets with
   // no number (0) keep their CUID URL.

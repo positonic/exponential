@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionIcon, Tooltip } from "@mantine/core";
-import { useHotkeys } from "@mantine/hooks";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import {
+  LIST_NAV_HINT,
+  useListNavHotkeys,
+} from "~/app/_components/product/useListNavHotkeys";
 
 /**
  * Prev/next arrows for the ticket detail page. Left goes to the closest
@@ -15,17 +18,8 @@ import { api } from "~/trpc/react";
  * on that side renders disabled rather than disappearing, so the pair doesn't
  * shift position between tickets.
  *
- * Two keyboard routes to the same navigation:
- *
- *   ⌃⌘← / ⌃⌘→  works everywhere, including mid-sentence in the title or body.
- *   ← / →        works only when focus is outside a text field.
- *
- * The chord is Control+Command because every simpler arrow combination is
- * already spoken for on macOS: ⌘arrow is browser Back/Forward (and line
- * start/end while typing), ⌥arrow moves by word, ⌘⌥arrow switches browser tabs,
- * ⌃arrow switches Spaces, and fn⌃arrow tiles windows. ⌃⌘arrow is bound by none
- * of them. Mantine's useHotkeys matches modifiers exactly, so the plain ⌘arrow
- * Back/Forward the browser owns still reaches the browser untouched.
+ * Keys come from useListNavHotkeys, the same bindings the peek drawers use:
+ * j/k, plus ⌃⌘←/→ which also work while typing.
  */
 export function TicketNavArrows({
   productId,
@@ -39,6 +33,7 @@ export function TicketNavArrows({
   productSlug: string;
 }) {
   const router = useRouter();
+  const rootRef = useRef<HTMLDivElement>(null);
   const { data } = api.product.ticket.getAdjacent.useQuery(
     { productId, number },
     { enabled: !!productId && number > 0 },
@@ -49,52 +44,23 @@ export function TicketNavArrows({
     [workspaceSlug, productSlug],
   );
 
-  const go = useCallback(
-    (target: { number: number } | null | undefined) => {
-      if (!target) return;
-      // An open modal, menu or dropdown owns the keyboard — the ⋯ menu and the
-      // property selects both move between items with the arrow keys, and their
-      // items are buttons, so useHotkeys' tag filter doesn't cover them.
-      // This page keeps ~8 of these mounted-but-hidden, so presence alone
-      // proves nothing. getClientRects() is the test that works here:
-      // offsetParent is null for position:fixed, which every Mantine dropdown
-      // is, so it would report even an open one as closed.
-      //
-      // Matching on aria-modal rather than role="dialog" deliberately: the Zoe
-      // assistant rail is a permanently laid-out role="dialog" (aria-hidden
-      // while closed), so keying off the role alone would block every press.
-      const overlays = document.querySelectorAll<HTMLElement>(
-        '[aria-modal="true"], [role="menu"], [role="listbox"]',
-      );
-      for (const overlay of overlays) {
-        if (
-          overlay.getAttribute("aria-hidden") !== "true" &&
-          overlay.getClientRects().length > 0
-        ) {
-          return;
-        }
-      }
-      router.push(href(target.number));
-    },
-    [router, href],
+  const prev = data?.prev;
+  const next = data?.next;
+
+  const goPrev = useCallback(
+    () => prev && router.push(href(prev.number)),
+    [prev, router, href],
+  );
+  const goNext = useCallback(
+    () => next && router.push(href(next.number)),
+    [next, router, href],
   );
 
-  // Fires everywhere, including inside the title field and the body editor.
-  useHotkeys(
-    [
-      ["ctrl+meta+ArrowLeft", () => go(data?.prev)],
-      ["ctrl+meta+ArrowRight", () => go(data?.next)],
-    ],
-    [],
-    true,
-  );
-
-  // Bare arrows are a convenience for reading, so they keep the default guard
-  // that ignores inputs, textareas, selects and contenteditable.
-  useHotkeys([
-    ["ArrowLeft", () => go(data?.prev)],
-    ["ArrowRight", () => go(data?.next)],
-  ]);
+  useListNavHotkeys({
+    onPrev: prev ? goPrev : undefined,
+    onNext: next ? goNext : undefined,
+    root: rootRef,
+  });
 
   // Legacy tickets with no number have no neighbours to walk to.
   if (number <= 0) return null;
@@ -104,9 +70,8 @@ export function TicketNavArrows({
     target: { number: number; title: string } | null | undefined,
   ) => {
     const Icon = dir === "prev" ? IconChevronLeft : IconChevronRight;
-    const key = dir === "prev" ? "⌃⌘←" : "⌃⌘→";
     const label = target
-      ? `${key}  #${target.number} · ${target.title}`
+      ? `#${target.number} · ${target.title}  (${LIST_NAV_HINT[dir]})`
       : dir === "prev"
         ? "No earlier ticket"
         : "No later ticket";
@@ -121,18 +86,17 @@ export function TicketNavArrows({
             variant="subtle"
             size="sm"
             className="shrink-0 text-text-secondary"
-            aria-label={
-              dir === "prev" ? "Previous ticket" : "Next ticket"
-            }
+            aria-label={dir === "prev" ? "Previous ticket" : "Next ticket"}
           >
             <Icon size={16} />
           </ActionIcon>
         ) : (
           <span
             className="shrink-0 inline-flex items-center px-1 opacity-40"
-            role="button"
-            aria-disabled="true"
-            aria-label={dir === "prev" ? "Previous ticket" : "Next ticket"}
+            role="img"
+            aria-label={
+              dir === "prev" ? "No earlier ticket" : "No later ticket"
+            }
           >
             <Icon size={16} className="text-text-muted" />
           </span>
@@ -142,9 +106,9 @@ export function TicketNavArrows({
   };
 
   return (
-    <div className="flex items-center gap-0.5">
-      {arrow("prev", data?.prev)}
-      {arrow("next", data?.next)}
+    <div ref={rootRef} className="flex items-center gap-0.5">
+      {arrow("prev", prev)}
+      {arrow("next", next)}
     </div>
   );
 }

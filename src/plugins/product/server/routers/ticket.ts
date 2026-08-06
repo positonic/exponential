@@ -271,7 +271,11 @@ export const ticketRouter = createTRPCRouter({
    * clean URL to navigate to.
    */
   getAdjacent: protectedProcedure
-    .input(z.object({ productId: z.string(), number: z.number().int() }))
+    .input(
+      // Positive: the `next` branch has no lower bound of its own, so a
+      // non-positive input would let it match a legacy number=0 ticket.
+      z.object({ productId: z.string(), number: z.number().int().positive() }),
+    )
     .query(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
