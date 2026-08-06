@@ -30,7 +30,11 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
   recordActivity: recordActivityMock,
 }));
 
-import { runOutboundTicketPush, type TicketPushAdapter } from "../push";
+import {
+  runOutboundTicketPush,
+  NonRetryablePushError,
+  type TicketPushAdapter,
+} from "../push";
 import { runInboundTicketSync, type RemoteTicketRow } from "../engine";
 import type { SyncedFields } from "../merge";
 import type { NotionDbSchema } from "../outboundMapping";
@@ -516,6 +520,26 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
         }),
       }),
     );
+  });
+
+  it("fails terminally when the link write dies after the page was created", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null);
+    db.ticketSync.update.mockRejectedValueOnce(new Error("connection lost"));
+
+    // The Notion page is already live; retrying would create a second one, so
+    // this must surface as non-retryable rather than as an ordinary failure.
+    const error = await runOutboundTicketPush(db, adapter, {
+      syncId: "s1",
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(NonRetryablePushError);
+    expect((error as NonRetryablePushError).orphanedExternalId).toBe("new-page-id");
+    // One page created, and the sentinel still stands — the orphan an operator
+    // has to reconcile. The point is that a retry cannot add a second.
+    expect(adapter.creates).toHaveLength(1);
   });
 
   it("does not mirror a terminal ticket and drops the sentinel", async () => {

@@ -16,6 +16,7 @@ import {
   planBackfill,
   runOutboundPushSweep,
 } from "../pushRunner";
+import { NonRetryablePushError } from "../push";
 import type { OutboundPushItem, TicketPushAdapter } from "../push";
 
 const db = mockDeep<PrismaClient>() as DeepMockProxy<PrismaClient>;
@@ -234,6 +235,38 @@ describe("runOutboundPushSweep", () => {
         data: expect.objectContaining({ status: "FAILED", attempts: 5 }),
       }),
     );
+  });
+
+  it("does not reschedule a failure whose remote write already landed", async () => {
+    db.ticketSyncPushJob.findMany.mockResolvedValue([dueJob({ attempts: 0 })] as never);
+    db.ticketSyncConfig.findUnique.mockResolvedValue(pushEnabledConfig() as never);
+    const runPush = vi
+      .fn()
+      .mockRejectedValue(
+        new NonRetryablePushError("page created but not linked", "orphan-page-id"),
+      );
+
+    const result = await runOutboundPushSweep(db, NOW, { adapterFactory, runPush });
+
+    expect(result.failed).toBe(1);
+    // FAILED on the first attempt, not PENDING — a retry would re-enter the
+    // create branch and make a second Notion page.
+    expect(db.ticketSyncPushJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "job1" },
+        data: expect.objectContaining({
+          status: "FAILED",
+          attempts: 1,
+          nextAttemptAt: NOW,
+        }),
+      }),
+    );
+    // The orphan is named in the run so an operator can find it.
+    const runUpdate = db.ticketSyncRun.update.mock.calls[0]![0] as {
+      data: { items: Array<{ externalId: string | null; reason?: string }> };
+    };
+    expect(runUpdate.data.items[0]?.externalId).toBe("orphan-page-id");
+    expect(runUpdate.data.items[0]?.reason).toContain("not retried");
   });
 
   it("skips a job another drain already claimed", async () => {
