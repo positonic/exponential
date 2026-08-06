@@ -55,6 +55,7 @@ import {
 import { generateLinearId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
+import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
@@ -288,6 +289,14 @@ export default function TicketDetailPage() {
     }
   }, [ticket]);
 
+  // A draft comment belongs to the ticket it was typed against. The nav arrows
+  // swap tickets without unmounting this page, so without this the draft would
+  // follow you and could be posted against the wrong one. Keyed on the id, not
+  // the ticket object, so an ordinary refetch doesn't discard what you typed.
+  useEffect(() => {
+    setComment("");
+  }, [ticket?.id]);
+
   // Canonicalise the address bar to the clean number form (`/tickets/29`) when
   // the ticket was reached via CUID or a Linear-style id. Legacy tickets with
   // no number (0) keep their CUID URL.
@@ -409,6 +418,14 @@ export default function TicketDetailPage() {
                 </Text>
               )}
               <NotionSyncBadge syncs={ticket.syncs} />
+              {workspace && (
+                <TicketNavArrows
+                  productId={ticket.product.id}
+                  number={ticket.number}
+                  workspaceSlug={workspace.slug}
+                  productSlug={productSlug}
+                />
+              )}
             </Group>
 
             <Group justify="space-between" align="flex-start">

@@ -264,6 +264,42 @@ export const ticketRouter = createTRPCRouter({
     }),
 
   /**
+   * The nearest existing ticket either side of `number` within a product,
+   * powering the prev/next arrows on the detail page. Numbers have gaps (tickets
+   * get deleted), so this walks to the closest lower/higher number rather than
+   * assuming ±1. Legacy tickets with `number = 0` are skipped — they have no
+   * clean URL to navigate to.
+   */
+  getAdjacent: protectedProcedure
+    .input(
+      // Positive: the `next` branch has no lower bound of its own, so a
+      // non-positive input would let it match a legacy number=0 ticket.
+      z.object({ productId: z.string(), number: z.number().int().positive() }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      const select = { number: true, title: true } as const;
+      const [prev, next] = await Promise.all([
+        ctx.db.ticket.findFirst({
+          where: {
+            productId: input.productId,
+            number: { lt: input.number, gt: 0 },
+          },
+          orderBy: { number: "desc" },
+          select,
+        }),
+        ctx.db.ticket.findFirst({
+          where: { productId: input.productId, number: { gt: input.number } },
+          orderBy: { number: "asc" },
+          select,
+        }),
+      ]);
+
+      return { prev, next };
+    }),
+
+  /**
    * Resolve a ticket URL segment to its canonical CUID, scoped to a product.
    * Accepts the user-friendly sequential number (`29`), a Linear-style id
    * (`PLAT-29`), a CUID, or a fun shortId. Powers `/tickets/29` URLs: the

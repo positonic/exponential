@@ -426,3 +426,87 @@ describe("ticket router — assignee containment guard (mocked)", () => {
     expect(dbMock.ticket.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("ticket router — getAdjacent (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  /** The where/orderBy of the prev (0) and next (1) findFirst calls. */
+  function adjacentCalls(m: DeepMockProxy<PrismaClient>) {
+    return [
+      m.ticket.findFirst.mock.calls[0]?.[0],
+      m.ticket.findFirst.mock.calls[1]?.[0],
+    ] as const;
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubProductLookup(dbMock);
+    stubMembership(dbMock, true);
+  });
+
+  it("walks to the nearest neighbour on each side rather than assuming +/-1", async () => {
+    // Numbering has gaps (2, 6, 9) — deleting a ticket must not strand its
+    // neighbours behind a 404.
+    dbMock.ticket.findFirst
+      .mockResolvedValueOnce({ number: 2, title: "two" } as never)
+      .mockResolvedValueOnce({ number: 9, title: "nine" } as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const result = await caller.product.ticket.getAdjacent({
+      productId,
+      number: 6,
+    });
+
+    expect(result).toEqual({
+      prev: { number: 2, title: "two" },
+      next: { number: 9, title: "nine" },
+    });
+
+    const [prevCall, nextCall] = adjacentCalls(dbMock);
+    // Closest-first ordering is what makes it the *nearest* neighbour.
+    expect(prevCall).toMatchObject({
+      where: { productId, number: { lt: 6 } },
+      orderBy: { number: "desc" },
+    });
+    expect(nextCall).toMatchObject({
+      where: { productId, number: { gt: 6 } },
+      orderBy: { number: "asc" },
+    });
+  });
+
+  it("excludes legacy number=0 tickets from the prev side", async () => {
+    // number 0 is the legacy sentinel; those rows have no clean URL to reach.
+    dbMock.ticket.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.getAdjacent({ productId, number: 1 });
+
+    const [prevCall] = adjacentCalls(dbMock);
+    expect(prevCall).toMatchObject({
+      where: { productId, number: { lt: 1, gt: 0 } },
+    });
+  });
+
+  it("returns null at each boundary of the list", async () => {
+    dbMock.ticket.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const result = await caller.product.ticket.getAdjacent({
+      productId,
+      number: 1,
+    });
+
+    expect(result).toEqual({ prev: null, next: null });
+  });
+
+  it("refuses a product the caller is not a member of", async () => {
+    stubMembership(dbMock, false);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.getAdjacent({ productId, number: 3 }),
+    ).rejects.toThrow();
+    expect(dbMock.ticket.findFirst).not.toHaveBeenCalled();
+  });
+});
