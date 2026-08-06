@@ -609,6 +609,9 @@ async function runOutboundCreate(
   });
 
   // Rewrite the sentinel into a real link with the converged snapshot.
+  // `remoteCreatedAt` is the ONLY trustworthy record that this page is
+  // machine-authored — the run ledger's "created" action is ambiguous across
+  // directions. Anything that rewrites page CONTENT must gate on this column.
   await db.ticketSync.update({
     where: { id: sync.id },
     data: {
@@ -616,6 +619,7 @@ async function runOutboundCreate(
       externalUrl: url,
       snapshot: local as unknown as Prisma.InputJsonValue,
       lastSyncedAt: new Date(),
+      remoteCreatedAt: new Date(),
     },
   });
 

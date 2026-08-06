@@ -269,8 +269,12 @@ export const ticketSyncRouter = createTRPCRouter({
   /**
    * Maintenance: re-render the page CONTENT of pages this sync created
    * (ivory.pike). Body is written once at creation; pages created before the
-   * Markdown renderer landed show literal Markdown. Only ledger-recorded
-   * created pages are touched — imported/adopted pages are never rewritten.
+   * Markdown renderer landed show literal Markdown.
+   *
+   * This DELETES Notion blocks, so it defaults to a dry run and only ever
+   * touches pages whose `remoteCreatedAt` proves the push created them and
+   * whose content still matches what the push wrote. See bodyRepair.ts for
+   * the full guard list and the incident that motivated it.
    */
   rerenderCreatedBodies: protectedProcedure
     .input(
@@ -280,6 +284,8 @@ export const ticketSyncRouter = createTRPCRouter({
         // in one serverless request. Callers loop on the returned nextCursor.
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(10).optional(),
+        // Opt in explicitly to writing; the default reports what it would do.
+        dryRun: z.boolean().default(true),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -313,6 +319,7 @@ export const ticketSyncRouter = createTRPCRouter({
         configId: config.id,
         cursor: input.cursor,
         limit: input.limit,
+        dryRun: input.dryRun,
       });
     }),
 

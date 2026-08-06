@@ -4920,6 +4920,13 @@ model TicketSync {
   snapshot     Json?
   lastSyncedAt DateTime  @default(now())
   tombstonedAt DateTime?
+  /// Stamped when the OUTBOUND push created this Notion page (ADR-0046 full
+  /// mirror). Null means the page is human-authored — imported or adopted —
+  /// and its CONTENT is never machine-writable. This is the only trustworthy
+  /// provenance signal: the run ledger's `action: "created"` is ambiguous
+  /// (inbound uses it for "created a ticket", outbound for "created a page")
+  /// and reading it as page provenance destroyed human content once already.
+  remoteCreatedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

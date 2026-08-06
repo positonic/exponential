@@ -509,6 +509,10 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
         data: expect.objectContaining({
           externalId: "new-page-id",
           snapshot: expect.objectContaining({ title: "Title" }),
+          // Provenance: the ONLY signal that this page's content is
+          // machine-authored and may later be rewritten in place. Without it
+          // the body-repair pass cannot tell our pages from imported ones.
+          remoteCreatedAt: expect.any(Date),
         }),
       }),
     );

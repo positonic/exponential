@@ -203,6 +203,15 @@ export class NotionService {
       .filter((id): id is string => typeof id === "string");
   }
 
+  /**
+   * A block's (or page's) direct children as full block objects, in order.
+   * Callers that are about to DELETE content need the block types, not just
+   * ids, so they can prove the content is machine-authored first.
+   */
+  async listBlockChildren(blockId: string): Promise<Array<Record<string, unknown>>> {
+    return (await this.getAllBlocks(blockId)) as Array<Record<string, unknown>>;
+  }
+
   /** Move one block to the trash (Notion has no hard delete via API). */
   async deleteBlock(blockId: string): Promise<void> {
     await this.client.blocks.delete({ block_id: blockId });
