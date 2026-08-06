@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import {
   runOutboundTicketPush,
+  NonRetryablePushError,
   PENDING_EXTERNAL_PREFIX,
   type OutboundPushItem,
   type TicketPushAdapter,
@@ -460,14 +461,18 @@ export async function runOutboundPushSweep(
       } catch (error) {
         const message = error instanceof Error ? error.message : "unknown error";
         const attempts = job.attempts + 1;
-        const exhausted = attempts >= MAX_ATTEMPTS;
+        // A remote write that already landed must never be retried — another
+        // attempt would duplicate it. Ordinary transient failures (rate limits,
+        // 5xx, a dropped connection before the write) still back off and retry.
+        const nonRetryable = error instanceof NonRetryablePushError;
+        const giveUp = nonRetryable || attempts >= MAX_ATTEMPTS;
         await db.ticketSyncPushJob.update({
           where: { id: job.id },
           data: {
-            status: exhausted ? "FAILED" : "PENDING",
+            status: giveUp ? "FAILED" : "PENDING",
             attempts,
             lastError: message,
-            nextAttemptAt: exhausted
+            nextAttemptAt: giveUp
               ? now
               : new Date(now.getTime() + backoffMs(attempts)),
           },
@@ -475,13 +480,15 @@ export async function runOutboundPushSweep(
         counts.failed++;
         items.push({
           syncId: job.syncId,
-          externalId: null,
+          externalId: nonRetryable ? error.orphanedExternalId : null,
           ticketId: "",
           title: "",
           action: "failed",
-          reason: exhausted
-            ? `${message} (gave up after ${attempts} attempts)`
-            : `${message} (will retry, attempt ${attempts}/${MAX_ATTEMPTS})`,
+          reason: nonRetryable
+            ? `${message} (not retried — a retry would create a duplicate page; reconcile the orphan manually)`
+            : giveUp
+              ? `${message} (gave up after ${attempts} attempts)`
+              : `${message} (will retry, attempt ${attempts}/${MAX_ATTEMPTS})`,
         });
       }
     }

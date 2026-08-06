@@ -14,6 +14,14 @@ import { markdownToNotionBlocks } from "./markdownBlocks";
 
 export const SOURCE_MARKER_VALUE = "Exponential";
 
+/**
+ * Leading text of the callout every sync-created page opens with. Exported so
+ * the body-repair pass can recognise its own handiwork before deleting
+ * anything — keep the two in lockstep by referencing this constant, never a
+ * duplicated string literal.
+ */
+export const SYNC_CALLOUT_PREFIX = "Synced from Exponential";
+
 /** Property names for the two creation markers (overridable per sync config). */
 export interface CreateMarkerNames {
   source: string;
@@ -96,7 +104,7 @@ export function buildBodyBlocks(
           {
             type: "text",
             text: {
-              content: "Synced from Exponential — edits here may be overwritten. ",
+              content: `${SYNC_CALLOUT_PREFIX} — edits here may be overwritten. `,
             },
           },
           {

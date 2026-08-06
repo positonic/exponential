@@ -39,6 +39,28 @@ export function isPendingExternalId(externalId: string): boolean {
 }
 
 /**
+ * A push failure that must NOT be retried, because the irreversible remote
+ * write already landed and another attempt would duplicate it.
+ *
+ * The case this exists for: `createPage` succeeds, then the bookkeeping that
+ * turns the sentinel into the real page id fails. The page is live in the
+ * customer's Notion, but the sync row still carries `pending:<ticketId>`, so a
+ * retry re-enters the creation branch and makes a SECOND page — up to
+ * MAX_ATTEMPTS of them, each one an orphan the inbound poll then re-imports as
+ * a new ticket. One orphan an operator can reconcile beats five.
+ */
+export class NonRetryablePushError extends Error {
+  /** The live Notion page left unlinked — name it so it can be reconciled. */
+  readonly orphanedExternalId: string;
+
+  constructor(message: string, orphanedExternalId: string) {
+    super(message);
+    this.name = "NonRetryablePushError";
+    this.orphanedExternalId = orphanedExternalId;
+  }
+}
+
+/**
  * ticketSync/push — the outbound (Exponential → Notion) engine seam (ADR-0046).
  *
  * The reverse of engine.ts: {@link runOutboundTicketPush} takes ONE synced
@@ -609,15 +631,32 @@ async function runOutboundCreate(
   });
 
   // Rewrite the sentinel into a real link with the converged snapshot.
-  await db.ticketSync.update({
-    where: { id: sync.id },
-    data: {
+  // `remoteCreatedAt` is the ONLY trustworthy record that this page is
+  // machine-authored — the run ledger's "created" action is ambiguous across
+  // directions. Anything that rewrites page CONTENT must gate on this column.
+  //
+  // The page above is already live in the customer's Notion, so a failure here
+  // is not retryable: the sentinel would survive and the next drain would
+  // create a duplicate page. Fail terminally and name the orphan instead.
+  try {
+    await db.ticketSync.update({
+      where: { id: sync.id },
+      data: {
+        externalId,
+        externalUrl: url,
+        snapshot: local as unknown as Prisma.InputJsonValue,
+        lastSyncedAt: new Date(),
+        remoteCreatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    throw new NonRetryablePushError(
+      `Notion page ${externalId} was created but could not be linked to ticket ${sync.ticketId}: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
       externalId,
-      externalUrl: url,
-      snapshot: local as unknown as Prisma.InputJsonValue,
-      lastSyncedAt: new Date(),
-    },
-  });
+    );
+  }
 
   return {
     ...base,
