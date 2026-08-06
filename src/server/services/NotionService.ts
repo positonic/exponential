@@ -195,18 +195,13 @@ export class NotionService {
     return blocks;
   }
 
-  /** Ids of a block's (or page's) direct children, in order. */
-  async listBlockChildrenIds(blockId: string): Promise<string[]> {
-    const blocks = await this.getAllBlocks(blockId);
-    return blocks
-      .map((b) => (b as { id?: string }).id)
-      .filter((id): id is string => typeof id === "string");
-  }
-
   /**
    * A block's (or page's) direct children as full block objects, in order.
-   * Callers that are about to DELETE content need the block types, not just
-   * ids, so they can prove the content is machine-authored first.
+   *
+   * Deliberately returns whole blocks rather than bare ids: every caller of
+   * this is about to delete or rewrite content, and needs the block types to
+   * prove the content is machine-authored first. An ids-only variant existed
+   * and made it too easy to skip that check.
    */
   async listBlockChildren(blockId: string): Promise<Array<Record<string, unknown>>> {
     return (await this.getAllBlocks(blockId)) as Array<Record<string, unknown>>;
