@@ -55,6 +55,7 @@ import {
 import { generateLinearId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
+import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
@@ -409,6 +410,14 @@ export default function TicketDetailPage() {
                 </Text>
               )}
               <NotionSyncBadge syncs={ticket.syncs} />
+              {workspace && (
+                <TicketNavArrows
+                  productId={ticket.product.id}
+                  number={ticket.number}
+                  workspaceSlug={workspace.slug}
+                  productSlug={productSlug}
+                />
+              )}
             </Group>
 
             <Group justify="space-between" align="flex-start">
