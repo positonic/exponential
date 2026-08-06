@@ -53,6 +53,8 @@ interface FakeNotionOps {
   appendBlockChildren(blockId: string, children: unknown[]): Promise<void>;
   deleted: string[];
   appended: Array<{ page: string; children: unknown[] }>;
+  /** Page fetches per page id — the attribution guards must share one. */
+  pageFetches: Record<string, number>;
 }
 
 /** Pages default to the shape the LEGACY creation path wrote: callout only. */
@@ -62,20 +64,28 @@ function fakeNotion(
     failOn?: string;
     failAppend?: boolean;
     failDelete?: boolean;
+    createdBy?: Record<string, string>;
     lastEditedBy?: Record<string, string>;
   } = {},
 ): FakeNotionOps {
   const deleted: string[] = [];
   const appended: Array<{ page: string; children: unknown[] }> = [];
+  const pageFetches: Record<string, number> = {};
   return {
     deleted,
     appended,
-    getPage: (page) =>
-      Promise.resolve(
-        opts.lastEditedBy?.[page]
+    pageFetches,
+    getPage: (page) => {
+      pageFetches[page] = (pageFetches[page] ?? 0) + 1;
+      return Promise.resolve({
+        ...(opts.createdBy?.[page]
+          ? { created_by: { id: opts.createdBy[page] } }
+          : {}),
+        ...(opts.lastEditedBy?.[page]
           ? { last_edited_by: { id: opts.lastEditedBy[page] } }
-          : {},
-      ),
+          : {}),
+      });
+    },
     listBlockChildren: (page) => {
       if (opts.failOn === page) return Promise.reject(new Error("boom 403"));
       return Promise.resolve(
@@ -262,6 +272,85 @@ describe("rerenderCreatedPageBodies", () => {
     expect(ops.deleted).toEqual([]);
     expect(ops.appended).toEqual([]);
     expect(result.items[0]?.reason).toContain("would replace 2 block(s)");
+  });
+
+  it("skips a page Notion says a person created, however innocent it otherwise looks", async () => {
+    db.ticketSync.findMany.mockResolvedValue([syncRow("page-a", "body")] as never);
+    // The incident page in miniature: the run ledger said we created it, the
+    // blocks are the plain legacy shape, and the bot really was the last writer
+    // (an inbound sync touched it). Every other guard waves it through; only
+    // Notion's own record of the creator says a person wrote this page.
+    const ops = fakeNotion(
+      { "page-a": [calloutBlock("c1"), paragraphBlock("p1")] },
+      {
+        createdBy: { "page-a": "human-user-id" },
+        lastEditedBy: { "page-a": "bot-id" },
+      },
+    );
+
+    const result = await live({
+      configId: "cfg1",
+      deps: { notionFactory: factoryFor(ops, "bot-id") },
+    });
+
+    expect(result.repaired).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(ops.deleted).toEqual([]);
+    expect(ops.appended).toEqual([]);
+    expect(result.items[0]?.reason).toContain("created by a person");
+  });
+
+  it("still repairs a page the bot both created and last edited", async () => {
+    db.ticketSync.findMany.mockResolvedValue([syncRow("page-a", "body")] as never);
+    const ops = fakeNotion(
+      { "page-a": [calloutBlock("c1"), paragraphBlock("p1")] },
+      {
+        createdBy: { "page-a": "bot-id" },
+        lastEditedBy: { "page-a": "bot-id" },
+      },
+    );
+
+    const result = await live({
+      configId: "cfg1",
+      deps: { notionFactory: factoryFor(ops, "bot-id") },
+    });
+
+    expect(result.repaired).toBe(1);
+    expect(ops.appended).toHaveLength(1);
+  });
+
+  it("falls through the creator guard when the integration has no bot id", async () => {
+    db.ticketSync.findMany.mockResolvedValue([syncRow("page-a", "body")] as never);
+    // With no bot id there is nothing to compare a creator against. "Cannot
+    // tell" must not become a block that strands the whole sweep on older
+    // integrations — nor permission, which is why the shape guard still runs.
+    const ops = fakeNotion(
+      { "page-a": [calloutBlock("c1"), paragraphBlock("p1")] },
+      { createdBy: { "page-a": "human-user-id" } },
+    );
+
+    const result = await live({
+      configId: "cfg1",
+      deps: { notionFactory: factoryFor(ops, null) },
+    });
+
+    expect(result.repaired).toBe(1);
+    expect(result.skipped).toBe(0);
+  });
+
+  it("asks Notion for the page once per candidate", async () => {
+    db.ticketSync.findMany.mockResolvedValue([syncRow("page-a", "body")] as never);
+    // Both attribution guards read one fetch. A second call would double the
+    // API cost of a sweep that already runs ~10-30 calls per page and is
+    // batched around the serverless timeout.
+    const ops = fakeNotion({ "page-a": [calloutBlock("c1"), paragraphBlock("p1")] });
+
+    await live({
+      configId: "cfg1",
+      deps: { notionFactory: factoryFor(ops, "bot-id") },
+    });
+
+    expect(ops.pageFetches).toEqual({ "page-a": 1 });
   });
 
   it("skips a page Notion says a person edited last, whatever its blocks look like", async () => {
