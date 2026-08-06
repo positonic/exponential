@@ -2,7 +2,7 @@
 
 **Status:** Proposed  
 **Audience:** Product, design, engineering, and go-to-market  
-**Strategic source of truth:** [Exponential Product Strategy — One Page](./exponential-product-strategy-one-pager.md)  
+**Strategic source of truth:** [Exponential Product Strategy — One Pager](https://www.exponential.im/w/syntrofi/pages/cmsgbc3210001l204ay26yvsu) (Exponential page — canonical; do not duplicate into this repo)  
 **Category:** The open control plane for AI-native companies  
 **Operating method:** The Exponential Steering Loop
 
