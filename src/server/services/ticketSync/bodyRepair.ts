@@ -11,7 +11,7 @@ import { getPublicBaseUrlFromEnv } from "~/lib/urls";
  * Markdown→blocks renderer landed carry their ticket body as literal Markdown
  * text. This maintenance pass rebuilds those pages' content in place.
  *
- * This deletes Notion content, so it is guarded five times over. An earlier
+ * This deletes Notion content, so it is guarded six times over. An earlier
  * version inferred provenance from the run ledger's `action: "created"` — a
  * token the INBOUND engine also writes, meaning "created a ticket from this
  * page". Every page ever imported from Notion was therefore classified as
@@ -22,14 +22,20 @@ import { getPublicBaseUrlFromEnv } from "~/lib/urls";
  *     at the moment it created the page). The ledger is never consulted.
  *  2. NON-EMPTY BODY — never replace page content with a bare callout. If the
  *     ticket has no body there is nothing to restore, so deleting is pure loss.
- *  3. LAST EDITOR — Notion's own answer to "has a person touched this?". A page
- *     whose `last_edited_by` is not our bot is skipped whatever its blocks look
- *     like, which catches the human edit that a shape check cannot see.
- *  4. SHAPE — the content must still match the LEGACY creation path (sync
+ *  3. CREATOR — Notion's own record of who created the page. Guards 1 and 2
+ *     read OUR bookkeeping and are only as right as it is; this reads Notion's
+ *     and would have stopped the incident with no database state at all.
+ *  4. LAST EDITOR — Notion's answer to "has a person touched this since?",
+ *     which catches the human edit that a shape check cannot see.
+ *  5. SHAPE — the content must still match the LEGACY creation path (sync
  *     callout + flat paragraphs), which is the population this sweep exists to
  *     repair. Anything else is either a human edit or a page the current
  *     renderer already wrote correctly.
- *  5. DRY RUN — the caller must opt in to writing; a bare call only reports.
+ *  6. DRY RUN — the caller must opt in to writing; a bare call only reports.
+ *
+ * Guards 3 and 4 share one page fetch, so the stronger signal is free.
+ * Both treat a null `botId` or a missing field as "cannot tell" and fall
+ * through to the next guard — never as permission to write.
  *
  * A page failing any guard is reported without being touched. Writes are
  * ordered append-then-delete, so an interrupted repair leaves duplicated
@@ -154,7 +160,7 @@ export async function rerenderCreatedPageBodies(
     params.deps?.notionFactory ??
     (resolveNotionServiceForIntegration as unknown as NotionFactory);
 
-  // Guard 5: writing is opt-in. A caller that forgets the flag gets a report.
+  // Guard 6: writing is opt-in. A caller that forgets the flag gets a report.
   const dryRun = params.dryRun !== false;
 
   const config = await db.ticketSyncConfig.findUniqueOrThrow({
@@ -255,13 +261,34 @@ export async function rerenderCreatedPageBodies(
     }
 
     try {
-      // Guard 3: ask Notion who touched this last. Mirrors the echo-suppression
+      // One fetch answers both attribution guards below.
+      const page = await notion.getPage(sync.externalId);
+      const attribution = page as {
+        created_by?: { id?: string };
+        last_edited_by?: { id?: string };
+      };
+
+      // Guard 3: Notion's own record of WHO CREATED the page — the strongest
+      // provenance available, and the one signal that needs no database state.
+      // `remoteCreatedAt` (guard 1) is derived from our own bookkeeping and can
+      // be wrong if that bookkeeping was; this cannot. A page whose creator is
+      // not our bot is human-authored, full stop.
+      const creator = attribution.created_by?.id;
+      if (botId && creator && creator !== botId) {
+        skipped++;
+        items.push({
+          ...itemBase,
+          outcome: "skipped",
+          reason: "page was created by a person, not the sync bot",
+        });
+        continue;
+      }
+
+      // Guard 4: ask Notion who touched it last. Mirrors the echo-suppression
       // comparison in notionAdapter. A page edited by a person is off limits
       // however innocent its blocks look — this is the one signal that catches
       // a human appending plain paragraphs to a page we created.
-      const page = await notion.getPage(sync.externalId);
-      const lastEditor = (page as { last_edited_by?: { id?: string } })
-        .last_edited_by?.id;
+      const lastEditor = attribution.last_edited_by?.id;
       if (botId && lastEditor && lastEditor !== botId) {
         skipped++;
         items.push({
@@ -274,7 +301,7 @@ export async function rerenderCreatedPageBodies(
 
       const existing = await notion.listBlockChildren(sync.externalId);
 
-      // Guard 4: the content must still be the legacy render. Two very
+      // Guard 5: the content must still be the legacy render. Two very
       // different situations land here, and an operator needs to tell them
       // apart — "someone edited this" is a claim about a customer's workspace
       // and must not be made about a page we ourselves rendered correctly.
