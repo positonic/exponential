@@ -14,17 +14,23 @@ name: PR Agent (GLM)
 #     pull_request:
 #       types: [opened, reopened, ready_for_review, synchronize]
 #
-# Nothing else needs changing — the job body is intact and was working apart
-# from the credit balance. Note this check is NOT in main's required set, so
-# parking it does not block any merge.
+# The job body below is untouched, so that is the only edit needed to bring it
+# back. Do not assume the rest is proven, though: this reviewer never completed
+# a successful run, so the credit balance is the only fault we have actually
+# observed. Anything downstream of the first model call — the GLM model id, the
+# 200k token ceiling, the non-persistent comment settings — is written but
+# unverified. Watch the first run after reactivating.
+#
+# Note this check is NOT in main's required set, so parking it does not block
+# any merge.
 #
 # WHAT IT WAS: a second automated reviewer — the same qodo-ai/pr-agent action as
 # pr_agent.yml, pointed at GLM via OpenRouter instead of Anthropic. Two
 # independent readers applying the same house rules from .pr_agent.toml.
 # pr_agent.yml (Anthropic) is unaffected and remains the active reviewer.
-#
-# No `issue_comment` trigger here (unlike pr_agent.yml) — manual `/review`
-# commands should reach one reviewer, not both.
+# It deliberately carried no `issue_comment` trigger (unlike pr_agent.yml), so
+# that manual `/review` commands reached one reviewer rather than both — keep
+# that in mind when restoring the trigger block.
 on:
   # Placeholder trigger: a workflow needs one, and this keeps the file valid and
   # visible in the Actions tab while it is parked. Dispatching it by hand does
