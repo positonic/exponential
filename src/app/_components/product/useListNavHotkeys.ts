@@ -51,8 +51,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * always null for position:fixed — what every Mantine dropdown is. Presence
  * alone proves nothing either: the ticket page keeps ~8 hidden listboxes
  * mounted at all times.
+ *
+ * Exported because any window-level key handler needs the same three rules —
+ * `usePageSearchHotkey` reuses it rather than growing a second copy that drifts.
  */
-function isOverlayBlocking(root: HTMLElement | null): boolean {
+export function isOverlayBlocking(root: HTMLElement | null): boolean {
   const visible = (el: HTMLElement) =>
     el.getAttribute("aria-hidden") !== "true" && el.getClientRects().length > 0;
 

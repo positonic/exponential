@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useCallback, useState } from 'react';
+import { memo, useMemo, useRef, useCallback, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -49,6 +49,7 @@ import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
 import { useProjectViewState, filterProjects } from './useProjectViewState';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
+import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import { hasActiveFilters } from '~/types/filter';
 import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import { slugify } from '~/utils/slugify';
@@ -184,7 +185,11 @@ function isOverdue(date: Date | null | undefined): boolean {
   return new Date(date) < new Date();
 }
 
-function ProjectTableRow({
+// Memoised: every row mounts two tRPC mutations, two Selects, an Avatar and two
+// SVG rings, so re-rendering the whole table on each keystroke is expensive.
+// `project` comes straight out of the react-query cache, so it is referentially
+// stable between renders that did not refetch.
+const ProjectTableRow = memo(function ProjectTableRow({
   project,
   linkPrefix,
 }: {
@@ -369,7 +374,7 @@ function ProjectTableRow({
       </td>
     </tr>
   );
-}
+});
 
 function NotionSuggestionsContent({
   unlinkedProjects,
@@ -451,6 +456,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
@@ -473,6 +479,8 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
   const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') searchRef.current?.blur();
   }, []);
+
+  usePageSearchHotkey(searchRef);
 
   const { data: projectsData, isLoading } = api.project.getAll.useQuery(
     { workspaceId: effectiveWorkspaceId, include: { actions: true } },
@@ -517,8 +525,8 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
   }, [workspace?.members]);
 
   const filteredProjects = useMemo(
-    () => filterProjects(projectsData ?? [], filters, searchQuery),
-    [projectsData, filters, searchQuery],
+    () => filterProjects(projectsData ?? [], filters, deferredSearchQuery),
+    [projectsData, filters, deferredSearchQuery],
   );
 
   const sortedProjects = useMemo(
@@ -559,7 +567,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
             <input
               ref={searchRef}
               type="text"
-              placeholder="Search  ⌘K"
+              placeholder="Search  ⌘F"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
