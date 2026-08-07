@@ -297,10 +297,14 @@ export async function POST(req: Request) {
       entries.push(["slackUserId", slackMapping.externalUserId]);
     }
 
-    // If an assistantId is provided, fetch the custom personality and inject it
+    // If an assistantId is provided, fetch the custom personality and inject it.
+    // `assistantId` is client-supplied, and the row's personality/instructions/
+    // userContext are injected verbatim into the system prompt below — so scope
+    // the lookup to the caller's own assistants. An id belonging to anyone else
+    // simply doesn't resolve, and the request falls through to the default agent.
     if (assistantId) {
-      const assistant = await db.assistant.findUnique({
-        where: { id: assistantId },
+      const assistant = await db.assistant.findFirst({
+        where: { id: assistantId, createdById: session.user.id },
       });
 
       if (assistant) {
