@@ -4,10 +4,14 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "~/server/api/trpc";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getWorkspaceMembership,
+  canEditWorkspaceContent,
+} from "~/server/services/access/resolvers/workspaceResolver";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 
 import {
   getMyPublicGoals,
@@ -19,6 +23,7 @@ import {
   computeGoalHealth,
   updateGoalIcon,
   verifyGoalAccess,
+  setGoalParent,
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -47,6 +52,9 @@ export const goalRouter = createTRPCRouter({
   getAllMyGoals: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
+      // OKR period, a free-form string ("Q3-2026", "Annual-2026") — not an enum.
+      period: z.string().optional(),
+      status: z.enum(["planned", "active", "completed", "archived", "on-hold"]).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       // When workspace-scoped, validate membership and show all workspace goals
@@ -60,21 +68,45 @@ export const goalRouter = createTRPCRouter({
         }
       }
 
-      return await ctx.db.goal.findMany({
+      const goals = await ctx.db.goal.findMany({
         where: {
           ...(workspaceId
             ? { workspaceId }
             : { userId: ctx.session.user.id }),
+          ...(input?.period ? { period: input.period } : {}),
+          ...(input?.status ? { status: input.status } : {}),
         },
         include: {
           lifeDomain: true,
           projects: true,
           outcomes: true,
           childGoals: { select: { id: true, title: true, status: true, health: true } },
+          // Key result VALUES (not just the count) so progress can be resolved
+          // below without a second round trip — a list of goals with no progress
+          // number can't answer "which goal is starving". Lean select: these
+          // payloads transit agent tool calls and CLI output.
+          keyResults: {
+            select: {
+              id: true,
+              status: true,
+              startValue: true,
+              currentValue: true,
+              targetValue: true,
+            },
+          },
+          workspace: { select: { id: true, name: true, slug: true } },
           _count: { select: { keyResults: true } },
         },
         orderBy: { displayOrder: "asc" },
       });
+
+      // Same resolved-progress contract getGoalById exposes, so every consumer
+      // reads one number instead of recomputing the override-vs-KR-mean rule.
+      return goals.map((goal) => ({
+        ...goal,
+        resolvedProgress: resolveGoalProgress(goal),
+        isProgressManual: isManualProgress(goal),
+      }));
     }),
 
   createGoal: protectedProcedure
@@ -96,6 +128,25 @@ export const goalRouter = createTRPCRouter({
       iconColor: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // A goal's workspace decides who can see and edit it, so filing one into a
+      // workspace the caller doesn't belong to is an access change rather than a
+      // field edit. Mirrors the move guard in goalService.updateGoal.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        // Bare membership isn't the test — viewer is read-only and guest is
+        // project-only, and neither files goals into a workspace.
+        if (!canEditWorkspaceContent(membership?.role ?? null)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of the target workspace",
+          });
+        }
+      }
+
       // Enforce max nesting depth of 5 levels for sub-goals
       if (input.parentGoalId) {
         let depth = 1;
@@ -146,27 +197,44 @@ export const goalRouter = createTRPCRouter({
       return goal;
     }),
 
+  // Partial update: omit a field to leave it untouched, pass an explicit null to
+  // clear it. Every nullable column is `.nullable().optional()` for that reason.
+  // For a status-only change prefer `updateGoalStatus`, and to re-parent prefer
+  // `setParent` — both write a single column.
   updateGoal: protectedProcedure
     .input(z.object({
       id: z.number(),
-      title: z.string(),
-      description: z.string().optional(),
-      whyThisGoal: z.string().optional(),
-      notes: z.string().optional(),
-      dueDate: z.date().optional(),
-      period: z.string().optional(),
+      title: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      whyThisGoal: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      dueDate: z.date().nullable().optional(),
+      period: z.string().nullable().optional(),
       status: z.enum(["planned", "active", "completed", "archived"]).optional(),
-      lifeDomainId: z.number().optional(),
-      projectId: z.string().optional(),
+      lifeDomainId: z.number().nullable().optional(),
+      projectId: z.string().nullable().optional(),
+      projectIds: z.array(z.string()).optional(),
       outcomeIds: z.array(z.string()).optional(),
-      driUserId: z.string().optional(),
-      workspaceId: z.string().optional(),
+      driUserId: z.string().nullable().optional(),
+      workspaceId: z.string().nullable().optional(),
       parentGoalId: z.number().nullable().optional(),
       displayOrder: z.number().optional(),
       icon: z.string().nullable().optional(),
       iconColor: z.string().nullable().optional(),
     }))
     .mutation(updateGoal),
+
+  // Re-parent an objective (or detach it with parentGoalId: null) WITHOUT
+  // touching any other field. The safe alternative to updateGoal for cascade
+  // edits — validates access to both goals plus the no-self/no-cycle/depth rules.
+  setParent: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      parentGoalId: z.number().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) =>
+      setGoalParent({ ctx, goalId: input.id, parentGoalId: input.parentGoalId }),
+    ),
 
   getProjectGoals: protectedProcedure
     .input(z.object({ projectId: z.string() }))
@@ -185,7 +253,7 @@ export const goalRouter = createTRPCRouter({
   getGoalTree: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
-      status: z.enum(["planned", "active", "completed", "archived"]).optional(),
+      status: z.enum(["planned", "active", "completed", "archived", "on-hold"]).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       if (input?.workspaceId) {

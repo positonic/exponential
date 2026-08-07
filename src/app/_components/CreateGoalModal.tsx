@@ -4,6 +4,7 @@ import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, N
 import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect, useMemo } from "react";
+import { buildGoalUpdatePayload } from "./goalUpdatePayload";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
@@ -186,6 +187,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
           projects: [],
           outcomes: [],
           childGoals: [],
+          keyResults: [],
+          workspace: null,
+          // A brand-new goal has no key results and no override, so its
+          // resolved progress is "no signal" until the refetch lands.
+          resolvedProgress: null,
+          isProgressManual: false,
           _count: { keyResults: 0 },
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];
@@ -234,15 +241,20 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
 
       utils.goal.getAllMyGoals.setData(undefined, (old) => {
         if (!old) return old;
+        // updateGoal is a partial update: an omitted field keeps its current
+        // value, an explicit null clears it. The optimistic patch must mirror
+        // that, or the row flickers to null before the refetch corrects it.
+        const patch = <T,>(next: T | undefined, current: T) =>
+          next !== undefined ? next : current;
         return old.map(g => g.id === updatedGoal.id ? {
           ...g,
-          title: updatedGoal.title,
-          description: updatedGoal.description ?? null,
-          whyThisGoal: updatedGoal.whyThisGoal ?? null,
-          notes: updatedGoal.notes ?? null,
-          dueDate: updatedGoal.dueDate ?? null,
-          period: updatedGoal.period ?? null,
-          lifeDomainId: updatedGoal.lifeDomainId ?? null,
+          title: patch(updatedGoal.title, g.title),
+          description: patch(updatedGoal.description, g.description),
+          whyThisGoal: patch(updatedGoal.whyThisGoal, g.whyThisGoal),
+          notes: patch(updatedGoal.notes, g.notes),
+          dueDate: patch(updatedGoal.dueDate, g.dueDate),
+          period: patch(updatedGoal.period, g.period),
+          lifeDomainId: patch(updatedGoal.lifeDomainId, g.lifeDomainId),
         } : g);
       });
 
@@ -414,6 +426,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
       setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
       setSelectedWorkspaceId(goal.workspaceId ?? null);
       setDriUserId(goal.driUserId ?? null);
+      // These two were missing, so a `goal` that arrived after mount left them
+      // holding the initial render's values — and both are posted on save.
+      setStatus(goal.status ?? "active");
+      setParentGoalId(goal.parentGoalId != null ? String(goal.parentGoalId) : null);
     }
   }, [goal]);
 
@@ -520,10 +536,26 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             };
 
             if (goal?.id) {
-              updateGoal.mutate({
-                id: goal.id,
-                ...goalData,
-              });
+              // Which keys this payload claims is the whole safety question —
+              // see buildGoalUpdatePayload. Extracted so it can be tested
+              // without mounting the modal.
+              updateGoal.mutate(
+                buildGoalUpdatePayload(goal, {
+                  title,
+                  description,
+                  whyThisGoal,
+                  notes,
+                  dueDate,
+                  period,
+                  status,
+                  lifeDomainId,
+                  selectedProjectId,
+                  driUserId,
+                  selectedOutcomeIds,
+                  selectedWorkspaceId,
+                  parentGoalId,
+                }),
+              );
             } else {
               createGoal.mutate(goalData);
             }
