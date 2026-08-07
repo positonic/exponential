@@ -308,14 +308,45 @@ export class NotionTicketSyncAdapter
   }
 
   /**
-   * Rows in the target database whose title matches `title` — the pre-create
-   * duplicate probe.
+   * Rows in the target database whose back-link property equals `ticketUrl` —
+   * the pre-create probe for a page we already created for this ticket.
    *
-   * Notion's `title.equals` filter is exact and case-sensitive, so the client
-   * side re-checks case-insensitively after trimming; a row differing only by
-   * case is missed by the filter, which is the same limitation
-   * {@link findCyclePageIdByName} carries and errs toward creating rather than
-   * mis-adopting. Trashed pages are excluded by the query itself.
+   * Returns null when the database has no url-typed property under that name,
+   * so the caller can tell "cannot check" from "checked, found nothing". Only
+   * this adapter's create path ever writes that property with that URL, which
+   * is what makes the match exact rather than a guess. Trashed pages are
+   * excluded by the query itself; archived ones are filtered here.
+   */
+  async findPagesByBacklink(
+    databaseId: string,
+    backlinkProperty: string,
+    ticketUrl: string,
+  ): Promise<Array<{ externalId: string; url: string | null }> | null> {
+    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const prop = (properties as Record<string, unknown>)[backlinkProperty] as
+      | { type?: string }
+      | undefined;
+    if (prop?.type !== "url") return null;
+
+    const page = await this.notion.queryDatabase({
+      databaseId,
+      filter: { property: backlinkProperty, url: { equals: ticketUrl } },
+      pageSize: 25,
+    });
+
+    return (page.results as RawNotionPage[])
+      .filter((p) => !p.archived && !p.in_trash)
+      .map((p) => ({ externalId: p.id, url: p.url ?? null }));
+  }
+
+  /**
+   * Rows whose title matches `title` — used ONLY to warn a human in the
+   * backfill preview, never to drive an automatic create/adopt decision.
+   * Titles are user-editable, mutate in place, and are not unique, so they
+   * are a hint for a person and nothing more.
+   *
+   * Notion's `title.equals` filter is exact and case-sensitive; the client
+   * side re-checks case-insensitively after trimming.
    */
   async findPagesByTitle(
     databaseId: string,

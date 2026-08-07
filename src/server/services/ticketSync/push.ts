@@ -102,15 +102,17 @@ export interface TicketPushAdapter {
   /** Resolve a Notion workspace person id by email, or null when unmatched. */
   findPersonIdByEmail(email: string): Promise<string | null>;
   /**
-   * Pages in the target database whose title matches `title` exactly
-   * (case-insensitively) — the pre-create duplicate probe. Returns `[]` when
-   * nothing matches, and more than one entry when the title is ambiguous,
-   * which the caller must NOT resolve by guessing.
+   * Pages in the target database whose back-link property equals `ticketUrl` —
+   * the pre-create probe for a page we already created for this ticket.
+   *
+   * Returns `null` when the database has no url-typed back-link property, so
+   * the caller can distinguish "cannot check" from "checked, found nothing".
    */
-  findPagesByTitle(
+  findPagesByBacklink(
     databaseId: string,
-    title: string,
-  ): Promise<Array<{ externalId: string; url: string | null }>>;
+    backlinkProperty: string,
+    ticketUrl: string,
+  ): Promise<Array<{ externalId: string; url: string | null }> | null>;
   /** Create a new page (full-mirror creation); returns the new page id + url. */
   createPage(params: {
     databaseId: string;
@@ -550,65 +552,76 @@ export async function runOutboundTicketPush(
  * Terminal tickets are not mirrored (matching the backfill exclusion); the
  * sentinel is deleted so it doesn't linger as a phantom link.
  */
-type ExistingPageProbe =
-  | { kind: "none" }
-  | { kind: "match"; externalId: string; url: string | null }
-  | { kind: "ambiguous"; reason: string };
+interface OrphanProbe {
+  /** A page we previously created for this ticket, if one exists. */
+  match: { externalId: string; url: string | null } | null;
+  /**
+   * True when we can be sure the matched page's body is ours to rewrite.
+   * False for a page whose provenance we can't pin down (e.g. a human
+   * duplicated one of our pages, so several carry the same back-link).
+   */
+  authored: boolean;
+  warnings: string[];
+}
 
 /**
- * Does the target database already hold a row for this ticket's title?
+ * Did we already create a Notion page for this ticket?
  *
- * Three outcomes, and the split matters:
- * - **none** — safe to create.
- * - **match** — exactly one same-titled row, unclaimed by any other ticket on
- *   this connection. Adopt it.
- * - **ambiguous** — several same-titled rows, or the only one is already
- *   linked to a DIFFERENT ticket (two Exponential tickets for one Notion row —
- *   the duplicate this whole guard exists to stop). Creating here would add a
- *   third copy of the same work, so the run stops and names the conflict for a
- *   human. The sentinel is left in place: the ticket stays unmirrored and
- *   idempotent (no future backfill re-adds it) and every push re-reports the
- *   same reason in the run history until the duplicate is merged.
+ * The back-link property every mirror-created page carries IS the identity of
+ * the source, stored in the target — the exact counterpart of
+ * `links.notionPageId` in the other direction. Reading it back answers the
+ * question outright, where a title match only guesses at it: titles are
+ * user-editable, mutate in place, and are not unique (7% of tickets across
+ * this workspace share one; auto-filed bug tickets are identical by design).
  *
- * Titles are matched case-insensitively after trimming. A blank title can't
- * identify anything, so it probes as `none`.
+ * What this catches is the orphan `NonRetryablePushError` documents: the page
+ * was created, then the write that turns the sentinel into a real link died.
+ * Without this probe the next drain creates a second page.
+ *
+ * A database with no url-typed back-link property can't be probed. That
+ * degrades to the old behaviour with a warning rather than failing — the
+ * back-link is optional in the create payload too.
  */
-async function probeExistingPage(
-  db: PrismaClient,
+async function probeOwnOrphan(
   adapter: TicketPushAdapter,
-  args: { configId: string; databaseId: string; title: string },
-): Promise<ExistingPageProbe> {
-  const title = args.title.trim();
-  if (!title) return { kind: "none" };
+  args: { databaseId: string; backlinkProperty: string; ticketUrl: string },
+): Promise<OrphanProbe> {
+  const found = await adapter.findPagesByBacklink(
+    args.databaseId,
+    args.backlinkProperty,
+    args.ticketUrl,
+  );
 
-  const candidates = await adapter.findPagesByTitle(args.databaseId, title);
-  if (candidates.length === 0) return { kind: "none" };
-
-  const claims = await db.ticketSync.findMany({
-    where: {
-      configId: args.configId,
-      externalId: { in: candidates.map((c) => c.externalId) },
-    },
-    select: { externalId: true, ticket: { select: { number: true } } },
-  });
-  const claimedBy = new Map(claims.map((c) => [c.externalId, c.ticket.number]));
-  const unclaimed = candidates.filter((c) => !claimedBy.has(c.externalId));
-
-  if (unclaimed.length === 1) {
-    const match = unclaimed[0]!;
-    return { kind: "match", externalId: match.externalId, url: match.url };
-  }
-  if (unclaimed.length > 1) {
+  if (found === null) {
     return {
-      kind: "ambiguous",
-      reason: `${unclaimed.length} Notion rows share this title — link one to the ticket by hand, or rename the duplicates, before mirroring`,
+      match: null,
+      authored: false,
+      warnings: [
+        `no url-typed "${args.backlinkProperty}" property in Notion — cannot tell whether a page was already created for this ticket`,
+      ],
     };
   }
+  if (found.length === 0) return { match: null, authored: false, warnings: [] };
 
-  const owners = [...new Set(claims.map((c) => `#${c.ticket.number}`))].join(", ");
+  const [first, ...rest] = found;
+  if (rest.length === 0) {
+    // Only our own create writes this property with this exact URL, so the
+    // page — and its body — is ours.
+    return { match: first!, authored: true, warnings: [] };
+  }
+
+  // Several pages carry this ticket's back-link: earlier orphans, or a human
+  // duplicating one of our pages in Notion. Linking one is still better than
+  // minting another, but we can no longer claim authorship of the body — so
+  // `authored` stays false and the body-repair pass leaves it alone.
   return {
-    kind: "ambiguous",
-    reason: `a Notion row with this title is already linked to ticket ${owners} — merge the duplicate tickets before mirroring this one`,
+    match: first!,
+    authored: false,
+    warnings: [
+      `${found.length} Notion pages carry this ticket's back-link — linked ${first!.externalId}; reconcile the others: ${rest
+        .map((r) => r.externalId)
+        .join(", ")}`,
+    ],
   };
 }
 
@@ -645,48 +658,43 @@ async function runOutboundCreate(
     };
   }
 
-  // ── Duplicate probe: never create a page for a title Notion already has ───
-  // The provenance guard upstream stops the KNOWN import cohort; this catches
-  // the rest (a ticket typed by hand to match a Notion row, an orphan left by
-  // a half-finished create). Adopting is strictly safer than creating: the
-  // three-way merge reconciles the two sides on the next pass, whereas a
-  // wrong create is a live page in the customer's workspace that only a human
-  // can retract.
-  const existing = await probeExistingPage(db, adapter, {
-    configId: config.id,
+  const markerNames = resolveMarkerNames(config.propertyNames);
+  const backlinkUrl = ticketUrl(config, sync.ticket.number);
+
+  // ── Orphan probe: did an earlier attempt already create this page? ────────
+  const orphan = await probeOwnOrphan(adapter, {
     databaseId: config.databaseId,
-    title: local.title,
+    backlinkProperty: markerNames.backlink,
+    ticketUrl: backlinkUrl,
   });
-  if (existing.kind === "ambiguous") {
-    return { ...base, action: "skipped", reason: existing.reason };
-  }
-  if (existing.kind === "match") {
+  if (orphan.match) {
     if (dryRun) {
       return {
         ...base,
-        externalId: existing.externalId,
+        externalId: orphan.match.externalId,
         action: "adopted",
-        reason: "would link to the existing Notion row with this title",
+        reason: ["would link the page already created for this ticket", ...orphan.warnings].join("; "),
       };
     }
-    // Adopt exactly as the inbound pass does: link, but leave `snapshot` null
-    // so the first merge treats every difference as a two-sided change and
-    // resolves by last-write-wins. `remoteCreatedAt` stays null on purpose —
-    // this page is human-authored, and the body-repair pass gates on that
-    // column to decide what it may rewrite.
+    // Link, with a null snapshot so the first merge treats every difference as
+    // a two-sided change and resolves by last-write-wins. `remoteCreatedAt` is
+    // set ONLY when the back-link identified a single page: it licenses the
+    // body-repair pass to rewrite the content, which is right for a page we
+    // authored and wrong for anything else.
     await db.ticketSync.update({
       where: { id: sync.id },
       data: {
-        externalId: existing.externalId,
-        externalUrl: existing.url,
+        externalId: orphan.match.externalId,
+        externalUrl: orphan.match.url,
         snapshot: Prisma.DbNull,
+        ...(orphan.authored ? { remoteCreatedAt: new Date() } : {}),
       },
     });
     return {
       ...base,
-      externalId: existing.externalId,
+      externalId: orphan.match.externalId,
       action: "adopted",
-      reason: "linked to the existing Notion row with this title",
+      reason: ["linked the page already created for this ticket", ...orphan.warnings].join("; "),
     };
   }
 
@@ -703,7 +711,10 @@ async function runOutboundCreate(
     currentRemoteStatusRaw: null,
   });
   const properties: Record<string, unknown> = { ...scalar.properties };
-  const warnings = [...scalar.warnings];
+  // Carry the probe's warnings onto the create: "couldn't check for an
+  // existing page" is exactly the context someone needs when a duplicate
+  // turns up later.
+  const warnings = [...orphan.warnings, ...scalar.warnings];
 
   if (local.cycleName) {
     const pageId = await adapter.findCyclePageIdByName(
@@ -723,12 +734,10 @@ async function runOutboundCreate(
       );
   }
 
-  const markerNames = resolveMarkerNames(config.propertyNames);
   const source = buildSourceProperty(schema, markerNames.source);
   if (source.property) Object.assign(properties, source.property);
   if (source.warning) warnings.push(source.warning);
 
-  const backlinkUrl = ticketUrl(config, sync.ticket.number);
   const backlink = buildBacklinkProperty(schema, markerNames.backlink, backlinkUrl);
   if (backlink) Object.assign(properties, backlink);
 

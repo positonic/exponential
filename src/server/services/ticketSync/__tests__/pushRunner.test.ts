@@ -451,6 +451,62 @@ describe("planBackfill / enqueueBackfill", () => {
     );
   });
 
+  it("flags same-titled Notion rows as an advisory warning, without acting on them", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      databaseId: "db1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue([
+      { id: "t1", title: "Unique thing", number: 1, links: null },
+      { id: "t2", title: "Untitled", number: 2, links: null },
+    ] as never);
+
+    const plan = await planBackfill(db, {
+      configId: "cfg1",
+      probe: {
+        findPagesByTitle: (_db, title) =>
+          Promise.resolve(
+            title === "Untitled"
+              ? [
+                  { externalId: "p-1", url: null },
+                  { externalId: "p-2", url: null },
+                ]
+              : [],
+          ),
+      },
+    });
+
+    // The warning informs the human approving the backfill; it does not remove
+    // the row from the plan. Title is not a key — acting on it is the bug.
+    expect(plan).toHaveLength(2);
+    expect(plan[0]!.warning).toBeUndefined();
+    expect(plan[1]!.warning).toContain("2 rows with this title");
+  });
+
+  it("survives a probe that throws — the preview still renders", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      databaseId: "db1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue([
+      { id: "t1", title: "A", number: 1, links: null },
+    ] as never);
+
+    const plan = await planBackfill(db, {
+      configId: "cfg1",
+      probe: { findPagesByTitle: () => Promise.reject(new Error("notion down")) },
+    });
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0]!.warning).toBeUndefined();
+  });
+
   it("refuses to backfill when push is disabled", async () => {
     db.ticketSyncConfig.findUnique.mockResolvedValue({
       id: "cfg1",
