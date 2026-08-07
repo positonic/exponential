@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient, TicketStatus, TicketType } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
 import {
   CYCLE_UNREADABLE_WARNING,
@@ -100,6 +101,16 @@ export interface TicketPushAdapter {
   ): Promise<string | null>;
   /** Resolve a Notion workspace person id by email, or null when unmatched. */
   findPersonIdByEmail(email: string): Promise<string | null>;
+  /**
+   * Pages in the target database whose title matches `title` exactly
+   * (case-insensitively) — the pre-create duplicate probe. Returns `[]` when
+   * nothing matches, and more than one entry when the title is ambiguous,
+   * which the caller must NOT resolve by guessing.
+   */
+  findPagesByTitle(
+    databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>>;
   /** Create a new page (full-mirror creation); returns the new page id + url. */
   createPage(params: {
     databaseId: string;
@@ -114,6 +125,7 @@ export interface TicketPushAdapter {
 export type PushAction =
   | "pushed"
   | "created"
+  | "adopted"
   | "archived"
   | "skipped"
   | "conflict"
@@ -538,6 +550,68 @@ export async function runOutboundTicketPush(
  * Terminal tickets are not mirrored (matching the backfill exclusion); the
  * sentinel is deleted so it doesn't linger as a phantom link.
  */
+type ExistingPageProbe =
+  | { kind: "none" }
+  | { kind: "match"; externalId: string; url: string | null }
+  | { kind: "ambiguous"; reason: string };
+
+/**
+ * Does the target database already hold a row for this ticket's title?
+ *
+ * Three outcomes, and the split matters:
+ * - **none** — safe to create.
+ * - **match** — exactly one same-titled row, unclaimed by any other ticket on
+ *   this connection. Adopt it.
+ * - **ambiguous** — several same-titled rows, or the only one is already
+ *   linked to a DIFFERENT ticket (two Exponential tickets for one Notion row —
+ *   the duplicate this whole guard exists to stop). Creating here would add a
+ *   third copy of the same work, so the run stops and names the conflict for a
+ *   human. The sentinel is left in place: the ticket stays unmirrored and
+ *   idempotent (no future backfill re-adds it) and every push re-reports the
+ *   same reason in the run history until the duplicate is merged.
+ *
+ * Titles are matched case-insensitively after trimming. A blank title can't
+ * identify anything, so it probes as `none`.
+ */
+async function probeExistingPage(
+  db: PrismaClient,
+  adapter: TicketPushAdapter,
+  args: { configId: string; databaseId: string; title: string },
+): Promise<ExistingPageProbe> {
+  const title = args.title.trim();
+  if (!title) return { kind: "none" };
+
+  const candidates = await adapter.findPagesByTitle(args.databaseId, title);
+  if (candidates.length === 0) return { kind: "none" };
+
+  const claims = await db.ticketSync.findMany({
+    where: {
+      configId: args.configId,
+      externalId: { in: candidates.map((c) => c.externalId) },
+    },
+    select: { externalId: true, ticket: { select: { number: true } } },
+  });
+  const claimedBy = new Map(claims.map((c) => [c.externalId, c.ticket.number]));
+  const unclaimed = candidates.filter((c) => !claimedBy.has(c.externalId));
+
+  if (unclaimed.length === 1) {
+    const match = unclaimed[0]!;
+    return { kind: "match", externalId: match.externalId, url: match.url };
+  }
+  if (unclaimed.length > 1) {
+    return {
+      kind: "ambiguous",
+      reason: `${unclaimed.length} Notion rows share this title — link one to the ticket by hand, or rename the duplicates, before mirroring`,
+    };
+  }
+
+  const owners = [...new Set(claims.map((c) => `#${c.ticket.number}`))].join(", ");
+  return {
+    kind: "ambiguous",
+    reason: `a Notion row with this title is already linked to ticket ${owners} — merge the duplicate tickets before mirroring this one`,
+  };
+}
+
 async function runOutboundCreate(
   db: PrismaClient,
   adapter: TicketPushAdapter,
@@ -568,6 +642,51 @@ async function runOutboundCreate(
       ...base,
       action: "skipped",
       reason: "ticket is terminal — not mirrored to Notion",
+    };
+  }
+
+  // ── Duplicate probe: never create a page for a title Notion already has ───
+  // The provenance guard upstream stops the KNOWN import cohort; this catches
+  // the rest (a ticket typed by hand to match a Notion row, an orphan left by
+  // a half-finished create). Adopting is strictly safer than creating: the
+  // three-way merge reconciles the two sides on the next pass, whereas a
+  // wrong create is a live page in the customer's workspace that only a human
+  // can retract.
+  const existing = await probeExistingPage(db, adapter, {
+    configId: config.id,
+    databaseId: config.databaseId,
+    title: local.title,
+  });
+  if (existing.kind === "ambiguous") {
+    return { ...base, action: "skipped", reason: existing.reason };
+  }
+  if (existing.kind === "match") {
+    if (dryRun) {
+      return {
+        ...base,
+        externalId: existing.externalId,
+        action: "adopted",
+        reason: "would link to the existing Notion row with this title",
+      };
+    }
+    // Adopt exactly as the inbound pass does: link, but leave `snapshot` null
+    // so the first merge treats every difference as a two-sided change and
+    // resolves by last-write-wins. `remoteCreatedAt` stays null on purpose —
+    // this page is human-authored, and the body-repair pass gates on that
+    // column to decide what it may rewrite.
+    await db.ticketSync.update({
+      where: { id: sync.id },
+      data: {
+        externalId: existing.externalId,
+        externalUrl: existing.url,
+        snapshot: Prisma.DbNull,
+      },
+    });
+    return {
+      ...base,
+      externalId: existing.externalId,
+      action: "adopted",
+      reason: "linked to the existing Notion row with this title",
     };
   }
 

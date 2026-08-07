@@ -346,6 +346,39 @@ describe("dispatchTicketCreate", () => {
 
     expect(db.ticketSync.create).not.toHaveBeenCalled();
   });
+
+  // The 2026-07 CLEAR duplication: an imported ticket whose sync record never
+  // existed looks "unsynced", so the mirror created a second Notion page for a
+  // row Notion already had. Provenance, not the sync row, settles the origin.
+  it("does not mirror a ticket that carries Notion provenance but no sync", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      links: { notionPageId: "page-from-notion" },
+      _count: { syncs: 0 },
+    } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSyncConfig.findFirst).not.toHaveBeenCalled();
+    expect(db.ticketSync.create).not.toHaveBeenCalled();
+  });
+
+  it("still mirrors a ticket whose links carry no Notion page id", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      links: { github: "https://github.com/o/r/pull/1" },
+      _count: { syncs: 0 },
+    } as never);
+    db.ticketSyncConfig.findFirst.mockResolvedValue({ id: "cfg1" } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSync.create).toHaveBeenCalled();
+  });
 });
 
 describe("planBackfill / enqueueBackfill", () => {
@@ -384,6 +417,38 @@ describe("planBackfill / enqueueBackfill", () => {
     expect(result.enqueued).toBe(2);
     expect(db.ticketSync.create).toHaveBeenCalledTimes(2);
     expect(db.ticketSyncPushJob.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("excludes Notion-born tickets from the plan and the enqueue alike", async () => {
+    const rows = [
+      { id: "t1", title: "Born here", number: 1, links: null },
+      {
+        id: "t2",
+        title: "Came from Notion",
+        number: 2,
+        links: { notionPageId: "page-1", notion: "https://notion.so/page-1" },
+      },
+      { id: "t3", title: "Also born here", number: 3, links: { github: "x" } },
+    ];
+
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue(rows as never);
+
+    const plan = await planBackfill(db, { configId: "cfg1" });
+    expect(plan.map((p) => p.ticketId)).toEqual(["t1", "t3"]);
+
+    const result = await enqueueBackfill(db, { configId: "cfg1" });
+    expect(result.enqueued).toBe(2);
+    expect(db.ticketSync.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ ticketId: "t2" }),
+      }),
+    );
   });
 
   it("refuses to backfill when push is disabled", async () => {

@@ -307,6 +307,47 @@ export class NotionTicketSyncAdapter
     return match?.id ?? null;
   }
 
+  /**
+   * Rows in the target database whose title matches `title` — the pre-create
+   * duplicate probe.
+   *
+   * Notion's `title.equals` filter is exact and case-sensitive, so the client
+   * side re-checks case-insensitively after trimming; a row differing only by
+   * case is missed by the filter, which is the same limitation
+   * {@link findCyclePageIdByName} carries and errs toward creating rather than
+   * mis-adopting. Trashed pages are excluded by the query itself.
+   */
+  async findPagesByTitle(
+    databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>> {
+    const wanted = title.trim().toLowerCase();
+    if (!wanted) return [];
+
+    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const titleProp = Object.entries(properties).find(
+      ([, p]) => (p as { type?: string }).type === "title",
+    )?.[0];
+
+    const page = await this.notion.queryDatabase({
+      databaseId,
+      filter: titleProp
+        ? { property: titleProp, title: { equals: title.trim() } }
+        : undefined,
+      pageSize: 25,
+    });
+
+    return (page.results as RawNotionPage[])
+      .filter((p) => !p.archived && !p.in_trash)
+      .filter(
+        (p) =>
+          NotionService.extractTitleFromProperties(p.properties ?? {})
+            .trim()
+            .toLowerCase() === wanted,
+      )
+      .map((p) => ({ externalId: p.id, url: p.url ?? null }));
+  }
+
   /** Resolve a Notion workspace person id by email, or null when unmatched. */
   async findPersonIdByEmail(email: string): Promise<string | null> {
     const wanted = email.trim().toLowerCase();

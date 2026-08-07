@@ -18,6 +18,29 @@ export const TICKET_STATUSES = [
 ] as const;
 
 /**
+ * The Notion page id a ticket carries in its `links` JSON — the provenance the
+ * cycle importer writes for every row it creates.
+ *
+ * This lives here, shared, because two opposite decisions must agree on it:
+ * the inbound ADOPTION pass (engine.ts) uses it to link an unsynced ticket to
+ * the page it came from, and the outbound CREATE guard (pushRunner.ts) uses it
+ * to refuse to mirror that same ticket back out. When the two disagreed, the
+ * pre-sync import cohort — tickets with provenance but no `TicketSync` row —
+ * was adoptable by one and duplicable by the other, and the backfill minted a
+ * second Notion page for rows Notion already had.
+ */
+export function extractNotionPageId(links: unknown): string | null {
+  if (!links || typeof links !== "object" || Array.isArray(links)) return null;
+  const value = (links as Record<string, unknown>).notionPageId;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** True when a ticket's `links` JSON records that it originated in Notion. */
+export function hasNotionProvenance(links: unknown): boolean {
+  return extractNotionPageId(links) !== null;
+}
+
+/**
  * Notion status/select name → TicketStatus. Keys are normalized (lowercased,
  * emoji/punctuation stripped). Anything unmapped falls back to BACKLOG with a
  * per-item warning rather than failing the row.

@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+import { Prisma } from "@prisma/client";
 import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 
 const { createTicketMock, resolveTagsMock, attachTagsMock, recordActivityMock } =
@@ -158,6 +159,8 @@ function fakeAdapter(
     cyclePageId?: string | null;
     personId?: string | null;
     schema?: NotionDbSchema;
+    /** Same-titled rows the pre-create duplicate probe should find. */
+    pagesByTitle?: Array<{ externalId: string; url: string | null }>;
   } = {},
 ): FakeAdapter {
   const updates: FakeAdapter["updates"] = [];
@@ -175,6 +178,7 @@ function fakeAdapter(
     },
     findCyclePageIdByName: () => Promise.resolve(opts.cyclePageId ?? null),
     findPersonIdByEmail: () => Promise.resolve(opts.personId ?? null),
+    findPagesByTitle: () => Promise.resolve(opts.pagesByTitle ?? []),
     createPage: (params) => {
       creates.push(params);
       return Promise.resolve({ externalId: "new-page-id", url: "https://notion.so/new" });
@@ -584,6 +588,114 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
     expect(item.action).toBe("created");
     expect(item.reason).toContain("would create");
     expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("runOutboundTicketPush — pre-create duplicate probe", () => {
+  beforeEach(() => {
+    db.ticketSync.findMany.mockResolvedValue([] as never);
+  });
+
+  it("adopts the existing same-titled row instead of creating a second one", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByTitle: [{ externalId: "page-9", url: "https://notion.so/page-9" }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("adopted");
+    expect(item.externalId).toBe("page-9");
+    expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "s1" },
+        data: expect.objectContaining({
+          externalId: "page-9",
+          externalUrl: "https://notion.so/page-9",
+        }),
+      }),
+    );
+  });
+
+  it("adopts without claiming authorship of the page body", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByTitle: [{ externalId: "page-9", url: null }],
+    });
+
+    await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    // `remoteCreatedAt` is what licenses the body-repair pass to rewrite a
+    // page's content. An adopted page is human-authored — setting it here
+    // would hand a stranger's Notion page to a rewriter.
+    const data = db.ticketSync.update.mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.remoteCreatedAt).toBeUndefined();
+    // Null snapshot: the first merge treats both sides as changed and resolves
+    // by last-write-wins, exactly as the inbound adoption pass does.
+    expect(data.snapshot).toBe(Prisma.DbNull);
+  });
+
+  it("refuses to create when the same-titled row belongs to another ticket", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    db.ticketSync.findMany.mockResolvedValue([
+      { externalId: "page-9", ticket: { number: 122 } },
+    ] as never);
+    const adapter = fakeAdapter(null, {
+      pagesByTitle: [{ externalId: "page-9", url: null }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    // Two Exponential tickets for one Notion row. A third copy helps nobody.
+    expect(item.action).toBe("skipped");
+    // Matched without the leading hash — the pre-commit colour hook reads a
+    // three-digit ticket reference as a hardcoded hex colour.
+    expect(item.reason).toContain("122");
+    expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses to guess when several rows share the title", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByTitle: [
+        { externalId: "page-9", url: null },
+        { externalId: "page-10", url: null },
+      ],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("skipped");
+    expect(item.reason).toContain("2 Notion rows share this title");
+    expect(adapter.creates).toHaveLength(0);
+  });
+
+  it("dry run previews the adoption without linking", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByTitle: [{ externalId: "page-9", url: null }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, {
+      syncId: "s1",
+      dryRun: true,
+    });
+
+    expect(item.action).toBe("adopted");
+    expect(item.reason).toContain("would link");
     expect(db.ticketSync.update).not.toHaveBeenCalled();
   });
 });

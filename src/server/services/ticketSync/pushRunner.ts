@@ -8,6 +8,7 @@ import {
   type TicketPushAdapter,
 } from "./push";
 import { createNotionTicketSyncAdapter } from "./notionAdapter";
+import { hasNotionProvenance } from "./mapping";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 
 /**
@@ -44,6 +45,8 @@ export const PUSH_RELEVANT_TICKET_FIELDS = [
 const MAX_ATTEMPTS = 5;
 const STALE_RUNNING_MINUTES = 15;
 const MAX_JOBS_PER_SWEEP = 200;
+/** Hard cap on rows one backfill run mirrors, applied after the filters. */
+const BACKFILL_LIMIT = 500;
 
 /** Exponential backoff (minutes → ms), capped at 1h, keyed on attempt count. */
 function backoffMs(attempts: number): number {
@@ -136,9 +139,11 @@ export async function dispatchTicketPush(
  * (`externalId: "pending:<ticketId>"`) so the durable queue can turn it into a
  * real Notion page on drain, then kicks the drain. Never throws.
  *
- * Skips terminal tickets (mirror only non-terminal work, matching backfill) and
+ * Skips terminal tickets (mirror only non-terminal work, matching backfill),
  * tickets that already carry a sync (inbound-born, or already mirrored) — the
- * `[ticketId, provider]` uniqueness is the final idempotency guard.
+ * `[ticketId, provider]` uniqueness is the final idempotency guard — and
+ * tickets that carry Notion provenance in `links` (see
+ * {@link ticketIsNotionBorn}).
  */
 export async function dispatchTicketCreate(
   db: PrismaClient,
@@ -157,6 +162,22 @@ export async function dispatchTicketCreate(
   }
 }
 
+/**
+ * A ticket that came FROM Notion, whatever its sync state.
+ *
+ * "Has no `TicketSync` row" is NOT the same question as "does not exist in
+ * Notion". Tickets imported before the sync engine landed — and any row the
+ * importer created whose sync record was later removed — carry their origin
+ * page in `links.notionPageId` and nothing else. Mirroring one of those out
+ * creates a SECOND Notion page for a row Notion already has, which the next
+ * inbound poll then treats as a fresh row: the duplicate-per-side failure the
+ * 2026-07 CLEAR import produced. The inbound adoption pass reclaims these into
+ * real sync records; until it runs, the outbound side must leave them alone.
+ */
+function ticketIsNotionBorn(ticket: { links: unknown }): boolean {
+  return hasNotionProvenance(ticket.links);
+}
+
 async function ensureCreateSentinel(
   db: PrismaClient,
   ticketId: string,
@@ -167,12 +188,14 @@ async function ensureCreateSentinel(
       id: true,
       status: true,
       productId: true,
+      links: true,
       _count: { select: { syncs: true } },
     },
   });
   if (!ticket) return null;
   if (COMPLETED_TICKET_STATUSES.includes(ticket.status)) return null;
   if (ticket._count.syncs > 0) return null;
+  if (ticketIsNotionBorn(ticket)) return null;
 
   const config = await db.ticketSyncConfig.findFirst({
     where: {
@@ -213,8 +236,15 @@ export interface BackfillPlanItem {
 
 /**
  * The one-time backfill manifest: the non-terminal tickets in a config's
- * product that have no sync record yet (exactly what a real backfill would
- * mirror). Read-only — the dry-run gate the UI shows before the real run.
+ * product that have no sync record yet AND no Notion provenance (exactly what
+ * a real backfill would mirror). Read-only — the dry-run gate the UI shows
+ * before the real run.
+ *
+ * Provenance is filtered in JS rather than in the `where`: Prisma's JSON path
+ * filters don't express "key absent" portably, and getting that subtly wrong
+ * fails OPEN (it mirrors a Notion-born ticket back out). The cap is applied
+ * after the filter so a product full of imported tickets can't starve the
+ * manifest of the Exponential-born rows the backfill actually exists for.
  */
 export async function planBackfill(
   db: PrismaClient,
@@ -232,17 +262,20 @@ export async function planBackfill(
       status: { notIn: [...COMPLETED_TICKET_STATUSES] },
       syncs: { none: {} },
     },
-    select: { id: true, title: true, number: true },
+    select: { id: true, title: true, number: true, links: true },
     orderBy: { createdAt: "asc" },
-    take: 500,
   });
-  return tickets.map((t) => ({ ticketId: t.id, title: t.title, number: t.number }));
+  return tickets
+    .filter((t) => !ticketIsNotionBorn(t))
+    .slice(0, BACKFILL_LIMIT)
+    .map((t) => ({ ticketId: t.id, title: t.title, number: t.number }));
 }
 
 /**
  * Run the backfill: enqueue a create job (via a sentinel sync) for every
- * non-terminal, unsynced ticket. Idempotent — a ticket that already has a sync
- * is skipped, so re-running creates nothing new. The Notion pages themselves
+ * non-terminal, unsynced, Exponential-born ticket. Idempotent — a ticket that
+ * already has a sync is skipped, so re-running creates nothing new. The
+ * Notion pages themselves
  * are written by the durable drain, so a large backfill can't time out the
  * request and each row retries independently.
  */
@@ -258,15 +291,20 @@ export async function enqueueBackfill(
     return { enqueued: 0 };
   }
 
-  const tickets = await db.ticket.findMany({
+  const candidates = await db.ticket.findMany({
     where: {
       productId: config.productId,
       status: { notIn: [...COMPLETED_TICKET_STATUSES] },
       syncs: { none: {} },
     },
-    select: { id: true },
-    take: 500,
+    select: { id: true, links: true },
+    orderBy: { createdAt: "asc" },
   });
+  // Same provenance exclusion as planBackfill — the manifest the user approved
+  // and the rows actually enqueued must be the same set.
+  const tickets = candidates
+    .filter((t) => !ticketIsNotionBorn(t))
+    .slice(0, BACKFILL_LIMIT);
 
   let enqueued = 0;
   for (const t of tickets) {
