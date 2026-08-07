@@ -197,12 +197,14 @@ export const keyResultRouter = createTRPCRouter({
       // membership, then return every member's KRs. Scoping by userId as well
       // would hand a member an empty list for a colleague's key results.
       // Without a workspaceId this stays the caller's personal list.
-      const isWorkspaceScoped = !!input?.workspaceId;
-      if (isWorkspaceScoped) {
+      // Bind it once: the local narrows on its own, which keeps the where
+      // clause free of non-null assertions on an optional input.
+      const workspaceId = input?.workspaceId;
+      if (workspaceId) {
         const membership = await getWorkspaceMembership(
           ctx.db,
           ctx.session.user.id,
-          input!.workspaceId!,
+          workspaceId,
         );
         if (!membership) {
           throw new TRPCError({
@@ -214,9 +216,9 @@ export const keyResultRouter = createTRPCRouter({
 
       return ctx.db.keyResult.findMany({
         where: {
-          ...(isWorkspaceScoped
+          ...(workspaceId
             ? {
-                workspaceId: input!.workspaceId,
+                workspaceId,
                 ...(input?.onlyMine ? { userId: ctx.session.user.id } : {}),
               }
             : { userId: ctx.session.user.id }),
