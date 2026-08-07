@@ -21,6 +21,11 @@ export const FIXTURE = {
   userName: "Dev Fixture",
   workspaceSlug: "dev-fixture",
   workspaceName: "Dev Fixture",
+  otherWorkspaceSlug: "dev-fixture-other",
+  otherWorkspaceName: "Dev Fixture Other",
+  // Deliberately unlike anything in the main workspace, so a search for it
+  // returning nothing is proof that scoping held.
+  otherWorkspaceActionName: "Zarquon cross-workspace beacon",
   productSlug: "fixture",
   productName: "Fixture Product",
   featureName: "Tickets accordion fixture",
@@ -42,6 +47,11 @@ export const FIXTURE = {
 export interface SeededFixture {
   userId: string;
   workspaceSlug: string;
+  /** A second workspace the fixture user owns, for cross-workspace cases. */
+  otherWorkspaceSlug: string;
+  otherWorkspaceName: string;
+  /** Action living only in `otherWorkspaceSlug`. */
+  otherWorkspaceActionName: string;
   productSlug: string;
   featureId: string;
   /** App-relative URL of the seeded feature's detail page. */
@@ -106,6 +116,54 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "owner" },
     create: { userId: user.id, workspaceId: workspace.id, role: "owner" },
   });
+
+  // Pin the default explicitly. Routes outside `/w/…` (e.g. `/wiki`) resolve
+  // their workspace through `workspace.getDefault`, which without this falls
+  // back to "first by type, then by createdAt" — a tie-break that only stayed
+  // stable while the fixture had exactly one workspace to choose from.
+  await db.user.update({
+    where: { id: user.id },
+    data: { defaultWorkspaceId: workspace.id },
+  });
+
+  // A second workspace, so the fixture can express anything that only exists
+  // for people who belong to more than one — the command palette's
+  // "All workspaces" toggle, for one, hides itself below that threshold. Kept
+  // deliberately thin: one action, whose name is the thing cross-workspace
+  // search looks for and which must NOT surface in a `dev-fixture`-scoped
+  // search.
+  const otherWorkspace = await db.workspace.upsert({
+    where: { slug: FIXTURE.otherWorkspaceSlug },
+    update: {},
+    create: {
+      slug: FIXTURE.otherWorkspaceSlug,
+      name: FIXTURE.otherWorkspaceName,
+      type: "team",
+      ownerId: user.id,
+    },
+  });
+
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: user.id, workspaceId: otherWorkspace.id } },
+    update: { role: "owner" },
+    create: { userId: user.id, workspaceId: otherWorkspace.id, role: "owner" },
+  });
+
+  const existingOtherAction = await db.action.findFirst({
+    where: { workspaceId: otherWorkspace.id, name: FIXTURE.otherWorkspaceActionName },
+    select: { id: true },
+  });
+  if (!existingOtherAction) {
+    await db.action.create({
+      data: {
+        name: FIXTURE.otherWorkspaceActionName,
+        workspaceId: otherWorkspace.id,
+        createdById: user.id,
+        status: "ACTIVE",
+        priority: "Quick",
+      },
+    });
+  }
 
   const product = await db.product.upsert({
     where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.productSlug } },
@@ -344,6 +402,9 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
     userId: user.id,
     workspaceSlug: FIXTURE.workspaceSlug,
+    otherWorkspaceSlug: FIXTURE.otherWorkspaceSlug,
+    otherWorkspaceName: FIXTURE.otherWorkspaceName,
+    otherWorkspaceActionName: FIXTURE.otherWorkspaceActionName,
     productSlug: FIXTURE.productSlug,
     featureId: feature.id,
     featureUrl: `${base}/features/${feature.id}`,

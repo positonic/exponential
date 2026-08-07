@@ -11,6 +11,7 @@ import {
   UnstyledButton,
   Skeleton,
   Text,
+  Checkbox,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -150,9 +151,18 @@ export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<Mode>('all');
+  // Widens the search past the workspace you are in. Deliberately not reset
+  // when the palette closes: which workspaces you want to search is a standing
+  // preference, unlike the query and the filter chips.
+  const [allWorkspaces, setAllWorkspaces] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Set on mousedown over the scope checkbox and consumed by its change
+  // handler, so that handler can tell a click from a keypress. `:focus-visible`
+  // looks like the obvious test and isn't: a checkbox reached by Tab does not
+  // reliably match it at the moment the change fires.
+  const scopeTogglePointerRef = useRef(false);
   const router = useRouter();
   const { workspaceId, workspaceSlug } = useWorkspace();
   const { openModal } = useAgentModal();
@@ -182,10 +192,15 @@ export function CommandPalette() {
   const [debouncedQuery] = useDebouncedValue(trimmedQuery, 180);
 
   // One server-side search covering every entity type the app knows about,
-  // scoped to the workspace you are in, each block carrying the same access
-  // rules as that entity's own list endpoint.
+  // each block carrying the same access rules as that entity's own list
+  // endpoint. Omitting the workspace searches every workspace you can reach —
+  // the router treats `workspaceId` as a narrowing filter, not as the thing
+  // that grants access, so dropping it widens the results without widening
+  // what you are allowed to see.
+  const searchWorkspaceId = allWorkspaces ? undefined : workspaceId ?? undefined;
+
   const { data: searchData, isFetching: searchFetching } = api.search.global.useQuery(
-    { query: debouncedQuery, workspaceId: workspaceId ?? undefined, limit: 5 },
+    { query: debouncedQuery, workspaceId: searchWorkspaceId, limit: 5 },
     {
       enabled: isOpen && mode !== 'ai' && debouncedQuery.length >= MIN_SEARCH_LENGTH,
       // Keep the previous matches on screen while the next query is in flight,
@@ -334,12 +349,17 @@ export function CommandPalette() {
   // flight we keep the previous ones only if the typed query extends them —
   // narrowing "fix" to "fixt" holds its results, starting a new word drops
   // them rather than showing matches for something you are no longer typing.
+  // Scope is checked the same way and for the same reason: flipping the
+  // checkbox changes the query key but not the query string, so without this
+  // `placeholderData` would hold the old scope's results on screen — the list
+  // contradicting the box you just ticked until the wider search lands.
   const shownResults = useMemo(() => {
     if (!searchData) return [];
+    if ((searchData.workspaceId ?? undefined) !== searchWorkspaceId) return [];
     return trimmedQuery.toLowerCase().startsWith(searchData.query.toLowerCase())
       ? searchData.results
       : [];
-  }, [searchData, trimmedQuery]);
+  }, [searchData, trimmedQuery, searchWorkspaceId]);
 
   const resultsByType = useMemo(() => {
     const allowed = mode === 'ai' ? null : MODE_TYPES[mode];
@@ -353,8 +373,21 @@ export function CommandPalette() {
       if (bucket) bucket.push(result);
       else byType.set(result.type, [result]);
     }
+    // Searching everywhere still puts the workspace you are standing in first
+    // within each section — it is the one you are most likely to have meant,
+    // and the server returns no ranking of its own. Sort is stable, so the
+    // order inside each of the two halves is left as the server sent it.
+    if (allWorkspaces && workspaceId) {
+      for (const bucket of byType.values()) {
+        bucket.sort(
+          (a, b) =>
+            (a.workspace?.id === workspaceId ? 0 : 1) -
+            (b.workspace?.id === workspaceId ? 0 : 1),
+        );
+      }
+    }
     return byType;
-  }, [shownResults, mode]);
+  }, [shownResults, mode, allWorkspaces, workspaceId]);
 
   // Sections in render order, each row carrying its position in the flat list
   // so keyboard highlighting and rendering cannot drift apart.
@@ -508,11 +541,11 @@ export function CommandPalette() {
     [highlightedIndex, allResults, q, close, navigate, handleAskZoe],
   );
 
-  // Switching filter chips rebuilds the list, so a held index would point at
-  // an unrelated row.
+  // Switching filter chips or search scope rebuilds the list, so a held index
+  // would point at an unrelated row.
   useEffect(() => {
     setHighlightedIndex(null);
-  }, [query, mode]);
+  }, [query, mode, allWorkspaces]);
 
   // The results area scrolls, and twelve sections overflow it easily — without
   // this, arrowing past the fold moves the selection somewhere you can't see
@@ -639,9 +672,66 @@ export function CommandPalette() {
             </UnstyledButton>
           );
         })}
+
+        {/* Only worth offering to people who have somewhere else to search.
+            The span carries the mousedown so clicks on the label count too. */}
+        {(workspacesData?.length ?? 0) > 1 && (
+          <span
+            style={{ marginLeft: 'auto', display: 'inline-flex' }}
+            onMouseDown={() => {
+              scopeTogglePointerRef.current = true;
+            }}
+          >
+          <Checkbox
+            size="xs"
+            label="All workspaces"
+            checked={allWorkspaces}
+            onKeyDown={() => {
+              // Keyboard always wins over a stale pointer flag left by a
+              // mousedown that never became a toggle.
+              scopeTogglePointerRef.current = false;
+            }}
+            onChange={(e) => {
+              setAllWorkspaces(e.currentTarget.checked);
+              // Clicking the box takes focus out of the input, which is where
+              // the arrow keys and Enter are handled — hand it straight back.
+              // Someone who tabbed here meant to be here, though, and yanking
+              // focus away would cost them a re-tab before every toggle.
+              if (scopeTogglePointerRef.current) inputRef.current?.focus();
+              scopeTogglePointerRef.current = false;
+            }}
+            styles={{
+              input: { cursor: 'pointer' },
+              label: {
+                paddingLeft: 6,
+                fontSize: 12,
+                cursor: 'pointer',
+                color: allWorkspaces
+                  ? 'var(--brand-400)'
+                  : 'var(--color-text-secondary)',
+              },
+            }}
+          />
+          </span>
+        )}
       </Group>
 
-      <div ref={listRef} style={{ marginTop: 20, maxHeight: '52vh', overflowY: 'auto' }}>
+      {/* `.resultRow` is full-bleed — it is 16px wider than its container and
+          pulled 8px left — so it needs a container with 8px of side padding to
+          sit in. Without it the rows overhang, and since a box with one axis
+          set to `auto` computes the other to `auto` too, the vertical scroll
+          brought a horizontal scrollbar with it. The negative margin cancels
+          the padding, leaving every row exactly where it was. */}
+      <div
+        ref={listRef}
+        style={{
+          marginTop: 20,
+          maxHeight: '52vh',
+          overflowY: 'auto',
+          paddingInline: 8,
+          marginInline: -8,
+        }}
+      >
         {showSkeleton ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} height={36} mb={4} radius="sm" />
