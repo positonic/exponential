@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type RefObject } from "react";
+import { isOverlayBlocking } from "~/app/_components/product/useListNavHotkeys";
 
 /**
  * Binds ⌘F / Ctrl+F to a page's own search box.
@@ -14,9 +15,23 @@ import { useEffect, type RefObject } from "react";
  */
 export function usePageSearchHotkey(ref: RefObject<HTMLInputElement | null>) {
   useEffect(() => {
+    const isMac =
+      typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+    // Either identifier is enough, and both are needed:
+    //   `code` is the physical key, so ⌘F still works on a Cyrillic or Greek
+    //     layout where `key` arrives as "а".
+    //   `key` is the fallback for input paths that leave `code` empty —
+    //     synthetic events, on-screen keyboards, some IME and remote-desktop
+    //     stacks. Matching on `code` alone silently kills the shortcut there.
+    const isFKey = (event: KeyboardEvent) =>
+      event.code === "KeyF" || event.key === "f" || event.key === "F";
+
     const handler = (event: KeyboardEvent) => {
-      if (event.key !== "f" && event.key !== "F") return;
-      if (!(event.metaKey || event.ctrlKey)) return;
+      if (!isFKey(event)) return;
+      // Ctrl+F is emacs forward-char on macOS and works in every text field —
+      // only ⌘ should trigger there. Elsewhere Ctrl is the find key.
+      if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey)) return;
       // Leave ⌘⇧F / ⌘⌥F alone — those are browser/OS bindings.
       if (event.shiftKey || event.altKey) return;
 
@@ -24,16 +39,10 @@ export function usePageSearchHotkey(ref: RefObject<HTMLInputElement | null>) {
       // No box on screen (hidden tab, unmounted view) — let the browser have it.
       if (!input || input.getClientRects().length === 0) return;
 
-      // A modal/drawer is focused on top of the page: hijacking ⌘F to focus a
-      // search box the user cannot even see would be worse than native find.
-      const active = document.activeElement;
-      if (
-        active instanceof HTMLElement &&
-        active !== input &&
-        active.closest('[aria-modal="true"]')
-      ) {
-        return;
-      }
+      // Something is layered above us — an open Select dropdown, a menu, a
+      // modal. Stealing ⌘F would yank focus out of it, or into a search box the
+      // user cannot even see. `null` root: this box is never inside an overlay.
+      if (isOverlayBlocking(null)) return;
 
       event.preventDefault();
       input.focus();

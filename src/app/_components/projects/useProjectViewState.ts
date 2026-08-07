@@ -178,7 +178,11 @@ export function useProjectViewState(): ProjectViewState {
   }, [urlSearchQuery]);
 
   // Never let a queued write land after unmount — it would navigate a page the
-  // user has already left.
+  // user has already left. Tradeoff, deliberate: a query typed in the last
+  // SEARCH_URL_DEBOUNCE_MS before navigating away never reaches the URL, so
+  // Back returns to an empty box. Don't "fix" that by flushing on unmount — it
+  // reintroduces the hijack. View-tab switches are already covered, because
+  // viewParamsQueryString builds its links from the live text.
   useEffect(() => {
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
