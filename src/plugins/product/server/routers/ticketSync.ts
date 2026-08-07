@@ -212,7 +212,7 @@ export const ticketSyncRouter = createTRPCRouter({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
         },
-        select: { id: true, integrationId: true },
+        select: { id: true, integrationId: true, propertyNames: true },
       });
       if (!config) {
         throw new TRPCError({
@@ -226,8 +226,27 @@ export const ticketSyncRouter = createTRPCRouter({
           message: "Notion sync is disconnected for this product",
         });
       }
-      const items = await planBackfill(ctx.db, { configId: config.id });
-      return { count: items.length, sample: items.slice(0, 20) };
+      // Best-effort title check for the preview. It costs one Notion query per
+      // shown row and is advisory only, so a credential problem downgrades the
+      // preview rather than failing it.
+      const adapterResult = await createNotionTicketSyncAdapter(ctx.db, {
+        integrationId: config.integrationId,
+        propertyNames: config.propertyNames,
+      });
+      const items = await planBackfill(ctx.db, {
+        configId: config.id,
+        probe: adapterResult.ok ? adapterResult.adapter : undefined,
+      });
+      return {
+        count: items.length,
+        sample: items.slice(0, 20),
+        /**
+         * How many rows the advisory title check actually completed — counted
+         * from the probe's own results, not assumed from the plan size, so a
+         * mid-run Notion failure can't be read as a clean check.
+         */
+        titleChecked: items.filter((i) => i.titleChecked).length,
+      };
     }),
 
   /**

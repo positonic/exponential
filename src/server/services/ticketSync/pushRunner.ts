@@ -232,7 +232,35 @@ export interface BackfillPlanItem {
   ticketId: string;
   title: string;
   number: number;
+  /**
+   * Set when Notion already holds a row with this title. Advisory ONLY — a
+   * title is user-editable, mutates in place, and is not unique (auto-filed
+   * bug tickets are identical by design), so it is a hint for the person
+   * approving the backfill and must never drive an automatic decision.
+   */
+  warning?: string;
+  /**
+   * True when the title check actually completed for this row. Absent warning
+   * + absent flag means "not checked", NOT "checked and clean" — the probe
+   * swallows per-row failures, so the two must stay distinguishable.
+   */
+  titleChecked?: boolean;
 }
+
+/** Adapter surface the preview needs; a subset of the real Notion adapter. */
+export interface BackfillTitleProbe {
+  findPagesByTitle(
+    databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>>;
+}
+
+/**
+ * How many planned rows the title check covers. One Notion query per title, so
+ * this is capped at the number the preview UI actually shows; the router
+ * reports the cap rather than implying the whole plan was checked.
+ */
+export const TITLE_WARNING_PROBE_LIMIT = 20;
 
 /**
  * The one-time backfill manifest: the non-terminal tickets in a config's
@@ -248,11 +276,11 @@ export interface BackfillPlanItem {
  */
 export async function planBackfill(
   db: PrismaClient,
-  params: { configId: string },
+  params: { configId: string; probe?: BackfillTitleProbe },
 ): Promise<BackfillPlanItem[]> {
   const config = await db.ticketSyncConfig.findUnique({
     where: { id: params.configId },
-    select: { productId: true },
+    select: { productId: true, databaseId: true },
   });
   if (!config) return [];
 
@@ -265,10 +293,33 @@ export async function planBackfill(
     select: { id: true, title: true, number: true, links: true },
     orderBy: { createdAt: "asc" },
   });
-  return tickets
+  const items: BackfillPlanItem[] = tickets
     .filter((t) => !ticketIsNotionBorn(t))
     .slice(0, BACKFILL_LIMIT)
     .map((t) => ({ ticketId: t.id, title: t.title, number: t.number }));
+
+  if (!params.probe) return items;
+
+  // Advisory title check on the rows the preview shows. A failure here must
+  // never break the preview — a missing warning is a smaller problem than a
+  // backfill nobody can approve. Each item records whether its own check
+  // actually ran, so "no warning" is never read as "checked and clean" when
+  // Notion rate-limited us halfway through.
+  for (const item of items.slice(0, TITLE_WARNING_PROBE_LIMIT)) {
+    try {
+      const matches = await params.probe.findPagesByTitle(
+        config.databaseId,
+        item.title,
+      );
+      item.titleChecked = true;
+      if (matches.length > 0) {
+        item.warning = `Notion already has ${matches.length === 1 ? "a row" : `${matches.length} rows`} with this title — check this isn't the same work before mirroring`;
+      }
+    } catch {
+      // Leave titleChecked false; the create path's own probe is the real guard.
+    }
+  }
+  return items;
 }
 
 /**
