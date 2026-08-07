@@ -269,12 +269,15 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <IconBrandNotion size={22} className="text-text-secondary shrink-0" />
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <IconBrandNotion
+                size={22}
+                className="text-text-secondary mt-0.5 shrink-0"
+              />
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <Text size="sm" fw={600} className="text-text-primary truncate">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Text size="sm" fw={600} className="text-text-primary">
                     {config.databaseName ?? "Notion database"}
                   </Text>
                   <Badge
@@ -286,52 +289,110 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
                       ? "Connected"
                       : "Connection issue"}
                   </Badge>
+                  {!config.enabled && (
+                    <Badge size="xs" variant="light" color="yellow">
+                      Paused
+                    </Badge>
+                  )}
                 </div>
-                <Text size="xs" className="text-text-muted truncate">
+                {/* One fact per line: the old single truncated line hid the
+                    "last pulled" timestamp, which is the first thing you need
+                    when a ticket looks out of date. */}
+                <Text size="xs" className="text-text-muted mt-1">
                   via {config.integrationName}
                   {config.linkedTicketCount > 0 &&
                     ` · ${config.linkedTicketCount} linked ticket${config.linkedTicketCount === 1 ? "" : "s"}`}
+                </Text>
+                <Text size="xs" className="text-text-muted">
                   {config.lastPulledAt
-                    ? ` · last pulled ${new Date(config.lastPulledAt).toLocaleString()}`
-                    : " · never pulled"}
+                    ? `Last pulled ${new Date(config.lastPulledAt).toLocaleString()}`
+                    : "Never pulled"}
                 </Text>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconEyeSearch size={14} />}
-                onClick={() => syncNow.mutate({ productId, dryRun: true })}
-                loading={syncNow.isPending && syncNow.variables?.dryRun === true}
-                disabled={syncNow.isPending}
-              >
+            <Button
+              size="xs"
+              variant="subtle"
+              color="red"
+              className="shrink-0"
+              leftSection={<IconUnlink size={14} />}
+              onClick={onDisconnect}
+              loading={disconnect.isPending}
+            >
+              Disconnect
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-1">
+          <div className="flex items-start justify-between gap-4 border-b border-border-primary py-3.5">
+            <div className="min-w-0">
+              <Text size="sm" fw={600} className="text-text-primary">
                 Dry run
-              </Button>
-              <Button
-                size="xs"
-                variant="light"
-                leftSection={<IconRefresh size={14} />}
-                onClick={() => onSyncNow(!config.lastPulledAt)}
-                loading={
-                  gateDryRun.isPending ||
-                  (syncNow.isPending && syncNow.variables?.dryRun !== true)
-                }
-                disabled={syncNow.isPending || gateDryRun.isPending || !config.enabled}
-              >
-                Sync now
-              </Button>
-              <Button
-                size="xs"
-                variant="subtle"
-                color="red"
-                leftSection={<IconUnlink size={14} />}
-                onClick={onDisconnect}
-                loading={disconnect.isPending}
-              >
-                Disconnect
-              </Button>
+              </Text>
+              <Text size="xs" className="text-text-muted mt-0.5 max-w-prose">
+                Shows what a sync would change, ticket by ticket and with the
+                reason for each — without writing anything. Safe to run at any
+                time, including while sync is paused.
+              </Text>
             </div>
+            <Button
+              size="xs"
+              variant="light"
+              className="shrink-0"
+              leftSection={<IconEyeSearch size={14} />}
+              onClick={() => syncNow.mutate({ productId, dryRun: true })}
+              loading={syncNow.isPending && syncNow.variables?.dryRun === true}
+              disabled={syncNow.isPending}
+            >
+              Dry run
+            </Button>
+          </div>
+          <div className="flex items-start justify-between gap-4 py-3.5">
+            <div className="min-w-0">
+              <Text size="sm" fw={600} className="text-text-primary">
+                Sync now
+              </Text>
+              <Text size="xs" className="text-text-muted mt-0.5 max-w-prose">
+                Pulls from Notion into Exponential immediately, instead of
+                waiting for the next scheduled run. New rows become tickets, and
+                changes to title, status, priority, type, effort, cycle and
+                assignee land on their linked tickets.
+              </Text>
+              <Text size="xs" className="text-text-muted mt-1.5 max-w-prose">
+                This direction only — it never writes to Notion. That&apos;s
+                &quot;Push changes to Notion&quot; below.
+              </Text>
+              <Text size="xs" className="text-text-muted mt-1.5 max-w-prose">
+                It only checks rows Notion reports as edited since the last pull
+                {config.lastPulledAt
+                  ? ` (${new Date(config.lastPulledAt).toLocaleString()})`
+                  : ""}
+                . An edit Notion didn&apos;t re-timestamp won&apos;t be seen, so
+                if a ticket looks stale, run Dry run first to check whether
+                it&apos;s in the window at all.
+              </Text>
+              {!config.enabled && (
+                <Text size="xs" c="yellow" className="mt-1.5">
+                  Sync is paused — turn on &quot;Sync enabled&quot; below to run
+                  it.
+                </Text>
+              )}
+            </div>
+            <Button
+              size="xs"
+              variant="light"
+              className="shrink-0"
+              leftSection={<IconRefresh size={14} />}
+              onClick={() => onSyncNow(!config.lastPulledAt)}
+              loading={
+                gateDryRun.isPending ||
+                (syncNow.isPending && syncNow.variables?.dryRun !== true)
+              }
+              disabled={syncNow.isPending || gateDryRun.isPending || !config.enabled}
+            >
+              Sync now
+            </Button>
           </div>
         </div>
 
