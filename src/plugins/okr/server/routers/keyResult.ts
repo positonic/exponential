@@ -672,6 +672,7 @@ export const keyResultRouter = createTRPCRouter({
       }
 
       // Reassigning to a different objective requires access to the target too.
+      let movedWorkspaceId: string | null | undefined;
       if (updateData.goalId != null && updateData.goalId !== existing!.goalId) {
         const targetGoal = await ctx.db.goal.findUnique({
           where: { id: updateData.goalId },
@@ -684,11 +685,22 @@ export const keyResultRouter = createTRPCRouter({
             message: "Objective not found",
           });
         }
+
+        // A key result follows its objective's workspace — the same invariant
+        // `create` enforces. Retargeting without moving it would leave the row
+        // readable and writable by the ORIGINAL workspace's members while it
+        // hangs off another workspace's objective.
+        movedWorkspaceId = targetGoal!.workspaceId;
       }
 
       return ctx.db.keyResult.update({
         where: { id },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(movedWorkspaceId !== undefined
+            ? { workspaceId: movedWorkspaceId }
+            : {}),
+        },
         include: {
           goal: true,
         },

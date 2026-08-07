@@ -408,3 +408,74 @@ describe("okr.getById honours team-derived workspace access", () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+// A key result follows its objective's workspace. Retargeting it across a
+// workspace boundary without moving it leaves the row readable and writable by
+// the original workspace's members while it belongs to another workspace's
+// objective — the divergence `create` already refuses.
+describe("moving a key result between objectives moves its workspace", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("re-homes the key result when the target objective is in another workspace", async () => {
+    const { owner, ws, keyResult } = await seedWorkspaceKeyResult(db);
+    const otherWs = await createWorkspace(db, { ownerId: owner.id });
+    const targetGoal = await createGoal(db, {
+      userId: owner.id,
+      workspaceId: otherWs.id,
+      title: "Objective over there",
+    });
+
+    await createTestCaller(owner.id).okr.update({
+      id: keyResult.id,
+      goalId: targetGoal.id,
+    });
+
+    const after = await db.keyResult.findUniqueOrThrow({
+      where: { id: keyResult.id },
+    });
+    expect(after.goalId).toBe(targetGoal.id);
+    expect(after.workspaceId).toBe(otherWs.id);
+    expect(after.workspaceId).not.toBe(ws.id);
+  });
+
+  it("leaves the workspace alone on an ordinary field update", async () => {
+    const { owner, ws, keyResult } = await seedWorkspaceKeyResult(db);
+
+    await createTestCaller(owner.id).okr.update({
+      id: keyResult.id,
+      title: "Just a rename",
+    });
+
+    const after = await db.keyResult.findUniqueOrThrow({
+      where: { id: keyResult.id },
+    });
+    expect(after.workspaceId).toBe(ws.id);
+  });
+
+  it("no longer leaves the old workspace's members able to write it", async () => {
+    const { owner, ws, keyResult } = await seedWorkspaceKeyResult(db);
+    const oldMember = await createUser(db);
+    await addWorkspaceMember(db, ws.id, oldMember.id);
+    const otherWs = await createWorkspace(db, { ownerId: owner.id });
+    const targetGoal = await createGoal(db, {
+      userId: owner.id,
+      workspaceId: otherWs.id,
+    });
+
+    await createTestCaller(owner.id).okr.update({
+      id: keyResult.id,
+      goalId: targetGoal.id,
+    });
+
+    await expect(
+      createTestCaller(oldMember.id).okr.checkIn({
+        keyResultId: keyResult.id,
+        newValue: 999,
+      }),
+    ).rejects.toThrow(/not found/i);
+  });
+});
