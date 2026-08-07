@@ -553,14 +553,8 @@ export async function runOutboundTicketPush(
  * sentinel is deleted so it doesn't linger as a phantom link.
  */
 interface OrphanProbe {
-  /** A page we previously created for this ticket, if one exists. */
+  /** A page carrying this ticket's back-link, if one exists. */
   match: { externalId: string; url: string | null } | null;
-  /**
-   * True when we can be sure the matched page's body is ours to rewrite.
-   * False for a page whose provenance we can't pin down (e.g. a human
-   * duplicated one of our pages, so several carry the same back-link).
-   */
-  authored: boolean;
   /**
    * Set when the matched page is already linked to a DIFFERENT ticket on this
    * connection. Adopting would breach `@@unique([configId, externalId])` and
@@ -600,7 +594,7 @@ async function probeOwnOrphan(
     ticketUrl: string;
   },
 ): Promise<OrphanProbe> {
-  const none = { match: null, authored: false, claimedBy: null };
+  const none = { match: null, claimedBy: null };
   const found = await adapter.findPagesByBacklink(
     args.databaseId,
     args.backlinkProperty,
@@ -641,19 +635,13 @@ async function probeOwnOrphan(
     };
   }
 
-  if (rest.length === 0) {
-    // Only our own create writes this property with this exact URL, so the
-    // page — and its body — is ours.
-    return { match: first!, authored: true, claimedBy: null, warnings: [] };
-  }
+  if (rest.length === 0) return { match: first!, claimedBy: null, warnings: [] };
 
   // Several pages carry this ticket's back-link: earlier orphans, or a human
-  // duplicating one of our pages in Notion. Linking one is still better than
-  // minting another, but we can no longer claim authorship of the body — so
-  // `authored` stays false and the body-repair pass leaves it alone.
+  // pasting the ticket URL onto more than one page. Linking one is still
+  // better than minting another, but the operator has to reconcile the rest.
   return {
     match: first!,
-    authored: false,
     claimedBy: null,
     warnings: [
       `${found.length} Notion pages carry this ticket's back-link — linked ${first!.externalId}; reconcile the others: ${rest
@@ -726,17 +714,22 @@ async function runOutboundCreate(
       };
     }
     // Link, with a null snapshot so the first merge treats every difference as
-    // a two-sided change and resolves by last-write-wins. `remoteCreatedAt` is
-    // set ONLY when the back-link identified a single page: it licenses the
-    // body-repair pass to rewrite the content, which is right for a page we
-    // authored and wrong for anything else.
+    // a two-sided change and resolves by last-write-wins.
+    //
+    // `remoteCreatedAt` is deliberately NOT set. It licenses the body-repair
+    // pass to rewrite a page's content, and the back-link cannot prove we
+    // authored one: `Exponential URL` is an ordinary user-writable Notion
+    // property, so a person cross-referencing a ticket by pasting its URL
+    // produces a single match on a page we never touched. Adopting that page
+    // is reasonable — it is what the paste asked for — but rewriting its body
+    // is not, and that overwrite is irreversible. An orphan we really did
+    // create simply goes un-repaired, which costs nothing anyone will miss.
     await db.ticketSync.update({
       where: { id: sync.id },
       data: {
         externalId: orphan.match.externalId,
         externalUrl: orphan.match.url,
         snapshot: Prisma.DbNull,
-        ...(orphan.authored ? { remoteCreatedAt: new Date() } : {}),
       },
     });
     return {

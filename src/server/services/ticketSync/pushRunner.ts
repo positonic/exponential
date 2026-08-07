@@ -239,6 +239,12 @@ export interface BackfillPlanItem {
    * approving the backfill and must never drive an automatic decision.
    */
   warning?: string;
+  /**
+   * True when the title check actually completed for this row. Absent warning
+   * + absent flag means "not checked", NOT "checked and clean" — the probe
+   * swallows per-row failures, so the two must stay distinguishable.
+   */
+  titleChecked?: boolean;
 }
 
 /** Adapter surface the preview needs; a subset of the real Notion adapter. */
@@ -296,18 +302,21 @@ export async function planBackfill(
 
   // Advisory title check on the rows the preview shows. A failure here must
   // never break the preview — a missing warning is a smaller problem than a
-  // backfill nobody can approve.
+  // backfill nobody can approve. Each item records whether its own check
+  // actually ran, so "no warning" is never read as "checked and clean" when
+  // Notion rate-limited us halfway through.
   for (const item of items.slice(0, TITLE_WARNING_PROBE_LIMIT)) {
     try {
       const matches = await params.probe.findPagesByTitle(
         config.databaseId,
         item.title,
       );
+      item.titleChecked = true;
       if (matches.length > 0) {
         item.warning = `Notion already has ${matches.length === 1 ? "a row" : `${matches.length} rows`} with this title — check this isn't the same work before mirroring`;
       }
     } catch {
-      // Leave the item unwarned; the create path's own probe is the real guard.
+      // Leave titleChecked false; the create path's own probe is the real guard.
     }
   }
   return items;

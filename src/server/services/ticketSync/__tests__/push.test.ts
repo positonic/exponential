@@ -623,9 +623,11 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
     // Null snapshot: the first merge treats both sides as changed and resolves
     // by last-write-wins, exactly as the inbound adoption pass does.
     expect(data.snapshot).toBe(Prisma.DbNull);
-    // Only our own create writes this back-link, so the body is ours and the
-    // body-repair pass may rewrite it.
-    expect(data.remoteCreatedAt).toBeInstanceOf(Date);
+    // `remoteCreatedAt` must NOT be set: it licenses the body-repair pass to
+    // rewrite the page, and `Exponential URL` is a user-writable Notion
+    // property — a person pasting a ticket URL onto their own page produces
+    // exactly this single match. Adopting is fine; overwriting is not.
+    expect(data.remoteCreatedAt).toBeUndefined();
   });
 
   it("refuses to adopt a page already linked to another ticket", async () => {
@@ -660,7 +662,7 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
     expect(adapter.creates).toHaveLength(1);
   });
 
-  it("links one page but disclaims authorship when several carry the back-link", async () => {
+  it("links one page and names the rest when several carry the back-link", async () => {
     db.ticketSync.findUnique.mockResolvedValue(
       syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
     );
@@ -677,8 +679,6 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
     expect(item.externalId).toBe("page-9");
     expect(item.reason).toContain("page-10");
     expect(adapter.creates).toHaveLength(0);
-    // Provenance is no longer certain (a human may have duplicated our page),
-    // so the body-repair pass must not be licensed against it.
     const data = db.ticketSync.update.mock.calls[0]![0]!.data as Record<string, unknown>;
     expect(data.remoteCreatedAt).toBeUndefined();
   });

@@ -80,15 +80,52 @@ function firstPersonEmail(
   return prop.people?.[0]?.person?.email ?? null;
 }
 
+/**
+ * Safety stop for the back-link probe's pagination. 100 rows per page, so this
+ * covers 500 pages carrying one ticket's back-link — pathological by any
+ * measure, and the bound keeps a mis-scoped filter from paging a whole
+ * database.
+ */
+const BACKLINK_PROBE_MAX_PAGES = 5;
+
 export class NotionTicketSyncAdapter
   implements TicketSyncRemoteAdapter, TicketPushAdapter
 {
+  /**
+   * Per-instance memo of `getRawDatabaseById`. A backfill drain builds one
+   * adapter per run and then asks for the same database's schema once per
+   * ticket — through getWriteSchema, the back-link probe, and the cycle
+   * lookup. Without this, mirroring N tickets costs ~3N schema fetches
+   * against a ~3 req/s API. An adapter is scoped to a single run, so the
+   * schema cannot go stale in any way that matters.
+   */
+  private readonly rawDatabaseCache = new Map<
+    string,
+    Promise<{ properties: Record<string, unknown> }>
+  >();
+
   constructor(
     private readonly notion: NotionService,
     private readonly propertyNames: PropertyNames,
     /** Our integration's bot user id, for echo suppression. */
     private readonly botId: string | null,
   ) {}
+
+  private getRawDatabase(
+    databaseId: string,
+  ): Promise<{ properties: Record<string, unknown> }> {
+    const cached = this.rawDatabaseCache.get(databaseId);
+    if (cached) return cached;
+    // Cache the PROMISE, not the result: concurrent callers within one run
+    // then share a single in-flight request instead of racing three of them.
+    const pending = this.notion.getRawDatabaseById(databaseId).catch((err) => {
+      // A failed fetch must not be memoised — the next call should retry.
+      this.rawDatabaseCache.delete(databaseId);
+      throw err;
+    }) as Promise<{ properties: Record<string, unknown> }>;
+    this.rawDatabaseCache.set(databaseId, pending);
+    return pending;
+  }
 
   async queryRows(params: {
     databaseId: string;
@@ -241,7 +278,7 @@ export class NotionTicketSyncAdapter
 
   /** The target database's property schema: type + option names per property. */
   async getWriteSchema(databaseId: string): Promise<NotionDbSchema> {
-    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const { properties } = await this.getRawDatabase(databaseId);
     const schema: NotionDbSchema = {};
     for (const [name, raw] of Object.entries(properties)) {
       const prop = raw as {
@@ -278,14 +315,14 @@ export class NotionTicketSyncAdapter
     cycleProperty: string,
     name: string,
   ): Promise<string | null> {
-    const { properties } = await this.notion.getRawDatabaseById(databaseId);
-    const relation = (properties as Record<string, unknown>)[cycleProperty] as
+    const { properties } = await this.getRawDatabase(databaseId);
+    const relation = properties[cycleProperty] as
       | { type?: string; relation?: { database_id?: string } }
       | undefined;
     const targetDbId = relation?.relation?.database_id;
     if (relation?.type !== "relation" || !targetDbId) return null;
 
-    const target = await this.notion.getRawDatabaseById(targetDbId);
+    const target = await this.getRawDatabase(targetDbId);
     const titleProp = Object.entries(target.properties).find(
       ([, p]) => (p as { type?: string }).type === "title",
     )?.[0];
@@ -322,21 +359,34 @@ export class NotionTicketSyncAdapter
     backlinkProperty: string,
     ticketUrl: string,
   ): Promise<Array<{ externalId: string; url: string | null }> | null> {
-    const { properties } = await this.notion.getRawDatabaseById(databaseId);
-    const prop = (properties as Record<string, unknown>)[backlinkProperty] as
+    const { properties } = await this.getRawDatabase(databaseId);
+    const prop = properties[backlinkProperty] as
       | { type?: string }
       | undefined;
     if (prop?.type !== "url") return null;
 
-    const page = await this.notion.queryDatabase({
-      databaseId,
-      filter: { property: backlinkProperty, url: { equals: ticketUrl } },
-      pageSize: 25,
-    });
-
-    return (page.results as RawNotionPage[])
-      .filter((p) => !p.archived && !p.in_trash)
-      .map((p) => ({ externalId: p.id, url: p.url ?? null }));
+    // Page the whole result set. A single page of 25 would both truncate the
+    // "reconcile the others" list and — because archived rows are filtered
+    // client-side, AFTER the cap — let a page of trashed rows hide the live
+    // match and cause a duplicate create.
+    const live: Array<{ externalId: string; url: string | null }> = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < BACKLINK_PROBE_MAX_PAGES; page++) {
+      const res = await this.notion.queryDatabase({
+        databaseId,
+        filter: { property: backlinkProperty, url: { equals: ticketUrl } },
+        pageSize: 100,
+        startCursor: cursor,
+      });
+      for (const p of res.results as RawNotionPage[]) {
+        if (!p.archived && !p.in_trash) {
+          live.push({ externalId: p.id, url: p.url ?? null });
+        }
+      }
+      if (!res.hasMore || !res.nextCursor) break;
+      cursor = res.nextCursor;
+    }
+    return live;
   }
 
   /**
@@ -355,7 +405,7 @@ export class NotionTicketSyncAdapter
     const wanted = title.trim().toLowerCase();
     if (!wanted) return [];
 
-    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const { properties } = await this.getRawDatabase(databaseId);
     const titleProp = Object.entries(properties).find(
       ([, p]) => (p as { type?: string }).type === "title",
     )?.[0];

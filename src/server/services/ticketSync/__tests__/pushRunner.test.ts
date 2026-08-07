@@ -483,6 +483,7 @@ describe("planBackfill / enqueueBackfill", () => {
     // the row from the plan. Title is not a key — acting on it is the bug.
     expect(plan).toHaveLength(2);
     expect(plan[0]!.warning).toBeUndefined();
+    expect(plan[0]!.titleChecked).toBe(true);
     expect(plan[1]!.warning).toContain("2 rows with this title");
   });
 
@@ -505,6 +506,8 @@ describe("planBackfill / enqueueBackfill", () => {
 
     expect(plan).toHaveLength(1);
     expect(plan[0]!.warning).toBeUndefined();
+    // The distinction that matters: unchecked, NOT checked-and-clean.
+    expect(plan[0]!.titleChecked).toBeFalsy();
   });
 
   it("refuses to backfill when push is disabled", async () => {

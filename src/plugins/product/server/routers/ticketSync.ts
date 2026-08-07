@@ -12,7 +12,6 @@ import { createNotionTicketSyncAdapter } from "~/server/services/ticketSync/noti
 import {
   enqueueBackfill,
   planBackfill,
-  TITLE_WARNING_PROBE_LIMIT,
 } from "~/server/services/ticketSync/pushRunner";
 import { rerenderCreatedPageBodies } from "~/server/services/ticketSync/bodyRepair";
 
@@ -241,10 +240,12 @@ export const ticketSyncRouter = createTRPCRouter({
       return {
         count: items.length,
         sample: items.slice(0, 20),
-        /** How many rows the advisory title check covered. */
-        titleChecked: adapterResult.ok
-          ? Math.min(items.length, TITLE_WARNING_PROBE_LIMIT)
-          : 0,
+        /**
+         * How many rows the advisory title check actually completed — counted
+         * from the probe's own results, not assumed from the plan size, so a
+         * mid-run Notion failure can't be read as a clean check.
+         */
+        titleChecked: items.filter((i) => i.titleChecked).length,
       };
     }),
 
