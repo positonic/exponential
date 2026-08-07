@@ -1,0 +1,349 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { getTestDb } from "~/test/test-db";
+import { createTestCaller } from "~/test/trpc-helpers";
+import {
+  createUser,
+  createWorkspace,
+  addWorkspaceMember,
+  createGoal,
+  createProject,
+} from "~/test/factories";
+
+/**
+ * Regression suite for the destructive `goal.updateGoal` overwrite.
+ *
+ * The incident: an agent archived a workspace goal with `{id, title, status}`.
+ * Because every field was coerced with `?? null`, the same call wiped `period`
+ * and `workspaceId` — orphaning the goal out of its workspace, which then made
+ * the access check fall through to owner-only and locked the agent out of its
+ * own change. The rule these tests pin down: an omitted key is never written,
+ * and only an explicit `null` clears a column.
+ */
+describe("goal.updateGoal — partial update semantics", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  async function seedGoal() {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const lifeDomain = await db.lifeDomain.create({
+      data: { title: `Domain ${Math.random()}` },
+    });
+    const project = await createProject(db, {
+      createdById: user.id,
+      workspaceId: ws.id,
+    });
+    const goal = await db.goal.create({
+      data: {
+        title: "Ship OKR support",
+        userId: user.id,
+        workspaceId: ws.id,
+        period: "Q3-2026",
+        status: "active",
+        lifeDomainId: lifeDomain.id,
+        description: "original description",
+        projects: { connect: [{ id: project.id }] },
+      },
+    });
+    return { user, ws, lifeDomain, project, goal, caller: createTestCaller(user.id) };
+  }
+
+  it("a {id, title, status} update leaves period, workspace, life domain and project links intact", async () => {
+    const { caller, goal, ws, lifeDomain, project } = await seedGoal();
+
+    await caller.goal.updateGoal({
+      id: goal.id,
+      title: "Ship OKR support (archived)",
+      status: "archived",
+    });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: goal.id },
+      include: { projects: true },
+    });
+    expect(after.title).toBe("Ship OKR support (archived)");
+    expect(after.status).toBe("archived");
+    expect(after.period).toBe("Q3-2026");
+    expect(after.workspaceId).toBe(ws.id);
+    expect(after.lifeDomainId).toBe(lifeDomain.id);
+    expect(after.description).toBe("original description");
+    expect(after.projects.map((p) => p.id)).toEqual([project.id]);
+  });
+
+  it("an id-only update writes nothing at all", async () => {
+    const { caller, goal, ws, project } = await seedGoal();
+
+    await caller.goal.updateGoal({ id: goal.id });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: goal.id },
+      include: { projects: true },
+    });
+    expect(after.title).toBe("Ship OKR support");
+    expect(after.period).toBe("Q3-2026");
+    expect(after.workspaceId).toBe(ws.id);
+    expect(after.projects.map((p) => p.id)).toEqual([project.id]);
+  });
+
+  it("an explicit null clears the field", async () => {
+    const { caller, goal } = await seedGoal();
+
+    await caller.goal.updateGoal({
+      id: goal.id,
+      period: null,
+      description: null,
+      lifeDomainId: null,
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.period).toBeNull();
+    expect(after.description).toBeNull();
+    expect(after.lifeDomainId).toBeNull();
+  });
+
+  it("clears project links only when projectId is explicitly null", async () => {
+    const { caller, goal } = await seedGoal();
+
+    await caller.goal.updateGoal({ id: goal.id, projectId: null });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: goal.id },
+      include: { projects: true },
+    });
+    expect(after.projects).toEqual([]);
+  });
+
+  it("replaces project links when projectId names a different project", async () => {
+    const { caller, goal, user, ws } = await seedGoal();
+    const other = await createProject(db, {
+      createdById: user.id,
+      workspaceId: ws.id,
+    });
+
+    await caller.goal.updateGoal({ id: goal.id, projectId: other.id });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: goal.id },
+      include: { projects: true },
+    });
+    expect(after.projects.map((p) => p.id)).toEqual([other.id]);
+  });
+
+  it("replaces project links wholesale from projectIds", async () => {
+    const { caller, goal, user, ws, project } = await seedGoal();
+    const second = await createProject(db, {
+      createdById: user.id,
+      workspaceId: ws.id,
+    });
+
+    await caller.goal.updateGoal({
+      id: goal.id,
+      projectIds: [project.id, second.id],
+    });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: goal.id },
+      include: { projects: true },
+    });
+    expect(after.projects.map((p) => p.id).sort()).toEqual(
+      [project.id, second.id].sort(),
+    );
+  });
+
+  it("lets a workspace member who does not own the goal update it without orphaning it", async () => {
+    const { goal, ws, project } = await seedGoal();
+    const member = await createUser(db);
+    await addWorkspaceMember(db, ws.id, member.id);
+
+    await createTestCaller(member.id).goal.updateGoal({
+      id: goal.id,
+      title: "Renamed by a teammate",
+    });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: goal.id },
+      include: { projects: true },
+    });
+    expect(after.title).toBe("Renamed by a teammate");
+    expect(after.workspaceId).toBe(ws.id);
+    expect(after.projects.map((p) => p.id)).toEqual([project.id]);
+  });
+});
+
+describe("goal.updateGoalStatus", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("writes only the status column", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, {
+      userId: user.id,
+      workspaceId: ws.id,
+      period: "Q3-2026",
+      status: "active",
+    });
+
+    await createTestCaller(user.id).goal.updateGoalStatus({
+      id: goal.id,
+      status: "completed",
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.status).toBe("completed");
+    expect(after.period).toBe("Q3-2026");
+    expect(after.workspaceId).toBe(ws.id);
+  });
+
+  it("accepts on-hold, which updateGoal's enum does not", async () => {
+    const user = await createUser(db);
+    const goal = await createGoal(db, { userId: user.id });
+
+    await createTestCaller(user.id).goal.updateGoalStatus({
+      id: goal.id,
+      status: "on-hold",
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.status).toBe("on-hold");
+  });
+});
+
+describe("goal.setParent", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("re-parents without touching any other field", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const project = await createProject(db, {
+      createdById: user.id,
+      workspaceId: ws.id,
+    });
+    const annual = await createGoal(db, {
+      userId: user.id,
+      workspaceId: ws.id,
+      title: "Annual",
+      period: "Annual-2026",
+    });
+    const quarterly = await db.goal.create({
+      data: {
+        title: "Q3",
+        userId: user.id,
+        workspaceId: ws.id,
+        period: "Q3-2026",
+        projects: { connect: [{ id: project.id }] },
+      },
+    });
+
+    await createTestCaller(user.id).goal.setParent({
+      id: quarterly.id,
+      parentGoalId: annual.id,
+    });
+
+    const after = await db.goal.findUniqueOrThrow({
+      where: { id: quarterly.id },
+      include: { projects: true },
+    });
+    expect(after.parentGoalId).toBe(annual.id);
+    expect(after.period).toBe("Q3-2026");
+    expect(after.workspaceId).toBe(ws.id);
+    expect(after.projects.map((p) => p.id)).toEqual([project.id]);
+  });
+
+  it("detaches when parentGoalId is null", async () => {
+    const user = await createUser(db);
+    const parent = await createGoal(db, { userId: user.id, title: "Parent" });
+    const child = await createGoal(db, {
+      userId: user.id,
+      title: "Child",
+      parentGoalId: parent.id,
+    });
+
+    await createTestCaller(user.id).goal.setParent({
+      id: child.id,
+      parentGoalId: null,
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: child.id } });
+    expect(after.parentGoalId).toBeNull();
+  });
+
+  it("rejects a goal being its own parent", async () => {
+    const user = await createUser(db);
+    const goal = await createGoal(db, { userId: user.id });
+
+    await expect(
+      createTestCaller(user.id).goal.setParent({
+        id: goal.id,
+        parentGoalId: goal.id,
+      }),
+    ).rejects.toThrow(/own parent/i);
+  });
+
+  it("rejects a cycle", async () => {
+    const user = await createUser(db);
+    const parent = await createGoal(db, { userId: user.id, title: "Parent" });
+    const child = await createGoal(db, {
+      userId: user.id,
+      title: "Child",
+      parentGoalId: parent.id,
+    });
+
+    await expect(
+      createTestCaller(user.id).goal.setParent({
+        id: parent.id,
+        parentGoalId: child.id,
+      }),
+    ).rejects.toThrow(/cycle/i);
+  });
+});
+
+describe("goal.getAllMyGoals filters", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("filters a workspace list by period and status", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    await createGoal(db, {
+      userId: user.id,
+      workspaceId: ws.id,
+      title: "Current",
+      period: "Q3-2026",
+      status: "active",
+    });
+    await createGoal(db, {
+      userId: user.id,
+      workspaceId: ws.id,
+      title: "Last quarter",
+      period: "Q2-2026",
+      status: "completed",
+    });
+
+    const caller = createTestCaller(user.id);
+    const byPeriod = await caller.goal.getAllMyGoals({
+      workspaceId: ws.id,
+      period: "Q3-2026",
+    });
+    expect(byPeriod.map((g) => g.title)).toEqual(["Current"]);
+
+    const byStatus = await caller.goal.getAllMyGoals({
+      workspaceId: ws.id,
+      status: "completed",
+    });
+    expect(byStatus.map((g) => g.title)).toEqual(["Last quarter"]);
+  });
+});

@@ -234,15 +234,20 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
 
       utils.goal.getAllMyGoals.setData(undefined, (old) => {
         if (!old) return old;
+        // updateGoal is a partial update: an omitted field keeps its current
+        // value, an explicit null clears it. The optimistic patch must mirror
+        // that, or the row flickers to null before the refetch corrects it.
+        const patch = <T,>(next: T | undefined, current: T) =>
+          next !== undefined ? next : current;
         return old.map(g => g.id === updatedGoal.id ? {
           ...g,
-          title: updatedGoal.title,
-          description: updatedGoal.description ?? null,
-          whyThisGoal: updatedGoal.whyThisGoal ?? null,
-          notes: updatedGoal.notes ?? null,
-          dueDate: updatedGoal.dueDate ?? null,
-          period: updatedGoal.period ?? null,
-          lifeDomainId: updatedGoal.lifeDomainId ?? null,
+          title: patch(updatedGoal.title, g.title),
+          description: patch(updatedGoal.description, g.description),
+          whyThisGoal: patch(updatedGoal.whyThisGoal, g.whyThisGoal),
+          notes: patch(updatedGoal.notes, g.notes),
+          dueDate: patch(updatedGoal.dueDate, g.dueDate),
+          period: patch(updatedGoal.period, g.period),
+          lifeDomainId: patch(updatedGoal.lifeDomainId, g.lifeDomainId),
         } : g);
       });
 
@@ -520,9 +525,27 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             };
 
             if (goal?.id) {
+              // updateGoal only writes the keys it receives, so this full editor
+              // posts an explicit null for every field it owns and initialises
+              // from the goal — otherwise clearing an input wouldn't persist.
+              // `projectId` is the exception: the form seeds it from the caller's
+              // project prop, never from the goal, so an unset value means "don't
+              // touch the links" rather than "unlink everything".
               updateGoal.mutate({
                 id: goal.id,
-                ...goalData,
+                title,
+                description: description || null,
+                whyThisGoal: whyThisGoal || null,
+                notes: notes || null,
+                dueDate: dueDate ?? null,
+                period: period ?? null,
+                status: (status as "planned" | "active" | "completed" | "archived") ?? undefined,
+                lifeDomainId: lifeDomainId ?? null,
+                projectId: selectedProjectId,
+                outcomeIds: selectedOutcomeIds,
+                driUserId: driUserId ?? undefined,
+                workspaceId: selectedWorkspaceId ?? null,
+                parentGoalId: parentGoalId ? Number(parentGoalId) : null,
               });
             } else {
               createGoal.mutate(goalData);

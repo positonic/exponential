@@ -19,6 +19,7 @@ import {
   computeGoalHealth,
   updateGoalIcon,
   verifyGoalAccess,
+  setGoalParent,
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
@@ -47,6 +48,9 @@ export const goalRouter = createTRPCRouter({
   getAllMyGoals: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
+      // OKR period, a free-form string ("Q3-2026", "Annual-2026") — not an enum.
+      period: z.string().optional(),
+      status: z.enum(["planned", "active", "completed", "archived", "on-hold"]).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       // When workspace-scoped, validate membership and show all workspace goals
@@ -65,6 +69,8 @@ export const goalRouter = createTRPCRouter({
           ...(workspaceId
             ? { workspaceId }
             : { userId: ctx.session.user.id }),
+          ...(input?.period ? { period: input.period } : {}),
+          ...(input?.status ? { status: input.status } : {}),
         },
         include: {
           lifeDomain: true,
@@ -146,27 +152,44 @@ export const goalRouter = createTRPCRouter({
       return goal;
     }),
 
+  // Partial update: omit a field to leave it untouched, pass an explicit null to
+  // clear it. Every nullable column is `.nullable().optional()` for that reason.
+  // For a status-only change prefer `updateGoalStatus`, and to re-parent prefer
+  // `setParent` — both write a single column.
   updateGoal: protectedProcedure
     .input(z.object({
       id: z.number(),
-      title: z.string(),
-      description: z.string().optional(),
-      whyThisGoal: z.string().optional(),
-      notes: z.string().optional(),
-      dueDate: z.date().optional(),
-      period: z.string().optional(),
+      title: z.string().min(1).optional(),
+      description: z.string().nullable().optional(),
+      whyThisGoal: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+      dueDate: z.date().nullable().optional(),
+      period: z.string().nullable().optional(),
       status: z.enum(["planned", "active", "completed", "archived"]).optional(),
-      lifeDomainId: z.number().optional(),
-      projectId: z.string().optional(),
+      lifeDomainId: z.number().nullable().optional(),
+      projectId: z.string().nullable().optional(),
+      projectIds: z.array(z.string()).optional(),
       outcomeIds: z.array(z.string()).optional(),
-      driUserId: z.string().optional(),
-      workspaceId: z.string().optional(),
+      driUserId: z.string().nullable().optional(),
+      workspaceId: z.string().nullable().optional(),
       parentGoalId: z.number().nullable().optional(),
       displayOrder: z.number().optional(),
       icon: z.string().nullable().optional(),
       iconColor: z.string().nullable().optional(),
     }))
     .mutation(updateGoal),
+
+  // Re-parent an objective (or detach it with parentGoalId: null) WITHOUT
+  // touching any other field. The safe alternative to updateGoal for cascade
+  // edits — validates access to both goals plus the no-self/no-cycle/depth rules.
+  setParent: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      parentGoalId: z.number().nullable(),
+    }))
+    .mutation(async ({ ctx, input }) =>
+      setGoalParent({ ctx, goalId: input.id, parentGoalId: input.parentGoalId }),
+    ),
 
   getProjectGoals: protectedProcedure
     .input(z.object({ projectId: z.string() }))
@@ -185,7 +208,7 @@ export const goalRouter = createTRPCRouter({
   getGoalTree: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
-      status: z.enum(["planned", "active", "completed", "archived"]).optional(),
+      status: z.enum(["planned", "active", "completed", "archived", "on-hold"]).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       if (input?.workspaceId) {

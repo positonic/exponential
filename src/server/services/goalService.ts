@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { type Context } from "~/server/auth/types";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
@@ -254,9 +255,41 @@ async function validateParentAssignment({
   }
 }
 
-interface UpdateGoalInput extends GoalInput {
+/**
+ * A **partial** goal update. Every field is optional and follows one rule:
+ *
+ *   - key absent / `undefined` → leave the column exactly as it is
+ *   - key present with a value → write that value
+ *   - key present as `null`    → clear the column (nullable fields only)
+ *
+ * This matters because the goal form in the web UI posts every field, while API
+ * and CLI consumers send only what changed. The old full-overwrite shape wiped
+ * `period`, `workspaceId`, `lifeDomainId` and every project link on any caller
+ * that omitted them — orphaning workspace goals out of their workspace, which in
+ * turn locked the caller out of their own goal (the access check falls through
+ * to owner-only once `workspaceId` is null).
+ */
+interface UpdateGoalInput {
   id: number;
+  title?: string;
+  description?: string | null;
+  whyThisGoal?: string | null;
+  notes?: string | null;
+  dueDate?: Date | null;
+  period?: string | null;
+  status?: string;
+  lifeDomainId?: number | null;
+  /** Replace the goal's project links with this one project; `null` clears them. */
+  projectId?: string | null;
+  /** Replace the goal's project links wholesale; `[]` clears them. */
+  projectIds?: string[];
+  outcomeIds?: string[];
+  driUserId?: string | null;
+  workspaceId?: string | null;
+  parentGoalId?: number | null;
   displayOrder?: number;
+  icon?: string | null;
+  iconColor?: string | null;
 }
 
 export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGoalInput }) {
@@ -279,35 +312,50 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     await validateParentAssignment({ ctx, goalId: input.id, parentGoalId: input.parentGoalId });
   }
 
+  const data: Prisma.GoalUncheckedUpdateInput = {};
+  // Only keys the caller actually supplied are written — see UpdateGoalInput.
+  const assign = <K extends keyof Prisma.GoalUncheckedUpdateInput>(
+    key: K,
+    value: Prisma.GoalUncheckedUpdateInput[K] | undefined,
+  ) => {
+    if (value !== undefined) data[key] = value;
+  };
+
+  assign("title", input.title);
+  assign("description", input.description);
+  assign("whyThisGoal", input.whyThisGoal);
+  assign("notes", input.notes);
+  assign("dueDate", input.dueDate);
+  assign("period", input.period);
+  assign("status", input.status);
+  assign("lifeDomainId", input.lifeDomainId);
+  assign("driUserId", input.driUserId);
+  assign("workspaceId", input.workspaceId);
+  assign("parentGoalId", input.parentGoalId);
+  assign("displayOrder", input.displayOrder);
+  assign("icon", input.icon);
+  assign("iconColor", input.iconColor);
+
+  // Project links are replaced only when the caller names them. `projectIds`
+  // wins over the legacy single-project `projectId` when both are sent.
+  if (input.projectIds !== undefined) {
+    data.projects = { set: input.projectIds.map((id) => ({ id })) };
+  } else if (input.projectId !== undefined) {
+    data.projects =
+      input.projectId === null
+        ? { set: [] }
+        : { set: [], connect: [{ id: input.projectId }] };
+  }
+
+  if (input.outcomeIds !== undefined) {
+    data.outcomes = { set: input.outcomeIds.map((id) => ({ id })) };
+  }
+
   return await ctx.db.goal.update({
     where: {
       id: input.id,
     },
-    data: {
-      title: input.title,
-      description: input.description,
-      whyThisGoal: input.whyThisGoal,
-      notes: input.notes,
-      dueDate: input.dueDate,
-      period: input.period ?? null,
-      status: input.status ?? existingGoal.status,
-      lifeDomainId: input.lifeDomainId ?? null,
-      driUserId: input.driUserId ?? existingGoal.driUserId ?? ctx.session.user.id,
-      workspaceId: input.workspaceId ?? null,
-      parentGoalId: input.parentGoalId !== undefined ? (input.parentGoalId ?? null) : existingGoal.parentGoalId,
-      displayOrder: input.displayOrder ?? existingGoal.displayOrder,
-      icon: input.icon !== undefined ? (input.icon ?? null) : existingGoal.icon,
-      iconColor: input.iconColor !== undefined ? (input.iconColor ?? null) : existingGoal.iconColor,
-      projects: input.projectId ? {
-        set: [], // Clear existing connections
-        connect: [{ id: input.projectId }]
-      } : {
-        set: [] // Clear project connection if no projectId provided
-      },
-      outcomes: input.outcomeIds !== undefined ? {
-        set: input.outcomeIds.map(id => ({ id }))
-      } : undefined,
-    },
+    data,
     include: {
       lifeDomain: true,
       projects: true,
