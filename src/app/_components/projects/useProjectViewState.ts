@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useTransition } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FilterState } from "~/types/filter";
 import type {
@@ -11,6 +19,16 @@ import type {
 const FILTER_KEYS = ["status", "priority", "driId"] as const;
 const QUERY_PARAM = "q";
 const SORT_PARAM = "sort";
+
+/**
+ * How long to wait after the last keystroke before writing `?q=` to the URL.
+ *
+ * Writing it per-keystroke means a `router.replace()` per character, and the
+ * `(sidemenu)` route group is served by an async *server* layout — so every one
+ * of those replaces refetches the whole RSC tree. That is what made the search
+ * box feel like it was reloading the page as you typed.
+ */
+const SEARCH_URL_DEBOUNCE_MS = 350;
 
 const PROJECT_PRIORITY_RANK: Record<string, number> = {
   HIGH: 0,
@@ -73,7 +91,13 @@ function parseSort(params: URLSearchParams): ProjectSortState | null {
 export interface ProjectViewState {
   filters: FilterState;
   setFilters: (next: FilterState | ((prev: FilterState) => FilterState)) => void;
+  /** Live text — bind this to the search `<input value>`. Updates synchronously. */
   searchQuery: string;
+  /**
+   * Deferred copy of {@link searchQuery}. Filter list rendering off this so a
+   * slow re-render of the results never blocks the next keystroke.
+   */
+  deferredSearchQuery: string;
   setSearchQuery: (next: string) => void;
   sortState: ProjectSortState | null;
   setSortField: (field: string) => void;
@@ -98,7 +122,17 @@ export function useProjectViewState(): ProjectViewState {
     () => parseSort(new URLSearchParams(paramsString)),
     [paramsString],
   );
-  const searchQuery = searchParams.get(QUERY_PARAM) ?? "";
+  const urlSearchQuery = searchParams.get(QUERY_PARAM) ?? "";
+
+  // The input is driven by local state, not by the URL. The URL is a *mirror*
+  // that catches up once typing pauses (see SEARCH_URL_DEBOUNCE_MS).
+  const [searchQuery, setSearchQueryState] = useState(urlSearchQuery);
+  // Last value this hook wrote to the URL, so we can tell our own echo apart
+  // from an external change (back/forward, a link carrying `?q=`).
+  const lastWrittenQueryRef = useRef(urlSearchQuery);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const viewParamsQueryString = useMemo(() => {
     const params = new URLSearchParams(paramsString);
@@ -107,12 +141,13 @@ export function useProjectViewState(): ProjectViewState {
       const v = params.get(key);
       if (v) out.set(key, v);
     }
-    const q = params.get(QUERY_PARAM);
-    if (q) out.set(QUERY_PARAM, q);
+    // Use the live text, not the URL's — a view-tab link clicked mid-debounce
+    // should still carry what the user has typed.
+    if (searchQuery.trim()) out.set(QUERY_PARAM, searchQuery);
     const s = params.get(SORT_PARAM);
     if (s) out.set(SORT_PARAM, s);
     return out.toString();
-  }, [paramsString]);
+  }, [paramsString, searchQuery]);
 
   const updateParams = useCallback(
     (mutator: (params: URLSearchParams) => void) => {
@@ -126,6 +161,29 @@ export function useProjectViewState(): ProjectViewState {
     },
     [router, pathname, paramsString],
   );
+
+  // A debounced write fires from a timer, so it must not capture a stale
+  // `updateParams` (which closes over `paramsString`) — read the latest here.
+  const updateParamsRef = useRef(updateParams);
+  useEffect(() => {
+    updateParamsRef.current = updateParams;
+  }, [updateParams]);
+
+  // Adopt external URL changes (back/forward, or landing on a `?q=` link), but
+  // ignore our own debounced write coming back around.
+  useEffect(() => {
+    if (urlSearchQuery === lastWrittenQueryRef.current) return;
+    lastWrittenQueryRef.current = urlSearchQuery;
+    setSearchQueryState(urlSearchQuery);
+  }, [urlSearchQuery]);
+
+  // Never let a queued write land after unmount — it would navigate a page the
+  // user has already left.
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
 
   const setFilters = useCallback(
     (next: FilterState | ((prev: FilterState) => FilterState)) => {
@@ -145,15 +203,21 @@ export function useProjectViewState(): ProjectViewState {
     [updateParams],
   );
 
-  const setSearchQuery = useCallback(
-    (next: string) => {
-      updateParams((params) => {
-        if (next.trim()) params.set(QUERY_PARAM, next);
+  const setSearchQuery = useCallback((next: string) => {
+    // Synchronous: the caret and the visible text never wait on the router.
+    setSearchQueryState(next);
+
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      searchTimerRef.current = null;
+      const trimmed = next.trim();
+      lastWrittenQueryRef.current = trimmed ? next : "";
+      updateParamsRef.current((params) => {
+        if (trimmed) params.set(QUERY_PARAM, next);
         else params.delete(QUERY_PARAM);
       });
-    },
-    [updateParams],
-  );
+    }, SEARCH_URL_DEBOUNCE_MS);
+  }, []);
 
   const setSortField = useCallback(
     (field: string) => {
@@ -222,6 +286,7 @@ export function useProjectViewState(): ProjectViewState {
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
