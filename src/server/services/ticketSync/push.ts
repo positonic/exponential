@@ -611,42 +611,51 @@ async function probeOwnOrphan(
   }
   if (found.length === 0) return { ...none, warnings: [] };
 
-  const [first, ...rest] = found;
-
-  // Is this page already linked to another ticket on this connection? A
-  // ticket URL is unique per ticket, so the back-link can't point at someone
+  // Which candidates are already linked to another ticket on this connection?
+  // A ticket URL is unique per ticket, so the back-link can't point at someone
   // else's page — but the LINK can already exist, e.g. the inbound pass
   // adopted this page onto a different ticket after our sync record was lost.
-  // `@@unique([configId, externalId])` would turn that into a constraint error
-  // that kills the run, so name the conflict instead.
-  const claim = await db.ticketSync.findFirst({
+  // `@@unique([configId, externalId])` would turn adopting one of those into a
+  // constraint error that kills the run.
+  //
+  // Resolve claims across ALL candidates in one query, not just the first:
+  // checking only the head both skips unnecessarily (a usable page sits behind
+  // a claimed one) and lets the reconciliation message name pages that already
+  // belong to another ticket without saying so.
+  const claims = await db.ticketSync.findMany({
     where: {
       configId: args.configId,
-      externalId: first!.externalId,
+      externalId: { in: found.map((f) => f.externalId) },
       id: { not: args.syncId },
     },
-    select: { ticket: { select: { number: true } } },
+    select: { externalId: true, ticket: { select: { number: true } } },
   });
-  if (claim) {
-    return {
-      ...none,
-      claimedBy: `ticket ${claim.ticket.number}`,
-      warnings: [],
-    };
+  const claimedBy = new Map(claims.map((c) => [c.externalId, c.ticket.number]));
+  const usable = found.filter((f) => !claimedBy.has(f.externalId));
+
+  if (usable.length === 0) {
+    const owners = [...new Set(claims.map((c) => `ticket ${c.ticket.number}`))];
+    return { ...none, claimedBy: owners.join(", "), warnings: [] };
   }
 
-  if (rest.length === 0) return { match: first!, claimedBy: null, warnings: [] };
+  const [match, ...rest] = usable;
+  if (rest.length === 0 && claimedBy.size === 0) {
+    return { match: match!, claimedBy: null, warnings: [] };
+  }
 
-  // Several pages carry this ticket's back-link: earlier orphans, or a human
-  // pasting the ticket URL onto more than one page. Linking one is still
-  // better than minting another, but the operator has to reconcile the rest.
+  // Several pages carry this ticket's back-link: earlier orphans, or a ticket
+  // URL pasted onto more than one page. Linking one is still better than
+  // minting another, but the operator has to reconcile the rest — and needs to
+  // know which of them are already spoken for.
+  const others = [
+    ...rest.map((r) => r.externalId),
+    ...claims.map((c) => `${c.externalId} (linked to ticket ${c.ticket.number})`),
+  ];
   return {
-    match: first!,
+    match: match!,
     claimedBy: null,
     warnings: [
-      `${found.length} Notion pages carry this ticket's back-link — linked ${first!.externalId}; reconcile the others: ${rest
-        .map((r) => r.externalId)
-        .join(", ")}`,
+      `${found.length} Notion pages carry this ticket's back-link — linked ${match!.externalId}; reconcile the others: ${others.join(", ")}`,
     ],
   };
 }

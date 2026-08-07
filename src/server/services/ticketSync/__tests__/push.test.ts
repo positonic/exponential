@@ -600,8 +600,8 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
 
 describe("runOutboundTicketPush — orphan probe (back-link)", () => {
   beforeEach(() => {
-    // Default: the matched page is not linked to any other ticket.
-    db.ticketSync.findFirst.mockResolvedValue(null as never);
+    // Default: no candidate page is linked to any other ticket.
+    db.ticketSync.findMany.mockResolvedValue([] as never);
   });
 
   it("adopts the page a previous attempt already created for this ticket", async () => {
@@ -637,7 +637,9 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
     // The inbound pass linked this page to a different ticket after our sync
     // record was lost. Adopting would breach @@unique([configId, externalId])
     // and kill the run with a constraint error.
-    db.ticketSync.findFirst.mockResolvedValue({ ticket: { number: 122 } } as never);
+    db.ticketSync.findMany.mockResolvedValue([
+      { externalId: "page-9", ticket: { number: 122 } },
+    ] as never);
     const adapter = fakeAdapter(null, {
       pagesByBacklink: [{ externalId: "page-9", url: null }],
     });
@@ -648,6 +650,31 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
     expect(item.reason).toContain("122");
     expect(adapter.creates).toHaveLength(0);
     expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+
+  it("skips the claimed page and adopts the usable one behind it", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    // page-9 belongs to another ticket; page-10 is free. Checking only the
+    // head would skip the whole push despite a perfectly usable page.
+    db.ticketSync.findMany.mockResolvedValue([
+      { externalId: "page-9", ticket: { number: 122 } },
+    ] as never);
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [
+        { externalId: "page-9", url: null },
+        { externalId: "page-10", url: null },
+      ],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("adopted");
+    expect(item.externalId).toBe("page-10");
+    // The reconciliation message must say which pages are already spoken for.
+    expect(item.reason).toContain("linked to ticket 122");
+    expect(adapter.creates).toHaveLength(0);
   });
 
   it("creates when no page carries this ticket's back-link", async () => {
