@@ -19,6 +19,10 @@ jobs:
       contents: write
     name: PR Agent review (GLM)
     steps:
+      - name: Record start time
+        id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: PR Agent action step
         id: pragent_glm
         uses: qodo-ai/pr-agent@main
@@ -47,3 +51,30 @@ jobs:
           # instead of posting its own.
           pr_reviewer.persistent_comment: "false"
           pr_code_suggestions.persistent_comment: "false"
+
+      - name: Confirm a review was actually produced
+        # See the same step in pr_agent.yml for why this exists. This reviewer
+        # has its own failure mode: as of PR 530 the OpenRouter key reported
+        # "Insufficient credits. This account never purchased credits" — i.e.
+        # this second opinion had never once run, and nothing said so.
+        if: always() && steps.pragent_glm.conclusion != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SINCE: ${{ steps.started.outputs.at }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_NUMBER}" ]; then
+            echo "No PR number on this event; nothing to verify."
+            exit 0
+          fi
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq "[.[] | select(.created_at >= \"${SINCE}\") | .body] | .[]" \
+            > /tmp/pr_agent_glm_comments.txt
+          if grep -qiE 'failed to (generate|review)' /tmp/pr_agent_glm_comments.txt; then
+            echo "::error title=PR-Agent (GLM) produced no review::The action ran but every model call failed, so this PR was NOT reviewed. Check the step log for the provider error — it is usually an exhausted credit balance on the OPENROUTER_API_KEY secret."
+            grep -iE 'failed to (generate|review)' /tmp/pr_agent_glm_comments.txt | head -5
+            exit 1
+          fi
+          echo "PR-Agent (GLM) posted no failure notice — the review ran."
