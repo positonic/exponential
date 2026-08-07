@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getWorkspaceMembership,
+  canEditWorkspaceContent,
+} from "~/server/services/access/resolvers/workspaceResolver";
 import {
   getProjectAccess,
   canEditProject,
@@ -57,14 +60,21 @@ async function getTicketProgressByFeature(
 }
 
 /**
- * Owner-OR-workspace-member authorization for a key result, the same model
- * `linkProject`/`linkFeature` use. `create`/`update`/`checkIn`/`delete` used to
- * require ownership, which meant a teammate (or a service account driving an
- * agent) could link work to a key result but not move its value — the exact
- * shape that blocks agent-driven check-ins. Pass the already-fetched row so
- * callers that need the full record don't query twice.
+ * May this user WRITE this key result?
+ *
+ * `create`/`update`/`checkIn`/`delete` used to require ownership, which meant a
+ * teammate (or a service account driving an agent) could link work to a key
+ * result but never move its value — the exact shape that blocks agent-driven
+ * check-ins. So membership counts, but only membership that carries edit
+ * rights: `viewer` is read-only and `guest` is synthesized for project-only
+ * access, and `getWorkspaceMembership` alone would let both write. That is what
+ * `canEditWorkspaceContent` exists to decide (see its docstring).
+ *
+ * The row's own owner always qualifies, regardless of workspace role.
+ * Pass the already-fetched record so callers needing the full row don't query
+ * twice.
  */
-async function canAccessKeyResult(
+async function canWriteKeyResult(
   db: PrismaClient,
   userId: string,
   keyResult: { userId: string; workspaceId: string | null } | null,
@@ -72,15 +82,16 @@ async function canAccessKeyResult(
   if (!keyResult) return false;
   if (keyResult.userId === userId) return true;
   if (!keyResult.workspaceId) return false;
-  return !!(await getWorkspaceMembership(db, userId, keyResult.workspaceId));
+  const membership = await getWorkspaceMembership(db, userId, keyResult.workspaceId);
+  return canEditWorkspaceContent(membership?.role ?? null);
 }
 
 /**
- * Owner-, DRI- or workspace-member access to an objective. Mirrors
- * `goalService.verifyGoalAccess` — used here to decide whether a key result may
- * hang off this goal, so KR authz matches the goal router's own read/write rule.
+ * May this user attach or move key results on this objective? Same rule as
+ * above: owner or DRI outright — both are explicit designations on the row —
+ * otherwise a workspace role that carries edit rights, never bare membership.
  */
-async function canAccessGoal(
+async function canWriteGoalKeyResults(
   db: PrismaClient,
   userId: string,
   goal: { userId: string; driUserId: string | null; workspaceId: string | null } | null,
@@ -88,7 +99,8 @@ async function canAccessGoal(
   if (!goal) return false;
   if (goal.userId === userId || goal.driUserId === userId) return true;
   if (!goal.workspaceId) return false;
-  return !!(await getWorkspaceMembership(db, userId, goal.workspaceId));
+  const membership = await getWorkspaceMembership(db, userId, goal.workspaceId);
+  return canEditWorkspaceContent(membership?.role ?? null);
 }
 
 // Input validation schemas
@@ -599,19 +611,31 @@ export const keyResultRouter = createTRPCRouter({
         select: { id: true, userId: true, driUserId: true, workspaceId: true },
       });
 
-      if (!(await canAccessGoal(ctx.db, ctx.session.user.id, goal))) {
+      if (!(await canWriteGoalKeyResults(ctx.db, ctx.session.user.id, goal))) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Goal not found or access denied",
         });
       }
 
+      // A key result's workspace is not the caller's to choose: it decides who
+      // can see and write the row, and letting it diverge from the objective's
+      // would strand the two behind different access checks. It is inherited,
+      // and an explicit value that disagrees is refused rather than ignored.
+      if (
+        input.workspaceId !== undefined &&
+        input.workspaceId !== goal!.workspaceId
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A key result must belong to its objective's workspace",
+        });
+      }
+
       return ctx.db.keyResult.create({
         data: {
           ...input,
-          // A KR created against a workspace goal belongs to that workspace, so
-          // the owner-OR-member checks above resolve for every other member too.
-          workspaceId: input.workspaceId ?? goal!.workspaceId,
+          workspaceId: goal!.workspaceId,
           driUserId: input.driUserId ?? ctx.session.user.id,
           userId: ctx.session.user.id,
         },
@@ -630,7 +654,7 @@ export const keyResultRouter = createTRPCRouter({
       // Owner OR workspace member (mirrors linkProject).
       const existing = await ctx.db.keyResult.findFirst({ where: { id } });
 
-      if (!(await canAccessKeyResult(ctx.db, ctx.session.user.id, existing))) {
+      if (!(await canWriteKeyResult(ctx.db, ctx.session.user.id, existing))) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
@@ -644,7 +668,7 @@ export const keyResultRouter = createTRPCRouter({
           select: { id: true, userId: true, driUserId: true, workspaceId: true },
         });
 
-        if (!(await canAccessGoal(ctx.db, ctx.session.user.id, targetGoal))) {
+        if (!(await canWriteGoalKeyResults(ctx.db, ctx.session.user.id, targetGoal))) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Objective not found",
@@ -673,7 +697,7 @@ export const keyResultRouter = createTRPCRouter({
 
       if (
         !keyResult ||
-        !(await canAccessKeyResult(ctx.db, ctx.session.user.id, keyResult))
+        !(await canWriteKeyResult(ctx.db, ctx.session.user.id, keyResult))
       ) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -736,7 +760,7 @@ export const keyResultRouter = createTRPCRouter({
         where: { id: input.id },
       });
 
-      if (!(await canAccessKeyResult(ctx.db, ctx.session.user.id, existing))) {
+      if (!(await canWriteKeyResult(ctx.db, ctx.session.user.id, existing))) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",

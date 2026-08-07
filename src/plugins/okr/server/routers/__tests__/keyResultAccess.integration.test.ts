@@ -235,3 +235,136 @@ describe("okr key result mutations authorize owner OR workspace member", () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+/**
+ * Membership is not edit rights. `viewer` is read-only and `guest` is
+ * synthesized for project-only access, so authorizing a write on
+ * `getWorkspaceMembership` alone hands both of them the ability to move a key
+ * result's value, retarget it onto another objective, or delete it — things
+ * they could previously only read. `canEditWorkspaceContent` is the repo's
+ * answer to that, and its docstring says as much.
+ */
+describe("okr writes require edit rights, not bare membership", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  async function seedWithViewer() {
+    const seeded = await seedWorkspaceKeyResult(db);
+    const viewer = await createUser(db);
+    await addWorkspaceMember(db, seeded.ws.id, viewer.id, "viewer");
+    return { ...seeded, viewer };
+  }
+
+  it("refuses a viewer's check-in", async () => {
+    const { viewer, keyResult } = await seedWithViewer();
+
+    await expect(
+      createTestCaller(viewer.id).okr.checkIn({
+        keyResultId: keyResult.id,
+        newValue: 999,
+      }),
+    ).rejects.toThrow(/not found/i);
+
+    const after = await db.keyResult.findUniqueOrThrow({
+      where: { id: keyResult.id },
+    });
+    expect(after.currentValue).toBe(40);
+  });
+
+  it("refuses a viewer's update and delete", async () => {
+    const { viewer, keyResult } = await seedWithViewer();
+    const caller = createTestCaller(viewer.id);
+
+    await expect(
+      caller.okr.update({ id: keyResult.id, targetValue: 1 }),
+    ).rejects.toThrow(/not found/i);
+    await expect(caller.okr.delete({ id: keyResult.id })).rejects.toThrow(
+      /not found/i,
+    );
+    expect(
+      await db.keyResult.findUnique({ where: { id: keyResult.id } }),
+    ).not.toBeNull();
+  });
+
+  it("refuses a viewer creating a key result on the objective", async () => {
+    const { viewer, goal } = await seedWithViewer();
+
+    await expect(
+      createTestCaller(viewer.id).okr.create({
+        goalId: goal.id,
+        title: "Nope",
+        targetValue: 1,
+        startValue: 0,
+        currentValue: 0,
+        unit: "count",
+        period: "Q3-2026",
+      }),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("but a viewer can still read", async () => {
+    const { viewer, ws, keyResult } = await seedWithViewer();
+
+    const list = await createTestCaller(viewer.id).okr.getAll({
+      workspaceId: ws.id,
+    });
+
+    expect(list.map((kr) => kr.id)).toEqual([keyResult.id]);
+  });
+
+  it("still lets an ordinary member write", async () => {
+    const { member, keyResult } = await seedWithViewer();
+
+    await createTestCaller(member.id).okr.checkIn({
+      keyResultId: keyResult.id,
+      newValue: 100,
+    });
+
+    const after = await db.keyResult.findUniqueOrThrow({
+      where: { id: keyResult.id },
+    });
+    expect(after.currentValue).toBe(100);
+  });
+});
+
+describe("a key result belongs to its objective's workspace", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("inherits the objective's workspace rather than a caller-supplied one", async () => {
+    const { owner, ws, goal } = await seedWorkspaceKeyResult(db);
+    const other = await createWorkspace(db, { ownerId: owner.id });
+
+    await expect(
+      createTestCaller(owner.id).okr.create({
+        goalId: goal.id,
+        title: "Smuggled",
+        targetValue: 1,
+        startValue: 0,
+        currentValue: 0,
+        unit: "count",
+        period: "Q3-2026",
+        workspaceId: other.id,
+      }),
+    ).rejects.toThrow(/objective's workspace/i);
+
+    expect(await db.keyResult.count({ where: { workspaceId: other.id } })).toBe(0);
+
+    const created = await createTestCaller(owner.id).okr.create({
+      goalId: goal.id,
+      title: "Inherited",
+      targetValue: 1,
+      startValue: 0,
+      currentValue: 0,
+      unit: "count",
+      period: "Q3-2026",
+    });
+    expect(created.workspaceId).toBe(ws.id);
+  });
+});
