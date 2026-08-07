@@ -346,4 +346,110 @@ describe("goal.getAllMyGoals filters", () => {
     });
     expect(byStatus.map((g) => g.title)).toEqual(["Last quarter"]);
   });
+
+  // A goal list with no progress number can't answer "which goal is starving",
+  // which is the whole point of reading goals outside the app.
+  it("resolves progress from the goal's key results", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, { userId: user.id, workspaceId: ws.id });
+    await db.keyResult.create({
+      data: {
+        goalId: goal.id,
+        userId: user.id,
+        workspaceId: ws.id,
+        title: "Half done",
+        startValue: 0,
+        currentValue: 50,
+        targetValue: 100,
+        period: "Q3-2026",
+      },
+    });
+
+    const [found] = await createTestCaller(user.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+    });
+
+    expect(found!.resolvedProgress).toBe(50);
+    expect(found!.isProgressManual).toBe(false);
+    expect(found!.keyResults).toHaveLength(1);
+  });
+
+  it("a manual override wins over the key-result mean", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, { userId: user.id, workspaceId: ws.id });
+    await db.keyResult.create({
+      data: {
+        goalId: goal.id,
+        userId: user.id,
+        workspaceId: ws.id,
+        title: "Half done",
+        startValue: 0,
+        currentValue: 50,
+        targetValue: 100,
+        period: "Q3-2026",
+      },
+    });
+    await db.goal.update({
+      where: { id: goal.id },
+      data: { progressOverride: 90 },
+    });
+
+    const [found] = await createTestCaller(user.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+    });
+
+    expect(found!.resolvedProgress).toBe(90);
+    expect(found!.isProgressManual).toBe(true);
+  });
+
+  it("reports null progress for a goal with no key results and no override", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    await createGoal(db, { userId: user.id, workspaceId: ws.id });
+
+    const [found] = await createTestCaller(user.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+    });
+
+    expect(found!.resolvedProgress).toBeNull();
+  });
+
+  it("includes the workspace so a cross-workspace list can label each row", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id, slug: "labelled-ws" });
+    await createGoal(db, { userId: user.id, workspaceId: ws.id });
+
+    const [found] = await createTestCaller(user.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+    });
+
+    expect(found!.workspace).toMatchObject({ id: ws.id, slug: "labelled-ws" });
+  });
+
+  it("includes each goal's projects — the join that maps actions to goals", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const project = await createProject(db, {
+      createdById: user.id,
+      workspaceId: ws.id,
+    });
+    await db.goal.create({
+      data: {
+        title: "Joined",
+        userId: user.id,
+        workspaceId: ws.id,
+        projects: { connect: [{ id: project.id }] },
+      },
+    });
+
+    const [found] = await createTestCaller(user.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+    });
+
+    expect(found!.projects.map((p) => ({ id: p.id, slug: p.slug }))).toEqual([
+      { id: project.id, slug: project.slug },
+    ]);
+  });
 });

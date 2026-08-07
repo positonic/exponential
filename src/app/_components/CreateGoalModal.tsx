@@ -186,6 +186,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
           projects: [],
           outcomes: [],
           childGoals: [],
+          keyResults: [],
+          workspace: null,
+          // A brand-new goal has no key results and no override, so its
+          // resolved progress is "no signal" until the refetch lands.
+          resolvedProgress: null,
+          isProgressManual: false,
           _count: { keyResults: 0 },
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];

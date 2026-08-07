@@ -8,6 +8,7 @@ import { getWorkspaceMembership } from "~/server/services/access/resolvers/works
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 
 import {
   getMyPublicGoals,
@@ -64,7 +65,7 @@ export const goalRouter = createTRPCRouter({
         }
       }
 
-      return await ctx.db.goal.findMany({
+      const goals = await ctx.db.goal.findMany({
         where: {
           ...(workspaceId
             ? { workspaceId }
@@ -77,10 +78,32 @@ export const goalRouter = createTRPCRouter({
           projects: true,
           outcomes: true,
           childGoals: { select: { id: true, title: true, status: true, health: true } },
+          // Key result VALUES (not just the count) so progress can be resolved
+          // below without a second round trip — a list of goals with no progress
+          // number can't answer "which goal is starving". Lean select: these
+          // payloads transit agent tool calls and CLI output.
+          keyResults: {
+            select: {
+              id: true,
+              status: true,
+              startValue: true,
+              currentValue: true,
+              targetValue: true,
+            },
+          },
+          workspace: { select: { id: true, name: true, slug: true } },
           _count: { select: { keyResults: true } },
         },
         orderBy: { displayOrder: "asc" },
       });
+
+      // Same resolved-progress contract getGoalById exposes, so every consumer
+      // reads one number instead of recomputing the override-vs-KR-mean rule.
+      return goals.map((goal) => ({
+        ...goal,
+        resolvedProgress: resolveGoalProgress(goal),
+        isProgressManual: isManualProgress(goal),
+      }));
     }),
 
   createGoal: protectedProcedure
