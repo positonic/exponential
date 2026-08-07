@@ -6,7 +6,13 @@ import {
   attachTicketTags,
   resolveOrCreateWorkspaceTags,
 } from "../notionTicketImport";
-import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
+import {
+  extractNotionPageId,
+  mapPoints,
+  mapPriority,
+  mapStatus,
+  mapType,
+} from "./mapping";
 import { REVERT_TOMBSTONE_KEY } from "./revert";
 import {
   findCycleIdByName,
@@ -236,12 +242,6 @@ function hasRevertTombstone(snapshot: Prisma.JsonValue | null): boolean {
     !Array.isArray(snapshot) &&
     (snapshot as Record<string, unknown>)[REVERT_TOMBSTONE_KEY] === true
   );
-}
-
-function extractNotionPageId(links: Prisma.JsonValue | null): string | null {
-  if (!links || typeof links !== "object" || Array.isArray(links)) return null;
-  const value = (links as Record<string, unknown>).notionPageId;
-  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 export async function runInboundTicketSync(

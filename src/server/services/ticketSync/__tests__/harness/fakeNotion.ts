@@ -282,6 +282,17 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     return Promise.resolve(this.peopleByEmail.get(email) ?? null);
   }
 
+  findPagesByTitle(
+    _databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>> {
+    const wanted = title.trim().toLowerCase();
+    const matches = [...this.pages.values()]
+      .filter((p) => !p.archived && p.title.trim().toLowerCase() === wanted)
+      .map((p) => ({ externalId: p.externalId, url: p.url }));
+    return Promise.resolve(matches);
+  }
+
   createPage(params: {
     databaseId: string;
     titleProperty: string | null;
