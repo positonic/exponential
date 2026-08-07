@@ -561,6 +561,13 @@ interface OrphanProbe {
    * duplicated one of our pages, so several carry the same back-link).
    */
   authored: boolean;
+  /**
+   * Set when the matched page is already linked to a DIFFERENT ticket on this
+   * connection. Adopting would breach `@@unique([configId, externalId])` and
+   * fail the run with a constraint error; the caller skips with this reason
+   * instead.
+   */
+  claimedBy: string | null;
   warnings: string[];
 }
 
@@ -583,9 +590,17 @@ interface OrphanProbe {
  * back-link is optional in the create payload too.
  */
 async function probeOwnOrphan(
+  db: PrismaClient,
   adapter: TicketPushAdapter,
-  args: { databaseId: string; backlinkProperty: string; ticketUrl: string },
+  args: {
+    configId: string;
+    syncId: string;
+    databaseId: string;
+    backlinkProperty: string;
+    ticketUrl: string;
+  },
 ): Promise<OrphanProbe> {
+  const none = { match: null, authored: false, claimedBy: null };
   const found = await adapter.findPagesByBacklink(
     args.databaseId,
     args.backlinkProperty,
@@ -594,20 +609,42 @@ async function probeOwnOrphan(
 
   if (found === null) {
     return {
-      match: null,
-      authored: false,
+      ...none,
       warnings: [
         `no url-typed "${args.backlinkProperty}" property in Notion — cannot tell whether a page was already created for this ticket`,
       ],
     };
   }
-  if (found.length === 0) return { match: null, authored: false, warnings: [] };
+  if (found.length === 0) return { ...none, warnings: [] };
 
   const [first, ...rest] = found;
+
+  // Is this page already linked to another ticket on this connection? A
+  // ticket URL is unique per ticket, so the back-link can't point at someone
+  // else's page — but the LINK can already exist, e.g. the inbound pass
+  // adopted this page onto a different ticket after our sync record was lost.
+  // `@@unique([configId, externalId])` would turn that into a constraint error
+  // that kills the run, so name the conflict instead.
+  const claim = await db.ticketSync.findFirst({
+    where: {
+      configId: args.configId,
+      externalId: first!.externalId,
+      id: { not: args.syncId },
+    },
+    select: { ticket: { select: { number: true } } },
+  });
+  if (claim) {
+    return {
+      ...none,
+      claimedBy: `ticket ${claim.ticket.number}`,
+      warnings: [],
+    };
+  }
+
   if (rest.length === 0) {
     // Only our own create writes this property with this exact URL, so the
     // page — and its body — is ours.
-    return { match: first!, authored: true, warnings: [] };
+    return { match: first!, authored: true, claimedBy: null, warnings: [] };
   }
 
   // Several pages carry this ticket's back-link: earlier orphans, or a human
@@ -617,6 +654,7 @@ async function probeOwnOrphan(
   return {
     match: first!,
     authored: false,
+    claimedBy: null,
     warnings: [
       `${found.length} Notion pages carry this ticket's back-link — linked ${first!.externalId}; reconcile the others: ${rest
         .map((r) => r.externalId)
@@ -662,11 +700,22 @@ async function runOutboundCreate(
   const backlinkUrl = ticketUrl(config, sync.ticket.number);
 
   // ── Orphan probe: did an earlier attempt already create this page? ────────
-  const orphan = await probeOwnOrphan(adapter, {
+  const orphan = await probeOwnOrphan(db, adapter, {
+    configId: config.id,
+    syncId: sync.id,
     databaseId: config.databaseId,
     backlinkProperty: markerNames.backlink,
     ticketUrl: backlinkUrl,
   });
+  if (orphan.claimedBy) {
+    // Creating here would mint a duplicate page for work Notion already has;
+    // adopting would breach the link uniqueness. Neither is safe to guess at.
+    return {
+      ...base,
+      action: "skipped",
+      reason: `the Notion page created for this ticket is already linked to ${orphan.claimedBy} — resolve the duplicate link before mirroring`,
+    };
+  }
   if (orphan.match) {
     if (dryRun) {
       return {

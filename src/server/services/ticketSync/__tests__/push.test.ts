@@ -599,6 +599,11 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
 });
 
 describe("runOutboundTicketPush — orphan probe (back-link)", () => {
+  beforeEach(() => {
+    // Default: the matched page is not linked to any other ticket.
+    db.ticketSync.findFirst.mockResolvedValue(null as never);
+  });
+
   it("adopts the page a previous attempt already created for this ticket", async () => {
     db.ticketSync.findUnique.mockResolvedValue(
       syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
@@ -621,6 +626,26 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
     // Only our own create writes this back-link, so the body is ours and the
     // body-repair pass may rewrite it.
     expect(data.remoteCreatedAt).toBeInstanceOf(Date);
+  });
+
+  it("refuses to adopt a page already linked to another ticket", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    // The inbound pass linked this page to a different ticket after our sync
+    // record was lost. Adopting would breach @@unique([configId, externalId])
+    // and kill the run with a constraint error.
+    db.ticketSync.findFirst.mockResolvedValue({ ticket: { number: 122 } } as never);
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [{ externalId: "page-9", url: null }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("skipped");
+    expect(item.reason).toContain("122");
+    expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
   });
 
   it("creates when no page carries this ticket's back-link", async () => {
