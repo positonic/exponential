@@ -1,25 +1,17 @@
 import { useState } from "react";
 import { IconCalendar, IconChevronDown } from "@tabler/icons-react";
-import { addDays, nextSaturday } from "~/lib/actions/dates";
+import {
+  QUICK_RESCHEDULE_OPTIONS,
+  resolveQuickReschedule,
+  type RescheduleChoice,
+} from "~/lib/actions/reschedule";
 import styles from "./ReschedulePopover.module.css";
 
-export interface RescheduleChoice {
-  id: string;
-  label: string;
-  date: Date | null;
-}
+export type { RescheduleChoice };
 
 interface ReschedulePopoverProps {
   onChoose: (choice: RescheduleChoice) => void;
 }
-
-const QUICK_RESCHEDULE = [
-  { id: "today", label: "Today", kbd: "T" },
-  { id: "tomorrow", label: "Tomorrow", kbd: "O" },
-  { id: "next-week", label: "Next week", kbd: "N" },
-  { id: "weekend", label: "This weekend", kbd: "W" },
-  { id: "no-date", label: "No date", kbd: "X" },
-];
 
 const MONTHS = [
   "January",
@@ -51,22 +43,6 @@ export function ReschedulePopover({ onChoose }: ReschedulePopoverProps) {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
   while (cells.length < 42) cells.push(null);
 
-  const resolveQuick = (id: string): RescheduleChoice => {
-    const base = new Date();
-    switch (id) {
-      case "today":
-        return { id, label: "Today", date: base };
-      case "tomorrow":
-        return { id, label: "Tomorrow", date: addDays(base, 1) };
-      case "next-week":
-        return { id, label: "Next week", date: addDays(base, 7) };
-      case "weekend":
-        return { id, label: "This weekend", date: nextSaturday(base) };
-      default:
-        return { id, label: "No date", date: null };
-    }
-  };
-
   return (
     <div
       className={styles.popover}
@@ -77,12 +53,12 @@ export function ReschedulePopover({ onChoose }: ReschedulePopoverProps) {
         <>
           <div className={styles.head}>Reschedule</div>
           <div className={styles.quick}>
-            {QUICK_RESCHEDULE.map((q) => (
+            {QUICK_RESCHEDULE_OPTIONS.map((q) => (
               <button
                 key={q.id}
                 type="button"
                 className={styles.btn}
-                onClick={() => onChoose(resolveQuick(q.id))}
+                onClick={() => onChoose(resolveQuickReschedule(q.id, new Date()))}
               >
                 <span>{q.label}</span>
                 <span className={styles.kbd}>{q.kbd}</span>

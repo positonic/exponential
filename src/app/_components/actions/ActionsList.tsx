@@ -26,7 +26,10 @@ import {
   BulkEditToolbar,
   type BulkActionDef,
 } from "./components/BulkEditToolbar";
-import type { RescheduleChoice } from "./components/ReschedulePopover";
+import {
+  rescheduleUpdateFields,
+  type RescheduleChoice,
+} from "~/lib/actions/reschedule";
 import { useActionMutations } from "./hooks/useActionMutations";
 import { useActionPartition } from "./hooks/useActionPartition";
 import { useBulkSelection } from "./hooks/useBulkSelection";
@@ -179,9 +182,10 @@ export function ActionsList({
     });
   };
 
+  // Moves the do-date and the deadline together, at day granularity — see
+  // `rescheduleUpdateFields` for why scheduledStart has to move too.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    const newDate = choice.date ?? null;
-    updateAction({ id, scheduledStart: newDate, dueDate: newDate });
+    updateAction({ id, ...rescheduleUpdateFields(choice) });
   };
 
   const handleAssign = (a: Action) => {

@@ -1641,54 +1641,41 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions (update scheduledStart/doDate and dueDate)
+  // Bulk reschedule actions: moves the do-date (`scheduledStart`) and the
+  // deadline (`dueDate`) together onto the chosen day.
+  //
+  // `scheduledStart` is the field that decides the bucket. `partitionActions`
+  // treats an action as overdue when its `scheduledStart` is before today and
+  // only consults `dueDate` when there is no `scheduledStart` at all — schedule
+  // wins. Writing the deadline alone therefore leaves a past `scheduledStart`
+  // untouched and the action stays in the overdue pile, which turns "Reschedule
+  // all overdue" into a no-op against exactly the rows it was aimed at.
+  //
+  // What genuinely was broken is the *value*: this used to stamp the caller's
+  // wall-clock instant, so a bulk reschedule drew every action as an hour-long
+  // block seconds apart on the agenda rail. Callers now send local midnight
+  // (see `resolveQuickReschedule`) — normalised client-side, because the day
+  // boundary belongs to the viewer's timezone, not the server's.
+  //
+  // A null date clears both fields, so "No date" empties the pile rather than
+  // leaving a stale time-block behind. `bulkDefer` remains the intent-carrying
+  // path for amnesty — it also writes activity rows.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
       dueDate: z.date().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Always update scheduledStart (the "do date" - when the action is scheduled)
-      // Also update dueDate if it would be before the new scheduledStart
-      if (input.dueDate) {
-        // First: update scheduledStart for all actions
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-          },
-          data: {
-            scheduledStart: input.dueDate,
-          },
-        });
-
-        // Second: update dueDate only for actions where dueDate is before the new date (or null)
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-            OR: [
-              { dueDate: null },
-              { dueDate: { lt: input.dueDate } },
-            ],
-          },
-          data: {
-            dueDate: input.dueDate,
-          },
-        });
-      } else {
-        // Clearing the schedule: remove both dates
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-          },
-          data: {
-            scheduledStart: null,
-            dueDate: null,
-          },
-        });
-      }
+      await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        data: {
+          scheduledStart: input.dueDate,
+          dueDate: input.dueDate,
+        },
+      });
 
       return {
         count: input.actionIds.length,
@@ -1698,13 +1685,14 @@ export const actionRouter = createTRPCRouter({
 
   // Amnesty: un-date actions back to their project backlog.
   //
-  // Deliberately distinct from `bulkReschedule({ dueDate: null })`, which has
-  // the same effect on the rows. The difference is intent, and intent is what
-  // callers (and agents doing tool discovery) need to express: rescheduling
-  // says "this is still due, later"; deferring says "this was never really due
-  // — stop counting it against me". Most large overdue piles are the second
-  // case (a project plan bulk-stamped with one date), and rescheduling them
-  // just re-inflicts the pile tomorrow.
+  // Lands on the same columns as `bulkReschedule({ dueDate: null })`, but keep
+  // both: this one records activity rows for what was cleared, and the name is
+  // what callers (and agents doing tool discovery) match on. The difference is
+  // intent, and intent is what they need to express:
+  // rescheduling says "this is still due, later"; deferring says "this was
+  // never really due — stop counting it against me". Most large overdue piles
+  // are the second case (a project plan bulk-stamped with one date), and
+  // rescheduling them just re-inflicts the pile tomorrow.
   //
   // Only the dates are touched. Kanban status is left alone on purpose: an
   // action can be untimed and still be IN_PROGRESS on a board.
