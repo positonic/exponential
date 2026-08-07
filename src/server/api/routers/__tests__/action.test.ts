@@ -1445,27 +1445,31 @@ describe("action router (mocked)", () => {
       dbMock.action.updateMany.mockResolvedValue({ count: 3 });
     });
 
-    it("writes dueDate and never touches scheduledStart", async () => {
-      const dueDate = new Date(2026, 7, 5, 14, 37, 12);
+    it("moves scheduledStart as well as dueDate", async () => {
+      // scheduledStart is what partitionActions buckets on when it is set, so
+      // writing dueDate alone would leave the action in the overdue pile —
+      // "Reschedule all overdue" would move nothing.
+      const dueDate = new Date(2026, 7, 5, 0, 0, 0);
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       await caller.action.bulkReschedule({ actionIds, dueDate });
 
       expect(dbMock.action.updateMany).toHaveBeenCalledTimes(1);
       const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
-      expect(data).toEqual({ dueDate });
-      expect(data).not.toHaveProperty("scheduledStart");
+      expect(data).toEqual({ scheduledStart: dueDate, dueDate });
+      // Still no fabricated block geometry.
       expect(data).not.toHaveProperty("scheduledEnd");
+      expect(data).not.toHaveProperty("duration");
     });
 
-    it("clears only the deadline when dueDate is null", async () => {
+    it("clears both dates when dueDate is null", async () => {
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       await caller.action.bulkReschedule({ actionIds, dueDate: null });
 
       const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
-      // Clearing the time-block as well is `bulkDefer`'s job, not this one's.
-      expect(data).toEqual({ dueDate: null });
+      // Leaving a stale scheduledStart behind would keep the row overdue.
+      expect(data).toEqual({ scheduledStart: null, dueDate: null });
     });
 
     it("scopes the update to actions the caller may touch", async () => {
@@ -1479,22 +1483,26 @@ describe("action router (mocked)", () => {
       expect(Object.keys(where!).length).toBeGreaterThan(1);
     });
 
-    it("rescheduling the same pile repeatedly writes no time-block", async () => {
-      // The pile-up this ticket fixes: "Reschedule all overdue → Today"
-      // clicked in quick succession used to stamp a fresh wall-clock
-      // scheduledStart every time, each drawn as an hour-long rail block.
+    it("rescheduling the same pile repeatedly is idempotent", async () => {
+      // The pile-up this ticket fixes: "Reschedule all overdue → Today" clicked
+      // in quick succession used to stamp a fresh wall-clock scheduledStart
+      // every time, each drawn as its own hour-long rail block. Callers now
+      // send local midnight, so repeats collapse onto one instant. The server
+      // writes what it is given — this asserts the shape it writes.
+      const midnight = new Date(2026, 7, 5, 0, 0, 0);
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       for (let i = 0; i < 3; i++) {
-        await caller.action.bulkReschedule({
-          actionIds,
-          dueDate: new Date(2026, 7, 5, 14, 37, i),
-        });
+        await caller.action.bulkReschedule({ actionIds, dueDate: midnight });
       }
 
+      const stamps = new Set<number>();
       for (const call of dbMock.action.updateMany.mock.calls) {
-        expect(Object.keys(call[0]!.data!)).toEqual(["dueDate"]);
+        const data = call[0]!.data! as { scheduledStart: Date; dueDate: Date };
+        expect(Object.keys(data).sort()).toEqual(["dueDate", "scheduledStart"]);
+        stamps.add(data.scheduledStart.getTime());
       }
+      expect(stamps.size).toBe(1);
     });
 
     it("still reports the actions it was given", async () => {

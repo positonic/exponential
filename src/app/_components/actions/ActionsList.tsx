@@ -182,7 +182,8 @@ export function ActionsList({
     });
   };
 
-  // Moves the deadline, not the time-block — see `rescheduleUpdateFields`.
+  // Moves the do-date and the deadline together, at day granularity — see
+  // `rescheduleUpdateFields` for why scheduledStart has to move too.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
     updateAction({ id, ...rescheduleUpdateFields(choice) });
   };

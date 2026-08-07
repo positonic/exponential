@@ -42,50 +42,74 @@ describe("resolveQuickReschedule", () => {
   });
 });
 
+describe("resolveQuickReschedule — no wall-clock leak", () => {
+  // The heart of this ticket. NOW is mid-afternoon; every option must come back
+  // at local midnight, or the value reaches scheduledStart and the agenda rail
+  // draws a phantom hour-long block.
+  it.each(QUICK_RESCHEDULE_OPTIONS.filter((o) => o.id !== "no-date").map((o) => o.id))(
+    "resolves %s to local midnight",
+    (id) => {
+      const d = resolveQuickReschedule(id, NOW).date!;
+      expect([d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds()])
+        .toEqual([0, 0, 0, 0]);
+    },
+  );
+});
+
 describe("rescheduleUpdateFields", () => {
-  // The heart of this ticket: a quick option must never fabricate a time-block.
+  // Both fields, together. scheduledStart is what partitionActions buckets on
+  // when it is set — writing dueDate alone leaves a past scheduledStart in
+  // place and the action never leaves the overdue pile.
   it.each(QUICK_RESCHEDULE_OPTIONS.map((o) => o.id))(
-    "writes dueDate and nothing else for %s",
+    "writes scheduledStart and dueDate for %s",
     (id) => {
       const fields = rescheduleUpdateFields(resolveQuickReschedule(id, NOW));
 
-      expect(Object.keys(fields)).toEqual(["dueDate"]);
-      expect(fields).not.toHaveProperty("scheduledStart");
+      expect(Object.keys(fields).sort()).toEqual(["dueDate", "scheduledStart"]);
+      expect(fields.scheduledStart).toEqual(fields.dueDate);
+      // Still no fabricated block geometry.
       expect(fields).not.toHaveProperty("scheduledEnd");
       expect(fields).not.toHaveProperty("duration");
     },
   );
 
-  it("carries the chosen date through as the deadline", () => {
+  it("carries the chosen date through to both fields", () => {
     const choice = resolveQuickReschedule("tomorrow", NOW);
-    expect(rescheduleUpdateFields(choice).dueDate).toBe(choice.date);
+    const fields = rescheduleUpdateFields(choice);
+    expect(fields.dueDate).toBe(choice.date);
+    expect(fields.scheduledStart).toBe(choice.date);
   });
 
-  it("clears the deadline for No date", () => {
+  it("clears both dates for No date", () => {
     expect(rescheduleUpdateFields(resolveQuickReschedule("no-date", NOW))).toEqual({
+      scheduledStart: null,
       dueDate: null,
     });
   });
 
-  it("writes dueDate only for a custom calendar pick too", () => {
+  it("writes both fields for a custom calendar pick too", () => {
+    const picked = new Date(2026, 7, 20);
     const fields = rescheduleUpdateFields({
       id: "custom",
       label: "Aug 20",
-      date: new Date(2026, 7, 20),
+      date: picked,
     });
-    expect(Object.keys(fields)).toEqual(["dueDate"]);
+    expect(fields).toEqual({ scheduledStart: picked, dueDate: picked });
   });
 
-  it("rescheduling in quick succession yields distinct deadlines, no time-blocks", () => {
+  it("rescheduling in quick succession is idempotent — one block, not six", () => {
     // The regression this ticket fixes: six clicks used to stamp six
-    // scheduledStart values seconds apart, each drawn as an hour-long block.
+    // scheduledStart values seconds apart, each drawn as its own hour-long
+    // block. Normalised to midnight, all six land on the identical instant.
     const clicks = Array.from({ length: 6 }, (_, i) =>
       rescheduleUpdateFields(
         resolveQuickReschedule("today", new Date(NOW.getTime() + i * 1000)),
       ),
     );
 
-    expect(clicks.every((c) => Object.keys(c).length === 1)).toBe(true);
+    const stamps = new Set(clicks.map((c) => c.scheduledStart!.getTime()));
+    expect(stamps.size).toBe(1);
+    expect(clicks.every((c) => day(c.scheduledStart) === "2026-8-5")).toBe(true);
     expect(clicks.every((c) => day(c.dueDate) === "2026-8-5")).toBe(true);
   });
 });

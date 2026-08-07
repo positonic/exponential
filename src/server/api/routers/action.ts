@@ -1641,18 +1641,25 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions: moves the deadline (`dueDate`) only.
+  // Bulk reschedule actions: moves the do-date (`scheduledStart`) and the
+  // deadline (`dueDate`) together onto the chosen day.
   //
-  // This deliberately does NOT touch `scheduledStart`. It used to — an earlier
-  // comment here called scheduledStart the "do date" and always stamped it with
-  // the new value. But "Reschedule all overdue" passes the current instant, so
-  // that wrote a wall-clock time nobody chose onto every action in the pile,
-  // and the agenda rail drew each one as an hour-long block seconds apart.
-  // `scheduledStart` means "a slot the user deliberately placed"; a bulk
-  // reschedule expresses a deadline and nothing more. Actions that already have
-  // a real time-block keep it.
+  // `scheduledStart` is the field that decides the bucket. `partitionActions`
+  // treats an action as overdue when its `scheduledStart` is before today and
+  // only consults `dueDate` when there is no `scheduledStart` at all — schedule
+  // wins. Writing the deadline alone therefore leaves a past `scheduledStart`
+  // untouched and the action stays in the overdue pile, which turns "Reschedule
+  // all overdue" into a no-op against exactly the rows it was aimed at.
   //
-  // To clear every date instead, use `bulkDefer` — that is its whole job.
+  // What genuinely was broken is the *value*: this used to stamp the caller's
+  // wall-clock instant, so a bulk reschedule drew every action as an hour-long
+  // block seconds apart on the agenda rail. Callers now send local midnight
+  // (see `resolveQuickReschedule`) — normalised client-side, because the day
+  // boundary belongs to the viewer's timezone, not the server's.
+  //
+  // A null date clears both fields, so "No date" empties the pile rather than
+  // leaving a stale time-block behind. `bulkDefer` remains the intent-carrying
+  // path for amnesty — it also writes activity rows.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
@@ -1665,6 +1672,7 @@ export const actionRouter = createTRPCRouter({
           ...buildActionAccessWhere(ctx.session.user.id),
         },
         data: {
+          scheduledStart: input.dueDate,
           dueDate: input.dueDate,
         },
       });
@@ -1677,10 +1685,10 @@ export const actionRouter = createTRPCRouter({
 
   // Amnesty: un-date actions back to their project backlog.
   //
-  // Deliberately distinct from `bulkReschedule({ dueDate: null })`. The two no
-  // longer have the same effect on the rows: reschedule touches `dueDate` only,
-  // while defer clears the time-block as well. The difference is intent, and
-  // intent is what callers (and agents doing tool discovery) need to express:
+  // Lands on the same columns as `bulkReschedule({ dueDate: null })`, but keep
+  // both: this one records activity rows for what was cleared, and the name is
+  // what callers (and agents doing tool discovery) match on. The difference is
+  // intent, and intent is what they need to express:
   // rescheduling says "this is still due, later"; deferring says "this was
   // never really due — stop counting it against me". Most large overdue piles
   // are the second case (a project plan bulk-stamped with one date), and
