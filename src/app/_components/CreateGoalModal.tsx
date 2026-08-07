@@ -4,6 +4,7 @@ import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, N
 import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect, useMemo } from "react";
+import { buildGoalUpdatePayload } from "./goalUpdatePayload";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
@@ -425,6 +426,10 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
       setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
       setSelectedWorkspaceId(goal.workspaceId ?? null);
       setDriUserId(goal.driUserId ?? null);
+      // These two were missing, so a `goal` that arrived after mount left them
+      // holding the initial render's values — and both are posted on save.
+      setStatus(goal.status ?? "active");
+      setParentGoalId(goal.parentGoalId != null ? String(goal.parentGoalId) : null);
     }
   }, [goal]);
 
@@ -531,28 +536,26 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             };
 
             if (goal?.id) {
-              // updateGoal only writes the keys it receives, so this full editor
-              // posts an explicit null for every field it owns and initialises
-              // from the goal — otherwise clearing an input wouldn't persist.
-              // `projectId` is the exception: the form seeds it from the caller's
-              // project prop, never from the goal, so an unset value means "don't
-              // touch the links" rather than "unlink everything".
-              updateGoal.mutate({
-                id: goal.id,
-                title,
-                description: description || null,
-                whyThisGoal: whyThisGoal || null,
-                notes: notes || null,
-                dueDate: dueDate ?? null,
-                period: period ?? null,
-                status: (status as "planned" | "active" | "completed" | "archived") ?? undefined,
-                lifeDomainId: lifeDomainId ?? null,
-                projectId: selectedProjectId,
-                outcomeIds: selectedOutcomeIds,
-                driUserId: driUserId ?? undefined,
-                workspaceId: selectedWorkspaceId ?? null,
-                parentGoalId: parentGoalId ? Number(parentGoalId) : null,
-              });
+              // Which keys this payload claims is the whole safety question —
+              // see buildGoalUpdatePayload. Extracted so it can be tested
+              // without mounting the modal.
+              updateGoal.mutate(
+                buildGoalUpdatePayload(goal, {
+                  title,
+                  description,
+                  whyThisGoal,
+                  notes,
+                  dueDate,
+                  period,
+                  status,
+                  lifeDomainId,
+                  selectedProjectId,
+                  driUserId,
+                  selectedOutcomeIds,
+                  selectedWorkspaceId,
+                  parentGoalId,
+                }),
+              );
             } else {
               createGoal.mutate(goalData);
             }
