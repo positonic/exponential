@@ -479,14 +479,13 @@ export const keyResultRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       // Owner OR workspace member. `getAll`/`getByObjective` are workspace-wide,
       // so an owner-only detail read would 404 on rows those lists just returned.
+      // The membership test runs after the fetch, through the centralized
+      // resolver, so team-derived workspace access is honored — an inline
+      // `members.some` sees only direct WorkspaceUser rows and would 404 a team
+      // member on the very key result the list handed them. linkProject records
+      // having been bitten by exactly that.
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.id,
-          OR: [
-            { userId: ctx.session.user.id },
-            { workspace: { members: { some: { userId: ctx.session.user.id } } } },
-          ],
-        },
+        where: { id: input.id },
         include: {
           goal: {
             include: {
@@ -540,7 +539,18 @@ export const keyResultRouter = createTRPCRouter({
         },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        !(
+          keyResult.userId === ctx.session.user.id ||
+          (keyResult.workspaceId &&
+            (await getWorkspaceMembership(
+              ctx.db,
+              ctx.session.user.id,
+              keyResult.workspaceId,
+            )))
+        )
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",

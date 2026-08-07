@@ -6,6 +6,7 @@ import {
   createWorkspace,
   addWorkspaceMember,
   createGoal,
+  createTeam,
 } from "~/test/factories";
 
 /**
@@ -366,5 +367,44 @@ describe("a key result belongs to its objective's workspace", () => {
       period: "Q3-2026",
     });
     expect(created.workspaceId).toBe(ws.id);
+  });
+});
+
+// An inline `workspace.members.some` filter sees only direct WorkspaceUser
+// rows, so a user whose access comes via a team would 404 on the very key
+// result getAll/getByObjective just handed them. linkProject records having
+// been bitten by this; getById goes through the resolver for the same reason.
+describe("okr.getById honours team-derived workspace access", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("lets a team-derived member read a key result they have no direct membership for", async () => {
+    const { ws, keyResult } = await seedWorkspaceKeyResult(db);
+    const teamUser = await createUser(db);
+    const team = await createTeam(db, { workspaceId: ws.id });
+    await db.teamUser.create({ data: { teamId: team.id, userId: teamUser.id } });
+
+    // No WorkspaceUser row — access exists only through the team.
+    expect(
+      await db.workspaceUser.findFirst({
+        where: { userId: teamUser.id, workspaceId: ws.id },
+      }),
+    ).toBeNull();
+
+    const fetched = await createTestCaller(teamUser.id).okr.getById({
+      id: keyResult.id,
+    });
+    expect(fetched.id).toBe(keyResult.id);
+  });
+
+  it("still refuses someone with no access at all", async () => {
+    const { stranger, keyResult } = await seedWorkspaceKeyResult(db);
+
+    await expect(
+      createTestCaller(stranger.id).okr.getById({ id: keyResult.id }),
+    ).rejects.toThrow(/not found/i);
   });
 });
