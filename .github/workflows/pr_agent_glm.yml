@@ -1,13 +1,35 @@
 name: PR Agent (GLM)
-# Second automated reviewer: the same qodo-ai/pr-agent action as pr_agent.yml,
-# pointed at GLM via OpenRouter instead of Anthropic. Two independent readers
-# applying the same house rules from .pr_agent.toml.
+#
+# ⏸️  DEACTIVATED 2026-08-07 — this reviewer does not run on PRs.
+#
+# The OPENROUTER_API_KEY secret has no credits ("This account never purchased
+# credits"), so every run reviewed nothing and — since PR 532 made a green tick
+# mean a review actually happened — reported that honestly as a red check on
+# every PR. A permanently red check that no one can act on is noise, so the
+# reviewer is parked until the key is funded rather than left failing.
+#
+# TO REACTIVATE: buy OpenRouter credits, then restore the trigger below to
+#
+#   on:
+#     pull_request:
+#       types: [opened, reopened, ready_for_review, synchronize]
+#
+# Nothing else needs changing — the job body is intact and was working apart
+# from the credit balance. Note this check is NOT in main's required set, so
+# parking it does not block any merge.
+#
+# WHAT IT WAS: a second automated reviewer — the same qodo-ai/pr-agent action as
+# pr_agent.yml, pointed at GLM via OpenRouter instead of Anthropic. Two
+# independent readers applying the same house rules from .pr_agent.toml.
+# pr_agent.yml (Anthropic) is unaffected and remains the active reviewer.
 #
 # No `issue_comment` trigger here (unlike pr_agent.yml) — manual `/review`
 # commands should reach one reviewer, not both.
 on:
-  pull_request:
-    types: [opened, reopened, ready_for_review, synchronize]
+  # Placeholder trigger: a workflow needs one, and this keeps the file valid and
+  # visible in the Actions tab while it is parked. Dispatching it by hand does
+  # NOT produce a review — the action needs a pull_request event for context.
+  workflow_dispatch:
 jobs:
   pr_agent_glm_job:
     # Skip bot-triggered events so the two reviewers can't set each other off.
