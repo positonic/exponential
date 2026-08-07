@@ -4,7 +4,10 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "~/server/api/trpc";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getWorkspaceMembership,
+  canEditWorkspaceContent,
+} from "~/server/services/access/resolvers/workspaceResolver";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -134,7 +137,9 @@ export const goalRouter = createTRPCRouter({
           ctx.session.user.id,
           input.workspaceId,
         );
-        if (!membership) {
+        // Bare membership isn't the test — viewer is read-only and guest is
+        // project-only, and neither files goals into a workspace.
+        if (!canEditWorkspaceContent(membership?.role ?? null)) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You are not a member of the target workspace",

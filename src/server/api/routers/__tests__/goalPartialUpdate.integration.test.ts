@@ -249,6 +249,38 @@ describe("goal workspace placement is an access change", () => {
     expect(after.workspaceId).toBe(ws.id);
   });
 
+  it("refuses a viewer placing a goal into the workspace they can only read", async () => {
+    const owner = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: owner.id });
+    const viewer = await createUser(db);
+    await addWorkspaceMember(db, ws.id, viewer.id, "viewer");
+
+    await expect(
+      createTestCaller(viewer.id).goal.createGoal({
+        title: "Read-only should not file this",
+        workspaceId: ws.id,
+      }),
+    ).rejects.toThrow(/not a member/i);
+  });
+
+  it("refuses a viewer moving a goal into that workspace", async () => {
+    const owner = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: owner.id });
+    const viewer = await createUser(db);
+    await addWorkspaceMember(db, ws.id, viewer.id, "viewer");
+    const personal = await createGoal(db, { userId: viewer.id });
+
+    await expect(
+      createTestCaller(viewer.id).goal.updateGoal({
+        id: personal.id,
+        workspaceId: ws.id,
+      }),
+    ).rejects.toThrow(/not a member/i);
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: personal.id } });
+    expect(after.workspaceId).toBeNull();
+  });
+
   it("refuses to create a goal in a workspace the caller is not in", async () => {
     const user = await createUser(db);
     const outsider = await createUser(db);

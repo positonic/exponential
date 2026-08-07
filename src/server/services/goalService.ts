@@ -1,6 +1,9 @@
 import type { Prisma } from "@prisma/client";
 import { type Context } from "~/server/auth/types";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getWorkspaceMembership,
+  canEditWorkspaceContent,
+} from "~/server/services/access/resolvers/workspaceResolver";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 
 /**
@@ -190,7 +193,7 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
   // Same rule as the move path in updateGoal: you may only file a goal into a
   // workspace you belong to.
   if (input.workspaceId) {
-    await assertWorkspaceMembership({ ctx, workspaceId: input.workspaceId });
+    await assertCanPlaceGoalInWorkspace({ ctx, workspaceId: input.workspaceId });
   }
 
   return await ctx.db.goal.create({
@@ -225,12 +228,15 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
 }
 
 /**
- * Assert the caller belongs to a workspace they are placing a goal into.
+ * Assert the caller may place a goal into this workspace.
+ *
  * Guards the create and move paths — a goal's workspace decides who can see and
- * edit it, so writing one the caller isn't in is an access change, not a field
- * edit.
+ * edit it, so writing one is an access change, not a field edit. Bare
+ * membership is not the test: `viewer` is read-only and `guest` is synthesized
+ * for project-only access, and neither should be filing goals into a workspace.
+ * `canEditWorkspaceContent` is the repo's answer (see its docstring).
  */
-async function assertWorkspaceMembership({
+async function assertCanPlaceGoalInWorkspace({
   ctx,
   workspaceId,
 }: {
@@ -240,7 +246,7 @@ async function assertWorkspaceMembership({
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
   const membership = await getWorkspaceMembership(ctx.db, userId, workspaceId);
-  if (!membership) {
+  if (!canEditWorkspaceContent(membership?.role ?? null)) {
     throw new Error("You are not a member of the target workspace");
   }
 }
@@ -349,7 +355,7 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     input.workspaceId !== null &&
     input.workspaceId !== existingGoal.workspaceId
   ) {
-    await assertWorkspaceMembership({ ctx, workspaceId: input.workspaceId });
+    await assertCanPlaceGoalInWorkspace({ ctx, workspaceId: input.workspaceId });
   }
 
   const data: Prisma.GoalUncheckedUpdateInput = {};
