@@ -1,5 +1,10 @@
 import { type PrismaClient } from "@prisma/client";
 import { db } from "~/server/db";
+import { recordActivity } from "./activity/recordActivity";
+import {
+  toGitHubFeedEvent,
+  type GitHubFeedInput,
+} from "./activity/githubFeedEvent";
 
 interface PushEventCommit {
   id: string;
@@ -297,6 +302,26 @@ export class GitHubActivityService {
       });
     }
 
+    // One feed row for the whole push, not one per commit — the commit-level
+    // rows above are for analytics. GitHub orders `commits` oldest-first, so the
+    // last entry is the head commit.
+    const head = data.commits[data.commits.length - 1];
+    await this.emitFeedEvent(
+      ctx,
+      {
+        eventType: "push",
+        repoFullName,
+        repoUrl: data.repository.html_url,
+        branchName,
+        commitCount: data.commits.length,
+        headCommitSha: head?.id.slice(0, 7) ?? null,
+        headCommitMessage: head?.message.split("\n")[0] ?? null,
+        headCommitUrl: head?.url ?? null,
+        commitAuthor: head?.author.username ?? head?.author.name ?? null,
+      },
+      head ? new Date(head.timestamp) : new Date(),
+    );
+
     console.log(
       `[GitHubActivity] Stored ${data.commits.length} commits from ${repoFullName}/${branchName}`,
     );
@@ -373,6 +398,30 @@ export class GitHubActivityService {
       },
     });
 
+    const merged = Boolean(pr.merged_at);
+    await this.emitFeedEvent(
+      ctx,
+      {
+        eventType: "pull_request",
+        eventAction: data.action,
+        repoFullName,
+        repoUrl: data.repository.html_url,
+        branchName,
+        prNumber: pr.number,
+        prTitle: pr.title,
+        prUrl: pr.html_url,
+        prAuthor: pr.user.login,
+        prMerged: merged,
+      },
+      // Same reasoning as the GitHubActivity row above: use the PR's own
+      // timestamps so a late or replayed delivery doesn't misdate the feed.
+      data.action === "opened" && pr.created_at
+        ? new Date(pr.created_at)
+        : pr.merged_at
+          ? new Date(pr.merged_at)
+          : new Date(),
+    );
+
     console.log(
       `[GitHubActivity] Stored PR #${pr.number} ${data.action} from ${repoFullName}`,
     );
@@ -437,9 +486,78 @@ export class GitHubActivityService {
       },
     });
 
+    await this.emitFeedEvent(
+      ctx,
+      {
+        eventType: "pull_request_review",
+        eventAction: data.action,
+        repoFullName,
+        repoUrl: data.repository.html_url,
+        prNumber: pr.number,
+        prTitle: pr.title,
+        prUrl: pr.html_url,
+        prReviewState: review.state,
+        prReviewer: review.user.login,
+      },
+      new Date(review.submitted_at),
+    );
+
     console.log(
       `[GitHubActivity] Stored PR review (${review.state}) for #${pr.number} from ${repoFullName}`,
     );
+  }
+
+  /**
+   * Append the feed row for a GitHub event, alongside the `GitHubActivity` row
+   * that analytics reads. See `githubFeedEvent.ts` for why this is a write-time
+   * append rather than a read-side union, and which events are suppressed.
+   *
+   * Failures are swallowed by `recordActivity` — a feed row is instrumentation,
+   * and must never fail the webhook that recorded the underlying activity.
+   */
+  private async emitFeedEvent(
+    ctx: { workspaceId: string; integrationId: string },
+    input: GitHubFeedInput,
+    occurredAt: Date,
+  ): Promise<void> {
+    const event = toGitHubFeedEvent(input);
+    if (!event) return; // below feed altitude — recorded, deliberately not shown
+
+    await recordActivity(this.prisma, {
+      workspaceId: ctx.workspaceId,
+      // Attribute to the Exponential user behind the GitHub login when the
+      // integration knows the pairing; otherwise leave the actor null and let
+      // the feed render the raw login from metadata (ADR-0023 does the same for
+      // channels, where the actor is the channel rather than a person).
+      userId: await this.resolveUserForLogin(
+        ctx.integrationId,
+        event.authorLogin,
+      ),
+      entityType: event.entityType,
+      entityId: event.entityId,
+      action: event.action,
+      metadata: event.metadata,
+      occurredAt,
+    });
+  }
+
+  /**
+   * Map a GitHub login to an Exponential user via `IntegrationUserMapping`.
+   * Returns null when no pairing exists — the common case for outside
+   * contributors and bots.
+   */
+  private async resolveUserForLogin(
+    integrationId: string,
+    login: string | null,
+  ): Promise<string | null> {
+    if (!login) return null;
+    const mapping = await this.prisma.integrationUserMapping.findUnique({
+      where: {
+        integrationId_externalUserId: { integrationId, externalUserId: login },
+      },
+      select: { userId: true },
+    });
+    return mapping?.userId ?? null;
   }
 
   /**

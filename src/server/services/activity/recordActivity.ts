@@ -37,7 +37,14 @@ export type ActivityEntityType =
   | "meeting"
   | "time_entry"
   | "channel_summary"
-  | "ticket_sync_run";
+  | "ticket_sync_run"
+  // GitHub events (see githubFeedEvent.ts). These mirror rows already written to
+  // the `GitHubActivity` table; the prefix is load-bearing, since
+  // `deriveActivitySource` maps any `github*` entity type to the `github` source
+  // chip. Emitted at feed altitude — one row per push, not per commit.
+  | "github_push"
+  | "github_pull_request"
+  | "github_pull_request_review";
 
 export interface RecordActivityInput {
   workspaceId: string;
@@ -51,6 +58,16 @@ export interface RecordActivityInput {
   entityId: string;
   action: ActivityAction;
   metadata?: Prisma.InputJsonValue;
+  /**
+   * When the event actually happened, if that differs from now. Defaults to
+   * insert time, which is right for in-app writes (the mutation *is* the event).
+   *
+   * External sources need the override: a GitHub webhook can be delivered late
+   * or replayed, and a backfill inserts months of history in one pass. Without
+   * this, a replayed PR merge would jump to the top of the feed and a backfill
+   * would stack every historical event on the day it ran.
+   */
+  occurredAt?: Date;
 }
 
 /**
@@ -94,6 +111,7 @@ export async function recordActivity(
         entityId: input.entityId,
         action: input.action,
         metadata: input.metadata,
+        ...(input.occurredAt ? { createdAt: input.occurredAt } : {}),
       },
     });
     return true;

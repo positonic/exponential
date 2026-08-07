@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconBrandGithub,
   IconBrandSlack,
   IconBrandTelegram,
   IconBrandWhatsapp,
@@ -8,6 +9,7 @@ import {
   IconCirclePlus,
   IconClock,
   IconEdit,
+  IconGitMerge,
   IconMessageCircle,
   IconMessages,
   IconRefresh,
@@ -28,6 +30,8 @@ export const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
   milestone: IconTrophy,
   tracked: IconClock,
   channel_summary: IconMessages,
+  github: IconBrandGithub,
+  shipped: IconGitMerge,
   fallback: IconRefresh,
 };
 
@@ -35,12 +39,15 @@ const PROVIDER_ICON: Record<string, TablerIcon> = {
   whatsapp: IconBrandWhatsapp,
   slack: IconBrandSlack,
   telegram: IconBrandTelegram,
+  github: IconBrandGithub,
 };
 
 const PROVIDER_LABEL: Record<string, string> = {
   whatsapp: 'WhatsApp',
   slack: 'Slack',
   telegram: 'Telegram',
+  // Explicit, because the generic capitalize fallback would render "Github".
+  github: 'GitHub',
 };
 
 /** Human label for a provider chip/actor, e.g. "whatsapp" → "WhatsApp". */
@@ -97,13 +104,21 @@ interface SentenceProps {
   entityRef: string;
   /** Renders the "agent" chip after the actor name (ADR-0049). */
   actorIsAgent?: boolean;
+  /** When set, `{entityRef}` renders as an external link to this URL. */
+  entityHref?: string | null;
 }
 
 /**
  * Render a sentence template into spans, replacing {actor} and {entityRef}
  * tokens with styled inline content.
  */
-function Sentence({ template, actor, entityRef, actorIsAgent = false }: SentenceProps) {
+function Sentence({
+  template,
+  actor,
+  entityRef,
+  actorIsAgent = false,
+  entityHref = null,
+}: SentenceProps) {
   const parts: Array<{ kind: 'text' | 'actor' | 'entity'; value: string }> = [];
   const regex = /\{(actor|entityRef)\}/g;
   let cursor = 0;
@@ -139,6 +154,22 @@ function Sentence({ template, actor, entityRef, actorIsAgent = false }: Sentence
           );
         }
         if (part.kind === 'entity') {
+          // External sources (GitHub) pass a href so the title itself is the
+          // link out. Internal rows keep a plain span — the feed is not a
+          // navigation surface for entities it already renders in-app.
+          if (entityHref) {
+            return (
+              <a
+                key={i}
+                href={entityHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="wsa-feed__entity wsa-feed__entity--link"
+              >
+                {part.value}
+              </a>
+            );
+          }
           return (
             <span key={i} className="wsa-feed__entity">
               {part.value}
@@ -166,6 +197,20 @@ export interface FeedRowEvent {
     projectId: string | null;
     projectSlug: string | null;
     projectName: string | null;
+  } | null;
+  github?: {
+    kind: string;
+    repoFullName: string;
+    repoUrl: string | null;
+    branchName: string | null;
+    prNumber: number | null;
+    prUrl: string | null;
+    author: string | null;
+    commitCount: number | null;
+    commitSha: string | null;
+    commitUrl: string | null;
+    reviewState: string | null;
+    merged: boolean;
   } | null;
 }
 
@@ -263,7 +308,82 @@ export function ActivityRow({
   }
 
   const Icon = ICON_BY_KIND[event.hint.iconKind] ?? IconRefresh;
-  const actorName = event.actor?.name ?? 'Someone';
+
+  // GitHub rows: the actor is often not an Exponential user (outside
+  // contributors, bots, or simply an unmapped login), so fall back to the GitHub
+  // login rather than the anonymous "Someone" — the login is the more useful
+  // identity here, and "Someone merged PR 497" helps nobody.
+  const github = event.github ?? null;
+  const actorName =
+    event.actor?.name ?? github?.author ?? 'Someone';
+
+  if (github) {
+    const href = github.prUrl ?? github.commitUrl ?? github.repoUrl;
+    const repoHref = github.repoUrl;
+    const commitLabel =
+      github.kind === 'push' && github.commitCount && github.commitCount > 1
+        ? `${github.commitCount} commits`
+        : null;
+
+    return (
+      <div className="wsa-feed__row" data-kind={event.hint.iconKind}>
+        <div
+          className="wsa-feed__avatar wsa-feed__avatar--channel"
+          data-provider="github"
+          aria-hidden="true"
+        >
+          <IconBrandGithub size={16} stroke={1.8} />
+        </div>
+        <div className="wsa-feed__body">
+          <Sentence
+            template={event.hint.template}
+            actor={actorName}
+            entityRef={event.entityRef}
+            actorIsAgent={event.actor?.isAgent ?? false}
+            entityHref={href}
+          />
+          <span className="wsa-feed__meta">
+            {repoHref ? (
+              <a
+                href={repoHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="wsa-feed__workspace"
+              >
+                {github.repoFullName}
+              </a>
+            ) : (
+              <span className="wsa-feed__workspace">{github.repoFullName}</span>
+            )}
+            {github.branchName ? (
+              <span className="wsa-feed__branch">{github.branchName}</span>
+            ) : null}
+            {commitLabel ? (
+              <span className="wsa-feed__branch">{commitLabel}</span>
+            ) : null}
+            {showWorkspaceBadge && event.workspace ? (
+              <Link
+                href={`/w/${event.workspace.slug}/activity`}
+                className="wsa-feed__workspace"
+              >
+                {event.workspace.name}
+              </Link>
+            ) : null}
+            <span className="wsa-feed__time">
+              {relativeTime(event.createdAt)}
+            </span>
+          </span>
+        </div>
+        <span
+          className="wsa-feed__icon"
+          data-kind={event.hint.iconKind}
+          aria-hidden="true"
+        >
+          <Icon size={14} stroke={1.8} />
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className="wsa-feed__row" data-kind={event.hint.iconKind}>

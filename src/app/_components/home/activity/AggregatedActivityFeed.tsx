@@ -66,10 +66,15 @@ export function AggregatedActivityFeed() {
   });
 
   // Derive available sources from loaded rows (no single workspace to query).
+  // GitHub contributes a single chip regardless of how many event types are
+  // present, mirroring the server-side `getActivitySources`.
   const providers = Array.from(
-    new Set(display.filter((e) => e.channel).map((e) => e.channel!.provider)),
+    new Set([
+      ...display.filter((e) => e.channel).map((e) => e.channel!.provider),
+      ...(display.some((e) => e.github) ? ['github'] : []),
+    ]),
   );
-  const hasInternal = display.some((e) => !e.channel);
+  const hasInternal = display.some((e) => !e.channel && !e.github);
 
   const hasMore = data?.nextCursor != null;
   const isEmpty = !isLoading && display.length === 0;

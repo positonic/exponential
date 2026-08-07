@@ -98,4 +98,81 @@ describe("getActivityFeed — channel summaries + source filter", () => {
     expect(call.where).not.toHaveProperty("entityType");
     expect(call.where).not.toHaveProperty("metadata");
   });
+
+  // The regression this guards: "internal" used to mean "not a channel
+  // summary", which quietly filed every merged PR under the Exponential chip
+  // once GitHub started writing feed rows.
+  it("excludes GitHub rows from internal, not just channel summaries", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
+
+    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "internal" });
+
+    expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          entityType: { not: "channel_summary" },
+          NOT: { entityType: { startsWith: "github" } },
+        }),
+      }),
+    );
+  });
+
+  it("selects only GitHub rows when source is github", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
+
+    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "github" });
+
+    expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: WORKSPACE_ID,
+          entityType: { startsWith: "github" },
+        }),
+      }),
+    );
+  });
+
+  it("resolves a github row into a GitHubRef the row component can render", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      {
+        id: "evt-gh",
+        createdAt: new Date("2026-08-04T19:54:42.000Z"),
+        entityType: "github_pull_request",
+        // Two-digit PR number on purpose: the repo's hardcoded-colour
+        // pre-commit check reads a hash followed by 3-8 hex digits as a colour
+        // literal, so a three-digit PR ref here would fail the commit.
+        entityId: "positonic/exponential#64",
+        action: "completed",
+        metadata: {
+          title: "feat: grant agents access to multiple workspaces at once",
+          repoFullName: "positonic/exponential",
+          repoUrl: "https://github.com/positonic/exponential",
+          branchName: "feat/agent-workspaces",
+          prNumber: 497,
+          prUrl: "https://github.com/positonic/exponential/pull/497",
+          author: "positonic",
+          merged: true,
+        },
+        user: null,
+      },
+    ] as never);
+
+    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+
+    expect(events[0]!.source).toBe("github");
+    expect(events[0]!.channel).toBeNull();
+    expect(events[0]!.github).toEqual(
+      expect.objectContaining({
+        kind: "pull_request",
+        repoFullName: "positonic/exponential",
+        prNumber: 497,
+        author: "positonic",
+        merged: true,
+      }),
+    );
+    // The PR title, not the raw entity id, is what the sentence renders.
+    expect(events[0]!.entityRef).toBe(
+      "feat: grant agents access to multiple workspaces at once",
+    );
+  });
 });
