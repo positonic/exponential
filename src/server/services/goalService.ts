@@ -187,6 +187,12 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
     await validateParentAssignment({ ctx, parentGoalId: input.parentGoalId });
   }
 
+  // Same rule as the move path in updateGoal: you may only file a goal into a
+  // workspace you belong to.
+  if (input.workspaceId) {
+    await assertWorkspaceMembership({ ctx, workspaceId: input.workspaceId });
+  }
+
   return await ctx.db.goal.create({
     data: {
       title: input.title,
@@ -216,6 +222,27 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       outcomes: true,
     },
   });
+}
+
+/**
+ * Assert the caller belongs to a workspace they are placing a goal into.
+ * Guards the create and move paths — a goal's workspace decides who can see and
+ * edit it, so writing one the caller isn't in is an access change, not a field
+ * edit.
+ */
+async function assertWorkspaceMembership({
+  ctx,
+  workspaceId,
+}: {
+  ctx: Context;
+  workspaceId: string;
+}) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+  const membership = await getWorkspaceMembership(ctx.db, userId, workspaceId);
+  if (!membership) {
+    throw new Error("You are not a member of the target workspace");
+  }
 }
 
 /**
@@ -310,6 +337,19 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     input.parentGoalId
   ) {
     await validateParentAssignment({ ctx, goalId: input.id, parentGoalId: input.parentGoalId });
+  }
+
+  // Moving a goal between workspaces is an access change, so the caller must
+  // belong to where it lands. Without this, anyone who can edit a goal can push
+  // it into a workspace they cannot see — orphaning it exactly like the
+  // overwrite bug above — or into one they can, exposing it to that workspace's
+  // members. Clearing to null (making it personal) needs no membership.
+  if (
+    input.workspaceId !== undefined &&
+    input.workspaceId !== null &&
+    input.workspaceId !== existingGoal.workspaceId
+  ) {
+    await assertWorkspaceMembership({ ctx, workspaceId: input.workspaceId });
   }
 
   const data: Prisma.GoalUncheckedUpdateInput = {};

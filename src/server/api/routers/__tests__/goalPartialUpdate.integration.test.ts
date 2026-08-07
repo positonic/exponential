@@ -173,6 +173,98 @@ describe("goal.updateGoal — partial update semantics", () => {
   });
 });
 
+describe("goal workspace placement is an access change", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  // A goal's workspace decides who can see and edit it. Letting anyone who can
+  // edit a goal set an arbitrary workspaceId means they can push it somewhere
+  // they cannot see — orphaning it exactly like the overwrite bug — or somewhere
+  // they can, exposing it to that workspace's members.
+  it("refuses to move a goal into a workspace the caller is not in", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, { userId: user.id, workspaceId: ws.id });
+    const outsider = await createUser(db);
+    const foreignWs = await createWorkspace(db, { ownerId: outsider.id });
+
+    await expect(
+      createTestCaller(user.id).goal.updateGoal({
+        id: goal.id,
+        workspaceId: foreignWs.id,
+      }),
+    ).rejects.toThrow(/not a member/i);
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.workspaceId).toBe(ws.id);
+  });
+
+  it("allows a move into a workspace the caller belongs to", async () => {
+    const user = await createUser(db);
+    const from = await createWorkspace(db, { ownerId: user.id });
+    const to = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, { userId: user.id, workspaceId: from.id });
+
+    await createTestCaller(user.id).goal.updateGoal({
+      id: goal.id,
+      workspaceId: to.id,
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.workspaceId).toBe(to.id);
+  });
+
+  it("still allows clearing the workspace, which needs no membership", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, { userId: user.id, workspaceId: ws.id });
+
+    await createTestCaller(user.id).goal.updateGoal({
+      id: goal.id,
+      workspaceId: null,
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.workspaceId).toBeNull();
+  });
+
+  it("re-sending the goal's own workspace is not treated as a move", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const goal = await createGoal(db, { userId: user.id, workspaceId: ws.id });
+    const member = await createUser(db);
+    await addWorkspaceMember(db, ws.id, member.id);
+
+    await createTestCaller(member.id).goal.updateGoal({
+      id: goal.id,
+      title: "Renamed",
+      workspaceId: ws.id,
+    });
+
+    const after = await db.goal.findUniqueOrThrow({ where: { id: goal.id } });
+    expect(after.title).toBe("Renamed");
+    expect(after.workspaceId).toBe(ws.id);
+  });
+
+  it("refuses to create a goal in a workspace the caller is not in", async () => {
+    const user = await createUser(db);
+    const outsider = await createUser(db);
+    const foreignWs = await createWorkspace(db, { ownerId: outsider.id });
+
+    await expect(
+      createTestCaller(user.id).goal.createGoal({
+        title: "Smuggled",
+        workspaceId: foreignWs.id,
+      }),
+    ).rejects.toThrow(/not a member/i);
+
+    expect(await db.goal.count({ where: { workspaceId: foreignWs.id } })).toBe(0);
+  });
+});
+
 describe("goal.updateGoalStatus", () => {
   let db: ReturnType<typeof getTestDb>;
 

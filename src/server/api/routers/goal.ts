@@ -125,6 +125,23 @@ export const goalRouter = createTRPCRouter({
       iconColor: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // A goal's workspace decides who can see and edit it, so filing one into a
+      // workspace the caller doesn't belong to is an access change rather than a
+      // field edit. Mirrors the move guard in goalService.updateGoal.
+      if (input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of the target workspace",
+          });
+        }
+      }
+
       // Enforce max nesting depth of 5 levels for sub-goals
       if (input.parentGoalId) {
         let depth = 1;
