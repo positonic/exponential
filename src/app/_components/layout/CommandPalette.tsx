@@ -158,6 +158,11 @@ export function CommandPalette() {
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Set on mousedown over the scope checkbox and consumed by its change
+  // handler, so that handler can tell a click from a keypress. `:focus-visible`
+  // looks like the obvious test and isn't: a checkbox reached by Tab does not
+  // reliably match it at the moment the change fires.
+  const scopeTogglePointerRef = useRef(false);
   const router = useRouter();
   const { workspaceId, workspaceSlug } = useWorkspace();
   const { openModal } = useAgentModal();
@@ -344,12 +349,17 @@ export function CommandPalette() {
   // flight we keep the previous ones only if the typed query extends them —
   // narrowing "fix" to "fixt" holds its results, starting a new word drops
   // them rather than showing matches for something you are no longer typing.
+  // Scope is checked the same way and for the same reason: flipping the
+  // checkbox changes the query key but not the query string, so without this
+  // `placeholderData` would hold the old scope's results on screen — the list
+  // contradicting the box you just ticked until the wider search lands.
   const shownResults = useMemo(() => {
     if (!searchData) return [];
+    if ((searchData.workspaceId ?? undefined) !== searchWorkspaceId) return [];
     return trimmedQuery.toLowerCase().startsWith(searchData.query.toLowerCase())
       ? searchData.results
       : [];
-  }, [searchData, trimmedQuery]);
+  }, [searchData, trimmedQuery, searchWorkspaceId]);
 
   const resultsByType = useMemo(() => {
     const allowed = mode === 'ai' ? null : MODE_TYPES[mode];
@@ -663,18 +673,32 @@ export function CommandPalette() {
           );
         })}
 
-        {/* Only worth offering to people who have somewhere else to search. */}
+        {/* Only worth offering to people who have somewhere else to search.
+            The span carries the mousedown so clicks on the label count too. */}
         {(workspacesData?.length ?? 0) > 1 && (
+          <span
+            style={{ marginLeft: 'auto', display: 'inline-flex' }}
+            onMouseDown={() => {
+              scopeTogglePointerRef.current = true;
+            }}
+          >
           <Checkbox
             size="xs"
-            ml="auto"
             label="All workspaces"
             checked={allWorkspaces}
+            onKeyDown={() => {
+              // Keyboard always wins over a stale pointer flag left by a
+              // mousedown that never became a toggle.
+              scopeTogglePointerRef.current = false;
+            }}
             onChange={(e) => {
               setAllWorkspaces(e.currentTarget.checked);
               // Clicking the box takes focus out of the input, which is where
               // the arrow keys and Enter are handled — hand it straight back.
-              inputRef.current?.focus();
+              // Someone who tabbed here meant to be here, though, and yanking
+              // focus away would cost them a re-tab before every toggle.
+              if (scopeTogglePointerRef.current) inputRef.current?.focus();
+              scopeTogglePointerRef.current = false;
             }}
             styles={{
               input: { cursor: 'pointer' },
@@ -688,6 +712,7 @@ export function CommandPalette() {
               },
             }}
           />
+          </span>
         )}
       </Group>
 

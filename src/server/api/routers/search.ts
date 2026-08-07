@@ -520,6 +520,11 @@ export const searchRouter = createTRPCRouter({
 
     return {
       query: input.query,
+      // Echoed back for the same reason as `query`: a caller holding results
+      // while the next search is in flight needs to know which scope the ones
+      // on screen were fetched at. The query string alone can't tell a
+      // workspace-scoped result set from a global one.
+      workspaceId: input.workspaceId ?? null,
       results: groups.flat(),
     };
   }),
