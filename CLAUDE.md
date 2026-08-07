@@ -173,27 +173,46 @@ removed `?? process.env.DATABASE_URL` fallback path.
 
 This is the primary project board for tracking all development work. Use the `exponential` CLI to query tasks and project status.
 
+### 🚨 Agents: every `exponential` call needs the `HOME=` prefix
+
+```bash
+HOME=/Users/james/.config/agent-homes/claude exponential <command>
+```
+
+The CLI reads its credentials from `$HOME`. Without the prefix an agent authenticates
+as **James's personal account**, so every ticket, comment and status transition it
+writes is misattributed to a human who didn't do it — and `@mentions` notify the wrong
+person. A global hook blocks unprefixed calls, but it matches on the command text, so
+it also fires on greps that merely *contain* the string; reword those rather than
+dropping the prefix.
+
+Human, in your own terminal: use the bare `exponential ...` — the prefix is for agents.
+
 ### Proactive Behavior
-- **At session start**: Run `exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json` to check current tasks and priorities
+- **At session start**: Run the "current tasks" command below to check current tasks and priorities
 - **When picking up new work**: Check the project board for the latest task assignments and statuses
 - **After completing work**: Update task status if applicable
 
 ### Key CLI Commands
 ```bash
 # Check current tasks for this project
-exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
+HOME=/Users/james/.config/agent-homes/claude exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
 
 # View kanban board
-exponential actions kanban --json
+HOME=/Users/james/.config/agent-homes/claude exponential actions kanban --json
 
 # List all projects in the workspace
-exponential projects list --workspace exponential --json
+HOME=/Users/james/.config/agent-homes/claude exponential projects list --workspace exponential --json
 
-# Check auth status
-exponential auth status
+# Check auth status — also the fastest way to confirm which identity you are
+HOME=/Users/james/.config/agent-homes/claude exponential auth status
 ```
 
 The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.
+
+Two flag gotchas that cost a round-trip each: `--project` takes the **bare CUID**, not the
+slug-prefixed id from the URL; and `tickets show` takes neither `--product` nor `--workspace`,
+so filter `tickets list --json` instead of calling `show` with them.
 
 ## Architecture Overview
 

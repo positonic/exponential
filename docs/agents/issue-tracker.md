@@ -2,6 +2,12 @@
 
 Issues and PRDs for this repo live in [Exponential](https://www.exponential.im). Use the `exponential` CLI for all operations. Add `--json` to any command (or pipe it) to get machine-readable output.
 
+> **Agents:** every command on this page must be prefixed with
+> `HOME=/Users/james/.config/agent-homes/claude`. The examples below omit it for
+> readability. Without it you authenticate as James's personal account and
+> everything you write is attributed to him. See the CLI section of
+> [`CLAUDE.md`](../../CLAUDE.md#-agents-every-exponential-call-needs-the-home-prefix).
+
 ## This repo's coordinates
 
 - **Workspace**: `syntrofi` (CUID `cmk01wbrb000arzxzj8zy4czg`)
