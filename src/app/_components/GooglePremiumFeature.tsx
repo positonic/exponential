@@ -2,12 +2,9 @@
 
 import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { IconLock, IconMail } from "@tabler/icons-react";
+import type { GooglePremiumFeatureKind } from "~/types/google";
 
-/**
- * Which gated Google feature the user just bumped into. Both depend on scopes
- * Google has not verified yet — see `isGoogleOAuthTester` in ~/lib/googleAuth.
- */
-export type GooglePremiumFeatureKind = "calendar" | "contacts";
+export type { GooglePremiumFeatureKind };
 
 const COPY: Record<
   GooglePremiumFeatureKind,

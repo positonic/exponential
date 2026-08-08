@@ -7,7 +7,7 @@ import {
   isGoogleOAuthTester,
   type GoogleScopeType,
 } from "~/lib/googleAuth";
-import type { GooglePremiumFeatureKind } from "~/app/_components/GooglePremiumFeature";
+import type { GooglePremiumFeatureKind } from "~/types/google";
 
 /**
  * Which explainer a gated user sees per scope set. Exhaustive over

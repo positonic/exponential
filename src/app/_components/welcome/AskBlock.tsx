@@ -39,9 +39,13 @@ export function AskBlock({
   // Shares the cache entry with useWelcomeSetup's query, so this costs no
   // extra round trip and saves threading the flag through both parent views.
   const { data: setup } = api.welcome.getSetup.useQuery();
-  // Fail closed while loading, matching isGoogleOAuthTester: an enabled chip
-  // in that window would start an OAuth flow the user can't finish.
-  const googleCalendarGated = !setup?.googleCalendarAvailable;
+  // Two distinct things, because conflating them either lies or dead-ends:
+  // `googleCalendarGated` is only true once we KNOW the user is gated (so a
+  // tester never flashes "coming soon"), while the chip stays un-clickable
+  // until the answer arrives (so a gated user can't start an OAuth flow they
+  // can't finish in that window).
+  const googleCalendarGated = setup ? !setup.googleCalendarAvailable : false;
+  const googleCalendarUnknown = !setup;
 
   if (step === "plan") {
     return (
@@ -82,7 +86,7 @@ export function AskBlock({
               into an OAuth flow they can't complete. Outlook is unaffected. */}
           <button
             className={styles.chip}
-            disabled={disabled || googleCalendarGated}
+            disabled={disabled || googleCalendarGated || googleCalendarUnknown}
             onClick={() =>
               onAnswer({ value: "google", label: `Connect ${COPY.calChips.google}` })
             }
