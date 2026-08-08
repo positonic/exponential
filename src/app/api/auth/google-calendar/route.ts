@@ -7,6 +7,22 @@ import {
   isGoogleOAuthTester,
   type GoogleScopeType,
 } from "~/lib/googleAuth";
+import type { GooglePremiumFeatureKind } from "~/app/_components/GooglePremiumFeature";
+
+/**
+ * Which explainer a gated user sees per scope set. Exhaustive over
+ * `GOOGLE_SCOPE_SETS`, so adding a scope set is a type error here rather than
+ * a silent fallback that shows the wrong copy. `crm` bundles contacts + Gmail
+ * and is only ever started from the contact-import flow.
+ */
+const GATED_FEATURE_BY_SCOPE_TYPE: Record<
+  GoogleScopeType,
+  GooglePremiumFeatureKind
+> = {
+  calendar: "calendar",
+  contacts: "contacts",
+  crm: "contacts",
+};
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -31,8 +47,7 @@ export async function GET(request: NextRequest) {
   // error. Send them to the explainer page instead of into that dead end.
   // This is the last line of defence — the UI hides the entry points too.
   if (!isGoogleOAuthTester(session.user.email)) {
-    const feature = scopeType === "calendar" ? "calendar" : "contacts";
-    redirect(`/google-access?feature=${feature}`);
+    redirect(`/google-access?feature=${GATED_FEATURE_BY_SCOPE_TYPE[scopeType]}`);
   }
 
   const scopes = GOOGLE_SCOPE_SETS[scopeType].join(" ");
