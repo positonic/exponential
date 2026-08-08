@@ -144,11 +144,14 @@ export function CalendarEventImporter({
           </div>
         )}
 
-        {!isLoading && !connectionStatus?.isConnected && connectionStatus?.gated && (
+        {/* Both branches require a defined status: on a query error we'd
+            otherwise show the connect prompt, which for a gated user leads
+            straight back to the premium page. */}
+        {!isLoading && connectionStatus && !connectionStatus.isConnected && connectionStatus.gated && (
           <GooglePremiumFeature feature="calendar" variant="alert" />
         )}
 
-        {!isLoading && !connectionStatus?.isConnected && !connectionStatus?.gated && (
+        {!isLoading && connectionStatus && !connectionStatus.isConnected && !connectionStatus.gated && (
           <Alert
             icon={<IconAlertCircle size={16} />}
             title="Calendar not connected"

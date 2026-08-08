@@ -39,7 +39,9 @@ export function AskBlock({
   // Shares the cache entry with useWelcomeSetup's query, so this costs no
   // extra round trip and saves threading the flag through both parent views.
   const { data: setup } = api.welcome.getSetup.useQuery();
-  const googleCalendarGated = setup ? !setup.googleCalendarAvailable : false;
+  // Fail closed while loading, matching isGoogleOAuthTester: an enabled chip
+  // in that window would start an OAuth flow the user can't finish.
+  const googleCalendarGated = !setup?.googleCalendarAvailable;
 
   if (step === "plan") {
     return (
