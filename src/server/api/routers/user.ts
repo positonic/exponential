@@ -2,8 +2,19 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 export const userRouter = createTRPCRouter({
+  /**
+   * Whether this user may use the Google features whose scopes Google has not
+   * verified yet (calendar, contacts, Gmail). The UI uses this to show the
+   * "premium feature" message instead of connect buttons that would dead-end
+   * on Google's unverified-app screen. Google *sign-in* is not affected.
+   */
+  isGoogleOAuthTester: protectedProcedure.query(({ ctx }) => {
+    return isGoogleOAuthTester(ctx.session.user.email);
+  }),
+
   getCurrentUser: protectedProcedure
     .query(async ({ ctx }) => {
       return {
@@ -130,17 +141,26 @@ export const userRouter = createTRPCRouter({
         }),
       ]);
 
+      // Google's calendar scopes are unverified, so a non-tester's Google
+      // connection can't be used — ignore it when scoring the calendar step.
+      // Microsoft is a separate, approved OAuth app and always counts.
+      const googleCalendarAvailable = isGoogleOAuthTester(ctx.session.user.email);
+      const usableCalendarAccounts = calendarAccounts.filter(
+        (account) => googleCalendarAvailable || account.provider !== 'google',
+      );
+
       return {
         userName: user?.name ?? null,
         welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
         usageType: user?.usageType ?? null,
         userRole: user?.userRole ?? null,
+        googleCalendarAvailable,
         steps: {
           hasProject: projectCount > 0,
           hasGoal: goalCount > 0,
           hasOutcome: outcomeCount > 0,
           hasProjectActions: projectActionCount > 0,
-          hasCalendar: calendarAccounts.length > 0,
+          hasCalendar: usableCalendarAccounts.length > 0,
           hasDailyPlan: dailyPlanCount > 0,
           hasCompletedAction: completedActionCount > 0,
         },

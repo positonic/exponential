@@ -60,6 +60,36 @@ export const GOOGLE_SCOPE_SETS = {
 export type GoogleScopeType = keyof typeof GOOGLE_SCOPE_SETS;
 
 /**
+ * Whether this user may use the Google features that depend on scopes Google
+ * has not verified yet (calendar, contacts, Gmail).
+ *
+ * Verification for those scopes is still pending, so only the accounts
+ * registered as test users on the Google Cloud Console project can actually
+ * complete the consent screen — everyone else hits an "unverified app" error.
+ * Rather than sending them into that dead end we gate the features behind
+ * `GOOGLE_OAUTH_TESTER_EMAILS`, a comma-separated allowlist, and show a
+ * "premium feature" message instead.
+ *
+ * Fails closed: an unset or empty allowlist locks the features for everyone,
+ * because a broken consent screen is worse than a missing button.
+ *
+ * Note that plain Google *sign-in* is verified and is deliberately NOT gated.
+ */
+export function isGoogleOAuthTester(email: string | null | undefined): boolean {
+  if (!email) return false;
+
+  const allowlist = process.env.GOOGLE_OAUTH_TESTER_EMAILS;
+  if (!allowlist) return false;
+
+  const normalized = email.trim().toLowerCase();
+  return allowlist
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0)
+    .includes(normalized);
+}
+
+/**
  * Individual Google OAuth scopes used in the application
  */
 export const GOOGLE_SCOPES = {

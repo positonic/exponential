@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { IconArrowRight, IconCalendar } from "@tabler/icons-react";
+import { api } from "~/trpc/react";
 import {
   COPY,
   GOAL_SUGGESTIONS,
@@ -35,6 +36,16 @@ export function AskBlock({
 }: AskBlockProps) {
   const [text, setText] = useState("");
   const question = COPY.ask[step];
+  // Shares the cache entry with useWelcomeSetup's query, so this costs no
+  // extra round trip and saves threading the flag through both parent views.
+  const { data: setup } = api.welcome.getSetup.useQuery();
+  // Two distinct things, because conflating them either lies or dead-ends:
+  // `googleCalendarGated` is only true once we KNOW the user is gated (so a
+  // tester never flashes "coming soon"), while the chip stays un-clickable
+  // until the answer arrives (so a gated user can't start an OAuth flow they
+  // can't finish in that window).
+  const googleCalendarGated = setup ? !setup.googleCalendarAvailable : false;
+  const googleCalendarUnknown = !setup;
 
   if (step === "plan") {
     return (
@@ -70,9 +81,12 @@ export function AskBlock({
       <div>
         {!hideQuestion && <div className={styles.askQ}>{question}</div>}
         <div className={styles.chips}>
+          {/* Google's calendar scopes are awaiting verification, so for
+              non-testers the chip is shown as coming soon rather than leading
+              into an OAuth flow they can't complete. Outlook is unaffected. */}
           <button
             className={styles.chip}
-            disabled={disabled}
+            disabled={disabled || googleCalendarGated || googleCalendarUnknown}
             onClick={() =>
               onAnswer({ value: "google", label: `Connect ${COPY.calChips.google}` })
             }
@@ -81,7 +95,9 @@ export function AskBlock({
               size={13}
               style={{ marginRight: 6, verticalAlign: -2 }}
             />
-            {COPY.calChips.google}
+            {googleCalendarGated
+              ? COPY.calChips.googleComingSoon
+              : COPY.calChips.google}
           </button>
           <button
             className={styles.chip}

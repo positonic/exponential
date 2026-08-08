@@ -36,6 +36,11 @@ export function CalendarSidebar({
   const { data, isLoading } = api.calendar.getCalendarAccounts.useQuery();
   const accounts = data?.accounts ?? [];
   const hasMicrosoft = accounts.some((a) => a.provider === "microsoft");
+  // Hide "Add Google account" while our calendar scopes await verification —
+  // the OAuth route would only bounce the user to the premium page.
+  const { data: connectionStatuses } =
+    api.calendar.getAllConnectionStatuses.useQuery();
+  const googleGated = connectionStatuses?.google?.gated ?? false;
 
   const startOAuth = (path: string) => {
     const returnUrl = encodeURIComponent(
@@ -254,13 +259,15 @@ export function CalendarSidebar({
             <div className="border-t border-border-primary my-1" />
 
             {/* Add accounts. Google can always stack additional accounts. */}
-            <UnstyledButton
-              onClick={() => startOAuth("/api/auth/google-calendar")}
-              className="flex items-center gap-2 text-text-secondary transition-colors hover:text-text-primary"
-            >
-              <IconPlus size={16} />
-              <Text size="sm">Add Google account</Text>
-            </UnstyledButton>
+            {!googleGated && (
+              <UnstyledButton
+                onClick={() => startOAuth("/api/auth/google-calendar")}
+                className="flex items-center gap-2 text-text-secondary transition-colors hover:text-text-primary"
+              >
+                <IconPlus size={16} />
+                <Text size="sm">Add Google account</Text>
+              </UnstyledButton>
+            )}
 
             {!hasMicrosoft && (
               <UnstyledButton

@@ -26,6 +26,7 @@ import {
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { subMonths, subYears } from "date-fns";
+import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 
 interface ImportDialogProps {
   opened: boolean;
@@ -96,7 +97,7 @@ export function ImportDialog({
   // Determine initial step based on connection
   useEffect(() => {
     if (!connectionLoading && opened) {
-      if (connection && connection.hasAllScopes && connection.hasRefreshToken) {
+      if (connection?.hasAllScopes && connection.hasRefreshToken) {
         setStep("options");  // Has Google with all scopes → Go to import options
       } else {
         setStep("connect");  // No Google or missing scopes/refresh token → Show connect step
@@ -151,10 +152,15 @@ export function ImportDialog({
       closeOnEscape={step !== "progress"}
     >
       <Stack gap="lg">
+        {/* Gated: contacts/Gmail scopes are still awaiting Google verification */}
+        {step === "connect" && connection?.gated && (
+          <GooglePremiumFeature feature="contacts" variant="alert" />
+        )}
+
         {/* Connect Step */}
-        {step === "connect" && (
+        {step === "connect" && !connection?.gated && (
           <>
-            {connection && (!connection.hasAllScopes || !connection.hasRefreshToken) ? (
+            {connection?.connected && (!connection.hasAllScopes || !connection.hasRefreshToken) ? (
               <Alert icon={<IconAlertCircle />} color="yellow" mb="md">
                 <Stack gap="xs">
                   <Text size="sm" fw={500}>
@@ -208,7 +214,9 @@ export function ImportDialog({
               onClick={handleConnectGoogle}
               loading={connectionLoading}
             >
-              {connection ? "Reconnect Google Account" : "Connect Google Account"}
+              {connection?.connected
+                ? "Reconnect Google Account"
+                : "Connect Google Account"}
             </Button>
           </>
         )}

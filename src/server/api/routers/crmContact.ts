@@ -12,6 +12,7 @@ import {
   enqueueContactEnrichment,
 } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 // Workspace roles allowed to spend enrichment budget (a paid web search + LLM
 // call per run). Viewers and project-only "guests" are excluded (ADR-0036).
@@ -1188,6 +1189,16 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
+      if (!isGoogleOAuthTester(ctx.session.user.email)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Contact import is a premium feature that is currently available to " +
+            "select users during our verification process. Contact " +
+            "support@exponential.im to request early access.",
+        });
+      }
+
       // Check if user has Google OAuth connection
       const connection = await GoogleTokenManager.getConnection(
         ctx.session.user.id
@@ -1272,12 +1283,37 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
+      // Contacts/Gmail scopes are still awaiting Google verification, so for
+      // non-testers report the integration as unavailable rather than probing
+      // for a connection they could never have completed.
+      if (!isGoogleOAuthTester(ctx.session.user.email)) {
+        return {
+          connected: false,
+          gated: true,
+          id: null,
+          provider: null,
+          scope: null,
+          expires_at: null,
+          hasAllScopes: false,
+          hasRefreshToken: false,
+        };
+      }
+
       const connection = await GoogleTokenManager.getConnection(
         ctx.session.user.id
       );
 
       if (!connection) {
-        return null;
+        return {
+          connected: false,
+          gated: false,
+          id: null,
+          provider: null,
+          scope: null,
+          expires_at: null,
+          hasAllScopes: false,
+          hasRefreshToken: false,
+        };
       }
 
       // Check if account has all required scopes
@@ -1294,6 +1330,8 @@ export const crmContactRouter = createTRPCRouter({
 
       // Return connection info without tokens
       return {
+        connected: true,
+        gated: false,
         id: connection.id,
         provider: connection.provider,
         scope: connection.scope,

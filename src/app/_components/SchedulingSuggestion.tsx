@@ -2,6 +2,7 @@
 
 import { Badge, Button, Group, Text, Tooltip, Loader } from "@mantine/core";
 import { IconSparkles, IconCheck, IconX, IconCalendarEvent } from "@tabler/icons-react";
+import { api } from "~/trpc/react";
 
 export interface SchedulingSuggestionData {
   actionId: string;
@@ -155,6 +156,9 @@ export function SchedulingSuggestionsLoader({
   error,
   calendarConnected = true,
 }: SchedulingSuggestionsLoaderProps) {
+  const { data: connectionStatus } = api.calendar.getConnectionStatus.useQuery();
+  const googleCalendarGated = connectionStatus?.gated ?? false;
+
   if (error) {
     return (
       <div className="mt-2 p-2 rounded-md bg-surface-secondary border border-border-primary">
@@ -181,7 +185,9 @@ export function SchedulingSuggestionsLoader({
     );
   }
 
-  if (!calendarConnected) {
+  // Suppress the "connect your calendar" nudge while Google is verifying our
+  // calendar scopes — for non-testers it points at something they can't do.
+  if (!calendarConnected && !googleCalendarGated) {
     return (
       <div className="mt-2 p-2 rounded-md bg-surface-secondary border border-border-primary">
         <Group gap="xs">

@@ -15,6 +15,7 @@ import {
 import { IconCalendar, IconAlertCircle } from "@tabler/icons-react";
 import { format, differenceInMinutes } from "date-fns";
 import { api } from "~/trpc/react";
+import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 
 interface CalendarEvent {
   id: string;
@@ -143,7 +144,14 @@ export function CalendarEventImporter({
           </div>
         )}
 
-        {!isLoading && !connectionStatus?.isConnected && (
+        {/* Both branches require a defined status: on a query error we'd
+            otherwise show the connect prompt, which for a gated user leads
+            straight back to the premium page. */}
+        {!isLoading && connectionStatus && !connectionStatus.isConnected && connectionStatus.gated && (
+          <GooglePremiumFeature feature="calendar" variant="alert" />
+        )}
+
+        {!isLoading && connectionStatus && !connectionStatus.isConnected && !connectionStatus.gated && (
           <Alert
             icon={<IconAlertCircle size={16} />}
             title="Calendar not connected"
