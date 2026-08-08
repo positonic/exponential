@@ -42,6 +42,11 @@ export default function IntegrationsSettingsPage() {
   // True while our Google calendar scopes await verification and this user
   // isn't an allowlisted tester — offer the premium message, not a connect button.
   const calendarGated = calendarStatus?.gated ?? false;
+  // Gated, but tokens are still stored — the user connected before the gate
+  // (or fell off the allowlist). Keep Disconnect reachable: this is the only
+  // UI path to revoke an account we otherwise hide everywhere.
+  const hasGatedLeftoverConnection =
+    calendarGated && (calendarStatus?.hasStoredConnection ?? false);
 
   // Calendar disconnect mutation
   const disconnectCalendar = api.calendar.disconnect.useMutation({
@@ -136,13 +141,15 @@ export default function IntegrationsSettingsPage() {
                 <Text size="xs" c="dimmed">
                   {calendarStatus?.isConnected
                     ? 'Your calendar is connected'
-                    : calendarGated
-                      ? 'Available to select users during our verification process'
-                      : 'Connect to see your events and schedule'}
+                    : hasGatedLeftoverConnection
+                      ? 'Paused while we complete Google verification — you can still remove it'
+                      : calendarGated
+                        ? 'Available to select users during our verification process'
+                        : 'Connect to see your events and schedule'}
                 </Text>
               </div>
             </Group>
-            {calendarStatus?.isConnected ? (
+            {calendarStatus?.isConnected || hasGatedLeftoverConnection ? (
               <Button
                 variant="subtle"
                 color="red"

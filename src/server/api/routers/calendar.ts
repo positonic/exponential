@@ -197,12 +197,20 @@ export const calendarRouter = createTRPCRouter({
       const accountProvider = getAccountProvider(provider);
 
       if (isGoogleCalendarGated(ctx.session.user.email, provider)) {
+        // A user gated *after* connecting still has stored tokens. Report that
+        // separately from `isConnected` so the UI can keep offering Disconnect
+        // — revoking access must never become unreachable just because the
+        // feature closed behind them.
+        const storedCount = await ctx.db.connectedAccount.count({
+          where: { userId: ctx.session.user.id, provider: accountProvider },
+        });
         return {
           isConnected: false,
           hasCalendarScope: false,
           tokenExpired: false,
           canRefresh: false,
           gated: true,
+          hasStoredConnection: storedCount > 0,
         };
       }
 
@@ -237,6 +245,7 @@ export const calendarRouter = createTRPCRouter({
         tokenExpired: hasCalendarScope && !anyTokenNotExpired,
         canRefresh,
         gated: false,
+        hasStoredConnection: accounts.length > 0,
       };
     }),
 
