@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 /**
  * Per-user "Getting started" setup state, persisted on `User.welcomeSetupState`.
@@ -103,6 +104,10 @@ export const welcomeRouter = createTRPCRouter({
       userName: user?.name ?? null,
       welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
       calendarConnected: calendarAccountCount > 0,
+      // Google's calendar scopes are still awaiting verification. For users who
+      // aren't allowlisted testers the step isn't "not connected", it's not
+      // available — the Google half of the step is hidden rather than offered.
+      googleCalendarAvailable: isGoogleOAuthTester(ctx.session.user.email),
       state: parseSetupState(user?.welcomeSetupState),
     };
   }),

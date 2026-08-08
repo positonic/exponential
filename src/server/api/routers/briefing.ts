@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { startOfDay, endOfDay, subDays } from "date-fns";
 import { buildProjectAccessWhere } from "~/server/services/access";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 /**
  * Morning Briefing Router
@@ -98,7 +99,10 @@ export const briefingRouter = createTRPCRouter({
 
       // 1. Get calendar events for today across ALL connected Google accounts
       let calendarEvents: BriefingCalendarEvent[] = [];
-      if (input?.includeCalendar !== false) {
+      // Google's calendar scopes are unverified, so non-testers have no usable
+      // Google connection — skip the section rather than calling the API.
+      const calendarAvailable = isGoogleOAuthTester(ctx.session.user.email);
+      if (input?.includeCalendar !== false && calendarAvailable) {
         try {
           // Find every connected Google calendar that has calendar scope
           const googleAccounts = await ctx.db.connectedAccount.findMany({

@@ -22,6 +22,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { GoogleCalendarConnect } from '~/app/_components/GoogleCalendarConnect';
+import { GooglePremiumFeature } from '~/app/_components/GooglePremiumFeature';
 import { CalendarMultiSelect } from '~/app/_components/calendar/CalendarMultiSelect';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
@@ -38,6 +39,9 @@ export default function IntegrationsSettingsPage() {
 
   // Calendar connection status
   const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+  // True while our Google calendar scopes await verification and this user
+  // isn't an allowlisted tester — offer the premium message, not a connect button.
+  const calendarGated = calendarStatus?.gated ?? false;
 
   // Calendar disconnect mutation
   const disconnectCalendar = api.calendar.disconnect.useMutation({
@@ -132,7 +136,9 @@ export default function IntegrationsSettingsPage() {
                 <Text size="xs" c="dimmed">
                   {calendarStatus?.isConnected
                     ? 'Your calendar is connected'
-                    : 'Connect to see your events and schedule'}
+                    : calendarGated
+                      ? 'Available to select users during our verification process'
+                      : 'Connect to see your events and schedule'}
                 </Text>
               </div>
             </Group>
@@ -148,9 +154,15 @@ export default function IntegrationsSettingsPage() {
                 Disconnect
               </Button>
             ) : (
-              <GoogleCalendarConnect isConnected={false} />
+              <GoogleCalendarConnect isConnected={false} gated={calendarGated} />
             )}
           </Group>
+
+          {calendarGated && !calendarStatus?.isConnected && (
+            <div className="mt-4">
+              <GooglePremiumFeature feature="calendar" variant="alert" />
+            </div>
+          )}
 
           {calendarStatus?.isConnected && (
             <div className="mt-4 pt-4 border-t border-border-primary">

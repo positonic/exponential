@@ -69,6 +69,12 @@ export function CalendarEventsToday() {
     );
   }
 
+  // Nothing useful to say while Google verifies our calendar scopes: the user
+  // can't connect, so hide the section rather than nag about settings.
+  if (connectionStatus?.gated) {
+    return null;
+  }
+
   // Show connection prompt if not connected
   if (!connectionStatus?.isConnected) {
     return (

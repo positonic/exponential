@@ -11,6 +11,7 @@ import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
 import { CalendarWeekTimeGrid } from "./CalendarWeekTimeGrid";
 import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
+import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import { EditActionModal } from "~/app/_components/EditActionModal";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
@@ -24,6 +25,9 @@ export function CalendarPageContent() {
   const googleConnected = connectionStatuses?.google?.isConnected ?? false;
   const microsoftConnected = connectionStatuses?.microsoft?.isConnected ?? false;
   const calendarConnected = googleConnected || microsoftConnected;
+  // Google's calendar scopes are pending verification — non-testers get the
+  // premium message instead of a connect button that would dead-end.
+  const googleGated = connectionStatuses?.google?.gated ?? false;
   const {
     view,
     selectedDate,
@@ -343,6 +347,24 @@ export function CalendarPageContent() {
     }
 
     if (!calendarConnected) {
+      // With Google gated, Outlook is the only calendar we can actually
+      // connect — lead with the premium message rather than a broken option.
+      if (googleGated) {
+        return (
+          <div className="flex h-full items-center justify-center">
+            <Stack align="center" gap="lg" className="max-w-lg">
+              <GooglePremiumFeature feature="calendar" variant="card" />
+              <Stack align="center" gap="xs">
+                <Text size="sm" c="dimmed">
+                  Outlook calendars are available now.
+                </Text>
+                <MicrosoftCalendarConnect isConnected={false} />
+              </Stack>
+            </Stack>
+          </div>
+        );
+      }
+
       return (
         <Paper
           p="xl"

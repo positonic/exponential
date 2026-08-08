@@ -61,6 +61,9 @@ export function useWelcomeSetup() {
   const { data, isLoading } = api.welcome.getSetup.useQuery();
   const state = data?.state ?? null;
   const calendarConnected = data?.calendarConnected ?? false;
+  // False while Google is verifying our calendar scopes and this user isn't an
+  // allowlisted tester — the Google half of the calendar step is unavailable.
+  const googleCalendarAvailable = data?.googleCalendarAvailable ?? false;
 
   const applyState = useCallback(
     (nextState: WelcomeSetupState) => {
@@ -171,6 +174,13 @@ export function useWelcomeSetup() {
             return;
           }
           const provider = answer.value === "outlook" ? "outlook" : "google";
+          // Belt and braces: AskBlock disables the Google chip while our
+          // calendar scopes await verification, so this only fires if the
+          // answer arrives another way. Explain rather than dead-end.
+          if (provider === "google" && !googleCalendarAvailable) {
+            router.push("/google-access?feature=calendar");
+            return;
+          }
           try {
             localStorage.setItem(CAL_PROVIDER_STASH, provider);
           } catch {
@@ -185,7 +195,7 @@ export function useWelcomeSetup() {
         }
       }
     },
-    [createGoal, createAction, planDay, setCalendar],
+    [createGoal, createAction, planDay, setCalendar, googleCalendarAvailable, router],
   );
 
   // Back from the calendar OAuth flow: the ConnectedAccount now exists, so
@@ -231,6 +241,7 @@ export function useWelcomeSetup() {
     firstName: data?.userName?.trim().split(/\s+/)[0] ?? null,
     state,
     calendarConnected,
+    googleCalendarAvailable,
     isStepDone,
     nextStep,
     doneCount,

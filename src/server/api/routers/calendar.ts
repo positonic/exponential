@@ -1,9 +1,11 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
 import type { CalendarInfo, CalendarProvider } from "~/server/services/CalendarProvider";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 
@@ -26,6 +28,22 @@ function getAccountProvider(provider: ProviderType): string {
 /** Maps a NextAuth account provider name back to our provider type */
 function toProviderType(accountProvider: string): ProviderType {
   return accountProvider === "microsoft-entra-id" ? "microsoft" : "google";
+}
+
+/**
+ * Whether Google calendar features are closed to this user.
+ *
+ * Google has not finished verifying our calendar scopes, so only allowlisted
+ * testers can complete the consent screen (see `isGoogleOAuthTester`). For
+ * everyone else we behave as though no Google calendar exists rather than
+ * calling the API and surfacing an OAuth error. Microsoft is a separate,
+ * approved OAuth app and is never gated.
+ */
+function isGoogleCalendarGated(
+  email: string | null | undefined,
+  provider: ProviderType,
+): boolean {
+  return provider === "google" && !isGoogleOAuthTester(email);
 }
 
 /** The OAuth scope that grants calendar access for each provider */
@@ -178,6 +196,16 @@ export const calendarRouter = createTRPCRouter({
       const provider = input?.provider ?? "google";
       const accountProvider = getAccountProvider(provider);
 
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) {
+        return {
+          isConnected: false,
+          hasCalendarScope: false,
+          tokenExpired: false,
+          canRefresh: false,
+          gated: true,
+        };
+      }
+
       // Aggregate across ALL of the user's connected accounts for this
       // provider — a user can connect several, so a single findFirst could
       // report the wrong one as (dis)connected.
@@ -208,11 +236,14 @@ export const calendarRouter = createTRPCRouter({
         hasCalendarScope,
         tokenExpired: hasCalendarScope && !anyTokenNotExpired,
         canRefresh,
+        gated: false,
       };
     }),
 
   // Returns connection status for all providers in one call
   getAllConnectionStatuses: protectedProcedure.query(async ({ ctx }) => {
+    const googleGated = isGoogleCalendarGated(ctx.session.user.email, "google");
+
     const accounts = await ctx.db.connectedAccount.findMany({
       where: {
         userId: ctx.session.user.id,
@@ -243,8 +274,10 @@ export const calendarRouter = createTRPCRouter({
     }
 
     return {
-      google: checkStatus("google"),
-      microsoft: checkStatus("microsoft-entra-id"),
+      google: googleGated
+        ? { isConnected: false, hasCalendarScope: false, connectedCount: 0, gated: true }
+        : { ...checkStatus("google"), gated: false },
+      microsoft: { ...checkStatus("microsoft-entra-id"), gated: false },
     };
   }),
 
@@ -272,7 +305,12 @@ export const calendarRouter = createTRPCRouter({
       orderBy: { id: "asc" },
     });
 
-    const connected = accounts.filter((a) => isCalendarConnected(a));
+    // Drop Google accounts entirely while the scopes are unverified — every
+    // entry here triggers a live listCalendars call.
+    const googleGated = isGoogleCalendarGated(ctx.session.user.email, "google");
+    const connected = accounts
+      .filter((a) => isCalendarConnected(a))
+      .filter((a) => !(googleGated && a.provider === "google"));
 
     const result = await Promise.all(
       connected.map(async (account) => {
@@ -309,7 +347,9 @@ export const calendarRouter = createTRPCRouter({
   getTodayEvents: protectedProcedure
     .input(z.object({ provider: providerSchema }).optional())
     .query(async ({ ctx, input }) => {
-      const service = getCalendarService(input?.provider ?? "google");
+      const provider = input?.provider ?? "google";
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
+      const service = getCalendarService(provider);
       return service.getTodayEvents(ctx.session.user.id);
     }),
 
@@ -319,7 +359,9 @@ export const calendarRouter = createTRPCRouter({
       provider: providerSchema,
     }).optional())
     .query(async ({ input, ctx }) => {
-      const service = getCalendarService(input?.provider ?? "google");
+      const provider = input?.provider ?? "google";
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
+      const service = getCalendarService(provider);
       return service.getUpcomingEvents(ctx.session.user.id, input?.days ?? 7);
     }),
 
@@ -333,6 +375,7 @@ export const calendarRouter = createTRPCRouter({
     }))
     .query(async ({ input, ctx }) => {
       const { provider, ...options } = input;
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
       const service = getCalendarService(provider);
       return service.getEvents(ctx.session.user.id, options);
     }),
@@ -347,6 +390,7 @@ export const calendarRouter = createTRPCRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const { provider, ...options } = input;
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
       const service = getCalendarService(provider);
       return service.refreshEvents(ctx.session.user.id, options);
     }),
@@ -426,6 +470,15 @@ export const calendarRouter = createTRPCRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const { provider, ...eventInput } = input;
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Google Calendar is a premium feature that is currently available to " +
+            "select users during our verification process. Contact " +
+            "support@exponential.im to request early access.",
+        });
+      }
       const service = getCalendarService(provider);
       return service.createEvent(ctx.session.user.id, eventInput);
     }),
@@ -444,7 +497,9 @@ export const calendarRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const account = await resolveAccount(ctx.db as DbClient, userId, input);
       if (!account) return [];
-      const service = getCalendarService(toProviderType(account.provider));
+      const provider = toProviderType(account.provider);
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
+      const service = getCalendarService(provider);
       return service.listCalendars(userId, account.id);
     }),
 
@@ -458,7 +513,10 @@ export const calendarRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const account = await resolveAccount(ctx.db as DbClient, userId, input);
 
-      if (!account) {
+      if (
+        !account ||
+        isGoogleCalendarGated(ctx.session.user.email, toProviderType(account.provider))
+      ) {
         return { selectedCalendarIds: ["primary"], allCalendars: [], cacheUpdatedAt: null };
       }
 
@@ -521,9 +579,12 @@ export const calendarRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const account = await resolveAccount(ctx.db as DbClient, userId, input);
       if (!account) {
-        return { success: true, calendars: [] };
+        return { success: true, calendars: [], gated: false };
       }
       const provider = toProviderType(account.provider);
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) {
+        return { success: true, calendars: [], gated: true };
+      }
       const service = getCalendarService(provider);
 
       const calendars = await service.listCalendars(userId, account.id);
@@ -547,6 +608,7 @@ export const calendarRouter = createTRPCRouter({
       return {
         success: true,
         calendars,
+        gated: false,
       };
     }),
 
@@ -579,7 +641,11 @@ export const calendarRouter = createTRPCRouter({
         },
       });
 
-      const connectedAccounts = accounts.filter((a) => isCalendarConnected(a));
+      // Non-testers contribute no Google events — see isGoogleCalendarGated.
+      const googleGated = isGoogleCalendarGated(ctx.session.user.email, "google");
+      const connectedAccounts = accounts
+        .filter((a) => isCalendarConnected(a))
+        .filter((a) => !(googleGated && a.provider === "google"));
 
       const allEvents: Array<{
         accountId: string;

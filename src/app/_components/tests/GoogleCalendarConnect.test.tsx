@@ -83,6 +83,19 @@ describe('GoogleCalendarConnect', () => {
     });
   });
 
+  describe('when Google Calendar is gated', () => {
+    test('offers the premium explainer instead of a connect button', () => {
+      render(<GoogleCalendarConnect isConnected={false} gated />);
+
+      expect(
+        screen.queryByRole('button', { name: /connect google calendar/i }),
+      ).not.toBeInTheDocument();
+
+      const link = screen.getByRole('link', { name: /premium feature/i });
+      expect(link).toHaveAttribute('href', '/google-access?feature=calendar');
+    });
+  });
+
   describe('when calendar is connected', () => {
     test('renders connected state button', () => {
       render(<GoogleCalendarConnect isConnected={true} />);

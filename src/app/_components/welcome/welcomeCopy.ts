@@ -139,6 +139,8 @@ export const COPY = {
   },
   calChips: {
     google: "Google Calendar",
+    /** Shown while our Google calendar scopes are awaiting verification. */
+    googleComingSoon: "Google Calendar (coming soon)",
     outlook: "Outlook",
     skip: "Skip for now",
   },

@@ -1,16 +1,28 @@
 "use client";
 
-import { Button } from "@mantine/core";
-import { IconCalendar, IconCheck } from "@tabler/icons-react";
+import { Button, Tooltip } from "@mantine/core";
+import { IconCalendar, IconCheck, IconLock } from "@tabler/icons-react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
 
 interface GoogleCalendarConnectProps {
   isConnected?: boolean;
+  /**
+   * True when Google Calendar is closed to this user because our calendar
+   * scopes are still awaiting Google verification. Callers read it from
+   * `calendar.getConnectionStatus().gated` or `user.isGoogleOAuthTester`.
+   * Passed in (rather than queried here) so this stays a presentational
+   * button; `/api/auth/google-calendar` re-checks server-side regardless.
+   */
+  gated?: boolean;
 }
 
-export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarConnectProps) {
+export function GoogleCalendarConnect({
+  isConnected = false,
+  gated = false,
+}: GoogleCalendarConnectProps) {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
 
@@ -57,6 +69,26 @@ export function GoogleCalendarConnect({ isConnected = false }: GoogleCalendarCon
     const returnUrl = encodeURIComponent(window.location.pathname + window.location.search);
     window.location.href = `/api/auth/google-calendar?returnUrl=${returnUrl}`;
   };
+
+  if (gated) {
+    return (
+      <Tooltip
+        multiline
+        w={260}
+        label="Google Calendar integration is currently available to select users during our verification process."
+      >
+        <Button
+          component={Link}
+          href="/google-access?feature=calendar"
+          variant="light"
+          color="gray"
+          leftSection={<IconLock size={16} />}
+        >
+          Premium Feature
+        </Button>
+      </Tooltip>
+    );
+  }
 
   if (isConnected) {
     return (
