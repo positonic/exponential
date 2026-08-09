@@ -444,6 +444,14 @@ export const featureRouter = createTRPCRouter({
           // answers a different question: which Objective this Feature serves,
           // versus which specific numbers it is meant to move. The two can
           // legitimately disagree, so neither substitutes for the other.
+          //
+          // No workspace filter on the join, matching `okr.getById`'s mirror
+          // include: a link row cannot cross workspaces in the first place.
+          // Both write paths - `okr.linkFeature` and `okr.updateLinkedFeatures`
+          // - reject a feature whose product is in a different workspace than
+          // the key result, and both rejections are covered by tests. Filtering
+          // here would duplicate that guard and mask, rather than surface, any
+          // future breach of the invariant.
           keyResultLinks: {
             orderBy: { assignedAt: "asc" },
             select: {
