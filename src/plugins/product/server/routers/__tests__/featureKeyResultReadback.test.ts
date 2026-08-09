@@ -86,6 +86,24 @@ const MEMBER_ID = "user-member";
 const WORKSPACE_ID = "ws-1";
 const PRODUCT_ID = "prod-1";
 const FEATURE_ID = "feat-1";
+const KR_ID = "kr-1";
+
+/** A populated join row, so tests can assert on the response and not just the query. */
+const LINK_ROW = {
+  assignedAt: new Date("2026-08-01T00:00:00.000Z"),
+  keyResult: {
+    id: KR_ID,
+    title: "Ship 2 situational analysis modules",
+    period: "Q3-2026",
+    status: "on-track",
+    currentValue: 1,
+    targetValue: 2,
+    unit: "count",
+    unitLabel: null,
+    goalId: 75,
+    goal: { id: 75, title: "Field teams decide faster" },
+  },
+};
 
 /** The nested `keyResultLinks` select, however the router spelled it. */
 type LinkInclude = { select?: { keyResult?: { select?: Record<string, unknown> } } };
@@ -116,8 +134,24 @@ describe("Feature-side key result readback (ADR-0050)", () => {
       db.feature.findUnique.mockResolvedValue({
         id: FEATURE_ID,
         product: { id: PRODUCT_ID, workspaceId: WORKSPACE_ID },
-        keyResultLinks: [],
+        keyResultLinks: [LINK_ROW],
       } as never);
+    });
+
+    it("surfaces the links on the returned feature, under `keyResultLinks`", async () => {
+      const caller = createMockCaller({ userId: MEMBER_ID, db });
+
+      const feature = await caller.product.feature.getById({ id: FEATURE_ID });
+
+      // Asserting the *response* field, not just the query args: a rename of
+      // the relation on the way out would slip past a shape-only assertion.
+      expect(feature.keyResultLinks).toHaveLength(1);
+      expect(feature.keyResultLinks[0]!.keyResult).toMatchObject({
+        id: KR_ID,
+        title: "Ship 2 situational analysis modules",
+        currentValue: 1,
+        targetValue: 2,
+      });
     });
 
     it("requests the linked key results with their progress values", async () => {
@@ -161,7 +195,19 @@ describe("Feature-side key result readback (ADR-0050)", () => {
 
   describe("list", () => {
     beforeEach(() => {
-      db.feature.findMany.mockResolvedValue([] as never);
+      db.feature.findMany.mockResolvedValue([
+        { id: FEATURE_ID, productId: PRODUCT_ID, keyResultLinks: [LINK_ROW] },
+      ] as never);
+    });
+
+    it("surfaces the links on each listed feature", async () => {
+      const caller = createMockCaller({ userId: MEMBER_ID, db });
+
+      const features = await caller.product.feature.list({
+        productId: PRODUCT_ID,
+      });
+
+      expect(features[0]!.keyResultLinks[0]!.keyResult.id).toBe(KR_ID);
     });
 
     it("carries a lean key result shape so one call builds the column", async () => {
