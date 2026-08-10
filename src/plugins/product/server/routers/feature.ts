@@ -315,6 +315,18 @@ export const featureRouter = createTRPCRouter({
           goal: { select: { id: true, title: true, period: true } },
           area: { select: { id: true, name: true, displayOrder: true } },
           tags: { include: { tag: true } },
+          // Lean Key result edges (ADR-0050) so a per-Feature "which numbers
+          // does this move" column can be built from one list call instead of
+          // N `getById`s. Deliberately id+title+period only - the full KR with
+          // its progress values is {@link getById}'s job.
+          keyResultLinks: {
+            orderBy: { assignedAt: "asc" },
+            select: {
+              keyResult: {
+                select: { id: true, title: true, period: true, goalId: true },
+              },
+            },
+          },
           _count: {
             select: { scopes: true, requirements: true, tickets: true },
           },
@@ -427,6 +439,39 @@ export const featureRouter = createTRPCRouter({
             },
           },
           tags: { include: { tag: true } },
+          // The Feature→Key result execution edges (ADR-0050), readable from
+          // this side too. `goal` above is the coarser Objective alignment and
+          // answers a different question: which Objective this Feature serves,
+          // versus which specific numbers it is meant to move. The two can
+          // legitimately disagree, so neither substitutes for the other.
+          //
+          // No workspace filter on the join, matching `okr.getById`'s mirror
+          // include: a link row cannot cross workspaces in the first place.
+          // Both write paths - `okr.linkFeature` and `okr.updateLinkedFeatures`
+          // - reject a feature whose product is in a different workspace than
+          // the key result, and both rejections are covered by tests. Filtering
+          // here would duplicate that guard and mask, rather than surface, any
+          // future breach of the invariant.
+          keyResultLinks: {
+            orderBy: { assignedAt: "asc" },
+            select: {
+              assignedAt: true,
+              keyResult: {
+                select: {
+                  id: true,
+                  title: true,
+                  period: true,
+                  status: true,
+                  currentValue: true,
+                  targetValue: true,
+                  unit: true,
+                  unitLabel: true,
+                  goalId: true,
+                  goal: { select: { id: true, title: true } },
+                },
+              },
+            },
+          },
           // `comments` is a count, not the list: the UI loads the thread lazily
           // via `featureComment.list`, and API callers need to know a discussion
           // exists before paying for it.
