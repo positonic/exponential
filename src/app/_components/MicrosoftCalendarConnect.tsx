@@ -5,6 +5,7 @@ import { IconCalendar, IconCheck } from "@tabler/icons-react";
 import { useSearchParams } from "next/navigation";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
+import { getCalendarErrorMessage } from "./calendar/calendarConnectionMessages";
 
 interface MicrosoftCalendarConnectProps {
   isConnected?: boolean;
@@ -43,28 +44,12 @@ export function MicrosoftCalendarConnect({
     }
 
     if (calendarError) {
-      let errorMessage = "Failed to connect Outlook Calendar.";
-      switch (calendarError) {
-        case "access_denied":
-          errorMessage =
-            "Calendar access was denied. Please try again and grant permissions.";
-          break;
-        case "invalid_request":
-          errorMessage =
-            "Invalid request. Please try connecting again.";
-          break;
-        case "no_refresh_token":
-          errorMessage =
-            "Failed to get long-term access. Please try connecting again.";
-          break;
-        case "token_exchange_failed":
-          errorMessage =
-            "Failed to connect calendar. Please try again.";
-          break;
-      }
       notifications.show({
         title: "Connection Failed",
-        message: errorMessage,
+        message: getCalendarErrorMessage(
+          calendarError,
+          "Failed to connect Outlook Calendar.",
+        ),
         color: "red",
       });
     }

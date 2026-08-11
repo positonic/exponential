@@ -1,8 +1,15 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { notifications } from "@mantine/notifications";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { getCalendarErrorMessage } from "./calendarConnectionMessages";
+
+const OAUTH_RESULT_PARAMS = [
+  "calendar_connected",
+  "microsoft_calendar_connected",
+  "calendar_error",
+] as const;
 
 /**
  * Shows toast notifications for calendar connection/error search params.
@@ -12,22 +19,36 @@ import { useEffect } from "react";
  * so the GoogleCalendarConnect / MicrosoftCalendarConnect components
  * (which only render in the disconnected empty state) never mount, and
  * their identical useEffect never fires.
+ *
+ * The params are stripped from the URL once shown. `useCalendarNavigation`
+ * rebuilds the query string from whatever is currently in it, so leaving them
+ * behind means every later view/date change re-fires the same toast — and a
+ * refresh would replay it too.
  */
 export function useCalendarConnectionToast() {
+  const router = useRouter();
   const searchParams = useSearchParams();
+  // Guards the window between showing a toast and the stripped URL arriving,
+  // during which this effect can run again with the params still present.
+  const shownRef = useRef(false);
+
+  const googleConnected = searchParams.get("calendar_connected");
+  const microsoftConnected = searchParams.get("microsoft_calendar_connected");
+  const calendarError = searchParams.get("calendar_error");
 
   useEffect(() => {
-    const googleConnected = searchParams.get("calendar_connected");
-    const microsoftConnected = searchParams.get(
-      "microsoft_calendar_connected",
-    );
-    const calendarError = searchParams.get("calendar_error");
+    if (!googleConnected && !microsoftConnected && !calendarError) {
+      // Nothing to report — re-arm for a subsequent connect attempt.
+      shownRef.current = false;
+      return;
+    }
+    if (shownRef.current) return;
+    shownRef.current = true;
 
     if (googleConnected === "true") {
       notifications.show({
         title: "Calendar Connected!",
-        message:
-          "Your Google Calendar is now connected and ready to use.",
+        message: "Your Google Calendar is now connected and ready to use.",
         color: "green",
       });
     }
@@ -35,41 +56,32 @@ export function useCalendarConnectionToast() {
     if (microsoftConnected === "true") {
       notifications.show({
         title: "Calendar Connected!",
-        message:
-          "Your Outlook Calendar is now connected and ready to use.",
+        message: "Your Outlook Calendar is now connected and ready to use.",
         color: "green",
       });
     }
 
     if (calendarError) {
-      let errorMessage = "Failed to connect calendar.";
-      switch (calendarError) {
-        case "access_denied":
-          errorMessage =
-            "Calendar access was denied. Please try again and grant permissions.";
-          break;
-        case "invalid_request":
-          errorMessage =
-            "Invalid request. Please try connecting again.";
-          break;
-        case "no_google_account":
-          errorMessage =
-            "Please sign in with Google first, then connect your calendar.";
-          break;
-        case "no_refresh_token":
-          errorMessage =
-            "Failed to get long-term access. Please try connecting again.";
-          break;
-        case "token_exchange_failed":
-          errorMessage =
-            "Failed to connect calendar. Please try again.";
-          break;
-      }
       notifications.show({
         title: "Connection Failed",
-        message: errorMessage,
+        message: getCalendarErrorMessage(calendarError),
         color: "red",
       });
     }
-  }, [searchParams]);
+
+    const params = new URLSearchParams(searchParams.toString());
+    for (const param of OAUTH_RESULT_PARAMS) {
+      params.delete(param);
+    }
+    const query = params.toString();
+    router.replace(query ? `/calendar?${query}` : "/calendar", {
+      scroll: false,
+    });
+  }, [
+    googleConnected,
+    microsoftConnected,
+    calendarError,
+    searchParams,
+    router,
+  ]);
 }
