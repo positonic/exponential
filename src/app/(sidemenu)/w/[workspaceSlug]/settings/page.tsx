@@ -47,6 +47,7 @@ import {
   IconSparkles,
   IconSend,
   IconBug,
+  IconServer,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -59,6 +60,7 @@ import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTab
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
+import { MatrixServerSettings } from '~/app/_components/MatrixServerSettings';
 import { SentrySettings } from '~/app/_components/SentrySettings';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
@@ -1271,6 +1273,19 @@ export default function WorkspaceSettingsPage() {
                 <ZulipSettings
                   workspace={{ id: workspaceId, name: workspace.name }}
                   workspaceSlug={workspace.slug}
+                />
+              </SettingsSection>
+            )}
+
+            {workspaceId && (
+              <SettingsSection
+                icon={IconServer}
+                title="Matrix"
+                description="Register your own Matrix homeserver so meeting summaries can be posted into the rooms your team already uses. The bot posts only; it cannot be messaged back."
+              >
+                <MatrixServerSettings
+                  workspace={{ id: workspaceId, name: workspace.name }}
+                  canManage={canEdit}
                 />
               </SettingsSection>
             )}
