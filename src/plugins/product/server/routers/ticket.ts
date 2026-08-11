@@ -652,10 +652,21 @@ export const ticketRouter = createTRPCRouter({
         tickets.map((t) => [t.productId, t.product.workspaceId]),
       );
       for (const productId of productIds) {
+        // Both collections come from the same `tickets` rows, so a miss is
+        // unreachable — but defaulting to `null` here would quietly *disable*
+        // workspace containment for that product rather than reject, so fail
+        // loudly instead.
+        const refWorkspaceId = workspaceByProduct.get(productId);
+        if (!refWorkspaceId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not resolve the workspace for a selected ticket",
+          });
+        }
         await assertWorkspaceScopedRefs(
           ctx.db,
           ctx.session.user.id,
-          workspaceByProduct.get(productId) ?? null,
+          refWorkspaceId,
           { epicId: input.epicId, cycleId: input.cycleId },
           productId,
         );
