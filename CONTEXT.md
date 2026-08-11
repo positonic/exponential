@@ -4,6 +4,12 @@ Productivity OS that turns meeting transcripts into projects, actions, and decis
 
 ## Language
 
+### Deployment and sovereignty
+
+**Sovereign installation**:
+An Exponential installation that operates without an Exponential-controlled account or control plane. Its operator controls compute, primary data, object storage, credentials and encryption keys, identity, backups and exports, and update timing; it may use external processors explicitly configured by the operator.
+_Avoid_: Self-hosted, BYOC, customer cloud, or air-gapped as synonyms — those terms do not by themselves describe this control boundary.
+
 ### Meetings
 
 **Meeting**:
