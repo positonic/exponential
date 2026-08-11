@@ -108,6 +108,22 @@ describe("resolveFeedHint", () => {
     expect(statusChanged.iconKind).toBe("status_changed");
   });
 
+  it("renders feature events as readable sentences, not the fallback", () => {
+    const created = resolveFeedHint("feature", "created");
+    expect(created.template).toBe("{actor} created feature {entityRef}");
+    expect(created.iconKind).toBe("created");
+
+    const updated = resolveFeedHint("feature", "updated");
+    expect(updated.template).toBe("{actor} updated feature {entityRef}");
+    expect(updated.iconKind).toBe("updated");
+
+    const statusChanged = resolveFeedHint("feature", "status_changed");
+    expect(statusChanged.template).toBe(
+      "{actor} changed status on feature {entityRef}",
+    );
+    expect(statusChanged.iconKind).toBe("status_changed");
+  });
+
   it("renders objective updates distinctly from comments", () => {
     const update = resolveFeedHint("goal_update", "created");
     expect(update.template).toBe(
@@ -149,6 +165,28 @@ describe("resolveFeedHint", () => {
       "{actor} completed the OKR check-in for {entityRef}",
     );
     expect(completed.iconKind).toBe("milestone");
+  });
+
+  it("renders feature scope events against the parent feature's name", () => {
+    // Scopes have no name of their own (only a version), so the write sites
+    // put the parent feature's name in metadata and the templates say so.
+    const created = resolveFeedHint("feature_scope", "created");
+    expect(created.template).toBe(
+      "{actor} added a scope to feature {entityRef}",
+    );
+    expect(created.iconKind).toBe("created");
+
+    const updated = resolveFeedHint("feature_scope", "updated");
+    expect(updated.template).toBe(
+      "{actor} updated a scope on feature {entityRef}",
+    );
+    expect(updated.iconKind).toBe("updated");
+
+    const statusChanged = resolveFeedHint("feature_scope", "status_changed");
+    expect(statusChanged.template).toBe(
+      "{actor} changed a scope status on feature {entityRef}",
+    );
+    expect(statusChanged.iconKind).toBe("status_changed");
   });
 
   it("falls back to a neutral hint for unknown pairs", () => {
