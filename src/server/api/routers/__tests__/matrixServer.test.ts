@@ -75,7 +75,10 @@ import { MATRIX_SERVER_PROVIDER } from "~/server/services/matrix/constants";
 const USER_ID = "user-1";
 const WORKSPACE_ID = "ws-1";
 const TOKEN = "syt_super_secret_token";
-const HOMESERVER = "https://matrix.example.org";
+// localhost, because `register` now runs the SSRF guard before any request leaves the
+// process and `matrix.example.org` does not resolve. Loopback is allowed outside
+// production, which is also how the feature is exercised against a local homeserver.
+const HOMESERVER = "http://localhost:8448";
 const BOT = "@summaries:example.org";
 
 const OK = (body: unknown) =>
@@ -236,6 +239,27 @@ describe("matrixServer.register", () => {
     expect(cred.data.isEncrypted).toBe(true);
     expect(cred.data.key).not.toBe(TOKEN);
     expect(cred.data.key).not.toContain(TOKEN);
+  });
+
+  it.each([
+    ["the cloud metadata endpoint", "https://169.254.169.254"],
+    ["an internal private address", "https://10.0.0.5"],
+    ["plain http on a public host", "http://matrix.example.org"],
+  ])("refuses to register %s, before any request leaves the process", async (_l, url) => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(asRole("owner") as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.register({
+        workspaceId: WORKSPACE_ID,
+        homeserverUrl: url,
+        accessToken: TOKEN,
+      }),
+    ).rejects.toThrow(/private or loopback|must use https/i);
+
+    // The point of the guard: the fetch never happens, so it cannot be used to probe.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(dbMock.integration.create).not.toHaveBeenCalled();
   });
 
   it("refuses to register the same bot on the same homeserver twice", async () => {

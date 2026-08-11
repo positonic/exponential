@@ -83,7 +83,10 @@ describe("MatrixClient.whoami", () => {
     expect(error).toBeInstanceOf(MatrixApiError);
     expect((error as MatrixApiError).isUnauthorized).toBe(true);
     expect((error as MatrixApiError).errcode).toBe("M_UNKNOWN_TOKEN");
-    expect((error as MatrixApiError).message).toBe("Invalid access token");
+    // The errcode is named (controlled vocabulary); the homeserver's free-text
+    // `error` is not repeated back — see the reflection test below.
+    expect((error as MatrixApiError).message).toContain("M_UNKNOWN_TOKEN");
+    expect((error as MatrixApiError).message).not.toContain("Invalid access token");
   });
 
   it("distinguishes an unreachable homeserver (status 0) from a rejected request", async () => {
@@ -97,6 +100,57 @@ describe("MatrixClient.whoami", () => {
     expect((error as MatrixApiError).status).toBe(0);
     expect((error as MatrixApiError).isUnauthorized).toBe(false);
     expect((error as MatrixApiError).message).toContain("Could not reach");
+  });
+
+  it("never follows a redirect, so the bot token cannot be bounced to another host", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 302,
+      json: async () => ({}),
+    } as unknown as Response);
+
+    const error = await makeClient()
+      .whoami()
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(MatrixApiError);
+    expect((error as MatrixApiError).message).toMatch(/redirected the request/i);
+
+    // The request itself must have opted out of redirect-following, or `fetch` would
+    // have re-sent the Authorization header to wherever Location pointed.
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).redirect).toBe("manual");
+  });
+
+  it("treats an opaque redirect as a redirect too", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 0,
+      type: "opaqueredirect",
+      json: async () => ({}),
+    } as unknown as Response);
+
+    const error = await makeClient()
+      .whoami()
+      .catch((e: unknown) => e);
+
+    expect((error as MatrixApiError).message).toMatch(/redirected the request/i);
+  });
+
+  it("does not put the homeserver's own error prose in the thrown message", async () => {
+    // The homeserver is at a user-chosen URL, so its `error` string is attacker
+    // controlled — echoing it would turn a failed request into a readable probe.
+    fetchMock.mockResolvedValue(
+      ERR(500, { errcode: "M_UNKNOWN", error: "root:x:0:0:secret internal detail" }),
+    );
+
+    const error = await makeClient()
+      .whoami()
+      .catch((e: unknown) => e);
+
+    expect((error as MatrixApiError).message).not.toContain("secret internal detail");
+    expect((error as MatrixApiError).message).toContain("M_UNKNOWN");
+    expect((error as MatrixApiError).errcode).toBe("M_UNKNOWN");
   });
 
   it("survives an error body that is not JSON (a proxy's HTML error page)", async () => {

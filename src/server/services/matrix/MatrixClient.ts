@@ -77,6 +77,11 @@ export class MatrixClient {
           Authorization: `Bearer ${this.accessToken}`,
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         },
+        // Never follow a redirect: `fetch` would re-send the bot's access token to
+        // wherever the redirect points, so a hostile or misconfigured homeserver could
+        // bounce us to a host it controls and collect the credential. The token stays
+        // pinned to the registered origin.
+        redirect: "manual",
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
     } catch (error) {
@@ -90,10 +95,25 @@ export class MatrixClient {
       );
     }
 
+    // With redirect: "manual" a 3xx arrives here as an ordinary not-ok response
+    // (undici) or as an opaque redirect (status 0). Either way it is not an answer.
+    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+      throw new MatrixApiError(
+        "The homeserver redirected the request. Point the URL directly at the Client-Server API base.",
+        response.status,
+      );
+    }
+
     if (!response.ok) {
       const parsed = await this.readErrorBody(response);
       throw new MatrixApiError(
-        parsed.error ?? `Matrix request failed (${response.status})`,
+        // The homeserver's own `error` string is attacker-controlled for a URL the
+        // user chose, so it is kept on the error object for logging but deliberately
+        // not used as the message the router echoes back. `errcode` is a controlled
+        // vocabulary and is safe to name.
+        parsed.errcode
+          ? `Matrix request failed (${response.status} ${parsed.errcode})`
+          : `Matrix request failed (${response.status})`,
         response.status,
         parsed.errcode,
       );

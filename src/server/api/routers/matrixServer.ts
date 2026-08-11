@@ -31,6 +31,10 @@ import {
   listMatrixServers,
 } from "~/server/services/matrix/matrixServer";
 import { reportHandledError } from "~/lib/reportHandledError";
+import {
+  assertSafeHomeserverUrl,
+  UnsafeHomeserverUrlError,
+} from "~/server/services/matrix/homeserverUrl";
 
 /** Only owners and admins may register or remove a workspace's messaging credentials. */
 const MANAGE_ROLES = ["owner", "admin"] as const;
@@ -54,9 +58,15 @@ function describeMatrixFailure(error: unknown, homeserverUrl: string): TRPCError
           "The homeserver rejected that access token. Check it was copied in full and belongs to this homeserver.",
       });
     }
+    // Deliberately does not include the homeserver's own error text: the URL is
+    // user-chosen, so that string is attacker-controlled and echoing it turns a
+    // failed request into a readable probe of whatever the app server can reach.
+    // The errcode is a controlled vocabulary, so naming it is safe and useful.
     return new TRPCError({
       code: "BAD_REQUEST",
-      message: `The homeserver refused the request: ${error.message}`,
+      message: error.errcode
+        ? `The homeserver refused the request (${error.errcode}).`
+        : `The homeserver refused the request (HTTP ${error.status}).`,
     });
   }
   return new TRPCError({
@@ -91,6 +101,18 @@ export const matrixServerRouter = createTRPCRouter({
       );
 
       const homeserverUrl = normalizeHomeserverUrl(input.homeserverUrl);
+
+      // Before any request leaves this process: registering a homeserver is the one
+      // place a user hands us a URL to fetch, and the URL is persisted and re-fetched
+      // by every later room listing.
+      try {
+        await assertSafeHomeserverUrl(homeserverUrl);
+      } catch (error) {
+        if (error instanceof UnsafeHomeserverUrlError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw error;
+      }
 
       const client = new MatrixClient({
         homeserverUrl,
