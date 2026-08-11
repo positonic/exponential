@@ -224,10 +224,23 @@ export const authConfig = {
           // requests leave N simultaneously-valid codes and the odds of a
           // blind guess landing scale linearly with N — on an endpoint we
           // can't rate limit. `expires` is issue time + maxAge, so "older" is
-          // exactly "expires sooner", which avoids re-deriving the token hash
-          // here. The current row may not be written yet (Auth.js runs its
-          // create concurrently with this callback); either ordering is fine,
-          // since the filter can only ever match strictly earlier rows.
+          // exactly "expires sooner".
+          //
+          // Retiring a still-unused code is the point, not a side effect: ask
+          // for a second code and the first stops working. Auth.js writes the
+          // new row concurrently with this callback, but the comparison is
+          // strict, so a request can never delete its own row whichever way
+          // that race lands.
+          //
+          // Deliberately not keyed off the token hash, which would identify
+          // "mine" exactly: that means re-deriving `sha256(token + secret)`,
+          // and if `AUTH_SECRET` ever becomes an array for rotation the hash
+          // silently diverges and this deletes the live row instead of the
+          // stale ones — sign-in breaks for everyone. The residual cost of the
+          // timestamp approach is far smaller: two near-simultaneous requests
+          // for one address, on instances whose clocks disagree by more than
+          // the gap between them, can retire the newer code instead of the
+          // older. The user asks for another code.
           //
           // Emails only: legacy API-key rows share this table under an
           // `api-key:<userId>:<uid>` identifier, which never matches.
