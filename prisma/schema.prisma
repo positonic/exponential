@@ -2718,11 +2718,12 @@ model KnowledgePage {
   @@index([createdById])
 }
 
-/// Discussion note on a Knowledge Page — the doc-level comment feed under the
-/// page body, same card + composer pattern as FeatureComment's feature-level
-/// feed. No anchored threads: page bodies carry no `comment` marks, so the
-/// model stays flat (no threadId/parentId/quotedText until a real need).
-/// Bodies are Markdown (ADR-0017).
+/// Comment on a Knowledge Page. Two flavours share the table, same shape as
+/// FeatureComment: doc-level rows (threadId null) form the flat Activity feed
+/// under the page body; anchored rows (threadId set) pin a discussion thread
+/// to a `comment` mark in `KnowledgePage.bodyDoc`, with `quotedText` as the
+/// orphan-rendering snapshot and `resolvedAt` settling a thread without
+/// deleting it. Bodies are Markdown (ADR-0017).
 model KnowledgePageComment {
   id          String    @id @default(cuid())
   pageId      String
