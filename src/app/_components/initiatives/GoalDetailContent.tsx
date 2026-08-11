@@ -459,9 +459,12 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                 </Group>
 
                 {latestComment && (
-                  <Text size="sm" className="text-text-primary mb-3">
-                    {latestComment.content}
-                  </Text>
+                  <div className="mb-3">
+                    <MarkdownRenderer
+                      content={latestComment.content}
+                      variant="compact"
+                    />
+                  </div>
                 )}
 
                 <Group gap="sm" mt="xs">
