@@ -85,6 +85,36 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "commented",
   },
 
+  // Features (product plugin) — the feature name rides in metadata so
+  // {entityRef} renders the name, not a raw CUID.
+  [key("feature", "created")]: {
+    template: "{actor} created feature {entityRef}",
+    iconKind: "created",
+  },
+  [key("feature", "updated")]: {
+    template: "{actor} updated feature {entityRef}",
+    iconKind: "updated",
+  },
+  [key("feature", "status_changed")]: {
+    template: "{actor} changed status on feature {entityRef}",
+    iconKind: "status_changed",
+  },
+
+  // Feature scopes — metadata.name carries "<feature name> <version>" (e.g.
+  // "Onboarding V1") so {entityRef} reads naturally without a second token.
+  [key("feature_scope", "created")]: {
+    template: "{actor} added scope {entityRef}",
+    iconKind: "created",
+  },
+  [key("feature_scope", "updated")]: {
+    template: "{actor} updated scope {entityRef}",
+    iconKind: "updated",
+  },
+  [key("feature_scope", "status_changed")]: {
+    template: "{actor} changed status on scope {entityRef}",
+    iconKind: "status_changed",
+  },
+
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
   [key("project", "created")]: {
