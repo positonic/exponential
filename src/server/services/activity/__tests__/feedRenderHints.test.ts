@@ -108,6 +108,26 @@ describe("resolveFeedHint", () => {
     expect(statusChanged.iconKind).toBe("status_changed");
   });
 
+  it("renders objective updates distinctly from comments", () => {
+    const update = resolveFeedHint("goal_update", "created");
+    expect(update.template).toBe(
+      "{actor} posted an update on objective {entityRef}",
+    );
+    expect(update.iconKind).toBe("created");
+
+    const goalComment = resolveFeedHint("goal_comment", "created");
+    expect(goalComment.template).toBe(
+      "{actor} commented on objective {entityRef}",
+    );
+    expect(goalComment.iconKind).toBe("commented");
+
+    const krComment = resolveFeedHint("key_result_comment", "created");
+    expect(krComment.template).toBe(
+      "{actor} commented on key result {entityRef}",
+    );
+    expect(krComment.iconKind).toBe("commented");
+  });
+
   it("renders a KR check-in with glossary copy and the tracked icon", () => {
     const hint = resolveFeedHint("key_result", "checked_in");
     expect(hint.template).toBe("{actor} checked in on key result {entityRef}");

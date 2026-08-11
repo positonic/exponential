@@ -17,7 +17,9 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
 
   const goal = await ctx.db.goal.findUnique({
     where: { id: goalId },
-    select: { id: true, userId: true, driUserId: true, workspaceId: true },
+    // `title` rides along for the activity-feed write sites (bare rows carry
+    // the objective title) so instrumented callers don't re-fetch the row.
+    select: { id: true, userId: true, driUserId: true, workspaceId: true, title: true },
   });
 
   if (!goal) throw new Error("Goal not found");
@@ -62,7 +64,7 @@ export async function createGoalUpdate({
   content: string;
   health: GoalUpdateHealth;
 }) {
-  await verifyGoalAccess({ ctx, goalId });
+  const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
@@ -89,6 +91,23 @@ export async function createGoalUpdate({
     }),
   ]);
 
+  // Surface the posted update in the workspace feed — distinct from comment
+  // events. This seam covers both the human router and Zoe's mastra proxy
+  // (ADR-0016). metadata.goalId is the drawer target; personal objectives are
+  // silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId,
+      entityType: "goal_update",
+      entityId: update!.id,
+      action: "created",
+      metadata: { title: goal.title, goalId },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
   return update;
 }
 
@@ -112,12 +131,12 @@ export async function createGoalComment({
   content: string;
   parentUpdateId?: string | null;
 }) {
-  await verifyGoalAccess({ ctx, goalId });
+  const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
 
-  return ctx.db.goalComment.create({
+  const comment = await ctx.db.goalComment.create({
     data: {
       goalId,
       authorId: userId,
@@ -128,6 +147,24 @@ export async function createGoalComment({
       author: { select: { id: true, name: true, image: true } },
     },
   });
+
+  // Surface the comment in the workspace feed. This seam covers both the
+  // human router and Zoe's mastra proxy (ADR-0016). metadata.goalId is the
+  // drawer target; personal objectives are silent. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId,
+      entityType: "goal_comment",
+      entityId: comment.id,
+      action: "created",
+      metadata: { title: goal.title, goalId },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return comment;
 }
 
 export async function getMyPublicGoals({ ctx }: { ctx: Context }) {

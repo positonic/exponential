@@ -252,6 +252,88 @@ describe("okr.create / okr.delete → activity feed", () => {
   });
 });
 
+describe("okr comment paths → activity feed", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  const GOAL_ROW = {
+    id: 42,
+    userId: OWNER_ID,
+    workspaceId: WORKSPACE_ID,
+    title: "Grow revenue",
+  };
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
+    db.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: WORKSPACE_ID,
+    } as never);
+    db.teamUser.findFirst.mockResolvedValue(null as never);
+    db.goal.findUnique.mockResolvedValue(GOAL_ROW as never);
+    db.goalComment.create.mockResolvedValue({ id: "cmt-1" } as never);
+    db.keyResult.findFirst.mockResolvedValue(KR_ROW as never);
+    db.keyResultComment.create.mockResolvedValue({ id: "krc-1" } as never);
+  });
+
+  it("okr.addGoalComment records goal_comment/created with the same shape as the service seam", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.addGoalComment({ goalId: 42, content: "Looks good" });
+
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        userId: OWNER_ID,
+        entityType: "goal_comment",
+        entityId: "cmt-1",
+        action: "created",
+        metadata: { title: GOAL_ROW.title, goalId: 42 },
+      },
+    });
+  });
+
+  it("okr.addKeyResultComment records key_result_comment/created with the KR drawer target", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.addKeyResultComment({
+      keyResultId: KR_ID,
+      content: "On it",
+    });
+
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        userId: OWNER_ID,
+        entityType: "key_result_comment",
+        entityId: "krc-1",
+        action: "created",
+        metadata: { title: KR_ROW.title, keyResultId: KR_ID },
+      },
+    });
+  });
+
+  it("logs nothing for comments on personal rows", async () => {
+    db.goal.findUnique.mockResolvedValue({
+      ...GOAL_ROW,
+      workspaceId: null,
+    } as never);
+    db.keyResult.findFirst.mockResolvedValue({
+      ...KR_ROW,
+      workspaceId: null,
+    } as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.addGoalComment({ goalId: 42, content: "Hi" });
+    await caller.okr.addKeyResultComment({ keyResultId: KR_ID, content: "Hi" });
+
+    expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+  });
+});
+
 describe("manual status overrides → activity feed", () => {
   let db: DeepMockProxy<PrismaClient>;
 

@@ -1576,7 +1576,7 @@ export const keyResultRouter = createTRPCRouter({
       // workspace. Shared-workspace OKRs are commentable by members.
       const goal = await ctx.db.goal.findUnique({
         where: { id: input.goalId },
-        select: { id: true, userId: true, workspaceId: true },
+        select: { id: true, userId: true, workspaceId: true, title: true },
       });
 
       if (!goal) {
@@ -1611,6 +1611,23 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
       });
+
+      // Second, direct write path for objective comments — same event shape as
+      // goalService.createGoalComment (kept inline because this procedure's
+      // access check deliberately differs from verifyGoalAccess). Personal
+      // objectives are silent. Fire-and-forget.
+      if (goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: { title: goal.title, goalId: input.goalId },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return comment;
     }),
@@ -1717,6 +1734,22 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
       });
+
+      // Surface the comment in the workspace feed. metadata.keyResultId is the
+      // drawer target (entityId is the comment row). Personal KRs are silent.
+      // Fire-and-forget.
+      if (keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: { title: keyResult.title, keyResultId: keyResult.id },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return comment;
     }),

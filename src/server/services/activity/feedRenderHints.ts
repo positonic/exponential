@@ -116,6 +116,17 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "deleted",
   },
 
+  // Objective updates (health-bearing check-ins) are distinct from comments;
+  // {entityRef} is the parent objective's title.
+  [key("goal_update", "created")]: {
+    template: "{actor} posted an update on objective {entityRef}",
+    iconKind: "created",
+  },
+  [key("goal_comment", "created")]: {
+    template: "{actor} commented on objective {entityRef}",
+    iconKind: "commented",
+  },
+
   // Key results — rendered copy says "key result" per the glossary even
   // though the stored entityType stays schema-flavoured. A check-in reuses the
   // "tracked" icon kind (clock) so progress logging reads distinctly from
@@ -135,6 +146,10 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("key_result", "deleted")]: {
     template: "{actor} deleted key result {entityRef}",
     iconKind: "deleted",
+  },
+  [key("key_result_comment", "created")]: {
+    template: "{actor} commented on key result {entityRef}",
+    iconKind: "commented",
   },
 
   // Weekly review — a completed review is a team-visible milestone. Self-contained

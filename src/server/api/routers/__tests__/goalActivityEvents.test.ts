@@ -12,6 +12,11 @@
  *   write records nothing.
  * - goal.updateGoal (goalService seam) records a status event only when the
  *   status actually changes — plain field edits are silent.
+ * - goalUpdate.addUpdate / goalComment.addComment (goalService seams, shared
+ *   with Zoe's mastra proxies per ADR-0016) record one `goal_update`/`created`
+ *   / `goal_comment`/`created` event whose entityId is the new row and whose
+ *   metadata carries the objective title + goalId (the drawer target) — never
+ *   the content.
  * - Personal (non-workspace) objectives never log.
  *
  * Uses `vitest-mock-extended`'s `mockDeep<PrismaClient>()` — no real DB, ever
@@ -220,6 +225,80 @@ describe("objective lifecycle → activity feed", () => {
       const caller = createMockCaller({ userId: OWNER_ID, db });
 
       await caller.goal.updateGoal({ id: GOAL_ID, title: "Renamed" });
+
+      expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("addUpdate / addComment (goalService seams)", () => {
+    beforeEach(() => {
+      db.goal.findUnique.mockResolvedValue(GOAL_ROW as never);
+      db.goalUpdate.create.mockResolvedValue({ id: "upd-1" } as never);
+      db.goalComment.create.mockResolvedValue({ id: "cmt-1" } as never);
+      // Array-transaction passthrough (createGoalUpdate writes in one).
+      db.$transaction.mockImplementation((async (arg: unknown) =>
+        typeof arg === "function"
+          ? (arg as (tx: PrismaClient) => unknown)(db)
+          : Promise.all(arg as Promise<unknown>[])) as never);
+    });
+
+    it("records one goal_update/created event with the objective title + goalId", async () => {
+      const caller = createMockCaller({ userId: OWNER_ID, db });
+
+      await caller.goalUpdate.addUpdate({
+        goalId: GOAL_ID,
+        content: "Shipped the first milestone",
+        health: "on-track",
+      });
+
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+        data: {
+          workspaceId: WORKSPACE_ID,
+          userId: OWNER_ID,
+          entityType: "goal_update",
+          entityId: "upd-1",
+          action: "created",
+          // Bare rows: no content snippet, no health value.
+          metadata: { title: GOAL_ROW.title, goalId: GOAL_ID },
+        },
+      });
+    });
+
+    it("records one goal_comment/created event distinct from updates", async () => {
+      const caller = createMockCaller({ userId: OWNER_ID, db });
+
+      await caller.goalComment.addComment({
+        goalId: GOAL_ID,
+        content: "Nice progress!",
+      });
+
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+        data: {
+          workspaceId: WORKSPACE_ID,
+          userId: OWNER_ID,
+          entityType: "goal_comment",
+          entityId: "cmt-1",
+          action: "created",
+          metadata: { title: GOAL_ROW.title, goalId: GOAL_ID },
+        },
+      });
+    });
+
+    it("logs nothing on a personal objective", async () => {
+      db.goal.findUnique.mockResolvedValue({
+        ...GOAL_ROW,
+        workspaceId: null,
+      } as never);
+      const caller = createMockCaller({ userId: OWNER_ID, db });
+
+      await caller.goalUpdate.addUpdate({
+        goalId: GOAL_ID,
+        content: "Update",
+        health: "on-track",
+      });
+      await caller.goalComment.addComment({ goalId: GOAL_ID, content: "Hi" });
 
       expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
     });
