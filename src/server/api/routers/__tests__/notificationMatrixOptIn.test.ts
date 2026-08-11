@@ -66,6 +66,10 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import {
+  fakeIntegrationFindFirst,
+  SYSTEM_MATRIX_INTEGRATION,
+} from "~/test/matrixIntegrationFixtures";
 
 const USER_ID = "user-1";
 const MATRIX_INT = { id: "int-matrix", provider: "matrix", status: "ACTIVE" };
@@ -94,6 +98,26 @@ describe("notification.getMatrixOptIn", () => {
     await expect(caller.notification.getMatrixOptIn()).resolves.toEqual({
       available: false,
       integrationId: null,
+    });
+  });
+
+  it("resolves the system row, not a workspace-registered Matrix server", async () => {
+    // Both a workspace homeserver and the shared gateway row exist, and the
+    // workspace ones are userId: null too. Only the workspaceId: null constraint
+    // keeps them apart.
+    dbMock.integration.findFirst.mockImplementation(
+      fakeIntegrationFindFirst() as never,
+    );
+    dbMock.integrationUserMapping.findFirst.mockResolvedValue({
+      userId: USER_ID,
+      integrationId: SYSTEM_MATRIX_INTEGRATION.id,
+      externalUserId: "@james:syntro.fi",
+    } as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(caller.notification.getMatrixOptIn()).resolves.toEqual({
+      available: true,
+      integrationId: SYSTEM_MATRIX_INTEGRATION.id,
     });
   });
 

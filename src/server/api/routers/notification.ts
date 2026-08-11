@@ -8,6 +8,7 @@ import {
   CHANNEL_LIST,
   DEFAULT_MATRIX,
 } from "~/server/services/notifications/emit/constants";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 
 /**
  * Which opt-in channels the user has actually connected — Push/Email are
@@ -16,7 +17,7 @@ import {
  */
 async function resolveChannelAvailability(db: PrismaClient, userId: string) {
   const matrixIntegration = await db.integration.findFirst({
-    where: { provider: "matrix", status: "ACTIVE", userId: null },
+    where: SHARED_MATRIX_INTEGRATION_WHERE,
     select: { id: true },
   });
   const [matrixMapping, zulipMapping, whatsappMapping] = await Promise.all([
@@ -82,7 +83,7 @@ export const notificationRouter = createTRPCRouter({
   // by itself; the user must choose Matrix here. (V2, ADR-0043)
   getMatrixOptIn: protectedProcedure.query(async ({ ctx }) => {
     const integration = await ctx.db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     if (!integration) return { available: false, integrationId: null };
 
@@ -99,7 +100,7 @@ export const notificationRouter = createTRPCRouter({
   // scheduler), so opt-in can be verified on the spot. Requires a Matrix mapping.
   sendMatrixTest: protectedProcedure.mutation(async ({ ctx }) => {
     const integration = await ctx.db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     const mapping = integration
       ? await ctx.db.integrationUserMapping.findFirst({

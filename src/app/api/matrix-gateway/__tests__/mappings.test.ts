@@ -8,6 +8,10 @@ vi.mock("~/server/db", () => ({ db: mockDeep<PrismaClient>() }));
 import { db } from "~/server/db";
 import { POST, GET, DELETE } from "../mappings/route";
 import { POST as refreshToken } from "../refresh-token/route";
+import {
+  fakeIntegrationFindFirst,
+  SYSTEM_MATRIX_INTEGRATION,
+} from "~/test/matrixIntegrationFixtures";
 
 const dbMock = db as unknown as DeepMockProxy<PrismaClient>;
 
@@ -147,6 +151,29 @@ describe("GET /api/matrix-gateway/mappings", () => {
     const res = await GET(makeRequest("GET", { secret: SECRET }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ mappings: [] });
+  });
+
+  it("reads the system row's mappings, not a workspace Matrix server's", async () => {
+    // A workspace-registered homeserver is an Integration with userId: null too,
+    // so a lookup that forgets workspaceId: null can return it and hand the
+    // gateway an empty (or foreign) mapping set.
+    dbMock.integration.findFirst.mockImplementation(
+      fakeIntegrationFindFirst() as never,
+    );
+    dbMock.integrationUserMapping.findMany.mockResolvedValue([
+      { externalUserId: "@james:syntro.fi", userId: "u1" },
+    ] as never);
+
+    const res = await GET(makeRequest("GET", { secret: SECRET }));
+
+    expect(await res.json()).toEqual({
+      mappings: [{ mxid: "@james:syntro.fi", userId: "u1" }],
+    });
+    expect(dbMock.integrationUserMapping.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { integrationId: SYSTEM_MATRIX_INTEGRATION.id },
+      }),
+    );
   });
 
   it("returns persisted mappings as { mxid, userId }", async () => {

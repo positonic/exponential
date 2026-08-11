@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateJWT } from "~/server/utils/jwt";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 
 const MATRIX_GATEWAY_URL =
   process.env.MATRIX_GATEWAY_URL ?? "http://localhost:4114";
@@ -41,7 +42,7 @@ export const matrixGatewayRouter = createTRPCRouter({
     const mapping = await ctx.db.integrationUserMapping.findFirst({
       where: {
         userId: ctx.session.user.id,
-        integration: { provider: "matrix", status: "ACTIVE", userId: null },
+        integration: SHARED_MATRIX_INTEGRATION_WHERE,
       },
     });
 
@@ -147,7 +148,7 @@ export const matrixGatewayRouter = createTRPCRouter({
     await ctx.db.integrationUserMapping.deleteMany({
       where: {
         userId: ctx.session.user.id,
-        integration: { provider: "matrix", status: "ACTIVE", userId: null },
+        integration: SHARED_MATRIX_INTEGRATION_WHERE,
       },
     });
 
