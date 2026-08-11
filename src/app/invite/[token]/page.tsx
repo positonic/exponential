@@ -24,6 +24,11 @@ import { signIn, signOut } from "next-auth/react";
 import { type FormEvent, useMemo, useState } from "react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
+import {
+  normalizeSignInEmail,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from "~/lib/signInCode";
 import Image from "next/image";
 import Link from "next/link";
 import "~/styles/auth-surface.css";
@@ -267,6 +272,7 @@ function InviteLandingPage({
   token: string;
   invitation: InvitationData;
 }) {
+  const router = useRouter();
   const callbackUrl = `/invite/${token}`;
   const workspaceName = invitation.workspace.name;
   const workspaceSlug = invitation.workspace.slug;
@@ -303,10 +309,17 @@ function InviteLandingPage({
     setPendingProvider(provider);
     try {
       if (provider === "postmark") {
+        // Email sign-in delivers a typed code, not a link (ADR-0056), so hand
+        // the identifier to the verify page and drive the navigation ourselves.
+        const identifier = normalizeSignInEmail(targetEmail ?? invitation.email);
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
         await signIn("postmark", {
-          email: targetEmail ?? invitation.email,
+          email: identifier,
           callbackUrl,
+          redirect: false,
         });
+        router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
@@ -472,7 +485,7 @@ function InviteLandingPage({
 
             <div className="or-div">
               <span className="or-div__line" />
-              <span className="or-div__txt">or email a magic link</span>
+              <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
 
