@@ -1,0 +1,139 @@
+# Daily liveness check on EXPONENTIAL_TOKEN.
+#
+# Four workflows (exponential-promote, exponential-requirements, ai-bug-fixer,
+# notion-sync-smoke) authenticate with this one secret. When it stopped working
+# on 2026-08-10 they all went red -- and nobody noticed for a day, because none
+# of them is a required check. Every PR merged green while its Ticket sat
+# unpromoted in QA.
+#
+# This job exists to turn that silence into a notification. It does NOT protect
+# merges: promotion is tracker bookkeeping and must never block shipping. It
+# opens a GitHub issue instead, which reaches watchers by email and mobile.
+#
+# It checks two things deliberately, not one:
+#   auth login  -- the credential is accepted at all (expiry, revocation, rotation)
+#   tickets list -- the principal can still READ THROUGH a product
+# The second matters because the token may become an external agent key, whose
+# workspace grants can be revoked independently of the key. An agent key that
+# authenticates but has lost its grant would otherwise fail late, inside a real
+# promote run, which is a worse failure than the one this replaces.
+name: Exponential Auth Canary
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC, ahead of the working day
+  workflow_dispatch:
+
+concurrency:
+  group: exponential-auth-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  EXPO_API_URL: https://www.exponential.im
+  EXPO_PRODUCT: exponential
+  EXPO_WORKSPACE: syntrofi
+  ISSUE_TITLE: "EXPONENTIAL_TOKEN is not authenticating"
+
+jobs:
+  canary:
+    name: Check EXPONENTIAL_TOKEN
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: npm i -g exponential-cli
+
+      # continue-on-error so the alarm step below always gets to run. The final
+      # step re-raises, so a broken token still shows red in the Actions tab.
+      - name: Check credential
+        id: check
+        continue-on-error: true
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EXPO_TOKEN:-}" ]; then
+            echo "::error::EXPONENTIAL_TOKEN secret is unset"; exit 1
+          fi
+          exponential auth login --token "$EXPO_TOKEN" --api-url "$EXPO_API_URL"
+          exponential auth whoami
+          # Read through the product the promote/requirements hooks actually use.
+          exponential tickets list \
+            --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" \
+            --status QA --json > /tmp/canary.json
+          # Assert the SHAPE, not the count. `.tickets | length` would be 0 for
+          # an error payload like {"error":{"code":"UNAUTHORIZED"}} too, and
+          # `jq -e` exits 0 on a 0, so that check would pass on a failure. An
+          # empty QA list is the normal healthy case, so the count proves nothing.
+          jq -e '.tickets | type == "array"' /tmp/canary.json > /dev/null
+          echo "OK -- read $(jq '.tickets | length' /tmp/canary.json) QA ticket(s) through product $EXPO_PRODUCT"
+
+      - name: Raise the alarm
+        if: steps.check.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # One issue, reused. A new issue every morning would train everyone to
+          # ignore them; a comment on the open one keeps the thread and the
+          # notification.
+          EXISTING=$(gh issue list --state open --limit 50 \
+            --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+
+          BODY=$(cat <<EOF
+          The daily canary could not authenticate to Exponential with the
+          \`EXPONENTIAL_TOKEN\` repo secret.
+
+          **What is broken while this is red:** \`exponential-promote\` (Tickets
+          stay stranded in QA when their PR merges), \`exponential-requirements\`,
+          \`ai-bug-fixer\`, and \`notion-sync-smoke\`. None of them is a required
+          check, so PRs will keep merging green.
+
+          **Fix:** re-set the secret from a valid login, without the value ever
+          touching your shell history --
+
+          \`\`\`bash
+          gh secret set EXPONENTIAL_TOKEN < <(exponential auth show --token)
+          \`\`\`
+
+          Then re-run the most recent failed \`exponential-promote\` run and
+          sweep any Tickets left in QA whose PR is already merged.
+
+          [Canary run log]($RUN_URL)
+          EOF
+          )
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "Commented on existing issue $EXISTING"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "$BODY"
+          fi
+
+      - name: Re-raise the failure
+        if: steps.check.outcome != 'success'
+        run: exit 1
+
+      # Close the alarm once the credential works again, so the open issue is a
+      # truthful signal rather than something to be manually tidied.
+      - name: Stand down
+        if: steps.check.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --state open --limit 50 \
+            --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "Canary is green again -- the credential authenticates and can read tickets."
+          fi
