@@ -1,6 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useRef } from "react";
 
@@ -19,11 +19,13 @@ import { useEffect, useRef } from "react";
  * since it returns to this page still disconnected and with `calendar_error`
  * set. Pass the connection state and the two paths stay mutually exclusive.
  */
-export function useCalendarConnectionToast(enabled = true) {
+export function useCalendarConnectionToast(enabled: boolean) {
   const searchParams = useSearchParams();
-  // The params survive in the URL after the toast, and `enabled` flips once
-  // the connection query resolves — so without this the same success toast
-  // fires again on the next render that changes either dependency.
+  const router = useRouter();
+  const pathname = usePathname();
+  // Guards the window between showing a toast and the URL rewrite below
+  // committing, during which this effect can re-run with the params still
+  // present.
   const alreadyShown = useRef(false);
 
   useEffect(() => {
@@ -89,6 +91,18 @@ export function useCalendarConnectionToast(enabled = true) {
     // navigation.
     if (googleConnected === "true" || microsoftConnected === "true" || calendarError) {
       alreadyShown.current = true;
+
+      // Strip the params so the toast is a one-off. They are consumed here
+      // and nowhere else, and leaving them in place replays the toast on
+      // every reload or remount — a ref only lives as long as the mount.
+      const remaining = new URLSearchParams(searchParams);
+      remaining.delete("calendar_connected");
+      remaining.delete("microsoft_calendar_connected");
+      remaining.delete("calendar_error");
+      const query = remaining.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
     }
-  }, [searchParams, enabled]);
+  }, [searchParams, enabled, router, pathname]);
 }
