@@ -113,6 +113,10 @@ export const epicRouter = createTRPCRouter({
             select: { id: true, name: true, email: true, image: true },
           },
           product: { select: { id: true, name: true, slug: true } },
+          // The detail page canonicalises its own URL, which needs the epic's
+          // workspace slug — membership is checked against the epic's
+          // workspace, not the one in the address bar, so the two can differ.
+          workspace: { select: { id: true, slug: true } },
           actions: {
             select: {
               id: true,

@@ -83,6 +83,7 @@ export default function EpicDetailPage() {
   const params = useParams();
   const epicId = params.epicId as string;
   const productSlug = params.productSlug as string;
+  const workspaceSlug = params.workspaceSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
 
@@ -126,23 +127,28 @@ export default function EpicDetailPage() {
     },
   });
 
-  // An epic has exactly one canonical URL — the one under its own product.
-  // `getById` gates on workspace membership, not on the product in the path,
-  // so without this an epic reached through a sibling product's URL would
-  // render under that product's breadcrumbs and tab bar. Canonicalise instead
-  // of 404ing: the reader is entitled to see it, just not there. A
-  // product-less epic (pre-backfill) has no canonical URL yet, so it stays
-  // wherever it was opened — that is how it gets assigned one.
-  const wrongProduct =
-    !!epic?.product && epic.product.slug !== productSlug;
+  // An epic has exactly one canonical URL: its own workspace *and* its own
+  // product. `getById` gates on membership of the epic's workspace, not on
+  // either slug in the address bar, so a user in two workspaces can reach a
+  // foreign epic through this route and have it render under the wrong
+  // breadcrumbs — and rebuilding the path from the URL's own workspace would
+  // point at a product that does not exist there. Both segments therefore come
+  // from the epic itself. Canonicalise rather than 404: the reader is entitled
+  // to see it, just not here. A product-less epic (pre-backfill) has no
+  // canonical URL yet, so it stays wherever it was opened — that is how it
+  // gets assigned one.
+  const canonicalPath =
+    epic?.product && epic.workspace
+      ? `/w/${epic.workspace.slug}/products/${epic.product.slug}/epics/${epicId}`
+      : null;
+  const misplaced =
+    canonicalPath !== null &&
+    (epic!.product!.slug !== productSlug ||
+      epic!.workspace.slug !== workspaceSlug);
 
   useEffect(() => {
-    if (wrongProduct && epic?.product && workspace?.slug) {
-      router.replace(
-        `/w/${workspace.slug}/products/${epic.product.slug}/epics/${epicId}`,
-      );
-    }
-  }, [wrongProduct, epic?.product, workspace?.slug, epicId, router]);
+    if (misplaced && canonicalPath) router.replace(canonicalPath);
+  }, [misplaced, canonicalPath, router]);
 
   if (isLoading) {
     return (
@@ -158,7 +164,7 @@ export default function EpicDetailPage() {
 
   // Redirecting to the canonical product URL — don't paint this product's
   // chrome around another product's epic in the meantime.
-  if (wrongProduct) return null;
+  if (misplaced) return null;
 
   // A pre-backfill epic can still hold tickets from more than one product.
   // Anything outside this epic's own product is called out rather than listed
