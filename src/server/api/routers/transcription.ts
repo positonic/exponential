@@ -2122,6 +2122,7 @@ export const transcriptionRouter = createTRPCRouter({
           entityType: "feature",
           entityId: feature.id,
           action: "created",
+          metadata: { name: feature.name },
         }).catch(() => {
           /* instrumentation failure is non-fatal */
         });
