@@ -387,12 +387,19 @@ export const ticketRouter = createTRPCRouter({
 
       // A linked epic/feature/cycle/scope must live in the product's own
       // workspace, or its fields leak back through this ticket's includes.
-      await assertWorkspaceScopedRefs(ctx.db, ctx.session.user.id, product.workspaceId, {
-        epicId: input.epicId,
-        featureId: input.featureId,
-        cycleId: input.cycleId,
-        scopeId: input.scopeId,
-      });
+      // The trailing product id additionally holds an epic to this product.
+      await assertWorkspaceScopedRefs(
+        ctx.db,
+        ctx.session.user.id,
+        product.workspaceId,
+        {
+          epicId: input.epicId,
+          featureId: input.featureId,
+          cycleId: input.cycleId,
+          scopeId: input.scopeId,
+        },
+        product.id,
+      );
 
       // Same reasoning for the assignee, whose name and email come back through
       // `getById`'s include: only someone who could already read this ticket
@@ -491,6 +498,7 @@ export const ticketRouter = createTRPCRouter({
           cycleId: input.cycleId,
           scopeId: input.scopeId,
         },
+        previousTicket.productId,
       );
 
       await assertAssignableUser(
@@ -618,6 +626,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           status: true,
+          productId: true,
           product: { select: { workspaceId: true } },
         },
       });
@@ -629,18 +638,38 @@ export const ticketRouter = createTRPCRouter({
       );
       for (const workspaceId of workspaceIds) {
         await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertAssignableUser(ctx.db, workspaceId, input.assigneeId);
+      }
 
-        // The same link and assignee guards as `create`/`update` — this path
-        // writes the identical foreign keys and its tickets are read back
-        // through the identical includes. The patch applies uniformly, so a
-        // reference must be valid in *every* workspace the selection spans.
+      // The same link guard as `create`/`update` — this path writes the
+      // identical foreign keys and its tickets are read back through the
+      // identical includes. The patch applies uniformly, so a reference must be
+      // valid in *every* product the selection spans: bulk-assigning one
+      // product's epic across a mixed selection is rejected outright rather
+      // than half-applied.
+      const productIds = Array.from(new Set(tickets.map((t) => t.productId)));
+      const workspaceByProduct = new Map(
+        tickets.map((t) => [t.productId, t.product.workspaceId]),
+      );
+      for (const productId of productIds) {
+        // Both collections come from the same `tickets` rows, so a miss is
+        // unreachable — but defaulting to `null` here would quietly *disable*
+        // workspace containment for that product rather than reject, so fail
+        // loudly instead.
+        const refWorkspaceId = workspaceByProduct.get(productId);
+        if (!refWorkspaceId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not resolve the workspace for a selected ticket",
+          });
+        }
         await assertWorkspaceScopedRefs(
           ctx.db,
           ctx.session.user.id,
-          workspaceId,
+          refWorkspaceId,
           { epicId: input.epicId, cycleId: input.cycleId },
+          productId,
         );
-        await assertAssignableUser(ctx.db, workspaceId, input.assigneeId);
       }
 
       const data: Record<string, unknown> = Object.fromEntries(fields);

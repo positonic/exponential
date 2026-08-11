@@ -268,9 +268,11 @@ describe("ticket router — cross-workspace link guard (mocked)", () => {
         });
       });
 
+    // `productId` rides along because epics are per-product: the guard checks
+    // product containment on top of the workspace containment above.
     expect(dbMock.epic.findUnique).toHaveBeenCalledWith({
       where: { id: "epic-1" },
-      select: { workspaceId: true },
+      select: { workspaceId: true, productId: true },
     });
   });
 });

@@ -32,6 +32,7 @@ import {
   IconCalendarEvent,
   IconUsers,
   IconTicket,
+  IconBolt,
   IconBulb,
   IconTrophy,
   IconUser,
@@ -88,13 +89,16 @@ const WORKSPACE_SECTIONS: {
 ];
 
 // How each entity type from search.global is presented, in the order the
-// sections appear. Two of the router's types are deliberately absent:
+// sections appear. One of the router's types is deliberately absent:
 // `workspace`, because a matching workspace already surfaces below with all of
-// its sub-pages, and `epic`, which has no detail route to navigate to.
+// its sub-pages. Epics are listed but an epic still awaiting a product returns
+// a null url and is dropped by the filter below, same as any other routeless
+// row.
 const RESULT_SECTIONS: { type: SearchType; label: string; icon: React.ElementType }[] = [
   { type: 'project', label: 'Projects', icon: IconStack2 },
   { type: 'action', label: 'Tasks', icon: IconSquareRoundedCheck },
   { type: 'ticket', label: 'Tickets', icon: IconTicket },
+  { type: 'epic', label: 'Epics', icon: IconBolt },
   { type: 'goal', label: 'Goals', icon: IconTarget },
   { type: 'keyResult', label: 'Key results', icon: IconTrophy },
   { type: 'outcome', label: 'Outcomes', icon: IconFlag },
@@ -109,7 +113,7 @@ const RESULT_SECTIONS: { type: SearchType; label: string; icon: React.ElementTyp
 // Which entity types each filter chip keeps. `all` keeps everything.
 const MODE_TYPES: Record<Exclude<Mode, 'ai'>, SearchType[] | null> = {
   all: null,
-  tasks: ['action', 'ticket'],
+  tasks: ['action', 'ticket', 'epic'],
   projects: ['project', 'product'],
   goals: ['goal', 'keyResult', 'outcome'],
 };

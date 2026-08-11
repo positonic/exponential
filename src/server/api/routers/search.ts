@@ -343,6 +343,7 @@ async function searchEpics({ db, userId, q, workspaceId, limit }: SearchArgs): P
       name: true,
       status: true,
       workspace: { select: { id: true, slug: true, name: true } },
+      product: { select: { slug: true } },
     },
     take: limit,
   });
@@ -352,8 +353,11 @@ async function searchEpics({ db, userId, q, workspaceId, limit }: SearchArgs): P
     title: e.name,
     subtitle: e.status,
     workspace: e.workspace,
-    // Epics have no dedicated detail route; they surface inside kanban views.
-    url: null,
+    // The detail route is product-nested. An epic still awaiting its product
+    // (pre-backfill) has nowhere to point, so it stays unlinked.
+    url: e.product
+      ? `/w/${e.workspace.slug}/products/${e.product.slug}/epics/${e.id}`
+      : null,
   }));
 }
 

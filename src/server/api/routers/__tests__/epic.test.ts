@@ -74,7 +74,13 @@ import { createMockCaller } from "~/test/trpc-helpers";
 
 const WORKSPACE_ID = "ws-1";
 const USER_ID = "user-1";
-const EPIC = { id: "epic-1", name: "Payments", workspaceId: WORKSPACE_ID };
+const PRODUCT_ID = "prod-1";
+const EPIC = {
+  id: "epic-1",
+  name: "Payments",
+  workspaceId: WORKSPACE_ID,
+  productId: PRODUCT_ID,
+};
 
 type MembershipKind = "direct" | "team" | "none";
 
@@ -151,6 +157,102 @@ describe("epic router access gating (mocked)", () => {
         caller.epic.list({ workspaceId: WORKSPACE_ID }),
       ).rejects.toBeInstanceOf(TRPCError);
       expect(dbMock.epic.findMany).not.toHaveBeenCalled();
+    });
+
+    it("scopes to one product, and keeps product-less epics visible", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.list({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+      });
+
+      // Pre-backfill epics (productId null) must stay in the list or they are
+      // invisible from every product board and can never be assigned one.
+      expect(dbMock.epic.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workspaceId: WORKSPACE_ID,
+            OR: [{ productId: PRODUCT_ID }, { productId: null }],
+          }),
+        }),
+      );
+    });
+
+    it("drops product-less epics when includeUnassigned is off", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.list({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+        includeUnassigned: false,
+      });
+
+      expect(dbMock.epic.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ OR: [{ productId: PRODUCT_ID }] }),
+        }),
+      );
+    });
+  });
+
+  describe("create", () => {
+    it("rejects a product from another workspace", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.product.findUnique.mockResolvedValue({
+        workspaceId: "ws-other",
+      } as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.epic.create({
+          workspaceId: WORKSPACE_ID,
+          productId: PRODUCT_ID,
+          name: "Payments",
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(dbMock.epic.create).not.toHaveBeenCalled();
+    });
+
+    it("stores the product when it belongs to the workspace", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.product.findUnique.mockResolvedValue({
+        workspaceId: WORKSPACE_ID,
+      } as never);
+      dbMock.epic.create.mockResolvedValue(EPIC as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.create({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+        name: "Payments",
+      });
+
+      expect(dbMock.epic.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ productId: PRODUCT_ID }),
+        }),
+      );
+    });
+  });
+
+  describe("update", () => {
+    it("rejects moving an epic to another workspace's product", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+      dbMock.product.findUnique.mockResolvedValue({
+        workspaceId: "ws-other",
+      } as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.epic.update({ id: EPIC.id, productId: PRODUCT_ID }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(dbMock.epic.update).not.toHaveBeenCalled();
     });
   });
 });
