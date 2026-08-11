@@ -395,8 +395,9 @@ export const okrCheckinRouter = createTRPCRouter({
       });
 
       // The deliberate "I'm ready" submit moment surfaces in the workspace
-      // feed; draft saves (upsertStatusUpdate) never do. metadata.title is the
-      // team name — check-in rows have no drawer link in V1. Fire-and-forget.
+      // feed; draft saves (upsertStatusUpdate) never do. No workspaceId guard:
+      // OkrCheckin.workspaceId is non-nullable in the schema. metadata.title is
+      // the team name — check-in rows have no drawer link in V1. Fire-and-forget.
       await recordActivity(ctx.db, {
         workspaceId: checkin.workspaceId,
         userId: ctx.session.user.id,
@@ -617,8 +618,9 @@ export const okrCheckinRouter = createTRPCRouter({
       });
 
       // The facilitator closing the ritual is the team-visible milestone;
-      // startMeeting never logs. metadata.title is the team name — check-in
-      // rows have no drawer link in V1. Fire-and-forget.
+      // startMeeting never logs. No workspaceId guard: OkrCheckin.workspaceId
+      // is non-nullable in the schema. metadata.title is the team name —
+      // check-in rows have no drawer link in V1. Fire-and-forget.
       await recordActivity(ctx.db, {
         workspaceId: checkin.workspaceId,
         userId: ctx.session.user.id,

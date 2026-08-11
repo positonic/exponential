@@ -776,20 +776,16 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
-  await verifyGoalAccess({ ctx, goalId: input.id });
-
-  // Capture what the feed row needs before the row is gone.
-  const goal = await ctx.db.goal.findUnique({
-    where: { id: input.id },
-    select: { title: true, workspaceId: true },
-  });
+  // The access check already fetches the title + workspaceId the feed row
+  // needs, captured here before the row is gone.
+  const goal = await verifyGoalAccess({ ctx, goalId: input.id });
 
   const deleted = await ctx.db.goal.delete({
     where: { id: input.id },
   });
 
   // Personal objectives are silent by design. Fire-and-forget.
-  if (goal?.workspaceId) {
+  if (goal.workspaceId) {
     await recordActivity(ctx.db, {
       workspaceId: goal.workspaceId,
       userId: ctx.session?.user?.id ?? null,
