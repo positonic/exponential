@@ -8,7 +8,8 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
-import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
+import { sendSignInCodeEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
+import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
 /**
@@ -196,7 +197,21 @@ export const authConfig = {
     Postmark({
       apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? "",
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
-      sendVerificationRequest: async ({ identifier, url }) => {
+      /**
+       * Email sign-in delivers a typed **Sign-in code**, never a link
+       * ([ADR-0056](../../../docs/adr/0056-sign-in-codes-replace-magic-links.md)).
+       * Corporate mail scanners follow URLs in email and the token is
+       * single-use, so a link is spent before the recipient ever clicks it.
+       *
+       * `generateVerificationToken` replaces Auth.js's `randomString(32)` with
+       * something a human can retype. Everything downstream is untouched: the
+       * token is still hashed into `VerificationToken`, still single-use, and
+       * the ordinary callback still creates the user and fires
+       * `events.createUser` (personal workspace + pending-invite acceptance).
+       */
+      generateVerificationToken: generateSignInCode,
+      maxAge: SIGN_IN_CODE_TTL_SECONDS,
+      sendVerificationRequest: async ({ identifier, token, url }) => {
         if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
           throw new Error(
             'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
@@ -210,15 +225,16 @@ export const authConfig = {
           });
 
           if (existingUser) {
-            // Returning user - send simple magic link email
-            await sendMagicLinkEmail(identifier, url);
+            // Returning user - send the bare sign-in code
+            await sendSignInCodeEmail(identifier, token);
           } else {
-            // New user - send welcome email with magic link embedded
+            // New user - still the welcome-with-link email; the new-user path
+            // moves to a code in the next commit.
             await sendWelcomeWithMagicLinkEmail(identifier, url);
           }
         } catch (error) {
           console.error(
-            `[Auth] Failed to send verification email to ${identifier} (url: ${url}):`,
+            `[Auth] Failed to send sign-in code email to ${identifier}:`,
             error
           );
           throw error;

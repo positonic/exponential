@@ -3,14 +3,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getDesktopBridge } from "~/lib/platform";
+import {
+  normalizeSignInEmail,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from "~/lib/signInCode";
 import "~/styles/auth-surface.css";
 
 export function SignInLandingPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/home";
 
@@ -41,7 +47,19 @@ export function SignInLandingPage() {
     try {
       if (provider === "postmark") {
         if (!email) return;
-        await signIn("postmark", { email, callbackUrl });
+        // We email a code rather than a link (ADR-0056), so we drive the
+        // navigation ourselves instead of letting NextAuth redirect: the verify
+        // page needs the identifier to redeem the code against, and it must be
+        // normalized the same way Auth.js stored it.
+        const identifier = normalizeSignInEmail(email);
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        await signIn("postmark", {
+          email: identifier,
+          callbackUrl,
+          redirect: false,
+        });
+        router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
@@ -143,7 +161,7 @@ export function SignInLandingPage() {
 
             <div className="or-div">
               <span className="or-div__line" />
-              <span className="or-div__txt">or email a magic link</span>
+              <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
 
@@ -166,7 +184,7 @@ export function SignInLandingPage() {
                 type="submit"
                 disabled={isBusy || !email}
               >
-                <span>Send me a magic link</span>
+                <span>Send me a sign-in code</span>
                 <ArrowRightGlyph />
               </button>
             </form>

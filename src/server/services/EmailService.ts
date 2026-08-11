@@ -13,6 +13,10 @@ import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { db } from "~/server/db";
 import { getDecryptedKey } from "~/server/utils/credentialHelper";
+import {
+  formatSignInCode,
+  SIGN_IN_CODE_TTL_MINUTES,
+} from "~/lib/signInCode";
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
 
@@ -127,13 +131,17 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendE
 }
 
 /**
- * Send magic link sign-in email (for returning users)
+ * Send the Sign-in code email (for returning users).
+ *
+ * Contains no link, deliberately — see
+ * [ADR-0056](../../../docs/adr/0056-sign-in-codes-replace-magic-links.md).
+ * Corporate mail scanners follow URLs in email and the token is single-use, so
+ * a link here gets spent before the human ever clicks it.
  */
-export async function sendMagicLinkEmail(
+export async function sendSignInCodeEmail(
   email: string,
-  url: string
+  code: string
 ): Promise<void> {
-  const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
 
   const htmlBody = `
@@ -164,31 +172,23 @@ export async function sendMagicLinkEmail(
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                Click the button below to securely access your account.
+                Enter this code on the sign-in page to access your account.
               </p>
 
-              <!-- CTA Button -->
+              <!-- Sign-in code -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${url}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                      Sign In
-                    </a>
+                    <div style="display: inline-block; padding: 16px 32px; background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; letter-spacing: 4px; color: #111827;">
+                      ${formatSignInCode(code)}
+                    </div>
                   </td>
                 </tr>
               </table>
 
-              <!-- Fallback Link -->
-              <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
-                Or copy and paste this link into your browser:
-              </p>
-              <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${url}
-              </p>
-
               <!-- Expiration Notice -->
               <p style="margin: 0; padding: 12px 16px; background-color: #f3f4f6; border-radius: 6px; font-size: 13px; color: #6b7280;">
-                This link expires in 24 hours.
+                This code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
               </p>
             </td>
           </tr>
@@ -212,17 +212,18 @@ export async function sendMagicLinkEmail(
   const textBody = `
 Sign in to ${appName}
 
-Click the link below to securely access your account:
-${url}
+Enter this code on the sign-in page to access your account:
 
-This link expires in 24 hours.
+${formatSignInCode(code)}
+
+This code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
 
 Didn't request this? You can safely ignore this email.
 `.trim();
 
   await sendEmail({
     to: email,
-    subject: `Your sign-in link for ${appName}`,
+    subject: `Your sign-in code for ${appName}`,
     htmlBody,
     textBody,
   });
@@ -1211,7 +1212,7 @@ Unsubscribe: ${params.unsubscribeUrl}`;
 }
 
 export const EmailService = {
-  sendMagicLinkEmail,
+  sendSignInCodeEmail,
   sendWelcomeEmail,
   sendWelcomeWithMagicLinkEmail,
   sendTeamInvitationEmail,

@@ -7,6 +7,8 @@ import {
 import { IconMail, IconArrowLeft } from "@tabler/icons-react";
 import Link from "next/link";
 import { PRODUCT_NAME } from "~/lib/brand";
+import { SIGN_IN_CODE_TTL_MINUTES } from "~/lib/signInCode";
+import { SignInCodeForm } from "./SignInCodeForm";
 
 export default function VerifyRequest() {
   return (
@@ -34,21 +36,24 @@ export default function VerifyRequest() {
                 Check your email
               </Title>
               <Text className="text-text-secondary text-lg">
-                A sign in link has been sent to your email address.
+                We&apos;ve sent a sign-in code to your email address.
               </Text>
             </div>
 
-            {/* Instructions */}
+            {/* Code entry */}
             <div className="bg-surface-secondary rounded-lg p-4 border border-border-primary">
-              <Stack gap="sm">
-                <Text size="sm" className="text-text-secondary">
-                  Click the link in the email to sign in to your account. The link will expire in 24 hours.
-                </Text>
-                <Text size="sm" className="text-text-muted">
-                  If you don&apos;t see the email, check your spam folder.
-                </Text>
-              </Stack>
+              <SignInCodeForm />
             </div>
+
+            {/* Instructions */}
+            <Stack gap="sm">
+              <Text size="sm" className="text-text-secondary">
+                The code expires in {SIGN_IN_CODE_TTL_MINUTES} minutes.
+              </Text>
+              <Text size="sm" className="text-text-muted">
+                If you don&apos;t see the email, check your spam folder.
+              </Text>
+            </Stack>
 
             {/* Back to Sign In */}
             <Button
