@@ -21,6 +21,18 @@ describe("generateSignInCode", () => {
     expect(256 % SIGN_IN_CODE_ALPHABET.length).toBe(0);
   });
 
+  it("never emits a character that normalization folds away", () => {
+    // The two halves are coupled: `normalizeSignInCode` rewrites I and L to 1
+    // and O to 0 so a misread code still works. That is only safe while the
+    // alphabet contains none of them - admit one and every code containing it
+    // is silently rewritten on the client into something that can't match the
+    // stored token, so a slice of sign-ins fail for no visible reason.
+    for (const folded of ["I", "L", "O"]) {
+      expect(SIGN_IN_CODE_ALPHABET, `${folded} is folded away and must not be generated`)
+        .not.toContain(folded);
+    }
+  });
+
   it("returns a code of the declared length", () => {
     expect(generateSignInCode()).toHaveLength(SIGN_IN_CODE_LENGTH);
   });

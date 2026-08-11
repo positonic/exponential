@@ -77,6 +77,12 @@ export function SignInLandingPage() {
 
     setPendingProvider(provider);
     setSendError(null);
+    // `router.push` resolves before the new route paints, so clearing the
+    // pending flag unconditionally in `finally` re-enables the button mid
+    // navigation. One more click there sends a second code and — since codes
+    // now retire their predecessors — silently kills the one already in the
+    // user's inbox. Stay disabled when we're on our way out.
+    let navigating = false;
     try {
       if (provider === "postmark") {
         if (!email) return;
@@ -100,12 +106,13 @@ export function SignInLandingPage() {
         // leave the verify page primed for a code that was never issued.
         window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
         window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        navigating = true;
         router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
     } finally {
-      setPendingProvider(null);
+      if (!navigating) setPendingProvider(null);
     }
   };
 

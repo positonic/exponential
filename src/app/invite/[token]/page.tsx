@@ -312,6 +312,10 @@ function InviteLandingPage({
   const startSignIn = async (provider: string, targetEmail?: string) => {
     setPendingProvider(provider);
     setSendError(null);
+    // See /signin: `router.push` resolves before the new route paints, so
+    // clearing this unconditionally re-enables the button mid navigation, and
+    // a second click would send a code that retires the first.
+    let navigating = false;
     try {
       if (provider === "postmark") {
         // Email sign-in delivers a typed code, not a link (ADR-0056), so hand
@@ -332,12 +336,13 @@ function InviteLandingPage({
         // stale behind for the verify page to pick up.
         window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
         window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        navigating = true;
         router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
     } finally {
-      setPendingProvider(null);
+      if (!navigating) setPendingProvider(null);
     }
   };
 
