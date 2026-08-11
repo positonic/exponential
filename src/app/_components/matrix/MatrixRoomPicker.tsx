@@ -18,6 +18,17 @@ interface MatrixRoomPickerProps {
   onSelect?: (room: MatrixRoomChoice) => void;
 }
 
+/**
+ * Why an encrypted room can never be a destination.
+ *
+ * Not a permission problem and not fixable by inviting the bot again: the bot has no
+ * crypto stack (ADR-0043). A homeserver will happily *accept* a plaintext event into an
+ * encrypted room, where every client renders it as undecryptable — so silently allowing
+ * the choice would look like a successful post that nobody can read.
+ */
+export const ENCRYPTED_ROOM_REASON =
+  "Encrypted — the bot has no encryption keys, so it cannot post here.";
+
 function RoomRow({
   room,
   selected,
@@ -27,6 +38,25 @@ function RoomRow({
   selected: boolean;
   onSelect?: (room: MatrixRoomChoice) => void;
 }) {
+  if (room.isEncrypted) {
+    return (
+      <div
+        className="flex items-center gap-3 rounded-md border border-border-primary bg-surface-secondary px-3 py-2 opacity-60"
+        aria-disabled="true"
+      >
+        <Radio checked={false} disabled readOnly aria-label={room.name} />
+        <div className="min-w-0">
+          <Text size="sm" className="truncate text-text-secondary">
+            {room.name}
+          </Text>
+          <Text size="xs" className="truncate text-text-muted">
+            {ENCRYPTED_ROOM_REASON}
+          </Text>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border-primary bg-surface-primary px-3 py-2 hover:bg-surface-hover">
       <Radio
@@ -128,14 +158,25 @@ export function MatrixRoomPicker({
           {invited.map((room) => (
             <div
               key={room.roomId}
-              className="flex items-center gap-3 rounded-md border border-border-primary bg-surface-secondary px-3 py-2"
+              className={
+                room.isEncrypted
+                  ? "flex items-center gap-3 rounded-md border border-border-primary bg-surface-secondary px-3 py-2 opacity-60"
+                  : "flex items-center gap-3 rounded-md border border-border-primary bg-surface-secondary px-3 py-2"
+              }
             >
               <div className="min-w-0 flex-1">
-                <Text size="sm" className="truncate text-text-primary">
+                <Text
+                  size="sm"
+                  className={
+                    room.isEncrypted
+                      ? "truncate text-text-secondary"
+                      : "truncate text-text-primary"
+                  }
+                >
                   {room.name}
                 </Text>
                 <Text size="xs" className="truncate text-text-muted">
-                  {room.roomId}
+                  {room.isEncrypted ? ENCRYPTED_ROOM_REASON : room.roomId}
                 </Text>
               </div>
               <Button
@@ -144,7 +185,9 @@ export function MatrixRoomPicker({
                 loading={
                   acceptInvite.isPending && acceptingRoomId === room.roomId
                 }
-                disabled={acceptInvite.isPending}
+                // Joining an encrypted room would spend the invite on a destination
+                // the bot can never post to.
+                disabled={acceptInvite.isPending || room.isEncrypted}
                 onClick={() => {
                   setAcceptingRoomId(room.roomId);
                   acceptInvite.mutate({

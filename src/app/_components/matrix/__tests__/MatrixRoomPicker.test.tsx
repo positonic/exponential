@@ -187,4 +187,70 @@ describe("MatrixRoomPicker", () => {
     // No radio for it: the bot cannot post there until it has actually joined.
     expect(screen.queryByLabelText("Product")).toBeNull();
   });
+
+  test("renders an encrypted room as non-selectable, with the reason", () => {
+    queryHolder.current = {
+      data: {
+        joined: [
+          { roomId: "!eng:example.org", name: "Engineering", isEncrypted: false },
+          { roomId: "!board:example.org", name: "Board", isEncrypted: true },
+        ],
+        invited: [],
+      },
+      isLoading: false,
+      error: null,
+    };
+
+    renderPicker();
+
+    const encrypted = screen.getByLabelText("Board") as HTMLInputElement;
+    expect(encrypted.disabled).toBe(true);
+    expect(screen.getByText(/cannot post here/i)).toBeTruthy();
+
+    // The unencrypted room beside it stays selectable — this greys out one row,
+    // not the list.
+    expect((screen.getByLabelText("Engineering") as HTMLInputElement).disabled).toBe(
+      false,
+    );
+  });
+
+  test("an encrypted room cannot be chosen even by clicking it", () => {
+    const onSelect = vi.fn();
+    queryHolder.current = {
+      data: {
+        joined: [{ roomId: "!board:example.org", name: "Board", isEncrypted: true }],
+        invited: [],
+      },
+      isLoading: false,
+      error: null,
+    };
+
+    renderPicker(onSelect);
+    fireEvent.click(screen.getByLabelText("Board"));
+
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  test("will not accept an invite to an encrypted room", () => {
+    acceptMutate.mockClear();
+    queryHolder.current = {
+      data: {
+        joined: [],
+        invited: [
+          { roomId: "!secret:example.org", name: "Leadership", isEncrypted: true },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+
+    renderPicker();
+
+    const accept = screen.getByText("Accept").closest("button")!;
+    expect(accept.disabled).toBe(true);
+    expect(screen.getByText(/cannot post here/i)).toBeTruthy();
+
+    fireEvent.click(accept);
+    expect(acceptMutate).not.toHaveBeenCalled();
+  });
 });
