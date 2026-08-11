@@ -503,7 +503,11 @@ export default function TicketDetailPage() {
               title="Activity"
               action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
             >
-              <ActivityTimeline activity={activity} filter={activityFilter} />
+              {/* Keyed on the ticket: the nav arrows swap tickets without
+                  unmounting this page, and the composer's draft state lives
+                  inside ActivityTimeline — without the key a half-typed
+                  comment would follow you to the next ticket. */}
+              <ActivityTimeline key={ticketId} activity={activity} filter={activityFilter} />
             </CollapsibleSection>
           </div>
         </Stack>
