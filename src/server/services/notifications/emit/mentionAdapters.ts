@@ -119,7 +119,9 @@ async function resolveTicketTarget(
   workspaceName: string;
   productSlug: string;
   ticketTitle: string;
-  ticketNumber: number;
+  /** URL segment for the ticket deep link: sequential number, or CUID for
+   *  legacy numberless tickets. */
+  ticketSegment: string;
 } | null> {
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
@@ -142,7 +144,9 @@ async function resolveTicketTarget(
     workspaceName: ws.name,
     productSlug: ticket.product.slug,
     ticketTitle: ticket.title,
-    ticketNumber: ticket.number,
+    // Legacy tickets have number 0 and are only addressable by CUID
+    // (`resolveId` accepts both), so fall back to the id for the deep link.
+    ticketSegment: ticket.number > 0 ? String(ticket.number) : ticketId,
   };
 }
 
@@ -169,7 +173,7 @@ export async function emitTicketCommentMention(
       workspaceSlug: target.workspaceSlug,
       workspaceName: target.workspaceName,
       targetName: target.ticketTitle,
-      targetPath: `/w/${target.workspaceSlug}/products/${target.productSlug}/tickets/${target.ticketNumber}`,
+      targetPath: `/w/${target.workspaceSlug}/products/${target.productSlug}/tickets/${target.ticketSegment}`,
     };
 
     await emitNotification({
