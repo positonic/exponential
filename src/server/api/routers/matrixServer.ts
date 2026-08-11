@@ -16,7 +16,12 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { assertWorkspaceRole } from "~/server/services/access";
 import { encryptCredential } from "~/server/utils/credentialHelper";
-import { MatrixApiError, MatrixClient, normalizeHomeserverUrl } from "~/server/services/matrix/MatrixClient";
+import {
+  MatrixApiError,
+  MatrixClient,
+  normalizeHomeserverUrl,
+  type MatrixRoomSummary,
+} from "~/server/services/matrix/MatrixClient";
 import {
   MATRIX_ACCESS_TOKEN_KEY_TYPE,
   MATRIX_SERVER_PROVIDER,
@@ -186,16 +191,15 @@ export const matrixServerRouter = createTRPCRouter({
       );
 
       try {
-        const joinedIds = await client.joinedRooms();
+        const [joinedIds, invites] = await Promise.all([
+          client.joinedRooms(),
+          client.pendingInvites(),
+        ]);
         const joined = await client.roomSummaries(joinedIds);
+
         return {
-          joined: joined
-            .map((room) => ({
-              roomId: room.roomId,
-              name: room.name ?? room.roomId,
-              isEncrypted: room.isEncrypted,
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name)),
+          joined: joined.map(toRoomChoice).sort(byName),
+          invited: invites.map(toRoomChoice).sort(byName),
         };
       } catch (error) {
         reportHandledError(error, {
@@ -205,4 +209,75 @@ export const matrixServerRouter = createTRPCRouter({
         throw describeMatrixFailure(error, config.homeserverUrl);
       }
     }),
+
+  /**
+   * Join a room the bot has been invited to, so it becomes postable.
+   *
+   * Deliberately only reachable for a room the bot already has an invite to — this is
+   * "accept what someone offered", never "join anything you can name".
+   */
+  acceptInvite: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        serverId: z.string(),
+        roomId: z.string().min(1),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertWorkspaceRole(ctx.db, ctx.session.user.id, input.workspaceId, [
+        "owner",
+        "admin",
+        "member",
+      ]);
+
+      const { client, config } = await getMatrixClientForServer(
+        ctx.db,
+        input.serverId,
+        input.workspaceId,
+      );
+
+      try {
+        const invites = await client.pendingInvites();
+        const invite = invites.find((room) => room.roomId === input.roomId);
+        if (!invite) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message:
+              "That room is no longer inviting this bot — the invite may have been withdrawn.",
+          });
+        }
+
+        await client.join(input.roomId);
+
+        // Re-read state as a member: the invite's stripped state is a subset, so a room
+        // can look unencrypted from outside and turn out not to be.
+        const [summary] = await client.roomSummaries([input.roomId]);
+        return toRoomChoice(summary ?? invite);
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        reportHandledError(error, {
+          area: "matrix-accept-invite",
+          context: {
+            homeserverUrl: config.homeserverUrl,
+            serverId: input.serverId,
+            roomId: input.roomId,
+          },
+        });
+        throw describeMatrixFailure(error, config.homeserverUrl);
+      }
+    }),
 });
+
+/** An unnamed room still needs something to show, so fall back to its id. */
+function toRoomChoice(room: MatrixRoomSummary) {
+  return {
+    roomId: room.roomId,
+    name: room.name ?? room.roomId,
+    isEncrypted: room.isEncrypted,
+  };
+}
+
+function byName(a: { name: string }, b: { name: string }): number {
+  return a.name.localeCompare(b.name);
+}

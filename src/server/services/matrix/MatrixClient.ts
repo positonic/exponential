@@ -174,6 +174,44 @@ export class MatrixClient {
       };
     });
   }
+
+  /**
+   * Rooms the bot has been invited to but has not joined.
+   *
+   * Without this, "I invited the bot and nothing happened" is a dead end: an invited bot
+   * appears in no listing and can post nowhere, with no way to tell from the app that an
+   * invite is even waiting. One stateless `/sync?timeout=0` — the bot has no sync loop,
+   * so this is a point-in-time read, not a subscription.
+   *
+   * Name and encryption come from the invite's stripped state, which is all a
+   * non-member can see; both may legitimately be absent.
+   */
+  async pendingInvites(): Promise<MatrixRoomSummary[]> {
+    const body = await this.request<SyncResponse>(
+      "GET",
+      `/sync?timeout=0&filter=${encodeURIComponent(INVITE_ONLY_SYNC_FILTER)}`,
+    );
+
+    return Object.entries(body.rooms?.invite ?? {}).map(([roomId, room]) => {
+      const events = room.invite_state?.events ?? [];
+      const nameEvent = events.find((event) => event.type === "m.room.name");
+      return {
+        roomId,
+        name: nameEvent?.content?.name ?? null,
+        isEncrypted: events.some((event) => event.type === "m.room.encryption"),
+      };
+    });
+  }
+
+  /** Accept an invite (or join a public room) by id or alias. */
+  async join(roomIdOrAlias: string): Promise<{ roomId: string }> {
+    const body = await this.request<{ room_id?: string }>(
+      "POST",
+      `/join/${encodeURIComponent(roomIdOrAlias)}`,
+      {},
+    );
+    return { roomId: body.room_id ?? roomIdOrAlias };
+  }
 }
 
 export interface MatrixRoomSummary {
@@ -182,6 +220,29 @@ export interface MatrixRoomSummary {
   name: string | null;
   isEncrypted: boolean;
 }
+
+/** Stripped state the homeserver includes with an invite, before the bot has joined. */
+interface StrippedStateEvent {
+  type?: string;
+  content?: { name?: string; algorithm?: string };
+}
+
+interface SyncResponse {
+  rooms?: {
+    invite?: Record<string, { invite_state?: { events?: StrippedStateEvent[] } }>;
+  };
+}
+
+/**
+ * Ask for as little as the homeserver will give us: we only want the invite list, and a
+ * first sync on a busy account otherwise returns every room's timeline.
+ */
+const INVITE_ONLY_SYNC_FILTER = JSON.stringify({
+  room: {
+    timeline: { limit: 0 },
+    state: { lazy_load_members: true },
+  },
+});
 
 /**
  * `Promise.all` over a mapper, but with at most `limit` requests in flight — a workspace

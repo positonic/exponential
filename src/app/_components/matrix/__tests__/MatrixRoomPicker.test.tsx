@@ -17,17 +17,31 @@ interface RoomRow {
 
 const queryHolder: {
   current: {
-    data?: { joined: RoomRow[] };
+    data?: { joined: RoomRow[]; invited: RoomRow[] };
     isLoading: boolean;
     error: { message: string } | null;
   };
-} = { current: { data: { joined: [] }, isLoading: false, error: null } };
+} = {
+  current: { data: { joined: [], invited: [] }, isLoading: false, error: null },
+};
+
+const acceptMutate = vi.fn();
 
 vi.mock("~/trpc/react", () => ({
   api: {
+    useUtils: () => ({
+      matrixServer: { rooms: { invalidate: vi.fn() } },
+    }),
     matrixServer: {
       rooms: {
         useQuery: () => queryHolder.current,
+      },
+      acceptInvite: {
+        useMutation: () => ({
+          mutate: acceptMutate,
+          isPending: false,
+          error: null,
+        }),
       },
     },
   },
@@ -49,6 +63,7 @@ describe("MatrixRoomPicker", () => {
           { roomId: "!eng:example.org", name: "Engineering", isEncrypted: false },
           { roomId: "!ops:example.org", name: "Ops", isEncrypted: false },
         ],
+        invited: [],
       },
       isLoading: false,
       error: null,
@@ -62,7 +77,11 @@ describe("MatrixRoomPicker", () => {
   });
 
   test("tells the user to invite the bot when it has joined nothing", () => {
-    queryHolder.current = { data: { joined: [] }, isLoading: false, error: null };
+    queryHolder.current = {
+      data: { joined: [], invited: [] },
+      isLoading: false,
+      error: null,
+    };
 
     renderPicker();
 
@@ -91,6 +110,7 @@ describe("MatrixRoomPicker", () => {
         joined: [
           { roomId: "!eng:example.org", name: "Engineering", isEncrypted: false },
         ],
+        invited: [],
       },
       isLoading: false,
       error: null,
@@ -104,5 +124,67 @@ describe("MatrixRoomPicker", () => {
       name: "Engineering",
       isEncrypted: false,
     });
+  });
+  test("lists pending invites separately, with an Accept action", () => {
+    queryHolder.current = {
+      data: {
+        joined: [],
+        invited: [
+          { roomId: "!waiting:example.org", name: "Product", isEncrypted: false },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+
+    renderPicker();
+
+    // A waiting invite must not read as "no rooms" — that dead-end is the whole
+    // reason invites are surfaced.
+    expect(screen.queryByText(/has not joined any rooms yet/i)).toBeNull();
+    expect(screen.getByText("Pending invites")).toBeTruthy();
+    expect(screen.getByText("Product")).toBeTruthy();
+    expect(screen.getByText(/cannot post until it does/i)).toBeTruthy();
+  });
+
+  test("accepting an invite asks the server to join that room", () => {
+    acceptMutate.mockClear();
+    queryHolder.current = {
+      data: {
+        joined: [],
+        invited: [
+          { roomId: "!waiting:example.org", name: "Product", isEncrypted: false },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+
+    renderPicker();
+    fireEvent.click(screen.getByText("Accept"));
+
+    expect(acceptMutate).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      serverId: "srv-1",
+      roomId: "!waiting:example.org",
+    });
+  });
+
+  test("an invited room is not offered as a selectable destination yet", () => {
+    queryHolder.current = {
+      data: {
+        joined: [],
+        invited: [
+          { roomId: "!waiting:example.org", name: "Product", isEncrypted: false },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    };
+
+    renderPicker();
+
+    // No radio for it: the bot cannot post there until it has actually joined.
+    expect(screen.queryByLabelText("Product")).toBeNull();
   });
 });

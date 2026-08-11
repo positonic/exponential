@@ -220,3 +220,74 @@ describe("MatrixClient.roomSummaries", () => {
     expect(summaries.map((s) => s.roomId)).toEqual(rooms);
   });
 });
+
+describe("MatrixClient.pendingInvites", () => {
+  it("parses invited rooms out of a /sync payload, with stripped-state name and encryption", async () => {
+    fetchMock.mockResolvedValue(
+      OK({
+        rooms: {
+          invite: {
+            "!invited:example.org": {
+              invite_state: {
+                events: [
+                  { type: "m.room.name", content: { name: "Product" } },
+                  { type: "m.room.member", content: {} },
+                ],
+              },
+            },
+            "!secret-invite:example.org": {
+              invite_state: {
+                events: [
+                  { type: "m.room.encryption", content: { algorithm: "m.megolm.v1.aes-sha2" } },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    await expect(makeClient().pendingInvites()).resolves.toEqual([
+      { roomId: "!invited:example.org", name: "Product", isEncrypted: false },
+      { roomId: "!secret-invite:example.org", name: null, isEncrypted: true },
+    ]);
+  });
+
+  it("asks for a zero-length timeline so a first sync does not pull every room's history", async () => {
+    fetchMock.mockResolvedValue(OK({ rooms: { invite: {} } }));
+    await makeClient().pendingInvites();
+
+    const url = String(fetchMock.mock.calls[0]![0]);
+    expect(url).toContain("/sync?timeout=0");
+    const filter = decodeURIComponent(url.split("filter=")[1]!);
+    expect(JSON.parse(filter)).toMatchObject({ room: { timeline: { limit: 0 } } });
+  });
+
+  it("returns nothing when the payload has no invite section at all", async () => {
+    fetchMock.mockResolvedValue(OK({}));
+    await expect(makeClient().pendingInvites()).resolves.toEqual([]);
+  });
+});
+
+describe("MatrixClient.join", () => {
+  it("POSTs to /join and returns the resolved room id", async () => {
+    fetchMock.mockResolvedValue(OK({ room_id: "!resolved:example.org" }));
+
+    await expect(makeClient().join("#alias:example.org")).resolves.toEqual({
+      roomId: "!resolved:example.org",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "https://matrix.example.org/_matrix/client/v3/join/%23alias%3Aexample.org",
+    );
+    expect((init as RequestInit).method).toBe("POST");
+  });
+
+  it("falls back to the requested id when the homeserver omits room_id", async () => {
+    fetchMock.mockResolvedValue(OK({}));
+    await expect(makeClient().join("!r:example.org")).resolves.toEqual({
+      roomId: "!r:example.org",
+    });
+  });
+});

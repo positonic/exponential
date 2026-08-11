@@ -331,3 +331,171 @@ describe("matrixServer.list", () => {
     ).rejects.toThrow(/not a member of this workspace/);
   });
 });
+
+describe("matrixServer.acceptInvite", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  const SERVER_ROW = {
+    id: "int-1",
+    providerConfig: { homeserverUrl: HOMESERVER, botUserId: BOT },
+  };
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(asRole("member") as never);
+    dbMock.integration.findFirst.mockResolvedValue(SERVER_ROW as never);
+    dbMock.integrationCredential.findMany.mockResolvedValue([
+      { key: TOKEN, keyType: "matrix_access_token", isEncrypted: false },
+    ] as never);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Route stubbed fetch by path so the procedure's call sequence stays honest. */
+  function homeserver(handlers: {
+    invites?: unknown;
+    join?: () => Response;
+    state?: Record<string, { name?: string; encrypted?: boolean }>;
+  }) {
+    return (url: string, init?: RequestInit) => {
+      const path = String(url);
+      if (path.includes("/sync")) {
+        return Promise.resolve(OK(handlers.invites ?? { rooms: { invite: {} } }));
+      }
+      if (path.includes("/join/")) {
+        return Promise.resolve(
+          handlers.join ? handlers.join() : OK({ room_id: "!invited:example.org" }),
+        );
+      }
+      const m = /\/rooms\/([^/]+)\/state\/(.+)$/.exec(path);
+      if (m) {
+        const room = handlers.state?.[decodeURIComponent(m[1]!)];
+        const type = decodeURIComponent(m[2]!);
+        if (!room) return Promise.resolve(ERR(404, { errcode: "M_NOT_FOUND" }));
+        if (type === "m.room.name") {
+          return Promise.resolve(
+            room.name ? OK({ name: room.name }) : ERR(404, { errcode: "M_NOT_FOUND" }),
+          );
+        }
+        return Promise.resolve(
+          room.encrypted
+            ? OK({ algorithm: "m.megolm.v1.aes-sha2" })
+            : ERR(404, { errcode: "M_NOT_FOUND" }),
+        );
+      }
+      void init;
+      return Promise.resolve(ERR(404, { errcode: "M_UNRECOGNIZED" }));
+    };
+  }
+
+  const ONE_INVITE = {
+    rooms: {
+      invite: {
+        "!invited:example.org": {
+          invite_state: { events: [{ type: "m.room.name", content: { name: "Product" } }] },
+        },
+      },
+    },
+  };
+
+  it("joins an invited room and returns it as a selectable destination", async () => {
+    fetchMock.mockImplementation(
+      homeserver({
+        invites: ONE_INVITE,
+        state: { "!invited:example.org": { name: "Product" } },
+      }) as never,
+    );
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.acceptInvite({
+        workspaceId: WORKSPACE_ID,
+        serverId: "int-1",
+        roomId: "!invited:example.org",
+      }),
+    ).resolves.toEqual({
+      roomId: "!invited:example.org",
+      name: "Product",
+      isEncrypted: false,
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/join/")),
+    ).toBe(true);
+  });
+
+  it("refuses to join a room the bot has no invite to", async () => {
+    fetchMock.mockImplementation(homeserver({ invites: ONE_INVITE }) as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.acceptInvite({
+        workspaceId: WORKSPACE_ID,
+        serverId: "int-1",
+        roomId: "!never-invited:example.org",
+      }),
+    ).rejects.toThrow(/no longer inviting this bot/);
+
+    // Crucially: it never attempted the join.
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("/join/")),
+    ).toBe(false);
+  });
+
+  it("re-reads room state as a member, so a room that hid its encryption is caught", async () => {
+    // The invite's stripped state showed no encryption, but the room really is encrypted.
+    fetchMock.mockImplementation(
+      homeserver({
+        invites: ONE_INVITE,
+        state: { "!invited:example.org": { name: "Product", encrypted: true } },
+      }) as never,
+    );
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.acceptInvite({
+        workspaceId: WORKSPACE_ID,
+        serverId: "int-1",
+        roomId: "!invited:example.org",
+      }),
+    ).resolves.toMatchObject({ isEncrypted: true });
+  });
+
+  it("surfaces a refused join rather than reporting success", async () => {
+    fetchMock.mockImplementation(
+      homeserver({
+        invites: ONE_INVITE,
+        join: () => ERR(403, { errcode: "M_FORBIDDEN", error: "Not invited" }),
+      }) as never,
+    );
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.acceptInvite({
+        workspaceId: WORKSPACE_ID,
+        serverId: "int-1",
+        roomId: "!invited:example.org",
+      }),
+    ).rejects.toThrow(/refused the request/);
+  });
+
+  it("will not reach a server registered to a different workspace", async () => {
+    dbMock.integration.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.acceptInvite({
+        workspaceId: WORKSPACE_ID,
+        serverId: "int-other-workspace",
+        roomId: "!invited:example.org",
+      }),
+    ).rejects.toThrow(/not registered in this workspace/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
