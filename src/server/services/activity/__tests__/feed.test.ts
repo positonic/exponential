@@ -171,6 +171,15 @@ describe("getActivityFeed — OKR drawer deep-links (drawerParam)", () => {
     ).toBeNull();
   });
 
+  it("is null for deleted rows — the target is gone, never link it", async () => {
+    expect(
+      await drawerParamOf(okrRow("goal", "42", { title: "Gone" }, "deleted")),
+    ).toBeNull();
+    expect(
+      await drawerParamOf(okrRow("key_result", "kr-1", { title: "Gone" }, "deleted")),
+    ).toBeNull();
+  });
+
   it("is null for non-OKR rows", async () => {
     expect(await drawerParamOf(okrRow("action", "act-1", { name: "Task" }))).toBeNull();
     expect(

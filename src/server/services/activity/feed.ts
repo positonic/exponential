@@ -133,6 +133,10 @@ function readMetaId(metadata: unknown, key: string): string | null {
  * `entityId` is the child row itself. Non-OKR rows get `null`.
  */
 function deriveDrawerParam(row: FeedRow): string | null {
+  // A deleted row's target is gone by definition — linking it would be a
+  // guaranteed-dead click. (Other rows may still go stale after a later
+  // delete; those fail gracefully in the drawer.)
+  if (row.action === "deleted") return null;
   switch (row.entityType) {
     case "goal":
       return `objective:${row.entityId}`;
