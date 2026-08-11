@@ -173,4 +173,77 @@ describe("assertWorkspaceScopedRefs", () => {
       }),
     ).rejects.toMatchObject({ message: "Cycle not found in this workspace" });
   });
+
+  // Epics are per-product. Same workspace is no longer sufficient for a
+  // ticket → epic link; the epic has to belong to the ticket's own product.
+  describe("product containment for epics", () => {
+    const PRODUCT_ID = "prod-1";
+    const OTHER_PRODUCT_ID = "prod-2";
+
+    it("admits an epic in the pointing ticket's own product", async () => {
+      db.epic.findUnique.mockResolvedValue({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+      } as never);
+
+      await expect(
+        assertWorkspaceScopedRefs(
+          db,
+          USER_ID,
+          WORKSPACE_ID,
+          { epicId: "epic-1" },
+          PRODUCT_ID,
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects another product's epic even inside one workspace", async () => {
+      db.epic.findUnique.mockResolvedValue({
+        workspaceId: WORKSPACE_ID,
+        productId: OTHER_PRODUCT_ID,
+      } as never);
+
+      await expect(
+        assertWorkspaceScopedRefs(
+          db,
+          USER_ID,
+          WORKSPACE_ID,
+          { epicId: "epic-1" },
+          PRODUCT_ID,
+        ),
+      ).rejects.toMatchObject({ message: "Epic not found in this product" });
+    });
+
+    it("still admits a product-less epic during the backfill window", async () => {
+      db.epic.findUnique.mockResolvedValue({
+        workspaceId: WORKSPACE_ID,
+        productId: null,
+      } as never);
+
+      await expect(
+        assertWorkspaceScopedRefs(
+          db,
+          USER_ID,
+          WORKSPACE_ID,
+          { epicId: "epic-1" },
+          PRODUCT_ID,
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it("ignores product containment when the caller has no product (actions)", async () => {
+      db.epic.findUnique.mockResolvedValue({
+        workspaceId: WORKSPACE_ID,
+        productId: OTHER_PRODUCT_ID,
+      } as never);
+
+      // An Action has no product of its own, so workspace containment is the
+      // only rule that can apply to it.
+      await expect(
+        assertWorkspaceScopedRefs(db, USER_ID, WORKSPACE_ID, {
+          epicId: "epic-1",
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
 });

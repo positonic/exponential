@@ -245,9 +245,11 @@ export default function TicketDetailPage() {
     { workspaceId: workspaceId ?? "" },
     { enabled: !!workspaceId },
   );
+  // Only this ticket's own product's epics are linkable — the router rejects
+  // another product's epic, so offering it would be a dead option.
   const { data: epics } = api.epic.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
   const { data: features } = api.product.feature.list.useQuery(
     { productId: ticket?.product.id ?? "" },
@@ -703,7 +705,14 @@ export default function TicketDetailPage() {
             epics={epics ?? []}
             onChange={(val) => handleFieldUpdate("epicId", val)}
             onCreate={(name) => {
-              if (workspaceId) createEpic.mutate({ workspaceId, name });
+              // Inline creation lands the epic on this ticket's own product.
+              if (workspaceId && ticket.product.id) {
+                createEpic.mutate({
+                  workspaceId,
+                  productId: ticket.product.id,
+                  name,
+                });
+              }
             }}
           />
         </PropertyRow>

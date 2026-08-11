@@ -2285,11 +2285,17 @@ model Epic {
 
   ownerId     String
   workspaceId String
+  // An epic belongs to one Product. Nullable only for the backfill window:
+  // rows predating this column have no product yet, and a null epic stays
+  // linkable from any product in its workspace so existing tickets keep
+  // their epic. Tighten to required once every row is assigned.
+  productId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   owner     User      @relation("EpicOwner", fields: [ownerId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
   actions   Action[]
   tickets   Ticket[]  @relation("TicketEpic")
   tags      EpicTag[]
@@ -2297,6 +2303,7 @@ model Epic {
   @@index([workspaceId])
   @@index([ownerId])
   @@index([status])
+  @@index([productId])
 }
 
 enum ActionStatus {
@@ -4073,6 +4080,7 @@ model Product {
   projects          Project[]
   ticketSyncConfigs TicketSyncConfig[]
   featureDrafts     MeetingFeatureDraft[]
+  epics             Epic[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])

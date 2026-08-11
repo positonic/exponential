@@ -173,14 +173,19 @@ export default function ProductLayout({
     return <div className="w-full">{children}</div>;
   }
 
-  // Determine active tab from pathname
+  // Determine active tab from pathname. Epics live at their own `/epics/:id`
+  // route but are reached from — and navigate back to — the Backlog tab's
+  // entity switcher, so they keep Backlog lit rather than falling through to
+  // the "overview" default.
   const pathnameTab =
-    tabs.find(
-      (t) =>
-        t.href !== "" &&
-        (pathname === `${basePath}${t.href}` ||
-          pathname.startsWith(`${basePath}${t.href}/`)),
-    )?.value ?? "overview";
+    pathname === `${basePath}/epics` || pathname.startsWith(`${basePath}/epics/`)
+      ? "backlog"
+      : (tabs.find(
+          (t) =>
+            t.href !== "" &&
+            (pathname === `${basePath}${t.href}` ||
+              pathname.startsWith(`${basePath}${t.href}/`)),
+        )?.value ?? "overview");
   // While a navigation is pending, show the just-clicked tab as active so the
   // tab bar responds instantly; fall back to the real route once it commits.
   const activeTab = isPending && optimisticTab ? optimisticTab : pathnameTab;

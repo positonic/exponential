@@ -18,7 +18,6 @@ import {
   Stack,
   Table,
   Text,
-  Textarea,
   TextInput,
   Tooltip,
   UnstyledButton,
@@ -61,6 +60,7 @@ import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_comp
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { EpicsList } from "~/app/_components/product/EpicsList";
+import { CreateEpicModal } from "~/app/_components/CreateEpicModal";
 import { TagBadge } from "~/app/_components/TagBadge";
 import {
   groupTickets,
@@ -151,61 +151,6 @@ function sortValue(t: Record<string, unknown>, field: SortField): string | numbe
 // ---------------------------------------------------------------------------
 // SortHeader
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Create Epic Modal
-// ---------------------------------------------------------------------------
-
-function CreateEpicModal({ opened, onClose, workspaceId }: { opened: boolean; onClose: () => void; workspaceId: string }) {
-  const utils = api.useUtils();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-
-  const createEpic = api.epic.create.useMutation({
-    onSuccess: async () => {
-      await utils.epic.list.invalidate();
-      onClose();
-      setName("");
-      setDescription("");
-    },
-  });
-
-  return (
-    <Modal opened={opened} onClose={onClose} title="New epic" size="md">
-      <Stack gap="md">
-        <TextInput
-          label="Name"
-          placeholder="Epic name"
-          value={name}
-          onChange={(e) => setName(e.currentTarget.value)}
-          size="sm"
-          required
-          autoFocus
-        />
-        <Textarea
-          label="Description"
-          placeholder="What does this epic cover?"
-          value={description}
-          onChange={(e) => setDescription(e.currentTarget.value)}
-          autosize
-          minRows={2}
-          maxRows={5}
-          size="sm"
-        />
-        <Group justify="flex-end">
-          <Button variant="subtle" onClick={onClose}>Cancel</Button>
-          <Button
-            onClick={() => createEpic.mutate({ workspaceId, name: name.trim(), description: description.trim() || undefined })}
-            loading={createEpic.isPending}
-            disabled={!name.trim()}
-          >
-            Create
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
-}
 
 // ---------------------------------------------------------------------------
 
@@ -511,9 +456,11 @@ export default function TicketsBacklogPage() {
     { enabled: !!workspaceId },
   );
 
+  // Epics are per-product. `includeUnassigned` keeps pre-backfill epics (no
+  // product yet) visible here so they can be opened and given one.
   const { data: epics } = api.epic.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
   );
 
   const utils = api.useUtils();
@@ -848,6 +795,7 @@ export default function TicketsBacklogPage() {
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
+  const epicsBasePath = `/w/${workspace.slug}/products/${productSlug}/epics`;
 
   // Clear only the overview deep-link params; keep any other query params.
   const clearUrlFilters = () => {
@@ -1290,7 +1238,7 @@ export default function TicketsBacklogPage() {
             <Text size="sm" className="text-text-muted">Timeline view coming soon</Text>
           </div>
         ) : (
-          <EpicsList epics={epics ?? []} search={search} basePath={basePath} view={view === "list" ? "list" : "table"} />
+          <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
         )
       ) : (isLoading || sessionPending) ? (
         <Stack gap="xs">
@@ -1590,6 +1538,7 @@ export default function TicketsBacklogPage() {
         opened={epicModalOpened}
         onClose={() => setEpicModalOpened(false)}
         workspaceId={workspaceId ?? ""}
+        productId={product?.id}
       />
 
       {/* Peek drawer - detail over the list, list stays mounted */}
