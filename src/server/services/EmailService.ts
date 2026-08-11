@@ -254,6 +254,13 @@ function generateWelcomeEmailContent(options: {
   const actionBlockHtml = signInCode
     ? `
               <!-- Sign-in code -->
+              <!-- The lead-in is not decoration: without it the code lands bare
+                   under a paragraph about Daily Planning, and the HTML body is
+                   what most recipients actually read. Keep it saying the same
+                   thing as \`actionBlockText\` below. -->
+              <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                ${ctaText} — enter this code on the sign-in page:
+              </p>
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
