@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -125,6 +126,24 @@ export default function EpicDetailPage() {
     },
   });
 
+  // An epic has exactly one canonical URL — the one under its own product.
+  // `getById` gates on workspace membership, not on the product in the path,
+  // so without this an epic reached through a sibling product's URL would
+  // render under that product's breadcrumbs and tab bar. Canonicalise instead
+  // of 404ing: the reader is entitled to see it, just not there. A
+  // product-less epic (pre-backfill) has no canonical URL yet, so it stays
+  // wherever it was opened — that is how it gets assigned one.
+  const wrongProduct =
+    !!epic?.product && epic.product.slug !== productSlug;
+
+  useEffect(() => {
+    if (wrongProduct && epic?.product && workspace?.slug) {
+      router.replace(
+        `/w/${workspace.slug}/products/${epic.product.slug}/epics/${epicId}`,
+      );
+    }
+  }, [wrongProduct, epic?.product, workspace?.slug, epicId, router]);
+
   if (isLoading) {
     return (
       <Stack gap="md">
@@ -136,6 +155,10 @@ export default function EpicDetailPage() {
   }
 
   if (!epic) return <Text className="text-text-muted">Epic not found</Text>;
+
+  // Redirecting to the canonical product URL — don't paint this product's
+  // chrome around another product's epic in the meantime.
+  if (wrongProduct) return null;
 
   // A pre-backfill epic can still hold tickets from more than one product.
   // Anything outside this epic's own product is called out rather than listed
