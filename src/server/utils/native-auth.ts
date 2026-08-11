@@ -24,8 +24,10 @@ import jwt from "jsonwebtoken";
  */
 
 /**
- * The iOS app's and Electron shell's scheme (the locked CFBundleURLTypes value).
- * Recorded in the ADR-0005 contract in `exponential-ios` — never change it.
+ * The Electron shell's scheme, and the one older installed builds of the iOS/Mac
+ * app still send. Recorded in the ADR-0005 contract in `exponential-ios` — never
+ * change it. Current iOS/Mac builds use `VOICE_REDIRECT_URI` below; this value
+ * stays allow-listed so those older builds keep signing in.
  */
 export const NATIVE_REDIRECT_URI = "exponential://auth/callback";
 
@@ -38,6 +40,18 @@ export const NATIVE_REDIRECT_URI = "exponential://auth/callback";
 export const TAURI_REDIRECT_URI = "exponential-beta://auth/callback";
 
 /**
+ * The native iOS/Mac app's own scheme (`im.exponential.voice`). Split off
+ * `exponential://` for exactly the reason the Tauri shell was: macOS resolves a
+ * scheme to a single handler app, and with the Electron shell installed the OS
+ * was handing `exponential://auth/callback` to *it* rather than to
+ * ExponentialVoice — so native sign-in failed on any Mac that had both.
+ *
+ * `NATIVE_REDIRECT_URI` stays in the allow-list: the Electron shell still uses
+ * it, and older installed builds of the iOS/Mac app do too.
+ */
+export const VOICE_REDIRECT_URI = "exponential-voice://auth/callback";
+
+/**
  * Every redirect target we will ever emit. Deliberately a closed set of exact
  * strings: `mintAuthCode` binds the chosen URI into the signed code and the
  * redeem path re-validates it, so this predicate is the only thing standing
@@ -46,6 +60,7 @@ export const TAURI_REDIRECT_URI = "exponential-beta://auth/callback";
 export const ALLOWED_REDIRECT_URIS: readonly string[] = [
   NATIVE_REDIRECT_URI,
   TAURI_REDIRECT_URI,
+  VOICE_REDIRECT_URI,
 ];
 
 /** Signed, httpOnly cookie carrying the PKCE request across the NextAuth login bounce. */
