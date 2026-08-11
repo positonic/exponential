@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Stack, Text, TextInput } from "@mantine/core";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   buildSignInCodeCallbackUrl,
   SIGN_IN_CALLBACK_KEY,
@@ -22,16 +22,21 @@ export function SignInCodeForm() {
   const [code, setCode] = useState("");
   const [email, setEmail] = useState("");
   const [callbackUrl, setCallbackUrl] = useState("/home");
-  // Whether we recovered the address from the sign-in page. Only decides where
-  // focus starts — the field itself is always shown, see below.
-  const [knowsEmail, setKnowsEmail] = useState(true);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(SIGN_IN_EMAIL_KEY);
     const storedCallback = window.sessionStorage.getItem(SIGN_IN_CALLBACK_KEY);
     if (stored) setEmail(stored);
-    else setKnowsEmail(false);
     if (storedCallback) setCallbackUrl(storedCallback);
+
+    // Focused here rather than with `autoFocus`, which React only applies when
+    // an input mounts. Both fields are always mounted now, and whether we know
+    // the address is only discovered in this effect — one render too late for
+    // `autoFocus` to act on, so it would silently never move.
+    if (stored) codeRef.current?.focus();
+    else emailRef.current?.focus();
   }, []);
 
   const normalized = normalizeSignInCode(code);
@@ -61,6 +66,7 @@ export function SignInCodeForm() {
           is about to be used is worth the extra field.
         */}
         <TextInput
+          ref={emailRef}
           label="Email address"
           description="The address the code was sent to."
           placeholder="you@company.com"
@@ -68,17 +74,16 @@ export function SignInCodeForm() {
           value={email}
           onChange={(event) => setEmail(event.currentTarget.value)}
           autoComplete="email"
-          autoFocus={!knowsEmail}
           required
         />
 
         <TextInput
+          ref={codeRef}
           label="Sign-in code"
           placeholder="XXXX-XXXX"
           value={code}
           onChange={(event) => setCode(event.currentTarget.value)}
           autoComplete="one-time-code"
-          autoFocus={knowsEmail}
           spellCheck={false}
           // The code is Crockford base32 and we fold case on submit, so the
           // uppercase here is purely so it matches the email visually.

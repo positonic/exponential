@@ -26,10 +26,10 @@ import { api, type RouterOutputs } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import {
   normalizeSignInEmail,
+  SEND_FAILED_MESSAGE,
   SIGN_IN_CALLBACK_KEY,
   SIGN_IN_EMAIL_KEY,
 } from "~/lib/signInCode";
-import { SEND_FAILED_MESSAGE } from "~/app/signin/SignInLandingPage";
 import Image from "next/image";
 import Link from "next/link";
 import "~/styles/auth-surface.css";

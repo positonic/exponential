@@ -82,6 +82,17 @@ export const SIGN_IN_EMAIL_KEY = "exponential:signin-email";
 export const SIGN_IN_CALLBACK_KEY = "exponential:signin-callback";
 
 /**
+ * Shown on every surface that can start an email sign-in when the send fails.
+ *
+ * Lives here rather than next to one of them because all three need it and a
+ * page component is the wrong thing for the others to import from. The copy is
+ * shared on purpose: "we couldn't send it" and "check your inbox" must never
+ * disagree between /signin, the invite page and the public form.
+ */
+export const SEND_FAILED_MESSAGE =
+  "We couldn't send that email, so no code is on its way. Check the address and try again.";
+
+/**
  * The identifier has to match what Auth.js stored the token against, and its
  * `defaultNormalizer` lower-cases and trims. Getting this wrong looks exactly
  * like a wrong code.

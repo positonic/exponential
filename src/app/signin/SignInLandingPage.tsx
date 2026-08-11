@@ -10,14 +10,11 @@ import { PRODUCT_NAME } from "~/lib/brand";
 import { getDesktopBridge } from "~/lib/platform";
 import {
   normalizeSignInEmail,
+  SEND_FAILED_MESSAGE,
   SIGN_IN_CALLBACK_KEY,
   SIGN_IN_EMAIL_KEY,
 } from "~/lib/signInCode";
 import "~/styles/auth-surface.css";
-
-/** Shown on both sign-in surfaces when the code email doesn't leave. */
-export const SEND_FAILED_MESSAGE =
-  "We couldn't send that email, so no code is on its way. Check the address and try again.";
 
 /**
  * Turn an Auth.js `?error=` code into something a person can act on.
