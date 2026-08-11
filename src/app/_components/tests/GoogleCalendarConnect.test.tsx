@@ -158,5 +158,23 @@ describe('GoogleCalendarConnect', () => {
         color: 'red',
       });
     });
+
+    test('stays silent when an ancestor owns the connection toast', () => {
+      // The calendar page runs useCalendarConnectionToast and also renders
+      // this button in its disconnected empty state — the error path would
+      // otherwise toast once per mounted connect button plus once for the hook.
+      mockUseSearchParams.mockImplementation(() => ({
+        get: vi.fn((param: string) => {
+          if (param === 'calendar_error') return 'access_denied';
+          return null;
+        }),
+      }));
+
+      render(
+        <GoogleCalendarConnect isConnected={false} showConnectionToast={false} />,
+      );
+
+      expect(mockShow).not.toHaveBeenCalled();
+    });
   });
 });

@@ -6,6 +6,7 @@ import { notifications } from "@mantine/notifications";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { useCalendarNavigation } from "./useCalendarNavigation";
+import { useCalendarConnectionToast } from "./useCalendarConnectionToast";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
@@ -38,6 +39,12 @@ export function CalendarPageContent() {
     goNext,
     goPrevious,
   } = useCalendarNavigation();
+
+  // Show toast for calendar_connected / calendar_error search params.
+  // Must live here (not in GoogleCalendarConnect/MicrosoftCalendarConnect)
+  // because after OAuth the calendar IS connected and those components
+  // only render in the disconnected empty state.
+  useCalendarConnectionToast();
 
   // Fetch calendar events from all selected calendars
   const { data: events, isLoading: eventsLoading } =
@@ -358,7 +365,10 @@ export function CalendarPageContent() {
                 <Text size="sm" c="dimmed">
                   Outlook calendars are available now.
                 </Text>
-                <MicrosoftCalendarConnect isConnected={false} />
+                <MicrosoftCalendarConnect
+                  isConnected={false}
+                  showConnectionToast={false}
+                />
               </Stack>
             </Stack>
           </div>
@@ -383,8 +393,14 @@ export function CalendarPageContent() {
               </Text>
             </div>
             <Stack gap="sm">
-              <GoogleCalendarConnect isConnected={false} />
-              <MicrosoftCalendarConnect isConnected={false} />
+              <GoogleCalendarConnect
+                isConnected={false}
+                showConnectionToast={false}
+              />
+              <MicrosoftCalendarConnect
+                isConnected={false}
+                showConnectionToast={false}
+              />
             </Stack>
           </Stack>
         </Paper>
