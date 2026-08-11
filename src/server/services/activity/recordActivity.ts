@@ -37,6 +37,7 @@ export type ActivityEntityType =
   | "goal_comment"
   | "key_result"
   | "key_result_comment"
+  | "okr_checkin"
   | "weekly_review"
   | "workspace_member"
   | "deal"

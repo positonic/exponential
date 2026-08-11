@@ -137,6 +137,20 @@ describe("resolveFeedHint", () => {
     expect(hint.template).toContain("{entityRef}");
   });
 
+  it("renders the weekly check-in ritual with the team name as entityRef", () => {
+    const submitted = resolveFeedHint("okr_checkin", "checked_in");
+    expect(submitted.template).toBe(
+      "{actor} submitted their OKR check-in for {entityRef}",
+    );
+    expect(submitted.iconKind).toBe("tracked");
+
+    const completed = resolveFeedHint("okr_checkin", "completed");
+    expect(completed.template).toBe(
+      "{actor} completed the OKR check-in for {entityRef}",
+    );
+    expect(completed.iconKind).toBe("milestone");
+  });
+
   it("falls back to a neutral hint for unknown pairs", () => {
     const hint = resolveFeedHint("nonsense", "nonsense");
     expect(hint.iconKind).toBe("fallback");

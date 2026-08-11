@@ -152,6 +152,19 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "commented",
   },
 
+  // Weekly team OKR check-in ritual — {entityRef} is the TEAM name, not an
+  // objective. A member submitting their status update reads like progress
+  // logging (tracked); the facilitator closing the meeting is the team-visible
+  // milestone. Draft saves and meeting start never log.
+  [key("okr_checkin", "checked_in")]: {
+    template: "{actor} submitted their OKR check-in for {entityRef}",
+    iconKind: "tracked",
+  },
+  [key("okr_checkin", "completed")]: {
+    template: "{actor} completed the OKR check-in for {entityRef}",
+    iconKind: "milestone",
+  },
+
   // Weekly review — a completed review is a team-visible milestone. Self-contained
   // template (no {entityRef}) because the completion row has no entity name.
   [key("weekly_review", "completed")]: {
