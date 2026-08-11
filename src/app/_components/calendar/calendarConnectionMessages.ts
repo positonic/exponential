@@ -17,6 +17,11 @@ const CALENDAR_ERROR_MESSAGES: Record<string, string> = {
   no_refresh_token:
     "Failed to get long-term access. Please try connecting again.",
   token_exchange_failed: "Failed to connect calendar. Please try again.",
+
+  // Google-only. The Microsoft callback emits none of these, so the shared map
+  // is safe today — but the two callbacks share one `calendar_error` namespace,
+  // so a Microsoft code reusing one of these names would inherit Google copy.
+  // Give any new Microsoft-specific code a distinct name.
   no_google_account:
     "Please sign in with Google first, then connect your calendar.",
   account_linked_elsewhere:

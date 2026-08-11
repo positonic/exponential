@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useRef } from "react";
 import { getCalendarErrorMessage } from "./calendarConnectionMessages";
@@ -27,6 +27,7 @@ const OAUTH_RESULT_PARAMS = [
  */
 export function useCalendarConnectionToast() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   // Guards the window between showing a toast and the stripped URL arriving,
   // during which this effect can run again with the params still present.
@@ -62,6 +63,9 @@ export function useCalendarConnectionToast() {
     }
 
     if (calendarError) {
+      // No provider-specific fallback: both callbacks redirect with a bare
+      // `calendar_error`, so unlike the connect buttons this hook can't tell
+      // which provider failed. Only success is provider-tagged.
       notifications.show({
         title: "Connection Failed",
         message: getCalendarErrorMessage(calendarError),
@@ -74,7 +78,10 @@ export function useCalendarConnectionToast() {
       params.delete(param);
     }
     const query = params.toString();
-    router.replace(query ? `/calendar?${query}` : "/calendar", {
+    // Strip in place rather than routing to a literal /calendar — the caller
+    // owns the route, and hardcoding it would relocate anyone using this hook
+    // from somewhere else.
+    router.replace(query ? `${pathname}?${query}` : pathname, {
       scroll: false,
     });
   }, [
@@ -82,6 +89,7 @@ export function useCalendarConnectionToast() {
     microsoftConnected,
     calendarError,
     searchParams,
+    pathname,
     router,
   ]);
 }
