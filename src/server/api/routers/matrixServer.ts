@@ -21,7 +21,11 @@ import {
   MATRIX_ACCESS_TOKEN_KEY_TYPE,
   MATRIX_SERVER_PROVIDER,
 } from "~/server/services/matrix/constants";
-import { listMatrixServers } from "~/server/services/matrix/matrixServer";
+import {
+  getMatrixClientForServer,
+  listMatrixServers,
+} from "~/server/services/matrix/matrixServer";
+import { reportHandledError } from "~/lib/reportHandledError";
 
 /** Only owners and admins may register or remove a workspace's messaging credentials. */
 const MANAGE_ROLES = ["owner", "admin"] as const;
@@ -157,5 +161,48 @@ export const matrixServerRouter = createTRPCRouter({
         "viewer",
       ]);
       return listMatrixServers(ctx.db, input.workspaceId);
+    }),
+
+  /**
+   * Rooms the bot can reach on a registered server.
+   *
+   * Only joined rooms: the bot posts where it has been invited and has joined, and there
+   * is deliberately no directory search or auto-join. Each room carries its encryption
+   * status so the caller can refuse to offer one the bot cannot post to.
+   */
+  rooms: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), serverId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceRole(ctx.db, ctx.session.user.id, input.workspaceId, [
+        "owner",
+        "admin",
+        "member",
+      ]);
+
+      const { client, config } = await getMatrixClientForServer(
+        ctx.db,
+        input.serverId,
+        input.workspaceId,
+      );
+
+      try {
+        const joinedIds = await client.joinedRooms();
+        const joined = await client.roomSummaries(joinedIds);
+        return {
+          joined: joined
+            .map((room) => ({
+              roomId: room.roomId,
+              name: room.name ?? room.roomId,
+              isEncrypted: room.isEncrypted,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        };
+      } catch (error) {
+        reportHandledError(error, {
+          area: "matrix-room-list",
+          context: { homeserverUrl: config.homeserverUrl, serverId: input.serverId },
+        });
+        throw describeMatrixFailure(error, config.homeserverUrl);
+      }
     }),
 });

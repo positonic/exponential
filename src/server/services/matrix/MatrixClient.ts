@@ -119,4 +119,91 @@ export class MatrixClient {
     const body = await this.request<{ user_id: string }>("GET", "/account/whoami");
     return { userId: body.user_id };
   }
+
+  /**
+   * Room ids the bot has joined. The bot can only post where it is joined, so this is
+   * the whole universe of reachable rooms — there is no directory search here by design.
+   */
+  async joinedRooms(): Promise<string[]> {
+    const body = await this.request<{ joined_rooms?: string[] }>(
+      "GET",
+      "/joined_rooms",
+    );
+    return body.joined_rooms ?? [];
+  }
+
+  /**
+   * Read one piece of room state, treating "not set" as `null` rather than an error.
+   *
+   * A room with no name and a room with no encryption both answer 404 `M_NOT_FOUND`,
+   * which is a normal, expected answer — most rooms have no `m.room.encryption` event
+   * at all, and that is exactly the case we want to treat as postable.
+   */
+  private async roomState<T>(roomId: string, eventType: string): Promise<T | null> {
+    try {
+      return await this.request<T>(
+        "GET",
+        `/rooms/${encodeURIComponent(roomId)}/state/${encodeURIComponent(eventType)}`,
+      );
+    } catch (error) {
+      if (error instanceof MatrixApiError && error.status === 404) return null;
+      // 403 means the bot cannot read this room's state — treat as unknown rather than
+      // failing the whole listing over one room.
+      if (error instanceof MatrixApiError && error.isForbidden) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Name and encryption status for each room, resolved concurrently but bounded.
+   *
+   * Encryption is the load-bearing field: the bot has no crypto stack (ADR-0043), and a
+   * homeserver will happily accept a plaintext event into an encrypted room, where it is
+   * unreadable by convention and looks broken. So we must know before offering the room.
+   */
+  async roomSummaries(roomIds: readonly string[]): Promise<MatrixRoomSummary[]> {
+    return mapWithConcurrency(roomIds, 8, async (roomId) => {
+      const [nameEvent, encryptionEvent] = await Promise.all([
+        this.roomState<{ name?: string }>(roomId, "m.room.name"),
+        this.roomState<{ algorithm?: string }>(roomId, "m.room.encryption"),
+      ]);
+      return {
+        roomId,
+        name: nameEvent?.name ?? null,
+        isEncrypted: encryptionEvent !== null,
+      };
+    });
+  }
+}
+
+export interface MatrixRoomSummary {
+  roomId: string;
+  /** The room's display name, or null when it has no `m.room.name` event. */
+  name: string | null;
+  isEncrypted: boolean;
+}
+
+/**
+ * `Promise.all` over a mapper, but with at most `limit` requests in flight — a workspace
+ * with a few hundred rooms would otherwise open two requests per room at once.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  );
+  return results;
 }

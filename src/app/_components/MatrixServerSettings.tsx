@@ -14,6 +14,7 @@ import {
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconAlertTriangle, IconServer } from "@tabler/icons-react";
+import { MatrixRoomPicker } from "~/app/_components/matrix/MatrixRoomPicker";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 
@@ -28,6 +29,7 @@ export function MatrixServerSettings({
   canManage,
 }: MatrixServerSettingsProps) {
   const [opened, { open, close }] = useDisclosure(false);
+  const [browsingServerId, setBrowsingServerId] = useState<string | null>(null);
   const [homeserverUrl, setHomeserverUrl] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [name, setName] = useState("");
@@ -87,6 +89,13 @@ export function MatrixServerSettings({
             >
               {server.status === "ACTIVE" ? "Connected" : server.status}
             </Badge>
+            <Button
+              variant="subtle"
+              size="xs"
+              onClick={() => setBrowsingServerId(server.id)}
+            >
+              Browse rooms
+            </Button>
           </Group>
         ))
       )}
@@ -175,6 +184,26 @@ export function MatrixServerSettings({
               Verify and save
             </Button>
           </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={browsingServerId !== null}
+        onClose={() => setBrowsingServerId(null)}
+        title="Rooms this bot can reach"
+        size="lg"
+      >
+        <Stack gap="md">
+          <Text size="sm" className="text-text-muted">
+            Only rooms the bot has joined are listed. Invite it from your Matrix
+            client to add more.
+          </Text>
+          {browsingServerId && (
+            <MatrixRoomPicker
+              workspaceId={workspace.id}
+              serverId={browsingServerId}
+            />
+          )}
         </Stack>
       </Modal>
     </Stack>

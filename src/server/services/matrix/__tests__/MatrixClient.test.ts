@@ -116,3 +116,107 @@ describe("MatrixClient.whoami", () => {
     expect((error as MatrixApiError).status).toBe(502);
   });
 });
+
+describe("MatrixClient.joinedRooms", () => {
+  it("returns the joined room ids", async () => {
+    fetchMock.mockResolvedValue(OK({ joined_rooms: ["!a:example.org", "!b:example.org"] }));
+
+    await expect(makeClient().joinedRooms()).resolves.toEqual([
+      "!a:example.org",
+      "!b:example.org",
+    ]);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(
+      "https://matrix.example.org/_matrix/client/v3/joined_rooms",
+    );
+  });
+
+  it("treats a missing joined_rooms key as no rooms rather than throwing", async () => {
+    fetchMock.mockResolvedValue(OK({}));
+    await expect(makeClient().joinedRooms()).resolves.toEqual([]);
+  });
+});
+
+describe("MatrixClient.roomSummaries", () => {
+  /** Answer name/encryption state per room, 404ing for state a room does not have. */
+  function stateResponder(
+    rooms: Record<string, { name?: string; encrypted?: boolean }>,
+  ) {
+    return (url: string) => {
+      const match = /\/rooms\/([^/]+)\/state\/(.+)$/.exec(String(url));
+      if (!match) return ERR(404, { errcode: "M_NOT_FOUND" });
+      const roomId = decodeURIComponent(match[1]!);
+      const eventType = decodeURIComponent(match[2]!);
+      const room = rooms[roomId];
+      if (!room) return ERR(404, { errcode: "M_NOT_FOUND" });
+      if (eventType === "m.room.name") {
+        return room.name ? OK({ name: room.name }) : ERR(404, { errcode: "M_NOT_FOUND" });
+      }
+      if (eventType === "m.room.encryption") {
+        return room.encrypted
+          ? OK({ algorithm: "m.megolm.v1.aes-sha2" })
+          : ERR(404, { errcode: "M_NOT_FOUND" });
+      }
+      return ERR(404, { errcode: "M_NOT_FOUND" });
+    };
+  }
+
+  it("reports name and encryption status per room", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        stateResponder({
+          "!plain:example.org": { name: "Engineering" },
+          "!secret:example.org": { name: "Board", encrypted: true },
+        })(url),
+      ),
+    );
+
+    await expect(
+      makeClient().roomSummaries(["!plain:example.org", "!secret:example.org"]),
+    ).resolves.toEqual([
+      { roomId: "!plain:example.org", name: "Engineering", isEncrypted: false },
+      { roomId: "!secret:example.org", name: "Board", isEncrypted: true },
+    ]);
+  });
+
+  it("treats an absent m.room.name as an unnamed room, not an error", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(stateResponder({ "!anon:example.org": {} })(url)),
+    );
+
+    await expect(makeClient().roomSummaries(["!anon:example.org"])).resolves.toEqual([
+      { roomId: "!anon:example.org", name: null, isEncrypted: false },
+    ]);
+  });
+
+  it("does not let one unreadable room's state fail the whole listing", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes("forbidden")) {
+        return Promise.resolve(ERR(403, { errcode: "M_FORBIDDEN" }));
+      }
+      return Promise.resolve(
+        stateResponder({ "!ok:example.org": { name: "Fine" } })(String(url)),
+      );
+    });
+
+    await expect(
+      makeClient().roomSummaries(["!forbidden:example.org", "!ok:example.org"]),
+    ).resolves.toEqual([
+      { roomId: "!forbidden:example.org", name: null, isEncrypted: false },
+      { roomId: "!ok:example.org", name: "Fine", isEncrypted: false },
+    ]);
+  });
+
+  it("preserves input order even though lookups run concurrently", async () => {
+    const rooms = Array.from({ length: 20 }, (_, i) => `!r${i}:example.org`);
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        stateResponder(
+          Object.fromEntries(rooms.map((r, i) => [r, { name: `Room ${i}` }])),
+        )(String(url)),
+      ),
+    );
+
+    const summaries = await makeClient().roomSummaries(rooms);
+    expect(summaries.map((s) => s.roomId)).toEqual(rooms);
+  });
+});
