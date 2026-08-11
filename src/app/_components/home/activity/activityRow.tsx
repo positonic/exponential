@@ -269,11 +269,13 @@ export function ActivityRow({
   const Icon = ICON_BY_KIND[event.hint.iconKind] ?? IconRefresh;
   const actorName = event.actor?.name ?? 'Someone';
 
-  // OKR rows deep-link to the goals-page drawer. Stale ids fail gracefully —
-  // parseDrawerParam rejects malformed values and the drawer stays closed.
+  // OKR rows deep-link to the goals-page drawer. tab=okrs is required — the
+  // drawer only mounts inside the OKRs tab panel, and the page defaults to
+  // the Goals tab. Stale ids fail gracefully — parseDrawerParam rejects
+  // malformed values and the drawer stays closed.
   const drawerHref =
     slug && event.drawerParam
-      ? `/w/${slug}/goals?drawer=${encodeURIComponent(event.drawerParam)}`
+      ? `/w/${slug}/goals?tab=okrs&drawer=${encodeURIComponent(event.drawerParam)}`
       : null;
 
   const sentence = (
