@@ -254,7 +254,6 @@ async function loadScopeWithAccess(
       id: true,
       featureId: true,
       status: true,
-      version: true,
       feature: {
         select: {
           name: true,
@@ -685,12 +684,9 @@ export const featureRouter = createTRPCRouter({
       // (debounced body writes would spam the timeline).
       const prev = await ctx.db.feature.findUnique({
         where: { id },
-        select: { status: true, name: true },
+        select: { status: true },
       });
       const recordFeatureEvent = async () => {
-        // Feed display name: the post-update name (a rename event should show
-        // the new name).
-        const name = rest.name ?? prev?.name ?? "";
         const statusChanged =
           rest.status !== undefined && rest.status !== prev?.status;
         if (statusChanged) {
@@ -700,7 +696,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "status_changed",
-            metadata: { from: prev?.status ?? "", to: rest.status!, name },
+            metadata: {
+              from: prev?.status ?? "",
+              to: rest.status!,
+              name: rest.name ?? feature.name,
+            },
           });
           return;
         }
@@ -715,7 +715,7 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "updated",
-            metadata: { fieldsChanged, name },
+            metadata: { fieldsChanged, name: rest.name ?? feature.name },
           });
         }
       };
@@ -1252,9 +1252,7 @@ export const featureRouter = createTRPCRouter({
         metadata: {
           featureId: input.featureId,
           version: input.version,
-          // Feed display name: "<feature> <version>" so the feed reads
-          // "added scope Onboarding V1" instead of a CUID slice.
-          name: `${parentFeature.name} ${input.version}`,
+          name: parentFeature.name,
         },
       });
       return scope;
@@ -1289,9 +1287,6 @@ export const featureRouter = createTRPCRouter({
         await applyScopeRollup(ctx.db, scope.featureId);
       }
 
-      // Feed display name: "<feature> <version>", using the post-update
-      // version (a version rename should show the new one).
-      const scopeName = `${scope.feature.name} ${input.version ?? scope.version}`;
       const statusChanged =
         input.status !== undefined && input.status !== scope.status;
       if (statusChanged) {
@@ -1301,7 +1296,12 @@ export const featureRouter = createTRPCRouter({
           entityType: "feature_scope",
           entityId: scope.id,
           action: "status_changed",
-          metadata: { from: scope.status, to: input.status!, name: scopeName },
+          metadata: {
+            from: scope.status,
+            to: input.status!,
+            featureId: scope.featureId,
+            name: scope.feature.name,
+          },
         });
       } else {
         // displayOrder is drag-reorder noise, not timeline material.
@@ -1315,7 +1315,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature_scope",
             entityId: scope.id,
             action: "updated",
-            metadata: { fieldsChanged, name: scopeName },
+            metadata: {
+              fieldsChanged,
+              featureId: scope.featureId,
+              name: scope.feature.name,
+            },
           });
         }
       }

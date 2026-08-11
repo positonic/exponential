@@ -85,8 +85,8 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "commented",
   },
 
-  // Features (product plugin) — the feature name rides in metadata so
-  // {entityRef} renders the name, not a raw CUID.
+  // Features (product plugin). Every feature event carries the feature name in
+  // metadata so {entityRef} renders the name, not a CUID slice.
   [key("feature", "created")]: {
     template: "{actor} created feature {entityRef}",
     iconKind: "created",
@@ -100,18 +100,19 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "status_changed",
   },
 
-  // Feature scopes — metadata.name carries "<feature name> <version>" (e.g.
-  // "Onboarding V1") so {entityRef} reads naturally without a second token.
+  // Feature scopes. A scope has no name of its own (only a version like "V1"),
+  // so scope events carry the PARENT feature's name in metadata and the
+  // templates read "…scope on/to feature {entityRef}".
   [key("feature_scope", "created")]: {
-    template: "{actor} added scope {entityRef}",
+    template: "{actor} added a scope to feature {entityRef}",
     iconKind: "created",
   },
   [key("feature_scope", "updated")]: {
-    template: "{actor} updated scope {entityRef}",
+    template: "{actor} updated a scope on feature {entityRef}",
     iconKind: "updated",
   },
   [key("feature_scope", "status_changed")]: {
-    template: "{actor} changed status on scope {entityRef}",
+    template: "{actor} changed a scope status on feature {entityRef}",
     iconKind: "status_changed",
   },
 
