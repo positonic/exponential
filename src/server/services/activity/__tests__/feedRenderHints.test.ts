@@ -100,6 +100,12 @@ describe("resolveFeedHint", () => {
     const deleted = resolveFeedHint("key_result", "deleted");
     expect(deleted.template).toBe("{actor} deleted key result {entityRef}");
     expect(deleted.iconKind).toBe("deleted");
+
+    const statusChanged = resolveFeedHint("key_result", "status_changed");
+    expect(statusChanged.template).toBe(
+      "{actor} changed status on key result {entityRef}",
+    );
+    expect(statusChanged.iconKind).toBe("status_changed");
   });
 
   it("renders a KR check-in with glossary copy and the tracked icon", () => {

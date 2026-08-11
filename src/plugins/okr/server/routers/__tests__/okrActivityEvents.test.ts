@@ -251,3 +251,108 @@ describe("okr.create / okr.delete → activity feed", () => {
     expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
   });
 });
+
+describe("manual status overrides → activity feed", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  const GOAL_ROW = {
+    id: 42,
+    userId: OWNER_ID,
+    workspaceId: WORKSPACE_ID,
+    title: "Grow revenue",
+  };
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
+    db.goal.findFirst.mockResolvedValue(GOAL_ROW as never);
+    db.goal.update.mockResolvedValue(GOAL_ROW as never);
+    db.keyResult.findFirst.mockResolvedValue(KR_ROW as never);
+    db.keyResult.update.mockResolvedValue(KR_ROW as never);
+  });
+
+  it("records goal/status_changed when setting an objective override", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.setObjectiveStatusOverride({
+      goalId: 42,
+      status: "at-risk",
+    });
+
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        userId: OWNER_ID,
+        entityType: "goal",
+        entityId: "42",
+        action: "status_changed",
+        metadata: { title: GOAL_ROW.title },
+      },
+    });
+  });
+
+  it("logs nothing when clearing an objective override back to Auto", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.setObjectiveStatusOverride({ goalId: 42, status: null });
+
+    expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("records key_result/status_changed when setting a KR override", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.setKeyResultStatusOverride({
+      keyResultId: KR_ID,
+      status: "off-track",
+    });
+
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        userId: OWNER_ID,
+        entityType: "key_result",
+        entityId: KR_ID,
+        action: "status_changed",
+        metadata: { title: KR_ROW.title },
+      },
+    });
+  });
+
+  it("logs nothing when clearing a KR override back to Auto", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.setKeyResultStatusOverride({
+      keyResultId: KR_ID,
+      status: null,
+    });
+
+    expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("logs nothing when overriding on personal rows", async () => {
+    db.goal.findFirst.mockResolvedValue({
+      ...GOAL_ROW,
+      workspaceId: null,
+    } as never);
+    db.keyResult.findFirst.mockResolvedValue({
+      ...KR_ROW,
+      workspaceId: null,
+    } as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.setObjectiveStatusOverride({
+      goalId: 42,
+      status: "on-track",
+    });
+    await caller.okr.setKeyResultStatusOverride({
+      keyResultId: KR_ID,
+      status: "on-track",
+    });
+
+    expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+  });
+});

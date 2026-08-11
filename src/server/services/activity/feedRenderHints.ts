@@ -128,6 +128,10 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} checked in on key result {entityRef}",
     iconKind: "tracked",
   },
+  [key("key_result", "status_changed")]: {
+    template: "{actor} changed status on key result {entityRef}",
+    iconKind: "status_changed",
+  },
   [key("key_result", "deleted")]: {
     template: "{actor} deleted key result {entityRef}",
     iconKind: "deleted",

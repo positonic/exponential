@@ -1851,7 +1851,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.goal.update({
+      const updated = await ctx.db.goal.update({
         where: { id: input.goalId },
         data: {
           healthOverride: input.status,
@@ -1859,6 +1859,24 @@ export const keyResultRouter = createTRPCRouter({
           healthOverrideById: input.status ? ctx.session.user.id : null,
         },
       });
+
+      // A manual status set is a deliberate human judgement, so it surfaces
+      // in the workspace feed; clearing back to Auto is housekeeping and logs
+      // nothing. Personal objectives are silent. Fire-and-forget.
+      if (input.status !== null && goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal",
+          entityId: String(goal.id),
+          action: "status_changed",
+          metadata: { title: goal.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Set or clear a key result's manual status override. Writes ONLY the
@@ -1885,7 +1903,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.keyResult.update({
+      const updated = await ctx.db.keyResult.update({
         where: { id: input.keyResultId },
         data: {
           statusOverride: input.status,
@@ -1893,6 +1911,23 @@ export const keyResultRouter = createTRPCRouter({
           statusOverrideById: input.status ? ctx.session.user.id : null,
         },
       });
+
+      // Same rule as the objective override above: manual sets surface,
+      // clearing to Auto logs nothing, personal KRs are silent.
+      if (input.status !== null && keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: keyResult.id,
+          action: "status_changed",
+          metadata: { title: keyResult.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Delete own comment from a key result
