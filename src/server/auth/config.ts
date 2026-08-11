@@ -231,7 +231,15 @@ export const authConfig = {
             // New user - send welcome email with the code embedded
             await sendWelcomeWithSignInCodeEmail(identifier, token);
           }
+        } catch (error) {
+          console.error(
+            `[Auth] Failed to send sign-in code email to ${identifier}:`,
+            error
+          );
+          throw error;
+        }
 
+        try {
           // Retire this address's older codes, because the entropy argument in
           // ADR-0056 assumes one live code per identifier and Auth.js's
           // `sendToken` never retires the previous row. Without this, N
@@ -268,11 +276,20 @@ export const authConfig = {
             where: { identifier, expires: { lt: expires } },
           });
         } catch (error) {
+          // Its own catch, and it deliberately does not rethrow: by this point
+          // the code is in the user's inbox. Letting a failed cleanup escape
+          // would surface as "we couldn't send that email, so no code is on
+          // its way" — telling someone holding a working code to go and get
+          // another one. Failing to retire the old ones just leaves the
+          // pre-ADR-0056 status quo of more than one live code.
+          //
+          // Not routed through `reportHandledError`: it pulls in
+          // `@sentry/nextjs`, and `middleware.ts` drags this whole config into
+          // the Edge bundle. Revisit once the Edge-safe config split lands.
           console.error(
-            `[Auth] Failed to send sign-in code email to ${identifier}:`,
+            `[Auth] Sent a sign-in code to ${identifier} but could not retire the older ones:`,
             error
           );
-          throw error;
         }
       },
     }),
