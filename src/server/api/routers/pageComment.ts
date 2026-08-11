@@ -114,6 +114,10 @@ export const pageCommentRouter = createTRPCRouter({
       return comment;
     }),
 
+  // resolve/unresolve share the view-level commenting gate deliberately
+  // (Google-Docs semantics: whoever can join a discussion can settle it, and
+  // unresolve makes it fully reversible) — same parity featureComment has
+  // between commenting and resolving.
   resolve: protectedProcedure
     .input(z.object({ pageId: z.string(), threadId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {

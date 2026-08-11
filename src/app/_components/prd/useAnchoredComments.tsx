@@ -32,7 +32,12 @@ function newThreadId(): string {
 }
 
 /** The entity-specific persistence the anchored-comment layer runs on. Hosts
- *  wire these to their comment router (featureComment, pageComment, …). */
+ *  wire these to their comment router (featureComment, pageComment, …).
+ *
+ *  CONTRACT: every mutation callback must refresh `comments` (i.e. await the
+ *  list invalidation) before resolving — the hook renders threads straight
+ *  from `comments`, so an adapter that skips the refresh leaves the popover
+ *  and panel showing a stale thread after posting. */
 export interface AnchoredCommentsAdapter {
   /** All comment rows for the document (threads are filtered here). */
   comments: FeatureCommentRow[];

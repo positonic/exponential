@@ -78,6 +78,11 @@ export function PageDocument({
   const invalidateComments = () => utils.pageComment.list.invalidate({ pageId });
 
   const anchored = useAnchoredComments({
+    // Always on, even for read-only viewers: view access is the commenting
+    // gate on pages, so viewers can open and reply to existing threads. The
+    // comment-on-selection affordance (which writes a mark into the doc) is
+    // separately gated by `editable` inside the hook, and the list query
+    // dedupes with usePageActivity's identical key, so this costs nothing.
     enabled: true,
     editable,
     adapter: {
