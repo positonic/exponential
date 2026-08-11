@@ -231,6 +231,7 @@ export async function loadFeatureWithAccess(
     where: { id: featureId },
     select: {
       id: true,
+      name: true,
       productId: true,
       product: { select: { workspaceId: true } },
     },
@@ -254,7 +255,11 @@ async function loadScopeWithAccess(
       featureId: true,
       status: true,
       feature: {
-        select: { productId: true, product: { select: { workspaceId: true } } },
+        select: {
+          name: true,
+          productId: true,
+          product: { select: { workspaceId: true } },
+        },
       },
     },
   });
@@ -549,6 +554,7 @@ export const featureRouter = createTRPCRouter({
         entityType: "feature",
         entityId: created.id,
         action: "created",
+        metadata: { name: created.name },
       });
       return created;
     }),
@@ -690,7 +696,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "status_changed",
-            metadata: { from: prev?.status ?? "", to: rest.status! },
+            metadata: {
+              from: prev?.status ?? "",
+              to: rest.status!,
+              name: rest.name ?? feature.name,
+            },
           });
           return;
         }
@@ -705,7 +715,7 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "updated",
-            metadata: { fieldsChanged },
+            metadata: { fieldsChanged, name: rest.name ?? feature.name },
           });
         }
       };
@@ -811,6 +821,7 @@ export const featureRouter = createTRPCRouter({
         where: { id: { in: uniqueIds } },
         select: {
           id: true,
+          name: true,
           status: true,
           productId: true,
           product: { select: { workspaceId: true } },
@@ -896,7 +907,12 @@ export const featureRouter = createTRPCRouter({
                 entityType: "feature",
                 entityId: f.id,
                 action: "status_changed",
-                metadata: { from: f.status, to: input.status!, bulk: true },
+                metadata: {
+                  from: f.status,
+                  to: input.status!,
+                  bulk: true,
+                  name: f.name,
+                },
               });
             }
             if (fieldsChanged.length === 0) return Promise.resolve(true);
@@ -906,7 +922,7 @@ export const featureRouter = createTRPCRouter({
               entityType: "feature",
               entityId: f.id,
               action: "updated",
-              metadata: { fieldsChanged, bulk: true },
+              metadata: { fieldsChanged, bulk: true, name: f.name },
             });
           }),
       );
@@ -1233,7 +1249,11 @@ export const featureRouter = createTRPCRouter({
         entityType: "feature_scope",
         entityId: scope.id,
         action: "created",
-        metadata: { featureId: input.featureId, version: input.version },
+        metadata: {
+          featureId: input.featureId,
+          version: input.version,
+          name: parentFeature.name,
+        },
       });
       return scope;
     }),
@@ -1276,7 +1296,11 @@ export const featureRouter = createTRPCRouter({
           entityType: "feature_scope",
           entityId: scope.id,
           action: "status_changed",
-          metadata: { from: scope.status, to: input.status! },
+          metadata: {
+            from: scope.status,
+            to: input.status!,
+            name: scope.feature.name,
+          },
         });
       } else {
         // displayOrder is drag-reorder noise, not timeline material.
@@ -1290,7 +1314,7 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature_scope",
             entityId: scope.id,
             action: "updated",
-            metadata: { fieldsChanged },
+            metadata: { fieldsChanged, name: scope.feature.name },
           });
         }
       }
