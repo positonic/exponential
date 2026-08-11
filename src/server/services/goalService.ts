@@ -100,7 +100,7 @@ export async function createGoalUpdate({
       workspaceId: goal.workspaceId,
       userId,
       entityType: "goal_update",
-      entityId: update!.id,
+      entityId: update.id,
       action: "created",
       metadata: { title: goal.title, goalId },
     }).catch(() => {
