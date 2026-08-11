@@ -22,9 +22,8 @@ export function SignInCodeForm() {
   const [code, setCode] = useState("");
   const [email, setEmail] = useState("");
   const [callbackUrl, setCallbackUrl] = useState("/home");
-  // Whether we recovered the address from the sign-in page. If not — a fresh
-  // tab, or a different browser than the one that requested the code — we have
-  // to ask for it, since the code is only valid against its identifier.
+  // Whether we recovered the address from the sign-in page. Only decides where
+  // focus starts — the field itself is always shown, see below.
   const [knowsEmail, setKnowsEmail] = useState(true);
 
   useEffect(() => {
@@ -51,17 +50,27 @@ export function SignInCodeForm() {
   return (
     <form onSubmit={handleSubmit}>
       <Stack gap="sm">
-        {!knowsEmail && (
-          <TextInput
-            label="Email address"
-            placeholder="you@company.com"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-            autoComplete="email"
-            required
-          />
-        )}
+        {/*
+          Always shown, even when we recovered the address from the sign-in
+          page. `sessionStorage` outlives the attempt that wrote it, so the
+          stashed value can be the wrong one — request a code for a personal
+          address in this tab, then arrive here holding an invite code sent to
+          a work address, and a hidden field would redeem against the personal
+          one and report "that code is incorrect" with nothing to correct. A
+          code is only ever valid against one identifier, so showing which one
+          is about to be used is worth the extra field.
+        */}
+        <TextInput
+          label="Email address"
+          description="The address the code was sent to."
+          placeholder="you@company.com"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.currentTarget.value)}
+          autoComplete="email"
+          autoFocus={!knowsEmail}
+          required
+        />
 
         <TextInput
           label="Sign-in code"

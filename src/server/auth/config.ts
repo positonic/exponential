@@ -218,6 +218,20 @@ export const authConfig = {
           );
         }
         try {
+          // Check if user exists to determine which email to send
+          const existingUser = await db.user.findUnique({
+            where: { email: identifier },
+            select: { id: true },
+          });
+
+          if (existingUser) {
+            // Returning user - send the bare sign-in code
+            await sendSignInCodeEmail(identifier, token);
+          } else {
+            // New user - send welcome email with the code embedded
+            await sendWelcomeWithSignInCodeEmail(identifier, token);
+          }
+
           // Retire this address's older codes, because the entropy argument in
           // ADR-0056 assumes one live code per identifier and Auth.js's
           // `sendToken` never retires the previous row. Without this, N
@@ -226,11 +240,17 @@ export const authConfig = {
           // can't rate limit. `expires` is issue time + maxAge, so "older" is
           // exactly "expires sooner".
           //
-          // Retiring a still-unused code is the point, not a side effect: ask
-          // for a second code and the first stops working. Auth.js writes the
-          // new row concurrently with this callback, but the comparison is
-          // strict, so a request can never delete its own row whichever way
-          // that race lands.
+          // Strictly after the send, and that ordering is load-bearing: Auth.js
+          // writes the new row via `Promise.all` whether or not the send throws,
+          // so retiring first would answer a failed send by destroying the code
+          // the user could still have typed and replacing it with one that never
+          // arrived. Leaving them with nothing is worse than leaving them with
+          // two.
+          //
+          // Retiring a still-unused code is otherwise the point, not a side
+          // effect: ask for a second code and the first stops working. The
+          // comparison is strict, so this can never delete the row for the code
+          // just sent.
           //
           // Deliberately not keyed off the token hash, which would identify
           // "mine" exactly: that means re-deriving `sha256(token + secret)`,
@@ -247,20 +267,6 @@ export const authConfig = {
           await db.verificationToken.deleteMany({
             where: { identifier, expires: { lt: expires } },
           });
-
-          // Check if user exists to determine which email to send
-          const existingUser = await db.user.findUnique({
-            where: { email: identifier },
-            select: { id: true },
-          });
-
-          if (existingUser) {
-            // Returning user - send the bare sign-in code
-            await sendSignInCodeEmail(identifier, token);
-          } else {
-            // New user - send welcome email with the code embedded
-            await sendWelcomeWithSignInCodeEmail(identifier, token);
-          }
         } catch (error) {
           console.error(
             `[Auth] Failed to send sign-in code email to ${identifier}:`,

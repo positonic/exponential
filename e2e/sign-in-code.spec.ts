@@ -134,8 +134,12 @@ test("a typed code signs a brand-new user in and bootstraps their account", asyn
   await page.goto("/auth/verify-request");
   await expect(page.getByText("Check your email")).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
 
-  // The identifier came through sessionStorage, so only the code is asked for.
-  await expect(page.getByLabel("Email address")).toHaveCount(0);
+  // The identifier came through sessionStorage, so the address field is
+  // prefilled rather than hidden - a stashed value can be stale, and the code
+  // is only valid against one identifier, so the form has to show which one it
+  // is about to redeem against. Asserting the value also proves the handoff
+  // actually reached the form.
+  await expect(page.getByLabel("Email address")).toHaveValue(email.toLowerCase());
 
   // Typed the way a person would read it off the email and get it slightly
   // wrong: lower case, with the display hyphen we render but don't require.

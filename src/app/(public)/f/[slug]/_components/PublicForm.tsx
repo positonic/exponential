@@ -19,6 +19,7 @@ import {
   Divider,
 } from '@mantine/core';
 import { IconCircleCheck, IconUserPlus } from '@tabler/icons-react';
+import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import {
   normalizeSignInEmail,
@@ -223,7 +224,10 @@ export function PublicForm({
                   <Text size="sm" c="dimmed" ta="center">
                     We&apos;ve emailed a sign-in code to{' '}
                     <strong>{accountEmail}</strong>.{' '}
-                    <Anchor href="/auth/verify-request">Enter it here</Anchor> to
+                    <Anchor component={Link} href="/auth/verify-request">
+                      Enter it here
+                    </Anchor>{' '}
+                    to
                     finish setting up your account.
                   </Text>
                 ) : (
