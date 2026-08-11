@@ -240,9 +240,48 @@ function generateWelcomeEmailContent(options: {
   ctaText: string;
   showExpiration?: boolean;
   greeting: string;
+  /**
+   * When set, the email shows a **Sign-in code** to type instead of a button to
+   * click (ADR-0056). Used for the email sign-up path, where a link would be
+   * spent by the recipient's mail scanner before they ever saw it. The OAuth
+   * welcome keeps its button — those users are already signed in.
+   */
+  signInCode?: string;
 }): { htmlBody: string; textBody: string } {
-  const { brandColor, appName, appUrl, ctaUrl, ctaText, showExpiration, greeting } = options;
+  const { brandColor, appName, appUrl, ctaUrl, ctaText, showExpiration, greeting, signInCode } = options;
   const dailyPlannerUrl = `${appUrl}/daily-plan`;
+
+  const actionBlockHtml = signInCode
+    ? `
+              <!-- Sign-in code -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <div style="display: inline-block; padding: 16px 32px; background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; letter-spacing: 4px; color: #111827;">
+                      ${formatSignInCode(signInCode)}
+                    </div>
+                  </td>
+                </tr>
+              </table>`
+    : `
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      ${ctaText}
+                    </a>
+                  </td>
+                </tr>
+              </table>`;
+
+  const expirationNotice = signInCode
+    ? `This sign-in code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.`
+    : "This sign-in link expires in 24 hours.";
+
+  const actionBlockText = signInCode
+    ? `${ctaText} — enter this code on the sign-in page:\n\n${formatSignInCode(signInCode)}`
+    : `${ctaText}: ${ctaUrl}`;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -297,21 +336,12 @@ function generateWelcomeEmailContent(options: {
                 Open ${appName} and go through <a href="${dailyPlannerUrl}" style="color: ${brandColor}; text-decoration: none;">Daily Planning</a>. In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
               </p>
 
-              <!-- CTA Button -->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                      ${ctaText}
-                    </a>
-                  </td>
-                </tr>
-              </table>
+              ${actionBlockHtml}
 
               ${showExpiration ? `
               <!-- Expiration Notice -->
               <p style="margin: 0 0 24px; padding: 12px 16px; background-color: #fef3c7; border-radius: 6px; font-size: 13px; color: #92400e;">
-                This sign-in link expires in 24 hours.
+                ${expirationNotice}
               </p>
               ` : ''}
 
@@ -377,8 +407,8 @@ TODAY, DO ONE THING:
 
 Open ${appName} and go through Daily Planning (${dailyPlannerUrl}). In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
 
-${ctaText}: ${ctaUrl}
-${showExpiration ? '\nThis sign-in link expires in 24 hours.\n' : ''}
+${actionBlockText}
+${showExpiration ? `\n${expirationNotice}\n` : ''}
 ---
 
 AFTER THAT, IF YOU WANT TO GO DEEPER:
@@ -410,11 +440,12 @@ I'll check in with ideas on getting the most from ${appName}. Reply anytime—I 
 }
 
 /**
- * Send welcome email with embedded magic link (for new users signing up via email)
+ * Send the welcome email with an embedded **Sign-in code** (for new users
+ * signing up via email). Carries a code rather than a link — see ADR-0056.
  */
-export async function sendWelcomeWithMagicLinkEmail(
+export async function sendWelcomeWithSignInCodeEmail(
   email: string,
-  magicLinkUrl: string
+  code: string
 ): Promise<void> {
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
@@ -424,10 +455,11 @@ export async function sendWelcomeWithMagicLinkEmail(
     brandColor,
     appName,
     appUrl,
-    ctaUrl: magicLinkUrl,
-    ctaText: "Sign In & Start Planning",
+    ctaUrl: appUrl,
+    ctaText: "Sign in & start planning",
     showExpiration: true,
     greeting: "Hi there,",
+    signInCode: code,
   });
 
   await sendEmail({
@@ -1214,7 +1246,7 @@ Unsubscribe: ${params.unsubscribeUrl}`;
 export const EmailService = {
   sendSignInCodeEmail,
   sendWelcomeEmail,
-  sendWelcomeWithMagicLinkEmail,
+  sendWelcomeWithSignInCodeEmail,
   sendTeamInvitationEmail,
   sendWorkspaceMemberAddedEmail,
   sendAssignmentNotificationEmail,

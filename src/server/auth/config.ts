@@ -8,7 +8,7 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
-import { sendSignInCodeEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
+import { sendSignInCodeEmail, sendWelcomeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
@@ -211,7 +211,7 @@ export const authConfig = {
        */
       generateVerificationToken: generateSignInCode,
       maxAge: SIGN_IN_CODE_TTL_SECONDS,
-      sendVerificationRequest: async ({ identifier, token, url }) => {
+      sendVerificationRequest: async ({ identifier, token }) => {
         if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
           throw new Error(
             'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
@@ -228,9 +228,8 @@ export const authConfig = {
             // Returning user - send the bare sign-in code
             await sendSignInCodeEmail(identifier, token);
           } else {
-            // New user - still the welcome-with-link email; the new-user path
-            // moves to a code in the next commit.
-            await sendWelcomeWithMagicLinkEmail(identifier, url);
+            // New user - send welcome email with the code embedded
+            await sendWelcomeWithSignInCodeEmail(identifier, token);
           }
         } catch (error) {
           console.error(
