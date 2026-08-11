@@ -15,10 +15,42 @@ import {
 } from "~/lib/signInCode";
 import "~/styles/auth-surface.css";
 
+/** Shown on both sign-in surfaces when the code email doesn't leave. */
+export const SEND_FAILED_MESSAGE =
+  "We couldn't send that email, so no code is on its way. Check the address and try again.";
+
+/**
+ * Turn an Auth.js `?error=` code into something a person can act on.
+ *
+ * Worth having rather than failing silently: `Verification` is what a mistyped
+ * or expired **Sign-in code** produces, and before this the user was bounced to
+ * a blank sign-in form with no explanation — indistinguishable from the app
+ * being broken.
+ *
+ * Only the codes in Auth.js's `clientErrors` set arrive here intact; everything
+ * else — including a failed send, which is `EmailSignInError` internally — is
+ * flattened to `Configuration` before it reaches the browser. So a failed send
+ * is caught at the call site instead, where we still know what happened.
+ */
+function signInErrorMessage(error: string | null): string | null {
+  switch (error) {
+    case null:
+      return null;
+    case "Verification":
+      return "That sign-in code is incorrect, has expired, or has already been used. Request a new one below.";
+    case "AccessDenied":
+      return "That account doesn't have access. Try a different one, or contact support.";
+    default:
+      return "Something went wrong signing you in. Please try again.";
+  }
+}
+
 export function SignInLandingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/home";
+  const [sendError, setSendError] = useState<string | null>(null);
+  const errorMessage = sendError ?? signInErrorMessage(searchParams.get("error"));
 
   const [email, setEmail] = useState("");
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
@@ -44,6 +76,7 @@ export function SignInLandingPage() {
     }
 
     setPendingProvider(provider);
+    setSendError(null);
     try {
       if (provider === "postmark") {
         if (!email) return;
@@ -54,11 +87,17 @@ export function SignInLandingPage() {
         const identifier = normalizeSignInEmail(email);
         window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
         window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
-        await signIn("postmark", {
+        const result = await signIn("postmark", {
           email: identifier,
           callbackUrl,
           redirect: false,
         });
+        // Driving the navigation ourselves means we own the failure case too:
+        // don't tell someone to check their inbox for an email that never left.
+        if (result?.error) {
+          setSendError(SEND_FAILED_MESSAGE);
+          return;
+        }
         router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
@@ -109,6 +148,12 @@ export function SignInLandingPage() {
               Where humans and AI build together. Sign in with your work account
               to continue to your workspace — or create one from scratch.
             </p>
+
+            {errorMessage && (
+              <p className="auth-error" role="alert">
+                {errorMessage}
+              </p>
+            )}
 
             <div className="providers">
               {providers?.google && (

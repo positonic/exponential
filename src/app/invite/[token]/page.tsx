@@ -29,6 +29,7 @@ import {
   SIGN_IN_CALLBACK_KEY,
   SIGN_IN_EMAIL_KEY,
 } from "~/lib/signInCode";
+import { SEND_FAILED_MESSAGE } from "~/app/signin/SignInLandingPage";
 import Image from "next/image";
 import Link from "next/link";
 import "~/styles/auth-surface.css";
@@ -285,6 +286,9 @@ function InviteLandingPage({
   const [email, setEmail] = useState(invitation.email);
   const [copied, setCopied] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
+  // Set when the code email fails to send. /signin says the same thing through
+  // its ?error= param; this page owns its own copy because it never leaves.
+  const [sendError, setSendError] = useState<string | null>(null);
   const { data: providers } = api.auth.getConfiguredProviders.useQuery();
 
   const daysUntilExpiry = useMemo(() => {
@@ -307,6 +311,7 @@ function InviteLandingPage({
 
   const startSignIn = async (provider: string, targetEmail?: string) => {
     setPendingProvider(provider);
+    setSendError(null);
     try {
       if (provider === "postmark") {
         // Email sign-in delivers a typed code, not a link (ADR-0056), so hand
@@ -314,11 +319,17 @@ function InviteLandingPage({
         const identifier = normalizeSignInEmail(targetEmail ?? invitation.email);
         window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
         window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
-        await signIn("postmark", {
+        const result = await signIn("postmark", {
           email: identifier,
           callbackUrl,
           redirect: false,
         });
+        // Stay put and say so rather than sending someone to a "check your
+        // email" page for a code that was never sent.
+        if (result?.error) {
+          setSendError(SEND_FAILED_MESSAGE);
+          return;
+        }
         router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
@@ -488,6 +499,12 @@ function InviteLandingPage({
               <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
+
+            {sendError && (
+              <p className="auth-error" role="alert">
+                {sendError}
+              </p>
+            )}
 
             <form className="field" onSubmit={handleSubmit}>
               <label className="field__label" htmlFor="invite-confirm-email">
