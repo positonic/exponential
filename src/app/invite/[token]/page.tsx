@@ -24,6 +24,12 @@ import { signIn, signOut } from "next-auth/react";
 import { type FormEvent, useMemo, useState } from "react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
+import {
+  normalizeSignInEmail,
+  SEND_FAILED_MESSAGE,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from "~/lib/signInCode";
 import Image from "next/image";
 import Link from "next/link";
 import "~/styles/auth-surface.css";
@@ -267,6 +273,7 @@ function InviteLandingPage({
   token: string;
   invitation: InvitationData;
 }) {
+  const router = useRouter();
   const callbackUrl = `/invite/${token}`;
   const workspaceName = invitation.workspace.name;
   const workspaceSlug = invitation.workspace.slug;
@@ -279,6 +286,9 @@ function InviteLandingPage({
   const [email, setEmail] = useState(invitation.email);
   const [copied, setCopied] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
+  // Set when the code email fails to send. /signin says the same thing through
+  // its ?error= param; this page owns its own copy because it never leaves.
+  const [sendError, setSendError] = useState<string | null>(null);
   const { data: providers } = api.auth.getConfiguredProviders.useQuery();
 
   const daysUntilExpiry = useMemo(() => {
@@ -301,17 +311,38 @@ function InviteLandingPage({
 
   const startSignIn = async (provider: string, targetEmail?: string) => {
     setPendingProvider(provider);
+    setSendError(null);
+    // See /signin: `router.push` resolves before the new route paints, so
+    // clearing this unconditionally re-enables the button mid navigation, and
+    // a second click would send a code that retires the first.
+    let navigating = false;
     try {
       if (provider === "postmark") {
-        await signIn("postmark", {
-          email: targetEmail ?? invitation.email,
+        // Email sign-in delivers a typed code, not a link (ADR-0056), so hand
+        // the identifier to the verify page and drive the navigation ourselves.
+        const identifier = normalizeSignInEmail(targetEmail ?? invitation.email);
+        const result = await signIn("postmark", {
+          email: identifier,
           callbackUrl,
+          redirect: false,
         });
+        // Stay put and say so rather than sending someone to a "check your
+        // email" page for a code that was never sent.
+        if (result?.error) {
+          setSendError(SEND_FAILED_MESSAGE);
+          return;
+        }
+        // Only after the send succeeded, so a failed attempt leaves nothing
+        // stale behind for the verify page to pick up.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        navigating = true;
+        router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
     } finally {
-      setPendingProvider(null);
+      if (!navigating) setPendingProvider(null);
     }
   };
 
@@ -472,9 +503,15 @@ function InviteLandingPage({
 
             <div className="or-div">
               <span className="or-div__line" />
-              <span className="or-div__txt">or email a magic link</span>
+              <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
+
+            {sendError && (
+              <p className="auth-error" role="alert">
+                {sendError}
+              </p>
+            )}
 
             <form className="field" onSubmit={handleSubmit}>
               <label className="field__label" htmlFor="invite-confirm-email">
