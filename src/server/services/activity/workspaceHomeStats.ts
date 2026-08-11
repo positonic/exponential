@@ -1,5 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
-import { addWeeks, endOfISOWeek, startOfISOWeek } from "date-fns";
+import {
+  addWeeks,
+  differenceInCalendarDays,
+  endOfISOWeek,
+  startOfISOWeek,
+} from "date-fns";
 
 /**
  * One bar of the Week-in-Review sparkline. `day` is the ISO weekday label
@@ -55,14 +60,6 @@ export interface WorkspaceHomeStats {
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate()
-  );
-}
 
 export async function getWorkspaceHomeStats(
   db: PrismaClient,
@@ -137,6 +134,13 @@ export async function getWorkspaceHomeStats(
   }
 
   // ── This-week sparkline (Mon → Sun) ────────────────────────────────
+  // Which bar is "today", as an offset from the start of the week. Derived
+  // from the injected `now` using the same local calendar `thisWeekStart`
+  // came from — comparing UTC components instead would shift the flag by a
+  // day for any caller running in a UTC+ timezone. Falls outside 0..6 (so
+  // every bar is false) when `now` isn't in the current ISO week.
+  const todayIndex = differenceInCalendarDays(now, thisWeekStart);
+
   const sparkline: WeeklySparklineBar[] = [];
   for (let i = 0; i < 7; i++) {
     const day = new Date(thisWeekStart.getTime() + i * MS_PER_DAY);
@@ -144,7 +148,7 @@ export async function getWorkspaceHomeStats(
     sparkline.push({
       day: DAY_LABELS[i] ?? "?",
       count: countsByDay.get(key) ?? 0,
-      isToday: isSameDay(day, now),
+      isToday: i === todayIndex,
     });
   }
 
