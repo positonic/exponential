@@ -92,6 +92,16 @@ describe("resolveFeedHint", () => {
     expect(hint.template).toContain("{entityRef}");
   });
 
+  it("renders KR create/delete with glossary copy and namesake icons", () => {
+    const created = resolveFeedHint("key_result", "created");
+    expect(created.template).toBe("{actor} created key result {entityRef}");
+    expect(created.iconKind).toBe("created");
+
+    const deleted = resolveFeedHint("key_result", "deleted");
+    expect(deleted.template).toBe("{actor} deleted key result {entityRef}");
+    expect(deleted.iconKind).toBe("deleted");
+  });
+
   it("renders a KR check-in with glossary copy and the tracked icon", () => {
     const hint = resolveFeedHint("key_result", "checked_in");
     expect(hint.template).toBe("{actor} checked in on key result {entityRef}");

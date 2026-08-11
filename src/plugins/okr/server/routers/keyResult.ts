@@ -643,7 +643,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.keyResult.create({
+      const keyResult = await ctx.db.keyResult.create({
         data: {
           ...input,
           workspaceId: goal!.workspaceId,
@@ -654,6 +654,23 @@ export const keyResultRouter = createTRPCRouter({
           goal: true,
         },
       });
+
+      // Surface workspace-scoped KR creation in the activity feed. Personal
+      // key results are silent by design. Fire-and-forget: never throws.
+      if (keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: keyResult.id,
+          action: "created",
+          metadata: { title: keyResult.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return keyResult;
     }),
 
   // Update a key result
@@ -809,6 +826,23 @@ export const keyResultRouter = createTRPCRouter({
       }
 
       await ctx.db.keyResult.delete({ where: { id: input.id } });
+
+      // The `existing` row fetched for the access check carries the title the
+      // feed needs after the delete. Personal KRs are silent by design.
+      // Fire-and-forget: never throws.
+      if (existing?.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: existing.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: existing.id,
+          action: "deleted",
+          metadata: { title: existing.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       return { success: true };
     }),
 

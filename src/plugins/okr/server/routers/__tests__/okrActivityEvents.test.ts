@@ -5,6 +5,9 @@
  * - okr.checkIn appends exactly one `key_result`/`checked_in` event whose
  *   entityId is the new check-in row and whose metadata carries only the KR
  *   title and id (bare rows — no values, notes, or health).
+ * - okr.create / okr.delete append one `key_result`/`created` / `deleted`
+ *   event with bare `{ title }` metadata; the delete reuses the row fetched
+ *   for the access check so the title survives the delete.
  * - Personal (non-workspace) key results are silent by design.
  * - Instrumentation is fire-and-forget: an activity-write failure never fails
  *   the user's mutation.
@@ -149,5 +152,102 @@ describe("okr.checkIn → activity feed", () => {
     await expect(
       caller.okr.checkIn({ keyResultId: KR_ID, newValue: 6 }),
     ).resolves.toMatchObject({ id: CHECKIN_ID });
+  });
+});
+
+describe("okr.create / okr.delete → activity feed", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
+  });
+
+  it("records one key_result/created event for a workspace KR", async () => {
+    // Caller owns the parent objective → owner path, no membership lookup.
+    db.goal.findUnique.mockResolvedValue({
+      id: 42,
+      userId: OWNER_ID,
+      driUserId: OWNER_ID,
+      workspaceId: WORKSPACE_ID,
+    } as never);
+    db.keyResult.create.mockResolvedValue(KR_ROW as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.create({
+      goalId: 42,
+      title: KR_ROW.title,
+      targetValue: 10,
+      period: "Q3-2026",
+    });
+
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        userId: OWNER_ID,
+        entityType: "key_result",
+        entityId: KR_ID,
+        action: "created",
+        metadata: { title: KR_ROW.title },
+      },
+    });
+  });
+
+  it("logs nothing when creating a KR on a personal objective", async () => {
+    db.goal.findUnique.mockResolvedValue({
+      id: 42,
+      userId: OWNER_ID,
+      driUserId: OWNER_ID,
+      workspaceId: null,
+    } as never);
+    db.keyResult.create.mockResolvedValue({
+      ...KR_ROW,
+      workspaceId: null,
+    } as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.create({
+      goalId: 42,
+      title: KR_ROW.title,
+      targetValue: 10,
+      period: "Q3-2026",
+    });
+
+    expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("records one key_result/deleted event with the pre-delete title", async () => {
+    db.keyResult.findFirst.mockResolvedValue(KR_ROW as never);
+    db.keyResult.delete.mockResolvedValue(KR_ROW as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.delete({ id: KR_ID });
+
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+    expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        userId: OWNER_ID,
+        entityType: "key_result",
+        entityId: KR_ID,
+        action: "deleted",
+        metadata: { title: KR_ROW.title },
+      },
+    });
+  });
+
+  it("logs nothing when deleting a personal KR", async () => {
+    db.keyResult.findFirst.mockResolvedValue({
+      ...KR_ROW,
+      workspaceId: null,
+    } as never);
+    db.keyResult.delete.mockResolvedValue(KR_ROW as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db });
+
+    await caller.okr.delete({ id: KR_ID });
+
+    expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
   });
 });

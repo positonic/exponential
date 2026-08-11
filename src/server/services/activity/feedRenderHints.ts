@@ -116,13 +116,21 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "deleted",
   },
 
-  // Key results — a check-in is the routine progress write on a KR. Rendered
-  // copy says "key result" per the glossary even though the stored entityType
-  // stays schema-flavoured. Reuses the "tracked" icon kind (clock) so progress
-  // logging reads distinctly from creation/edits.
+  // Key results — rendered copy says "key result" per the glossary even
+  // though the stored entityType stays schema-flavoured. A check-in reuses the
+  // "tracked" icon kind (clock) so progress logging reads distinctly from
+  // creation/edits.
+  [key("key_result", "created")]: {
+    template: "{actor} created key result {entityRef}",
+    iconKind: "created",
+  },
   [key("key_result", "checked_in")]: {
     template: "{actor} checked in on key result {entityRef}",
     iconKind: "tracked",
+  },
+  [key("key_result", "deleted")]: {
+    template: "{actor} deleted key result {entityRef}",
+    iconKind: "deleted",
   },
 
   // Weekly review — a completed review is a team-visible milestone. Self-contained
