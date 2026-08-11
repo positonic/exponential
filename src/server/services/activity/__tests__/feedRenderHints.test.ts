@@ -95,7 +95,9 @@ describe("resolveFeedHint", () => {
     // Scopes have no name of their own (only a version), so the write sites
     // put the parent feature's name in metadata and the templates say so.
     const created = resolveFeedHint("feature_scope", "created");
-    expect(created.template).toBe("{actor} added a scope to feature {entityRef}");
+    expect(created.template).toBe(
+      "{actor} added a scope to feature {entityRef}",
+    );
     expect(created.iconKind).toBe("created");
 
     const updated = resolveFeedHint("feature_scope", "updated");
