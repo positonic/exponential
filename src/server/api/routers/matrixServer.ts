@@ -169,6 +169,42 @@ export const matrixServerRouter = createTRPCRouter({
     }),
 
   /**
+   * Forget a registered server.
+   *
+   * Deleting the Integration cascades to its `IntegrationCredential`, so the stored
+   * access token goes with it — which is the point: this is how a workspace revokes a
+   * bot credential from Exponential's side. Owner/admin only, and scoped to the
+   * workspace so one workspace cannot delete another's server by id.
+   */
+  remove: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), serverId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertWorkspaceRole(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+        MANAGE_ROLES,
+      );
+
+      const { count } = await ctx.db.integration.deleteMany({
+        where: {
+          id: input.serverId,
+          provider: MATRIX_SERVER_PROVIDER,
+          workspaceId: input.workspaceId,
+        },
+      });
+
+      if (count === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That Matrix server is not registered in this workspace.",
+        });
+      }
+
+      return { removed: count };
+    }),
+
+  /**
    * Rooms the bot can reach on a registered server.
    *
    * Only joined rooms: the bot posts where it has been invited and has joined, and there

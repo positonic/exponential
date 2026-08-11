@@ -30,6 +30,7 @@ export function MatrixServerSettings({
 }: MatrixServerSettingsProps) {
   const [opened, { open, close }] = useDisclosure(false);
   const [browsingServerId, setBrowsingServerId] = useState<string | null>(null);
+  const [removingServerId, setRemovingServerId] = useState<string | null>(null);
   const [homeserverUrl, setHomeserverUrl] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [name, setName] = useState("");
@@ -37,6 +38,12 @@ export function MatrixServerSettings({
   const utils = api.useUtils();
   const serversQuery = api.matrixServer.list.useQuery({
     workspaceId: workspace.id,
+  });
+
+  const removeMutation = api.matrixServer.remove.useMutation({
+    onSuccess: () => {
+      void utils.matrixServer.list.invalidate({ workspaceId: workspace.id });
+    },
   });
 
   const registerMutation = api.matrixServer.register.useMutation({
@@ -96,8 +103,33 @@ export function MatrixServerSettings({
             >
               Browse rooms
             </Button>
+            {canManage && (
+              <Button
+                variant="subtle"
+                color="red"
+                size="xs"
+                loading={
+                  removeMutation.isPending && removingServerId === server.id
+                }
+                onClick={() => {
+                  setRemovingServerId(server.id);
+                  removeMutation.mutate({
+                    workspaceId: workspace.id,
+                    serverId: server.id,
+                  });
+                }}
+              >
+                Remove
+              </Button>
+            )}
           </Group>
         ))
+      )}
+
+      {removeMutation.error && (
+        <Alert color="red" variant="light">
+          {removeMutation.error.message}
+        </Alert>
       )}
 
       {canManage ? (

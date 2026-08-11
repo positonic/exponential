@@ -499,3 +499,118 @@ describe("matrixServer.acceptInvite", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("matrixServer.remove", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+  });
+
+  it("rejects a plain member — revoking a bot credential is an admin action", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(asRole("member") as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.remove({ workspaceId: WORKSPACE_ID, serverId: "int-1" }),
+    ).rejects.toThrow(/requires the owner or admin role/);
+    expect(dbMock.integration.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("deletes only within the caller's workspace and only matrix-server rows", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(asRole("admin") as never);
+    dbMock.integration.deleteMany.mockResolvedValue({ count: 1 } as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.remove({ workspaceId: WORKSPACE_ID, serverId: "int-1" }),
+    ).resolves.toEqual({ removed: 1 });
+
+    expect(dbMock.integration.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: "int-1",
+        provider: MATRIX_SERVER_PROVIDER,
+        workspaceId: WORKSPACE_ID,
+      },
+    });
+  });
+
+  it("reports a server that is not this workspace's rather than silently succeeding", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(asRole("owner") as never);
+    dbMock.integration.deleteMany.mockResolvedValue({ count: 0 } as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.matrixServer.remove({
+        workspaceId: WORKSPACE_ID,
+        serverId: "int-someone-elses",
+      }),
+    ).rejects.toThrow(/not registered in this workspace/);
+  });
+});
+
+describe("matrixServer credential handling", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("never sends the access token to the client, from any matrixServer procedure", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(asRole("owner") as never);
+    dbMock.integration.findMany.mockResolvedValue([
+      {
+        id: "int-1",
+        name: "Matrix",
+        status: "ACTIVE",
+        createdAt: new Date("2026-08-01T00:00:00Z"),
+        providerConfig: { homeserverUrl: HOMESERVER, botUserId: BOT },
+      },
+    ] as never);
+    dbMock.integration.findFirst.mockResolvedValue({
+      id: "int-1",
+      providerConfig: { homeserverUrl: HOMESERVER, botUserId: BOT },
+    } as never);
+    dbMock.integrationCredential.findMany.mockResolvedValue([
+      { key: TOKEN, keyType: "matrix_access_token", isEncrypted: false },
+    ] as never);
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes("/sync")) {
+        return Promise.resolve(OK({ rooms: { invite: {} } }));
+      }
+      if (String(url).includes("/joined_rooms")) {
+        return Promise.resolve(OK({ joined_rooms: [] }));
+      }
+      return Promise.resolve(ERR(404, { errcode: "M_NOT_FOUND" }));
+    });
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+
+    const list = await caller.matrixServer.list({ workspaceId: WORKSPACE_ID });
+    const rooms = await caller.matrixServer.rooms({
+      workspaceId: WORKSPACE_ID,
+      serverId: "int-1",
+    });
+
+    // The token is readable server-side (the homeserver calls above worked), but
+    // must not appear in anything a client receives.
+    expect(JSON.stringify({ list, rooms })).not.toContain(TOKEN);
+    expect(
+      fetchMock.mock.calls.some(
+        ([, init]) =>
+          (init as Record<string, Record<string, string>>)?.headers?.Authorization ===
+          `Bearer ${TOKEN}`,
+      ),
+    ).toBe(true);
+  });
+});
