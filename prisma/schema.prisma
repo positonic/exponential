@@ -289,9 +289,9 @@ model User {
   pendingDriveUploads         PendingDriveUpload[]
   /// True for an External agent's shadow principal (ADR-0049). Never signs in;
   /// gates the human-only procedure denylist.
-  isAgent                     Boolean                         @default(false)
-  ownedExternalAgents         ExternalAgent[]                 @relation("ExternalAgentOwner")
-  externalAgentShadow         ExternalAgent?                  @relation("ExternalAgentShadowUser")
+  isAgent                     Boolean                           @default(false)
+  ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
+  externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
 }
 
 model VerificationToken {
@@ -2718,23 +2718,35 @@ model KnowledgePage {
   @@index([createdById])
 }
 
-/// Discussion note on a Knowledge Page — the doc-level comment feed under the
-/// page body, same card + composer pattern as FeatureComment's feature-level
-/// feed. No anchored threads: page bodies carry no `comment` marks, so the
-/// model stays flat (no threadId/parentId/quotedText until a real need).
-/// Bodies are Markdown (ADR-0017).
+/// Comment on a Knowledge Page. Two flavours share the table, same shape as
+/// FeatureComment: doc-level rows (threadId null) form the flat Activity feed
+/// under the page body; anchored rows (threadId set) pin a discussion thread
+/// to a `comment` mark in `KnowledgePage.bodyDoc`, with `quotedText` as the
+/// orphan-rendering snapshot and `resolvedAt` settling a thread without
+/// deleting it. Bodies are Markdown (ADR-0017).
 model KnowledgePageComment {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   pageId      String
+  // Anchored comments (ADR-0024's model, applied to Pages): `threadId` matches
+  // a `comment` mark in `KnowledgePage.bodyDoc`. Doc-level comments — the flat
+  // Activity feed under the page — leave it null.
+  threadId    String?
+  parentId    String?
   body        String
+  quotedText  String?
+  resolvedAt  DateTime?
   createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  page      KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  createdBy User          @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
+  page      KnowledgePage          @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  parent    KnowledgePageComment?  @relation("KnowledgePageCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   KnowledgePageComment[] @relation("KnowledgePageCommentReplies")
+  createdBy User                   @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
 
   @@index([pageId])
+  @@index([threadId])
+  @@index([parentId])
   @@index([createdById])
 }
 
@@ -4917,17 +4929,17 @@ model TicketSyncConfig {
 }
 
 model TicketSync {
-  id           String    @id @default(cuid())
-  configId     String
-  ticketId     String
-  provider     String    @default("notion")
+  id              String    @id @default(cuid())
+  configId        String
+  ticketId        String
+  provider        String    @default("notion")
   /// Remote identity — the Notion page id.
-  externalId   String
-  externalUrl  String?
+  externalId      String
+  externalUrl     String?
   /// Field values at last successful sync (three-way merge base).
-  snapshot     Json?
-  lastSyncedAt DateTime  @default(now())
-  tombstonedAt DateTime?
+  snapshot        Json?
+  lastSyncedAt    DateTime  @default(now())
+  tombstonedAt    DateTime?
   /// Stamped when the OUTBOUND push created this Notion page (ADR-0046 full
   /// mirror). Null means the page is human-authored — imported or adopted —
   /// and its CONTENT is never machine-writable. This is the only trustworthy
@@ -4935,8 +4947,8 @@ model TicketSync {
   /// (inbound uses it for "created a ticket", outbound for "created a page")
   /// and reading it as page provenance destroyed human content once already.
   remoteCreatedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   config   TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
   ticket   Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
