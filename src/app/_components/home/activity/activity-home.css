@@ -1047,6 +1047,7 @@
 .wsa-feed__icon[data-kind='completed']      { color: var(--activity-accent-crm); }
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
 .wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
+.wsa-feed__icon[data-kind='deleted']        { color: var(--color-text-muted); }
 .wsa-feed__icon[data-kind='channel_summary'] { color: var(--color-brand-success); }
 
 /* Milestone (completed project) — a filled gold chip instead of a tinted glyph,

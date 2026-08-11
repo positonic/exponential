@@ -15,7 +15,8 @@ export type ActivityAction =
   | "summarized"
   | "synced"
   | "reverted"
-  | "checked_in";
+  | "checked_in"
+  | "deleted";
 
 /**
  * Entity types we currently log activity for. New writers append new values

@@ -21,6 +21,7 @@ export type IconKind =
   | "commented"
   | "milestone"
   | "tracked"
+  | "deleted"
   | "channel_summary"
   | "fallback";
 
@@ -96,10 +97,23 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "milestone",
   },
 
-  // Goals — completing a strategic goal is a milestone.
+  // Objectives — stored entityType stays the schema-flavoured "goal"; rendered
+  // copy says "objective" per the glossary. Completing one is a milestone.
+  [key("goal", "created")]: {
+    template: "{actor} created objective {entityRef}",
+    iconKind: "created",
+  },
+  [key("goal", "status_changed")]: {
+    template: "{actor} changed status on objective {entityRef}",
+    iconKind: "status_changed",
+  },
   [key("goal", "completed")]: {
-    template: "{actor} completed goal {entityRef}",
+    template: "{actor} completed objective {entityRef}",
     iconKind: "milestone",
+  },
+  [key("goal", "deleted")]: {
+    template: "{actor} deleted objective {entityRef}",
+    iconKind: "deleted",
   },
 
   // Key results — a check-in is the routine progress write on a KR. Rendered

@@ -13,6 +13,7 @@ import {
   IconRefresh,
   IconRobotFace,
   IconStatusChange,
+  IconTrash,
   IconTrophy,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
@@ -27,6 +28,7 @@ export const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
   commented: IconMessageCircle,
   milestone: IconTrophy,
   tracked: IconClock,
+  deleted: IconTrash,
   channel_summary: IconMessages,
   fallback: IconRefresh,
 };

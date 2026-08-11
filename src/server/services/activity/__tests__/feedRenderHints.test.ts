@@ -33,10 +33,27 @@ describe("resolveFeedHint", () => {
     expect(completed.iconKind).toBe("milestone");
   });
 
-  it("renders goal completion as a milestone", () => {
+  it("renders objective completion as a milestone with glossary copy", () => {
     const hint = resolveFeedHint("goal", "completed");
     expect(hint.iconKind).toBe("milestone");
-    expect(hint.template).toBe("{actor} completed goal {entityRef}");
+    // Glossary: rendered copy says "objective", never the stored "goal".
+    expect(hint.template).toBe("{actor} completed objective {entityRef}");
+  });
+
+  it("renders objective create/status/delete with glossary copy and namesake icons", () => {
+    const created = resolveFeedHint("goal", "created");
+    expect(created.template).toBe("{actor} created objective {entityRef}");
+    expect(created.iconKind).toBe("created");
+
+    const statusChanged = resolveFeedHint("goal", "status_changed");
+    expect(statusChanged.template).toBe(
+      "{actor} changed status on objective {entityRef}",
+    );
+    expect(statusChanged.iconKind).toBe("status_changed");
+
+    const deleted = resolveFeedHint("goal", "deleted");
+    expect(deleted.template).toBe("{actor} deleted objective {entityRef}");
+    expect(deleted.iconKind).toBe("deleted");
   });
 
   it("renders a workspace member join with the joiner as actor", () => {
