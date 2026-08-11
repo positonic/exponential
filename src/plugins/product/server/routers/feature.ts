@@ -1299,6 +1299,7 @@ export const featureRouter = createTRPCRouter({
           metadata: {
             from: scope.status,
             to: input.status!,
+            featureId: scope.featureId,
             name: scope.feature.name,
           },
         });
@@ -1314,7 +1315,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature_scope",
             entityId: scope.id,
             action: "updated",
-            metadata: { fieldsChanged, name: scope.feature.name },
+            metadata: {
+              fieldsChanged,
+              featureId: scope.featureId,
+              name: scope.feature.name,
+            },
           });
         }
       }
