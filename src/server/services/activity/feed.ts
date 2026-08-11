@@ -58,6 +58,13 @@ export interface ActivityFeedEvent {
   source: string;
   /** Channel-summary detail; `null` unless `entityType === "channel_summary"`. */
   channel: ChannelSummaryRef | null;
+  /**
+   * OKR drawer deep-link target for the goals page, e.g. `objective:42` or
+   * `keyResult:cuid` (the `drawer` query-param format parsed by
+   * `parseDrawerParam`). Computed server-side because the client never sees
+   * raw `metadata`. `null` for non-OKR rows.
+   */
+  drawerParam: string | null;
 }
 
 export interface ActivityFeedPage {
@@ -107,6 +114,47 @@ function readMetaString(metadata: unknown, key: string): string | null {
     if (typeof value === "string" && value.length > 0) return value;
   }
   return null;
+}
+
+/** Read a string-or-number id field off a Json metadata blob, or null. */
+function readMetaId(metadata: unknown, key: string): string | null {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.length > 0) return value;
+    if (typeof value === "number") return String(value);
+  }
+  return null;
+}
+
+/**
+ * Compute the OKR drawer target for a feed row. Objective rows carry the goal
+ * id in `entityId`; child rows (updates, comments, check-ins) point at their
+ * parent via `metadata.goalId` / `metadata.keyResultId` because their
+ * `entityId` is the child row itself. Non-OKR rows get `null`.
+ */
+function deriveDrawerParam(row: FeedRow): string | null {
+  switch (row.entityType) {
+    case "goal":
+      return `objective:${row.entityId}`;
+    case "goal_update":
+    case "goal_comment": {
+      const goalId = readMetaId(row.metadata, "goalId");
+      return goalId ? `objective:${goalId}` : null;
+    }
+    case "key_result": {
+      // Check-in events use the check-in row as entityId and carry the KR id
+      // in metadata; create/delete events use the KR id as entityId directly.
+      const keyResultId =
+        readMetaId(row.metadata, "keyResultId") ?? row.entityId;
+      return `keyResult:${keyResultId}`;
+    }
+    case "key_result_comment": {
+      const keyResultId = readMetaId(row.metadata, "keyResultId");
+      return keyResultId ? `keyResult:${keyResultId}` : null;
+    }
+    default:
+      return null;
+  }
 }
 
 /**
@@ -192,6 +240,7 @@ async function toFeedEvents(
       workspace: row.workspace ?? null,
       source,
       channel,
+      drawerParam: deriveDrawerParam(row),
     };
   });
 }

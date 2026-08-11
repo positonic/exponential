@@ -978,6 +978,17 @@
   font-weight: 500;
 }
 
+/* OKR rows deep-link to the goals-page drawer; the whole sentence is the
+   click target. Inherits the sentence styling — hover underlines the entity
+   name to reveal the affordance without restyling the row. */
+.wsa-feed__drawer-link {
+  text-decoration: none;
+  color: inherit;
+}
+.wsa-feed__drawer-link:hover .wsa-feed__entity {
+  text-decoration: underline;
+}
+
 .wsa-feed__time {
   font-size: 11.5px;
   color: var(--color-text-muted);

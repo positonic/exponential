@@ -12,6 +12,7 @@ import {
 } from "~/server/services/access/resolvers/projectResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
 import { resolveGoalProgress } from "~/server/services/goalProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
@@ -769,6 +770,24 @@ export const keyResultRouter = createTRPCRouter({
       void computeGoalHealth({ ctx, goalId: keyResult.goalId }).catch(
         (err: unknown) => { console.error("[goal-health] recompute after KR check-in:", err); },
       );
+
+      // Surface the check-in in the workspace activity feed. Only the human
+      // act is logged — never the health recompute it triggers. Personal
+      // (non-workspace) key results are silent by design. The event's
+      // entityId is the check-in row; metadata carries the KR title and id
+      // so the feed can label the row and deep-link to the KR drawer.
+      if (checkIn && keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: checkIn.id,
+          action: "checked_in",
+          metadata: { title: keyResult.title, keyResultId: keyResult.id },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return checkIn;
     }),

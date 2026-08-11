@@ -75,6 +75,15 @@ describe("resolveFeedHint", () => {
     expect(hint.template).toContain("{entityRef}");
   });
 
+  it("renders a KR check-in with glossary copy and the tracked icon", () => {
+    const hint = resolveFeedHint("key_result", "checked_in");
+    expect(hint.template).toBe("{actor} checked in on key result {entityRef}");
+    // Glossary: rendered copy says "key result", never the stored entityType.
+    expect(hint.iconKind).toBe("tracked");
+    expect(hint.iconKind).not.toBe("fallback");
+    expect(hint.template).toContain("{entityRef}");
+  });
+
   it("falls back to a neutral hint for unknown pairs", () => {
     const hint = resolveFeedHint("nonsense", "nonsense");
     expect(hint.iconKind).toBe("fallback");

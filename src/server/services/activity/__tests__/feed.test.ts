@@ -99,3 +99,82 @@ describe("getActivityFeed — channel summaries + source filter", () => {
     expect(call.where).not.toHaveProperty("metadata");
   });
 });
+
+function okrRow(
+  entityType: string,
+  entityId: string,
+  metadata: Record<string, unknown> | null = null,
+  action = "created",
+) {
+  return {
+    id: `evt-${entityType}-${entityId}`,
+    createdAt: new Date("2026-06-17T00:00:00.000Z"),
+    entityType,
+    entityId,
+    action,
+    metadata,
+    user: null,
+  };
+}
+
+describe("getActivityFeed — OKR drawer deep-links (drawerParam)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = mockDeep<PrismaClient>();
+    mockReset(db);
+  });
+
+  async function drawerParamOf(row: ReturnType<typeof okrRow>) {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([row] as never);
+    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    return events[0]!.drawerParam;
+  }
+
+  it("targets the objective drawer from a goal row's entityId", async () => {
+    expect(await drawerParamOf(okrRow("goal", "42", { title: "Grow" }))).toBe(
+      "objective:42",
+    );
+  });
+
+  it("targets the parent objective from metadata.goalId on child rows (number or string)", async () => {
+    expect(
+      await drawerParamOf(okrRow("goal_update", "upd-1", { goalId: 42 })),
+    ).toBe("objective:42");
+    expect(
+      await drawerParamOf(okrRow("goal_comment", "cmt-1", { goalId: "42" })),
+    ).toBe("objective:42");
+  });
+
+  it("targets the KR drawer from entityId on create/delete rows", async () => {
+    expect(await drawerParamOf(okrRow("key_result", "kr-1", { title: "KR" }))).toBe(
+      "keyResult:kr-1",
+    );
+  });
+
+  it("prefers metadata.keyResultId on check-in rows (entityId is the check-in)", async () => {
+    expect(
+      await drawerParamOf(
+        okrRow("key_result", "ci-1", { keyResultId: "kr-9" }, "checked_in"),
+      ),
+    ).toBe("keyResult:kr-9");
+  });
+
+  it("targets the parent KR from metadata on KR comment rows, null when absent", async () => {
+    expect(
+      await drawerParamOf(
+        okrRow("key_result_comment", "cmt-2", { keyResultId: "kr-9" }),
+      ),
+    ).toBe("keyResult:kr-9");
+    expect(
+      await drawerParamOf(okrRow("key_result_comment", "cmt-3", {})),
+    ).toBeNull();
+  });
+
+  it("is null for non-OKR rows", async () => {
+    expect(await drawerParamOf(okrRow("action", "act-1", { name: "Task" }))).toBeNull();
+    expect(
+      await drawerParamOf(okrRow("ticket", "tkt-1", { title: "T" })),
+    ).toBeNull();
+  });
+});
