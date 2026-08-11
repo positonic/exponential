@@ -20,7 +20,7 @@
  * characters people misread off a phone screen (0/O, 1/I/l); dropping U means
  * a generated code can't spell anything unfortunate.
  */
-const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const SIGN_IN_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 export const SIGN_IN_CODE_LENGTH = 8;
 
@@ -46,8 +46,11 @@ export function generateSignInCode(): string {
   let code = "";
   for (const byte of bytes) {
     // 32 divides 256 exactly, so the modulo is uniform — no rejection
-    // sampling needed. This stops being true if ALPHABET ever changes length.
-    code += ALPHABET[byte % ALPHABET.length];
+    // sampling needed. Load-bearing: at any other alphabet length the low
+    // characters get drawn more often, which quietly costs entropy on the one
+    // credential we can't rate-limit. `signInCode.test.ts` pins the length so
+    // changing it fails a test that says why, rather than only this comment.
+    code += SIGN_IN_CODE_ALPHABET[byte % SIGN_IN_CODE_ALPHABET.length];
   }
   return code;
 }

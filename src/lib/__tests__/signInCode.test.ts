@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  SIGN_IN_CODE_ALPHABET,
   SIGN_IN_CODE_LENGTH,
   formatSignInCode,
   generateSignInCode,
@@ -9,6 +10,17 @@ import {
 const CROCKFORD = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]+$/;
 
 describe("generateSignInCode", () => {
+  it("draws from exactly 32 characters, so `byte % length` stays unbiased", () => {
+    // Not a tautology, and not a style rule: the generator maps a uniform byte
+    // through a modulo, and 256 is an exact multiple of 32. At any other
+    // length the earlier characters come up more often and the code loses
+    // entropy - on the one credential ADR-0056 says cannot be rate-limited.
+    // Changing the alphabet means adding rejection sampling, not editing this
+    // number.
+    expect(SIGN_IN_CODE_ALPHABET).toHaveLength(32);
+    expect(256 % SIGN_IN_CODE_ALPHABET.length).toBe(0);
+  });
+
   it("returns a code of the declared length", () => {
     expect(generateSignInCode()).toHaveLength(SIGN_IN_CODE_LENGTH);
   });
