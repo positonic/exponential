@@ -106,6 +106,84 @@ async function resolveFeatureTarget(
 }
 
 /**
+ * Resolve a ticket's workspace (via its product) plus its title and the
+ * segments its detail URL is built from — tickets address by sequential
+ * `number`, not id (see `ticket.resolveId`).
+ */
+async function resolveTicketTarget(
+  db: PrismaClient,
+  ticketId: string,
+): Promise<{
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  productSlug: string;
+  ticketTitle: string;
+  ticketNumber: number;
+} | null> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: {
+      title: true,
+      number: true,
+      product: {
+        select: {
+          slug: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      },
+    },
+  });
+  const ws = ticket?.product?.workspace;
+  if (!ticket || !ws) return null;
+  return {
+    workspaceId: ws.id,
+    workspaceSlug: ws.slug,
+    workspaceName: ws.name,
+    productSlug: ticket.product.slug,
+    ticketTitle: ticket.title,
+    ticketNumber: ticket.number,
+  };
+}
+
+/** Emit a Mention notification for a TicketComment. */
+export async function emitTicketCommentMention(
+  db: PrismaClient,
+  params: {
+    ticketId: string;
+    commentId: string;
+    commentContent: string;
+    commentAuthorId: string;
+    previousContent?: string;
+  },
+): Promise<void> {
+  try {
+    const target = await resolveTicketTarget(db, params.ticketId);
+    if (!target) return;
+
+    const subject: MentionSubject = {
+      commentId: params.commentId,
+      commentContent: params.commentContent,
+      previousContent: params.previousContent,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      workspaceName: target.workspaceName,
+      targetName: target.ticketTitle,
+      targetPath: `/w/${target.workspaceSlug}/products/${target.productSlug}/tickets/${target.ticketNumber}`,
+    };
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      actorUserId: params.commentAuthorId,
+      subject,
+      db,
+    });
+  } catch (error) {
+    console.error("[emit/mentionAdapters] ticket comment mention failed:", error);
+  }
+}
+
+/**
  * Emit a Mention notification for a FeatureComment (PRD body or one of its
  * scopes). Replaces the legacy `sendFeatureMentionNotifications`.
  */
