@@ -317,8 +317,6 @@ function InviteLandingPage({
         // Email sign-in delivers a typed code, not a link (ADR-0056), so hand
         // the identifier to the verify page and drive the navigation ourselves.
         const identifier = normalizeSignInEmail(targetEmail ?? invitation.email);
-        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
-        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
         const result = await signIn("postmark", {
           email: identifier,
           callbackUrl,
@@ -330,6 +328,10 @@ function InviteLandingPage({
           setSendError(SEND_FAILED_MESSAGE);
           return;
         }
+        // Only after the send succeeded, so a failed attempt leaves nothing
+        // stale behind for the verify page to pick up.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
         router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });

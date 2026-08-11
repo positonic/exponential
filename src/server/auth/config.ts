@@ -211,13 +211,30 @@ export const authConfig = {
        */
       generateVerificationToken: generateSignInCode,
       maxAge: SIGN_IN_CODE_TTL_SECONDS,
-      sendVerificationRequest: async ({ identifier, token }) => {
+      sendVerificationRequest: async ({ identifier, token, expires }) => {
         if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
           throw new Error(
             'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
           );
         }
         try {
+          // Retire this address's older codes, because the entropy argument in
+          // ADR-0056 assumes one live code per identifier and Auth.js's
+          // `sendToken` never retires the previous row. Without this, N
+          // requests leave N simultaneously-valid codes and the odds of a
+          // blind guess landing scale linearly with N — on an endpoint we
+          // can't rate limit. `expires` is issue time + maxAge, so "older" is
+          // exactly "expires sooner", which avoids re-deriving the token hash
+          // here. The current row may not be written yet (Auth.js runs its
+          // create concurrently with this callback); either ordering is fine,
+          // since the filter can only ever match strictly earlier rows.
+          //
+          // Emails only: legacy API-key rows share this table under an
+          // `api-key:<userId>:<uid>` identifier, which never matches.
+          await db.verificationToken.deleteMany({
+            where: { identifier, expires: { lt: expires } },
+          });
+
           // Check if user exists to determine which email to send
           const existingUser = await db.user.findUnique({
             where: { email: identifier },

@@ -106,8 +106,6 @@ export function PublicForm({
       // identifier to the verify page — otherwise the applicant gets a code and
       // nowhere to type it.
       const identifier = normalizeSignInEmail(accountEmail);
-      window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
-      window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, '/');
       const res = await signIn('postmark', {
         email: identifier,
         redirect: false,
@@ -116,6 +114,10 @@ export function PublicForm({
       if (res?.error) {
         setAccountError('Could not start account setup. Please try again.');
       } else {
+        // Only once the code is actually on its way, so a failed attempt
+        // doesn't prime the verify page for a code that was never issued.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, '/');
         setAccountRequested(true);
       }
     } catch {

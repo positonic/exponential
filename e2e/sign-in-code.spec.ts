@@ -196,22 +196,31 @@ test("a fresh tab asks for the address, and a wrong code says so", async ({ page
   ).toBe(0);
 });
 
-test("/signin hands the identifier over out of band and owns a failed send", async ({ page }) => {
-  const email = freshEmail("send-failure");
-
-  // Fail the send at the browser seam rather than by leaving Postmark
-  // unconfigured. A dev machine usually HAS a Postmark key, so submitting for
-  // real would both pass or fail depending on the environment and mail a
-  // synthetic address. The shape here is what Auth.js's client actually
-  // returns when `sendVerificationRequest` throws: a redirect URL carrying
-  // ?error=, which `signIn(..., { redirect: false })` surfaces as `error`.
+/**
+ * Answer the sign-in POST at the browser seam instead of letting it reach
+ * Postmark. A dev machine usually HAS a working Postmark key, so submitting
+ * /signin for real would make the assertion depend on the environment AND mail
+ * a synthetic address. The body shape is what Auth.js's client reads: it pulls
+ * `error` out of `data.url`'s query (next-auth/react.js), which is what
+ * `signIn(..., { redirect: false })` returns as `result.error`.
+ */
+async function stubSendResult(page: Page, outcome: "sent" | "failed") {
+  const url =
+    outcome === "failed"
+      ? "http://localhost:3100/signin?error=Configuration"
+      : "http://localhost:3100/auth/verify-request";
   await page.route("**/api/auth/signin/postmark*", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ url: "http://localhost:3100/signin?error=Configuration" }),
+      body: JSON.stringify({ url }),
     });
   });
+}
+
+test("/signin hands the identifier over out of band, normalized", async ({ page }) => {
+  const email = freshEmail("handoff");
+  await stubSendResult(page, "sent");
 
   await page.goto("/signin");
   const submit = page.getByRole("button", { name: /Send me a sign-in code/ });
@@ -222,15 +231,34 @@ test("/signin hands the identifier over out of band and owns a failed send", asy
   await page.getByPlaceholder("you@company.com").fill(email.toUpperCase());
   await submit.click();
 
-  // The user must not be sent to "check your email" for a code that never left.
-  await expect(page.locator(".auth-error")).toContainText("no code is on its way", {
-    timeout: FIRST_PAINT_TIMEOUT,
-  });
-  await expect(page).toHaveURL(/\/signin/);
+  await page.waitForURL(/\/auth\/verify-request/, { timeout: FIRST_PAINT_TIMEOUT });
 
   const stashed = await page.evaluate((key) => window.sessionStorage.getItem(key), SIGN_IN_EMAIL_KEY);
   expect(stashed, "the identifier is handed over normalized").toBe(email.toLowerCase());
   // An email address is personal data and has no business in a URL - which is
   // why the handoff goes through sessionStorage at all.
   expect(decodeURIComponent(page.url()).toLowerCase()).not.toContain(email.toLowerCase());
+});
+
+test("/signin owns a failed send and leaves nothing stale behind", async ({ page }) => {
+  const email = freshEmail("send-failure");
+  await stubSendResult(page, "failed");
+
+  await page.goto("/signin");
+  const submit = page.getByRole("button", { name: /Send me a sign-in code/ });
+  await expect(submit).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+
+  await page.getByPlaceholder("you@company.com").fill(email);
+  await submit.click();
+
+  // The user must not be sent to "check your email" for a code that never left.
+  await expect(page.locator(".auth-error")).toContainText("no code is on its way", {
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page).toHaveURL(/\/signin/);
+
+  // And the verify page must not be left primed for a code that was never
+  // issued - the handoff is written only once the send has succeeded.
+  const stashed = await page.evaluate((key) => window.sessionStorage.getItem(key), SIGN_IN_EMAIL_KEY);
+  expect(stashed, "a failed send stashes no identifier").toBeNull();
 });

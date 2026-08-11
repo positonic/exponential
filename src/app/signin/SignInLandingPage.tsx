@@ -85,8 +85,6 @@ export function SignInLandingPage() {
         // page needs the identifier to redeem the code against, and it must be
         // normalized the same way Auth.js stored it.
         const identifier = normalizeSignInEmail(email);
-        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
-        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
         const result = await signIn("postmark", {
           email: identifier,
           callbackUrl,
@@ -98,6 +96,10 @@ export function SignInLandingPage() {
           setSendError(SEND_FAILED_MESSAGE);
           return;
         }
+        // Only after the send actually succeeded, so a failed attempt can't
+        // leave the verify page primed for a code that was never issued.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
         router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
