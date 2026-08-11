@@ -6,6 +6,7 @@ import { notifications } from "@mantine/notifications";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { useCalendarNavigation } from "./useCalendarNavigation";
+import { useCalendarConnectionToast } from "./useCalendarConnectionToast";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
@@ -38,6 +39,15 @@ export function CalendarPageContent() {
     goNext,
     goPrevious,
   } = useCalendarNavigation();
+
+  // Show toast for calendar_connected / calendar_error search params.
+  // Must live here (not in GoogleCalendarConnect/MicrosoftCalendarConnect)
+  // because after OAuth the calendar IS connected and those components
+  // only render in the disconnected empty state. Passing the connection
+  // state hands the disconnected case back to them, so a failed OAuth
+  // round-trip — which lands here still disconnected, with calendar_error
+  // set, and with both components mounted — shows one toast, not two.
+  useCalendarConnectionToast(calendarConnected);
 
   // Fetch calendar events from all selected calendars
   const { data: events, isLoading: eventsLoading } =
