@@ -74,9 +74,7 @@ export function useAnchoredComments({
   adapter: AnchoredCommentsAdapter;
 }) {
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [flushSave, setFlushSave] = useState<() => Promise<void>>(
-    () => () => Promise.resolve(),
-  );
+  const flushSaveRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   // Bumped on every doc change so thread reconciliation re-reads the live marks.
   const [docTick, setDocTick] = useState(0);
@@ -116,7 +114,7 @@ export function useAnchoredComments({
 
   const handleReady = (handle: RichDocEditorHandle) => {
     setEditor(handle.editor);
-    setFlushSave(() => handle.flushSave);
+    flushSaveRef.current = handle.flushSave;
   };
 
   // Push the set of resolved threads to the editor so their highlights hide.
@@ -173,7 +171,7 @@ export function useAnchoredComments({
     // fire two concurrent saves with the same baseVersion (which can race into a
     // spurious stale-write conflict). Persist the mark right away instead so the
     // thread is anchored on reload.
-    void flushSave();
+    void flushSaveRef.current();
     setPending({ threadId, quotedText });
     setActiveThreadId(threadId);
     setAnchorPos(anchor);
