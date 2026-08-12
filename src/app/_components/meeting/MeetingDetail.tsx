@@ -5,6 +5,7 @@ import { notifications } from "@mantine/notifications";
 import { IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
 import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
+import { PostToMatrixButton } from "~/app/_components/matrix/PostToMatrixButton";
 import { SummaryTab } from "./SummaryTab";
 import { TranscriptView } from "./TranscriptView";
 import { ScreenshotsTab } from "./ScreenshotsTab";
@@ -193,6 +194,13 @@ export function MeetingDetail({
           workspaceName={session.workspace?.name ?? null}
           backHref={backHref}
           onShare={handleShare}
+          extraActions={
+            <PostToMatrixButton
+              meetingId={session.id}
+              workspaceId={session.workspaceId ?? null}
+              projectId={session.projectId ?? null}
+            />
+          }
         />
 
         <nav className="mp-tabs" role="tablist" aria-label="Meeting sections">

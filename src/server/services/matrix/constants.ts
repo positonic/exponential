@@ -26,3 +26,12 @@ export interface MatrixServerConfig {
   homeserverUrl: string;
   botUserId: string;
 }
+
+/**
+ * `ChannelLink.provider` for a Matrix room binding.
+ *
+ * Note this is `"matrix"`, not `MATRIX_SERVER_PROVIDER` — a ChannelLink names the
+ * *chat platform* the room is on, alongside `"whatsapp"` and `"slack"`, whereas an
+ * Integration's provider names the kind of credential. The two namespaces are separate.
+ */
+export const MATRIX_CHANNEL_PROVIDER = "matrix";

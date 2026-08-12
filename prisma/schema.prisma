@@ -210,6 +210,7 @@ model User {
   workspaceActivityEvents        WorkspaceActivityEvent[]
   // Inbound channel links created by this user
   channelLinksCreated            ChannelLink[]                   @relation("ChannelLinkCreatedBy")
+  matrixPostsPosted              MatrixPostLog[]                 @relation("MatrixPostLogPostedBy")
   // Per-user favourites (polymorphic pins)
   favorites                      Favorite[]
 
@@ -506,8 +507,8 @@ model WorkspaceActivityEvent {
 // Integration-FK-bound SlackChannelConfig - this is inbound and integration-free.
 model ChannelLink {
   id          String   @id @default(cuid())
-  provider    String // "whatsapp" | "slack" | "telegram" | …
-  externalId  String // provider conversation id (e.g. WhatsApp group JID)
+  provider    String // "whatsapp" | "slack" | "telegram" | "matrix" | …
+  externalId  String // provider conversation id (e.g. WhatsApp group JID, Matrix room id)
   displayName String?
   workspaceId String
   projectId   String?
@@ -516,14 +517,64 @@ model ChannelLink {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy User?     @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Which way this link routes. ADR-0023 defined ChannelLink as inbound-only
+  // ("which workspace/project owns this conversation?"); outbound rows answer the
+  // reverse ("where does this project's content go?"). Existing WhatsApp rows keep
+  // the default, so the ADR-0023 summarization path is untouched.
+  direction String @default("inbound") // "inbound" | "outbound"
 
+  // For outbound rows, the registered server to send through. Null for inbound rows,
+  // which are attributed by the gateway that received them rather than by credential.
+  serverIntegrationId String?
+  serverIntegration   Integration? @relation("ChannelLinkServer", fields: [serverIntegrationId], references: [id], onDelete: Cascade)
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy   User?           @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  matrixPosts MatrixPostLog[]
+
+  // Kept as-is for V1. Consequence: a workspace default and a project override cannot
+  // name the same room. That is a recorded open decision on the feature, not an
+  // oversight — do not relax it without deciding it.
   @@unique([provider, externalId])
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+  @@index([projectId, direction])
+  @@index([workspaceId, direction])
+  @@index([serverIntegrationId])
+}
+
+/// One row per successful post of a meeting summary into a Matrix room.
+///
+/// A table rather than a timestamp column on TranscriptionSession, because the
+/// destination is not singular: `slackNotificationAt` is the single-destination
+/// precedent and it breaks the moment a meeting is re-tagged to a project with a
+/// different room. Rows are written only after the homeserver accepts the event, so
+/// the log never claims a post that did not happen.
+model MatrixPostLog {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  /// The binding used, when the destination came from one. Null for a one-off post to
+  /// an explicitly picked room, which deliberately persists no binding.
+  channelLinkId          String?
+  roomId                 String
+  serverIntegrationId    String
+  /// The homeserver's event id for the message that was sent.
+  eventId                String
+  postedById             String
+  postedAt               DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  channelLink          ChannelLink?         @relation(fields: [channelLinkId], references: [id], onDelete: SetNull)
+  serverIntegration    Integration          @relation("MatrixPostLogServer", fields: [serverIntegrationId], references: [id], onDelete: Cascade)
+  postedBy             User                 @relation("MatrixPostLogPostedBy", fields: [postedById], references: [id], onDelete: Cascade)
+
+  /// Answers "has this meeting already been posted here?" — the repost guard.
+  @@index([transcriptionSessionId, roomId])
+  @@index([serverIntegrationId])
+  @@index([channelLinkId])
+  @@index([postedById])
 }
 
 // Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
@@ -1344,6 +1395,7 @@ model TranscriptionSession {
   user              User?                             @relation(fields: [userId], references: [id])
   workspace         Workspace?                        @relation(fields: [workspaceId], references: [id])
   participants      TranscriptionSessionParticipant[]
+  matrixPosts       MatrixPostLog[]
 
   @@index([sessionId])
   @@index([workspaceId])
@@ -1413,6 +1465,10 @@ model Integration {
   // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
   workspaceRepositories   WorkspaceRepository[]
   syncConfigs             TicketSyncConfig[]
+  // Outbound routing (matrix-server rows): rooms bound through this server, and the
+  // log of what has been posted through it.
+  outboundChannelLinks    ChannelLink[]            @relation("ChannelLinkServer")
+  matrixPostLogs          MatrixPostLog[]          @relation("MatrixPostLogServer")
 
   @@index([userId])
   @@index([teamId])

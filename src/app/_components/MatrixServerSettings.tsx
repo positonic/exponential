@@ -15,6 +15,7 @@ import {
 import { useDisclosure } from "@mantine/hooks";
 import { IconAlertTriangle, IconServer } from "@tabler/icons-react";
 import { MatrixRoomPicker } from "~/app/_components/matrix/MatrixRoomPicker";
+import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 
@@ -124,6 +125,19 @@ export function MatrixServerSettings({
             )}
           </Group>
         ))
+      )}
+
+      {servers.length > 0 && (
+        <Stack gap={4} className="rounded-md border border-border-primary bg-surface-secondary p-3">
+          <Text size="sm" fw={600} className="text-text-primary">
+            Default room
+          </Text>
+          <Text size="xs" className="text-text-muted">
+            Used by projects set to Inherit. Ships unset, so nothing posts until
+            someone chooses a room.
+          </Text>
+          <MatrixRoomBinding workspaceId={workspace.id} projectId={null} />
+        </Stack>
       )}
 
       {removeMutation.error && (

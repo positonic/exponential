@@ -75,6 +75,10 @@ export async function listMatrixServers(
  * Throws `NOT_FOUND` when the server does not belong to `workspaceId` — the workspace
  * check is here rather than at each call site so a server id from one workspace can
  * never be used to reach another's homeserver.
+ *
+ * `workspaceId` is required for exactly that reason: callers take `serverId` from client
+ * input, so the scoping has to be enforced where the credential is loaded rather than
+ * trusted from the request. Do not make it optional.
  */
 export async function getMatrixClientForServer(
   db: PrismaClient,
