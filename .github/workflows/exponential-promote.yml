@@ -59,8 +59,17 @@ jobs:
             fi
           } | sort -u > /tmp/prs
           jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/prs > /tmp/prs.json
-          exponential tickets list \
-            --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" --json > /tmp/all.json
+          # The CLI reports failures as a JSON error object on STDOUT, not stderr
+          # -- so a bare `> /tmp/all.json` redirects the message into the file and
+          # the step dies with a naked "exit 1" and not one line of log. That is
+          # how a missing workspace grant presented: indistinguishable from any
+          # other failure. Echo whatever landed in the file before giving up.
+          if ! exponential tickets list \
+                 --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" \
+                 --json > /tmp/all.json; then
+            echo "::error title=Exponential CLI failed::$(head -c 800 /tmp/all.json)"
+            exit 1
+          fi
           jq --slurpfile prs /tmp/prs.json \
             '[.tickets[] | select(.prUrl != null and (.prUrl as $u | $prs[0] | index($u)))]' \
             /tmp/all.json > /tmp/tickets.json
