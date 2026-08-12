@@ -3,35 +3,42 @@ import crypto from "crypto";
 import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
+import { safeSignatureEquals } from "~/server/utils/webhookSignature";
 
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
-
-function verifySignature(payload: string, signature: string): boolean {
-  if (!WEBHOOK_SECRET) {
-    console.warn(
-      "GITHUB_WEBHOOK_SECRET not set - skipping signature verification",
-    );
-    return true; // Allow in development
-  }
-
+function verifySignature(
+  payload: string,
+  signature: string,
+  secret: string,
+): boolean {
   const expectedSignature =
     "sha256=" +
-    crypto.createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
+    crypto.createHmac("sha256", secret).update(payload).digest("hex");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature),
-  );
+  return safeSignatureEquals(signature, expectedSignature);
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Fail closed: without the shared secret we cannot verify a single
+    // delivery, so we must never process one (same rule as the Notion and
+    // Sentry receivers).
+    const secret = process.env.GITHUB_WEBHOOK_SECRET;
+    if (!secret) {
+      console.error(
+        "[GitHubWebhook] GITHUB_WEBHOOK_SECRET is not configured — refusing to process events",
+      );
+      return NextResponse.json(
+        { error: "GITHUB_WEBHOOK_SECRET is not configured" },
+        { status: 503 },
+      );
+    }
+
     const signature = request.headers.get("x-hub-signature-256");
     const event = request.headers.get("x-github-event");
     const delivery = request.headers.get("x-github-delivery");
 
     if (!signature || !event || !delivery) {
-      console.error("Mission required headers", request.headers);
+      console.error("Missing required headers", request.headers);
       return NextResponse.json(
         { error: "Missing required headers" },
         { status: 400 },
@@ -41,7 +48,7 @@ export async function POST(request: NextRequest) {
     const payload = await request.text();
 
     // Verify webhook signature
-    if (!verifySignature(payload, signature)) {
+    if (!verifySignature(payload, signature, secret)) {
       console.error("Invalid webhook signature");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
