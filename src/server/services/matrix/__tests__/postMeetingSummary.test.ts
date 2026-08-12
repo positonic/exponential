@@ -433,6 +433,33 @@ describe("explicit room validation", () => {
   });
 });
 
+describe("cross-workspace protection", () => {
+  it("refuses a serverId belonging to another workspace", async () => {
+    // The seam takes serverId from the client, so the scoping has to be enforced when
+    // the client is built rather than trusted from the input. `getMatrixClientForServer`
+    // requires a workspaceId and filters on it; this pins that so a refactor cannot
+    // quietly drop the argument and let one workspace post through another's
+    // homeserver credentials.
+    db.integration.findFirst.mockResolvedValue(null as never);
+
+    await expect(
+      postMeetingSummaryToMatrix(db, {
+        meetingId: MEETING_ID,
+        actorUserId: ACTOR,
+        roomId: "!picked:example.org",
+        serverId: "int-another-workspace",
+        // No injected client, so the real credential lookup runs.
+      }),
+    ).rejects.toThrow(/not registered in this workspace/i);
+
+    const lookup = db.integration.findFirst.mock.calls[0]![0] as {
+      where: Record<string, unknown>;
+    };
+    expect(lookup.where.workspaceId).toBe("ws-1");
+    expect(db.matrixPostLog.create).not.toHaveBeenCalled();
+  });
+});
+
 describe("buildTransactionId", () => {
   it("is stable across retries of the same post, so Matrix deduplicates them", () => {
     const first = buildTransactionId(MEETING_ID, ROOM, 0);
