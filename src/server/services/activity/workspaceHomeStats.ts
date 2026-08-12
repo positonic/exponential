@@ -133,11 +133,16 @@ export async function getWorkspaceHomeStats(
   }
 
   // ── This-week sparkline (Mon → Sun) ────────────────────────────────
-  // Which bar is "today", as an offset from the start of the week. Derived
-  // from the injected `now` using the same local calendar `thisWeekStart`
-  // came from — comparing UTC components instead would shift the flag by a
-  // day for any caller running in a UTC+ timezone. Falls outside 0..6 (so
-  // every bar is false) when `now` isn't in the current ISO week.
+  // Which bar is "today", as an offset from the start of the week — always
+  // 0..6, since `thisWeekStart` is derived from this same `now`.
+  //
+  // Deliberately the local calendar, so the flag agrees with the day labels.
+  // The `count` key below is a UTC date, matching the SQL's `date_trunc`, so
+  // flag and count line up only when the runtime is UTC — which is what
+  // production runs. On a non-UTC runtime the flagged bar can carry the
+  // adjacent UTC day's count; reconciling the two calendars means changing
+  // the SQL bucketing and the week window together, so it is left to its own
+  // change rather than half-done here.
   const todayIndex = differenceInCalendarDays(now, thisWeekStart);
 
   const sparkline: WeeklySparklineBar[] = [];
