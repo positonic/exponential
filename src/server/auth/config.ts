@@ -8,6 +8,7 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import { sendSignInCodeEmail, sendWelcomeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
@@ -46,6 +47,19 @@ async function acceptPendingInvitationsForUser(
 
     for (const invitation of pendingWorkspaceInvites) {
       try {
+        // The upsert below no-ops for existing members, so remember whether
+        // this acceptance actually adds them — only real joins get a feed event.
+        const wasAlreadyMember =
+          (await db.workspaceUser.findUnique({
+            where: {
+              userId_workspaceId: {
+                userId,
+                workspaceId: invitation.workspaceId,
+              },
+            },
+            select: { userId: true },
+          })) !== null;
+
         await db.$transaction([
           db.workspaceInvitation.update({
             where: { id: invitation.id },
@@ -68,6 +82,23 @@ async function acceptPendingInvitationsForUser(
         ]);
         if (!firstAcceptedWorkspaceId) {
           firstAcceptedWorkspaceId = invitation.workspaceId;
+        }
+
+        // Mirror workspace.acceptInvitation: a "joined the workspace" event so
+        // auto-accepted invitees show up in the team feed too.
+        if (!wasAlreadyMember) {
+          const member = await db.user.findUnique({
+            where: { id: userId },
+            select: { name: true },
+          });
+          await recordActivity(db, {
+            workspaceId: invitation.workspaceId,
+            userId,
+            entityType: "workspace_member",
+            entityId: userId,
+            action: "created",
+            metadata: { name: member?.name ?? email },
+          });
         }
       } catch (error) {
         console.error(
