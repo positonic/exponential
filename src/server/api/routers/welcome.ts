@@ -62,8 +62,11 @@ async function saveSetupState(
  * user the default is the shared team workspace (invite auto-accept overrides
  * it at signup), and a throwaway onboarding goal like "Get fit" must never be
  * visible to the rest of the team.
+ *
+ * Exported for tests — this is the enforcement point for the "onboarding
+ * artifacts never land in a shared workspace" acceptance criterion.
  */
-async function resolveWorkspaceId(
+export async function resolveWorkspaceId(
   db: PrismaClient,
   userId: string,
 ): Promise<string | null> {
@@ -74,10 +77,15 @@ async function resolveWorkspaceId(
   const defaultWorkspace = user?.defaultWorkspaceId
     ? await db.workspace.findUnique({
         where: { id: user.defaultWorkspaceId },
-        select: { id: true, type: true },
+        select: { id: true, type: true, ownerId: true },
       })
     : null;
-  if (defaultWorkspace?.type === "personal") return defaultWorkspace.id;
+  // Ownership matters, not just type: a user can be invited into someone
+  // ELSE's personal workspace (addMember has no type gate), and auto-accept
+  // makes that their default — their onboarding goal must not land there.
+  if (defaultWorkspace?.type === "personal" && defaultWorkspace.ownerId === userId) {
+    return defaultWorkspace.id;
+  }
 
   // Default is shared (team/organization) or unset — use the personal
   // workspace the user owns (auto-created at signup).
