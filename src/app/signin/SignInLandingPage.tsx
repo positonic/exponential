@@ -3,16 +3,51 @@
 import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getDesktopBridge } from "~/lib/platform";
+import {
+  normalizeSignInEmail,
+  SEND_FAILED_MESSAGE,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from "~/lib/signInCode";
 import "~/styles/auth-surface.css";
 
+/**
+ * Turn an Auth.js `?error=` code into something a person can act on.
+ *
+ * Worth having rather than failing silently: `Verification` is what a mistyped
+ * or expired **Sign-in code** produces, and before this the user was bounced to
+ * a blank sign-in form with no explanation — indistinguishable from the app
+ * being broken.
+ *
+ * Only the codes in Auth.js's `clientErrors` set arrive here intact; everything
+ * else — including a failed send, which is `EmailSignInError` internally — is
+ * flattened to `Configuration` before it reaches the browser. So a failed send
+ * is caught at the call site instead, where we still know what happened.
+ */
+function signInErrorMessage(error: string | null): string | null {
+  switch (error) {
+    case null:
+      return null;
+    case "Verification":
+      return "That sign-in code is incorrect, has expired, or has already been used. Request a new one below.";
+    case "AccessDenied":
+      return "That account doesn't have access. Try a different one, or contact support.";
+    default:
+      return "Something went wrong signing you in. Please try again.";
+  }
+}
+
 export function SignInLandingPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/home";
+  const [sendError, setSendError] = useState<string | null>(null);
+  const errorMessage = sendError ?? signInErrorMessage(searchParams.get("error"));
 
   const [email, setEmail] = useState("");
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
@@ -38,15 +73,43 @@ export function SignInLandingPage() {
     }
 
     setPendingProvider(provider);
+    setSendError(null);
+    // `router.push` resolves before the new route paints, so clearing the
+    // pending flag unconditionally in `finally` re-enables the button mid
+    // navigation. One more click there sends a second code and — since codes
+    // now retire their predecessors — silently kills the one already in the
+    // user's inbox. Stay disabled when we're on our way out.
+    let navigating = false;
     try {
       if (provider === "postmark") {
         if (!email) return;
-        await signIn("postmark", { email, callbackUrl });
+        // We email a code rather than a link (ADR-0056), so we drive the
+        // navigation ourselves instead of letting NextAuth redirect: the verify
+        // page needs the identifier to redeem the code against, and it must be
+        // normalized the same way Auth.js stored it.
+        const identifier = normalizeSignInEmail(email);
+        const result = await signIn("postmark", {
+          email: identifier,
+          callbackUrl,
+          redirect: false,
+        });
+        // Driving the navigation ourselves means we own the failure case too:
+        // don't tell someone to check their inbox for an email that never left.
+        if (result?.error) {
+          setSendError(SEND_FAILED_MESSAGE);
+          return;
+        }
+        // Only after the send actually succeeded, so a failed attempt can't
+        // leave the verify page primed for a code that was never issued.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        navigating = true;
+        router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
     } finally {
-      setPendingProvider(null);
+      if (!navigating) setPendingProvider(null);
     }
   };
 
@@ -91,6 +154,12 @@ export function SignInLandingPage() {
               Where humans and AI build together. Sign in with your work account
               to continue to your workspace — or create one from scratch.
             </p>
+
+            {errorMessage && (
+              <p className="auth-error" role="alert">
+                {errorMessage}
+              </p>
+            )}
 
             <div className="providers">
               {providers?.google && (
@@ -143,7 +212,7 @@ export function SignInLandingPage() {
 
             <div className="or-div">
               <span className="or-div__line" />
-              <span className="or-div__txt">or email a magic link</span>
+              <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
 
@@ -166,7 +235,7 @@ export function SignInLandingPage() {
                 type="submit"
                 disabled={isBusy || !email}
               >
-                <span>Send me a magic link</span>
+                <span>Send me a sign-in code</span>
                 <ArrowRightGlyph />
               </button>
             </form>

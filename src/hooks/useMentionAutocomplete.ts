@@ -78,10 +78,18 @@ export function useMentionAutocomplete({
       setCursorPosition(cursorPos);
       setSelectedIndex(0);
 
+      // Only open when at least one candidate matches — otherwise text after
+      // a completed display-text mention ("@James Farrell thanks…") would keep
+      // the trigger alive and float an empty dropdown.
       const trigger = findMentionTrigger(value, cursorPos);
-      setShowDropdown(trigger !== null);
+      setShowDropdown(
+        trigger !== null &&
+          candidates.some((c) =>
+            c.name.toLowerCase().includes(trigger.searchTerm),
+          ),
+      );
     },
-    [],
+    [candidates],
   );
 
   const selectCandidate = useCallback(
@@ -91,7 +99,9 @@ export function useMentionAutocomplete({
       const { triggerIndex } = mentionTrigger;
       const beforeTrigger = text.substring(0, triggerIndex);
       const afterCursor = text.substring(cursorPosition);
-      const insertion = `@[${candidate.name}](${candidate.id}) `;
+      // Insert the display form; the composer expands it to the canonical
+      // `@[Name](id)` markup on submit (see ~/lib/content/mentionText).
+      const insertion = `@${candidate.name} `;
       const newText = beforeTrigger + insertion + afterCursor;
 
       setText(newText);

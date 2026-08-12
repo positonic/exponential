@@ -3,13 +3,6 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useRef } from "react";
-import { getCalendarErrorMessage } from "./calendarConnectionMessages";
-
-const OAUTH_RESULT_PARAMS = [
-  "calendar_connected",
-  "microsoft_calendar_connected",
-  "calendar_error",
-] as const;
 
 /**
  * Shows toast notifications for calendar connection/error search params.
@@ -20,36 +13,35 @@ const OAUTH_RESULT_PARAMS = [
  * (which only render in the disconnected empty state) never mount, and
  * their identical useEffect never fires.
  *
- * The params are stripped from the URL once shown. `useCalendarNavigation`
- * rebuilds the query string from whatever is currently in it, so leaving them
- * behind means every later view/date change re-fires the same toast — and a
- * refresh would replay it too.
+ * `enabled` is the other half of that: when the calendar is *not* connected
+ * those components do mount and do fire, so running here as well would show
+ * every toast twice — which is exactly what a failed OAuth round-trip hits,
+ * since it returns to this page still disconnected and with `calendar_error`
+ * set. Pass the connection state and the two paths stay mutually exclusive.
  */
-export function useCalendarConnectionToast() {
+export function useCalendarConnectionToast(enabled: boolean) {
+  const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  // Guards the window between showing a toast and the stripped URL arriving,
-  // during which this effect can run again with the params still present.
-  const shownRef = useRef(false);
-
-  const googleConnected = searchParams.get("calendar_connected");
-  const microsoftConnected = searchParams.get("microsoft_calendar_connected");
-  const calendarError = searchParams.get("calendar_error");
+  // Guards the window between showing a toast and the URL rewrite below
+  // committing, during which this effect can re-run with the params still
+  // present.
+  const alreadyShown = useRef(false);
 
   useEffect(() => {
-    if (!googleConnected && !microsoftConnected && !calendarError) {
-      // Nothing to report — re-arm for a subsequent connect attempt.
-      shownRef.current = false;
-      return;
-    }
-    if (shownRef.current) return;
-    shownRef.current = true;
+    if (!enabled || alreadyShown.current) return;
+
+    const googleConnected = searchParams.get("calendar_connected");
+    const microsoftConnected = searchParams.get(
+      "microsoft_calendar_connected",
+    );
+    const calendarError = searchParams.get("calendar_error");
 
     if (googleConnected === "true") {
       notifications.show({
         title: "Calendar Connected!",
-        message: "Your Google Calendar is now connected and ready to use.",
+        message:
+          "Your Google Calendar is now connected and ready to use.",
         color: "green",
       });
     }
@@ -57,39 +49,60 @@ export function useCalendarConnectionToast() {
     if (microsoftConnected === "true") {
       notifications.show({
         title: "Calendar Connected!",
-        message: "Your Outlook Calendar is now connected and ready to use.",
+        message:
+          "Your Outlook Calendar is now connected and ready to use.",
         color: "green",
       });
     }
 
     if (calendarError) {
-      // No provider-specific fallback: both callbacks redirect with a bare
-      // `calendar_error`, so unlike the connect buttons this hook can't tell
-      // which provider failed. Only success is provider-tagged.
+      let errorMessage = "Failed to connect calendar.";
+      switch (calendarError) {
+        case "access_denied":
+          errorMessage =
+            "Calendar access was denied. Please try again and grant permissions.";
+          break;
+        case "invalid_request":
+          errorMessage =
+            "Invalid request. Please try connecting again.";
+          break;
+        case "no_google_account":
+          errorMessage =
+            "Please sign in with Google first, then connect your calendar.";
+          break;
+        case "no_refresh_token":
+          errorMessage =
+            "Failed to get long-term access. Please try connecting again.";
+          break;
+        case "token_exchange_failed":
+          errorMessage =
+            "Failed to connect calendar. Please try again.";
+          break;
+      }
       notifications.show({
         title: "Connection Failed",
-        message: getCalendarErrorMessage(calendarError),
+        message: errorMessage,
         color: "red",
       });
     }
 
-    const params = new URLSearchParams(searchParams.toString());
-    for (const param of OAUTH_RESULT_PARAMS) {
-      params.delete(param);
+    // Latch only once something was actually shown: a first render with no
+    // params must not suppress a toast that arrives on a later client-side
+    // navigation.
+    if (googleConnected === "true" || microsoftConnected === "true" || calendarError) {
+      alreadyShown.current = true;
+
+      // Strip the params so the toast is a one-off. They are consumed here
+      // and nowhere else, and leaving them in place replays the toast on
+      // every reload or remount — a ref only lives as long as the mount.
+      const remaining = new URLSearchParams(searchParams);
+      remaining.delete("calendar_connected");
+      remaining.delete("microsoft_calendar_connected");
+      remaining.delete("calendar_error");
+      const query = remaining.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
     }
-    const query = params.toString();
-    // Strip in place rather than routing to a literal /calendar — the caller
-    // owns the route, and hardcoding it would relocate anyone using this hook
-    // from somewhere else.
-    router.replace(query ? `${pathname}?${query}` : pathname, {
-      scroll: false,
-    });
-  }, [
-    googleConnected,
-    microsoftConnected,
-    calendarError,
-    searchParams,
-    pathname,
-    router,
-  ]);
+  }, [searchParams, enabled, router, pathname]);
 }

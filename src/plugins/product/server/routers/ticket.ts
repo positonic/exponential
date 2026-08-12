@@ -8,6 +8,7 @@ import {
 } from "~/server/services/access";
 import type { PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
@@ -912,7 +913,7 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         ticketId: z.string(),
-        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
+        content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -945,6 +946,15 @@ export const ticketRouter = createTRPCRouter({
         /* instrumentation failure is non-fatal */
       });
 
+      // Fire-and-forget: notify mentioned workspace members via the pipeline
+      // (same path as feature comments).
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: input.ticketId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
       return comment;
     }),
 
@@ -961,6 +971,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           authorId: true,
+          content: true,
           ticket: {
             select: { product: { select: { workspaceId: true } } },
           },
@@ -980,11 +991,23 @@ export const ticketRouter = createTRPCRouter({
           message: "You can only edit your own comments",
         });
       }
-      return ctx.db.ticketComment.update({
+      const updated = await ctx.db.ticketComment.update({
         where: { id: input.id },
         data: { content: input.content },
         include: { author: { select: { id: true, name: true, image: true } } },
       });
+
+      // Fire-and-forget: notify mentions added by the edit. Passing the old
+      // body means already-notified users aren't pinged again.
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: updated.ticketId,
+        commentId: updated.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+        previousContent: comment.content,
+      });
+
+      return updated;
     }),
 
   deleteComment: protectedProcedure

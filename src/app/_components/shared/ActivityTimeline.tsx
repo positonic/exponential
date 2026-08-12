@@ -2,47 +2,22 @@
 
 import { useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 import { ActivityComposer } from "~/app/_components/shared/ActivityComposer";
+import { useWorkspaceMentionCandidates } from "~/hooks/useWorkspaceMentionCandidates";
 import type {
   UseActivityReturn,
   ActivityFilter,
 } from "~/app/_components/shared/activityTypes";
-import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
-
-/** Workspace members as @mention candidates - the standard set for entity
- *  timelines. (Action detail additionally mixes in linked teams and agents;
- *  that surface builds its own richer list.) */
-export function useWorkspaceMentions(): {
-  mentionCandidates: MentionCandidate[];
-  mentionNames: string[];
-} {
-  const { workspace } = useWorkspace();
-  const mentionCandidates: MentionCandidate[] = useMemo(
-    () =>
-      (workspace?.members ?? []).map(
-        (m: { user: { id: string; name: string | null; email: string | null; image: string | null } }) => ({
-          id: m.user.id,
-          name: m.user.name ?? m.user.email ?? "Unknown",
-          type: "member" as const,
-          image: m.user.image,
-        }),
-      ),
-    [workspace?.members],
-  );
-  const mentionNames = useMemo(
-    () => mentionCandidates.map((c) => c.name),
-    [mentionCandidates],
-  );
-  return { mentionCandidates, mentionNames };
-}
 
 /**
  * THE entity activity block: unified timeline (comments + audit events) plus
  * the composer. One component for every entity surface - pages call their
  * entity's `useXActivity` hook and hand the result here, so ticket, feature,
- * and scope timelines are literally the same code path.
+ * scope, and knowledge-page timelines are literally the same code path.
+ *
+ * @mention candidates default to the canonical workspace list (members +
+ * linked-team members + agents); a hook may override with a richer set.
  */
 export function ActivityTimeline({
   activity,
@@ -52,7 +27,12 @@ export function ActivityTimeline({
   filter?: ActivityFilter;
 }) {
   const { data: session } = useSession();
-  const { mentionCandidates, mentionNames } = useWorkspaceMentions();
+  const workspaceCandidates = useWorkspaceMentionCandidates();
+  const mentionCandidates = activity.mentionCandidates ?? workspaceCandidates;
+  const mentionNames = useMemo(
+    () => activity.mentionNames ?? mentionCandidates.map((c) => c.name),
+    [activity.mentionNames, mentionCandidates],
+  );
 
   return (
     <div>
@@ -63,6 +43,7 @@ export function ActivityTimeline({
         onDeleteComment={activity.deleteComment}
         onEditComment={activity.editComment}
         mentionNames={mentionNames}
+        mentionCandidates={mentionCandidates}
         emptyMessage="No comments yet. Start the discussion!"
       />
       <ActivityComposer

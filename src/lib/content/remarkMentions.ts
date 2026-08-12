@@ -3,8 +3,9 @@
  * spans, so the canonical Markdown renderer can show mentions as badges
  * (ADR-0017).
  *
- * The stored mention syntax (`@[Name](userId)`, written by
- * `useMentionAutocomplete`) collides with Markdown link syntax: Markdown parses
+ * The stored mention syntax (`@[Name](userId)`, produced from the composer's
+ * display text by `~/lib/content/mentionText`) collides with Markdown link
+ * syntax: Markdown parses
  * `[Name](userId)` as a link sitting right after a literal `@`. This plugin
  * detects that exact shape — a `link` node immediately preceded by text ending
  * in `@` — and rewrites it into a span the renderer styles as a badge. Known

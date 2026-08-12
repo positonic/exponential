@@ -43,8 +43,11 @@ export function CalendarPageContent() {
   // Show toast for calendar_connected / calendar_error search params.
   // Must live here (not in GoogleCalendarConnect/MicrosoftCalendarConnect)
   // because after OAuth the calendar IS connected and those components
-  // only render in the disconnected empty state.
-  useCalendarConnectionToast();
+  // only render in the disconnected empty state. Passing the connection
+  // state hands the disconnected case back to them, so a failed OAuth
+  // round-trip — which lands here still disconnected, with calendar_error
+  // set, and with both components mounted — shows one toast, not two.
+  useCalendarConnectionToast(calendarConnected);
 
   // Fetch calendar events from all selected calendars
   const { data: events, isLoading: eventsLoading } =
@@ -365,10 +368,7 @@ export function CalendarPageContent() {
                 <Text size="sm" c="dimmed">
                   Outlook calendars are available now.
                 </Text>
-                <MicrosoftCalendarConnect
-                  isConnected={false}
-                  showConnectionToast={false}
-                />
+                <MicrosoftCalendarConnect isConnected={false} />
               </Stack>
             </Stack>
           </div>
@@ -393,14 +393,8 @@ export function CalendarPageContent() {
               </Text>
             </div>
             <Stack gap="sm">
-              <GoogleCalendarConnect
-                isConnected={false}
-                showConnectionToast={false}
-              />
-              <MicrosoftCalendarConnect
-                isConnected={false}
-                showConnectionToast={false}
-              />
+              <GoogleCalendarConnect isConnected={false} />
+              <MicrosoftCalendarConnect isConnected={false} />
             </Stack>
           </Stack>
         </Paper>

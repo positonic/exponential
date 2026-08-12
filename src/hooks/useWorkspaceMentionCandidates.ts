@@ -13,8 +13,8 @@ import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
  * ids on fan-out).
  *
  * Must be rendered under a WorkspaceProvider (any `/w/[workspaceSlug]/`
- * route). Extracted from the identical blocks in ActionDetailContent and
- * FeatureActivitySection so every comment surface shares one source.
+ * route). ActionDetailContent calls it directly; every other comment surface
+ * gets it via {@link ActivityTimeline}, so there is one source.
  */
 export function useWorkspaceMentionCandidates(): MentionCandidate[] {
   const { workspace } = useWorkspace();

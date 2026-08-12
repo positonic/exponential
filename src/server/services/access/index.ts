@@ -67,6 +67,7 @@ export {
 // Resolvers (for direct use when needed)
 export {
   getWorkspaceMembership,
+  assertWorkspaceRole,
   canEditWorkspaceContent,
   isWorkspaceOwner,
   isWorkspaceGuest,
