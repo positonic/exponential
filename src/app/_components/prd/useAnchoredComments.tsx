@@ -7,6 +7,7 @@ import { RichTextEditor } from "@mantine/tiptap";
 import { notifications } from "@mantine/notifications";
 import { IconMessagePlus } from "@tabler/icons-react";
 import { useSession } from "next-auth/react";
+import { useWorkspaceMentionCandidates } from "~/hooks/useWorkspaceMentionCandidates";
 import { reconcileThreads } from "~/lib/prd/thread-reconciliation";
 import {
   CommentResolution,
@@ -88,6 +89,11 @@ export function useAnchoredComments({
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
   const { comments } = adapter;
+  const mentionCandidates = useWorkspaceMentionCandidates();
+  const mentionNames = useMemo(
+    () => mentionCandidates.map((c) => c.name),
+    [mentionCandidates],
+  );
 
   // Position (relative to the editor wrapper) just below a doc range, so a
   // thread popover sits directly under the highlighted text (Linear-style).
@@ -107,9 +113,54 @@ export function useAnchoredComments({
     return { top, left };
   };
 
+  // Strip every `comment` mark carrying this threadId from the document and
+  // persist. This is how a highlight is undone — the mark is the only trace a
+  // never-commented thread leaves.
+  const removeThreadMark = (threadId: string) => {
+    if (!editor) return;
+    const { doc, schema } = editor.state;
+    const markType = schema.marks.comment;
+    if (!markType) return;
+    const tr = editor.state.tr;
+    doc.descendants((node, pos) => {
+      if (!node.isText) return undefined;
+      for (const mark of node.marks) {
+        if (mark.type === markType && mark.attrs.threadId === threadId) {
+          tr.removeMark(pos, pos + node.nodeSize, mark);
+        }
+      }
+      return undefined;
+    });
+    if (tr.docChanged) {
+      editor.view.dispatch(tr);
+      void flushSaveRef.current();
+    }
+  };
+
   const closeThread = () => {
+    // Closing (escape / outside click / X) a thread nobody has commented on
+    // yet discards it entirely — otherwise the yellow highlight would stay
+    // behind with no thread to open. Skip while a first comment is mid-post.
+    if (activeThreadId && editable && !adapter.isSubmitting) {
+      const hasRows = comments.some((c) => c.threadId === activeThreadId);
+      if (!hasRows) {
+        removeThreadMark(activeThreadId);
+        setPending((p) => (p?.threadId === activeThreadId ? null : p));
+      }
+    }
     setActiveThreadId(null);
     setAnchorPos(null);
+  };
+
+  // Deleting a thread's root comment cascades its replies away in the DB;
+  // clean up the highlight too or it would linger with an empty thread.
+  const handleDeleteComment = (commentId: string) => {
+    const row = comments.find((c) => c.id === commentId);
+    adapter.deleteComment({ commentId });
+    if (row && !row.parentId && row.threadId && editable) {
+      removeThreadMark(row.threadId);
+      closeThread();
+    }
   };
 
   const handleReady = (handle: RichDocEditorHandle) => {
@@ -243,6 +294,8 @@ export function useAnchoredComments({
       onResolve={async (threadId) => void (await adapter.resolveThread(threadId))}
       onUnresolve={async (threadId) => void (await adapter.unresolveThread(threadId))}
       currentUserId={currentUserId}
+      mentionCandidates={mentionCandidates}
+      mentionNames={mentionNames}
       // When the anchored popover is open it owns the composer; the list shows
       // its inline composer only for orphaned/list-opened threads.
       composerActive={anchorPos === null}
@@ -265,10 +318,24 @@ export function useAnchoredComments({
         currentUserId={currentUserId}
         onSubmit={(body) => submitComment(activeThreadId, body)}
         onEdit={handleEditComment}
-        onDelete={(commentId) => adapter.deleteComment({ commentId })}
+        onDelete={handleDeleteComment}
         onResolve={() => void adapter.resolveThread(activeThreadId)}
         onUnresolve={() => void adapter.unresolveThread(activeThreadId)}
         onClose={closeThread}
+        // Explicit "remove highlight" for a not-yet-posted thread; closing
+        // does the same implicitly, but the affordance makes it discoverable.
+        onDiscard={
+          editable
+            ? () => {
+                removeThreadMark(activeThreadId);
+                setPending((p) => (p?.threadId === activeThreadId ? null : p));
+                setActiveThreadId(null);
+                setAnchorPos(null);
+              }
+            : undefined
+        }
+        mentionCandidates={mentionCandidates}
+        mentionNames={mentionNames}
         isSubmitting={adapter.isSubmitting}
       />
     ) : null;

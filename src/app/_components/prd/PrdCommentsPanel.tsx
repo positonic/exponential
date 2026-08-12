@@ -9,6 +9,7 @@ import type {
   ThreadStatus,
   ReconcilableComment,
 } from "~/lib/prd/thread-reconciliation";
+import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 
 export interface FeatureCommentRow extends ReconcilableComment {
   body: string;
@@ -36,6 +37,8 @@ interface PrdCommentsPanelProps {
   /** Whether the list owns the composer (false while the anchored popover does). */
   composerActive?: boolean;
   currentUserId?: string;
+  mentionCandidates?: MentionCandidate[];
+  mentionNames?: string[];
   isSubmitting?: boolean;
 }
 
@@ -65,6 +68,8 @@ export function PrdCommentsPanel({
   onUnresolve,
   composerActive = true,
   currentUserId,
+  mentionCandidates,
+  mentionNames,
   isSubmitting = false,
 }: PrdCommentsPanelProps) {
   const [showResolved, setShowResolved] = useState(false);
@@ -147,6 +152,7 @@ export function PrdCommentsPanel({
         <CommentThread
           comments={toThreadComments(rootRows)}
           currentUserId={currentUserId}
+          mentionNames={mentionNames}
           variant="inline"
           emptyMessage={null}
         />
@@ -156,6 +162,7 @@ export function PrdCommentsPanel({
             <CommentThread
               comments={toThreadComments(replyRows)}
               currentUserId={currentUserId}
+              mentionNames={mentionNames}
               variant="inline"
               emptyMessage={null}
             />
@@ -167,6 +174,7 @@ export function PrdCommentsPanel({
             <CommentInput
               placeholder={rootRows.length === 0 ? "Comment…" : "Reply…"}
               isSubmitting={isSubmitting}
+              mentionCandidates={mentionCandidates}
               onSubmit={(body) => onSubmit(thread.threadId, body)}
             />
           </div>
