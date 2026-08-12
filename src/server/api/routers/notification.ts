@@ -47,6 +47,51 @@ async function resolveChannelAvailability(db: PrismaClient, userId: string) {
 }
 
 export const notificationRouter = createTRPCRouter({
+  /**
+   * List the current user's Notification rows — the read side of the
+   * ADR-0045 pipeline (which until this query only ever wrote them).
+   * Newest first, cursor-paginated, optionally narrowed to one category
+   * (e.g. "mention" for the home-panel inbox).
+   */
+  list: protectedProcedure
+    .input(
+      z
+        .object({
+          category: z.string().optional(),
+          limit: z.number().int().min(1).max(50).default(20),
+          cursor: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 20;
+      const rows = await ctx.db.notification.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.category ? { category: input.category } : {}),
+          // A future scheduledFor means the notification hasn't fired yet.
+          OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit + 1,
+        ...(input?.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          category: true,
+          title: true,
+          message: true,
+          deeplink: true,
+          createdAt: true,
+        },
+      });
+
+      let nextCursor: string | undefined;
+      if (rows.length > limit) {
+        nextCursor = rows.pop()!.id;
+      }
+      return { notifications: rows, nextCursor };
+    }),
+
   // Get user notification preferences
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
     const preferences = await ctx.db.notificationPreference.findUnique({

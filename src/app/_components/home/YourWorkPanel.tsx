@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Skeleton, UnstyledButton } from '@mantine/core';
 import {
+  IconAt,
   IconMicrophone,
   IconSquareRoundedCheck,
   IconStack2,
@@ -93,6 +94,12 @@ export function YourWorkPanel() {
       { enabled: !!workspaceId },
     );
 
+  // Mention notifications — the ADR-0045 pipeline writes these rows; this
+  // inbox is their first reader. User-scoped, not workspace-scoped: a mention
+  // follows the person.
+  const { data: mentionData, isLoading: mentionsLoading } =
+    api.notification.list.useQuery({ category: 'mention', limit: 5 });
+
   if (!workspaceId || !workspaceSlug) return null;
 
   const now = new Date();
@@ -122,16 +129,19 @@ export function YourWorkPanel() {
   const driProjects = dri?.projects ?? [];
   const driCount = driGoals.length + driKeyResults.length + driProjects.length;
   const recentMeetings = (meetings ?? []).slice(0, 5);
+  const mentions = mentionData?.notifications ?? [];
 
   const personalSectionsEmpty =
     !isLoading &&
     !ticketsLoading &&
     !driLoading &&
     !meetingsLoading &&
+    !mentionsLoading &&
     active.length === 0 &&
     openTickets.length === 0 &&
     driCount === 0 &&
-    recentMeetings.length === 0;
+    recentMeetings.length === 0 &&
+    mentions.length === 0;
 
   if (personalSectionsEmpty) {
     // The brand-new invitee case: nothing assigned yet. Lead with the team's
@@ -231,6 +241,44 @@ export function YourWorkPanel() {
             ))}
           </div>
         )
+      )}
+
+      {!mentionsLoading && mentions.length > 0 && (
+        <>
+          <div className={styles.sectionHeading}>Mentions</div>
+          {mentions.map((mention) => {
+            const row = (
+              <>
+                <IconAt
+                  size={14}
+                  stroke={1.75}
+                  style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+                />
+                <span className={styles.rowLabel}>
+                  {mention.title}
+                  {mention.message ? ` — ${mention.message}` : ''}
+                </span>
+                <span className={styles.rowMeta}>
+                  {formatDue(new Date(mention.createdAt))}
+                </span>
+              </>
+            );
+            return mention.deeplink ? (
+              <UnstyledButton
+                key={mention.id}
+                component={Link}
+                href={mention.deeplink}
+                className={styles.row}
+              >
+                {row}
+              </UnstyledButton>
+            ) : (
+              <div key={mention.id} className={styles.row}>
+                {row}
+              </div>
+            );
+          })}
+        </>
       )}
 
       {!driLoading && driCount > 0 && (
