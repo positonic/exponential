@@ -29,15 +29,21 @@ type SendArgs = { html: string; text: string; txnId: string };
 
 /** A stand-in for MatrixClient with only the surface the seam uses. */
 function stubClient(
-  behaviour: { send?: (roomId: string, args: SendArgs) => Promise<{ eventId: string }> } = {},
+  behaviour: {
+    send?: (roomId: string, args: SendArgs) => Promise<{ eventId: string }>;
+    joinedRooms?: string[];
+  } = {},
 ) {
   const send = vi.fn(
     behaviour.send ??
       ((_roomId: string, _args: SendArgs) => Promise.resolve({ eventId: "$evt:example.org" })),
   );
-  return { send } as unknown as Parameters<typeof postMeetingSummaryToMatrix>[1]["client"] & {
-    send: typeof send;
-  };
+  const joinedRooms = vi.fn(() =>
+    Promise.resolve(behaviour.joinedRooms ?? [ROOM, "!picked:example.org"]),
+  );
+  return { send, joinedRooms } as unknown as Parameters<
+    typeof postMeetingSummaryToMatrix
+  >[1]["client"] & { send: typeof send; joinedRooms: typeof joinedRooms };
 }
 
 function meetingRow(overrides: Record<string, unknown> = {}) {
@@ -375,6 +381,55 @@ describe("postMeetingSummaryToMatrix", () => {
       expect(result).toEqual({ kind: "blocked-off" });
       expect(client.send).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("explicit room validation", () => {
+  it("refuses a room the bot has not joined, even with edit access", async () => {
+    // The picker only offers joined rooms, so an unjoined room means a hand-crafted
+    // request. Without this, a full summary could be pushed into any room the bot is
+    // in — including another workspace's, if the same bot were registered twice.
+    const client = stubClient({ joinedRooms: [ROOM] });
+
+    const result = await postMeetingSummaryToMatrix(db, {
+      meetingId: MEETING_ID,
+      actorUserId: ACTOR,
+      roomId: "!somewhere-else:example.org",
+      serverId: SERVER,
+      client,
+    });
+
+    expect(result).toMatchObject({ kind: "failed" });
+    expect((result as { reason: string }).reason).toMatch(/not in that room/i);
+    expect(client.send).not.toHaveBeenCalled();
+    expect(db.matrixPostLog.create).not.toHaveBeenCalled();
+  });
+
+  it("allows a picked room the bot has joined", async () => {
+    const client = stubClient({ joinedRooms: ["!picked:example.org"] });
+
+    await expect(
+      postMeetingSummaryToMatrix(db, {
+        meetingId: MEETING_ID,
+        actorUserId: ACTOR,
+        roomId: "!picked:example.org",
+        serverId: SERVER,
+        client,
+      }),
+    ).resolves.toMatchObject({ kind: "posted" });
+  });
+
+  it("does not spend a joined-rooms call on a resolved destination", async () => {
+    // A resolved room came from a binding that was already authorised.
+    const client = stubClient();
+
+    await postMeetingSummaryToMatrix(db, {
+      meetingId: MEETING_ID,
+      actorUserId: ACTOR,
+      client,
+    });
+
+    expect(client.joinedRooms).not.toHaveBeenCalled();
   });
 });
 

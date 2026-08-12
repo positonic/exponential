@@ -33,12 +33,23 @@ export function PostToMatrixButton({
     | { kind: "idle" }
     | { kind: "posted"; roomId: string }
     | { kind: "blocked"; message: string }
-    | { kind: "confirm"; roomId: string; lastPostedAt: Date }
+    | {
+        kind: "confirm";
+        roomId: string;
+        lastPostedAt: Date;
+        /** The exact destination the warning refers to, captured when it was raised. */
+        retry: { roomId: string; serverId: string } | null;
+      }
   >({ kind: "idle" });
   const [chosen, setChosen] = useState<MatrixRoomChoice | null>(null);
   // Off by default: a one-off post is not a configuration change, and quietly
   // rebinding someone's project from a post dialog would be a surprise.
   const [saveAsProjectRoom, setSaveAsProjectRoom] = useState(false);
+  // What the in-flight post is aimed at, so a confirmation retries the same thing.
+  const [pendingDestination, setPendingDestination] = useState<{
+    roomId: string;
+    serverId: string;
+  } | null>(null);
 
   const utils = api.useUtils();
   const serversQuery = api.matrixServer.list.useQuery(
@@ -81,6 +92,8 @@ export function PostToMatrixButton({
             });
           }
           setStatus({ kind: "posted", roomId: result.roomId });
+          setChosen(null);
+          setPendingDestination(null);
           closePicker();
           return;
         case "needs-confirm":
@@ -88,6 +101,10 @@ export function PostToMatrixButton({
             kind: "confirm",
             roomId: result.roomId,
             lastPostedAt: new Date(result.lastPostedAt),
+            // Captured now. Reading `chosen` at click time would send the repost to
+            // whatever was picked last, which need not be the room the warning names —
+            // and Matrix has no un-send, so a wrong-room copy is permanent.
+            retry: pendingDestination,
           });
           return;
         case "no-destination":
@@ -118,17 +135,29 @@ export function PostToMatrixButton({
 
   function postToResolvedRoom(confirmRepost = false) {
     setStatus({ kind: "idle" });
+    setPendingDestination(null);
     post.mutate({ meetingId, ...(confirmRepost ? { confirmRepost } : {}) });
   }
 
   function postToChosenRoom(confirmRepost = false) {
     if (!chosen || !serverId) return;
     setStatus({ kind: "idle" });
+    setPendingDestination({ roomId: chosen.roomId, serverId });
     post.mutate({
       meetingId,
       roomId: chosen.roomId,
       serverId,
       ...(confirmRepost ? { confirmRepost } : {}),
+    });
+  }
+
+  /** Retry exactly what the confirmation warned about, not whatever state says now. */
+  function confirmRepostNow(retry: { roomId: string; serverId: string } | null) {
+    setStatus({ kind: "idle" });
+    post.mutate({
+      meetingId,
+      confirmRepost: true,
+      ...(retry ? { roomId: retry.roomId, serverId: retry.serverId } : {}),
     });
   }
 
@@ -175,7 +204,7 @@ export function PostToMatrixButton({
                   mt="xs"
                   color="yellow"
                   loading={post.isPending}
-                  onClick={() => (chosen ? postToChosenRoom(true) : postToResolvedRoom(true))}
+                  onClick={() => confirmRepostNow(status.retry)}
                 >
                   Post again
                 </Button>

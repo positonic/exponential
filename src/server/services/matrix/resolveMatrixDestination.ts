@@ -35,6 +35,10 @@ export async function resolveMatrixDestination(
     const projectLink = await db.channelLink.findFirst({
       where: {
         projectId,
+        // Scoped by workspace like every write path (bind/setOff/unbind/getBinding).
+        // Without it, resolution and configuration could disagree about the same
+        // project, and a row under another workspace would be honoured here.
+        ...(workspaceId ? { workspaceId } : {}),
         provider: MATRIX_CHANNEL_PROVIDER,
         direction: OUTBOUND,
       },

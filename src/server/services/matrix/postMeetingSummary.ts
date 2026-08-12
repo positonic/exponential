@@ -174,6 +174,31 @@ export async function postMeetingSummaryToMatrix(
     client = (await getMatrixClientForServer(db, serverId, meeting.workspaceId)).client;
   }
 
+  // An explicit room came from the client, so it is a claim rather than a fact. The
+  // picker only ever offers joined rooms; checking that here stops a hand-crafted
+  // request from pushing a full meeting summary into any other room the bot happens to
+  // be in — which, if the same bot is registered by two workspaces, includes rooms
+  // belonging to someone else. A resolved room needs no check: it came from a binding
+  // that was already authorised.
+  if (input.roomId) {
+    let joined: string[];
+    try {
+      joined = await client.joinedRooms();
+    } catch (error) {
+      reportHandledError(error, {
+        area: "matrix-post-summary",
+        context: { meetingId, roomId, serverId },
+      });
+      return { kind: "failed", reason: describePostFailure(error) };
+    }
+    if (!joined.includes(roomId)) {
+      return {
+        kind: "failed",
+        reason: "The bot is not in that room, so it cannot post there.",
+      };
+    }
+  }
+
   let eventId: string;
   try {
     ({ eventId } = await client.send(roomId, {

@@ -221,7 +221,16 @@ export const matrixRoomRouter = createTRPCRouter({
       if (existing) {
         await ctx.db.channelLink.update({
           where: { id: existing.id },
-          data: { isActive: false },
+          data: {
+            isActive: false,
+            // Release the room's binding slot. `@@unique([provider, externalId])` means
+            // one room maps to one destination, so leaving the real room id on a
+            // switched-off row would make that room unbindable anywhere else — the
+            // project turns Off and quietly takes the room out of circulation.
+            externalId: `off:${input.projectId}`,
+            displayName: null,
+            serverIntegrationId: null,
+          },
         });
         return { off: true };
       }

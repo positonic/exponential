@@ -167,4 +167,14 @@ describe("resolveMatrixDestination", () => {
       resolveMatrixDestination(db, { projectId: PROJECT, workspaceId: WORKSPACE }),
     ).resolves.toEqual({ kind: "none" });
   });
+
+  it("ignores a project row belonging to another workspace", async () => {
+    // Resolution must agree with the write paths, which all scope by workspace.
+    const foreign = link({ workspaceId: "ws-other" });
+    db.channelLink.findFirst.mockImplementation(tableOf([foreign]) as never);
+
+    await expect(
+      resolveMatrixDestination(db, { projectId: PROJECT, workspaceId: WORKSPACE }),
+    ).resolves.toEqual({ kind: "none" });
+  });
 });

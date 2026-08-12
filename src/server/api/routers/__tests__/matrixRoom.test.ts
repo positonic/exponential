@@ -205,10 +205,14 @@ describe("matrixRoom.setOff", () => {
       caller.matrixRoom.setOff({ workspaceId: WORKSPACE, projectId: PROJECT }),
     ).resolves.toEqual({ off: true });
 
-    expect(dbMock.channelLink.update).toHaveBeenCalledWith({
-      where: { id: "link-1" },
-      data: { isActive: false },
-    });
+    const update = dbMock.channelLink.update.mock.calls[0]![0] as {
+      data: Record<string, unknown>;
+    };
+    expect(update.data.isActive).toBe(false);
+    // The room id is released, or `@@unique([provider, externalId])` would keep that
+    // room reserved by a switched-off project and unbindable anywhere else.
+    expect(update.data.externalId).toBe(`off:${PROJECT}`);
+    expect(update.data.serverIntegrationId).toBeNull();
     expect(dbMock.channelLink.delete).not.toHaveBeenCalled();
   });
 
