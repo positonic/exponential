@@ -2,55 +2,82 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { auth } from '~/server/auth';
 
+/**
+ * Route gating is DEFAULT-DENY (ticket foggy.carp): every page requires a
+ * session unless its path is enumerated below. The previous shape — an
+ * allowlist of *protected* prefixes — went stale the moment workspace-scoped
+ * routing (`/w/[workspaceSlug]/...`) shipped without being added to it, which
+ * left logged-out visitors on a broken app shell full of failing queries.
+ * A deny-by-default list cannot rot that way: a new authenticated route is
+ * gated the day it is added, and forgetting to list a new *public* route
+ * fails loudly (a redirect to /signin) instead of silently.
+ *
+ * This is first-impression gating, not the security boundary: data access is
+ * enforced by tRPC `protectedProcedure`, `/admin` re-checks `isAdmin` in its
+ * own server layout, and a signed-in member visiting a workspace they don't
+ * belong to is redirected out by WorkspaceProvider's FORBIDDEN/NOT_FOUND
+ * handling.
+ */
+
+/** Public pages matched exactly. */
+const PUBLIC_EXACT = new Set([
+  '/', // marketing home
+  '/signin', // also excluded by the matcher; kept for clarity
+  '/web3', // wallet sign-in
+  '/desktop-auth', // desktop-shell auth handoff renders its own signed-out state
+  '/privacy',
+  '/terms',
+  '/roadmap', // public product roadmap (embeds Loom)
+  // File conventions served through the middleware matcher.
+  '/llms.txt',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/manifest.webmanifest',
+]);
+
+/** Public sections matched by prefix (note trailing slashes: `/f/` must not
+ * open up `/features`). */
+const PUBLIC_PREFIXES = [
+  '/p/', // published Knowledge Pages (ADR-0038)
+  '/f/', // public forms intake (ADR-0029)
+  '/auth/verify-request', // sign-in code redemption happens logged-out
+  '/invite/', // token pages render their own signed-out state
+  '/team-invite/',
+  // Marketing pages from the (home) route group.
+  '/blog',
+  '/explore',
+  '/learn',
+  '/product-timeline',
+  '/features/', // marketing feature pages — bare /features is the app's
+];
+
+function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_EXACT.has(pathname)) return true;
+  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export async function middleware(request: NextRequest) {
   // For testing different themes in development
   const requestHeaders = new Headers(request.headers);
   const testDomain = request.nextUrl.searchParams.get('theme');
-  
+
   if (testDomain) {
     requestHeaders.set('host', `${testDomain}`);
   }
 
-  // Handle authentication for protected routes
   const { pathname } = request.nextUrl;
-  
-  // Define protected routes that require authentication
-  const protectedRoutes = [
-    '/home',
-    '/act', 
-    '/plan',
-    '/projects',
-    '/goals',
-    '/outcomes',
-    '/integrations',
-    '/workflows',
-    '/journal',
-    '/meetings',
-    '/videos',
-    '/settings',  // All settings pages require auth
-    '/days',
-    '/recordings',
-    '/agent',
-    '/actions',
-  ];
 
-  // Skip authentication check for certain paths
-  const publicPaths = ['/', '/signin'];
-  const isPublicPath = publicPaths.some(path => pathname === path);
-  
-  // Check if the current path is a protected route
-  const isProtectedRoute = protectedRoutes.some(route => 
-    pathname.startsWith(route) || pathname === route
-  );
-
-  if (isProtectedRoute && !isPublicPath) {
-    // Get the session
+  if (!isPublicPath(pathname)) {
     const session = await auth();
-    
-    // If no session, redirect to login
+
     if (!session?.user) {
       const loginUrl = new URL('/signin', request.url);
-      loginUrl.searchParams.set('callbackUrl', pathname);
+      // Preserve the query string so e.g. a shared filtered view survives
+      // the round-trip through sign-in.
+      loginUrl.searchParams.set(
+        'callbackUrl',
+        pathname + request.nextUrl.search,
+      );
       return NextResponse.redirect(loginUrl);
     }
   }
@@ -66,7 +93,7 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api (API routes)
+     * - api (API routes gate themselves: auth(), HMAC, CRON_SECRET)
      * - monitoring (Sentry browser-event tunnel)
      * - _next/static (static files)
      * - _next/image (image optimization files)
@@ -75,4 +102,4 @@ export const config = {
      */
     '/((?!api|monitoring|_next/static|_next/image|favicon.ico|signin).*)',
   ],
-}; 
+};
