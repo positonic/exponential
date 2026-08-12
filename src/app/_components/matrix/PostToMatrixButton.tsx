@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Button, Modal, Popover, Stack, Text } from "@mantine/core";
+import { Alert, Button, Checkbox, Modal, Popover, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconAlertTriangle, IconCheck, IconSend } from "@tabler/icons-react";
 import { useState } from "react";
@@ -26,6 +26,9 @@ export function PostToMatrixButton({
   projectId = null,
 }: PostToMatrixButtonProps) {
   const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false);
+  // Mantine's Popover is controlled — without `opened` the target click does nothing.
+  const [popoverOpened, { toggle: togglePopover, close: closePopover }] =
+    useDisclosure(false);
   const [status, setStatus] = useState<
     | { kind: "idle" }
     | { kind: "posted"; roomId: string }
@@ -33,7 +36,11 @@ export function PostToMatrixButton({
     | { kind: "confirm"; roomId: string; lastPostedAt: Date }
   >({ kind: "idle" });
   const [chosen, setChosen] = useState<MatrixRoomChoice | null>(null);
+  // Off by default: a one-off post is not a configuration change, and quietly
+  // rebinding someone's project from a post dialog would be a surprise.
+  const [saveAsProjectRoom, setSaveAsProjectRoom] = useState(false);
 
+  const utils = api.useUtils();
   const serversQuery = api.matrixServer.list.useQuery(
     { workspaceId: workspaceId ?? "" },
     { enabled: !!workspaceId },
@@ -49,10 +56,30 @@ export function PostToMatrixButton({
   );
   const effective = bindingQuery.data?.effective;
 
+  const bindRoom = api.matrixRoom.bind.useMutation({
+    onSuccess: () => {
+      void utils.matrixRoom.getBinding.invalidate({
+        workspaceId: workspaceId ?? "",
+        projectId,
+      });
+    },
+  });
+
   const post = api.transcription.postToMatrix.useMutation({
     onSuccess: (result) => {
       switch (result.kind) {
         case "posted":
+          // Persist only now: binding a room to a project on the strength of a post
+          // that then failed would leave the project pointing somewhere unproven.
+          if (saveAsProjectRoom && chosen && serverId && projectId) {
+            bindRoom.mutate({
+              workspaceId: workspaceId ?? "",
+              projectId,
+              serverId,
+              roomId: chosen.roomId,
+              roomName: chosen.name,
+            });
+          }
           setStatus({ kind: "posted", roomId: result.roomId });
           closePicker();
           return;
@@ -107,9 +134,18 @@ export function PostToMatrixButton({
 
   return (
     <>
-      <Popover width={320} position="bottom-end" withArrow>
+      <Popover
+        width={320}
+        position="bottom-end"
+        withArrow
+        opened={popoverOpened}
+        onChange={(next) => (next ? togglePopover() : closePopover())}
+        // No transition: the dropdown is a decision surface, not an animation, and a
+        // deferred mount makes it untestable and slower to appear.
+        transitionProps={{ duration: 0 }}
+      >
         <Popover.Target>
-          <button className="mp-btn" type="button">
+          <button className="mp-btn" type="button" onClick={togglePopover}>
             <IconSend size={14} /> Post to Matrix
           </button>
         </Popover.Target>
@@ -174,7 +210,14 @@ export function PostToMatrixButton({
             >
               Post summary
             </Button>
-            <Button size="xs" variant="subtle" onClick={openPicker}>
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={() => {
+                closePopover();
+                openPicker();
+              }}
+            >
               Choose a room
             </Button>
           </Stack>
@@ -186,6 +229,7 @@ export function PostToMatrixButton({
         onClose={closePicker}
         title="Post this summary to a room"
         size="lg"
+        transitionProps={{ duration: 0 }}
       >
         <Stack gap="md">
           {serverId && (
@@ -194,6 +238,15 @@ export function PostToMatrixButton({
               serverId={serverId}
               selectedRoomId={chosen?.roomId ?? null}
               onSelect={setChosen}
+            />
+          )}
+
+          {projectId && (
+            <Checkbox
+              checked={saveAsProjectRoom}
+              onChange={(event) => setSaveAsProjectRoom(event.currentTarget.checked)}
+              label="Save as this project's room"
+              description="Future summaries for this project will go here by default."
             />
           )}
 
