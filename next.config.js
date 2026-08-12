@@ -15,10 +15,10 @@ const config = {
     // NODE_OPTIONS heap cap, so bound both.
     webpackMemoryOptimizations: true,
     cpus: 2,
-    turbo: {
-      resolveAlias: {
-        "markdown-it": "markdown-it/dist/index.cjs.js",
-      },
+  },
+  turbopack: {
+    resolveAlias: {
+      "markdown-it": "markdown-it/dist/index.cjs.js",
     },
   },
 
