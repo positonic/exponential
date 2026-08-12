@@ -114,7 +114,7 @@ function readMetaString(metadata: unknown, key: string): string | null {
  * Notion ticket-sync runs are operational noise at feed altitude — the synced
  * tickets themselves already surface as regular ticket events.
  */
-const HIDDEN_ENTITY_TYPES = ["ticket_sync_run"];
+const HIDDEN_ENTITY_TYPES = ["ticket_sync_run"] as const;
 
 /**
  * Translate a `source` filter into a Prisma `where` fragment. `undefined`/`all`
@@ -126,7 +126,7 @@ function sourceWhere(
   source?: string,
 ): Prisma.WorkspaceActivityEventWhereInput {
   if (!source || source === "all") {
-    return { entityType: { notIn: HIDDEN_ENTITY_TYPES } };
+    return { entityType: { notIn: [...HIDDEN_ENTITY_TYPES] } };
   }
   if (source === "internal") {
     return {
