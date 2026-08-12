@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Skeleton, UnstyledButton } from '@mantine/core';
 import {
+  IconMicrophone,
   IconSquareRoundedCheck,
   IconStack2,
   IconTarget,
@@ -83,6 +84,13 @@ export function YourWorkPanel() {
     { enabled: !!workspaceId },
   );
 
+  // Meetings I owned or attended — 'mine' unions owner + Participant rows.
+  const { data: meetings, isLoading: meetingsLoading } =
+    api.transcription.getAllTranscriptions.useQuery(
+      { workspaceId: workspaceId ?? undefined, meetingType: 'mine' },
+      { enabled: !!workspaceId },
+    );
+
   if (!workspaceId || !workspaceSlug) return null;
 
   const now = new Date();
@@ -111,14 +119,17 @@ export function YourWorkPanel() {
   const driKeyResults = dri?.keyResults ?? [];
   const driProjects = dri?.projects ?? [];
   const driCount = driGoals.length + driKeyResults.length + driProjects.length;
+  const recentMeetings = (meetings ?? []).slice(0, 5);
 
   if (
     !isLoading &&
     !ticketsLoading &&
     !driLoading &&
+    !meetingsLoading &&
     active.length === 0 &&
     openTickets.length === 0 &&
-    driCount === 0
+    driCount === 0 &&
+    recentMeetings.length === 0
   ) {
     // Nothing assigned yet — the panel stays out of the way. The team-pulse
     // empty state (feature action 5) takes over here.
@@ -264,6 +275,33 @@ export function YourWorkPanel() {
                 {project.progress > 0
                   ? `${Math.round(project.progress)}%`
                   : 'Not started'}
+              </span>
+            </UnstyledButton>
+          ))}
+        </>
+      )}
+
+      {!meetingsLoading && recentMeetings.length > 0 && (
+        <>
+          <div className={styles.sectionHeading}>Recent meetings you were in</div>
+          {recentMeetings.map((meeting) => (
+            <UnstyledButton
+              key={meeting.id}
+              component={Link}
+              href={`/recording/${meeting.id}`}
+              className={styles.row}
+            >
+              <IconMicrophone
+                size={14}
+                stroke={1.75}
+                style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+              />
+              <span className={styles.rowLabel}>
+                {meeting.title ?? 'Untitled meeting'}
+              </span>
+              {meeting.summary && <span className={styles.rowMeta}>Summary</span>}
+              <span className={styles.rowMeta}>
+                {formatDue(new Date(meeting.meetingDate ?? meeting.createdAt))}
               </span>
             </UnstyledButton>
           ))}
