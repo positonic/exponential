@@ -60,13 +60,31 @@ function makeService(opts: {
       findMany: vi.fn().mockResolvedValue(opts.tickets),
     },
     gitHubActivity: {
-      findMany: vi.fn().mockImplementation((args: { where: { eventAction?: string } }) =>
-        Promise.resolve(
-          args.where.eventAction === "opened"
-            ? (opts.opened ?? [])
-            : (opts.merged ?? []),
+      findMany: vi
+        .fn()
+        .mockImplementation(
+          (args: {
+            where: {
+              eventAction?: string;
+              prMergedAt?: { gte?: Date; lte?: Date };
+            };
+          }) => {
+            if (args.where.eventAction === "opened") {
+              return Promise.resolve(opts.opened ?? []);
+            }
+            // Honour the merge-time window the caller asked for, so tests
+            // actually exercise the bounded query rather than silently
+            // relying on the in-memory filter downstream.
+            const { gte, lte } = args.where.prMergedAt ?? {};
+            const rows = (opts.merged ?? []).filter((row) => {
+              if (!row.prMergedAt) return false;
+              if (gte && row.prMergedAt < gte) return false;
+              if (lte && row.prMergedAt > lte) return false;
+              return true;
+            });
+            return Promise.resolve(rows);
+          },
         ),
-      ),
     },
   } as unknown as PrismaClient;
 
@@ -264,6 +282,57 @@ describe("SprintAnalyticsService.getAllCyclesMetrics", () => {
 
     expect(result.mergedPrCount).toBe(0);
     expect(result.cycles[0]?.mergedPrCount).toBe(0);
+  });
+
+  /**
+   * The Metrics page reads the same cycle through two independent code paths:
+   * the batched roll-up below the chart, and `getCycleTicketMetrics` in the
+   * per-cycle breakdown. They sum tickets with separate loops, so a change to
+   * one could silently disagree with the other — exactly the drift ADR-0047
+   * set out to prevent. This pins them together.
+   */
+  it("agrees with getCycleTicketMetrics for the same cycle", async () => {
+    const tickets = [
+      { cycleId: "c1", status: "DONE", points: 3 },
+      { cycleId: "c1", status: "DEPLOYED", points: null },
+      { cycleId: "c1", status: "IN_PROGRESS", points: 5 },
+      { cycleId: "c1", status: "QA", points: 2 },
+    ];
+    const cycle = {
+      id: "c1",
+      name: "Cycle 1",
+      status: "COMPLETED",
+      startDate: new Date("2026-01-01"),
+      endDate: new Date("2026-01-14"),
+    };
+
+    const prisma = {
+      list: {
+        findMany: vi.fn().mockResolvedValue([cycle]),
+        findUniqueOrThrow: vi.fn().mockResolvedValue(cycle),
+      },
+      ticket: {
+        findMany: vi.fn().mockResolvedValue(tickets),
+      },
+      gitHubActivity: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    } as unknown as PrismaClient;
+
+    const service = new SprintAnalyticsService(prisma);
+
+    const rollUp = await service.getAllCyclesMetrics("ws-1");
+    const single = await service.getCycleTicketMetrics("c1");
+
+    const row = rollUp.cycles[0]!;
+    expect(row.totalTickets).toBe(single.totalTickets);
+    expect(row.completedTickets).toBe(single.completedTickets);
+    expect(row.completedPoints).toBe(single.completedPoints);
+    expect(row.totalPoints).toBe(single.totalPoints);
+    expect(row.completionRate).toBeCloseTo(single.completionRate);
+    // …and the roll-up totals equal the single cycle, there being only one.
+    expect(rollUp.completedTickets).toBe(single.completedTickets);
+    expect(rollUp.totalPoints).toBe(single.totalPoints);
   });
 
   it("returns a zeroed result (no NaN) for a workspace with no cycles", async () => {
