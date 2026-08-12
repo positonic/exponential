@@ -12,6 +12,7 @@ import {
 } from "~/server/services/access/resolvers/projectResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
 import { resolveGoalProgress } from "~/server/services/goalProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
@@ -642,7 +643,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.keyResult.create({
+      const keyResult = await ctx.db.keyResult.create({
         data: {
           ...input,
           workspaceId: goal!.workspaceId,
@@ -653,6 +654,23 @@ export const keyResultRouter = createTRPCRouter({
           goal: true,
         },
       });
+
+      // Surface workspace-scoped KR creation in the activity feed. Personal
+      // key results are silent by design. Fire-and-forget: never throws.
+      if (keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: keyResult.id,
+          action: "created",
+          metadata: { title: keyResult.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return keyResult;
     }),
 
   // Update a key result
@@ -770,6 +788,24 @@ export const keyResultRouter = createTRPCRouter({
         (err: unknown) => { console.error("[goal-health] recompute after KR check-in:", err); },
       );
 
+      // Surface the check-in in the workspace activity feed. Only the human
+      // act is logged — never the health recompute it triggers. Personal
+      // (non-workspace) key results are silent by design. The event's
+      // entityId is the check-in row; metadata carries the KR title and id
+      // so the feed can label the row and deep-link to the KR drawer.
+      if (checkIn && keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: checkIn.id,
+          action: "checked_in",
+          metadata: { title: keyResult.title, keyResultId: keyResult.id },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       return checkIn;
     }),
 
@@ -790,6 +826,23 @@ export const keyResultRouter = createTRPCRouter({
       }
 
       await ctx.db.keyResult.delete({ where: { id: input.id } });
+
+      // The `existing` row fetched for the access check carries the title the
+      // feed needs after the delete. Personal KRs are silent by design.
+      // Fire-and-forget: never throws.
+      if (existing?.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: existing.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: existing.id,
+          action: "deleted",
+          metadata: { title: existing.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       return { success: true };
     }),
 
@@ -1523,7 +1576,7 @@ export const keyResultRouter = createTRPCRouter({
       // workspace. Shared-workspace OKRs are commentable by members.
       const goal = await ctx.db.goal.findUnique({
         where: { id: input.goalId },
-        select: { id: true, userId: true, workspaceId: true },
+        select: { id: true, userId: true, workspaceId: true, title: true },
       });
 
       if (!goal) {
@@ -1558,6 +1611,23 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
       });
+
+      // Second, direct write path for objective comments — same event shape as
+      // goalService.createGoalComment (kept inline because this procedure's
+      // access check deliberately differs from verifyGoalAccess). Personal
+      // objectives are silent. Fire-and-forget.
+      if (goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: { title: goal.title, goalId: input.goalId },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return comment;
     }),
@@ -1664,6 +1734,22 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
       });
+
+      // Surface the comment in the workspace feed. metadata.keyResultId is the
+      // drawer target (entityId is the comment row). Personal KRs are silent.
+      // Fire-and-forget.
+      if (keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: { title: keyResult.title, keyResultId: keyResult.id },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return comment;
     }),
@@ -1798,7 +1884,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.goal.update({
+      const updated = await ctx.db.goal.update({
         where: { id: input.goalId },
         data: {
           healthOverride: input.status,
@@ -1806,6 +1892,24 @@ export const keyResultRouter = createTRPCRouter({
           healthOverrideById: input.status ? ctx.session.user.id : null,
         },
       });
+
+      // A manual status set is a deliberate human judgement, so it surfaces
+      // in the workspace feed; clearing back to Auto is housekeeping and logs
+      // nothing. Personal objectives are silent. Fire-and-forget.
+      if (input.status !== null && goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal",
+          entityId: String(goal.id),
+          action: "status_changed",
+          metadata: { title: goal.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Set or clear a key result's manual status override. Writes ONLY the
@@ -1832,7 +1936,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.keyResult.update({
+      const updated = await ctx.db.keyResult.update({
         where: { id: input.keyResultId },
         data: {
           statusOverride: input.status,
@@ -1840,6 +1944,23 @@ export const keyResultRouter = createTRPCRouter({
           statusOverrideById: input.status ? ctx.session.user.id : null,
         },
       });
+
+      // Same rule as the objective override above: manual sets surface,
+      // clearing to Auto logs nothing, personal KRs are silent.
+      if (input.status !== null && keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: keyResult.id,
+          action: "status_changed",
+          metadata: { title: keyResult.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Delete own comment from a key result

@@ -12,6 +12,7 @@ import {
 } from "~/app/_components/shared/RichDocEditor";
 import type { SlashCommandItem } from "~/lib/prd/slash-command";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { useAnchoredComments } from "~/app/_components/prd/useAnchoredComments";
 
 interface PageDocumentProps {
   pageId: string;
@@ -33,9 +34,10 @@ interface PageDocumentProps {
 
 /**
  * The Knowledge Page body editor (ADR-0033): the shared {@link RichDocEditor}
- * engine wired to the Page `bodyDoc`/`body`/`docVersion` storage. Anchored
- * comments are intentionally OUT of scope for Pages v1, so no comment layer is
- * passed — the engine renders just the document surface.
+ * engine wired to the Page `bodyDoc`/`body`/`docVersion` storage, plus the
+ * shared anchored-comments layer ({@link useAnchoredComments}) over the
+ * pageComment router — select text, pin a thread to it, same interaction as
+ * the PRD body.
  *
  * Adds the Pages-only `/page` slash command: creates a sibling page (same
  * workspace + project), drops a `pageLink` block at the cursor, flushes the
@@ -59,6 +61,61 @@ export function PageDocument({
   const uploadImage = api.page.uploadImage.useMutation();
   const createPage = api.page.create.useMutation();
   const createPageMutate = createPage.mutate;
+
+  const createComment = api.pageComment.create.useMutation();
+  const replyComment = api.pageComment.reply.useMutation();
+  const updateComment = api.pageComment.update.useMutation();
+  const deleteComment = api.pageComment.delete.useMutation();
+  const resolveThread = api.pageComment.resolve.useMutation();
+  const unresolveThread = api.pageComment.unresolve.useMutation();
+  const commentsQuery = api.pageComment.list.useQuery({ pageId });
+  // Anchored threads only (threadId set); the doc-level feed below the page
+  // renders the rest.
+  const comments = useMemo(
+    () => (commentsQuery.data ?? []).filter((c) => c.threadId != null),
+    [commentsQuery.data],
+  );
+  const invalidateComments = () => utils.pageComment.list.invalidate({ pageId });
+
+  const anchored = useAnchoredComments({
+    // Always on, even for read-only viewers: view access is the commenting
+    // gate on pages, so viewers can open and reply to existing threads. The
+    // comment-on-selection affordance (which writes a mark into the doc) is
+    // separately gated by `editable` inside the hook, and the list query
+    // dedupes with usePageActivity's identical key, so this costs nothing.
+    enabled: true,
+    editable,
+    adapter: {
+      comments,
+      createThread: async ({ threadId, body: commentBody, quotedText }) => {
+        await createComment.mutateAsync({ pageId, threadId, body: commentBody, quotedText });
+        await invalidateComments();
+      },
+      reply: async ({ parentId, body: commentBody }) => {
+        await replyComment.mutateAsync({ parentId, body: commentBody });
+        await invalidateComments();
+      },
+      editComment: async ({ commentId, body: commentBody }) => {
+        await updateComment.mutateAsync({ commentId, body: commentBody });
+        await invalidateComments();
+      },
+      deleteComment: ({ commentId }) => {
+        deleteComment.mutate(
+          { commentId },
+          { onSuccess: () => void invalidateComments() },
+        );
+      },
+      resolveThread: async (threadId) => {
+        await resolveThread.mutateAsync({ pageId, threadId });
+        await invalidateComments();
+      },
+      unresolveThread: async (threadId) => {
+        await unresolveThread.mutateAsync({ pageId, threadId });
+        await invalidateComments();
+      },
+      isSubmitting: createComment.isPending || replyComment.isPending,
+    },
+  });
 
   const handleRef = useRef<RichDocEditorHandle | null>(null);
 
@@ -114,34 +171,44 @@ export function PageDocument({
   );
 
   return (
-    <RichDocEditor
-      initialDoc={bodyDoc}
-      initialMarkdown={body}
-      docVersion={docVersion}
-      editable={editable}
-      placeholder="Write… select text to format, or type / for blocks."
-      conflict={{
-        title: "This page changed",
-        message:
-          "Someone else saved a newer version of this page. Reload to get the latest? Unsaved changes in this tab will be lost.",
-      }}
-      onSave={async ({ doc, markdown, baseVersion }) =>
-        updatePage.mutateAsync({
-          id: pageId,
-          bodyDoc: doc,
-          body: markdown,
-          baseVersion,
-        })
-      }
-      onInitDoc={(doc) => initBodyDoc.mutate({ id: pageId, doc })}
-      uploadImage={(base64Data) =>
-        uploadImage.mutateAsync({ id: pageId, base64Data })
-      }
-      slashExtras={slashExtras}
-      onReady={(handle) => {
-        handleRef.current = handle;
-        onEditorReady?.(handle);
-      }}
-    />
+    <>
+      <RichDocEditor
+        initialDoc={bodyDoc}
+        initialMarkdown={body}
+        docVersion={docVersion}
+        editable={editable}
+        placeholder="Write… select text to format, or type / for blocks."
+        conflict={{
+          title: "This page changed",
+          message:
+            "Someone else saved a newer version of this page. Reload to get the latest? Unsaved changes in this tab will be lost.",
+        }}
+        onSave={async ({ doc, markdown, baseVersion }) =>
+          updatePage.mutateAsync({
+            id: pageId,
+            bodyDoc: doc,
+            body: markdown,
+            baseVersion,
+          })
+        }
+        onInitDoc={(doc) => initBodyDoc.mutate({ id: pageId, doc })}
+        uploadImage={(base64Data) =>
+          uploadImage.mutateAsync({ id: pageId, base64Data })
+        }
+        slashExtras={slashExtras}
+        extraExtensions={anchored.extraExtensions}
+        bubbleExtras={anchored.bubbleExtras}
+        onDocUpdate={anchored.onDocUpdate}
+        wrapperRef={anchored.wrapperRef}
+        editorClick={anchored.editorClick}
+        overlay={anchored.overlay}
+        onReady={(handle) => {
+          handleRef.current = handle;
+          anchored.handleReady(handle);
+          onEditorReady?.(handle);
+        }}
+      />
+      {anchored.panel}
+    </>
   );
 }

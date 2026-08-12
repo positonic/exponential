@@ -193,6 +193,22 @@ export const goalRouter = createTRPCRouter({
         },
       });
 
+      // Surface workspace-scoped objective creation in the activity feed. This
+      // inline create path duplicates goalService.createGoal (which carries the
+      // same event for service callers); personal objectives are silent by
+      // design. Fire-and-forget: never throws.
+      if (goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal",
+          entityId: String(goal.id),
+          action: "created",
+          metadata: { title: goal.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return goal;
     }),
@@ -290,20 +306,18 @@ export const goalRouter = createTRPCRouter({
         data: { status: input.status },
       });
 
-      // Surface goal completion as a workspace milestone. Only on the transition
-      // into "completed", and only for workspace-scoped goals. This is distinct
-      // from the per-goal update/comment feed. Fire-and-forget: never throws.
-      if (
-        input.status === "completed" &&
-        goal.status !== "completed" &&
-        goal.workspaceId
-      ) {
+      // Surface lifecycle status changes in the workspace feed — `completed`
+      // on the transition into "completed" (a milestone), `status_changed` for
+      // every other transition. Same-status writes and personal goals are
+      // silent. This is distinct from the per-goal update/comment feed.
+      // Fire-and-forget: never throws.
+      if (input.status !== goal.status && goal.workspaceId) {
         await recordActivity(ctx.db, {
           workspaceId: goal.workspaceId,
           userId: ctx.session.user.id,
           entityType: "goal",
           entityId: String(goal.id),
-          action: "completed",
+          action: input.status === "completed" ? "completed" : "status_changed",
           metadata: { title: goal.title },
         }).catch(() => {
           /* instrumentation failure is non-fatal */

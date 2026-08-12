@@ -106,6 +106,88 @@ async function resolveFeatureTarget(
 }
 
 /**
+ * Resolve a ticket's workspace (via its product) plus its title and the
+ * segments its detail URL is built from — tickets address by sequential
+ * `number`, not id (see `ticket.resolveId`).
+ */
+async function resolveTicketTarget(
+  db: PrismaClient,
+  ticketId: string,
+): Promise<{
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  productSlug: string;
+  ticketTitle: string;
+  /** URL segment for the ticket deep link: sequential number, or CUID for
+   *  legacy numberless tickets. */
+  ticketSegment: string;
+} | null> {
+  const ticket = await db.ticket.findUnique({
+    where: { id: ticketId },
+    select: {
+      title: true,
+      number: true,
+      product: {
+        select: {
+          slug: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      },
+    },
+  });
+  const ws = ticket?.product?.workspace;
+  if (!ticket || !ws) return null;
+  return {
+    workspaceId: ws.id,
+    workspaceSlug: ws.slug,
+    workspaceName: ws.name,
+    productSlug: ticket.product.slug,
+    ticketTitle: ticket.title,
+    // Legacy tickets have number 0 and are only addressable by CUID
+    // (`resolveId` accepts both), so fall back to the id for the deep link.
+    ticketSegment: ticket.number > 0 ? String(ticket.number) : ticketId,
+  };
+}
+
+/** Emit a Mention notification for a TicketComment. */
+export async function emitTicketCommentMention(
+  db: PrismaClient,
+  params: {
+    ticketId: string;
+    commentId: string;
+    commentContent: string;
+    commentAuthorId: string;
+    previousContent?: string;
+  },
+): Promise<void> {
+  try {
+    const target = await resolveTicketTarget(db, params.ticketId);
+    if (!target) return;
+
+    const subject: MentionSubject = {
+      commentId: params.commentId,
+      commentContent: params.commentContent,
+      previousContent: params.previousContent,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      workspaceName: target.workspaceName,
+      targetName: target.ticketTitle,
+      targetPath: `/w/${target.workspaceSlug}/products/${target.productSlug}/tickets/${target.ticketSegment}`,
+    };
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      actorUserId: params.commentAuthorId,
+      subject,
+      db,
+    });
+  } catch (error) {
+    console.error("[emit/mentionAdapters] ticket comment mention failed:", error);
+  }
+}
+
+/**
  * Resolve an insight's workspace (via its product) plus its title and product
  * slug — insights, like features, have no direct workspaceId.
  */
