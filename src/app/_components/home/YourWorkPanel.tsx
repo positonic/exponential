@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { Skeleton, UnstyledButton } from '@mantine/core';
-import { IconSquareRoundedCheck, IconTicket } from '@tabler/icons-react';
+import {
+  IconSquareRoundedCheck,
+  IconStack2,
+  IconTarget,
+  IconTicket,
+  IconTrendingUp,
+} from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import styles from './YourWorkPanel.module.css';
@@ -14,6 +20,13 @@ function ticketStatusLabel(status: string): string {
   if (status === 'QA') return 'QA';
   const lower = status.toLowerCase().replace(/_/g, ' ');
   return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+/** "on-track" / "at-risk" → "On track" / "At risk". */
+function healthLabel(health: string | null): string {
+  if (!health) return 'No update';
+  const words = health.replace(/-/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**
@@ -64,6 +77,12 @@ export function YourWorkPanel() {
       { enabled: !!workspaceId },
     );
 
+  // Objectives / key results / projects where I'm the DRI.
+  const { data: dri, isLoading: driLoading } = api.yourWork.driItems.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId },
+  );
+
   if (!workspaceId || !workspaceSlug) return null;
 
   const now = new Date();
@@ -88,8 +107,19 @@ export function YourWorkPanel() {
   }
 
   const openTickets = tickets ?? [];
+  const driGoals = dri?.goals ?? [];
+  const driKeyResults = dri?.keyResults ?? [];
+  const driProjects = dri?.projects ?? [];
+  const driCount = driGoals.length + driKeyResults.length + driProjects.length;
 
-  if (!isLoading && !ticketsLoading && active.length === 0 && openTickets.length === 0) {
+  if (
+    !isLoading &&
+    !ticketsLoading &&
+    !driLoading &&
+    active.length === 0 &&
+    openTickets.length === 0 &&
+    driCount === 0
+  ) {
     // Nothing assigned yet — the panel stays out of the way. The team-pulse
     // empty state (feature action 5) takes over here.
     return null;
@@ -175,6 +205,69 @@ export function YourWorkPanel() {
             ))}
           </div>
         )
+      )}
+
+      {!driLoading && driCount > 0 && (
+        <>
+          <div className={styles.sectionHeading}>You&apos;re the DRI</div>
+          {driGoals.map((goal) => (
+            <UnstyledButton
+              key={`goal-${goal.id}`}
+              component={Link}
+              href={`/w/${workspaceSlug}/goals/${goal.id}`}
+              className={styles.row}
+            >
+              <IconTarget
+                size={14}
+                stroke={1.75}
+                style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+              />
+              <span className={styles.rowLabel}>{goal.title}</span>
+              <span className={styles.rowMeta}>Objective</span>
+              <span className={styles.rowMeta}>{healthLabel(goal.health)}</span>
+            </UnstyledButton>
+          ))}
+          {driKeyResults.map((kr) => (
+            <UnstyledButton
+              key={`kr-${kr.id}`}
+              component={Link}
+              href={`/w/${workspaceSlug}/goals/${kr.goalId}`}
+              className={styles.row}
+            >
+              <IconTrendingUp
+                size={14}
+                stroke={1.75}
+                style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+              />
+              <span className={styles.rowLabel}>{kr.title}</span>
+              <span className={styles.rowMeta}>Key result</span>
+              <span className={styles.rowMeta}>
+                {healthLabel(kr.statusOverride ?? kr.status)}
+              </span>
+            </UnstyledButton>
+          ))}
+          {driProjects.map((project) => (
+            <UnstyledButton
+              key={`project-${project.id}`}
+              component={Link}
+              href={`/w/${workspaceSlug}/projects/${project.slug}`}
+              className={styles.row}
+            >
+              <IconStack2
+                size={14}
+                stroke={1.75}
+                style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+              />
+              <span className={styles.rowLabel}>{project.name}</span>
+              <span className={styles.rowMeta}>Project</span>
+              <span className={styles.rowMeta}>
+                {project.progress > 0
+                  ? `${Math.round(project.progress)}%`
+                  : 'Not started'}
+              </span>
+            </UnstyledButton>
+          ))}
+        </>
       )}
     </div>
   );

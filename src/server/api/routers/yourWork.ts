@@ -35,4 +35,55 @@ export const yourWorkRouter = createTRPCRouter({
         },
       });
     }),
+
+  /**
+   * Objectives, key results, and projects where the current user is the DRI.
+   * These fields (Goal.driUserId, KeyResult.driUserId, Project.driId) are
+   * written by the OKR/project editors but had no read path until this panel.
+   */
+  driItems: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const [goals, keyResults, projects] = await Promise.all([
+        ctx.db.goal.findMany({
+          where: {
+            driUserId: userId,
+            workspaceId: input.workspaceId,
+            status: { in: ["planned", "active"] },
+          },
+          orderBy: { id: "desc" },
+          take: 6,
+          select: { id: true, title: true, health: true },
+        }),
+        ctx.db.keyResult.findMany({
+          where: {
+            driUserId: userId,
+            workspaceId: input.workspaceId,
+            status: { not: "achieved" },
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 6,
+          select: {
+            id: true,
+            title: true,
+            goalId: true,
+            status: true,
+            statusOverride: true,
+          },
+        }),
+        ctx.db.project.findMany({
+          where: {
+            driId: userId,
+            workspaceId: input.workspaceId,
+            status: "ACTIVE",
+          },
+          orderBy: { createdAt: "desc" },
+          take: 6,
+          select: { id: true, name: true, slug: true, progress: true },
+        }),
+      ]);
+      return { goals, keyResults, projects };
+    }),
 });
