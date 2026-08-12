@@ -9,65 +9,42 @@ import {
 import { runFormDestinations } from "~/server/services/forms/runDestinations";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
 import { isTooFastSubmission } from "~/server/services/forms/timeTrap";
+import {
+  checkRateLimit,
+  clientIpFrom,
+  tooManyRequestsInit,
+} from "~/server/utils/rateLimit";
 
 /**
  * Public **Forms intake** (ADR-0029): POST /api/forms/[slug]/submit. Validates
  * against the form's field schema, stores a FormSubmission, then runs the form's
  * destinations synchronously. Unauthenticated — protected by a hidden honeypot
- * field + per-IP/per-email rate limiting (in-memory; ADR-0030 notes Upstash as
- * the real fix).
+ * field, a time trap, and per-IP/per-email rate limiting shared across
+ * instances (ADR-0030/0036: Upstash via ~/server/utils/rateLimit).
  */
 export const dynamic = "force-dynamic";
 
-type LimitMap = Map<string, { count: number; resetAt: number }>;
-const ipLimitMap: LimitMap = new Map();
-const emailLimitMap: LimitMap = new Map();
-const WINDOW_MS = 60_000;
+const WINDOW_SECONDS = 60;
 const IP_MAX = 5;
 const EMAIL_MAX = 3;
-
-function limited(map: LimitMap, key: string, max: number): boolean {
-  const now = Date.now();
-  const entry = map.get(key);
-  if (!entry || now > entry.resetAt) {
-    map.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return false;
-  }
-  entry.count++;
-  return entry.count > max;
-}
-
-if (typeof globalThis !== "undefined") {
-  const cleanup = () => {
-    const now = Date.now();
-    for (const map of [ipLimitMap, emailLimitMap]) {
-      for (const [key, entry] of map.entries()) {
-        if (now > entry.resetAt) map.delete(key);
-      }
-    }
-  };
-  setInterval(cleanup, 5 * 60_000).unref?.();
-}
-
-function clientIp(request: NextRequest): string {
-  return (
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    request.headers.get("x-real-ip") ??
-    "unknown"
-  );
-}
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
 ) {
   const { slug } = await params;
-  const ip = clientIp(request);
+  const ip = clientIpFrom(request.headers);
 
-  if (limited(ipLimitMap, ip, IP_MAX)) {
+  const ipCheck = await checkRateLimit({
+    name: "forms-ip",
+    key: ip,
+    limit: IP_MAX,
+    windowSeconds: WINDOW_SECONDS,
+  });
+  if (!ipCheck.success) {
     return NextResponse.json(
       { ok: false, error: "Too many submissions. Please try again shortly." },
-      { status: 429 },
+      tooManyRequestsInit(ipCheck),
     );
   }
 
@@ -144,11 +121,19 @@ export async function POST(
     emailField && typeof validation.clean[emailField.key] === "string"
       ? (validation.clean[emailField.key] as string)
       : null;
-  if (email && limited(emailLimitMap, email, EMAIL_MAX)) {
-    return NextResponse.json(
-      { ok: false, error: "Too many submissions for this email." },
-      { status: 429 },
-    );
+  if (email) {
+    const emailCheck = await checkRateLimit({
+      name: "forms-email",
+      key: email.toLowerCase(),
+      limit: EMAIL_MAX,
+      windowSeconds: WINDOW_SECONDS,
+    });
+    if (!emailCheck.success) {
+      return NextResponse.json(
+        { ok: false, error: "Too many submissions for this email." },
+        tooManyRequestsInit(emailCheck),
+      );
+    }
   }
 
   const submission = await db.formSubmission.create({

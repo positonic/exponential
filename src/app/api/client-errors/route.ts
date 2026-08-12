@@ -10,6 +10,7 @@ import {
   shouldFileClientError,
   type ClientErrorReport,
 } from "~/server/services/clientErrors/clientErrorBug";
+import { checkRateLimit } from "~/server/utils/rateLimit";
 
 /**
  * Files a failure the browser handled gracefully as a Bug Ticket.
@@ -43,24 +44,12 @@ const ReportSchema = z.object({
  * fingerprint — so this only bites when a single user produces many *distinct*
  * errors, which is the runaway case worth stopping.
  *
- * In-memory, so it is per server instance and resets on deploy. That is weaker
- * than it looks on serverless, and deliberately not a database round-trip on a
- * path whose whole job is to be cheap and best-effort. Dedup is the real
- * defence; this is the backstop.
+ * Shared across instances via ~/server/utils/rateLimit (Upstash), so the
+ * ceiling holds under serverless scale-out. Dedup is the real defence; this
+ * is the backstop.
  */
 const MAX_REPORTS_PER_WINDOW = 20;
-const WINDOW_MS = 60 * 60 * 1000;
-const recentByUser = new Map<string, { count: number; resetAt: number }>();
-
-function overRateLimit(userId: string, now: number): boolean {
-  const entry = recentByUser.get(userId);
-  if (!entry || now >= entry.resetAt) {
-    recentByUser.set(userId, { count: 1, resetAt: now + WINDOW_MS });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > MAX_REPORTS_PER_WINDOW;
-}
+const WINDOW_SECONDS = 60 * 60;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!process.env.CLIENT_ERROR_BUGS) {
@@ -84,8 +73,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ filed: false, reason: "not-reportable" });
   }
 
-  if (overRateLimit(session.user.id, Date.now())) {
+  const rateCheck = await checkRateLimit({
+    name: "client-errors",
+    key: session.user.id,
+    limit: MAX_REPORTS_PER_WINDOW,
+    windowSeconds: WINDOW_SECONDS,
+  });
+  if (!rateCheck.success) {
     console.warn(`[client-errors] rate limit hit for user ${session.user.id}`);
+    // Deliberately 200: the reporter is fire-and-forget and must not care.
     return NextResponse.json({ filed: false, reason: "rate-limited" });
   }
 

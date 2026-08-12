@@ -10,6 +10,7 @@ interface CoreMessage {
 }
 import { auth } from "~/server/auth";
 import { generateAgentJWT } from "~/server/utils/jwt";
+import { checkRateLimit, clientIpFrom } from "~/server/utils/rateLimit";
 import { db } from "~/server/db";
 import { getDecryptedKey } from "~/server/utils/credentialHelper";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
@@ -36,6 +37,11 @@ const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
 // Extend Vercel function timeout for streaming AI responses (default is 10s hobby / 60s pro)
 export const maxDuration = 300;
+
+// Chat rate limits (see the block in POST for the spend rationale).
+const CHAT_BURST_LIMIT = 20; // per user per minute
+const CHAT_DAILY_LIMIT = 500; // per user per day
+const CHAT_IP_BURST_LIMIT = 60; // per IP per minute — several users can share an office IP
 
 /**
  * Resolve a Slack channel name (e.g., "#commons-lab-exec") to its channel ID (e.g., "C08XXXXXX")
@@ -96,6 +102,53 @@ export async function POST(req: Request) {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // Rate limits on the LLM-spend path (this route had none — a single
+    // caller could run up the model bill without ceiling). Three layers,
+    // cheapest proxy for spend we have without a billing store:
+    //  - per-user burst:  CHAT_BURST_LIMIT msgs / minute
+    //  - per-user daily:  CHAT_DAILY_LIMIT msgs / day — with the per-request
+    //    cost ceiling alerted on in computeRequestCost, this bounds one
+    //    user's worst-case daily spend at CHAT_DAILY_LIMIT × that ceiling.
+    //  - per-IP burst: same as user burst but keyed by IP, so a farm of
+    //    sessions behind one address is still capped.
+    const ip = clientIpFrom(req.headers);
+    const [userBurst, userDaily, ipBurst] = await Promise.all([
+      checkRateLimit({
+        name: "chat-user",
+        key: session.user.id,
+        limit: CHAT_BURST_LIMIT,
+        windowSeconds: 60,
+      }),
+      checkRateLimit({
+        name: "chat-user-daily",
+        key: session.user.id,
+        limit: CHAT_DAILY_LIMIT,
+        windowSeconds: 24 * 60 * 60,
+      }),
+      checkRateLimit({
+        name: "chat-ip",
+        key: ip,
+        limit: CHAT_IP_BURST_LIMIT,
+        windowSeconds: 60,
+      }),
+    ]);
+    const blocked = [userBurst, userDaily, ipBurst].find((r) => !r.success);
+    if (blocked) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "You've hit the chat rate limit. Please wait a moment and try again.",
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(blocked.retryAfterSeconds || 60),
+          },
+        },
+      );
     }
 
     const { messages, agentId: rawAgentId, assistantId, workspaceId, projectId, conversationId, platform: rawPlatform } = (await req.json()) as {
