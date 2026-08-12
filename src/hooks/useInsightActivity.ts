@@ -92,23 +92,23 @@ export function useInsightActivity(insightId: string): UseActivityReturn {
         createdAt: new Date(e.createdAt),
         actorName: e.user?.name ?? "Someone",
       };
-      if (
-        e.action === "status_changed" &&
-        typeof meta.from === "string" &&
-        typeof meta.to === "string"
-      ) {
-        return [
-          {
-            ...base,
-            text: "changed status",
-            statusChange: {
-              fromLabel: STATUS_LABELS[meta.from] ?? meta.from,
-              fromColor: STATUS_COLORS[meta.from] ?? "gray",
-              toLabel: STATUS_LABELS[meta.to] ?? meta.to,
-              toColor: STATUS_COLORS[meta.to] ?? "gray",
+      if (e.action === "status_changed") {
+        if (typeof meta.from === "string" && typeof meta.to === "string") {
+          return [
+            {
+              ...base,
+              text: "changed status",
+              statusChange: {
+                fromLabel: STATUS_LABELS[meta.from] ?? meta.from,
+                fromColor: STATUS_COLORS[meta.from] ?? "gray",
+                toLabel: STATUS_LABELS[meta.to] ?? meta.to,
+                toColor: STATUS_COLORS[meta.to] ?? "gray",
+              },
             },
-          },
-        ];
+          ];
+        }
+        // Malformed from/to (e.g. a null legacy status): still show the row.
+        return [{ ...base, text: "changed status" }];
       }
       const text = describeUpdate(meta);
       return text ? [{ ...base, text }] : [];
