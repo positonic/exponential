@@ -399,14 +399,19 @@ export default function InsightDetailPage() {
             </div>
           )}
 
-          {/* Activity - the app-wide feed + composer */}
+          {/* Activity - the app-wide feed + composer, same block as the
+              ticket detail page */}
           <CollapsibleSection
             title="Activity"
             action={
               <ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />
             }
           >
-            <ActivityTimeline activity={activity} filter={activityFilter} />
+            {/* Keyed on the insight: navigating between insights re-renders
+                this page without unmounting it, and the composer's draft
+                state lives inside ActivityTimeline — without the key a
+                half-typed comment would follow you to the next insight. */}
+            <ActivityTimeline key={insight.id} activity={activity} filter={activityFilter} />
           </CollapsibleSection>
         </Stack>
       </div>
