@@ -34,6 +34,20 @@ export class MatrixApiError extends Error {
   }
 }
 
+/**
+ * Refusal to post into an encrypted room. Its own type because it is not a homeserver
+ * failure at all — nothing was sent, and no retry or reconfiguration will help until
+ * ADR-0043's E2EE retrofit.
+ */
+export class MatrixEncryptedRoomError extends Error {
+  constructor(readonly roomId: string) {
+    super(
+      "That room is encrypted, and the bot has no encryption keys, so it cannot post there.",
+    );
+    this.name = "MatrixEncryptedRoomError";
+  }
+}
+
 interface MatrixErrorBody {
   errcode?: string;
   error?: string;
@@ -221,6 +235,44 @@ export class MatrixClient {
         isEncrypted: events.some((event) => event.type === "m.room.encryption"),
       };
     });
+  }
+
+  /**
+   * Send a formatted message into a room.
+   *
+   * Refuses encrypted rooms *before* the network call, even though the picker already
+   * filters them. Belt and braces on purpose: the homeserver would accept the plaintext
+   * event and every client would render it as undecryptable, so a post that "succeeded"
+   * would be invisible. A room can also become encrypted between listing and sending.
+   *
+   * `txnId` must be derived from the post's identity, not from a clock or a random
+   * value: Matrix deduplicates on it, so a retried request with the same txnId is the
+   * same message rather than a second copy. There is no un-send to clean up after.
+   */
+  async send(
+    roomId: string,
+    { html, text, txnId }: { html: string; text: string; txnId: string },
+  ): Promise<{ eventId: string }> {
+    const encryption = await this.roomState<{ algorithm?: string }>(
+      roomId,
+      "m.room.encryption",
+    );
+    if (encryption !== null) {
+      throw new MatrixEncryptedRoomError(roomId);
+    }
+
+    const body = await this.request<{ event_id?: string }>(
+      "PUT",
+      `/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${encodeURIComponent(txnId)}`,
+      {
+        msgtype: "m.text",
+        body: text,
+        format: "org.matrix.custom.html",
+        formatted_body: html,
+      },
+    );
+
+    return { eventId: body.event_id ?? "" };
   }
 
   /** Accept an invite (or join a public room) by id or alias. */

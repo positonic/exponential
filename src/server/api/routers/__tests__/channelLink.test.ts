@@ -69,6 +69,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { resolveChannelLink } from "~/server/services/channelLinkService";
 
 const WORKSPACE_ID = "ws-1";
 const USER_ID = "user-1";
@@ -218,6 +219,59 @@ describe("channelLink router (mocked)", () => {
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
       expect(dbMock.channelLink.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * ChannelLink now carries outbound routing rows too (which room a project's meeting
+   * summaries go to). The inbound resolver must not see them: it answers the opposite
+   * question, and treating an outbound row as inbound would attribute an incoming
+   * message to a binding that was never about receiving.
+   */
+  describe("direction", () => {
+    it("resolves an existing WhatsApp row, which defaults to inbound", async () => {
+      dbMock.channelLink.findUnique.mockResolvedValue({
+        id: "cl-1",
+        provider: PROVIDER,
+        externalId: EXTERNAL_ID,
+        workspaceId: WORKSPACE_ID,
+        isActive: true,
+        direction: "inbound",
+      } as never);
+
+      await expect(
+        resolveChannelLink(dbMock, PROVIDER, EXTERNAL_ID),
+      ).resolves.toMatchObject({ id: "cl-1" });
+    });
+
+    it("is blind to an outbound row", async () => {
+      dbMock.channelLink.findUnique.mockResolvedValue({
+        id: "cl-outbound",
+        provider: "matrix",
+        externalId: "!room:example.org",
+        workspaceId: WORKSPACE_ID,
+        isActive: true,
+        direction: "outbound",
+      } as never);
+
+      await expect(
+        resolveChannelLink(dbMock, "matrix", "!room:example.org"),
+      ).resolves.toBeNull();
+    });
+
+    it("still drops an inactive inbound row", async () => {
+      dbMock.channelLink.findUnique.mockResolvedValue({
+        id: "cl-1",
+        provider: PROVIDER,
+        externalId: EXTERNAL_ID,
+        workspaceId: WORKSPACE_ID,
+        isActive: false,
+        direction: "inbound",
+      } as never);
+
+      await expect(
+        resolveChannelLink(dbMock, PROVIDER, EXTERNAL_ID),
+      ).resolves.toBeNull();
     });
   });
 });

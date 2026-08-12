@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
+  humanOnlyProcedure,
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
@@ -15,6 +16,7 @@ import {
   normalizeFeatureName,
 } from "~/server/services/FeatureExtractionService";
 import { TICKET_TYPES } from "~/lib/ticket-types";
+import { postMeetingSummaryToMatrix } from "~/server/services/matrix/postMeetingSummary";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadProductWithAccess } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
@@ -2742,5 +2744,47 @@ export const transcriptionRouter = createTRPCRouter({
         logs,
         nextCursor,
       };
+    }),
+
+  /**
+   * Post a meeting's summary into a Matrix room.
+   *
+   * Always an explicit human action — never wired to an event. Matrix has no un-send,
+   * and `bulkAssignProject` would otherwise turn one click into forty room messages.
+   *
+   * All the judgement lives in `postMeetingSummaryToMatrix`; this only translates the
+   * result into something the client can render. Expected outcomes (no destination,
+   * blocked off, needs confirmation) come back as data rather than errors, because the
+   * UI shows each of them differently.
+   */
+  postToMatrix: humanOnlyProcedure
+    .input(
+      z.object({
+        meetingId: z.string(),
+        roomId: z.string().optional(),
+        serverId: z.string().optional(),
+        confirmRepost: z.boolean().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const result = await postMeetingSummaryToMatrix(ctx.db, {
+        meetingId: input.meetingId,
+        ...(input.roomId ? { roomId: input.roomId } : {}),
+        ...(input.serverId ? { serverId: input.serverId } : {}),
+        ...(input.confirmRepost ? { confirmRepost: input.confirmRepost } : {}),
+        actorUserId: ctx.session.user.id,
+      });
+
+      if (result.kind === "not-found") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Meeting not found." });
+      }
+      if (result.kind === "no-access") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this meeting.",
+        });
+      }
+
+      return result;
     }),
 });

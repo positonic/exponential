@@ -20,6 +20,8 @@ interface MeetingHeaderProps {
   workspaceName: string | null;
   backHref: string;
   onShare: () => void;
+  /** Extra actions rendered beside Share, e.g. posting the summary to a chat room. */
+  extraActions?: React.ReactNode;
 }
 
 export function MeetingHeader({
@@ -33,6 +35,7 @@ export function MeetingHeader({
   workspaceName,
   backHref,
   onShare,
+  extraActions,
 }: MeetingHeaderProps) {
   return (
     <header className="mp-head">
@@ -99,6 +102,7 @@ export function MeetingHeader({
           <button className="mp-btn" onClick={onShare}>
             <IconShare size={14} /> Share
           </button>
+          {extraActions}
         </div>
       </div>
     </header>
