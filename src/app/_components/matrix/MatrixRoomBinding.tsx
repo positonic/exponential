@@ -153,12 +153,14 @@ export function MatrixRoomBinding({
         onClose={closePicker}
         title={projectId ? "Choose this project's room" : "Choose the default room"}
         size="lg"
+        transitionProps={{ duration: 0 }}
       >
         <Stack gap="md">
           {serverId && (
             <MatrixRoomPicker
               workspaceId={workspaceId}
               serverId={serverId}
+              projectId={projectId}
               selectedRoomId={chosen?.roomId ?? binding?.room?.roomId ?? null}
               onSelect={setChosen}
             />

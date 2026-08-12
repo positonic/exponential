@@ -275,6 +275,44 @@ export class MatrixClient {
     return { eventId: body.event_id ?? "" };
   }
 
+  /**
+   * Create a private room that is deliberately NOT encrypted.
+   *
+   * The omission is the entire point. Element turns on encryption for new private rooms
+   * by default, and encryption is irreversible — there is no un-encrypting a room — so a
+   * workspace that has only ever made rooms through a client ends up with a picker of
+   * nothing but greyed-out rows. This is the escape hatch, and it works precisely
+   * because `initial_state` carries no `m.room.encryption` event.
+   *
+   * `preset: private_chat` keeps the room invite-only; the bot is the creator and so is
+   * already joined.
+   */
+  async createRoom({
+    name,
+    invite = [],
+    topic,
+  }: {
+    name: string;
+    invite?: readonly string[];
+    topic?: string;
+  }): Promise<{ roomId: string }> {
+    const body = await this.request<{ room_id?: string }>("POST", "/createRoom", {
+      name,
+      ...(topic ? { topic } : {}),
+      preset: "private_chat",
+      invite: [...invite],
+      // Explicitly empty. Adding an m.room.encryption event here would permanently make
+      // the room unreachable to this bot, which is the problem this method exists to
+      // solve.
+      initial_state: [],
+    });
+
+    if (!body.room_id) {
+      throw new MatrixApiError("The homeserver created no room.", 502);
+    }
+    return { roomId: body.room_id };
+  }
+
   /** Accept an invite (or join a public room) by id or alias. */
   async join(roomIdOrAlias: string): Promise<{ roomId: string }> {
     const body = await this.request<{ room_id?: string }>(

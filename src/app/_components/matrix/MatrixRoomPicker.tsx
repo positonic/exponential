@@ -1,6 +1,17 @@
 "use client";
 
-import { Alert, Button, Loader, Radio, Stack, Text } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Divider,
+  Group,
+  Loader,
+  MultiSelect,
+  Radio,
+  Stack,
+  Text,
+  TextInput,
+} from "@mantine/core";
 import { IconAlertTriangle } from "@tabler/icons-react";
 import { useState } from "react";
 import { api } from "~/trpc/react";
@@ -16,6 +27,10 @@ interface MatrixRoomPickerProps {
   serverId: string;
   selectedRoomId?: string | null;
   onSelect?: (room: MatrixRoomChoice) => void;
+  /** Where a newly created room gets bound. Null binds the workspace default. */
+  projectId?: string | null;
+  /** Hide the create affordance where creating-and-binding would be the wrong verb. */
+  canCreateRooms?: boolean;
 }
 
 /**
@@ -87,8 +102,13 @@ export function MatrixRoomPicker({
   serverId,
   selectedRoomId,
   onSelect,
+  projectId = null,
+  canCreateRooms = true,
 }: MatrixRoomPickerProps) {
   const [acceptingRoomId, setAcceptingRoomId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
+  const [inviteMxids, setInviteMxids] = useState<string[]>([]);
   const utils = api.useUtils();
   const roomsQuery = api.matrixServer.rooms.useQuery({ workspaceId, serverId });
 
@@ -98,6 +118,22 @@ export function MatrixRoomPicker({
       // before it can be offered as a destination.
       void utils.matrixServer.rooms.invalidate({ workspaceId, serverId });
       onSelect?.(room);
+    },
+  });
+
+  const membersQuery = api.matrixRoom.invitableMembers.useQuery(
+    { workspaceId },
+    { enabled: creating },
+  );
+
+  const createRoom = api.matrixRoom.createRoom.useMutation({
+    onSuccess: (room) => {
+      void utils.matrixServer.rooms.invalidate({ workspaceId, serverId });
+      setCreating(false);
+      setNewRoomName("");
+      setInviteMxids([]);
+      // Created rooms are unencrypted by construction, so this is immediately usable.
+      onSelect?.({ roomId: room.roomId, name: room.name, isEncrypted: false });
     },
   });
 
@@ -123,17 +159,17 @@ export function MatrixRoomPicker({
   const joined = roomsQuery.data?.joined ?? [];
   const invited = roomsQuery.data?.invited ?? [];
 
-  if (joined.length === 0 && invited.length === 0) {
-    return (
-      <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}>
-        This bot has not joined any rooms yet, and has no pending invites. Invite it
-        to a room from your Matrix client, then check back.
-      </Alert>
-    );
-  }
+  const hasNoRooms = joined.length === 0 && invited.length === 0;
 
   return (
     <Stack gap="md">
+      {hasNoRooms && (
+        <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}>
+          This bot has not joined any rooms yet, and has no pending invites. Invite it
+          to a room from your Matrix client, or create one below.
+        </Alert>
+      )}
+
       {joined.length > 0 && (
         <Stack gap={4}>
           {joined.map((room) => (
@@ -207,6 +243,77 @@ export function MatrixRoomPicker({
             </Alert>
           )}
         </Stack>
+      )}
+
+      <Divider />
+
+      {creating ? (
+        <Stack gap="xs">
+          <Text size="xs" fw={600} className="text-text-secondary">
+            New room
+          </Text>
+          <Text size="xs" className="text-text-muted">
+            Created without encryption, so the bot can post to it. Encryption cannot be
+            turned off later, which is why an existing encrypted room cannot be reused.
+          </Text>
+          <TextInput
+            label="Room name"
+            placeholder="Project updates"
+            value={newRoomName}
+            onChange={(event) => setNewRoomName(event.currentTarget.value)}
+          />
+          <MultiSelect
+            label="Invite"
+            placeholder={
+              (membersQuery.data ?? []).length === 0
+                ? "No workspace members have paired Matrix yet"
+                : "Choose people to invite"
+            }
+            description="Only workspace members who have paired their Matrix account can be invited."
+            data={(membersQuery.data ?? []).map((member) => ({
+              value: member.mxid,
+              label: `${member.name} (${member.mxid})`,
+            }))}
+            value={inviteMxids}
+            onChange={setInviteMxids}
+            searchable
+            disabled={(membersQuery.data ?? []).length === 0}
+          />
+
+          {createRoom.error && (
+            <Alert color="red" variant="light">
+              {createRoom.error.message}
+            </Alert>
+          )}
+
+          <Group gap="xs">
+            <Button
+              size="xs"
+              loading={createRoom.isPending}
+              disabled={!newRoomName.trim()}
+              onClick={() =>
+                createRoom.mutate({
+                  workspaceId,
+                  projectId,
+                  serverId,
+                  name: newRoomName.trim(),
+                  inviteMxids,
+                })
+              }
+            >
+              Create and bind
+            </Button>
+            <Button size="xs" variant="subtle" onClick={() => setCreating(false)}>
+              Cancel
+            </Button>
+          </Group>
+        </Stack>
+      ) : (
+        canCreateRooms && (
+          <Button size="xs" variant="subtle" onClick={() => setCreating(true)}>
+            Create an unencrypted room
+          </Button>
+        )
       )}
     </Stack>
   );

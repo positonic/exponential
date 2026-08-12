@@ -373,3 +373,106 @@ describe("matrixRoom.getBinding", () => {
     ).rejects.toThrow(/not a member of this workspace/);
   });
 });
+
+describe("matrixRoom.createRoom", () => {
+  const OK = (body: unknown) =>
+    ({ ok: true, status: 200, json: async () => body }) as unknown as Response;
+  const ERR = (status: number, body: unknown = {}) =>
+    ({ ok: false, status, json: async () => body }) as unknown as Response;
+
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    asWorkspaceRole("member");
+    asProjectOwner();
+    dbMock.integration.findFirst.mockResolvedValue({
+      id: SERVER,
+      providerConfig: {
+        homeserverUrl: "http://localhost:8448",
+        botUserId: "@bot:stub.local",
+      },
+    } as never);
+    dbMock.integrationCredential.findMany.mockResolvedValue([
+      { key: "syt_tok", keyType: "matrix_access_token", isEncrypted: false },
+    ] as never);
+  });
+
+  it("creates the room, then binds it", async () => {
+    fetchMock.mockResolvedValue(OK({ room_id: "!fresh:stub.local" }));
+    dbMock.channelLink.create.mockResolvedValue({
+      id: "link-new",
+      externalId: "!fresh:stub.local",
+    } as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.createRoom({
+        workspaceId: WORKSPACE,
+        projectId: PROJECT,
+        serverId: SERVER,
+        name: "Project updates",
+        inviteMxids: ["@a:stub.local"],
+      }),
+    ).resolves.toMatchObject({ roomId: "!fresh:stub.local", name: "Project updates" });
+
+    const created = dbMock.channelLink.create.mock.calls[0]![0] as {
+      data: Record<string, unknown>;
+    };
+    expect(created.data).toMatchObject({
+      externalId: "!fresh:stub.local",
+      projectId: PROJECT,
+      isActive: true,
+      direction: "outbound",
+    });
+  });
+
+  it("leaves NO binding behind when the homeserver refuses to create the room", async () => {
+    fetchMock.mockResolvedValue(ERR(403, { errcode: "M_FORBIDDEN" }));
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.createRoom({
+        workspaceId: WORKSPACE,
+        projectId: PROJECT,
+        serverId: SERVER,
+        name: "Project updates",
+      }),
+    ).rejects.toThrow(/could not create the room/i);
+
+    // The whole reason creation precedes binding: a project must never end up pointing
+    // at a room that does not exist.
+    expect(dbMock.channelLink.create).not.toHaveBeenCalled();
+  });
+
+  it("leaves no binding behind when the homeserver is unreachable", async () => {
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.createRoom({
+        workspaceId: WORKSPACE,
+        projectId: PROJECT,
+        serverId: SERVER,
+        name: "Project updates",
+      }),
+    ).rejects.toThrow(/could not create the room/i);
+    expect(dbMock.channelLink.create).not.toHaveBeenCalled();
+  });
+
+  it("requires owner/admin to create a room as the workspace default", async () => {
+    asWorkspaceRole("member");
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.createRoom({
+        workspaceId: WORKSPACE,
+        projectId: null,
+        serverId: SERVER,
+        name: "Everything",
+      }),
+    ).rejects.toThrow(/requires the owner or admin role/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

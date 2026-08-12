@@ -163,6 +163,7 @@ export function MatrixServerSettings({
         onClose={handleClose}
         title="Register a Matrix server"
         size="lg"
+        transitionProps={{ duration: 0 }}
       >
         <Stack gap="md">
           <Text size="sm" className="text-text-muted">
@@ -238,6 +239,7 @@ export function MatrixServerSettings({
         onClose={() => setBrowsingServerId(null)}
         title="Rooms this bot can reach"
         size="lg"
+        transitionProps={{ duration: 0 }}
       >
         <Stack gap="md">
           <Text size="sm" className="text-text-muted">
@@ -248,6 +250,7 @@ export function MatrixServerSettings({
             <MatrixRoomPicker
               workspaceId={workspace.id}
               serverId={browsingServerId}
+              canCreateRooms={false}
             />
           )}
         </Stack>
