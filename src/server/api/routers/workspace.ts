@@ -36,6 +36,7 @@ import {
   DigestRateLimitError,
 } from "~/server/services/activity/weeklyWorkDigest/digest";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import {
   getOrGenerateWeeklyNarrative,
   NarrativeRateLimitError,
@@ -663,6 +664,13 @@ export const workspaceRouter = createTRPCRouter({
                 "[workspace.addMember] Failed to send member-added email:",
                 err,
               );
+              reportHandledErrorServer(err, {
+                area: "workspace-member-added-email",
+                context: {
+                  workspaceId: input.workspaceId,
+                  recipientEmail: newMember.user.email ?? "",
+                },
+              });
             });
           }
         }
@@ -744,6 +752,10 @@ export const workspaceRouter = createTRPCRouter({
           inviteUrl,
         }).catch((err: unknown) => {
           console.error("[workspace.addMember] Failed to send invitation email:", err);
+          reportHandledErrorServer(err, {
+            area: "workspace-invitation-email",
+            context: { workspaceId: input.workspaceId, recipientEmail: input.email },
+          });
         });
 
         return {
@@ -1162,6 +1174,13 @@ export const workspaceRouter = createTRPCRouter({
         inviteUrl,
       }).catch((err: unknown) => {
         console.error("[workspace.resendInvitation] Failed to send invitation email:", err);
+        reportHandledErrorServer(err, {
+          area: "workspace-invitation-email",
+          context: {
+            workspaceId: invitation.workspaceId,
+            recipientEmail: invitation.email,
+          },
+        });
       });
 
       return {
@@ -1321,6 +1340,20 @@ export const workspaceRouter = createTRPCRouter({
 
       const { members, _count, ...workspaceRest } = invitation.workspace;
 
+      // Whether the logged-in viewer already belongs to the workspace — e.g.
+      // an invitee whose invitation was auto-accepted during signup.
+      const isMember = ctx.session?.user?.id
+        ? (await ctx.db.workspaceUser.findUnique({
+            where: {
+              userId_workspaceId: {
+                userId: ctx.session.user.id,
+                workspaceId: invitation.workspaceId,
+              },
+            },
+            select: { userId: true },
+          })) !== null
+        : false;
+
       return {
         ...invitation,
         workspace: {
@@ -1331,6 +1364,7 @@ export const workspaceRouter = createTRPCRouter({
         isExpired: invitation.expiresAt < new Date(),
         isLoggedIn: !!ctx.session?.user,
         isForCurrentUser: invitation.email === ctx.session?.user?.email,
+        isMember,
       };
     }),
 

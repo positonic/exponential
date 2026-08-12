@@ -124,7 +124,7 @@ export const COPY = {
     sub: "As you complete setup, this diagram lights up — watch the left sidebar too.",
   },
   exploreReply:
-    "Totally fine. I'll keep your setup progress up top — flip to the Checklist view whenever you're ready, or just ask me anything down here.",
+    "Totally fine — dropping you into your workspace to look around. I'm always in the corner if you need a hand.",
   freeTextFallback:
     "Let's get you set up first — it only takes a minute, then Zoe can help with anything. Want to continue?",
   railSub: {

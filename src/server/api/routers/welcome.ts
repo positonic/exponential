@@ -56,8 +56,17 @@ async function saveSetupState(
   return state;
 }
 
-/** Objects created during setup land in the user's default (usually personal) workspace. */
-async function resolveWorkspaceId(
+/**
+ * Objects created during setup land in the user's PERSONAL workspace. The
+ * default workspace is used only when it is itself personal: for an invited
+ * user the default is the shared team workspace (invite auto-accept overrides
+ * it at signup), and a throwaway onboarding goal like "Get fit" must never be
+ * visible to the rest of the team.
+ *
+ * Exported for tests — this is the enforcement point for the "onboarding
+ * artifacts never land in a shared workspace" acceptance criterion.
+ */
+export async function resolveWorkspaceId(
   db: PrismaClient,
   userId: string,
 ): Promise<string | null> {
@@ -65,8 +74,30 @@ async function resolveWorkspaceId(
     where: { id: userId },
     select: { defaultWorkspaceId: true },
   });
-  if (user?.defaultWorkspaceId) return user.defaultWorkspaceId;
+  const defaultWorkspace = user?.defaultWorkspaceId
+    ? await db.workspace.findUnique({
+        where: { id: user.defaultWorkspaceId },
+        select: { id: true, type: true, ownerId: true },
+      })
+    : null;
+  // Ownership matters, not just type: a user can be invited into someone
+  // ELSE's personal workspace (addMember has no type gate), and auto-accept
+  // makes that their default — their onboarding goal must not land there.
+  if (defaultWorkspace?.type === "personal" && defaultWorkspace.ownerId === userId) {
+    return defaultWorkspace.id;
+  }
 
+  // Default is shared (team/organization) or unset — use the personal
+  // workspace the user owns (auto-created at signup).
+  const personal = await db.workspace.findFirst({
+    where: { ownerId: userId, type: "personal" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (personal) return personal.id;
+
+  // No personal workspace exists — keep the previous resolution order.
+  if (defaultWorkspace) return defaultWorkspace.id;
   const membership = await db.workspaceUser.findFirst({
     where: { userId },
     orderBy: { joinedAt: "asc" },

@@ -21,7 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useParams, useRouter } from "next/navigation";
 import { signIn, signOut } from "next-auth/react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import {
@@ -68,7 +68,25 @@ export default function InviteAcceptPage() {
     },
   });
 
-  if (isLoading) {
+  // Invite signups are auto-accepted during user creation, so the invitee
+  // returns here to an already-used invitation. That's success, not an error —
+  // send them straight into the workspace instead of dead-ending. Gated on
+  // actual membership (not isForCurrentUser): an invitee who was later
+  // removed from the workspace would only bounce off the access gate.
+  const shouldAutoRedirect =
+    !!invitation &&
+    invitation.status === "accepted" &&
+    invitation.isLoggedIn &&
+    invitation.isMember;
+  const workspaceSlug = invitation?.workspace.slug;
+
+  useEffect(() => {
+    if (shouldAutoRedirect && workspaceSlug) {
+      router.replace(`/w/${workspaceSlug}`);
+    }
+  }, [shouldAutoRedirect, workspaceSlug, router]);
+
+  if (isLoading || shouldAutoRedirect) {
     return (
       <Container size="sm" className="py-16">
         <Card className="bg-surface-secondary border-border-primary" withBorder>

@@ -191,7 +191,9 @@ export function WelcomeChatView({ setup }: { setup: WelcomeSetupApi }) {
   const explore = useCallback(() => {
     setActive(null);
     push("user", COPY.chips.explore);
-    void say(<span>{COPY.exploreReply}</span>, 800);
+    void say(<span>{COPY.exploreReply}</span>, 800).then(() =>
+      setupRef.current.exploreOnOwn(),
+    );
   }, [push, say]);
 
   // Scripted opening — waits for setup state so returning users resume.
