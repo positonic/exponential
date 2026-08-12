@@ -56,42 +56,43 @@ export async function getProjectAccess(
   const isPublic = project.isPublic;
   const isRestricted = project.isRestricted;
 
-  // Check direct project membership
-  const projectMember = await db.projectMember.findFirst({
-    where: { projectId, userId },
-    select: { role: true },
-  });
+  // The three membership paths are independent of each other, so they go out
+  // together. Awaiting them in sequence put three DB round trips on the
+  // critical path of every action mutation *and* every project query — the
+  // dominant server-side cost of a reschedule on the project page.
+  const [projectMember, teamMembership, wsMembership] = await Promise.all([
+    // Direct project membership
+    db.projectMember.findFirst({
+      where: { projectId, userId },
+      select: { role: true },
+    }),
+    // Team membership (if project has a team)
+    project.teamId
+      ? db.teamUser.findUnique({
+          where: { userId_teamId: { userId, teamId: project.teamId } },
+          select: { role: true },
+        })
+      : null,
+    // Workspace membership (if project has a workspace). getWorkspaceMembership
+    // checks both direct WorkspaceUser and team-based access (user in a team
+    // linked to the workspace).
+    project.workspaceId
+      ? getWorkspaceMembership(db, userId, project.workspaceId)
+      : null,
+  ]);
+
   const isMember = !!projectMember;
   const memberRole = projectMember
     ? (projectMember.role as ProjectMemberRole)
     : undefined;
 
-  // Check team membership (if project has a team)
-  let isTeamMember = false;
-  let teamRole: TeamRole | undefined;
-  if (project.teamId) {
-    const teamMembership = await db.teamUser.findUnique({
-      where: { userId_teamId: { userId, teamId: project.teamId } },
-      select: { role: true },
-    });
-    if (teamMembership) {
-      isTeamMember = true;
-      teamRole = teamMembership.role as TeamRole;
-    }
-  }
+  const isTeamMember = !!teamMembership;
+  const teamRole = teamMembership
+    ? (teamMembership.role as TeamRole)
+    : undefined;
 
-  // Check workspace membership (if project has a workspace)
-  // Uses getWorkspaceMembership which checks both direct WorkspaceUser
-  // and team-based access (user in a team linked to the workspace)
-  let isWorkspaceMember = false;
-  let workspaceRole: WorkspaceRole | undefined;
-  if (project.workspaceId) {
-    const wsMembership = await getWorkspaceMembership(db, userId, project.workspaceId);
-    if (wsMembership) {
-      isWorkspaceMember = true;
-      workspaceRole = wsMembership.role;
-    }
-  }
+  const isWorkspaceMember = !!wsMembership;
+  const workspaceRole: WorkspaceRole | undefined = wsMembership?.role;
 
   return {
     isCreator,

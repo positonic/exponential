@@ -14,7 +14,15 @@ import type { FilterBarConfig, FilterMember } from "~/types/filter";
 import { filtersToSearchParams, filtersFromSearchParams } from "~/lib/filters/url";
 import tasksStyles from "./ProjectTasks.module.css";
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import {
+  cancelActionQueries,
+  patchActionCaches,
+  restoreActionCaches,
+  type ActionCacheSnapshot,
+} from "~/lib/actions/optimisticCache";
 import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
@@ -26,6 +34,17 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
 import type { FilterState } from "~/types/filter";
+
+/**
+ * Every cached list an action can appear in. Path-only keys, so each one
+ * matches all input variants (every project id, every assignee filter).
+ * `getProjectActions` is the one the project page's Tasks tab reads.
+ */
+const ACTION_LIST_KEYS = [
+  getQueryKey(api.action.getAll),
+  getQueryKey(api.action.getToday),
+  getQueryKey(api.action.getProjectActions),
+];
 
 const ACTION_FILTER_CONFIG: FilterBarConfig = {
   fields: [
@@ -104,6 +123,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   const [internalSearch, setInternalSearch] = useState("");
   const [internalFilters, setInternalFilters] = useState<FilterState>({});
   const utils = api.useUtils();
+  const queryClient = useQueryClient();
   const { actionIdFromUrl, setActionId, clearActionId } = useActionDeepLink();
   const detailedEnabled = useDetailedActionsEnabled(projectId);
   const { workspace } = useWorkspace();
@@ -408,33 +428,20 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   };
 
   // Bulk update mutation for rescheduling
-  const bulkUpdateMutation = api.action.update.useMutation({
+  const bulkUpdateMutation = api.action.update.useMutation<ActionCacheSnapshot>({
     onMutate: async ({ id, dueDate }) => {
       // Cancel any outgoing refetches
-      await utils.action.getAll.cancel();
+      await cancelActionQueries(queryClient, ACTION_LIST_KEYS);
 
-      // Get current data
-      const previousData = utils.action.getAll.getData();
-
-      // Optimistically update the cache
-      if (previousData) {
-        utils.action.getAll.setData(undefined, (old) => {
-          if (!old) return [];
-          return old.map((action) =>
-            action.id === id
-              ? { ...action, dueDate: dueDate ?? null }
-              : action
-          );
-        });
-      }
-
-      return { previousData, actionId: id };
+      // Optimistically update every cached list this action appears in —
+      // including getProjectActions, which backs the project page.
+      return patchActionCaches(queryClient, ACTION_LIST_KEYS, (action) =>
+        action.id === id ? { ...action, dueDate: dueDate ?? null } : action,
+      );
     },
-    onError: (err, variables, context) => {
+    onError: (err, variables, snapshot) => {
       // Rollback on error
-      if (context?.previousData) {
-        utils.action.getAll.setData(undefined, context.previousData);
-      }
+      if (snapshot) restoreActionCaches(queryClient, snapshot);
 
       notifications.show({
         title: 'Update Failed',
@@ -452,33 +459,24 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   });
 
   // Bulk reschedule mutation - single API call for multiple actions
-  const bulkRescheduleMutation = api.action.bulkReschedule.useMutation({
+  const bulkRescheduleMutation = api.action.bulkReschedule.useMutation<ActionCacheSnapshot>({
     onMutate: async ({ actionIds, dueDate }) => {
-      await utils.action.getAll.cancel();
-      const previousData = utils.action.getAll.getData();
+      await cancelActionQueries(queryClient, ACTION_LIST_KEYS);
+      const targeted = new Set(actionIds);
 
       // Optimistically update ALL selected actions at once (scheduledStart + dueDate)
-      if (previousData) {
-        utils.action.getAll.setData(undefined, (old) => {
-          if (!old) return [];
-          return old.map((action) => {
-            if (!actionIds.includes(action.id)) return action;
-            const newScheduledStart = dueDate ?? null;
-            // Update dueDate only if it's before the new date or null
-            const newDueDate = dueDate
-              ? (!action.dueDate || action.dueDate < dueDate ? dueDate : action.dueDate)
-              : null;
-            return { ...action, scheduledStart: newScheduledStart, dueDate: newDueDate };
-          });
-        });
-      }
-
-      return { previousData };
+      return patchActionCaches(queryClient, ACTION_LIST_KEYS, (action) => {
+        if (!targeted.has(action.id)) return action;
+        const currentDue = action.dueDate;
+        // Update dueDate only if it's before the new date or null
+        const newDueDate = dueDate
+          ? (currentDue instanceof Date && currentDue >= dueDate ? currentDue : dueDate)
+          : null;
+        return { ...action, scheduledStart: dueDate ?? null, dueDate: newDueDate };
+      });
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousData) {
-        utils.action.getAll.setData(undefined, context.previousData);
-      }
+    onError: (_err, _variables, snapshot) => {
+      if (snapshot) restoreActionCaches(queryClient, snapshot);
     },
     onSettled: () => {
       void utils.action.getAll.invalidate();
@@ -495,28 +493,19 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
   );
 
   // Bulk assign project mutation
-  const bulkAssignProjectMutation = api.action.bulkAssignProject.useMutation({
+  const bulkAssignProjectMutation = api.action.bulkAssignProject.useMutation<ActionCacheSnapshot>({
     onMutate: async ({ actionIds, projectId: newProjectId }) => {
-      await utils.action.getAll.cancel();
-      const previousData = utils.action.getAll.getData();
+      await cancelActionQueries(queryClient, ACTION_LIST_KEYS);
+      const targeted = new Set(actionIds);
 
-      if (previousData) {
-        utils.action.getAll.setData(undefined, (old) => {
-          if (!old) return [];
-          return old.map((action) =>
-            actionIds.includes(action.id)
-              ? { ...action, projectId: newProjectId }
-              : action
-          );
-        });
-      }
-
-      return { previousData };
+      return patchActionCaches(queryClient, ACTION_LIST_KEYS, (action) =>
+        targeted.has(action.id)
+          ? { ...action, projectId: newProjectId }
+          : action,
+      );
     },
-    onError: (_err, _variables, context) => {
-      if (context?.previousData) {
-        utils.action.getAll.setData(undefined, context.previousData);
-      }
+    onError: (_err, _variables, snapshot) => {
+      if (snapshot) restoreActionCaches(queryClient, snapshot);
     },
     onSettled: () => {
       void utils.action.getAll.invalidate();
