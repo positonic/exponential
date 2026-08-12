@@ -84,6 +84,7 @@ beforeEach(() => {
   db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null as never);
   db.channelLink.findFirst.mockResolvedValue(outboundLink() as never);
   db.matrixPostLog.findFirst.mockResolvedValue(null as never);
+  db.matrixPostLog.count.mockResolvedValue(0 as never);
   db.matrixPostLog.create.mockResolvedValue({ id: "log-1" } as never);
 });
 
@@ -243,6 +244,43 @@ describe("postMeetingSummaryToMatrix", () => {
 
       expect(result).toMatchObject({ kind: "posted" });
       expect(client.send).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives a confirmed repost a NEW transaction id, or Matrix would swallow it", async () => {
+      // Matrix deduplicates on txnId. Reusing the first post's id would make the
+      // homeserver silently discard the repost while we reported success — the user
+      // confirms, sees "posted", and nothing appears in the room.
+      db.matrixPostLog.findFirst.mockResolvedValue({
+        id: "log-old",
+        postedAt: new Date("2026-08-11T09:00:00Z"),
+      } as never);
+      db.matrixPostLog.count.mockResolvedValue(1 as never);
+      const client = stubClient();
+
+      await postMeetingSummaryToMatrix(db, {
+        meetingId: MEETING_ID,
+        actorUserId: ACTOR,
+        confirmRepost: true,
+        client,
+      });
+
+      const [, payload] = client.send.mock.calls[0]! as [string, SendArgs];
+      expect(payload.txnId).toBe(buildTransactionId(MEETING_ID, ROOM, 1));
+      expect(payload.txnId).not.toBe(buildTransactionId(MEETING_ID, ROOM, 0));
+    });
+
+    it("uses attempt 0 for the first post to a room", async () => {
+      db.matrixPostLog.count.mockResolvedValue(0 as never);
+      const client = stubClient();
+
+      await postMeetingSummaryToMatrix(db, {
+        meetingId: MEETING_ID,
+        actorUserId: ACTOR,
+        client,
+      });
+
+      const [, payload] = client.send.mock.calls[0]! as [string, SendArgs];
+      expect(payload.txnId).toBe(buildTransactionId(MEETING_ID, ROOM, 0));
     });
   });
 

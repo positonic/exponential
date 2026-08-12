@@ -76,7 +76,7 @@ export async function postMeetingSummaryToMatrix(
   db: PrismaClient,
   input: PostMeetingSummaryInput,
 ): Promise<PostMeetingSummaryResult> {
-  const { meetingId, actorUserId, attempt = 0 } = input;
+  const { meetingId, actorUserId } = input;
 
   const meeting = await db.transcriptionSession.findUnique({
     where: { id: meetingId },
@@ -141,13 +141,25 @@ export async function postMeetingSummaryToMatrix(
   if (!meeting.summary?.trim()) return { kind: "no-summary" };
 
   // Already posted here? Matrix has no un-send, so a second copy is permanent.
-  const previous = await db.matrixPostLog.findFirst({
-    where: { transcriptionSessionId: meeting.id, roomId },
-    orderBy: { postedAt: "desc" },
-  });
+  const [previous, priorPostCount] = await Promise.all([
+    db.matrixPostLog.findFirst({
+      where: { transcriptionSessionId: meeting.id, roomId },
+      orderBy: { postedAt: "desc" },
+    }),
+    db.matrixPostLog.count({
+      where: { transcriptionSessionId: meeting.id, roomId },
+    }),
+  ]);
   if (previous && !input.confirmRepost) {
     return { kind: "needs-confirm", roomId, lastPostedAt: previous.postedAt };
   }
+
+  // The attempt number is what makes a *deliberate* repost a new message. Matrix
+  // deduplicates on the transaction id, so reusing it would make the homeserver
+  // silently discard the second post while we reported success. Derived from how many
+  // times this meeting has already reached this room, so it survives a restart —
+  // a counter in memory would not.
+  const attemptNumber = input.attempt ?? priorPostCount;
 
   const rendered = renderMeetingSummary(meeting as MeetingForSummary);
 
@@ -167,7 +179,7 @@ export async function postMeetingSummaryToMatrix(
     ({ eventId } = await client.send(roomId, {
       html: rendered.html,
       text: rendered.text,
-      txnId: buildTransactionId(meeting.id, roomId, attempt),
+      txnId: buildTransactionId(meeting.id, roomId, attemptNumber),
     }));
   } catch (error) {
     // A failure writes no log row: the log is the record of what actually reached a
