@@ -919,40 +919,6 @@ async function main() {
   console.log(`  Created 3 Democracy Now goals`);
 
   // ──────────────────────────────────────────────
-  // 6. Outcomes (daily/weekly)
-  // ──────────────────────────────────────────────
-
-  const outcomes = [
-    {
-      description: "Complete RAG pipeline integration tests",
-      type: "daily",
-      workspaceId: lightwardWs.id,
-    },
-    {
-      description: "Finalize contractor shortlist for kitchen remodel",
-      type: "daily",
-      workspaceId: personalWs.id,
-    },
-    {
-      description: "Ship volunteer signup form to production",
-      type: "weekly",
-      workspaceId: democracyWs.id,
-    },
-    {
-      description: "Close Community Foundation grant negotiation",
-      type: "weekly",
-      workspaceId: democracyWs.id,
-    },
-  ];
-
-  for (const outcome of outcomes) {
-    await prisma.outcome.create({
-      data: { ...outcome, userId: demoUser.id },
-    });
-  }
-  console.log(`  Created ${outcomes.length} outcomes`);
-
-  // ──────────────────────────────────────────────
   // Summary
   // ──────────────────────────────────────────────
   console.log("\n" + "=".repeat(50));

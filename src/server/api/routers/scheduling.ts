@@ -35,11 +35,10 @@ type SchedulingSuggestion = z.infer<typeof SchedulingSuggestionSchema>;
 const SCHEDULING_SYSTEM_PROMPT = `You are a scheduling assistant that helps prioritize and reschedule overdue tasks.
 
 Your goal is to find optimal time slots for each overdue action based on:
-1. Outcome deadlines - Tasks linked to outcomes with closer deadlines should be scheduled sooner
-2. Task priority - Higher priority tasks (Big Rock, Focus) should be scheduled in prime working hours
-3. Calendar availability - Avoid conflicts with existing calendar events
-4. Already scheduled actions - Don't double-book with existing scheduled tasks
-5. Natural work patterns - Morning (9-12) for focused work, afternoon for meetings/collaboration
+1. Task priority - Higher priority tasks (Big Rock, Focus) should be scheduled in prime working hours
+2. Calendar availability - Avoid conflicts with existing calendar events
+3. Already scheduled actions - Don't double-book with existing scheduled tasks
+4. Natural work patterns - Morning (9-12) for focused work, afternoon for meetings/collaboration
 
 Return your suggestions as a JSON object with this exact structure:
 {
@@ -61,7 +60,6 @@ Guidelines:
 - Quick tasks can be scheduled in afternoon gaps
 - Leave 15-min buffers around meetings when possible
 - Consider typical working hours (9 AM - 6 PM)
-- If an action is linked to an outcome with an urgent deadline, flag it with "high" priority
 - If all time slots are busy on a day, suggest the next available day
 - Always provide reasoning for your suggestions
 
@@ -223,11 +221,6 @@ interface OverdueAction {
   project: {
     id: string;
     name: string;
-    outcomes: {
-      id: string;
-      description: string;
-      dueDate: Date | null;
-    }[];
   } | null;
 }
 
@@ -249,17 +242,12 @@ function buildSchedulingPrompt(
 
   // Build overdue actions section
   const overdueSection = overdueActions.map((a) => {
-    const closestOutcomeDeadline = a.project?.outcomes
-      .filter((o) => o.dueDate)
-      .sort((x, y) => (x.dueDate?.getTime() ?? 0) - (y.dueDate?.getTime() ?? 0))[0];
-
     return `- ID: ${a.id}
   Name: ${a.name}
   Original Due Date: ${a.dueDate?.toISOString().split("T")[0] ?? "None"}
   Priority: ${a.priority}
   Duration: ${a.duration ?? 30} minutes
-  Project: ${a.project?.name ?? "No project"}
-  Closest Outcome Deadline: ${closestOutcomeDeadline?.dueDate?.toISOString().split("T")[0] ?? "None"}${closestOutcomeDeadline ? ` (${closestOutcomeDeadline.description.slice(0, 50)}...)` : ""}`;
+  Project: ${a.project?.name ?? "No project"}`;
   }).join("\n\n");
 
   // Build calendar events section
@@ -294,7 +282,7 @@ ${scheduledSection}
 Current date/time: ${now.toISOString()}
 Scheduling window: Next ${days} days
 
-Please provide scheduling suggestions for each overdue action, considering outcome deadlines and avoiding conflicts.`;
+Please provide scheduling suggestions for each overdue action, avoiding conflicts.`;
 }
 
 function parseAISuggestions(responseText: string): SchedulingSuggestion[] {
@@ -358,7 +346,7 @@ export const schedulingRouter = createTRPCRouter({
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + input.days);
 
-      // 1. Fetch overdue actions with projects and outcomes.
+      // 1. Fetch overdue actions with their projects.
       //
       // Overdue is resolved through the shared `partitionActions()` rule
       // (ADR-0034) rather than a local `dueDate < today` filter. The panel that
@@ -377,15 +365,7 @@ export const schedulingRouter = createTRPCRouter({
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
         include: {
-          project: {
-            include: {
-              outcomes: {
-                where: { dueDate: { not: null } },
-                orderBy: { dueDate: "asc" },
-                take: 3, // Only get closest 3 outcomes
-              },
-            },
-          },
+          project: true,
         },
       });
 

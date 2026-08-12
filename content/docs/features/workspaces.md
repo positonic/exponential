@@ -211,7 +211,7 @@ Workspaces provide complete data separation:
 |-----------------|---------|
 | Projects | Projects in one workspace don't appear in another |
 | Actions | Tasks are workspace-specific |
-| Goals & Outcomes | Strategic alignment is per-workspace |
+| Goals | Strategic alignment is per-workspace |
 | CRM Data | Contacts and organizations are isolated |
 | OKRs | Objectives are workspace-scoped |
 

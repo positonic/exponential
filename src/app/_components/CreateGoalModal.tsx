@@ -1,6 +1,6 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, NumberInput, Stack, ActionIcon, Card, Badge, Accordion } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Text, Textarea, NumberInput, Stack, ActionIcon, Card, Badge, Accordion } from '@mantine/core';
 import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect, useMemo } from "react";
@@ -8,7 +8,6 @@ import { buildGoalUpdatePayload } from "./goalUpdatePayload";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
-import { CreateOutcomeModal } from './CreateOutcomeModal';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
 import { useTerminology } from '~/hooks/useTerminology';
@@ -46,7 +45,6 @@ interface CreateGoalModalProps {
     status?: string;
     lifeDomainId: number | null;
     parentGoalId?: number | null;
-    outcomes?: { id: string; description: string }[];
     workspaceId?: string | null;
     driUserId?: string | null;
   };
@@ -67,9 +65,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
   const [dueDate, setDueDate] = useState<Date | null>(goal?.dueDate ?? null);
   const [lifeDomainId, setLifeDomainId] = useState<number | null>(goal?.lifeDomainId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId);
-  const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>(
-    goal?.outcomes?.map(o => o.id) ?? []
-  );
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     goal?.workspaceId ?? defaultWorkspaceId ?? null
   );
@@ -97,7 +92,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
     { workspaceId: workspace?.id },
     { enabled: !!workspace },
   );
-  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
   const { data: workspaces } = api.workspace.list.useQuery();
   const { data: periods } = api.okr.getPeriods.useQuery();
   const { data: currentUser } = api.user.getCurrentUser.useQuery();
@@ -185,7 +179,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             isActive: true,
           } : null,
           projects: [],
-          outcomes: [],
           childGoals: [],
           keyResults: [],
           workspace: null,
@@ -304,7 +297,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
     setPeriod(defaultPeriod ?? null);
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
-    setSelectedOutcomeIds([]);
     setSelectedWorkspaceId(defaultWorkspaceId ?? null);
     setDriUserId(currentUser?.id ?? null);
     // Reset key results state
@@ -423,7 +415,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
       setDueDate(goal.dueDate);
       setPeriod(goal.period ?? null);
       setLifeDomainId(goal.lifeDomainId);
-      setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
       setSelectedWorkspaceId(goal.workspaceId ?? null);
       setDriUserId(goal.driUserId ?? null);
       // These two were missing, so a `goal` that arrived after mount left them
@@ -529,7 +520,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
               status: (status as "planned" | "active" | "completed" | "archived") ?? undefined,
               lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
-              outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
               driUserId: driUserId ?? currentUser?.id,
               workspaceId: selectedWorkspaceId ?? undefined,
               parentGoalId: parentGoalId ? Number(parentGoalId) : undefined,
@@ -551,7 +541,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
                   lifeDomainId,
                   selectedProjectId,
                   driUserId,
-                  selectedOutcomeIds,
                   selectedWorkspaceId,
                   parentGoalId,
                 }),
@@ -653,29 +642,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             autosize
           />
 
-          <MultiSelect
-            label="Linked Outcomes"
-            placeholder={`Select outcomes that support this ${terminology.goal.toLowerCase()}`}
-            data={outcomes?.map(o => ({ value: o.id, label: o.description })) ?? []}
-            value={selectedOutcomeIds}
-            onChange={setSelectedOutcomeIds}
-            searchable
-            clearable
-            mt="md"
-          />
-          <CreateOutcomeModal onSuccess={(id) => setSelectedOutcomeIds(prev => [...prev, id])}>
-            <Button
-              variant="subtle"
-              size="xs"
-              leftSection={<IconPlus size={14} />}
-              mt={4}
-              className="text-text-secondary hover:text-text-primary"
-            >
-              Create outcome
-            </Button>
-          </CreateOutcomeModal>
-
-          
           <div className="mt-4">
             <Text size="sm" fw={500} mb={4}>Due date (optional)</Text>
             <UnifiedDatePicker

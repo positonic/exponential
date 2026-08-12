@@ -176,7 +176,7 @@ Each habit shows:
 
 ### Linking to Goals
 
-Connect habits to [Goals](/docs/features/goals-outcomes):
+Connect habits to [Goals](/docs/features/goals):
 
 1. Create or edit a habit
 2. Select **Goal** from dropdown
@@ -249,11 +249,11 @@ Remove completely:
 
 ## Integration with Other Features
 
-### Goals & Outcomes
+### Goals
 
 - Link habits to goals
 - Habits support goal achievement
-- Track consistency toward outcomes
+- Track consistency toward goals
 
 ### Routines
 

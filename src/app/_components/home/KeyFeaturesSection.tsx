@@ -16,7 +16,7 @@ const features = [
   {
     icon: IconTarget,
     title: "Goals cascade to execution",
-    description: "Every action traces back to an organizational outcome. Nothing happens in isolation.",
+    description: "Every action traces back to an organizational goal. Nothing happens in isolation.",
     color: "var(--color-accent-indigo)",
   },
   {
@@ -28,7 +28,7 @@ const features = [
   {
     icon: IconUsers,
     title: "Organization-wide visibility",
-    description: "Outcomes, capacity, and progress across every team — visible without asking.",
+    description: "Goals, capacity, and progress across every team — visible without asking.",
     color: "var(--color-brand-info)",
   },
   {

@@ -28,21 +28,6 @@ export const features: FeatureData[] = [
     icon: "📎",
   },
   {
-    slug: "outcomes",
-    category: `${PRODUCT_NAME}'s Outcomes`,
-    title: "Outcomes",
-    headline: "Measure success at any time horizon.",
-    description:
-      "Define measurable outcomes for your week, month, or quarter. Outcomes bridge the gap between lofty goals and daily tasks—giving you concrete milestones to aim for.",
-    benefits: [
-      "Weekly, monthly, and quarterly horizons",
-      "Track completion automatically",
-      "Link actions directly to outcomes",
-      "Celebrate wins along the way",
-    ],
-    icon: "🎯",
-  },
-  {
     slug: "okrs",
     category: `${PRODUCT_NAME}'s OKRs`,
     title: "OKRs",
@@ -94,12 +79,12 @@ export const features: FeatureData[] = [
     slug: "actions",
     category: `${PRODUCT_NAME}'s Actions`,
     title: "Actions",
-    headline: "Tasks that connect to outcomes.",
+    headline: "Tasks that connect to your goals.",
     description:
       `Every action in ${PRODUCT_NAME} links to why it matters. No more orphan tasks floating in a void—see exactly how each task drives your bigger goals.`,
     benefits: [
       "AI-generated action suggestions",
-      "Automatic outcome linking",
+      "Automatic goal linking",
       "Priority based on impact",
       "Quick capture from anywhere",
     ],
@@ -237,9 +222,9 @@ export const features: FeatureData[] = [
     title: "Weekly Planning",
     headline: "See what everyone's doing.",
     description:
-      "Team visibility without the status meetings. See weekly outcomes, current focus, and progress across your team—all in one view.",
+      "Team visibility without the status meetings. See weekly commitments, current focus, and progress across your team—all in one view.",
     benefits: [
-      "Team outcome visibility",
+      "Team progress visibility",
       "No status meetings needed",
       "Spot blockers early",
       "Celebrate team wins",

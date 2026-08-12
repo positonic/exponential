@@ -4,19 +4,12 @@ import React, { useState } from 'react';
 import { Timeline, Text, Box, Collapse, Stack, UnstyledButton, Group } from '@mantine/core';
 import { api } from '~/trpc/react';
 import { format, startOfDay, isBefore } from 'date-fns';
-import { IconCalendarEvent, IconClock, IconTarget, IconCircleCheck, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
+import { IconCalendarEvent, IconTarget, IconCircleCheck, IconChevronRight, IconChevronDown } from '@tabler/icons-react';
 import { EditActionModal } from './EditActionModal';
-import classes from './OutcomeTimeline.module.css';
+import classes from './ProjectTimeline.module.css';
 
-interface OutcomeTimelineProps {
+interface ProjectTimelineProps {
   projectId: string;
-}
-
-interface OutcomeData {
-  id: string;
-  description: string;
-  dueDate: Date | null;
-  type: string | null;
 }
 
 interface GoalData {
@@ -38,7 +31,6 @@ interface CompletedActionData {
 }
 
 type TimelineDisplayItem =
-  | (OutcomeData & { itemType: 'outcome'; isTodayMarker: false })
   | (GoalData & { itemType: 'goal'; isTodayMarker: false })
   | { id: string; description: string; dueDate: Date; itemType: 'today'; isTodayMarker: true }
   | { id: string; dueDate: Date; itemType: 'completedActions'; isTodayMarker: false; actions: CompletedActionData[] };
@@ -64,24 +56,9 @@ function groupActionsByDate(actions: CompletedActionData[]): { date: Date; actio
   return Array.from(groups.values());
 }
 
-export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
+export function ProjectTimeline({ projectId }: ProjectTimelineProps) {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [editAction, setEditAction] = useState<CompletedActionData | null>(null);
-
-  const { data: outcomes, isLoading: outcomesLoading, error: outcomesError } = api.outcome.getProjectOutcomes.useQuery(
-    { projectId },
-    {
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000,
-      select: (data): OutcomeData[] =>
-        data?.map(o => ({
-          id: o.id,
-          description: o.description,
-          dueDate: o.dueDate,
-          type: o.type
-        })) ?? [],
-    }
-  );
 
   const { data: goals, isLoading: goalsLoading, error: goalsError } = api.goal.getProjectGoals.useQuery(
     { projectId },
@@ -120,12 +97,12 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
     }
   );
 
-  if (outcomesLoading || goalsLoading || actionsLoading) {
+  if (goalsLoading || actionsLoading) {
     return <Text>Loading timeline...</Text>;
   }
 
-  if (outcomesError ?? goalsError ?? actionsError) {
-    return <Text color="red">Error loading timeline: {outcomesError?.message ?? goalsError?.message ?? actionsError?.message}</Text>;
+  if (goalsError ?? actionsError) {
+    return <Text color="red">Error loading timeline: {goalsError?.message ?? actionsError?.message}</Text>;
   }
 
   const today = startOfDay(new Date());
@@ -144,7 +121,6 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
   };
 
   const timelineItemsData: TimelineDisplayItem[] = [
-    ...(outcomes?.map(o => ({ ...o, itemType: 'outcome' as const, isTodayMarker: false as const })) ?? []),
     ...(goals?.map(g => ({ ...g, itemType: 'goal' as const, isTodayMarker: false as const })) ?? []),
     ...actionGroups.map(group => ({
       id: `completed-${group.date.toISOString()}`,
@@ -181,7 +157,7 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
     </Timeline.Item>
   );
 
-  const hasItems = (outcomes && outcomes.length > 0) || (goals && goals.length > 0) || (completedActions && completedActions.length > 0);
+  const hasItems = (goals && goals.length > 0) || (completedActions && completedActions.length > 0);
   if (!hasItems) {
     return (
       <Timeline active={0} bulletSize={24} lineWidth={2}>
@@ -261,26 +237,8 @@ export function OutcomeTimeline({ projectId }: OutcomeTimelineProps) {
                 </Collapse>
               </Timeline.Item>
             );
-          } else {
-            const isPast = item.dueDate && isBefore(item.dueDate, today);
-            return (
-              <Timeline.Item
-                key={`outcome-${item.id}`}
-                bullet={<IconClock size={14} />}
-                title={item.description}
-                lineVariant={index <= activeIndex ? 'solid' : 'dashed'}
-              >
-                <Text c={isPast ? 'dimmed' : 'white'} size="sm">
-                  {item.dueDate ? `Due: ${format(item.dueDate, 'PPP')}` : 'No due date'}
-                </Text>
-                {item.type && (
-                  <Text size="xs" mt={4} c="dimmed">
-                    Type: {item.type}
-                  </Text>
-                )}
-              </Timeline.Item>
-            );
           }
+          return null;
         })}
       </Timeline>
 

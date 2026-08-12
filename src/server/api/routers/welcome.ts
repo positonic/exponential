@@ -249,11 +249,10 @@ export const welcomeRouter = createTRPCRouter({
    * Step 2 — creates a real Action, due today so it shows up on the Today
    * page (and its sidebar badge) immediately.
    *
-   * TODO(outcomes-removal): the onboarding framework links Actions directly
-   * to Goals, but the Action model has no `goalId` — the current schema only
-   * supports Goal→Project→Action (and the legacy Goal→Outcome→Project chain).
-   * When the backend migration adds a direct Action↔Goal link, connect this
-   * action to `state.goalId`. Do not route through Outcomes.
+   * TODO: the onboarding framework links Actions directly to Goals, but the
+   * Action model has no `goalId` — the current schema only supports
+   * Goal→Project→Action. When the backend migration adds a direct Action↔Goal
+   * link, connect this action to `state.goalId`.
    */
   createAction: protectedProcedure
     .input(

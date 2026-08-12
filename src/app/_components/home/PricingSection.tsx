@@ -9,7 +9,7 @@ interface PricingSectionProps {
 const features = [
   "Full platform access",
   "AI features included",
-  "Unlimited goals & outcomes",
+  "Unlimited goals & projects",
   "Team collaboration",
   "Weekly planning rituals",
   "No credit card required",

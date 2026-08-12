@@ -203,30 +203,6 @@ export async function createGoal(
   return db.goal.create({ data: attrs });
 }
 
-// ── Outcome Factory ──────────────────────────────────────────────────
-
-interface OutcomeAttrs {
-  description: string;
-  userId: string;
-  workspaceId?: string;
-  type?: string;
-  dueDate?: Date;
-}
-
-export const outcomeFactory = Factory.define<OutcomeAttrs>(({ sequence }) => ({
-  description: `Test Outcome ${sequence}`,
-  userId: "", // must be overridden
-  type: "daily",
-}));
-
-export async function createOutcome(
-  db: PrismaClient,
-  overrides: Partial<OutcomeAttrs> & { userId: string },
-) {
-  const attrs = outcomeFactory.build(overrides);
-  return db.outcome.create({ data: attrs });
-}
-
 // ── Team Factory ─────────────────────────────────────────────────────
 
 interface TeamAttrs {

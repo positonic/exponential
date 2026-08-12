@@ -17,7 +17,6 @@ const PAGE_LABELS: Record<string, string> = {
   timeline: 'Calendar',
   settings: 'Settings',
   goals: 'Goals',
-  outcomes: 'Outcomes',
   products: 'Products',
   today: 'Today',
   inbox: 'Inbox',

@@ -26,7 +26,6 @@ function form(overrides: Partial<GoalEditFormState> = {}): GoalEditFormState {
     selectedProjectId: undefined,
     driUserId: null,
     // What the form seeds to when the caller's goal object omitted these.
-    selectedOutcomeIds: [],
     selectedWorkspaceId: null,
     parentGoalId: null,
     ...overrides,
@@ -36,26 +35,13 @@ function form(overrides: Partial<GoalEditFormState> = {}): GoalEditFormState {
 describe("buildGoalUpdatePayload — never claims a field the caller withheld", () => {
   // GoalsTable's shape: no workspaceId, no parentGoalId.
   it("omits workspaceId and parentGoalId when the goal prop lacked them", () => {
-    const goal: EditableGoal = { id: 46, outcomes: [] };
+    const goal: EditableGoal = { id: 46 };
 
     const payload = buildGoalUpdatePayload(goal, form());
 
     expect("workspaceId" in payload).toBe(false);
     expect("parentGoalId" in payload).toBe(false);
     expect(payload.title).toBe("Ship OKR support");
-  });
-
-  // GoalDetailContent's shape: no outcomes.
-  it("omits outcomeIds when the goal prop lacked outcomes", () => {
-    const goal: EditableGoal = {
-      id: 46,
-      workspaceId: "ws1",
-      parentGoalId: null,
-    };
-
-    const payload = buildGoalUpdatePayload(goal, form());
-
-    expect("outcomeIds" in payload).toBe(false);
   });
 
   it("sends a workspace the prop carried, including a real null", () => {
@@ -76,17 +62,15 @@ describe("buildGoalUpdatePayload — never claims a field the caller withheld", 
 
   it("lets the user actually clear a field the prop carried", () => {
     const payload = buildGoalUpdatePayload(
-      { id: 46, workspaceId: "ws1", parentGoalId: 15, outcomes: [{ id: "o1" }] },
+      { id: 46, workspaceId: "ws1", parentGoalId: 15 },
       form({
         selectedWorkspaceId: null,
         parentGoalId: null,
-        selectedOutcomeIds: [],
       }),
     );
 
     expect(payload.workspaceId).toBeNull();
     expect(payload.parentGoalId).toBeNull();
-    expect(payload.outcomeIds).toEqual([]);
   });
 
   it("converts the parent picker's string to a number", () => {
@@ -119,7 +103,7 @@ describe("buildGoalUpdatePayload — never claims a field the caller withheld", 
 
   // The specific regression: GoalsTable renaming a workspace goal.
   it("a rename from a prop without workspaceId cannot orphan the goal", () => {
-    const goal: EditableGoal = { id: 46, outcomes: [{ id: "o1" }] };
+    const goal: EditableGoal = { id: 46 };
 
     const payload = buildGoalUpdatePayload(
       goal,

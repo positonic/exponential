@@ -79,8 +79,8 @@ export const docsNavigation: DocNavSection[] = [
         icon: IconChecklist,
       },
       {
-        title: "Goals & Outcomes",
-        href: "/docs/features/goals-outcomes",
+        title: "Goals",
+        href: "/docs/features/goals",
         icon: IconTargetArrow,
       },
       {

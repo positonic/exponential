@@ -17,7 +17,6 @@ export type ResourceType =
   | "project"
   | "action"
   | "goal"
-  | "outcome"
   | "keyResult"
   | "okrCheckin"
   | "view"

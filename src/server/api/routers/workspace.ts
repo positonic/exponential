@@ -209,7 +209,6 @@ export const workspaceRouter = createTRPCRouter({
           select: {
             projects: true,
             goals: true,
-            outcomes: true,
             teams: true,
           },
         },
@@ -273,7 +272,6 @@ export const workspaceRouter = createTRPCRouter({
             select: {
               projects: true,
               goals: true,
-              outcomes: true,
               teams: true,
             },
           },

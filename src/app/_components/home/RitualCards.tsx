@@ -135,7 +135,7 @@ function TeamCheckinCard() {
               Weekly Team Check-in
             </Text>
             <Text size="xs" className="text-text-muted">
-              Review outcomes and projects with your team
+              Review goals and projects with your team
             </Text>
           </div>
         </Group>

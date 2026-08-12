@@ -85,7 +85,7 @@ export default async function HomeLayout({
               "@context": "https://schema.org",
               "@type": "SoftwareApplication",
               "name": PRODUCT_NAME,
-              "description": "The coordination layer for AI-first organizations. Goals cascade into outcomes, AI handles execution, and your team stays aligned.",
+              "description": "The coordination layer for AI-first organizations. Goals cascade into projects, AI handles execution, and your team stays aligned.",
               "url": baseUrl,
               "applicationCategory": "ProductivityApplication",
               "operatingSystem": "Web Browser",
@@ -101,7 +101,7 @@ export default async function HomeLayout({
               },
               "featureList": [
                 "AI-native organization coordination",
-                "Goals to outcomes to actions framework",
+                "Goals to projects to actions framework",
                 "AI-powered execution layer",
                 "Human-AI collaboration workspace",
                 "Team alignment without status meetings"

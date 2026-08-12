@@ -14,7 +14,7 @@ Projects are the core organizational unit in Exponential. They help you group re
 - **Progress monitoring**: Visual progress tracking (0-100%)
 - **Team collaboration**: Assign projects to teams with member roles
 - **External integrations**: Sync with Notion, Monday.com, GitHub
-- **Goal alignment**: Link projects to strategic goals and outcomes
+- **Goal alignment**: Link projects to strategic goals
 
 ## Creating a Project
 
@@ -25,7 +25,7 @@ Projects are the core organizational unit in Exponential. They help you group re
    - **Description**: Context and objectives
    - **Priority**: Set importance level
    - **Status**: Typically starts as Active
-4. Optionally link to goals, outcomes, or life domains
+4. Optionally link to goals or life domains
 5. Click **Create**
 
 ### Project Fields
@@ -65,7 +65,6 @@ CANCELLED (no longer needed)
 The project dashboard showing:
 - Calendar with important dates
 - Linked goals and life domains
-- Connected outcomes
 - Recent actions timeline
 
 ### Tasks Tab
@@ -85,17 +84,9 @@ Kanban board for managing project actions:
 
 Strategic goals this project advances. Link projects to goals to maintain alignment between daily work and long-term vision.
 
-### Outcomes Tab
-
-Measurable results expected from this project:
-- Daily outcomes
-- Weekly milestones
-- Monthly deliverables
-- Quarterly objectives
-
 ### Timeline Tab
 
-Visual timeline showing outcome progression and key milestones.
+Visual timeline showing goal progression and key milestones.
 
 ### Workflows Tab
 
@@ -139,7 +130,7 @@ Projects can be assigned to teams for collaborative work:
 ### Team Features
 
 - **Weekly Team Review**: Team planning and alignment
-- **Weekly Outcomes**: Shared team objectives
+- **Weekly Commitments**: Shared team commitments
 - **Member Capacity**: Track available hours per team member
 - **Access Control**: Team membership grants project access
 

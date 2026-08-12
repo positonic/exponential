@@ -2,7 +2,7 @@ import { PRODUCT_NAME } from "~/lib/brand";
 
 /**
  * Copy + step model for the "Getting started" welcome page.
- * The framework taught here is exactly Goals → Actions → Today (no Outcomes).
+ * The framework taught here is exactly Goals → Actions → Today.
  */
 export type StepId = "goal" | "action" | "plan" | "cal";
 
@@ -68,7 +68,7 @@ export const ACTION_SUGGESTIONS: Record<number, string[]> = {
     "Do a 10-minute inbox sweep",
   ],
   [-1]: [
-    "Break the outcome into 3 steps",
+    "Break the goal into 3 steps",
     "Book 30 min to scope it",
     "Write down the first blocker",
   ],

@@ -11,7 +11,7 @@ const personas = [
     icon: IconUser,
     title: "For AI-native founders",
     description:
-      "You're building with AI agents already. Now give them — and yourself — a system that connects capability to outcomes.",
+      "You're building with AI agents already. Now give them — and yourself — a system that connects capability to results.",
     audience: "Founders",
     color: "var(--color-accent-indigo)",
   },

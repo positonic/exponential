@@ -122,7 +122,7 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 
 **Integration tests** (`*.integration.test.ts`) — real DB via Testcontainers:
 - tRPC router tests (`src/server/api/routers/__tests__/`)
-- Tests workspace, action, project, goal/outcome routers
+- Tests workspace, action, project, and goal routers
 - Requires **Docker** (OrbStack recommended on macOS) OR `DATABASE_URL_TEST` env var
 
 **Writing new tests:**
@@ -228,7 +228,7 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 ### Key Features
 - **Project Management**: Create/track projects with status, priority, progress
 - **Action Management**: Task management with flexible priority system
-- **Goal & Outcome Tracking**: Hierarchical goal-outcome-action alignment
+- **Goal & OKR Tracking**: Hierarchical goal-key-result-action alignment
 - **Daily Planning**: Journal system with reflection and planning tools
 - **AI Assistant**: Chat interface with semantic video search
 - **Video Processing**: YouTube analysis and transcription support
@@ -245,12 +245,11 @@ src/
 │   │   └── w/[workspaceSlug]/  # Workspace-scoped routes
 │   │       ├── projects/       # Projects page
 │   │       ├── goals/          # Goals page
-│   │       ├── outcomes/       # Outcomes page
 │   │       └── settings/       # Workspace settings
 │   ├── (web3)/             # Web3 integration (Silk wallet integration)
 │   ├── _components/        # Shared components
 │   │   ├── layout/         # Navigation and shell components
-│   │   └── sections/       # Content sections (journal, outcomes, etc.)
+│   │   └── sections/       # Content sections (journal, etc.)
 │   └── api/                # API routes and tRPC handlers
 ├── providers/              # React context providers
 │   └── WorkspaceProvider.tsx  # Workspace context
@@ -313,11 +312,10 @@ src/
 ### Database Schema
 Key entities include:
 - `User` - Authentication and user data
-- `Workspace` - Container for organizing projects/goals/outcomes (similar to Linear.app)
+- `Workspace` - Container for organizing projects/goals (similar to Linear.app)
 - `Project` - Main project container with status/priority
 - `Action` - Tasks linked to projects with flexible priority
 - `Goal` - Strategic goals linked to life domains
-- `Outcome` - Measurable results (daily/weekly/monthly/quarterly)
 - `Video` - Media content with transcription and AI analysis
 
 ### Workspaces
@@ -327,7 +325,7 @@ Workspaces allow users to organize their work into separate containers (e.g., on
 **Data Model:**
 - `Workspace` - Container with name, slug, type (personal/team/organization)
 - `WorkspaceUser` - Many-to-many join table with role (owner/admin/member/viewer)
-- Projects, Goals, Outcomes, Actions all have optional `workspaceId` field
+- Projects, Goals, Actions all have optional `workspaceId` field
 
 **URL Structure:**
 - All workspace-scoped pages use `/w/[workspaceSlug]/...` routes
@@ -374,7 +372,7 @@ getAll: protectedProcedure
 
 ### Component Organization
 - **Layout Components**: Navigation, sidebar, header
-- **Feature Components**: Actions, Projects, Goals, Outcomes
+- **Feature Components**: Actions, Projects, Goals
 - **Section Components**: Reusable content sections for different views
 - **UI Components**: Base [Mantine components](https://mantine.dev/getting-started/) with custom styling
 
@@ -428,7 +426,6 @@ The AI agents for this application live in a separate repository:
 ## Development Notes
 
 ### Keyboard Shortcuts
-- `Cmd+Enter` in outcome input fields adds new outcomes
 - Various modal shortcuts throughout the application
 
 ### Data Flow
@@ -534,7 +531,6 @@ For parallel feature development using git worktrees, see the comprehensive guid
 - Claude Code custom commands for worktree management
 - Step-by-step instructions for feature development
 - Best practices and common gotchas
-- Example implementation (outcomes delete feature)
 
 ## IDE Enhancement with Serena MCP
 

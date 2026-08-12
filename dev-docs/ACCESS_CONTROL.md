@@ -126,11 +126,9 @@ Access is based on `WorkspaceUser` membership and role. See the permission mappi
 
 Access is based on `TeamUser` membership and role. See the permission mapping table above.
 
-### Goals / Outcomes
+### Goals
 
-Currently **strictly user-owned**. Only the user who created a goal/outcome can read or modify it. Goals are filtered by `userId` and optionally by `workspaceId`.
-
-**Exception**: Outcomes can be shared read-only within organization teams if the user has explicitly enabled `WeeklyReviewSharing` for that team.
+Currently **strictly user-owned**. Only the user who created a goal can read or modify it. Goals are filtered by `userId` and optionally by `workspaceId`.
 
 ### OKR Check-ins
 

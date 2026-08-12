@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card, Text, Stack, Group, Button, Skeleton } from "@mantine/core";
-import { IconSparkles, IconRefresh, IconCheck } from "@tabler/icons-react";
+import { IconSparkles, IconRefresh } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
-import { startOfWeek, endOfWeek, isSameDay, getDay } from "date-fns";
+import { getDay } from "date-fns";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 export function AiNextBestStep() {
@@ -25,11 +25,6 @@ export function AiNextBestStep() {
   const { data: todayActions } = api.action.getToday.useQuery({ workspaceId: workspaceId ?? undefined });
   const { data: calendarEvents } = api.calendar.getTodayEvents.useQuery();
   const { data: habitStatus } = api.habit.getTodayStatus.useQuery();
-  const { data: weekOutcomes } = api.outcome.getByDateRange.useQuery({
-    startDate: startOfWeek(today, { weekStartsOn: 1 }),
-    endDate: endOfWeek(today, { weekStartsOn: 1 }),
-    workspaceId: workspaceId ?? undefined,
-  });
   const { data: activeProjects } =
     api.project.getActiveWithDetails.useQuery({
       workspaceId: workspaceId ?? undefined,
@@ -52,13 +47,6 @@ export function AiNextBestStep() {
   const pendingActionsCount =
     todayActions?.filter((a) => a.status !== "COMPLETED").length ?? 0;
   const calendarEventsCount = calendarEvents?.length ?? 0;
-  const dailyOutcomesCount =
-    weekOutcomes?.filter(
-      (o) =>
-        o.type === "daily" && o.dueDate && isSameDay(new Date(o.dueDate), today)
-    ).length ?? 0;
-  const weeklyOutcomesCount =
-    weekOutcomes?.filter((o) => o.type === "weekly").length ?? 0;
   const completedHabitsCount =
     habitStatus?.filter((h) => h.isCompletedToday).length ?? 0;
   const totalHabitsCount = habitStatus?.length ?? 0;
@@ -94,8 +82,6 @@ export function AiNextBestStep() {
         pendingActionsCount,
         overdueActionsCount: 0, // Simplified - could add separate query
         calendarEventsCount,
-        dailyOutcomesCount,
-        weeklyOutcomesCount,
         completedHabitsCount,
         totalHabitsCount,
         staleProjectIds,
@@ -108,8 +94,6 @@ export function AiNextBestStep() {
   }, [
     pendingActionsCount,
     calendarEventsCount,
-    dailyOutcomesCount,
-    weeklyOutcomesCount,
     completedHabitsCount,
     totalHabitsCount,
     staleProjectIds,
@@ -123,12 +107,11 @@ export function AiNextBestStep() {
     if (
       !hasFetched &&
       todayActions !== undefined &&
-      habitStatus !== undefined &&
-      weekOutcomes !== undefined
+      habitStatus !== undefined
     ) {
       fetchSuggestion();
     }
-  }, [hasFetched, todayActions, habitStatus, weekOutcomes, fetchSuggestion]);
+  }, [hasFetched, todayActions, habitStatus, fetchSuggestion]);
 
   // Don't render if preference is disabled
   if (preferencesLoading) {
@@ -137,29 +120,6 @@ export function AiNextBestStep() {
 
   if (preferences?.showSuggestedFocus === false) {
     return null;
-  }
-
-  // If user has set daily outcome(s), show "focused" state instead of AI suggestion
-  if (dailyOutcomesCount > 0) {
-    return (
-      <Card
-        withBorder
-        radius="md"
-        className="border-green-600/30 bg-surface-secondary"
-      >
-        <Stack gap="sm">
-          <Group gap="xs">
-            <IconCheck size={18} className="text-green-600" />
-            <Text fw={600} size="sm" className="text-text-primary">
-              Today&apos;s Focus Set
-            </Text>
-          </Group>
-          <Text size="sm" className="text-text-secondary">
-            You have {dailyOutcomesCount} intention{dailyOutcomesCount > 1 ? "s" : ""} for today. Stay focused!
-          </Text>
-        </Stack>
-      </Card>
-    );
   }
 
   return (

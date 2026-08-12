@@ -69,7 +69,7 @@ Morning journaling sets intentions:
 
 1. Navigate to **Startup Routine**
 2. Complete reflection sections
-3. Set daily outcomes
+3. Set your intentions for the day
 4. Review your mindset
 
 ### In Wind-Down Routine
@@ -172,11 +172,11 @@ Review your week's journal entries during [Weekly Plan](/docs/features/weekly-pl
 - Track learning progress
 - Review challenge handling
 
-### Outcomes
+### Goals
 
-Journal alongside daily [Outcomes](/docs/features/goals-outcomes):
-- Morning: Set daily outcomes
-- Evening: Review completion
+Journal alongside your [Goals](/docs/features/goals):
+- Morning: Set your intentions
+- Evening: Review what you finished
 - Reflect on what supported success
 
 ## Best Practices

@@ -76,7 +76,7 @@ export function WeeklyOutcomeModal({
     onError: (error) => {
       notifications.show({
         title: "Error",
-        message: error.message || "Failed to create weekly outcome",
+        message: error.message || "Failed to create weekly commitment",
         color: "red"
       });
     }
@@ -120,7 +120,7 @@ export function WeeklyOutcomeModal({
     <Modal
       opened={opened}
       onClose={handleClose}
-      title="Create Weekly Outcome"
+      title="Create Weekly Commitment"
       size="lg"
       overlayProps={{
         backgroundOpacity: 0.55,
@@ -140,7 +140,7 @@ export function WeeklyOutcomeModal({
           
           <Textarea
             label="Description"
-            placeholder="Provide more details about this weekly outcome..."
+            placeholder="Provide more details about this weekly commitment..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}

@@ -29,7 +29,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
   // Get project to access teamId
   const { data: project } = api.project.getById.useQuery({ id: projectId });
 
-  // Fetch real weekly outcomes data
+  // Fetch real weekly commitments data
   const { data: weeklyOutcomesData, isLoading, error } = api.weeklyPlanning.getWeeklyOutcomes.useQuery({
     projectId,
     weekStartDate: currentWeekStart
@@ -103,7 +103,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
     return (
       <Container size="xl" py="xl">
         <Title order={2} mb="xl" className="text-text-primary">
-          Weekly Outcomes
+          Weekly Commitments
         </Title>
         <div className="flex justify-center py-12">
           <Loader size="lg" />
@@ -116,11 +116,11 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
     return (
       <Container size="xl" py="xl">
         <Title order={2} mb="xl" className="text-text-primary">
-          Weekly Outcomes
+          Weekly Commitments
         </Title>
         <Alert variant="light" color="red" icon={<IconAlertCircle size={16} />}>
           <Text size="sm">
-            {error.message || "Failed to load weekly outcomes. Please try again."}
+            {error.message || "Failed to load weekly commitments. Please try again."}
           </Text>
         </Alert>
       </Container>
@@ -132,7 +132,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
       <div className="flex justify-between items-center mb-8">
         <div>
           <Title order={2} className="text-text-primary">
-            Weekly Outcomes
+            Weekly Commitments
           </Title>
           <Text size="sm" c="dimmed">
             Outcome-centric view: Focus on what the team needs to achieve this week
@@ -147,7 +147,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
           </div>
           <div className="flex items-center gap-2">
             <Text size="xs" c="dimmed">
-              {weeklyOutcomesData?.outcomes.length || 0} outcomes
+              {weeklyOutcomesData?.outcomes.length || 0} commitments
             </Text>
             <Button 
               leftSection={<IconPlus size={16} />} 
@@ -157,7 +157,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
               onClick={() => setModalOpened(true)}
               disabled={!project?.teamId}
             >
-              Add Weekly Outcome
+              Add Weekly Commitment
             </Button>
           </div>
         </div>
@@ -383,10 +383,10 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
               <tr>
                 <td colSpan={7} className="p-12 text-center">
                   <Text size="lg" c="dimmed" mb="sm">
-                    No weekly outcomes yet
+                    No weekly commitments yet
                   </Text>
                   <Text size="sm" c="dimmed">
-                    Create your first weekly outcome to start planning your team&apos;s week
+                    Create your first weekly commitment to start planning your team&apos;s week
                   </Text>
                 </td>
               </tr>
@@ -410,7 +410,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
         </Text>
       </div>
 
-      {/* Weekly Outcome Creation Modal */}
+      {/* Weekly Commitment Creation Modal */}
       {project?.teamId && (
         <WeeklyOutcomeModal
           opened={modalOpened}

@@ -100,7 +100,6 @@ export const userRouter = createTRPCRouter({
         user,
         projectCount,
         goalCount,
-        outcomeCount,
         projectActionCount,
         calendarAccounts,
         dailyPlanCount,
@@ -117,7 +116,6 @@ export const userRouter = createTRPCRouter({
         }),
         ctx.db.project.count({ where: { createdById: userId, type: { not: 'onboarding' } } }),
         ctx.db.goal.count({ where: { userId } }),
-        ctx.db.outcome.count({ where: { userId } }),
         ctx.db.action.count({
           where: {
             createdById: userId,
@@ -158,7 +156,6 @@ export const userRouter = createTRPCRouter({
         steps: {
           hasProject: projectCount > 0,
           hasGoal: goalCount > 0,
-          hasOutcome: outcomeCount > 0,
           hasProjectActions: projectActionCount > 0,
           hasCalendar: usableCalendarAccounts.length > 0,
           hasDailyPlan: dailyPlanCount > 0,

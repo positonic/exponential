@@ -183,10 +183,10 @@ Quick reschedule to:
 - Filter Today by project
 - See project context on tasks
 
-### Outcomes
+### Goals
 
-- Link actions to daily outcomes
-- Track outcome-related tasks
+- Link actions to the goals they serve
+- Track goal-related tasks
 - Review during daily planning
 
 ### Routines

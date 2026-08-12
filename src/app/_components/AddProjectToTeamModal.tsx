@@ -30,13 +30,11 @@ export function AddProjectToTeamModal({ children, teamId, onProjectAdded }: AddP
   const [status, setStatus] = useState<ProjectStatus>("ACTIVE");
   const [priority, setPriority] = useState<ProjectPriority>("NONE");
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
-  const [selectedOutcomes, setSelectedOutcomes] = useState<string[]>([]);
 
   const utils = api.useUtils();
 
-  // Fetch goals and outcomes for the select boxes
+  // Fetch goals for the select box
   const { data: goals } = api.goal.getAllMyGoals.useQuery();
-  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
 
   const createMutation = api.project.create.useMutation({
     onSuccess: () => {
@@ -52,8 +50,7 @@ export function AddProjectToTeamModal({ children, teamId, onProjectAdded }: AddP
       setStatus("ACTIVE");
       setPriority("NONE");
       setSelectedGoals([]);
-      setSelectedOutcomes([]);
-      
+
       // Invalidate queries to refresh the team data
       void utils.team.getBySlug.invalidate();
       void utils.project.getAll.invalidate();
@@ -78,7 +75,6 @@ export function AddProjectToTeamModal({ children, teamId, onProjectAdded }: AddP
       status,
       priority,
       goalIds: selectedGoals,
-      outcomeIds: selectedOutcomes,
       teamId,
     });
   };
@@ -144,15 +140,6 @@ export function AddProjectToTeamModal({ children, teamId, onProjectAdded }: AddP
               onChange={setSelectedGoals}
               label="Link to Goals"
               placeholder="Select goals (optional)"
-              searchable
-            />
-
-            <MultiSelect
-              data={outcomes?.map(outcome => ({ value: outcome.id.toString(), label: outcome.description })) ?? []}
-              value={selectedOutcomes}
-              onChange={setSelectedOutcomes}
-              label="Link to Outcomes"
-              placeholder="Select outcomes (optional)"
               searchable
             />
 
