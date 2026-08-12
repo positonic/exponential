@@ -30,6 +30,18 @@ describe("collapseMentions", () => {
     expect(collapseMentions("@[James](u2)", [])).toBe("@[James](u2)");
     expect(collapseMentions("", CANDIDATES)).toBe("");
   });
+
+  it("keeps markup when the stored id doesn't match the candidate", () => {
+    expect(collapseMentions("@[James](u99)", CANDIDATES)).toBe("@[James](u99)");
+  });
+
+  it("keeps markup when two candidates share the display name", () => {
+    const dupes = [
+      { id: "a1", name: "Sam" },
+      { id: "a2", name: "Sam" },
+    ];
+    expect(collapseMentions("@[Sam](a1)", dupes)).toBe("@[Sam](a1)");
+  });
 });
 
 describe("expandMentions", () => {
@@ -81,5 +93,10 @@ describe("expandMentions", () => {
 
   it("is a no-op with no candidates", () => {
     expect(expandMentions("hi @James", [])).toBe("hi @James");
+  });
+
+  it("ignores blank candidate names instead of matching every bare @", () => {
+    const blanks = [{ id: "b1", name: "  " }];
+    expect(expandMentions("email me @ home", blanks)).toBe("email me @ home");
   });
 });

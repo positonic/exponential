@@ -22,16 +22,29 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Rewrite `@[Name](id)` markup as plain `@Name` for known candidate names. */
+/**
+ * Rewrite `@[Name](id)` markup as plain `@Name` — but only when the name
+ * resolves unambiguously back to the same id, so an edit round-trip through
+ * `expandMentions` can never re-point the mention (and its notification) at a
+ * different user. Duplicate display names and stale ids stay as markup.
+ */
 export function collapseMentions(
   text: string,
   candidates: MentionRef[],
 ): string {
   if (!text || candidates.length === 0) return text;
-  const known = new Set(candidates.map((c) => c.name.toLowerCase()));
-  return text.replace(MENTION_MARKUP_RE, (match, name: string) =>
-    known.has(name.toLowerCase()) ? `@${name}` : match,
-  );
+  const idsByName = new Map<string, Set<string>>();
+  for (const c of candidates) {
+    const key = c.name.trim().toLowerCase();
+    if (!key) continue;
+    const ids = idsByName.get(key) ?? new Set<string>();
+    ids.add(c.id);
+    idsByName.set(key, ids);
+  }
+  return text.replace(MENTION_MARKUP_RE, (match, name: string, id: string) => {
+    const ids = idsByName.get(name.toLowerCase());
+    return ids && ids.size === 1 && ids.has(id) ? `@${name}` : match;
+  });
 }
 
 /**
@@ -48,9 +61,13 @@ export function expandMentions(
 
   const byName = new Map<string, MentionRef>();
   for (const c of candidates) {
-    const key = c.name.toLowerCase();
+    // A blank name would put an empty alternative in the regex alternation
+    // and rewrite every stray "@" into markup.
+    const key = c.name.trim().toLowerCase();
+    if (!key) continue;
     if (!byName.has(key)) byName.set(key, c);
   }
+  if (byName.size === 0) return text;
 
   const alternation = [...byName.values()]
     .sort((a, b) => b.name.length - a.name.length)
