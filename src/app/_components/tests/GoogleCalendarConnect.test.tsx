@@ -159,22 +159,24 @@ describe('GoogleCalendarConnect', () => {
       });
     });
 
-    test('stays silent when an ancestor owns the connection toast', () => {
-      // The calendar page runs useCalendarConnectionToast and also renders
-      // this button in its disconnected empty state — the error path would
-      // otherwise toast once per mounted connect button plus once for the hook.
+    test('maps account_linked_elsewhere instead of falling back', () => {
+      // Emitted by the Google callback when the account is already linked to
+      // another user. Before the shared message map no surface handled it, so
+      // it degraded to the generic provider fallback.
       mockUseSearchParams.mockImplementation(() => ({
         get: vi.fn((param: string) => {
-          if (param === 'calendar_error') return 'access_denied';
+          if (param === 'calendar_error') return 'account_linked_elsewhere';
           return null;
         }),
       }));
 
-      render(
-        <GoogleCalendarConnect isConnected={false} showConnectionToast={false} />,
-      );
+      render(<GoogleCalendarConnect isConnected={false} />);
 
-      expect(mockShow).not.toHaveBeenCalled();
+      expect(mockShow).toHaveBeenCalledWith({
+        title: 'Connection Failed',
+        message: expect.stringContaining('already connected to a different user'),
+        color: 'red',
+      });
     });
   });
 });

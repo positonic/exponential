@@ -9,25 +9,15 @@ import { getCalendarErrorMessage } from "./calendar/calendarConnectionMessages";
 
 interface MicrosoftCalendarConnectProps {
   isConnected?: boolean;
-  /**
-   * False when an ancestor already owns the connection toasts (see
-   * `useCalendarConnectionToast`). Without this, a page that both runs that
-   * hook and renders this button in its disconnected empty state shows the
-   * same `calendar_error` toast twice.
-   */
-  showConnectionToast?: boolean;
 }
 
 export function MicrosoftCalendarConnect({
   isConnected = false,
-  showConnectionToast = true,
 }: MicrosoftCalendarConnectProps) {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!showConnectionToast) return;
-
     const calendarConnected = searchParams.get(
       "microsoft_calendar_connected",
     );
@@ -53,7 +43,7 @@ export function MicrosoftCalendarConnect({
         color: "red",
       });
     }
-  }, [searchParams, showConnectionToast]);
+  }, [searchParams]);
 
   const handleConnect = () => {
     setLoading(true);

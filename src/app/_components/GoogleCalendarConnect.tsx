@@ -18,26 +18,16 @@ interface GoogleCalendarConnectProps {
    * button; `/api/auth/google-calendar` re-checks server-side regardless.
    */
   gated?: boolean;
-  /**
-   * False when an ancestor already owns the connection toasts (see
-   * `useCalendarConnectionToast`). Without this, a page that both runs that
-   * hook and renders this button in its disconnected empty state shows the
-   * same `calendar_error` toast twice.
-   */
-  showConnectionToast?: boolean;
 }
 
 export function GoogleCalendarConnect({
   isConnected = false,
   gated = false,
-  showConnectionToast = true,
 }: GoogleCalendarConnectProps) {
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!showConnectionToast) return;
-
     const calendarConnected = searchParams.get("calendar_connected");
     const calendarError = searchParams.get("calendar_error");
 
@@ -60,7 +50,7 @@ export function GoogleCalendarConnect({
         color: "red",
       });
     }
-  }, [searchParams, showConnectionToast]);
+  }, [searchParams]);
 
   const handleConnect = () => {
     setLoading(true);
