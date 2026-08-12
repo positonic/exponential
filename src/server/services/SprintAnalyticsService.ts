@@ -769,7 +769,25 @@ export class SprintAnalyticsService {
       ticketsByCycle.set(ticket.cycleId, bucket);
     }
 
-    const allPrs = await this.getMergedPrDurations(workspaceId);
+    // Bound the PR scan to the union of every cycle window. A PR merged
+    // outside all of them is discarded below anyway, so this is equivalent to
+    // an unscoped fetch — but it keeps the query (and the `prNumber IN (…)`
+    // list it builds) proportional to the cycles' span rather than to the
+    // workspace's entire GitHubActivity history. No dated cycle → no window to
+    // fall in, so skip the two queries entirely.
+    const dated = cycles.filter((c) => c.startDate && c.endDate);
+    const unionWindow = dated.length
+      ? {
+          start: new Date(
+            Math.min(...dated.map((c) => c.startDate!.getTime())),
+          ),
+          end: new Date(Math.max(...dated.map((c) => c.endDate!.getTime()))),
+        }
+      : null;
+
+    const allPrs = unionWindow
+      ? await this.getMergedPrDurations(workspaceId, unionWindow)
+      : [];
 
     const points: CycleMetricsPoint[] = [];
     // PRs counted in at least one cycle window, so overlapping windows don't
