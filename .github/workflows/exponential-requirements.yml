@@ -47,11 +47,25 @@ jobs:
           # This PR, plus any child feature PRs referenced from a Rollup PR's
           # commit log (a Rollup PR promotes already-merged work along the chain,
           # so its own URL is on no Ticket -- its children's URLs are).
+          #
+          # The head commit is NOT guaranteed to be in the checkout on a closed
+          # PR: GitHub tears down refs/pull/N/merge at merge, and a squash merge
+          # leaves the head unreachable from main, so `git log BASE..HEAD` can
+          # die with "Invalid revision range". Under `set -o pipefail` that
+          # failed the whole hook and left the scope's requirements unticked.
+          # Skip the scan instead: an ordinary feature PR needs nothing from this
+          # log, and a Rollup PR merges with a merge commit, whose range resolves.
           {
             echo "$PR_URL"
-            git log "$BASE_SHA..$HEAD_SHA" --format=%B \
-              | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -u \
-              | sed "s@^@${REPO_URL}/pull/@"
+            if git rev-parse -q --verify "$BASE_SHA^{commit}" >/dev/null &&
+               git rev-parse -q --verify "$HEAD_SHA^{commit}" >/dev/null; then
+              git log "$BASE_SHA..$HEAD_SHA" --format=%B \
+                | { grep -oE '#[0-9]+' || true; } | tr -d '#' | sort -u \
+                | sed "s@^@${REPO_URL}/pull/@"
+            else
+              echo "Range $BASE_SHA..$HEAD_SHA is not in this checkout" \
+                   "-- skipping the Rollup child-PR scan." >&2
+            fi
           } | sort -u > /tmp/prs
           jq -R -s -c 'split("\n") | map(select(length > 0))' /tmp/prs > /tmp/prs.json
           exponential tickets list \
