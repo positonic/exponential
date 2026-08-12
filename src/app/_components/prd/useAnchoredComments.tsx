@@ -154,7 +154,10 @@ export function useAnchoredComments({
   // thread as empty and strip its highlight.
   const discardPendingThread = () => {
     if (!pending || !editable) return;
-    if (adapter.isSubmitting || inFlightRef.current.has(pending.threadId)) return;
+    // Only the pending thread's own in-flight post blocks a discard.
+    // (Not adapter.isSubmitting: that flag is shared across threads, and a
+    // reply mid-flight elsewhere shouldn't strand this highlight.)
+    if (inFlightRef.current.has(pending.threadId)) return;
     removeThreadMark(pending.threadId);
     setPending(null);
   };
@@ -357,7 +360,7 @@ export function useAnchoredComments({
         currentUserId={currentUserId}
         onSubmit={(body) => submitComment(activeThreadId, body)}
         onEdit={handleEditComment}
-        onDelete={handleDeleteComment}
+        onDelete={(commentId) => void handleDeleteComment(commentId)}
         onResolve={() => void adapter.resolveThread(activeThreadId)}
         onUnresolve={() => void adapter.unresolveThread(activeThreadId)}
         onClose={closeThread}
