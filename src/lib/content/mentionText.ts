@@ -75,7 +75,12 @@ export function expandMentions(
     .join("|");
   // A leading-position capture instead of a lookbehind (older Safari); the
   // trailing guard stops "@JamesX" from half-matching a "James" candidate.
-  const displayRe = new RegExp(`(^|[^\\w])@(${alternation})(?![\\w])`, "gi");
+  // "/" and backtick are excluded from the prefix so URL paths
+  // (x.com/@James) and inline code stay untouched.
+  const displayRe = new RegExp(
+    `(^|[^\\w/\`])@(${alternation})(?![\\w])`,
+    "gi",
+  );
 
   const expandSegment = (segment: string): string =>
     segment.replace(displayRe, (full, prefix: string, name: string) => {

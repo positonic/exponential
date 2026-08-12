@@ -95,6 +95,15 @@ describe("expandMentions", () => {
     expect(expandMentions("hi @James", [])).toBe("hi @James");
   });
 
+  it("does not expand mentions inside URL paths or after backticks", () => {
+    expect(expandMentions("see https://x.com/@James for more", CANDIDATES)).toBe(
+      "see https://x.com/@James for more",
+    );
+    expect(expandMentions("code `@James` literal", CANDIDATES)).toBe(
+      "code `@James` literal",
+    );
+  });
+
   it("ignores blank candidate names instead of matching every bare @", () => {
     const blanks = [{ id: "b1", name: "  " }];
     expect(expandMentions("email me @ home", blanks)).toBe("email me @ home");
