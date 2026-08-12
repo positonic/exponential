@@ -74,7 +74,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
     );
   });
 
-  it("excludes channel summaries when source is internal", async () => {
+  it("excludes channel summaries and hidden types when source is internal", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
     await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "internal" });
@@ -83,19 +83,21 @@ describe("getActivityFeed — channel summaries + source filter", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           workspaceId: WORKSPACE_ID,
-          entityType: { not: "channel_summary" },
+          entityType: { notIn: ["channel_summary", "ticket_sync_run"] },
         }),
       }),
     );
   });
 
-  it("applies no source constraint for 'all' (default)", async () => {
+  it("excludes only hidden types for 'all' (default)", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
     await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "all" });
 
     const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
-    expect(call.where).not.toHaveProperty("entityType");
+    expect(call.where).toMatchObject({
+      entityType: { notIn: ["ticket_sync_run"] },
+    });
     expect(call.where).not.toHaveProperty("metadata");
   });
 });
