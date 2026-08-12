@@ -30,7 +30,7 @@ import {
   getMatrixClientForServer,
   listMatrixServers,
 } from "~/server/services/matrix/matrixServer";
-import { reportHandledError } from "~/lib/reportHandledError";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import {
   assertSafeHomeserverUrl,
   UnsafeHomeserverUrlError,
@@ -260,7 +260,7 @@ export const matrixServerRouter = createTRPCRouter({
           invited: invites.map(toRoomChoice).sort(byName),
         };
       } catch (error) {
-        reportHandledError(error, {
+        reportHandledErrorServer(error, {
           area: "matrix-room-list",
           context: { homeserverUrl: config.homeserverUrl, serverId: input.serverId },
         });
@@ -314,7 +314,7 @@ export const matrixServerRouter = createTRPCRouter({
         return toRoomChoice(summary ?? invite);
       } catch (error) {
         if (error instanceof TRPCError) throw error;
-        reportHandledError(error, {
+        reportHandledErrorServer(error, {
           area: "matrix-accept-invite",
           context: {
             homeserverUrl: config.homeserverUrl,
