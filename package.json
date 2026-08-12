@@ -102,6 +102,8 @@
     "@trpc/server": "^11.0.0-rc.446",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/turndown": "^5.0.6",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.2",
     "@vercel/analytics": "^1.5.0",
     "@vercel/blob": "^0.27.3",
     "@xyflow/react": "^12.10.2",
