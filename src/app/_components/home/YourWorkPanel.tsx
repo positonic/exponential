@@ -12,6 +12,8 @@ import {
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { ActivityFeed } from './activity/ActivityFeed';
+import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
 
 type ActionRow = RouterOutputs['action']['getAll'][number];
@@ -121,7 +123,7 @@ export function YourWorkPanel() {
   const driCount = driGoals.length + driKeyResults.length + driProjects.length;
   const recentMeetings = (meetings ?? []).slice(0, 5);
 
-  if (
+  const personalSectionsEmpty =
     !isLoading &&
     !ticketsLoading &&
     !driLoading &&
@@ -129,11 +131,22 @@ export function YourWorkPanel() {
     active.length === 0 &&
     openTickets.length === 0 &&
     driCount === 0 &&
-    recentMeetings.length === 0
-  ) {
-    // Nothing assigned yet — the panel stays out of the way. The team-pulse
-    // empty state (feature action 5) takes over here.
-    return null;
+    recentMeetings.length === 0;
+
+  if (personalSectionsEmpty) {
+    // The brand-new invitee case: nothing assigned yet. Lead with the team's
+    // pulse (the existing workspace activity feed card) instead of a wall of
+    // empty sections — this is an invited user's actual first page.
+    return (
+      <div className={styles.panel}>
+        <div className={styles.panelHeading}>Your work</div>
+        <p className={styles.emptyNote}>
+          Nothing assigned to you yet — here&apos;s what the team has been up
+          to.
+        </p>
+        <ActivityFeed />
+      </div>
+    );
   }
 
   return (
@@ -143,7 +156,9 @@ export function YourWorkPanel() {
         <Link href={`/w/${workspaceSlug}/actions`}>View all</Link>
       </div>
 
-      <div className={styles.sectionHeading}>Assigned to you</div>
+      {(isLoading || active.length > 0 || openTickets.length > 0) && (
+        <div className={styles.sectionHeading}>Assigned to you</div>
+      )}
       {isLoading
         ? Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} height={34} mb={4} radius="sm" />
