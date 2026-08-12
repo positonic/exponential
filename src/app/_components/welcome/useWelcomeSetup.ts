@@ -242,11 +242,14 @@ export function useWelcomeSetup() {
         await completeWelcome.mutateAsync();
       } catch {
         // onError resets completedRef so a later attempt can retry; still
-        // leave — the workspace home doesn't gate on welcome completion.
+        // leave — neither destination below gates on welcome completion.
       }
     }
+    // Fallback is /today, NOT /home: /home bounces incomplete-welcome users
+    // back here during the 24h new-user window, which would turn a failed
+    // completeWelcome + unresolved workspace query into a loop.
     router.push(
-      defaultWorkspace?.slug ? `/w/${defaultWorkspace.slug}/home` : "/home",
+      defaultWorkspace?.slug ? `/w/${defaultWorkspace.slug}/home` : "/today",
     );
   }, [data, completeWelcome, defaultWorkspace, router]);
 
