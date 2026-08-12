@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import {
+  addDays,
   addWeeks,
   differenceInCalendarDays,
   endOfISOWeek,
@@ -58,8 +59,6 @@ export interface WorkspaceHomeStats {
   /** Highest single-ISO-week event total in the trailing 12 ISO weeks. */
   bestWeekTotal: number;
 }
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export async function getWorkspaceHomeStats(
   db: PrismaClient,
@@ -143,7 +142,7 @@ export async function getWorkspaceHomeStats(
 
   const sparkline: WeeklySparklineBar[] = [];
   for (let i = 0; i < 7; i++) {
-    const day = new Date(thisWeekStart.getTime() + i * MS_PER_DAY);
+    const day = addDays(thisWeekStart, i);
     const key = day.toISOString().slice(0, 10);
     sparkline.push({
       day: DAY_LABELS[i] ?? "?",
@@ -160,7 +159,7 @@ export async function getWorkspaceHomeStats(
     const weekStart = startOfISOWeek(addWeeks(now, -w));
     let total = 0;
     for (let d = 0; d < 7; d++) {
-      const day = new Date(weekStart.getTime() + d * MS_PER_DAY);
+      const day = addDays(weekStart, d);
       total += countsByDay.get(day.toISOString().slice(0, 10)) ?? 0;
     }
     weekTotals.push(total);
