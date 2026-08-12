@@ -10,6 +10,7 @@ import { MatrixRoomPicker, type MatrixRoomChoice } from "./MatrixRoomPicker";
 interface PostToMatrixButtonProps {
   meetingId: string;
   workspaceId: string | null;
+  projectId?: string | null;
 }
 
 /**
@@ -19,7 +20,11 @@ interface PostToMatrixButtonProps {
  * on project assignment, not on summarization. This button is the only way a summary
  * reaches a room.
  */
-export function PostToMatrixButton({ meetingId, workspaceId }: PostToMatrixButtonProps) {
+export function PostToMatrixButton({
+  meetingId,
+  workspaceId,
+  projectId = null,
+}: PostToMatrixButtonProps) {
   const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false);
   const [status, setStatus] = useState<
     | { kind: "idle" }
@@ -35,6 +40,14 @@ export function PostToMatrixButton({ meetingId, workspaceId }: PostToMatrixButto
   );
   const servers = serversQuery.data ?? [];
   const serverId = servers[0]?.id ?? null;
+
+  // Show where this will actually go before it goes there — the destination is
+  // configured elsewhere, so the button must not be a leap of faith.
+  const bindingQuery = api.matrixRoom.getBinding.useQuery(
+    { workspaceId: workspaceId ?? "", projectId },
+    { enabled: !!workspaceId },
+  );
+  const effective = bindingQuery.data?.effective;
 
   const post = api.transcription.postToMatrix.useMutation({
     onSuccess: (result) => {
@@ -139,10 +152,20 @@ export function PostToMatrixButton({ meetingId, workspaceId }: PostToMatrixButto
               </Alert>
             )}
 
-            <Text size="xs" className="text-text-muted">
-              Sends this meeting&apos;s summary, action count and a link to the room
-              bound to its project.
-            </Text>
+            {effective?.kind === "room" ? (
+              <Text size="xs" className="text-text-muted">
+                Goes to <span className="text-text-primary">{effective.name}</span>
+                {effective.inherited ? " (workspace default)" : ""}.
+              </Text>
+            ) : effective?.kind === "off" ? (
+              <Text size="xs" className="text-text-muted">
+                This project&apos;s Matrix posting is switched off.
+              </Text>
+            ) : (
+              <Text size="xs" className="text-text-muted">
+                No room is bound yet — you&apos;ll be asked to pick one.
+              </Text>
+            )}
 
             <Button
               size="xs"

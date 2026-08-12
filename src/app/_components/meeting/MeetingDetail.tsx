@@ -198,6 +198,7 @@ export function MeetingDetail({
             <PostToMatrixButton
               meetingId={session.id}
               workspaceId={session.workspaceId ?? null}
+              projectId={session.projectId ?? null}
             />
           }
         />

@@ -6,6 +6,7 @@ import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
 import { Team } from "./Team";
+import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
 // import { Plan } from "./Plan";
 import { OutcomesTable } from "./OutcomesTable";
 import { OutcomeTimeline } from "./OutcomeTimeline";
@@ -1029,6 +1030,30 @@ export function ProjectContent({
                   fullWidth
                   disabled={updateBountiesMutation.isPending}
                 />
+              </Stack>
+            </Card>
+          </Stack>
+
+          {/* Matrix room binding */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconMessageCircle size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                MATRIX ROOM
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Where this project&apos;s meeting summaries are posted. Posting is
+                  always a manual click — nothing is sent automatically.
+                </Text>
+                {workspaceId && resolvedProjectId && (
+                  <MatrixRoomBinding
+                    workspaceId={workspaceId}
+                    projectId={resolvedProjectId}
+                  />
+                )}
               </Stack>
             </Card>
           </Stack>
