@@ -21,6 +21,7 @@ import {
 } from "~/utils/avatarColors";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { collapseMentions, expandMentions } from "~/lib/content/mentionText";
 import type { FeatureCommentRow } from "~/app/_components/prd/PrdCommentsPanel";
 import type { ThreadStatus } from "~/lib/prd/thread-reconciliation";
 import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
@@ -122,14 +123,19 @@ export function PrdThreadPopover({
 
   const startEdit = (c: FeatureCommentRow) => {
     setEditingId(c.id);
-    setEditValue(c.body);
+    setEditValue(
+      mentionCandidates ? collapseMentions(c.body, mentionCandidates) : c.body,
+    );
   };
 
   const saveEdit = async () => {
     if (!editingId || !editValue.trim()) return;
     setSavingEdit(true);
     try {
-      await onEdit(editingId, editValue.trim());
+      const body = mentionCandidates
+        ? expandMentions(editValue.trim(), mentionCandidates)
+        : editValue.trim();
+      await onEdit(editingId, body);
       setEditingId(null);
     } finally {
       setSavingEdit(false);

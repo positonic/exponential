@@ -20,6 +20,13 @@ interface MarkdownInputProps {
   maxRows?: number;
   /** Names rendered as mention badges in the preview. */
   mentionNames?: string[];
+  /**
+   * What the Preview tab renders instead of `value`, when they differ — e.g.
+   * a composer that shows display-text mentions (`@Name`) while writing but
+   * submits canonical markup passes the expanded form here, so the preview
+   * matches what the feed will show.
+   */
+  previewContent?: string;
   /** Receives the underlying textarea element (for cursor/mention handling). */
   textareaRef?: (el: HTMLTextAreaElement | null) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -53,6 +60,7 @@ export function MarkdownInput({
   minRows = 3,
   maxRows = 10,
   mentionNames,
+  previewContent,
   textareaRef,
   onKeyDown,
   onPaste,
@@ -193,7 +201,7 @@ export function MarkdownInput({
         <div className="min-h-[4rem] rounded-md border border-border-primary bg-surface-secondary px-3 py-2">
           {value.trim() ? (
             <MarkdownRenderer
-              content={value}
+              content={previewContent ?? value}
               variant="compact"
               mentionNames={mentionNames}
             />
