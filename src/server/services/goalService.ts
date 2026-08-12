@@ -5,6 +5,7 @@ import {
   canEditWorkspaceContent,
 } from "~/server/services/access/resolvers/workspaceResolver";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 /**
  * Verifies the current user has access to the given goal.
@@ -16,7 +17,9 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
 
   const goal = await ctx.db.goal.findUnique({
     where: { id: goalId },
-    select: { id: true, userId: true, driUserId: true, workspaceId: true },
+    // `title` rides along for the activity-feed write sites (bare rows carry
+    // the objective title) so instrumented callers don't re-fetch the row.
+    select: { id: true, userId: true, driUserId: true, workspaceId: true, title: true },
   });
 
   if (!goal) throw new Error("Goal not found");
@@ -61,7 +64,7 @@ export async function createGoalUpdate({
   content: string;
   health: GoalUpdateHealth;
 }) {
-  await verifyGoalAccess({ ctx, goalId });
+  const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
@@ -88,6 +91,23 @@ export async function createGoalUpdate({
     }),
   ]);
 
+  // Surface the posted update in the workspace feed — distinct from comment
+  // events. This seam covers both the human router and Zoe's mastra proxy
+  // (ADR-0016). metadata.goalId is the drawer target; personal objectives are
+  // silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId,
+      entityType: "goal_update",
+      entityId: update.id,
+      action: "created",
+      metadata: { title: goal.title, goalId },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
   return update;
 }
 
@@ -111,12 +131,12 @@ export async function createGoalComment({
   content: string;
   parentUpdateId?: string | null;
 }) {
-  await verifyGoalAccess({ ctx, goalId });
+  const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
 
-  return ctx.db.goalComment.create({
+  const comment = await ctx.db.goalComment.create({
     data: {
       goalId,
       authorId: userId,
@@ -127,6 +147,24 @@ export async function createGoalComment({
       author: { select: { id: true, name: true, image: true } },
     },
   });
+
+  // Surface the comment in the workspace feed. This seam covers both the
+  // human router and Zoe's mastra proxy (ADR-0016). metadata.goalId is the
+  // drawer target; personal objectives are silent. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId,
+      entityType: "goal_comment",
+      entityId: comment.id,
+      action: "created",
+      metadata: { title: goal.title, goalId },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return comment;
 }
 
 export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
@@ -196,7 +234,7 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
     await assertCanPlaceGoalInWorkspace({ ctx, workspaceId: input.workspaceId });
   }
 
-  return await ctx.db.goal.create({
+  const goal = await ctx.db.goal.create({
     data: {
       title: input.title,
       description: input.description,
@@ -225,6 +263,24 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       outcomes: true,
     },
   });
+
+  // Surface workspace-scoped objective creation in the activity feed. This
+  // seam covers every service caller (Zoe's mastra proxies included);
+  // personal objectives are silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId: ctx.session.user.id,
+      entityType: "goal",
+      entityId: String(goal.id),
+      action: "created",
+      metadata: { title: goal.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return goal;
 }
 
 /**
@@ -397,7 +453,7 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     data.outcomes = { set: input.outcomeIds.map((id) => ({ id })) };
   }
 
-  return await ctx.db.goal.update({
+  const updated = await ctx.db.goal.update({
     where: {
       id: input.id,
     },
@@ -408,6 +464,29 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
       outcomes: true,
     },
   });
+
+  // One event per lifecycle status change — `completed` on the transition into
+  // completed, `status_changed` otherwise. Plain field edits are silent, as are
+  // personal objectives (guarded on the post-update workspace, so a goal moved
+  // out of its workspace in the same call logs nothing). Fire-and-forget.
+  if (
+    input.status !== undefined &&
+    input.status !== existingGoal.status &&
+    updated.workspaceId
+  ) {
+    await recordActivity(ctx.db, {
+      workspaceId: updated.workspaceId,
+      userId: ctx.session.user.id,
+      entityType: "goal",
+      entityId: String(updated.id),
+      action: input.status === "completed" ? "completed" : "status_changed",
+      metadata: { title: updated.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return updated;
 }
 
 /**
@@ -697,11 +776,29 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
-  await verifyGoalAccess({ ctx, goalId: input.id });
+  // The access check already fetches the title + workspaceId the feed row
+  // needs, captured here before the row is gone.
+  const goal = await verifyGoalAccess({ ctx, goalId: input.id });
 
-  return await ctx.db.goal.delete({
+  const deleted = await ctx.db.goal.delete({
     where: { id: input.id },
   });
+
+  // Personal objectives are silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId: ctx.session?.user?.id ?? null,
+      entityType: "goal",
+      entityId: String(input.id),
+      action: "deleted",
+      metadata: { title: goal.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return deleted;
 }
 
 export async function updateGoalIcon({ ctx, input }: { ctx: Context; input: { id: number; icon: string | null; iconColor: string | null } }) {

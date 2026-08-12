@@ -33,10 +33,27 @@ describe("resolveFeedHint", () => {
     expect(completed.iconKind).toBe("milestone");
   });
 
-  it("renders goal completion as a milestone", () => {
+  it("renders objective completion as a milestone with glossary copy", () => {
     const hint = resolveFeedHint("goal", "completed");
     expect(hint.iconKind).toBe("milestone");
-    expect(hint.template).toBe("{actor} completed goal {entityRef}");
+    // Glossary: rendered copy says "objective", never the stored "goal".
+    expect(hint.template).toBe("{actor} completed objective {entityRef}");
+  });
+
+  it("renders objective create/status/delete with glossary copy and namesake icons", () => {
+    const created = resolveFeedHint("goal", "created");
+    expect(created.template).toBe("{actor} created objective {entityRef}");
+    expect(created.iconKind).toBe("created");
+
+    const statusChanged = resolveFeedHint("goal", "status_changed");
+    expect(statusChanged.template).toBe(
+      "{actor} changed status on objective {entityRef}",
+    );
+    expect(statusChanged.iconKind).toBe("status_changed");
+
+    const deleted = resolveFeedHint("goal", "deleted");
+    expect(deleted.template).toBe("{actor} deleted objective {entityRef}");
+    expect(deleted.iconKind).toBe("deleted");
   });
 
   it("renders a workspace member join with the joiner as actor", () => {
@@ -75,6 +92,22 @@ describe("resolveFeedHint", () => {
     expect(hint.template).toContain("{entityRef}");
   });
 
+  it("renders KR create/delete with glossary copy and namesake icons", () => {
+    const created = resolveFeedHint("key_result", "created");
+    expect(created.template).toBe("{actor} created key result {entityRef}");
+    expect(created.iconKind).toBe("created");
+
+    const deleted = resolveFeedHint("key_result", "deleted");
+    expect(deleted.template).toBe("{actor} deleted key result {entityRef}");
+    expect(deleted.iconKind).toBe("deleted");
+
+    const statusChanged = resolveFeedHint("key_result", "status_changed");
+    expect(statusChanged.template).toBe(
+      "{actor} changed status on key result {entityRef}",
+    );
+    expect(statusChanged.iconKind).toBe("status_changed");
+  });
+
   it("renders feature events as readable sentences, not the fallback", () => {
     const created = resolveFeedHint("feature", "created");
     expect(created.template).toBe("{actor} created feature {entityRef}");
@@ -89,6 +122,49 @@ describe("resolveFeedHint", () => {
       "{actor} changed status on feature {entityRef}",
     );
     expect(statusChanged.iconKind).toBe("status_changed");
+  });
+
+  it("renders objective updates distinctly from comments", () => {
+    const update = resolveFeedHint("goal_update", "created");
+    expect(update.template).toBe(
+      "{actor} posted an update on objective {entityRef}",
+    );
+    expect(update.iconKind).toBe("created");
+
+    const goalComment = resolveFeedHint("goal_comment", "created");
+    expect(goalComment.template).toBe(
+      "{actor} commented on objective {entityRef}",
+    );
+    expect(goalComment.iconKind).toBe("commented");
+
+    const krComment = resolveFeedHint("key_result_comment", "created");
+    expect(krComment.template).toBe(
+      "{actor} commented on key result {entityRef}",
+    );
+    expect(krComment.iconKind).toBe("commented");
+  });
+
+  it("renders a KR check-in with glossary copy and the tracked icon", () => {
+    const hint = resolveFeedHint("key_result", "checked_in");
+    expect(hint.template).toBe("{actor} checked in on key result {entityRef}");
+    // Glossary: rendered copy says "key result", never the stored entityType.
+    expect(hint.iconKind).toBe("tracked");
+    expect(hint.iconKind).not.toBe("fallback");
+    expect(hint.template).toContain("{entityRef}");
+  });
+
+  it("renders the weekly check-in ritual with the team name as entityRef", () => {
+    const submitted = resolveFeedHint("okr_checkin", "checked_in");
+    expect(submitted.template).toBe(
+      "{actor} submitted their OKR check-in for {entityRef}",
+    );
+    expect(submitted.iconKind).toBe("tracked");
+
+    const completed = resolveFeedHint("okr_checkin", "completed");
+    expect(completed.template).toBe(
+      "{actor} completed the OKR check-in for {entityRef}",
+    );
+    expect(completed.iconKind).toBe("milestone");
   });
 
   it("renders feature scope events against the parent feature's name", () => {

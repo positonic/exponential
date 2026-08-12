@@ -14,7 +14,9 @@ export type ActivityAction =
   | "commented"
   | "summarized"
   | "synced"
-  | "reverted";
+  | "reverted"
+  | "checked_in"
+  | "deleted";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -31,6 +33,11 @@ export type ActivityEntityType =
   | "insight_comment"
   | "project"
   | "goal"
+  | "goal_update"
+  | "goal_comment"
+  | "key_result"
+  | "key_result_comment"
+  | "okr_checkin"
   | "weekly_review"
   | "workspace_member"
   | "deal"
