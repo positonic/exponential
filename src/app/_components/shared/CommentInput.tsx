@@ -11,6 +11,7 @@ import {
 import { MentionDropdown } from "~/app/_components/MentionDropdown";
 import { useImagePaste } from "~/hooks/useImagePaste";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { expandMentions } from "~/lib/content/mentionText";
 
 interface CommentInputProps {
   onSubmit: (content: string) => Promise<void>;
@@ -59,8 +60,14 @@ export function CommentInput({
     const trimmedContent = content.trim();
     if (!trimmedContent) return;
 
+    // The textarea shows display-text mentions (@Name); the stored comment
+    // carries the canonical @[Name](id) markup the server and renderer expect.
+    const outgoing = hasMentions
+      ? expandMentions(trimmedContent, mentionCandidates ?? [])
+      : trimmedContent;
+
     try {
-      await onSubmit(trimmedContent);
+      await onSubmit(outgoing);
       setContent("");
     } catch {
       notifications.show({
@@ -69,7 +76,7 @@ export function CommentInput({
         color: "red",
       });
     }
-  }, [content, onSubmit, setContent]);
+  }, [content, hasMentions, mentionCandidates, onSubmit, setContent]);
 
   const handleChange = useCallback(
     (value: string, cursorPos: number) => {
@@ -148,6 +155,9 @@ export function CommentInput({
         maxRows={6}
         disabled={isSubmitting || isUploading}
         mentionNames={mentionNames}
+        previewContent={
+          hasMentions ? expandMentions(content, mentionCandidates ?? []) : undefined
+        }
         textareaRef={(el) => (textareaRef.current = el)}
         rightSection={
           <ActionIcon

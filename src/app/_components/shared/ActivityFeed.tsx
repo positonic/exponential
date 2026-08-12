@@ -35,6 +35,7 @@ import type {
   ActivityFilter,
   StatusOption,
 } from "./activityTypes";
+import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 
 const QUICK_EMOJIS = ["👍", "👎", "❤️", "🎉", "🚀", "👀", "💯", "🙌"];
 
@@ -62,6 +63,8 @@ interface ActivityFeedProps {
 
   statusOptions?: StatusOption[];
   mentionNames?: string[];
+  /** Enables display-text mentions in inline edit and reply composers. */
+  mentionCandidates?: MentionCandidate[];
   emptyMessage?: string;
 }
 
@@ -78,6 +81,7 @@ export function ActivityFeed({
   onEditReply,
   statusOptions,
   mentionNames,
+  mentionCandidates,
   emptyMessage = "No activity yet. Post an update or leave a comment to get started.",
 }: ActivityFeedProps) {
   const visible =
@@ -111,6 +115,7 @@ export function ActivityFeed({
             onEditReply={onEditReply}
             statusOptions={statusOptions}
             mentionNames={mentionNames}
+            mentionCandidates={mentionCandidates}
           />
         ) : (
           <Card
@@ -129,6 +134,7 @@ export function ActivityFeed({
               onDeleteImage={onDeleteImage}
               currentUserId={currentUserId}
               mentionNames={mentionNames}
+              mentionCandidates={mentionCandidates}
             />
           </Card>
         ),
@@ -278,6 +284,7 @@ function UpdateThread({
   onEditReply,
   statusOptions,
   mentionNames,
+  mentionCandidates,
 }: {
   item: ActivityUpdate;
   currentUserId?: string;
@@ -287,6 +294,7 @@ function UpdateThread({
   onEditReply?: (id: string, content: string) => Promise<void>;
   statusOptions?: StatusOption[];
   mentionNames?: string[];
+  mentionCandidates?: MentionCandidate[];
 }) {
   const [showReply, setShowReply] = useState(false);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
@@ -398,6 +406,7 @@ function UpdateThread({
             onEditComment={onEditReply}
             currentUserId={currentUserId}
             mentionNames={mentionNames}
+            mentionCandidates={mentionCandidates}
           />
         </div>
       )}
@@ -409,6 +418,7 @@ function UpdateThread({
             onSubmit={handleAddReply}
             isSubmitting={isSubmittingReply}
             placeholder="Leave a reply..."
+            mentionCandidates={mentionCandidates}
           />
         </div>
       )}

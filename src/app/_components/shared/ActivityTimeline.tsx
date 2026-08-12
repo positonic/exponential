@@ -43,6 +43,7 @@ export function ActivityTimeline({
         onDeleteComment={activity.deleteComment}
         onEditComment={activity.editComment}
         mentionNames={mentionNames}
+        mentionCandidates={mentionCandidates}
         emptyMessage="No comments yet. Start the discussion!"
       />
       <ActivityComposer

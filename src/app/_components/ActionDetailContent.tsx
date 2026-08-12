@@ -447,6 +447,7 @@ export function ActionDetailContent({
             onEditComment={activity.editComment}
             onDeleteImage={activity.deleteImage}
             mentionNames={activity.mentionNames}
+            mentionCandidates={activity.mentionCandidates}
             emptyMessage="No comments yet. Start the discussion!"
           />
 

@@ -153,6 +153,7 @@ export function PrdCommentsPanel({
           comments={toThreadComments(rootRows)}
           currentUserId={currentUserId}
           mentionNames={mentionNames}
+          mentionCandidates={mentionCandidates}
           variant="inline"
           emptyMessage={null}
         />
@@ -163,6 +164,7 @@ export function PrdCommentsPanel({
               comments={toThreadComments(replyRows)}
               currentUserId={currentUserId}
               mentionNames={mentionNames}
+              mentionCandidates={mentionCandidates}
               variant="inline"
               emptyMessage={null}
             />
