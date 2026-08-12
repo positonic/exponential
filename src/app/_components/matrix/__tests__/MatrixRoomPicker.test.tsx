@@ -27,11 +27,25 @@ const queryHolder: {
 
 const acceptMutate = vi.fn();
 
+const createRoomMutate = vi.fn();
+
 vi.mock("~/trpc/react", () => ({
   api: {
     useUtils: () => ({
       matrixServer: { rooms: { invalidate: vi.fn() } },
     }),
+    matrixRoom: {
+      invitableMembers: {
+        useQuery: () => ({ data: [], isLoading: false, error: null }),
+      },
+      createRoom: {
+        useMutation: () => ({
+          mutate: createRoomMutate,
+          isPending: false,
+          error: null,
+        }),
+      },
+    },
     matrixServer: {
       rooms: {
         useQuery: () => queryHolder.current,
@@ -86,6 +100,8 @@ describe("MatrixRoomPicker", () => {
     renderPicker();
 
     expect(screen.getByText(/has not joined any rooms yet/i)).toBeTruthy();
+    // Creating one is now the offered way out of that state.
+    expect(screen.getByText("Create an unencrypted room")).toBeTruthy();
   });
 
   test("surfaces a homeserver failure instead of showing an empty list", () => {

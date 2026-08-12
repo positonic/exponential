@@ -41,6 +41,12 @@ vi.mock("~/trpc/react", () => ({
       },
     },
     matrixRoom: {
+      invitableMembers: {
+        useQuery: () => ({ data: [], isLoading: false, error: null }),
+      },
+      createRoom: {
+        useMutation: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+      },
       getBinding: {
         useQuery: () => ({
           data: { mode: "inherit", room: null, effective: state.effective },

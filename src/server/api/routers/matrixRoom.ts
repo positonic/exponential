@@ -26,6 +26,9 @@ import {
 import { OUTBOUND } from "~/server/services/channelLinkService";
 import { MATRIX_CHANNEL_PROVIDER } from "~/server/services/matrix/constants";
 import { resolveMatrixDestination } from "~/server/services/matrix/resolveMatrixDestination";
+import { getMatrixClientForServer } from "~/server/services/matrix/matrixServer";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
+import { reportHandledError } from "~/lib/reportHandledError";
 
 /** A project lead configures their own project's room; only admins set the default. */
 async function assertCanBind(
@@ -268,6 +271,129 @@ export const matrixRoomRouter = createTRPCRouter({
         },
       });
       return { off: true };
+    }),
+
+  /**
+   * Workspace members whose Matrix ID we know, so they can be invited to a new room.
+   *
+   * The only source of MXIDs is `IntegrationUserMapping` under the *shared gateway*
+   * integration — that mapping is created when someone pairs their Matrix account for
+   * DMs. So this lists people who have paired, which is a smaller set than "workspace
+   * members" and is worth saying plainly in the UI rather than silently omitting people.
+   */
+  invitableMembers: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+      if (!membership) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace.",
+        });
+      }
+
+      const gateway = await ctx.db.integration.findFirst({
+        where: SHARED_MATRIX_INTEGRATION_WHERE,
+        select: { id: true },
+      });
+      if (!gateway) return [];
+
+      const members = await ctx.db.workspaceUser.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: { userId: true, user: { select: { name: true, email: true } } },
+      });
+
+      const mappings = await ctx.db.integrationUserMapping.findMany({
+        where: {
+          integrationId: gateway.id,
+          userId: { in: members.map((m) => m.userId) },
+        },
+        select: { userId: true, externalUserId: true },
+      });
+
+      const byUser = new Map(mappings.map((m) => [m.userId, m.externalUserId]));
+
+      return members.flatMap((member) => {
+        const mxid = byUser.get(member.userId);
+        if (!mxid) return [];
+        return [
+          {
+            userId: member.userId,
+            mxid,
+            name: member.user.name ?? member.user.email ?? mxid,
+          },
+        ];
+      });
+    }),
+
+  /**
+   * Create an unencrypted room, invite people, and bind it — in that order.
+   *
+   * The order matters for failure: nothing is bound until the room demonstrably exists,
+   * so a homeserver that refuses cannot leave a project pointing at a room that was
+   * never created. Invites are best-effort *after* creation, because a single bad MXID
+   * should not throw away a room that already exists and is already usable.
+   */
+  createRoom: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string().nullable().optional(),
+        serverId: z.string(),
+        name: z.string().trim().min(1).max(100),
+        inviteMxids: z.array(z.string()).max(50).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const projectId = input.projectId ?? null;
+      await assertCanBind(ctx.db, ctx.session.user.id, input.workspaceId, projectId);
+
+      const { client, config } = await getMatrixClientForServer(
+        ctx.db,
+        input.serverId,
+        input.workspaceId,
+      );
+
+      let roomId: string;
+      try {
+        ({ roomId } = await client.createRoom({
+          name: input.name,
+          invite: input.inviteMxids ?? [],
+        }));
+      } catch (error) {
+        reportHandledError(error, {
+          area: "matrix-create-room",
+          context: { homeserverUrl: config.homeserverUrl, serverId: input.serverId },
+        });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error
+              ? `The homeserver could not create the room: ${error.message}`
+              : "The homeserver could not create the room.",
+        });
+      }
+
+      // Only now is there something worth binding.
+      const link = await ctx.db.channelLink.create({
+        data: {
+          provider: MATRIX_CHANNEL_PROVIDER,
+          direction: OUTBOUND,
+          externalId: roomId,
+          displayName: input.name,
+          workspaceId: input.workspaceId,
+          projectId,
+          isActive: true,
+          serverIntegrationId: input.serverId,
+          createdById: ctx.session.user.id,
+        },
+      });
+
+      return { roomId, name: input.name, channelLinkId: link.id };
     }),
 
   /** Back to Inherit: remove the row entirely so resolution falls through again. */

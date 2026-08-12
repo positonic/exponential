@@ -345,3 +345,52 @@ describe("MatrixClient.join", () => {
     });
   });
 });
+
+describe("MatrixClient.createRoom", () => {
+  it("creates a private room with NO encryption initial state", async () => {
+    fetchMock.mockResolvedValue(OK({ room_id: "!new:example.org" }));
+
+    await expect(
+      makeClient().createRoom({ name: "Project updates", invite: ["@a:example.org"] }),
+    ).resolves.toEqual({ roomId: "!new:example.org" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://matrix.example.org/_matrix/client/v3/createRoom");
+    expect((init as RequestInit).method).toBe("POST");
+
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      preset: string;
+      invite: string[];
+      initial_state: { type?: string }[];
+      name: string;
+    };
+    expect(body.name).toBe("Project updates");
+    expect(body.preset).toBe("private_chat");
+    expect(body.invite).toEqual(["@a:example.org"]);
+    // The omission IS the feature. Encryption is irreversible, so an m.room.encryption
+    // event here would permanently lock the bot out of the room it just made.
+    expect(body.initial_state).toEqual([]);
+    expect(
+      body.initial_state.some((event) => event.type === "m.room.encryption"),
+    ).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("m.room.encryption");
+  });
+
+  it("works with no invitees", async () => {
+    fetchMock.mockResolvedValue(OK({ room_id: "!solo:example.org" }));
+    await expect(makeClient().createRoom({ name: "Solo" })).resolves.toEqual({
+      roomId: "!solo:example.org",
+    });
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ) as { invite: string[] };
+    expect(body.invite).toEqual([]);
+  });
+
+  it("treats a response without a room id as a failure, not a silent success", async () => {
+    fetchMock.mockResolvedValue(OK({}));
+    await expect(makeClient().createRoom({ name: "Nope" })).rejects.toThrow(
+      /created no room/i,
+    );
+  });
+});
