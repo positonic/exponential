@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/
 import { TRPCError } from "@trpc/server";
 import { generateSecureToken, generateTeamInviteUrl } from "~/server/utils/tokens";
 import { sendTeamInvitationEmail } from "~/server/services/EmailService";
+import { reportHandledError } from "~/lib/reportHandledError";
 
 export const teamRouter = createTRPCRouter({
   // Create a new team
@@ -322,6 +323,10 @@ export const teamRouter = createTRPCRouter({
           inviteUrl,
         }).catch((err: unknown) => {
           console.error("[team.addMember] Failed to send invitation email:", err);
+          reportHandledError(err, {
+            area: "team-invitation-email",
+            context: { teamId: input.teamId, recipientEmail: input.email },
+          });
         });
 
         return {
@@ -669,6 +674,13 @@ export const teamRouter = createTRPCRouter({
         inviteUrl,
       }).catch((err: unknown) => {
         console.error("[team.resendInvitation] Failed to send invitation email:", err);
+        reportHandledError(err, {
+          area: "team-invitation-email",
+          context: {
+            teamId: invitation.teamId,
+            recipientEmail: invitation.email,
+          },
+        });
       });
 
       return {

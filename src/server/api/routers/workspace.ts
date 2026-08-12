@@ -36,6 +36,7 @@ import {
   DigestRateLimitError,
 } from "~/server/services/activity/weeklyWorkDigest/digest";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { reportHandledError } from "~/lib/reportHandledError";
 import {
   getOrGenerateWeeklyNarrative,
   NarrativeRateLimitError,
@@ -663,6 +664,13 @@ export const workspaceRouter = createTRPCRouter({
                 "[workspace.addMember] Failed to send member-added email:",
                 err,
               );
+              reportHandledError(err, {
+                area: "workspace-member-added-email",
+                context: {
+                  workspaceId: input.workspaceId,
+                  recipientEmail: newMember.user.email ?? "",
+                },
+              });
             });
           }
         }
@@ -744,6 +752,10 @@ export const workspaceRouter = createTRPCRouter({
           inviteUrl,
         }).catch((err: unknown) => {
           console.error("[workspace.addMember] Failed to send invitation email:", err);
+          reportHandledError(err, {
+            area: "workspace-invitation-email",
+            context: { workspaceId: input.workspaceId, recipientEmail: input.email },
+          });
         });
 
         return {
@@ -1162,6 +1174,13 @@ export const workspaceRouter = createTRPCRouter({
         inviteUrl,
       }).catch((err: unknown) => {
         console.error("[workspace.resendInvitation] Failed to send invitation email:", err);
+        reportHandledError(err, {
+          area: "workspace-invitation-email",
+          context: {
+            workspaceId: invitation.workspaceId,
+            recipientEmail: invitation.email,
+          },
+        });
       });
 
       return {
