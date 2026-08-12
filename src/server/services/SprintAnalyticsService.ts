@@ -96,6 +96,57 @@ export interface PrTurnaroundResult {
   medianHours: number | null;
 }
 
+/**
+ * One cycle's roll-up in the all-cycles view: the same Ticket-based numbers as
+ * {@link CycleTicketMetricsResult}, plus that cycle's merged-PR turnaround, so
+ * a single request can plot every metric against every cycle.
+ */
+export interface CycleMetricsPoint {
+  cycleId: string;
+  cycleName: string;
+  status: string; // ListStatus (ACTIVE / COMPLETED / PLANNED / …)
+  startDate: Date | null;
+  endDate: Date | null;
+  totalTickets: number;
+  completedTickets: number;
+  completedPoints: number;
+  totalPoints: number;
+  completionRate: number;
+  mergedPrCount: number;
+  /** Avg opened→merged hours for PRs merged in this cycle's window. */
+  avgPrHours: number | null;
+}
+
+/**
+ * Workspace-wide metrics across **all** cycles: the summed/overall figures for
+ * the headline, plus the per-cycle series behind them.
+ */
+export interface AllCyclesMetricsResult {
+  /** Number of cycles in the series (i.e. cycles that hold at least one ticket). */
+  cycleCount: number;
+  totalTickets: number;
+  completedTickets: number;
+  completedPoints: number;
+  totalPoints: number;
+  /** Overall completedTickets / totalTickets, as a percentage. */
+  completionRate: number;
+  /** PRs merged inside any cycle window, deduped across overlapping windows. */
+  mergedPrCount: number;
+  avgPrHours: number | null;
+  medianPrHours: number | null;
+  /** Chronological, oldest → newest, for the trend chart. */
+  cycles: CycleMetricsPoint[];
+}
+
+/** A merged PR with its opened→merged duration, when measurable. */
+interface MergedPrDuration {
+  /** `${repoFullName}#${prNumber}` — the dedup key. */
+  key: string;
+  mergedAt: Date;
+  /** Null when no `opened` event was captured for the PR. */
+  hours: number | null;
+}
+
 export interface VelocityHistoryPoint {
   sprintId: string;
   sprintName: string;
@@ -116,6 +167,32 @@ const KANBAN_STATUSES: ActionStatus[] = [
   "DONE",
   "CANCELLED",
 ];
+
+/**
+ * Reduce a set of merged PRs to count + avg/median turnaround. PRs without a
+ * measurable duration still count toward `mergedPrCount`; avg/median stay null
+ * when none are measurable (no NaN from an empty average).
+ */
+function summarizePrDurations(prs: MergedPrDuration[]): PrTurnaroundResult {
+  const durations = prs
+    .map((pr) => pr.hours)
+    .filter((h): h is number => h != null);
+
+  if (durations.length === 0) {
+    return { mergedPrCount: prs.length, avgHours: null, medianHours: null };
+  }
+
+  const avgHours = durations.reduce((sum, h) => sum + h, 0) / durations.length;
+
+  const sorted = [...durations].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const medianHours =
+    sorted.length % 2 === 0
+      ? (sorted[mid - 1]! + sorted[mid]!) / 2
+      : sorted[mid]!;
+
+  return { mergedPrCount: prs.length, avgHours, medianHours };
+}
 
 export class SprintAnalyticsService {
   constructor(private prisma: PrismaClient) {}
@@ -533,13 +610,34 @@ export class SprintAnalyticsService {
 
     if (!list.startDate || !list.endDate || !list.workspaceId) return empty;
 
-    // PRs merged within the cycle window.
+    const prs = await this.getMergedPrDurations(list.workspaceId, {
+      start: list.startDate,
+      end: list.endDate,
+    });
+
+    return summarizePrDurations(prs);
+  }
+
+  /**
+   * Merged PRs for a workspace with their opened→merged duration, deduped by
+   * (repo, PR number). Optionally restricted to a merge-time window.
+   *
+   * Shared by the single-cycle {@link getPrTurnaround} (window-scoped, two
+   * queries) and the all-cycles roll-up (one unscoped pass, then bucketed per
+   * cycle in memory rather than 2N queries).
+   */
+  private async getMergedPrDurations(
+    workspaceId: string,
+    window?: { start: Date; end: Date },
+  ): Promise<MergedPrDuration[]> {
     const mergedRows = await this.prisma.gitHubActivity.findMany({
       where: {
-        workspaceId: list.workspaceId,
+        workspaceId,
         eventType: "pull_request",
         prNumber: { not: null },
-        prMergedAt: { gte: list.startDate, lte: list.endDate },
+        prMergedAt: window
+          ? { gte: window.start, lte: window.end }
+          : { not: null },
       },
       select: { prNumber: true, repoFullName: true, prMergedAt: true },
     });
@@ -562,7 +660,7 @@ export class SprintAnalyticsService {
       }
     }
 
-    if (mergedByPr.size === 0) return empty;
+    if (mergedByPr.size === 0) return [];
 
     const merged = [...mergedByPr.values()];
     const prNumbers = [...new Set(merged.map((m) => m.prNumber))];
@@ -571,7 +669,7 @@ export class SprintAnalyticsService {
     // Opened events for those PRs → earliest opened timestamp per PR.
     const openedRows = await this.prisma.gitHubActivity.findMany({
       where: {
-        workspaceId: list.workspaceId,
+        workspaceId,
         eventType: "pull_request",
         eventAction: "opened",
         prNumber: { in: prNumbers },
@@ -590,34 +688,155 @@ export class SprintAnalyticsService {
       }
     }
 
-    const durationsHours: number[] = [];
-    for (const [key, { mergedAt }] of mergedByPr) {
+    return [...mergedByPr.entries()].map(([key, { mergedAt }]) => {
       const openedAt = openedByPr.get(key);
-      if (!openedAt) continue; // no opened event captured → not measurable
-      const ms = mergedAt.getTime() - openedAt.getTime();
-      if (ms < 0) continue;
-      durationsHours.push(ms / (1000 * 60 * 60));
+      // No opened event captured (or a clock-skewed negative) → not measurable,
+      // but the PR still counts toward mergedPrCount.
+      const ms = openedAt ? mergedAt.getTime() - openedAt.getTime() : null;
+      return {
+        key,
+        mergedAt,
+        hours: ms != null && ms >= 0 ? ms / (1000 * 60 * 60) : null,
+      };
+    });
+  }
+
+  /**
+   * Every cycle's metrics for a workspace in one request, plus the summed
+   * all-cycles roll-up that heads the Metrics page.
+   *
+   * Same Ticket-based definitions as {@link getCycleTicketMetrics} (ADR-0047),
+   * but batched: one query for the cycles, one for all their tickets, and one
+   * pass over the workspace's merged PRs — not 3N queries. Cycles holding no
+   * tickets are dropped from the series so an auto-generated empty future cycle
+   * doesn't flatten the chart.
+   */
+  async getAllCyclesMetrics(
+    workspaceId: string,
+  ): Promise<AllCyclesMetricsResult> {
+    const empty: AllCyclesMetricsResult = {
+      cycleCount: 0,
+      totalTickets: 0,
+      completedTickets: 0,
+      completedPoints: 0,
+      totalPoints: 0,
+      completionRate: 0,
+      mergedPrCount: 0,
+      avgPrHours: null,
+      medianPrHours: null,
+      cycles: [],
+    };
+
+    const cycles = await this.prisma.list.findMany({
+      where: { workspaceId, listType: "SPRINT" },
+      // Chronological for the trend chart; undated cycles fall to the end.
+      orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+
+    if (cycles.length === 0) return empty;
+
+    const tickets = await this.prisma.ticket.findMany({
+      where: { cycleId: { in: cycles.map((c) => c.id) } },
+      select: { cycleId: true, status: true, points: true },
+    });
+
+    const ticketsByCycle = new Map<
+      string,
+      { total: number; completed: number; completedPoints: number; totalPoints: number }
+    >();
+    for (const ticket of tickets) {
+      if (!ticket.cycleId) continue;
+      const bucket = ticketsByCycle.get(ticket.cycleId) ?? {
+        total: 0,
+        completed: 0,
+        completedPoints: 0,
+        totalPoints: 0,
+      };
+      const points = ticket.points ?? 0;
+      bucket.total += 1;
+      bucket.totalPoints += points;
+      if (COMPLETED_TICKET_STATUSES.has(ticket.status)) {
+        bucket.completed += 1;
+        bucket.completedPoints += points;
+      }
+      ticketsByCycle.set(ticket.cycleId, bucket);
     }
 
-    if (durationsHours.length === 0) {
-      // PRs merged in-window, but none had a captured opened event to measure.
-      return { mergedPrCount: mergedByPr.size, avgHours: null, medianHours: null };
+    const allPrs = await this.getMergedPrDurations(workspaceId);
+
+    const points: CycleMetricsPoint[] = [];
+    // PRs counted in at least one cycle window, so overlapping windows don't
+    // double-count them in the roll-up.
+    const prsInAnyCycle = new Map<string, MergedPrDuration>();
+
+    for (const cycle of cycles) {
+      const bucket = ticketsByCycle.get(cycle.id);
+      if (!bucket) continue; // empty cycle — nothing to plot
+
+      const cyclePrs =
+        cycle.startDate && cycle.endDate
+          ? allPrs.filter(
+              (pr) =>
+                pr.mergedAt >= cycle.startDate! && pr.mergedAt <= cycle.endDate!,
+            )
+          : [];
+      for (const pr of cyclePrs) prsInAnyCycle.set(pr.key, pr);
+      const cyclePrSummary = summarizePrDurations(cyclePrs);
+
+      points.push({
+        cycleId: cycle.id,
+        cycleName: cycle.name,
+        status: cycle.status,
+        startDate: cycle.startDate,
+        endDate: cycle.endDate,
+        totalTickets: bucket.total,
+        completedTickets: bucket.completed,
+        completedPoints: bucket.completedPoints,
+        totalPoints: bucket.totalPoints,
+        completionRate:
+          bucket.total > 0 ? (bucket.completed / bucket.total) * 100 : 0,
+        mergedPrCount: cyclePrSummary.mergedPrCount,
+        avgPrHours: cyclePrSummary.avgHours,
+      });
     }
 
-    const avgHours =
-      durationsHours.reduce((sum, h) => sum + h, 0) / durationsHours.length;
+    if (points.length === 0) return empty;
 
-    const sorted = [...durationsHours].sort((a, b) => a - b);
-    const mid = Math.floor(sorted.length / 2);
-    const medianHours =
-      sorted.length % 2 === 0
-        ? (sorted[mid - 1]! + sorted[mid]!) / 2
-        : sorted[mid]!;
+    const totals = points.reduce(
+      (acc, p) => ({
+        totalTickets: acc.totalTickets + p.totalTickets,
+        completedTickets: acc.completedTickets + p.completedTickets,
+        completedPoints: acc.completedPoints + p.completedPoints,
+        totalPoints: acc.totalPoints + p.totalPoints,
+      }),
+      {
+        totalTickets: 0,
+        completedTickets: 0,
+        completedPoints: 0,
+        totalPoints: 0,
+      },
+    );
+
+    const prSummary = summarizePrDurations([...prsInAnyCycle.values()]);
 
     return {
-      mergedPrCount: mergedByPr.size,
-      avgHours,
-      medianHours,
+      cycleCount: points.length,
+      ...totals,
+      completionRate:
+        totals.totalTickets > 0
+          ? (totals.completedTickets / totals.totalTickets) * 100
+          : 0,
+      mergedPrCount: prSummary.mergedPrCount,
+      avgPrHours: prSummary.avgHours,
+      medianPrHours: prSummary.medianHours,
+      cycles: points,
     };
   }
 
