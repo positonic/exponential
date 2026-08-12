@@ -2,12 +2,19 @@
 
 import Link from 'next/link';
 import { Skeleton, UnstyledButton } from '@mantine/core';
-import { IconSquareRoundedCheck } from '@tabler/icons-react';
+import { IconSquareRoundedCheck, IconTicket } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import styles from './YourWorkPanel.module.css';
 
 type ActionRow = RouterOutputs['action']['getAll'][number];
+
+/** "IN_PROGRESS" → "In progress" for the row meta. */
+function ticketStatusLabel(status: string): string {
+  if (status === 'QA') return 'QA';
+  const lower = status.toLowerCase().replace(/_/g, ' ');
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
 
 /**
  * Due-date buckets, in display order. "This week" means within the next
@@ -50,6 +57,13 @@ export function YourWorkPanel() {
     { enabled: !!workspaceId },
   );
 
+  // Open tickets where I'm the assignee (Ticket.assigneeId), workspace-scoped.
+  const { data: tickets, isLoading: ticketsLoading } =
+    api.yourWork.assignedTickets.useQuery(
+      { workspaceId: workspaceId ?? '' },
+      { enabled: !!workspaceId },
+    );
+
   if (!workspaceId || !workspaceSlug) return null;
 
   const now = new Date();
@@ -73,7 +87,9 @@ export function YourWorkPanel() {
     shown += 1;
   }
 
-  if (!isLoading && active.length === 0) {
+  const openTickets = tickets ?? [];
+
+  if (!isLoading && !ticketsLoading && active.length === 0 && openTickets.length === 0) {
     // Nothing assigned yet — the panel stays out of the way. The team-pulse
     // empty state (feature action 5) takes over here.
     return null;
@@ -129,6 +145,37 @@ export function YourWorkPanel() {
               </div>
             );
           })}
+
+      {ticketsLoading ? (
+        <Skeleton height={34} mt={10} radius="sm" />
+      ) : (
+        openTickets.length > 0 && (
+          <div>
+            <div className={styles.bucketLabel}>Tickets</div>
+            {openTickets.map((ticket) => (
+              <UnstyledButton
+                key={ticket.id}
+                component={Link}
+                href={`/w/${workspaceSlug}/products/${ticket.product.slug}/tickets/${ticket.id}`}
+                className={styles.row}
+              >
+                <IconTicket
+                  size={14}
+                  stroke={1.75}
+                  style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+                />
+                <span className={styles.rowLabel}>{ticket.title}</span>
+                {ticket.shortId && (
+                  <span className={styles.rowMeta}>{ticket.shortId}</span>
+                )}
+                <span className={styles.rowMeta}>
+                  {ticketStatusLabel(ticket.status)}
+                </span>
+              </UnstyledButton>
+            ))}
+          </div>
+        )
+      )}
     </div>
   );
 }
