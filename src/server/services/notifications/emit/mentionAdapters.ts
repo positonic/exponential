@@ -106,6 +106,80 @@ async function resolveFeatureTarget(
 }
 
 /**
+ * Resolve an insight's workspace (via its product) plus its title and product
+ * slug — insights, like features, have no direct workspaceId.
+ */
+async function resolveInsightTarget(
+  db: PrismaClient,
+  insightId: string,
+): Promise<{
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  productSlug: string;
+  insightTitle: string;
+} | null> {
+  const insight = await db.insight.findUnique({
+    where: { id: insightId },
+    select: {
+      title: true,
+      product: {
+        select: {
+          slug: true,
+          workspace: { select: { id: true, slug: true, name: true } },
+        },
+      },
+    },
+  });
+  const ws = insight?.product?.workspace;
+  if (!insight || !ws) return null;
+  return {
+    workspaceId: ws.id,
+    workspaceSlug: ws.slug,
+    workspaceName: ws.name,
+    productSlug: insight.product.slug,
+    insightTitle: insight.title,
+  };
+}
+
+/** Emit a Mention notification for an InsightComment. */
+export async function emitInsightCommentMention(
+  db: PrismaClient,
+  params: {
+    insightId: string;
+    commentId: string;
+    commentContent: string;
+    commentAuthorId: string;
+    previousContent?: string;
+  },
+): Promise<void> {
+  try {
+    const target = await resolveInsightTarget(db, params.insightId);
+    if (!target) return;
+
+    const subject: MentionSubject = {
+      commentId: params.commentId,
+      commentContent: params.commentContent,
+      previousContent: params.previousContent,
+      workspaceId: target.workspaceId,
+      workspaceSlug: target.workspaceSlug,
+      workspaceName: target.workspaceName,
+      targetName: target.insightTitle,
+      targetPath: `/w/${target.workspaceSlug}/products/${target.productSlug}/insights/${params.insightId}`,
+    };
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      actorUserId: params.commentAuthorId,
+      subject,
+      db,
+    });
+  } catch (error) {
+    console.error("[emit/mentionAdapters] insight comment mention failed:", error);
+  }
+}
+
+/**
  * Emit a Mention notification for a FeatureComment (PRD body or one of its
  * scopes). Replaces the legacy `sendFeatureMentionNotifications`.
  */

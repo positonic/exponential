@@ -7,6 +7,7 @@ import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitInsightCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 
 // Loose shape for a ProseMirror document (same treatment as feature.ts).
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -707,7 +708,67 @@ export const insightRouter = createTRPCRouter({
         action: "created",
         metadata: { insightId: input.insightId, snippet: input.content.slice(0, 120) },
       });
+
+      // Fire-and-forget: notify mentioned workspace members via the pipeline.
+      void emitInsightCommentMention(ctx.db, {
+        insightId: input.insightId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
       return comment;
+    }),
+
+  updateComment: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.insightComment.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          authorId: true,
+          content: true,
+          insightId: true,
+          insight: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await assertWorkspaceMember(
+        ctx.db,
+        ctx.session.user.id,
+        comment.insight.product.workspaceId,
+      );
+      if (comment.authorId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only edit your own comments",
+        });
+      }
+      const updated = await ctx.db.insightComment.update({
+        where: { id: input.id },
+        data: { content: input.content },
+        include: { author: { select: { id: true, name: true, image: true } } },
+      });
+
+      // Fire-and-forget: notify mentions added by the edit. Passing the old
+      // content means already-notified users aren't pinged again.
+      void emitInsightCommentMention(ctx.db, {
+        insightId: comment.insightId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+        previousContent: comment.content,
+      });
+
+      return updated;
     }),
 
   deleteComment: protectedProcedure
