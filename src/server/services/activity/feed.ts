@@ -110,16 +110,28 @@ function readMetaString(metadata: unknown, key: string): string | null {
 }
 
 /**
+ * Entity types recorded for audit purposes but never shown on feed surfaces.
+ * Notion ticket-sync runs are operational noise at feed altitude — the synced
+ * tickets themselves already surface as regular ticket events.
+ */
+const HIDDEN_ENTITY_TYPES = ["ticket_sync_run"];
+
+/**
  * Translate a `source` filter into a Prisma `where` fragment. `undefined`/`all`
- * → no constraint; `internal` → everything except channel summaries; any other
- * value is treated as a provider → that provider's `channel_summary` rows.
+ * → only the hidden-type exclusion; `internal` → everything except channel
+ * summaries (and hidden types); any other value is treated as a provider →
+ * that provider's `channel_summary` rows.
  */
 function sourceWhere(
   source?: string,
 ): Prisma.WorkspaceActivityEventWhereInput {
-  if (!source || source === "all") return {};
+  if (!source || source === "all") {
+    return { entityType: { notIn: HIDDEN_ENTITY_TYPES } };
+  }
   if (source === "internal") {
-    return { entityType: { not: "channel_summary" } };
+    return {
+      entityType: { notIn: ["channel_summary", ...HIDDEN_ENTITY_TYPES] },
+    };
   }
   return {
     entityType: "channel_summary",
