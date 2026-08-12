@@ -1,12 +1,31 @@
 /* Getting started (welcome) page — ported from the design handoff
    (styles-onboarding.css) onto the app's semantic color tokens. */
 
-/* ===== View toggle (Chat / Checklist) ===== */
-.viewToggle {
+/* ===== Top bar (explore exit + view toggle) ===== */
+.topBar {
   position: absolute;
   top: 0;
   right: 0;
   z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.exploreLink {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.exploreLink:hover {
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+}
+
+/* ===== View toggle (Chat / Checklist) ===== */
+.viewToggle {
   display: flex;
   gap: 2px;
   background: var(--color-bg-secondary);

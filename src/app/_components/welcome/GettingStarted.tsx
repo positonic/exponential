@@ -6,6 +6,7 @@ import { Loader } from "@mantine/core";
 import { useWelcomeSetup } from "./useWelcomeSetup";
 import { WelcomeChatView } from "./WelcomeChatView";
 import { WelcomeChecklistView } from "./WelcomeChecklistView";
+import { COPY } from "./welcomeCopy";
 import styles from "./Welcome.module.css";
 
 type ViewMode = "chat" | "checklist";
@@ -50,27 +51,38 @@ export function GettingStarted() {
 
   return (
     <div style={{ position: "relative" }}>
-      <div className={styles.viewToggle} role="tablist" aria-label="Setup view">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "chat"}
-          className={view === "chat" ? styles.toggleOn : undefined}
-          onClick={() => switchView("chat")}
-        >
-          <IconMessageChatbot size={13} />
-          Chat
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "checklist"}
-          className={view === "checklist" ? styles.toggleOn : undefined}
-          onClick={() => switchView("checklist")}
-        >
-          <IconListCheck size={13} />
-          Checklist
-        </button>
+      <div className={styles.topBar}>
+        {!setup.allDone && (
+          <button
+            type="button"
+            className={styles.exploreLink}
+            onClick={() => void setup.exploreOnOwn()}
+          >
+            {COPY.chips.explore}
+          </button>
+        )}
+        <div className={styles.viewToggle} role="tablist" aria-label="Setup view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "chat"}
+            className={view === "chat" ? styles.toggleOn : undefined}
+            onClick={() => switchView("chat")}
+          >
+            <IconMessageChatbot size={13} />
+            Chat
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "checklist"}
+            className={view === "checklist" ? styles.toggleOn : undefined}
+            onClick={() => switchView("checklist")}
+          >
+            <IconListCheck size={13} />
+            Checklist
+          </button>
+        </div>
       </div>
       {view === "chat" ? (
         <WelcomeChatView setup={setup} />

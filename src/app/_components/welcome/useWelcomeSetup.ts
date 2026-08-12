@@ -59,6 +59,7 @@ export function useWelcomeSetup() {
   const router = useRouter();
 
   const { data, isLoading } = api.welcome.getSetup.useQuery();
+  const { data: defaultWorkspace } = api.workspace.getDefault.useQuery();
   const state = data?.state ?? null;
   const calendarConnected = data?.calendarConnected ?? false;
   // False while Google is verifying our calendar scopes and this user isn't an
@@ -229,6 +230,26 @@ export function useWelcomeSetup() {
     router.push("/today");
   }, [router]);
 
+  /**
+   * "I'll explore on my own" — a real exit, not a chat reply. Marks welcome
+   * complete (so /home stops bouncing back here for the 24h new-user window)
+   * and lands the user on their default workspace home.
+   */
+  const exploreOnOwn = useCallback(async () => {
+    if (!data?.welcomeCompletedAt && !completedRef.current) {
+      completedRef.current = true;
+      try {
+        await completeWelcome.mutateAsync();
+      } catch {
+        // onError resets completedRef so a later attempt can retry; still
+        // leave — the workspace home doesn't gate on welcome completion.
+      }
+    }
+    router.push(
+      defaultWorkspace?.slug ? `/w/${defaultWorkspace.slug}/home` : "/home",
+    );
+  }, [data, completeWelcome, defaultWorkspace, router]);
+
   const isAnswerPending =
     createGoal.isPending ||
     createAction.isPending ||
@@ -249,6 +270,7 @@ export function useWelcomeSetup() {
     answerStep,
     isAnswerPending,
     goToToday,
+    exploreOnOwn,
   };
 }
 
