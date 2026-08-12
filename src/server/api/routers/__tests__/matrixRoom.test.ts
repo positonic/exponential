@@ -136,6 +136,32 @@ describe("matrixRoom.bind", () => {
     });
   });
 
+  it("refuses a project that belongs to a different workspace", async () => {
+    // Edit rights on a project in workspace A must not let someone write outbound
+    // ChannelLink rows scoped to workspace B. The rows are keyed on
+    // (workspaceId, projectId), so a mismatched pair is a cross-tenant write.
+    asWorkspaceRole("owner");
+    dbMock.project.findUnique.mockResolvedValue({
+      id: PROJECT,
+      createdById: USER,
+      workspaceId: "ws-somewhere-else",
+      isRestricted: false,
+      teamId: null,
+    } as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.bind({
+        workspaceId: WORKSPACE,
+        projectId: PROJECT,
+        serverId: SERVER,
+        roomId: ROOM,
+      }),
+    ).rejects.toThrow(/not in this workspace/i);
+    expect(dbMock.channelLink.create).not.toHaveBeenCalled();
+    expect(dbMock.channelLink.update).not.toHaveBeenCalled();
+  });
+
   it("refuses a server registered to another workspace", async () => {
     asWorkspaceRole("owner");
     asProjectOwner();
@@ -254,6 +280,36 @@ describe("matrixRoom.unbind", () => {
         projectId: PROJECT,
       },
     });
+  });
+});
+
+describe("cross-workspace writes", () => {
+  beforeEach(() => {
+    asWorkspaceRole("owner");
+    dbMock.project.findUnique.mockResolvedValue({
+      id: PROJECT,
+      createdById: USER,
+      workspaceId: "ws-somewhere-else",
+      isRestricted: false,
+      teamId: null,
+    } as never);
+  });
+
+  it("will not delete another workspace's binding rows via unbind", async () => {
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.unbind({ workspaceId: WORKSPACE, projectId: PROJECT }),
+    ).rejects.toThrow(/not in this workspace/i);
+    expect(dbMock.channelLink.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("will not switch off a project in another workspace", async () => {
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.setOff({ workspaceId: WORKSPACE, projectId: PROJECT }),
+    ).rejects.toThrow(/not in this workspace/i);
+    expect(dbMock.channelLink.update).not.toHaveBeenCalled();
+    expect(dbMock.channelLink.create).not.toHaveBeenCalled();
   });
 });
 

@@ -3,7 +3,7 @@
 import { Alert, Button, Checkbox, Modal, Popover, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconAlertTriangle, IconCheck, IconSend } from "@tabler/icons-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "~/trpc/react";
 import { MatrixRoomPicker, type MatrixRoomChoice } from "./MatrixRoomPicker";
 
@@ -45,11 +45,13 @@ export function PostToMatrixButton({
   // Off by default: a one-off post is not a configuration change, and quietly
   // rebinding someone's project from a post dialog would be a surprise.
   const [saveAsProjectRoom, setSaveAsProjectRoom] = useState(false);
-  // What the in-flight post is aimed at, so a confirmation retries the same thing.
-  const [pendingDestination, setPendingDestination] = useState<{
-    roomId: string;
-    serverId: string;
-  } | null>(null);
+  // What the in-flight post is aimed at, so a confirmation retries the same thing and a
+  // "save as this project's room" binds the room actually posted to.
+  //
+  // A ref, not state: the mutation callbacks read it, and a state update would not have
+  // flushed by the time a synchronous callback runs. This is control data, not something
+  // rendered, so there is nothing to re-render for either.
+  const pendingDestination = useRef<{ roomId: string; serverId: string } | null>(null);
 
   const utils = api.useUtils();
   const serversQuery = api.matrixServer.list.useQuery(
@@ -80,20 +82,27 @@ export function PostToMatrixButton({
     onSuccess: (result) => {
       switch (result.kind) {
         case "posted":
-          // Persist only now: binding a room to a project on the strength of a post
-          // that then failed would leave the project pointing somewhere unproven.
-          if (saveAsProjectRoom && chosen && serverId && projectId) {
+          // Bind the room that was actually posted to, not whatever is sitting in
+          // `chosen`. Persisted only now, because binding a project to a room on the
+          // strength of a post that then failed would leave it pointing somewhere
+          // unproven — and only when this post *was* the picked one, so posting the
+          // resolved destination cannot silently rebind the project to an abandoned pick.
+          if (
+            saveAsProjectRoom &&
+            projectId &&
+            serverId &&
+            pendingDestination.current?.roomId === result.roomId
+          ) {
             bindRoom.mutate({
               workspaceId: workspaceId ?? "",
               projectId,
               serverId,
-              roomId: chosen.roomId,
-              roomName: chosen.name,
+              roomId: result.roomId,
+              ...(chosen?.roomId === result.roomId ? { roomName: chosen.name } : {}),
             });
           }
           setStatus({ kind: "posted", roomId: result.roomId });
-          setChosen(null);
-          setPendingDestination(null);
+          resetPickerChoice();
           closePicker();
           return;
         case "needs-confirm":
@@ -104,7 +113,7 @@ export function PostToMatrixButton({
             // Captured now. Reading `chosen` at click time would send the repost to
             // whatever was picked last, which need not be the room the warning names —
             // and Matrix has no un-send, so a wrong-room copy is permanent.
-            retry: pendingDestination,
+            retry: pendingDestination.current,
           });
           return;
         case "no-destination":
@@ -133,16 +142,28 @@ export function PostToMatrixButton({
 
   if (!workspaceId || servers.length === 0) return null;
 
+  /** Abandoning or completing the picker clears what it armed. */
+  function resetPickerChoice() {
+    setChosen(null);
+    pendingDestination.current = null;
+    setSaveAsProjectRoom(false);
+  }
+
+  function closePickerAndReset() {
+    resetPickerChoice();
+    closePicker();
+  }
+
   function postToResolvedRoom(confirmRepost = false) {
     setStatus({ kind: "idle" });
-    setPendingDestination(null);
+    pendingDestination.current = null;
     post.mutate({ meetingId, ...(confirmRepost ? { confirmRepost } : {}) });
   }
 
   function postToChosenRoom(confirmRepost = false) {
     if (!chosen || !serverId) return;
     setStatus({ kind: "idle" });
-    setPendingDestination({ roomId: chosen.roomId, serverId });
+    pendingDestination.current = { roomId: chosen.roomId, serverId };
     post.mutate({
       meetingId,
       roomId: chosen.roomId,
@@ -255,7 +276,7 @@ export function PostToMatrixButton({
 
       <Modal
         opened={pickerOpened}
-        onClose={closePicker}
+        onClose={closePickerAndReset}
         title="Post this summary to a room"
         size="lg"
         transitionProps={{ duration: 0 }}

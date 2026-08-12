@@ -188,4 +188,53 @@ describe("PostToMatrixButton", () => {
     // No room override — the resolved destination is what the warning was about.
     expect(postMutate).toHaveBeenCalledWith({ meetingId: "m1", confirmRepost: true });
   });
+
+  test("does not bind an abandoned pick when the resolved room is posted", () => {
+    // Tick the checkbox and pick "Other", then abandon the picker and post the
+    // RESOLVED room. The post goes to the resolved room, so the project must not be
+    // bound to "Other" — a binding is permanent configuration, not a side effect.
+    state.effective = { kind: "room", name: "Engineering", inherited: false };
+    state.rooms = {
+      joined: [{ roomId: "!other:example.org", name: "Other", isEncrypted: false }],
+      invited: [],
+    };
+    render(<PostToMatrixButton meetingId="m1" workspaceId="ws-1" projectId="p1" />);
+
+    fireEvent.click(screen.getByText("Post to Matrix"));
+    fireEvent.click(screen.getByText("Choose a room"));
+    fireEvent.click(screen.getByLabelText("Save as this project's room"));
+    fireEvent.click(screen.getByLabelText("Other"));
+    fireEvent.click(document.querySelector(".mantine-Modal-close")!);
+
+    mutationResult.current = { kind: "posted", roomId: "!eng:example.org" };
+    fireEvent.click(screen.getByText("Post to Matrix"));
+    fireEvent.click(screen.getByText("Post summary"));
+
+    expect(bindMutate).not.toHaveBeenCalled();
+  });
+
+  test("binds the picked room when that is the room actually posted to", () => {
+    state.effective = { kind: "none" };
+    state.rooms = {
+      joined: [{ roomId: "!other:example.org", name: "Other", isEncrypted: false }],
+      invited: [],
+    };
+    render(<PostToMatrixButton meetingId="m1" workspaceId="ws-1" projectId="p1" />);
+
+    fireEvent.click(screen.getByText("Post to Matrix"));
+    fireEvent.click(screen.getByText("Choose a room"));
+    fireEvent.click(screen.getByLabelText("Save as this project's room"));
+    fireEvent.click(screen.getByLabelText("Other"));
+
+    mutationResult.current = { kind: "posted", roomId: "!other:example.org" };
+    fireEvent.click(screen.getByText("Post to Other"));
+
+    expect(bindMutate).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      projectId: "p1",
+      serverId: "srv-1",
+      roomId: "!other:example.org",
+      roomName: "Other",
+    });
+  });
 });

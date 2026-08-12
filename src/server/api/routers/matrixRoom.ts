@@ -39,6 +39,24 @@ async function assertCanBind(
     return;
   }
 
+  // The project must actually live in the workspace the caller named. Without this,
+  // edit rights on a project in workspace A would let someone write or delete outbound
+  // ChannelLink rows scoped to workspace B — the rows are keyed on
+  // (workspaceId, projectId), so a mismatched pair is a cross-tenant write.
+  const project = await db.project.findUnique({
+    where: { id: projectId },
+    select: { workspaceId: true },
+  });
+  if (!project || project.workspaceId !== workspaceId) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "That project is not in this workspace.",
+    });
+  }
+
+  // Project edit access, deliberately not workspace membership: a project lead
+  // configures their own project's room, and a lead may reach the project as a
+  // project-only member without being a workspace member.
   const access = await getProjectAccess(db, userId, projectId);
   if (!canEditProject(access)) {
     throw new TRPCError({
