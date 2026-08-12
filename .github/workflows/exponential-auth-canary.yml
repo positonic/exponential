@@ -37,6 +37,12 @@ env:
   EXPO_PRODUCT: exponential
   EXPO_WORKSPACE: syntrofi
   ISSUE_TITLE: "EXPONENTIAL_TOKEN is not authenticating"
+  # This job deliberately runs no actions/checkout -- it needs no source. But
+  # that leaves `gh` with no git remote to infer the repository from, so every
+  # issue call below would die with "none of the git remotes configured for this
+  # repository point to a known GitHub host", breaking the alerting path at
+  # exactly the moment it is needed.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   canary:
@@ -87,7 +93,7 @@ jobs:
           # notification.
           EXISTING=$(gh issue list --state open --limit 50 \
             --json number,title \
-            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+            --jq 'map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty')
 
           BODY=$(cat <<EOF
           The daily canary could not authenticate to Exponential with the
@@ -133,7 +139,7 @@ jobs:
           set -euo pipefail
           EXISTING=$(gh issue list --state open --limit 50 \
             --json number,title \
-            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty")
+            --jq 'map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty')
           if [ -n "$EXISTING" ]; then
             gh issue close "$EXISTING" --comment "Canary is green again -- the credential authenticates and can read tickets."
           fi
