@@ -1,0 +1,93 @@
+.panel {
+  width: 100%;
+  max-width: 860px;
+  margin-top: 64px;
+  /* .row is full-bleed by 8px each side (see WorkspaceHomeConceptD.module.css
+     for why the container must carry the padding). */
+  padding: 0 8px;
+}
+
+.panelHeading {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.panelHeading a {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.panelHeading a:hover {
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+}
+
+.sectionHeading {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 18px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.emptyNote {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0 0 16px;
+}
+
+.bucketLabel {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin: 10px 0 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  margin: 0 -8px;
+  background: transparent;
+  border: 0;
+  width: calc(100% + 16px);
+  text-align: left;
+  color: var(--color-text-primary);
+  transition: background 120ms;
+}
+
+.row:hover {
+  background: var(--color-bg-secondary);
+}
+
+.rowLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+
+.rowMeta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.rowMetaOverdue {
+  color: var(--color-brand-error);
+}
