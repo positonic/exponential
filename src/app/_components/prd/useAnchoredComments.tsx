@@ -46,7 +46,7 @@ export interface AnchoredCommentsAdapter {
   createThread: (args: { threadId: string; body: string; quotedText?: string }) => Promise<unknown>;
   reply: (args: { parentId: string; body: string }) => Promise<unknown>;
   editComment: (args: { commentId: string; body: string }) => Promise<unknown>;
-  deleteComment: (args: { commentId: string }) => void;
+  deleteComment: (args: { commentId: string }) => Promise<unknown>;
   resolveThread: (threadId: string) => Promise<unknown>;
   unresolveThread: (threadId: string) => Promise<unknown>;
   isSubmitting: boolean;
@@ -133,33 +133,61 @@ export function useAnchoredComments({
     });
     if (tr.docChanged) {
       editor.view.dispatch(tr);
-      void flushSaveRef.current();
+      flushSaveRef.current().catch(() => {
+        notifications.show({
+          color: "red",
+          message: "Couldn't save the removed highlight. Please try again.",
+        });
+      });
     }
   };
 
+  // Thread ids whose first comment is mid-post. A ref, not state: Escape can
+  // land in the same tick as the submit, before React re-renders
+  // `adapter.isSubmitting`, and the discard check must see the flight
+  // synchronously or it strips the mark from under the in-flight comment.
+  const inFlightRef = useRef<Set<string>>(new Set());
+
+  // Discard the locally-created, never-posted thread: strip its mark, forget
+  // it. Gating every discard path on `pending` — never on the fetched comments
+  // array — means a slow or failed comments query can't misclassify a real
+  // thread as empty and strip its highlight.
+  const discardPendingThread = () => {
+    if (!pending || !editable) return;
+    if (adapter.isSubmitting || inFlightRef.current.has(pending.threadId)) return;
+    removeThreadMark(pending.threadId);
+    setPending(null);
+  };
+
   const closeThread = () => {
-    // Closing (escape / outside click / X) a thread nobody has commented on
-    // yet discards it entirely — otherwise the yellow highlight would stay
-    // behind with no thread to open. Skip while a first comment is mid-post.
-    if (activeThreadId && editable && !adapter.isSubmitting) {
-      const hasRows = comments.some((c) => c.threadId === activeThreadId);
-      if (!hasRows) {
-        removeThreadMark(activeThreadId);
-        setPending((p) => (p?.threadId === activeThreadId ? null : p));
-      }
+    // Closing (escape / outside click / trash) a pending thread discards it
+    // entirely — otherwise the yellow highlight would stay behind with no
+    // thread to open.
+    if (activeThreadId && pending?.threadId === activeThreadId) {
+      discardPendingThread();
     }
     setActiveThreadId(null);
     setAnchorPos(null);
   };
 
   // Deleting a thread's root comment cascades its replies away in the DB;
-  // clean up the highlight too or it would linger with an empty thread.
-  const handleDeleteComment = (commentId: string) => {
+  // clean up the highlight too or it would linger with an empty thread. The
+  // mark is only removed after the delete actually succeeded.
+  const handleDeleteComment = async (commentId: string) => {
     const row = comments.find((c) => c.id === commentId);
-    adapter.deleteComment({ commentId });
+    try {
+      await adapter.deleteComment({ commentId });
+    } catch {
+      notifications.show({
+        color: "red",
+        message: "Couldn't delete the comment. Please try again.",
+      });
+      return;
+    }
     if (row && !row.parentId && row.threadId && editable) {
       removeThreadMark(row.threadId);
-      closeThread();
+      setActiveThreadId(null);
+      setAnchorPos(null);
     }
   };
 
@@ -253,6 +281,12 @@ export function useAnchoredComments({
   // the anchor still exists; orphaned threads (no mark) fall back to the list's
   // own inline composer.
   const openThreadFromList = (threadId: string) => {
+    // Switching away from a pending thread abandons it — discard so its
+    // highlight doesn't linger (the popover's outside-click usually beats us
+    // to it, but the panel composer path has no popover mounted).
+    if (pending && pending.threadId !== threadId) {
+      discardPendingThread();
+    }
     setActiveThreadId(threadId);
     const pos = findThreadPos(threadId);
     if (pos != null && editor) {
@@ -265,8 +299,13 @@ export function useAnchoredComments({
   const submitComment = async (threadId: string, body: string) => {
     if (pending?.threadId === threadId) {
       // First comment on a brand-new thread → create the root (carries quotedText).
-      await adapter.createThread({ threadId, body, quotedText: pending.quotedText });
-      setPending((p) => (p?.threadId === threadId ? null : p));
+      inFlightRef.current.add(threadId);
+      try {
+        await adapter.createThread({ threadId, body, quotedText: pending.quotedText });
+        setPending((p) => (p?.threadId === threadId ? null : p));
+      } finally {
+        inFlightRef.current.delete(threadId);
+      }
     } else {
       // Existing thread → threaded reply hanging off its root.
       const thread = panelThreads.find((t) => t.threadId === threadId);
@@ -324,11 +363,11 @@ export function useAnchoredComments({
         onClose={closeThread}
         // Explicit "remove highlight" for a not-yet-posted thread; closing
         // does the same implicitly, but the affordance makes it discoverable.
+        // Only offered while the thread is the locally-created pending one.
         onDiscard={
-          editable
+          editable && pending?.threadId === activeThreadId
             ? () => {
-                removeThreadMark(activeThreadId);
-                setPending((p) => (p?.threadId === activeThreadId ? null : p));
+                discardPendingThread();
                 setActiveThreadId(null);
                 setAnchorPos(null);
               }
