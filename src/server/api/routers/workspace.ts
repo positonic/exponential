@@ -1321,6 +1321,20 @@ export const workspaceRouter = createTRPCRouter({
 
       const { members, _count, ...workspaceRest } = invitation.workspace;
 
+      // Whether the logged-in viewer already belongs to the workspace — e.g.
+      // an invitee whose invitation was auto-accepted during signup.
+      const isMember = ctx.session?.user?.id
+        ? (await ctx.db.workspaceUser.findUnique({
+            where: {
+              userId_workspaceId: {
+                userId: ctx.session.user.id,
+                workspaceId: invitation.workspaceId,
+              },
+            },
+            select: { userId: true },
+          })) !== null
+        : false;
+
       return {
         ...invitation,
         workspace: {
@@ -1331,6 +1345,7 @@ export const workspaceRouter = createTRPCRouter({
         isExpired: invitation.expiresAt < new Date(),
         isLoggedIn: !!ctx.session?.user,
         isForCurrentUser: invitation.email === ctx.session?.user?.email,
+        isMember,
       };
     }),
 
