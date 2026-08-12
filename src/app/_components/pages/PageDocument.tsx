@@ -99,11 +99,9 @@ export function PageDocument({
         await updateComment.mutateAsync({ commentId, body: commentBody });
         await invalidateComments();
       },
-      deleteComment: ({ commentId }) => {
-        deleteComment.mutate(
-          { commentId },
-          { onSuccess: () => void invalidateComments() },
-        );
+      deleteComment: async ({ commentId }) => {
+        await deleteComment.mutateAsync({ commentId });
+        await invalidateComments();
       },
       resolveThread: async (threadId) => {
         await resolveThread.mutateAsync({ pageId, threadId });
