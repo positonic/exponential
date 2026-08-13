@@ -1,15 +1,29 @@
 'use client';
 
+import { Container } from '@mantine/core';
+import { Heatmap } from '~/app/_components/home/activity/Heatmap';
+import { WeekInReview } from '~/app/_components/home/activity/WeekInReview';
 import { WorkspaceActivityFullFeed } from '~/app/_components/home/activity/WorkspaceActivityFullFeed';
 
 /**
- * `/w/[workspaceSlug]/activity` — the full paginated `WorkspaceActivityEvent`
- * history for the current workspace. Reached from the "All activity →" CTA
- * and "View older activity" footer in the home Activity feed card.
+ * `/w/[workspaceSlug]/activity` — the workspace's activity destination:
+ * week-in-review and contribution heatmap up top (relocated from the home
+ * page, where weekly-cadence charts fought with the daily tiers), then the
+ * full paginated `WorkspaceActivityEvent` history. Reached from the home
+ * page's "Since yesterday" digest line and "All activity" CTAs.
+ *
+ * The `activity-layout` wrapper is required: the `--activity-*` tokens these
+ * cards consume are scoped to it in globals.css.
  */
 export default function WorkspaceActivityPage() {
   return (
-    <div className="flex h-full flex-col text-text-primary">
+    <div className="activity-layout flex h-full flex-col text-text-primary">
+      <Container size="md" className="w-full pt-8">
+        <div className="wsa-analytics">
+          <WeekInReview />
+          <Heatmap />
+        </div>
+      </Container>
       <WorkspaceActivityFullFeed />
     </div>
   );
