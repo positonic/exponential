@@ -127,17 +127,21 @@ function stripInlineMarkdown(line: string): string {
 interface ListItem {
   html: string;
   children: ListItem[];
+  /** Whether this item was written with a numeric marker (`1.` / `1)`). */
+  ordered: boolean;
 }
 
-/** Emit a parsed bullet tree as properly nested `<ul>`s. */
+/** Emit a parsed list tree as properly nested `<ul>`/`<ol>`s (first item's
+ *  marker decides the tag for its level). */
 function renderList(items: ListItem[]): string {
+  const tag = items[0]?.ordered ? "ol" : "ul";
   const lis = items
     .map(
       (item) =>
         `<li>${item.html}${item.children.length > 0 ? renderList(item.children) : ""}</li>`,
     )
     .join("");
-  return `<ul>${lis}</ul>`;
+  return `<${tag}>${lis}</${tag}>`;
 }
 
 /**
@@ -192,15 +196,16 @@ export function markdownToMatrixHtml(markdown: string): string {
       continue;
     }
 
-    const bullet = /^([ \t]*)[-*]\s+(.*)$/.exec(line);
+    const bullet = /^([ \t]*)([-*]|\d+[.)])\s+(.*)$/.exec(line);
     if (bullet) {
       flushParagraph();
       // Tabs count as one character otherwise, collapsing real nesting.
       const indent = bullet[1]!.replace(/\t/g, "  ");
       const depth = Math.floor(indent.length / 2);
       const item: ListItem = {
-        html: inlineMarkdownToHtml(escapeHtml(bullet[2]!)),
+        html: inlineMarkdownToHtml(escapeHtml(bullet[3]!)),
         children: [],
+        ordered: /^\d/.test(bullet[2]!),
       };
       while (listStack.length > 0 && listStack[listStack.length - 1]!.depth >= depth) {
         listStack.pop();
@@ -253,8 +258,13 @@ export function markdownToPlainText(markdown: string): string {
         return null;
       }
       if (inFence) return rawLine;
-      const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
-      if (bullet) return `${bullet[1]}• ${stripInlineMarkdown(bullet[2]!)}`;
+      const bullet = /^([ \t]*)[-*]\s+(.*)$/.exec(line);
+      if (bullet)
+        return `${bullet[1]!.replace(/\t/g, "  ")}• ${stripInlineMarkdown(bullet[2]!)}`;
+      // Numbered markers stay as written — `1.` is already readable text.
+      const numbered = /^([ \t]*)(\d+[.)])\s+(.*)$/.exec(line);
+      if (numbered)
+        return `${numbered[1]!.replace(/\t/g, "  ")}${numbered[2]} ${stripInlineMarkdown(numbered[3]!)}`;
       const heading = /^\s*#{1,6}\s+(.*)$/.exec(line);
       if (heading) return stripInlineMarkdown(heading[1]!);
       return stripInlineMarkdown(line);

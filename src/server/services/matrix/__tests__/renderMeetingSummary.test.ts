@@ -81,6 +81,12 @@ describe("markdownToMatrixHtml", () => {
     );
   });
 
+  it("renders numbered lists as ordered lists", () => {
+    expect(markdownToMatrixHtml("1. first\n2. second")).toBe(
+      "<ol><li>first</li><li>second</li></ol>",
+    );
+  });
+
   it("nests tab-indented bullets", () => {
     expect(markdownToMatrixHtml("- top\n\t- nested")).toBe(
       "<ul><li>top<ul><li>nested</li></ul></li></ul>",
@@ -105,6 +111,10 @@ describe("markdownToPlainText", () => {
 
   it("keeps fenced code content verbatim, dropping only the fence markers", () => {
     expect(markdownToPlainText("```\n# kept as-is\n```")).toBe("# kept as-is");
+  });
+
+  it("keeps numbered markers as written, stripping only inline markup", () => {
+    expect(markdownToPlainText("1. **First** thing")).toBe("1. First thing");
   });
 });
 
