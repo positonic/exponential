@@ -32,10 +32,12 @@ export function AttentionPanel() {
 
   // Mentions are user-scoped, not workspace-scoped: a mention follows the
   // person. Only unread ones render here — processed items leave the page.
+  // Fetch a deep page: the list mixes read and unread, and a burst of read
+  // mentions must not push unread ones (which the badge counts) off the page.
   const { data: mentionData, isLoading: mentionsLoading } =
     api.notification.list.useQuery({
       category: NOTIFICATION_CATEGORIES.MENTION,
-      limit: 10,
+      limit: 50,
     });
   const { data: unreadCount } = api.notification.unreadCount.useQuery({
     category: NOTIFICATION_CATEGORIES.MENTION,
