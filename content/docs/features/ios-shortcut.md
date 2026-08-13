@@ -64,7 +64,7 @@ Now you'll paste your API key into the shortcut so it can connect to your accoun
 7. **Replace it** with the API key you copied in Step 1
 8. Tap **Done** to save
 
-![Where to find the x-api-key header in the shortcut](/docs/ios-shortcut-config.png)
+![Where to find the x-api-key header in the shortcut](/doc-assets/ios-shortcut-config.png)
 
 ---
 
@@ -78,7 +78,7 @@ The shortcut name is what Siri listens for. We recommend renaming it to **"Save 
 4. Type **Save Action** (or any phrase you'd like to say to Siri)
 5. Tap **Done**
 
-![The Save Action shortcut on your home screen](/docs/save-action.jpg)
+![The Save Action shortcut on your home screen](/doc-assets/save-action.jpg)
 
 You can name it anything you like — whatever you choose becomes your Siri trigger phrase. For example, naming it "Quick Add" means you'd say **"Hey Siri, Quick Add"**.
 
