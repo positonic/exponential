@@ -159,10 +159,12 @@ function renderSummarySections(summary: FirefliesSummary) {
           <Accordion.Panel>
             {summary.detailed_breakdown?.trim() ? (
               // Rich themed write-up (markdown). Older summaries that predate
-              // this field fall back to the flat bullet list below.
+              // this field fall back to the flat bullet list below. Compact,
+              // not prose: prose renders `##` as full-size article headings,
+              // which dwarf the accordion's own section titles.
               <MarkdownRenderer
                 content={summary.detailed_breakdown}
-                variant="prose"
+                variant="compact"
               />
             ) : (
               <List>
