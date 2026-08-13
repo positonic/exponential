@@ -23,7 +23,10 @@ export default async function CycleDetailPage({ params }: PageProps) {
   void api.workspace.getBySlug.prefetch({ slug: workspaceSlug });
 
   // ProductLayout's header query keys on { workspaceId, slug }, so resolve the
-  // workspace id (single indexed lookup) before prefetching it.
+  // workspace id (single indexed lookup) before prefetching it. This is a
+  // slug→id resolution only, not an access-checked read: the id never reaches
+  // the client on its own, and every prefetched procedure above enforces
+  // workspace membership itself before returning data.
   const workspace = await db.workspace.findUnique({
     where: { slug: workspaceSlug },
     select: { id: true },
