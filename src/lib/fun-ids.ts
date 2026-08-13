@@ -143,9 +143,20 @@ export function shortIdSearchWhere(
     shortId: { contains: value, mode: "insensitive" },
   });
   const words = query.split(/[.\s]+/).filter(Boolean);
-  return words.length > 1
-    ? [contains(query), { AND: words.map(contains) }]
-    : [contains(query)];
+  // Nothing but separators: no clause at all, rather than a match-everything
+  // `contains("")` or a match-nothing `contains(".")`.
+  if (words.length === 0) return [];
+  // Matching the word instead of the raw query lets stray separators along
+  // for the ride ("toucan." still finds prime.toucan).
+  if (words.length === 1) return [contains(words[0]!)];
+  // Fun IDs are exactly adjective.noun, so only a two-word query can be one
+  // typed from memory — and both words must be real words, or "a b" floods
+  // the results with every shortId containing those two letters. The AND of
+  // per-word substrings subsumes the exact match, so it stands alone. Longer
+  // queries are title-style text: plain substring match, as before.
+  return words.length === 2 && words.every((w) => w.length >= 2)
+    ? [{ AND: words.map(contains) }]
+    : [contains(query.trim())];
 }
 
 /**

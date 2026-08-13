@@ -50,29 +50,41 @@ describe("shortIdSearchWhere", () => {
     expect(shortIdSearchWhere("toucan")).toEqual([contains("toucan")]);
   });
 
-  it("adds an any-order clause for a dotted fun id", () => {
+  it("matches a dotted fun id word-order-insensitively", () => {
     expect(shortIdSearchWhere("toucan.prime")).toEqual([
-      contains("toucan.prime"),
       { AND: [contains("toucan"), contains("prime")] },
     ]);
   });
 
   it("splits on whitespace too", () => {
     expect(shortIdSearchWhere("toucan prime")).toEqual([
-      contains("toucan prime"),
       { AND: [contains("toucan"), contains("prime")] },
     ]);
   });
 
   it("ignores empty segments from stray separators", () => {
     expect(shortIdSearchWhere("toucan..prime ")).toEqual([
-      contains("toucan..prime "),
       { AND: [contains("toucan"), contains("prime")] },
     ]);
   });
 
-  it("treats a trailing separator as still one word", () => {
-    expect(shortIdSearchWhere("toucan.")).toEqual([contains("toucan.")]);
+  it("drops a trailing separator from a one-word query", () => {
+    expect(shortIdSearchWhere("toucan.")).toEqual([contains("toucan")]);
+  });
+
+  it("returns no clauses for a separator-only query", () => {
+    expect(shortIdSearchWhere(".")).toEqual([]);
+    expect(shortIdSearchWhere(" . ")).toEqual([]);
+  });
+
+  it("keeps single-letter word pairs as a plain substring match", () => {
+    expect(shortIdSearchWhere("a b")).toEqual([contains("a b")]);
+  });
+
+  it("treats three or more words as title-style text, not a fun id", () => {
+    expect(shortIdSearchWhere("fix the search bug")).toEqual([
+      contains("fix the search bug"),
+    ]);
   });
 });
 
