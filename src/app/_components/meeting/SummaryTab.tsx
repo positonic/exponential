@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Textarea, Button, Loader } from "@mantine/core";
+import { Button, Loader, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconSparkles,
@@ -15,11 +15,21 @@ import {
 } from "@tabler/icons-react";
 import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { ActionsList } from "~/app/_components/actions/ActionsList";
 import type { MeetingViewModel } from "~/lib/meeting-view-model";
 import type { RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
+
+/**
+ * What Edit puts on screen. Structured summaries (Fireflies-shaped JSON) edit
+ * their two prose fields; everything else edits the raw string.
+ */
+type EditDraft =
+  | { kind: "structured"; overview: string; breakdown: string }
+  | { kind: "freeform"; text: string };
 
 interface SummaryTabProps {
   vm: MeetingViewModel;
@@ -56,22 +66,49 @@ export function SummaryTab({
   onIdeateFeatures,
   onRegenerate,
 }: SummaryTabProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState<EditDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const hasSummary = Boolean(vm.firefliesSummary ?? vm.plainSummary);
 
   function startEdit() {
-    setDraft(rawSummary ?? "");
-    setIsEditing(true);
+    // Structured summaries are stored as JSON; editing that raw string is
+    // hostile, so expose the two prose fields instead and merge them back on
+    // save. Anything else (plain text / markdown) is edited as-is.
+    const parsed = parseFirefliesSummary(rawSummary);
+    if (parsed) {
+      setDraft({
+        kind: "structured",
+        overview: typeof parsed.overview === "string" ? parsed.overview : "",
+        breakdown:
+          typeof parsed.detailed_breakdown === "string"
+            ? parsed.detailed_breakdown
+            : "",
+      });
+    } else {
+      setDraft({ kind: "freeform", text: rawSummary ?? "" });
+    }
+  }
+
+  function serializeDraft(current: EditDraft): string {
+    if (current.kind === "freeform") return current.text;
+    // Merge the edited prose back into the stored JSON so untouched fields
+    // (keywords, bullets, chapters…) survive the edit.
+    const base: Record<string, unknown> = {
+      ...(parseFirefliesSummary(rawSummary) ?? {}),
+    };
+    base.overview = current.overview;
+    if (current.breakdown.trim()) base.detailed_breakdown = current.breakdown;
+    else delete base.detailed_breakdown;
+    return JSON.stringify(base);
   }
 
   async function save() {
+    if (!draft) return;
     setIsSaving(true);
     try {
-      await onSaveSummary(draft);
-      setIsEditing(false);
+      await onSaveSummary(serializeDraft(draft));
+      setDraft(null);
     } catch {
       // onSaveSummary surfaces its own error notification; stay in edit mode.
     } finally {
@@ -95,21 +132,49 @@ export function SummaryTab({
           {generatedStamp && <span className="mp-tldr__stamp">generated {generatedStamp}</span>}
         </div>
 
-        {isEditing ? (
+        {draft ? (
           <>
-            <Textarea
-              value={draft}
-              onChange={(e) => setDraft(e.currentTarget.value)}
-              autosize
-              minRows={6}
-              maxRows={20}
-              placeholder="Enter a summary…"
-            />
+            {draft.kind === "structured" ? (
+              <Stack gap="sm">
+                <div>
+                  <Text size="xs" fw={600} c="dimmed" mb={4}>
+                    Overview
+                  </Text>
+                  <MarkdownInput
+                    value={draft.overview}
+                    onChange={(value) => setDraft({ ...draft, overview: value })}
+                    placeholder="What was the meeting about?"
+                    minRows={4}
+                    maxRows={12}
+                  />
+                </div>
+                <div>
+                  <Text size="xs" fw={600} c="dimmed" mb={4}>
+                    Detailed breakdown
+                  </Text>
+                  <MarkdownInput
+                    value={draft.breakdown}
+                    onChange={(value) => setDraft({ ...draft, breakdown: value })}
+                    placeholder="Themed sections, decisions, action items…"
+                    minRows={8}
+                    maxRows={24}
+                  />
+                </div>
+              </Stack>
+            ) : (
+              <MarkdownInput
+                value={draft.text}
+                onChange={(value) => setDraft({ ...draft, text: value })}
+                placeholder="Enter a summary…"
+                minRows={6}
+                maxRows={20}
+              />
+            )}
             <div className="mp-tldr__foot">
               <Button size="xs" loading={isSaving} onClick={() => void save()}>
                 Save
               </Button>
-              <Button size="xs" variant="subtle" onClick={() => setIsEditing(false)}>
+              <Button size="xs" variant="subtle" onClick={() => setDraft(null)}>
                 Cancel
               </Button>
             </div>
