@@ -24,6 +24,14 @@
  *   npx tsx scripts/backfill-cycle-dates.ts --workspace clear --apply
  * Options:
  *   --cadence-days <n>   days between cycle starts (default 14)
+ *   --re-infer           also recompute cycles BELOW the anchor that already
+ *                        have dates (e.g. to pick up a fixed window formula
+ *                        after an earlier apply). Never touches the anchor or
+ *                        anything above it. Pair with --anchor, since a prior
+ *                        apply makes the lowest-numbered dated cycle the
+ *                        (wrong) default anchor.
+ *   --anchor <n>         use the dated cycle numbered <n> as the anchor
+ *                        instead of the lowest-numbered dated cycle.
  */
 
 // Load environment variables (default import — named import breaks under ESM
@@ -35,6 +43,7 @@ nextEnv.loadEnvConfig(process.cwd());
 const { db } = await import('../src/server/db');
 
 const APPLY = process.argv.includes('--apply');
+const RE_INFER = process.argv.includes('--re-infer');
 
 function argValue(flag: string): string | null {
   const i = process.argv.indexOf(flag);
@@ -82,22 +91,36 @@ async function main() {
   console.log(`Workspace: ${workspace.name} (${WORKSPACE_SLUG})`);
   console.log(`Cycles: ${cycles.length} total, ${dated.length} dated, ${undated.length} undated\n`);
 
-  if (undated.length === 0) {
-    console.log('Nothing to do.');
-    return;
-  }
-
-  // Anchor: the dated cycle with the LOWEST number. Everything below it gets
-  // a window extrapolated backwards at the cadence.
+  // Anchor: the dated cycle with the LOWEST number (or the one named by
+  // --anchor). Everything below it gets a window extrapolated backwards at
+  // the cadence.
   const numberedDated = dated
     .map((c) => ({ ...c, num: cycleNumber(c.name) }))
     .filter((c): c is typeof c & { num: number } => c.num != null)
     .sort((a, b) => a.num - b.num);
-  const anchor = numberedDated[0];
+  const anchorArg = argValue('--anchor');
+  const anchor = anchorArg
+    ? numberedDated.find((c) => c.num === Number(anchorArg))
+    : numberedDated[0];
 
   if (!anchor) {
-    console.error('No dated cycle with a numeric name to anchor on — cannot infer anything.');
+    console.error(
+      anchorArg
+        ? `--anchor ${anchorArg}: no dated cycle numbered ${anchorArg} in this workspace.`
+        : 'No dated cycle with a numeric name to anchor on — cannot infer anything.',
+    );
     process.exit(1);
+  }
+
+  // Cycles this run may (re)date: undated always; with --re-infer, also
+  // already-dated cycles numbered below the anchor.
+  const candidates = RE_INFER
+    ? [...undated, ...dated.filter((c) => c.id !== anchor.id)]
+    : undated;
+
+  if (candidates.length === 0) {
+    console.log('Nothing to do.');
+    return;
   }
   console.log(
     `Anchor: "${anchor.name}" starts ${anchor.startDate!.toISOString()} — extrapolating backwards at ${CADENCE_DAYS}-day cadence\n`,
@@ -106,7 +129,7 @@ async function main() {
   const plan: Array<{ id: string; name: string; start: Date; end: Date }> = [];
   const skipped: Array<{ name: string; reason: string }> = [];
 
-  for (const cycle of undated) {
+  for (const cycle of candidates) {
     const num = cycleNumber(cycle.name);
     if (num == null) {
       skipped.push({ name: cycle.name, reason: 'no cycle number in name' });
@@ -117,8 +140,9 @@ async function main() {
       continue;
     }
     const start = new Date(anchor.startDate!.getTime() - (anchor.num - num) * CADENCE_DAYS * DAY_MS);
-    // End the day before the next cycle starts so windows don't overlap.
-    const end = new Date(start.getTime() + CADENCE_DAYS * DAY_MS - DAY_MS);
+    // End 1s before the next cycle starts: no overlap, and no 24h hole that
+    // would leave PRs merged on the window's last day attributed to no cycle.
+    const end = new Date(start.getTime() + CADENCE_DAYS * DAY_MS - 1000);
     plan.push({ id: cycle.id, name: cycle.name, start, end });
   }
 
