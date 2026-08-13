@@ -72,7 +72,7 @@ export const notificationRouter = createTRPCRouter({
           // A future scheduledFor means the notification hasn't fired yet.
           OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit + 1,
         ...(input?.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
         select: {
@@ -88,7 +88,8 @@ export const notificationRouter = createTRPCRouter({
 
       let nextCursor: string | undefined;
       if (rows.length > limit) {
-        nextCursor = rows.pop()!.id;
+        rows.pop();
+        nextCursor = rows[rows.length - 1]?.id;
       }
       return { notifications: rows, nextCursor };
     }),
