@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Skeleton, UnstyledButton } from '@mantine/core';
 import {
+  IconAt,
   IconMicrophone,
   IconSquareRoundedCheck,
   IconStack2,
@@ -12,6 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { NOTIFICATION_CATEGORIES } from '~/server/services/notifications/emit/constants';
 import { ActivityFeed } from './activity/ActivityFeed';
 import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
@@ -93,6 +95,29 @@ export function YourWorkPanel() {
       { enabled: !!workspaceId },
     );
 
+  // Mention notifications — the ADR-0045 pipeline writes these rows; this
+  // inbox is their first reader. User-scoped, not workspace-scoped: a mention
+  // follows the person.
+  const utils = api.useUtils();
+  const { data: mentionData, isLoading: mentionsLoading } =
+    api.notification.list.useQuery({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      limit: 5,
+    });
+  const { data: unreadMentions } = api.notification.unreadCount.useQuery({
+    category: NOTIFICATION_CATEGORIES.MENTION,
+  });
+  const invalidateInbox = () => {
+    void utils.notification.list.invalidate();
+    void utils.notification.unreadCount.invalidate();
+  };
+  const markRead = api.notification.markRead.useMutation({
+    onSuccess: invalidateInbox,
+  });
+  const markAllRead = api.notification.markAllRead.useMutation({
+    onSuccess: invalidateInbox,
+  });
+
   if (!workspaceId || !workspaceSlug) return null;
 
   const now = new Date();
@@ -122,16 +147,19 @@ export function YourWorkPanel() {
   const driProjects = dri?.projects ?? [];
   const driCount = driGoals.length + driKeyResults.length + driProjects.length;
   const recentMeetings = (meetings ?? []).slice(0, 5);
+  const mentions = mentionData?.notifications ?? [];
 
   const personalSectionsEmpty =
     !isLoading &&
     !ticketsLoading &&
     !driLoading &&
     !meetingsLoading &&
+    !mentionsLoading &&
     active.length === 0 &&
     openTickets.length === 0 &&
     driCount === 0 &&
-    recentMeetings.length === 0;
+    recentMeetings.length === 0 &&
+    mentions.length === 0;
 
   if (personalSectionsEmpty) {
     // The brand-new invitee case: nothing assigned yet. Lead with the team's
@@ -231,6 +259,80 @@ export function YourWorkPanel() {
             ))}
           </div>
         )
+      )}
+
+      {!mentionsLoading && mentions.length > 0 && (
+        <>
+          <div className={styles.sectionHeading}>
+            <span className={styles.sectionHeadingLabel}>
+              Mentions
+              {(unreadMentions ?? 0) > 0 && (
+                <span className={styles.unreadBadge}>{unreadMentions}</span>
+              )}
+            </span>
+            {(unreadMentions ?? 0) > 0 && (
+              <button
+                type="button"
+                className={styles.sectionAction}
+                onClick={() =>
+                  markAllRead.mutate({ category: NOTIFICATION_CATEGORIES.MENTION })
+                }
+                disabled={markAllRead.isPending}
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+          {mentions.map((mention) => {
+            const isUnread = mention.readAt === null;
+            const row = (
+              <>
+                <IconAt
+                  size={14}
+                  stroke={1.75}
+                  style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+                />
+                <span
+                  className={
+                    isUnread
+                      ? `${styles.rowLabel} ${styles.rowLabelUnread}`
+                      : styles.rowLabel
+                  }
+                >
+                  {mention.title}
+                  {mention.message ? ` — ${mention.message}` : ''}
+                </span>
+                {isUnread && <span className={styles.unreadDot} aria-label="Unread" />}
+                <span className={styles.rowMeta}>
+                  {formatDue(new Date(mention.createdAt))}
+                </span>
+              </>
+            );
+            // Opening a mention reads it — mark before the navigation unmounts us.
+            const readOnOpen = () => {
+              if (isUnread) markRead.mutate({ notificationId: mention.id });
+            };
+            return mention.deeplink ? (
+              <UnstyledButton
+                key={mention.id}
+                component={Link}
+                href={mention.deeplink}
+                className={styles.row}
+                onClick={readOnOpen}
+              >
+                {row}
+              </UnstyledButton>
+            ) : (
+              <UnstyledButton
+                key={mention.id}
+                className={styles.row}
+                onClick={readOnOpen}
+              >
+                {row}
+              </UnstyledButton>
+            );
+          })}
+        </>
       )}
 
       {!driLoading && driCount > 0 && (
