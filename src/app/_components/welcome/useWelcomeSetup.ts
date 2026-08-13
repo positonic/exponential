@@ -231,27 +231,39 @@ export function useWelcomeSetup() {
   }, [router]);
 
   /**
+   * Mark welcome complete (best-effort, guarded against double fire) and
+   * leave for `path`. Shared by the explore exit and the invited variant's
+   * "Take me to {workspace}" CTA.
+   */
+  const completeAndNavigate = useCallback(
+    async (path: string) => {
+      if (!data?.welcomeCompletedAt && !completedRef.current) {
+        completedRef.current = true;
+        try {
+          await completeWelcome.mutateAsync();
+        } catch {
+          // onError resets completedRef so a later attempt can retry; still
+          // leave — no destination below gates on welcome completion.
+        }
+      }
+      router.push(path);
+    },
+    [data, completeWelcome, router],
+  );
+
+  /**
    * "I'll explore on my own" — a real exit, not a chat reply. Marks welcome
    * complete (so /home stops bouncing back here for the 24h new-user window)
    * and lands the user on their default workspace home.
    */
   const exploreOnOwn = useCallback(async () => {
-    if (!data?.welcomeCompletedAt && !completedRef.current) {
-      completedRef.current = true;
-      try {
-        await completeWelcome.mutateAsync();
-      } catch {
-        // onError resets completedRef so a later attempt can retry; still
-        // leave — neither destination below gates on welcome completion.
-      }
-    }
     // Fallback is /today, NOT /home: /home bounces incomplete-welcome users
     // back here during the 24h new-user window, which would turn a failed
     // completeWelcome + unresolved workspace query into a loop.
-    router.push(
+    await completeAndNavigate(
       defaultWorkspace?.slug ? `/w/${defaultWorkspace.slug}/home` : "/today",
     );
-  }, [data, completeWelcome, defaultWorkspace, router]);
+  }, [completeAndNavigate, defaultWorkspace]);
 
   const isAnswerPending =
     createGoal.isPending ||
@@ -266,6 +278,8 @@ export function useWelcomeSetup() {
     state,
     calendarConnected,
     googleCalendarAvailable,
+    /** Non-null while an invitee who hasn't finished welcome should see the invited variant. */
+    invitedContext: data?.invitedContext ?? null,
     isStepDone,
     nextStep,
     doneCount,
@@ -273,6 +287,7 @@ export function useWelcomeSetup() {
     answerStep,
     isAnswerPending,
     goToToday,
+    completeAndNavigate,
     exploreOnOwn,
   };
 }
