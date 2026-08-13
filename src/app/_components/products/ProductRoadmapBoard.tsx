@@ -30,7 +30,7 @@ import {
   Text,
   Tooltip,
 } from '@mantine/core';
-import { IconRoute } from '@tabler/icons-react';
+import { IconArrowsSort, IconRoute } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
@@ -42,6 +42,10 @@ import {
   HIDDEN_FEATURE_STATUSES,
   type FeatureStatus,
 } from '~/lib/feature-statuses';
+import {
+  PriorityIcon,
+  PRIORITY_LABELS,
+} from '~/app/_components/product/PriorityIcon';
 
 type RoadmapFeature =
   RouterOutputs['product']['feature']['listForWorkspace'][number];
@@ -150,6 +154,15 @@ function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {
       </Text>
       <Group mt="xs" gap="xs" justify="space-between" wrap="nowrap">
         <ProductBadge product={feature.product} />
+        <Tooltip
+          label={PRIORITY_LABELS[feature.priority ?? 4] ?? 'No priority'}
+          position="top"
+          withArrow
+        >
+          <span className="flex shrink-0 items-center text-text-muted">
+            <PriorityIcon priority={feature.priority} size={14} />
+          </span>
+        </Tooltip>
       </Group>
     </>
   );
@@ -242,13 +255,22 @@ function FeatureCard({
 }
 
 // ---------------------------------------------------------------------------
-// Helpers - bucket a feature list into status columns.
+// Helpers - bucket a feature list into status columns, each column sorted by
+// priority (0 = Urgent first; unset sorts after the explicit "No priority" 4).
 // ---------------------------------------------------------------------------
+
+function priorityRank(f: RoadmapFeature) {
+  return f.priority ?? 5;
+}
 
 function bucketByStatus(features: RoadmapFeature[]) {
   const map: Record<string, RoadmapFeature[]> = {};
   for (const col of FEATURE_STATUSES) map[col.value] = [];
   for (const f of features) (map[f.status] ??= []).push(f);
+  // Stable sort: equal priorities keep the query's updatedAt-desc order.
+  for (const list of Object.values(map)) {
+    list.sort((a, b) => priorityRank(a) - priorityRank(b));
+  }
   return map;
 }
 
@@ -674,6 +696,18 @@ export function ProductRoadmapBoard() {
           }}
         />
       </div>
+      <Tooltip
+        label="Cards in each column are ordered by priority (Urgent first)"
+        position="bottom"
+        withArrow
+      >
+        <Group gap={4} wrap="nowrap">
+          <IconArrowsSort size={14} className="text-text-muted" />
+          <Text size="xs" className="text-text-muted">
+            Sorted by priority
+          </Text>
+        </Group>
+      </Tooltip>
       <Tooltip
         label="By default, SHIPPED shows only features updated this quarter"
         position="bottom"
