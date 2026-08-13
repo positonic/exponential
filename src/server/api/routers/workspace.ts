@@ -1342,17 +1342,26 @@ export const workspaceRouter = createTRPCRouter({
 
       // Whether the logged-in viewer already belongs to the workspace — e.g.
       // an invitee whose invitation was auto-accepted during signup.
-      const isMember = ctx.session?.user?.id
-        ? (await ctx.db.workspaceUser.findUnique({
-            where: {
-              userId_workspaceId: {
-                userId: ctx.session.user.id,
-                workspaceId: invitation.workspaceId,
-              },
-            },
-            select: { userId: true },
-          })) !== null
-        : false;
+      const viewerId = ctx.session?.user?.id;
+      const [isMember, viewer] = viewerId
+        ? await Promise.all([
+            ctx.db.workspaceUser
+              .findUnique({
+                where: {
+                  userId_workspaceId: {
+                    userId: viewerId,
+                    workspaceId: invitation.workspaceId,
+                  },
+                },
+                select: { userId: true },
+              })
+              .then((membership) => membership !== null),
+            ctx.db.user.findUnique({
+              where: { id: viewerId },
+              select: { welcomeCompletedAt: true },
+            }),
+          ])
+        : [false, null];
 
       return {
         ...invitation,
@@ -1365,6 +1374,13 @@ export const workspaceRouter = createTRPCRouter({
         isLoggedIn: !!ctx.session?.user,
         isForCurrentUser: invitation.email === ctx.session?.user?.email,
         isMember,
+        // Logged-out viewers default to true so nothing changes for them —
+        // only a logged-in member who hasn't finished welcome gets routed
+        // through /welcome instead of straight into the workspace.
+        viewerCompletedWelcome: viewerId
+          ? viewer?.welcomeCompletedAt !== null &&
+            viewer?.welcomeCompletedAt !== undefined
+          : true,
       };
     }),
 
