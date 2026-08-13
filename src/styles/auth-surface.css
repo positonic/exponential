@@ -303,6 +303,48 @@
   box-shadow: 0 0 0 3px rgba(78, 137, 255, 0.15);
 }
 
+.auth-surface .field__desc {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: -2px 0 0;
+}
+.auth-surface .field__hint {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 2px 0 0;
+}
+/* Sign-in code entry — mono + spaced so it reads like the code in the email. */
+.auth-surface .field__input--code {
+  font-family: var(--font-mono);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.auth-surface .field__input--code::placeholder { text-transform: none; }
+
+/* Two stacked .field groups on /auth/verify-request */
+.auth-surface .verify-form { display: flex; flex-direction: column; gap: 16px; }
+
+.auth-surface .auth-note {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  line-height: 1.55;
+  margin: 12px 0 0;
+}
+.auth-surface .auth-note + .auth-note { margin-top: 4px; }
+.auth-surface .auth-note b { color: var(--color-text-secondary); font-weight: 500; }
+
+/* "Back to sign in" on /auth/verify-request */
+.auth-surface .auth-back {
+  margin-top: 20px;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+.auth-surface .auth-back:hover { color: var(--color-text-primary); }
+.auth-surface .auth-back svg { flex-shrink: 0; }
+
 .auth-surface .btn-primary {
   margin-top: 12px;
   height: 40px;

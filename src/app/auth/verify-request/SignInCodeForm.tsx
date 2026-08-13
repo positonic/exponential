@@ -1,6 +1,5 @@
 "use client";
 
-import { Button, Stack, Text, TextInput } from "@mantine/core";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   buildSignInCodeCallbackUrl,
@@ -17,6 +16,9 @@ import {
  * magic link would have hit — so user creation, `events.createUser` and
  * `emailVerified` all stay on the standard path. A full navigation rather than
  * `fetch`, because the response sets the session cookie and redirects.
+ *
+ * Styled with the shared `.auth-surface` field classes so the page reads as
+ * the same surface as /signin, not a Mantine island inside it.
  */
 export function SignInCodeForm() {
   const [code, setCode] = useState("");
@@ -53,52 +55,81 @@ export function SignInCodeForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <Stack gap="sm">
-        {/*
-          Always shown, even when we recovered the address from the sign-in
-          page. `sessionStorage` outlives the attempt that wrote it, so the
-          stashed value can be the wrong one — request a code for a personal
-          address in this tab, then arrive here holding an invite code sent to
-          a work address, and a hidden field would redeem against the personal
-          one and report "that code is incorrect" with nothing to correct. A
-          code is only ever valid against one identifier, so showing which one
-          is about to be used is worth the extra field.
-        */}
-        <TextInput
+    <form className="verify-form" onSubmit={handleSubmit}>
+      {/*
+        Always shown, even when we recovered the address from the sign-in
+        page. `sessionStorage` outlives the attempt that wrote it, so the
+        stashed value can be the wrong one — request a code for a personal
+        address in this tab, then arrive here holding an invite code sent to
+        a work address, and a hidden field would redeem against the personal
+        one and report "that code is incorrect" with nothing to correct. A
+        code is only ever valid against one identifier, so showing which one
+        is about to be used is worth the extra field.
+      */}
+      <div className="field">
+        <label className="field__label" htmlFor="verify-email">
+          Email address
+        </label>
+        <p className="field__desc">The address the code was sent to.</p>
+        <input
           ref={emailRef}
-          label="Email address"
-          description="The address the code was sent to."
-          placeholder="you@company.com"
+          id="verify-email"
+          className="field__input"
           type="email"
+          placeholder="you@company.com"
           value={email}
           onChange={(event) => setEmail(event.currentTarget.value)}
           autoComplete="email"
           required
         />
+      </div>
 
-        <TextInput
+      <div className="field">
+        <label className="field__label" htmlFor="verify-code">
+          Sign-in code
+        </label>
+        <input
           ref={codeRef}
-          label="Sign-in code"
+          id="verify-code"
+          // The code is Crockford base32 and we fold case on submit, so the
+          // uppercase (via .field__input--code) is purely visual, matching
+          // how the code appears in the email.
+          className="field__input field__input--code"
+          type="text"
           placeholder="XXXX-XXXX"
           value={code}
           onChange={(event) => setCode(event.currentTarget.value)}
           autoComplete="one-time-code"
           spellCheck={false}
-          // The code is Crockford base32 and we fold case on submit, so the
-          // uppercase here is purely so it matches the email visually.
-          styles={{ input: { textTransform: "uppercase", letterSpacing: "0.15em" } }}
           required
         />
-
-        <Button type="submit" disabled={!isComplete} fullWidth>
-          Sign in
-        </Button>
-
-        <Text size="xs" className="text-text-muted">
+        <p className="field__hint">
           Codes are case-insensitive. The hyphen is optional.
-        </Text>
-      </Stack>
+        </p>
+      </div>
+
+      <button className="btn-primary" type="submit" disabled={!isComplete}>
+        <span>Sign in</span>
+        <ArrowRightGlyph />
+      </button>
     </form>
+  );
+}
+
+function ArrowRightGlyph() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 12h14" />
+      <path d="M13 5l7 7-7 7" />
+    </svg>
   );
 }
