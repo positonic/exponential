@@ -33,6 +33,11 @@ function JoinedWorkspaceBannerInner({ workspaceId }: { workspaceId: string }) {
   const [dismissed, setDismissed] = useLocalStorage<boolean>({
     key: `joined-workspace-banner-dismissed:${workspaceId}`,
     defaultValue: false,
+    // Read synchronously on first client render — the deferred default would
+    // make a previously-dismissed banner flash (and fire its query) on every
+    // home visit. Safe here: SSR and first client render both output null
+    // regardless (query data hasn't loaded), so hydration can't mismatch.
+    getInitialValueInEffect: false,
   });
 
   const { data } = api.workspace.getRecentJoinContext.useQuery(
