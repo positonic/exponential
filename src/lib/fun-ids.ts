@@ -123,6 +123,42 @@ export function ticketUrlId(ticket: { id: string; number: number }): string {
   return ticket.number > 0 ? String(ticket.number) : ticket.id;
 }
 
+/** One `shortId` condition in the shape Prisma's `TicketWhereInput` accepts. */
+interface ShortIdContains {
+  shortId: { contains: string; mode: "insensitive" };
+}
+
+/**
+ * Where-clauses matching a ticket's `shortId` against a free-text query, for
+ * spreading into a Prisma `OR`. Beyond the plain substring match, a multi-word
+ * query matches shortIds containing every word in any order: fun IDs are
+ * `adjective.noun`, and people reliably recall the two words but not which
+ * came first — a search for "toucan.prime" (or "toucan prime") must find
+ * `prime.toucan`.
+ */
+export function shortIdSearchWhere(
+  query: string,
+): (ShortIdContains | { AND: ShortIdContains[] })[] {
+  const contains = (value: string): ShortIdContains => ({
+    shortId: { contains: value, mode: "insensitive" },
+  });
+  const words = query.split(/[.\s]+/).filter(Boolean);
+  // Nothing but separators: no clause at all, rather than a match-everything
+  // `contains("")` or a match-nothing `contains(".")`.
+  if (words.length === 0) return [];
+  // Matching the word instead of the raw query lets stray separators along
+  // for the ride ("toucan." still finds prime.toucan).
+  if (words.length === 1) return [contains(words[0]!)];
+  // Fun IDs are exactly adjective.noun, so only a two-word query can be one
+  // typed from memory — and both words must be real words, or "a b" floods
+  // the results with every shortId containing those two letters. The AND of
+  // per-word substrings subsumes the exact match, so it stands alone. Longer
+  // queries are title-style text: plain substring match, as before.
+  return words.length === 2 && words.every((w) => w.length >= 2)
+    ? [{ AND: words.map(contains) }]
+    : [contains(query.trim())];
+}
+
 /**
  * Parse a ticket URL segment into a sequential-number lookup key. Accepts a
  * bare number (`29`) or a Linear-style id (`PLAT-29`, case-insensitive).

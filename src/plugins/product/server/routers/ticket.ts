@@ -22,7 +22,7 @@ import {
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
-import { parseTicketUrlId } from "~/lib/fun-ids";
+import { parseTicketUrlId, shortIdSearchWhere } from "~/lib/fun-ids";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -811,7 +811,9 @@ export const ticketRouter = createTRPCRouter({
             ? {
                 OR: [
                   { title: { contains: q, mode: "insensitive" as const } },
-                  { shortId: { contains: q, mode: "insensitive" as const } },
+                  // Fun shortIds match word-order-insensitively
+                  // ("toucan.prime" finds prime.toucan).
+                  ...shortIdSearchWhere(q),
                   ...(numberFromQuery !== undefined ? [{ number: numberFromQuery }] : []),
                 ],
               }
