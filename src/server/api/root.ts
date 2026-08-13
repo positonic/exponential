@@ -23,6 +23,7 @@ import { teamRouter } from "./routers/team";
 import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
+import { availabilityRouter } from "./routers/availability";
 import { feedbackRouter } from "./routers/feedback";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
@@ -121,6 +122,7 @@ export const appRouter = createTRPCRouter({
   slack: slackRouter,
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
+  availability: availabilityRouter,
   feedback: feedbackRouter,
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,

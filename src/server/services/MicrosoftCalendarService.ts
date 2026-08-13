@@ -7,6 +7,7 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  BusyInterval,
 } from "./CalendarProvider";
 
 // Cache with 15 minute TTL (same as Google)
@@ -144,10 +145,15 @@ export class MicrosoftCalendarService implements CalendarProvider {
     return account.access_token;
   }
 
-  private async graphFetch<T>(userId: string, url: string, accountId?: string): Promise<T> {
+  private async graphFetch<T>(
+    userId: string,
+    url: string,
+    accountId?: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
     const accessToken = await this.getAccessToken(userId, accountId);
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${accessToken}`, ...extraHeaders },
     });
     if (!response.ok) {
       const text = await response.text();
@@ -513,10 +519,98 @@ export class MicrosoftCalendarService implements CalendarProvider {
     };
   }
 
+  /**
+   * Busy intervals across the given calendars. Derived from calendarView
+   * (rather than getSchedule, which needs the account's SMTP address) using
+   * each event's showAs status, so events marked "free" or "working
+   * elsewhere" don't count as busy — matching Outlook's own availability
+   * semantics. The Prefer header forces UTC so the returned wall-clock
+   * strings can be treated as UTC instants.
+   */
+  async getFreeBusy(
+    userId: string,
+    options: {
+      timeMin: Date;
+      timeMax: Date;
+      calendarIds?: string[];
+      accountId?: string;
+    },
+  ): Promise<BusyInterval[]> {
+    const { timeMin, timeMax, accountId } = options;
+    const calendarIds =
+      options.calendarIds && options.calendarIds.length > 0
+        ? options.calendarIds.slice(0, 10)
+        : ["primary"];
+
+    const cacheKey = `msfb:${userId}:${accountId ?? "default"}:${timeMin.getTime()}:${timeMax.getTime()}:${calendarIds.join(",")}`;
+    const cached = calendarCache.get<BusyInterval[]>(cacheKey);
+    if (cached) return cached;
+
+    const BUSY_STATUSES = new Set(["busy", "tentative", "oof"]);
+
+    const perCalendar = await Promise.all(
+      calendarIds.map(async (calendarId) => {
+        const calendarPath =
+          calendarId && calendarId !== "primary"
+            ? `me/calendars/${calendarId}/calendarView`
+            : "me/calendarView";
+
+        const params = new URLSearchParams({
+          startDateTime: timeMin.toISOString(),
+          endDateTime: timeMax.toISOString(),
+          $top: "250",
+          $select: "start,end,showAs,isCancelled",
+        });
+
+        try {
+          const data = await this.graphFetch<{
+            value: Array<{
+              start: { dateTime: string };
+              end: { dateTime: string };
+              showAs?: string;
+              isCancelled?: boolean;
+            }>;
+          }>(
+            userId,
+            `https://graph.microsoft.com/v1.0/${calendarPath}?${params.toString()}`,
+            accountId,
+            { Prefer: 'outlook.timezone="UTC"' },
+          );
+
+          return data.value
+            .filter(
+              (e) => !e.isCancelled && BUSY_STATUSES.has(e.showAs ?? "busy"),
+            )
+            .map(
+              (e): BusyInterval => ({
+                // Graph omits the offset from dateTime; the Prefer header
+                // guarantees these are UTC wall-clock strings.
+                start: `${e.start.dateTime.replace(/\.\d+$/, "")}Z`,
+                end: `${e.end.dateTime.replace(/\.\d+$/, "")}Z`,
+              }),
+            );
+        } catch (error) {
+          // One unreadable calendar shouldn't fail the whole availability
+          // check — mirror the Google per-calendar error handling.
+          console.error(
+            `Failed to fetch Microsoft free/busy for calendar ${calendarId}:`,
+            error,
+          );
+          return [];
+        }
+      }),
+    );
+
+    const busy = perCalendar.flat();
+    calendarCache.set(cacheKey, busy, 300);
+    return busy;
+  }
+
   clearUserCache(userId: string): void {
     const keys = calendarCache.keys();
-    const userKeys = keys.filter((key) =>
-      key.startsWith(`mscal:${userId}:`),
+    const userKeys = keys.filter(
+      (key) =>
+        key.startsWith(`mscal:${userId}:`) || key.startsWith(`msfb:${userId}:`),
     );
     calendarCache.del(userKeys);
     console.log(

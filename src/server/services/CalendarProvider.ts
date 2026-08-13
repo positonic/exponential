@@ -68,6 +68,17 @@ export interface CreateEventInput {
   calendarId?: string;
 }
 
+/**
+ * A period during which a person is busy, as UTC ISO-8601 strings.
+ * Deliberately carries no event details (title, attendees, location) — this is
+ * the free/busy privacy model: other workspace members may learn *when* you
+ * are busy, never *what* you are doing.
+ */
+export interface BusyInterval {
+  start: string;
+  end: string;
+}
+
 export interface CreatedCalendarEvent extends CalendarEvent {
   conferenceData?: {
     entryPoints?: Array<{
@@ -118,6 +129,21 @@ export interface CalendarProvider {
     userId: string,
     input: CreateEventInput,
   ): Promise<CreatedCalendarEvent>;
+
+  /**
+   * Busy intervals across the given calendars, merged per provider rules
+   * (events marked "free"/transparent are excluded). Returns opaque intervals
+   * only — see BusyInterval.
+   */
+  getFreeBusy(
+    userId: string,
+    options: {
+      timeMin: Date;
+      timeMax: Date;
+      calendarIds?: string[];
+      accountId?: string;
+    },
+  ): Promise<BusyInterval[]>;
 
   /** Fetch the account's email from the provider and persist it. Used to backfill providerEmail. */
   fetchAndUpdateProviderEmail(

@@ -12,6 +12,7 @@ import {
   IconUsers,
   IconTarget,
   IconCalendar,
+  IconClockShare,
   IconSettings,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -41,6 +42,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: 'Meetings', icon: IconMicrophone, segment: 'meetings' },
   { label: 'CRM', icon: IconUsers, segment: 'crm' },
   { label: 'Calendar', icon: IconCalendar, segment: 'timeline' },
+  { label: 'Availability', icon: IconClockShare, segment: 'availability' },
   { label: 'Settings', icon: IconSettings, segment: 'settings' },
 ] as const;
 

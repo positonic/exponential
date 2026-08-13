@@ -9,6 +9,7 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  BusyInterval,
 } from './CalendarProvider';
 
 // Re-export shared types for backwards compatibility
@@ -288,10 +289,73 @@ export class GoogleCalendarService implements CalendarProvider {
     });
   }
 
+  /**
+   * Busy intervals across the given calendars via the freeBusy API, which
+   * applies Google's own availability rules (transparent/"free" events and
+   * declined invitations don't count as busy). Requires the calendar.readonly
+   * scope, which the connect flow always requests alongside calendar.events.
+   */
+  async getFreeBusy(
+    userId: string,
+    options: {
+      timeMin: Date;
+      timeMax: Date;
+      calendarIds?: string[];
+      accountId?: string;
+    },
+  ): Promise<BusyInterval[]> {
+    const { timeMin, timeMax, accountId } = options;
+    const calendarIds =
+      options.calendarIds && options.calendarIds.length > 0
+        ? options.calendarIds.slice(0, 10)
+        : ['primary'];
+
+    // Short TTL: free/busy feeds scheduling decisions, so staleness is more
+    // costly here than for the event list views.
+    const cacheKey = `fb:${userId}:${accountId ?? 'default'}:${timeMin.getTime()}:${timeMax.getTime()}:${calendarIds.join(',')}`;
+    const cached = calendarCache.get<BusyInterval[]>(cacheKey);
+    if (cached) return cached;
+
+    const calendar = await this.getCalendarClient(userId, accountId);
+
+    try {
+      const response = await calendar.freebusy.query(
+        {
+          requestBody: {
+            timeMin: timeMin.toISOString(),
+            timeMax: timeMax.toISOString(),
+            items: calendarIds.map((id) => ({ id })),
+          },
+        },
+        { timeout: GOOGLE_TIMEOUT_MS },
+      );
+
+      const busy: BusyInterval[] = [];
+      for (const cal of Object.values(response.data.calendars ?? {})) {
+        // Calendars the token can't read report per-calendar errors; skip
+        // those rather than failing the whole availability check.
+        if (cal.errors?.length) continue;
+        for (const interval of cal.busy ?? []) {
+          if (interval.start && interval.end) {
+            busy.push({ start: interval.start, end: interval.end });
+          }
+        }
+      }
+
+      calendarCache.set(cacheKey, busy, 300);
+      return busy;
+    } catch (error) {
+      console.error('Failed to fetch Google free/busy:', error);
+      throw new Error('Failed to fetch calendar availability. Please try again.');
+    }
+  }
+
   // Cache management methods
   clearUserCache(userId: string): void {
     const keys = calendarCache.keys();
-    const userKeys = keys.filter(key => key.startsWith(`cal:${userId}:`));
+    const userKeys = keys.filter(
+      key => key.startsWith(`cal:${userId}:`) || key.startsWith(`fb:${userId}:`),
+    );
     calendarCache.del(userKeys);
     console.log(`Cleared ${userKeys.length} cache entries for user ${userId}`);
   }

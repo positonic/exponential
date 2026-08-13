@@ -6,6 +6,12 @@ import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
 import type { CalendarInfo, CalendarProvider } from "~/server/services/CalendarProvider";
 import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import {
+  getAccountProvider,
+  toProviderType,
+  isCalendarConnected,
+  calendarScopeFor,
+} from "~/server/services/calendarConnection";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 
@@ -18,16 +24,6 @@ function getCalendarService(provider: ProviderType): CalendarProvider {
     case "microsoft":
       return new MicrosoftCalendarService();
   }
-}
-
-/** Maps our provider type to the NextAuth account provider name */
-function getAccountProvider(provider: ProviderType): string {
-  return provider === "microsoft" ? "microsoft-entra-id" : "google";
-}
-
-/** Maps a NextAuth account provider name back to our provider type */
-function toProviderType(accountProvider: string): ProviderType {
-  return accountProvider === "microsoft-entra-id" ? "microsoft" : "google";
 }
 
 /**
@@ -44,29 +40,6 @@ function isGoogleCalendarGated(
   provider: ProviderType,
 ): boolean {
   return provider === "google" && !isGoogleOAuthTester(email);
-}
-
-/** The OAuth scope that grants calendar access for each provider */
-function calendarScopeFor(accountProvider: string): string {
-  return accountProvider === "microsoft-entra-id"
-    ? "Calendars.Read"
-    : "https://www.googleapis.com/auth/calendar.events";
-}
-
-/** Whether an account currently has a usable (scoped + non-expired-or-refreshable) calendar connection */
-function isCalendarConnected(account: {
-  access_token: string | null;
-  refresh_token: string | null;
-  scope: string | null;
-  expires_at: number | null;
-  provider: string;
-}): boolean {
-  if (!account.access_token) return false;
-  const hasScope = account.scope?.includes(calendarScopeFor(account.provider)) ?? false;
-  const tokenNotExpired =
-    !account.expires_at || account.expires_at > Math.floor(Date.now() / 1000) + 300;
-  const isTokenValid = tokenNotExpired || !!account.refresh_token;
-  return hasScope && isTokenValid;
 }
 
 // Helper to convert CalendarInfo array to Prisma JSON-compatible format
