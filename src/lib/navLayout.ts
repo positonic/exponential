@@ -54,6 +54,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
     items: [
       { id: 'agents', hidden: false },
       { id: 'meetings', hidden: false },
+      { id: 'availability', hidden: false },
       { id: 'knowledge', hidden: false },
     ],
   },
@@ -109,6 +110,10 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
   meetings: {
     label: 'Meetings',
     href: (s) => `/w/${s}/meetings`,
+  },
+  availability: {
+    label: 'Availability',
+    href: (s) => `/w/${s}/availability`,
   },
   knowledge: {
     label: 'Knowledge',

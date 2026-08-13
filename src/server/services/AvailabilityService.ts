@@ -18,6 +18,16 @@ export interface TimeInterval {
   end: Date;
 }
 
+export interface WorkingWindow extends TimeInterval {
+  /**
+   * The unclamped local-day window start (e.g. 09:00 local) that slot starts
+   * align to. When the window itself is clamped to timeMin ("from now on"),
+   * aligning to the anchor keeps slots on clean :00/:30 boundaries instead of
+   * offsets of the moment the user happened to search.
+   */
+  anchor: Date;
+}
+
 export interface WorkingHoursOptions {
   /** IANA time zone the working hours are expressed in, e.g. "Europe/Lisbon" */
   timeZone: string;
@@ -84,9 +94,9 @@ export function buildWorkingWindows(
   timeMin: Date,
   timeMax: Date,
   options: WorkingHoursOptions,
-): TimeInterval[] {
+): WorkingWindow[] {
   const { timeZone, startHour, endHour, includeWeekends } = options;
-  const windows: TimeInterval[] = [];
+  const windows: WorkingWindow[] = [];
 
   const pad = (h: number) => String(h).padStart(2, "0");
 
@@ -110,7 +120,7 @@ export function buildWorkingWindows(
 
       const start = windowStart < timeMin ? timeMin : windowStart;
       const end = windowEnd > timeMax ? timeMax : windowEnd;
-      if (start < end) windows.push({ start, end });
+      if (start < end) windows.push({ start, end, anchor: windowStart });
     }
 
     const localNoon = fromZonedTime(`${dayStr}T12:00:00`, timeZone);
@@ -143,8 +153,9 @@ export function subtractBusy(
 /**
  * Slots of `durationMinutes` where none of the members are busy, within
  * working hours. Slot starts are aligned to `slotIncrementMinutes` boundaries
- * measured from each working window's start, so a 9:00–17:00 window with a
- * 30-minute increment yields 9:00, 9:30, … starts.
+ * measured from each working window's anchor (its unclamped local-day start),
+ * so a 9:00–17:00 window with a 30-minute increment yields 9:00, 9:30, …
+ * starts — even when the search begins mid-day.
  */
 export function computeCommonFreeSlots(
   busyByMember: BusyInterval[][],
@@ -165,9 +176,9 @@ export function computeCommonFreeSlots(
   for (const window of windows) {
     for (const gap of subtractBusy(window, mergedBusy)) {
       // First aligned slot start at or after the gap start.
-      const offsetMs = gap.start.getTime() - window.start.getTime();
+      const offsetMs = gap.start.getTime() - window.anchor.getTime();
       const alignedOffsetMs = Math.ceil(offsetMs / incrementMs) * incrementMs;
-      let slotStart = new Date(window.start.getTime() + alignedOffsetMs);
+      let slotStart = new Date(window.anchor.getTime() + alignedOffsetMs);
 
       while (true) {
         const slotEnd = addMinutes(slotStart, durationMinutes);

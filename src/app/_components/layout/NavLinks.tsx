@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   IconInbox,
   IconClock,
+  IconClockShare,
   IconTarget,
   IconStack2,
   IconLayoutGrid,
@@ -38,6 +39,7 @@ const ITEM_ICONS: Record<string, Icon> = {
   crm: IconUsers,
   agents: IconMessageChatbot,
   meetings: IconMicrophone,
+  availability: IconClockShare,
   knowledge: IconBook,
 };
 

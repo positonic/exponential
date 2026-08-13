@@ -101,7 +101,7 @@ describe("buildWorkingWindows", () => {
       d("2026-08-19T23:59:59Z"),
       { timeZone: "UTC", startHour: 9, endHour: 17, includeWeekends: false },
     );
-    expect(windows).toEqual([
+    expect(windows).toMatchObject([
       interval("2026-08-17T09:00:00Z", "2026-08-17T17:00:00Z"),
       interval("2026-08-18T09:00:00Z", "2026-08-18T17:00:00Z"),
       interval("2026-08-19T09:00:00Z", "2026-08-19T17:00:00Z"),
@@ -143,20 +143,21 @@ describe("buildWorkingWindows", () => {
         includeWeekends: false,
       },
     );
-    expect(windows[0]).toEqual(
+    expect(windows[0]).toMatchObject(
       interval("2026-08-17T13:00:00Z", "2026-08-17T21:00:00Z"),
     );
   });
 
-  it("clamps the first and last windows to the query range", () => {
+  it("clamps the first and last windows to the query range, keeping the unclamped anchor", () => {
     const windows = buildWorkingWindows(
       d("2026-08-17T10:30:00Z"),
       d("2026-08-17T15:00:00Z"),
       { timeZone: "UTC", startHour: 9, endHour: 17, includeWeekends: false },
     );
-    expect(windows).toEqual([
+    expect(windows).toMatchObject([
       interval("2026-08-17T10:30:00Z", "2026-08-17T15:00:00Z"),
     ]);
+    expect(windows[0]!.anchor.toISOString()).toBe("2026-08-17T09:00:00.000Z");
   });
 });
 
@@ -195,6 +196,17 @@ describe("computeCommonFreeSlots", () => {
     expect(slots.map((s) => s.start.toISOString())).toEqual([
       "2026-08-17T10:00:00.000Z",
       "2026-08-17T10:30:00.000Z",
+    ]);
+  });
+
+  it("keeps slots on clean boundaries when the search starts mid-day", () => {
+    // Searching at 10:47 must offer 11:00, 11:30, … — not 10:47, 11:17, …
+    const slots = computeCommonFreeSlots([[]], {
+      ...baseOptions,
+      timeMin: d("2026-08-17T10:47:00Z"),
+    });
+    expect(slots.map((s) => s.start.toISOString())).toEqual([
+      "2026-08-17T11:00:00.000Z",
     ]);
   });
 
