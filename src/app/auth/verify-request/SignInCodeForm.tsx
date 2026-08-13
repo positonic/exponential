@@ -70,12 +70,17 @@ export function SignInCodeForm() {
         <label className="field__label" htmlFor="verify-email">
           Email address
         </label>
-        <p className="field__desc">The address the code was sent to.</p>
+        {/* aria-describedby restores what Mantine's `description` prop wired
+            up automatically — without it screen readers never announce these. */}
+        <p className="field__desc" id="verify-email-desc">
+          The address the code was sent to.
+        </p>
         <input
           ref={emailRef}
           id="verify-email"
           className="field__input"
           type="email"
+          aria-describedby="verify-email-desc"
           placeholder="you@company.com"
           value={email}
           onChange={(event) => setEmail(event.currentTarget.value)}
@@ -96,6 +101,7 @@ export function SignInCodeForm() {
           // how the code appears in the email.
           className="field__input field__input--code"
           type="text"
+          aria-describedby="verify-code-hint"
           placeholder="XXXX-XXXX"
           value={code}
           onChange={(event) => setCode(event.currentTarget.value)}
@@ -103,7 +109,7 @@ export function SignInCodeForm() {
           spellCheck={false}
           required
         />
-        <p className="field__hint">
+        <p className="field__hint" id="verify-code-hint">
           Codes are case-insensitive. The hyphen is optional.
         </p>
       </div>
