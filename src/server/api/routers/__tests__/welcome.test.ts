@@ -29,7 +29,7 @@ vi.mock("~/server/auth", () => ({
   signOut: vi.fn(),
 }));
 
-import { resolveWorkspaceId } from "../welcome";
+import { resolveInvitedContext, resolveWorkspaceId } from "../welcome";
 
 const db = mockDeep<PrismaClient>();
 const USER = "user-1";
@@ -117,5 +117,84 @@ describe("resolveWorkspaceId", () => {
     db.workspaceUser.findFirst.mockResolvedValue(null as never);
 
     await expect(resolveWorkspaceId(db, USER)).resolves.toBeNull();
+  });
+});
+
+describe("resolveInvitedContext", () => {
+  const EMAIL = "invitee@example.com";
+
+  const invitationRow = (overrides?: {
+    ownerId?: string;
+    inviterName?: string | null;
+    inviterEmail?: string | null;
+  }) =>
+    ({
+      workspace: {
+        name: "Dev Fixture",
+        slug: "dev-fixture",
+        type: "team",
+        ownerId: overrides?.ownerId ?? OTHER_USER,
+      },
+      createdBy: {
+        name: overrides?.inviterName === undefined ? "Inviter Name" : overrides.inviterName,
+        email: overrides?.inviterEmail === undefined ? "inviter@example.com" : overrides.inviterEmail,
+      },
+    }) as never;
+
+  it("returns the invited context for a user who joined someone else's workspace", async () => {
+    db.workspaceInvitation.findFirst.mockResolvedValue(invitationRow());
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toEqual({
+      workspaceName: "Dev Fixture",
+      workspaceSlug: "dev-fixture",
+      inviterName: "Inviter Name",
+    });
+    expect(db.workspaceInvitation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { email: EMAIL, status: "accepted" },
+        orderBy: { acceptedAt: "desc" },
+      }),
+    );
+  });
+
+  it("falls back to the inviter's email when they have no name", async () => {
+    db.workspaceInvitation.findFirst.mockResolvedValue(
+      invitationRow({ inviterName: null }),
+    );
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toEqual(
+      expect.objectContaining({ inviterName: "inviter@example.com" }),
+    );
+  });
+
+  it("reports a null inviterName when the inviter has neither name nor email", async () => {
+    db.workspaceInvitation.findFirst.mockResolvedValue(
+      invitationRow({ inviterName: null, inviterEmail: null }),
+    );
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toEqual(
+      expect.objectContaining({ inviterName: null }),
+    );
+  });
+
+  it("returns null when the latest accepted invitation points at the user's OWN workspace", async () => {
+    // Owner of the workspace — they didn't genuinely join someone else's team.
+    db.workspaceInvitation.findFirst.mockResolvedValue(
+      invitationRow({ ownerId: USER }),
+    );
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toBeNull();
+  });
+
+  it("returns null when the user has no accepted invitation", async () => {
+    db.workspaceInvitation.findFirst.mockResolvedValue(null as never);
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toBeNull();
+  });
+
+  it("returns null without querying when the user has no email", async () => {
+    await expect(resolveInvitedContext(db, USER, null)).resolves.toBeNull();
+    await expect(resolveInvitedContext(db, USER, undefined)).resolves.toBeNull();
+    expect(db.workspaceInvitation.findFirst).not.toHaveBeenCalled();
   });
 });

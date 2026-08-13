@@ -106,6 +106,48 @@ export async function resolveWorkspaceId(
   return membership?.workspaceId ?? null;
 }
 
+/** What the invited welcome variant needs to know about the joined workspace. */
+export interface InvitedContext {
+  workspaceName: string;
+  workspaceSlug: string;
+  inviterName: string | null;
+}
+
+/**
+ * Detect whether this user is a fresh invitee: their most recently accepted
+ * WorkspaceInvitation, but only when it put them into someone ELSE's
+ * workspace. A user who owns the workspace their latest invitation points at
+ * (e.g. an owner re-invited into their own workspace) is not "invited" — the
+ * welcome page must not pretend they just joined a team.
+ *
+ * Exported for tests — this decides which welcome variant a user sees.
+ */
+export async function resolveInvitedContext(
+  db: PrismaClient,
+  userId: string,
+  email: string | null | undefined,
+): Promise<InvitedContext | null> {
+  if (!email) return null;
+  const invitation = await db.workspaceInvitation.findFirst({
+    where: { email, status: "accepted" },
+    orderBy: { acceptedAt: "desc" },
+    include: {
+      workspace: {
+        select: { name: true, slug: true, type: true, ownerId: true },
+      },
+      createdBy: { select: { name: true, email: true } },
+    },
+  });
+  if (!invitation) return null;
+  if (invitation.workspace.ownerId === userId) return null;
+  return {
+    workspaceName: invitation.workspace.name,
+    workspaceSlug: invitation.workspace.slug,
+    inviterName:
+      invitation.createdBy.name ?? invitation.createdBy.email ?? null,
+  };
+}
+
 export const welcomeRouter = createTRPCRouter({
   /**
    * Everything the welcome page needs to render/resume: the persisted setup
@@ -114,7 +156,7 @@ export const welcomeRouter = createTRPCRouter({
    */
   getSetup: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
-    const [user, calendarAccountCount] = await Promise.all([
+    const [user, calendarAccountCount, invitedContext] = await Promise.all([
       ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -129,6 +171,7 @@ export const welcomeRouter = createTRPCRouter({
           provider: { in: ["google", "microsoft-entra-id"] },
         },
       }),
+      resolveInvitedContext(ctx.db, userId, ctx.session.user.email),
     ]);
 
     return {
@@ -139,6 +182,10 @@ export const welcomeRouter = createTRPCRouter({
       // aren't allowlisted testers the step isn't "not connected", it's not
       // available — the Google half of the step is hidden rather than offered.
       googleCalendarAvailable: isGoogleOAuthTester(ctx.session.user.email),
+      // Only a live signal while welcome is in progress: once completed, a
+      // return visit to /welcome must not flip an ordinary user's finished
+      // flow into the invited variant.
+      invitedContext: user?.welcomeCompletedAt ? null : invitedContext,
       state: parseSetupState(user?.welcomeSetupState),
     };
   }),
