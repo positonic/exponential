@@ -68,9 +68,7 @@ export function AttentionPanel() {
 
   if (!workspaceId || !workspaceSlug) return null;
 
-  const unreadMentions = (mentionData?.notifications ?? [])
-    .filter((m) => m.readAt === null)
-    .slice(0, MAX_ROWS);
+  const unreadMentions = (mentionData?.notifications ?? []).slice(0, MAX_ROWS);
   const waitingRows = waiting ?? [];
 
   const startOfToday = new Date();

@@ -157,9 +157,7 @@ export function YourWorkPanel() {
   const driProjects = dri?.projects ?? [];
   const driCount = driGoals.length + driKeyResults.length + driProjects.length;
   const recentMeetings = (meetings ?? []).slice(0, 5);
-  const mentions = (mentionData?.notifications ?? [])
-    .filter((mention) => mention.readAt === null)
-    .slice(0, 5);
+  const mentions = (mentionData?.notifications ?? []).slice(0, 5);
 
   const personalSectionsEmpty =
     !isLoading &&

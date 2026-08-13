@@ -1610,6 +1610,23 @@ describe("action router (mocked)", () => {
       expect(updatedWith()).toMatchObject({ status: "CANCELLED" });
     });
 
+    it("updateKanbanStatus re-sending the current column never resurrects", async () => {
+      // Pre-lockstep rows completed via checkbox: status COMPLETED but the
+      // kanban column untouched. A same-column reorder re-sends that column
+      // and must not flip the action back to ACTIVE or clear its timestamp.
+      stubKanbanRow({
+        status: "COMPLETED",
+        kanbanStatus: "TODO",
+        completedAt: new Date(),
+      });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "TODO" });
+
+      expect(updatedWith().status).toBeUndefined();
+      expect(updatedWith().completedAt).toBeUndefined();
+    });
+
     it("updateKanbanStatus never resurrects a DRAFT row", async () => {
       stubKanbanRow({ status: "DRAFT", kanbanStatus: "TODO" });
 
@@ -1677,6 +1694,33 @@ describe("action router (mocked)", () => {
         status: "ACTIVE",
         completedAt: null,
       });
+    });
+
+    it("update re-sending the current column never resurrects", async () => {
+      // A full-payload edit (rename, due date, …) that includes the current,
+      // unchanged kanban column must not flip a completed action to ACTIVE
+      // or clear its timestamp.
+      stubUpdateRow({
+        status: "COMPLETED",
+        kanbanStatus: "TODO",
+        completedAt: new Date(),
+      });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.update({ id: "a1", name: "Renamed", kanbanStatus: "TODO" });
+
+      expect(updatedWith().status).toBeUndefined();
+      expect(updatedWith().completedAt).toBeUndefined();
+    });
+
+    it("update re-sending DONE still repairs a legacy DONE-but-ACTIVE row", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: null });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.update({ id: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
     });
 
     it("update with an explicit status wins over the kanban sync", async () => {

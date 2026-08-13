@@ -775,21 +775,34 @@ export const actionRouter = createTRPCRouter({
 
       // Set completedAt timestamp when completing, clear when uncompleting
       // Clear kanbanOrder when priority is updated to restore automatic sorting
+      // A kanban column actually changing, as opposed to a full payload
+      // re-sending the current column: un-completing must only happen on a
+      // real change, or any unrelated edit that includes kanbanStatus would
+      // resurrect a completed action and clear its timestamp.
+      const kanbanChanged =
+        updateData.kanbanStatus !== undefined &&
+        updateData.kanbanStatus !== currentAction?.kanbanStatus;
       const finalUpdateData = {
         ...updateData,
         // Gated on the stored timestamp, not wasCompleted, so re-completing a
         // legacy row (kanban DONE, completedAt never written) backfills it.
         ...(isCompleting && !currentAction?.completedAt && { completedAt: new Date() }),
-        ...(isUncompleting && currentAction?.completedAt && { completedAt: null }),
+        ...((updateData.status === "ACTIVE" ||
+          (kanbanChanged && updateData.kanbanStatus !== "DONE")) &&
+          currentAction?.completedAt && { completedAt: null }),
         // Callers that complete via kanbanStatus alone must move the coarse
         // `status` too — list views filter on status === "ACTIVE" and would
         // otherwise keep showing a kanban-DONE action (and vice versa). An
         // explicit `status` in the input always wins; DELETED/DRAFT rows are
-        // left alone so a kanban move can't resurrect them.
+        // left alone; the sync toward ACTIVE fires only on a real column
+        // change, while DONE/CANCELLED also repair an already-matching column.
         ...(updateData.status === undefined &&
           updateData.kanbanStatus !== undefined &&
           currentAction &&
-          ["ACTIVE", "COMPLETED", "CANCELLED"].includes(currentAction.status) && {
+          ["ACTIVE", "COMPLETED", "CANCELLED"].includes(currentAction.status) &&
+          (updateData.kanbanStatus === "DONE" ||
+            updateData.kanbanStatus === "CANCELLED" ||
+            kanbanChanged) && {
             status:
               updateData.kanbanStatus === "DONE"
                 ? ("COMPLETED" as const)
@@ -1018,24 +1031,39 @@ export const actionRouter = createTRPCRouter({
       // field moves in lockstep: list views (home overdue, "Assigned to you")
       // filter on status === "ACTIVE", so a kanban DONE that left status
       // ACTIVE would resurrect the action there on every load. DELETED/DRAFT
-      // rows are left alone — kanban moves must not resurrect them.
+      // rows are left alone — kanban moves must not resurrect them. Toward
+      // DONE/CANCELLED the sync fires even without a column change so legacy
+      // rows get repaired; toward ACTIVE only on a real column change —
+      // re-sending the current column (e.g. a same-column reorder) must not
+      // resurrect an action whose status was completed by another path.
+      const kanbanChanged = input.kanbanStatus !== action.kanbanStatus;
       const statusForKanban =
         input.kanbanStatus === "DONE"
           ? ("COMPLETED" as const)
           : input.kanbanStatus === "CANCELLED"
             ? ("CANCELLED" as const)
             : ("ACTIVE" as const);
+      const statusIsSyncable = ["ACTIVE", "COMPLETED", "CANCELLED"].includes(
+        action.status,
+      );
       const shouldSyncStatus =
-        ["ACTIVE", "COMPLETED", "CANCELLED"].includes(action.status) &&
-        action.status !== statusForKanban;
+        statusIsSyncable &&
+        action.status !== statusForKanban &&
+        (statusForKanban !== "ACTIVE" || kanbanChanged);
       // completedAt is gated on the stored timestamp, not on wasCompleted:
       // on the legacy repair path (kanbanStatus already DONE, status still
       // ACTIVE, completedAt never written) wasCompleted is true and would
-      // leave a COMPLETED row with a null completedAt.
+      // leave a COMPLETED row with a null completedAt. Clearing follows the
+      // same rule as the ACTIVE sync: only on a real column change.
       const updateData = {
         kanbanStatus: input.kanbanStatus,
-        ...(isCompleting && !action.completedAt && { completedAt: new Date() }),
-        ...(isUncompleting && action.completedAt && { completedAt: null }),
+        ...(statusIsSyncable &&
+          isCompleting &&
+          !action.completedAt && { completedAt: new Date() }),
+        ...(statusIsSyncable &&
+          isUncompleting &&
+          kanbanChanged &&
+          action.completedAt && { completedAt: null }),
         ...(shouldSyncStatus && { status: statusForKanban }),
       };
 
