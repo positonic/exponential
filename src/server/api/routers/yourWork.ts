@@ -129,7 +129,13 @@ export const yourWorkRouter = createTRPCRouter({
       if (cycles.length === 0) return [];
 
       const cycleTickets = await ctx.db.ticket.findMany({
-        where: { cycleId: { in: cycles.map((c) => c.id) } },
+        // The workspace filter is defense-in-depth: cycles are workspace-
+        // scoped and tickets reach a workspace via product, but no DB
+        // constraint forces a ticket's cycle into its own workspace.
+        where: {
+          cycleId: { in: cycles.map((c) => c.id) },
+          product: { workspaceId: input.workspaceId },
+        },
         select: {
           id: true,
           shortId: true,
@@ -304,8 +310,10 @@ export const yourWorkRouter = createTRPCRouter({
     .input(z.object({ workspaceId: z.string(), since: z.date() }))
     .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
-      const floor = subDays(new Date(), 7);
-      const since = input.since > floor ? input.since : floor;
+      const now = new Date();
+      const floor = subDays(now, 7);
+      // Clamp both ways: no scans older than 7 days, no future windows.
+      const since = input.since > now ? now : input.since > floor ? input.since : floor;
       const groups = await ctx.db.workspaceActivityEvent.groupBy({
         by: ["entityType", "action"],
         where: {

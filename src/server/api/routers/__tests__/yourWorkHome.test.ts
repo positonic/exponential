@@ -328,4 +328,19 @@ describe("yourWork.sinceYesterday", () => {
       floorMs - 60_000,
     );
   });
+
+  it("clamps a future `since` down to now", async () => {
+    db.workspaceActivityEvent.groupBy.mockResolvedValue([] as never);
+
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await caller(db).yourWork.sinceYesterday({
+      workspaceId: WORKSPACE_ID,
+      since: tomorrow,
+    });
+
+    const args = db.workspaceActivityEvent.groupBy.mock.calls[0]?.[0] as {
+      where: { createdAt: { gte: Date } };
+    };
+    expect(args.where.createdAt.gte.getTime()).toBeLessThanOrEqual(Date.now());
+  });
 });
