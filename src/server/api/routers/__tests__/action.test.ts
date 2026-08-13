@@ -1571,6 +1571,21 @@ describe("action router (mocked)", () => {
       await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
 
       expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
+      // Timestamp already present — must not be rewritten.
+      expect(updatedWith().completedAt).toBeUndefined();
+    });
+
+    it("updateKanbanStatus DONE backfills a missing completedAt on a legacy row", async () => {
+      // Same legacy shape but completedAt was never written; wasCompleted is
+      // true here, so gating the timestamp on it would leave a COMPLETED row
+      // with a null completedAt forever.
+      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: null });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
     });
 
     it("updateKanbanStatus out of DONE reactivates the coarse status", async () => {
@@ -1605,14 +1620,18 @@ describe("action router (mocked)", () => {
     });
 
     /** The row `update` fetches — one shape serves the access check and currentAction. */
-    function stubUpdateRow(row: { status: string; kanbanStatus: string | null }) {
+    function stubUpdateRow(row: {
+      status: string;
+      kanbanStatus: string | null;
+      completedAt?: Date | null;
+    }) {
       dbMock.action.findUnique.mockResolvedValue({
         createdById: callerId,
         projectId: null,
         assignees: [],
         status: row.status,
         kanbanStatus: row.kanbanStatus,
-        completedAt: null,
+        completedAt: row.completedAt ?? null,
         scheduledStart: null,
         scheduledEnd: null,
         dueDate: null,
@@ -1644,12 +1663,20 @@ describe("action router (mocked)", () => {
     });
 
     it("update leaving DONE alone reactivates the coarse status", async () => {
-      stubUpdateRow({ status: "COMPLETED", kanbanStatus: "DONE" });
+      stubUpdateRow({
+        status: "COMPLETED",
+        kanbanStatus: "DONE",
+        completedAt: new Date(),
+      });
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
       await caller.action.update({ id: "a1", kanbanStatus: "TODO" });
 
-      expect(updatedWith()).toMatchObject({ kanbanStatus: "TODO", status: "ACTIVE" });
+      expect(updatedWith()).toMatchObject({
+        kanbanStatus: "TODO",
+        status: "ACTIVE",
+        completedAt: null,
+      });
     });
 
     it("update with an explicit status wins over the kanban sync", async () => {

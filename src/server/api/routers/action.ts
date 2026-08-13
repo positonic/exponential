@@ -777,8 +777,10 @@ export const actionRouter = createTRPCRouter({
       // Clear kanbanOrder when priority is updated to restore automatic sorting
       const finalUpdateData = {
         ...updateData,
-        ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
-        ...(isUncompleting && wasCompleted && { completedAt: null }),
+        // Gated on the stored timestamp, not wasCompleted, so re-completing a
+        // legacy row (kanban DONE, completedAt never written) backfills it.
+        ...(isCompleting && !currentAction?.completedAt && { completedAt: new Date() }),
+        ...(isUncompleting && currentAction?.completedAt && { completedAt: null }),
         // Callers that complete via kanbanStatus alone must move the coarse
         // `status` too — list views filter on status === "ACTIVE" and would
         // otherwise keep showing a kanban-DONE action (and vice versa). An
@@ -1026,10 +1028,14 @@ export const actionRouter = createTRPCRouter({
       const shouldSyncStatus =
         ["ACTIVE", "COMPLETED", "CANCELLED"].includes(action.status) &&
         action.status !== statusForKanban;
+      // completedAt is gated on the stored timestamp, not on wasCompleted:
+      // on the legacy repair path (kanbanStatus already DONE, status still
+      // ACTIVE, completedAt never written) wasCompleted is true and would
+      // leave a COMPLETED row with a null completedAt.
       const updateData = {
         kanbanStatus: input.kanbanStatus,
-        ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
-        ...(isUncompleting && wasCompleted && { completedAt: null }),
+        ...(isCompleting && !action.completedAt && { completedAt: new Date() }),
+        ...(isUncompleting && action.completedAt && { completedAt: null }),
         ...(shouldSyncStatus && { status: statusForKanban }),
       };
 
