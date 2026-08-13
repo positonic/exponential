@@ -1,60 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { auth } from '~/server/auth';
+import { isPublicPath } from '~/lib/publicRoutes';
 
 /**
- * Route gating is DEFAULT-DENY (ticket foggy.carp): every page requires a
- * session unless its path is enumerated below. The previous shape — an
- * allowlist of *protected* prefixes — went stale the moment workspace-scoped
- * routing (`/w/[workspaceSlug]/...`) shipped without being added to it, which
- * left logged-out visitors on a broken app shell full of failing queries.
- * A deny-by-default list cannot rot that way: a new authenticated route is
- * gated the day it is added, and forgetting to list a new *public* route
- * fails loudly (a redirect to /signin) instead of silently.
- *
- * This is first-impression gating, not the security boundary: data access is
- * enforced by tRPC `protectedProcedure`, `/admin` re-checks `isAdmin` in its
- * own server layout, and a signed-in member visiting a workspace they don't
- * belong to is redirected out by WorkspaceProvider's FORBIDDEN/NOT_FOUND
- * handling.
+ * Route gating is DEFAULT-DENY (ticket foggy.carp): every page the matcher
+ * below covers requires a session unless `~/lib/publicRoutes` lists it. That
+ * allowlist lives in its own module so the guard test can import it; see the
+ * rationale for the shape there.
  */
-
-/** Public pages matched exactly. */
-const PUBLIC_EXACT = new Set([
-  '/', // marketing home
-  '/signin', // also excluded by the matcher; kept for clarity
-  '/web3', // wallet sign-in
-  '/desktop-auth', // desktop-shell auth handoff renders its own signed-out state
-  '/privacy',
-  '/terms',
-  '/roadmap', // public product roadmap (embeds Loom)
-  // File conventions served through the middleware matcher.
-  '/llms.txt',
-  '/robots.txt',
-  '/sitemap.xml',
-  '/manifest.webmanifest',
-]);
-
-/** Public sections matched by prefix (note trailing slashes: `/f/` must not
- * open up `/features`). */
-const PUBLIC_PREFIXES = [
-  '/p/', // published Knowledge Pages (ADR-0038)
-  '/f/', // public forms intake (ADR-0029)
-  '/auth/verify-request', // sign-in code redemption happens logged-out
-  '/invite/', // token pages render their own signed-out state
-  '/team-invite/',
-  // Marketing pages from the (home) route group.
-  '/blog',
-  '/explore',
-  '/learn',
-  '/product-timeline',
-  '/features/', // marketing feature pages — bare /features is the app's
-];
-
-function isPublicPath(pathname: string): boolean {
-  if (PUBLIC_EXACT.has(pathname)) return true;
-  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-}
 
 export async function middleware(request: NextRequest) {
   // For testing different themes in development
