@@ -140,11 +140,29 @@ export async function resolveInvitedContext(
   });
   if (!invitation) return null;
   if (invitation.workspace.ownerId === userId) return null;
+
+  // Only genuine CURRENT members: an invitee who was later removed must not
+  // see "You've joined {workspace}" with a CTA into a workspace whose access
+  // gate will reject them (and must not be shown its name/inviter at all).
+  const membership = await db.workspaceUser.findUnique({
+    where: {
+      userId_workspaceId: { userId, workspaceId: invitation.workspaceId },
+    },
+    select: { userId: true },
+  });
+  if (!membership) return null;
+
+  // `??` alone would let a whitespace-only stored name through and render
+  // "  invited you" — treat blank as missing.
+  const inviterName =
+    invitation.createdBy.name?.trim() ||
+    invitation.createdBy.email?.trim() ||
+    null;
+
   return {
     workspaceName: invitation.workspace.name,
     workspaceSlug: invitation.workspace.slug,
-    inviterName:
-      invitation.createdBy.name ?? invitation.createdBy.email ?? null,
+    inviterName,
   };
 }
 

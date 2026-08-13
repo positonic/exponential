@@ -129,6 +129,7 @@ describe("resolveInvitedContext", () => {
     inviterEmail?: string | null;
   }) =>
     ({
+      workspaceId: "ws-joined",
       workspace: {
         name: "Dev Fixture",
         slug: "dev-fixture",
@@ -140,6 +141,11 @@ describe("resolveInvitedContext", () => {
         email: overrides?.inviterEmail === undefined ? "inviter@example.com" : overrides.inviterEmail,
       },
     }) as never;
+
+  beforeEach(() => {
+    // Default: the invitee is still a member of the joined workspace.
+    db.workspaceUser.findUnique.mockResolvedValue({ userId: USER } as never);
+  });
 
   it("returns the invited context for a user who joined someone else's workspace", async () => {
     db.workspaceInvitation.findFirst.mockResolvedValue(invitationRow());
@@ -190,6 +196,30 @@ describe("resolveInvitedContext", () => {
     db.workspaceInvitation.findFirst.mockResolvedValue(null as never);
 
     await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toBeNull();
+  });
+
+  it("returns null when the invitee was later removed from the workspace", async () => {
+    db.workspaceInvitation.findFirst.mockResolvedValue(invitationRow());
+    db.workspaceUser.findUnique.mockResolvedValue(null as never); // membership gone
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toBeNull();
+    expect(db.workspaceUser.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          userId_workspaceId: { userId: USER, workspaceId: "ws-joined" },
+        },
+      }),
+    );
+  });
+
+  it("treats a whitespace-only inviter name as missing", async () => {
+    db.workspaceInvitation.findFirst.mockResolvedValue(
+      invitationRow({ inviterName: "   " }),
+    );
+
+    await expect(resolveInvitedContext(db, USER, EMAIL)).resolves.toEqual(
+      expect.objectContaining({ inviterName: "inviter@example.com" }),
+    );
   });
 
   it("returns null without querying when the user has no email", async () => {
