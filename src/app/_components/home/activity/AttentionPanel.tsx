@@ -32,12 +32,13 @@ export function AttentionPanel() {
 
   // Mentions are user-scoped, not workspace-scoped: a mention follows the
   // person. Only unread ones render here — processed items leave the page.
-  // Fetch a deep page: the list mixes read and unread, and a burst of read
-  // mentions must not push unread ones (which the badge counts) off the page.
+  // Filtered server-side so any volume of read mentions can't crowd out an
+  // unread one (which the badge counts).
   const { data: mentionData, isLoading: mentionsLoading } =
     api.notification.list.useQuery({
       category: NOTIFICATION_CATEGORIES.MENTION,
-      limit: 50,
+      unreadOnly: true,
+      limit: MAX_ROWS,
     });
   const { data: unreadCount } = api.notification.unreadCount.useQuery({
     category: NOTIFICATION_CATEGORIES.MENTION,
@@ -67,17 +68,19 @@ export function AttentionPanel() {
 
   if (!workspaceId || !workspaceSlug) return null;
 
-  const unreadMentions = (mentionData?.notifications ?? [])
-    .filter((m) => m.readAt === null)
-    .slice(0, MAX_ROWS);
+  const unreadMentions = (mentionData?.notifications ?? []).slice(0, MAX_ROWS);
   const waitingRows = waiting ?? [];
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
+  // status === 'ACTIVE' alone is not enough: legacy rows completed from the
+  // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
   const overdue = (actions ?? [])
     .filter(
       (a) =>
         a.status === 'ACTIVE' &&
+        a.kanbanStatus !== 'DONE' &&
+        a.kanbanStatus !== 'CANCELLED' &&
         a.dueDate !== null &&
         new Date(a.dueDate) < startOfToday,
     )
