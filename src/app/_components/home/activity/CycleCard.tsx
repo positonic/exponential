@@ -76,8 +76,10 @@ function SingleCycle({ cycle }: { cycle: CycleData }) {
             }
           >
             {over
-              ? `${Math.abs(daysLeft)} days over`
-              : `${daysLeft} days left`}
+              ? `${Math.abs(daysLeft)} ${Math.abs(daysLeft) === 1 ? 'day' : 'days'} over`
+              : daysLeft === 0
+                ? 'Last day'
+                : `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left`}
           </span>
         )}
       </div>
