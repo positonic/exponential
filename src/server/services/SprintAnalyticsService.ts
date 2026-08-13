@@ -743,25 +743,42 @@ export class SprintAnalyticsService {
 
     // Undated cycles (e.g. auto-created by the Notion import, which sets no
     // dates) have no chronology, and createdAt is import order — which can be
-    // newest-first. Order them by the number in their name ("Cycle 7") so
-    // imported history still reads oldest → newest; unnumbered ones keep
-    // createdAt order at the very end.
+    // newest-first. Order them by the number in their name ("Cycle 7"), and
+    // slot the ones numbered below the earliest dated cycle BEFORE the dated
+    // run — imported history ("Cycle 1".."Cycle 7" before a dated "Cycle 8")
+    // then reads oldest → newest even before backfill-cycle-dates.ts has run.
+    // Unnumbered ones keep createdAt order at the very end.
     const cycleNumber = (name: string): number | null => {
       const match = /(\d+)\s*$/.exec(name.trim());
       return match?.[1] ? Number(match[1]) : null;
     };
+    const datedCycles = fetched.filter((c) => c.startDate);
+    const undatedCycles = fetched
+      .filter((c) => !c.startDate)
+      .sort((a, b) => {
+        const an = cycleNumber(a.name);
+        const bn = cycleNumber(b.name);
+        if (an != null && bn != null) return an - bn;
+        if (an != null) return -1;
+        if (bn != null) return 1;
+        return a.createdAt.getTime() - b.createdAt.getTime();
+      });
+    const datedNumbers = datedCycles
+      .map((c) => cycleNumber(c.name))
+      .filter((n): n is number => n != null);
+    const earliestDatedNumber = datedNumbers.length
+      ? Math.min(...datedNumbers)
+      : null;
+    const preDated = (c: (typeof fetched)[number]) => {
+      const n = cycleNumber(c.name);
+      return (
+        earliestDatedNumber != null && n != null && n < earliestDatedNumber
+      );
+    };
     const cycles = [
-      ...fetched.filter((c) => c.startDate),
-      ...fetched
-        .filter((c) => !c.startDate)
-        .sort((a, b) => {
-          const an = cycleNumber(a.name);
-          const bn = cycleNumber(b.name);
-          if (an != null && bn != null) return an - bn;
-          if (an != null) return -1;
-          if (bn != null) return 1;
-          return a.createdAt.getTime() - b.createdAt.getTime();
-        }),
+      ...undatedCycles.filter(preDated),
+      ...datedCycles,
+      ...undatedCycles.filter((c) => !preDated(c)),
     ];
 
     if (cycles.length === 0) return empty;
