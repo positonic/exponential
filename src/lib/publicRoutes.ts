@@ -39,10 +39,10 @@ export const PUBLIC_EXACT = new Set([
 /**
  * Public sections matched by prefix.
  *
- * A bare entry (no trailing slash) opens the section index *and* everything
- * under it, so it must not be a string prefix of some other, gated route:
- * `/f/` carries a trailing slash precisely so it doesn't also open `/features`.
- * Check the top-level segments under `src/app` before adding one.
+ * A slash-terminated entry (`/f/`) is a plain string prefix. A bare entry
+ * (`/blog`) opens the section index *and* everything under it, but is matched
+ * on a segment boundary — see `isPublicPath` — so it cannot leak into a
+ * sibling route that merely starts with the same letters.
  */
 export const PUBLIC_PREFIXES = [
   '/p/', // published Knowledge Pages (ADR-0038)
@@ -58,18 +58,32 @@ export const PUBLIC_PREFIXES = [
   '/features/', // marketing feature pages — bare /features is the app's
   /**
    * Product documentation. Bare, because `/docs` is itself a public index
-   * (it is the URL listed in sitemap.ts) and no other route segment starts
-   * with "docs". The docs route lives in the (sidemenu) group but is built as
-   * public documentation — robots.ts allows it, the page emits a canonical URL
-   * and OpenGraph tags, and both `docs/layout.tsx` and `Layout` have explicit
-   * signed-out branches. It was simply never listed here, so crawlers and
-   * anonymous readers got a 307 to /signin.
+   * (it is the URL listed in sitemap.ts). The docs route lives in the
+   * (sidemenu) group but is built as public documentation — robots.ts allows
+   * it, the page emits a canonical URL and OpenGraph tags, and both
+   * `docs/layout.tsx` and `Layout` have explicit signed-out branches. It was
+   * simply never listed here, so crawlers and anonymous readers got a 307 to
+   * /signin.
    */
   '/docs',
 ];
 
-/** True when the path renders without a session. */
+/**
+ * True when the path renders without a session.
+ *
+ * Bare prefixes match on a segment boundary rather than as raw strings, so
+ * `/docs` opens `/docs` and `/docs/...` but never a sibling like
+ * `/docs-internal`. Doing this structurally matters because the allowlist
+ * outlives the routes around it: a plain `startsWith` silently un-gates any
+ * route added later whose name merely begins with an entry here, and nothing
+ * about adding that route would prompt anyone to come and check this file.
+ * Slash-terminated entries are already unambiguous and stay plain prefixes.
+ */
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true;
-  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  return PUBLIC_PREFIXES.some((prefix) =>
+    prefix.endsWith('/')
+      ? pathname.startsWith(prefix)
+      : pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }

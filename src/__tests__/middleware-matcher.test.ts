@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'fs';
 import path from 'path';
-import { PUBLIC_PREFIXES, isPublicPath } from '~/lib/publicRoutes';
+import { isPublicPath } from '~/lib/publicRoutes';
 
 /**
  * Whether a page needs a session is decided by two layers, and this file
@@ -244,21 +244,33 @@ describe('middleware matcher', () => {
     });
 
     /**
-     * A prefix with no trailing slash opens every path that merely *starts*
-     * with it, so it must not be a string prefix of a different top-level
-     * route: `/f/` is slash-terminated precisely so it doesn't also open
-     * `/features`, and bare `/docs` is only safe while no other segment starts
-     * with "docs". Adding such a route later would silently un-gate it, so
-     * fail here instead.
+     * Bare prefixes match on a segment boundary, so they can't leak into a
+     * sibling route that merely starts with the same letters. None of these
+     * routes exist today — that's the point. The allowlist outlives the routes
+     * around it, and nothing about adding `/docs-internal` later would prompt
+     * anyone to come and check this file.
      */
-    it('has no bare prefix that also opens an unrelated route', () => {
-      const bare = PUBLIC_PREFIXES.filter((prefix) => !prefix.endsWith('/'));
-      const leaked = bare.flatMap((prefix) =>
-        [...routes.keys()]
-          .filter((segment) => `/${segment}`.startsWith(prefix) && `/${segment}` !== prefix)
-          .map((segment) => `${prefix} also opens /${segment}`),
-      );
-      expect(leaked).toEqual([]);
+    it.each([
+      '/docs-internal',
+      '/docsomething',
+      '/blogging',
+      '/explorer',
+      '/learners',
+      '/product-timeline-admin',
+      '/auth/verify-request-token',
+    ])('%s is not opened by a bare public prefix', (route) => {
+      expect(isPublicPath(route)).toBe(false);
+    });
+
+    /** ...while the sections those prefixes exist to open still are. */
+    it.each([
+      ['/docs', '/docs/features/fireflies'],
+      ['/blog', '/blog/some-post'],
+      ['/explore', '/explore/a-project/bounties/1'],
+      ['/learn', '/learn/a-lesson'],
+    ])('%s opens itself and %s', (index, child) => {
+      expect(isPublicPath(index)).toBe(true);
+      expect(isPublicPath(child)).toBe(true);
     });
   });
 });
