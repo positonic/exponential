@@ -98,13 +98,14 @@ export function YourWorkPanel() {
   // Mention notifications — the ADR-0045 pipeline writes these rows; this
   // inbox is their first reader. User-scoped, not workspace-scoped: a mention
   // follows the person. Only unread ones render — marking read removes the
-  // row for good. Fetch a deep page: the list mixes read and unread, and a
-  // burst of read mentions must not push unread ones off the page.
+  // row for good. Filtered server-side so any volume of read mentions can't
+  // crowd out an unread one.
   const utils = api.useUtils();
   const { data: mentionData, isLoading: mentionsLoading } =
     api.notification.list.useQuery({
       category: NOTIFICATION_CATEGORIES.MENTION,
-      limit: 50,
+      unreadOnly: true,
+      limit: 5,
     });
   const { data: unreadMentions } = api.notification.unreadCount.useQuery({
     category: NOTIFICATION_CATEGORIES.MENTION,

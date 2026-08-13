@@ -63,6 +63,7 @@ export const notificationRouter = createTRPCRouter({
       z
         .object({
           category: z.enum(CATEGORY_LIST).optional(),
+          unreadOnly: z.boolean().optional(),
           limit: z.number().int().min(1).max(50).default(20),
           cursor: z.string().optional(),
         })
@@ -74,6 +75,7 @@ export const notificationRouter = createTRPCRouter({
         where: {
           userId: ctx.session.user.id,
           ...(input?.category ? { category: input.category } : {}),
+          ...(input?.unreadOnly ? { readAt: null } : {}),
           ...firedWindow(),
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
