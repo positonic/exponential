@@ -147,6 +147,7 @@ function ProductBadge({ product }: { product: RoadmapProduct }) {
 }
 
 function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {
+  const priorityLabel = PRIORITY_LABELS[feature.priority ?? 4] ?? 'No priority';
   return (
     <>
       <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
@@ -154,14 +155,10 @@ function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {
       </Text>
       <Group mt="xs" gap="xs" justify="space-between" wrap="nowrap">
         <ProductBadge product={feature.product} />
-        <Tooltip
-          label={PRIORITY_LABELS[feature.priority ?? 4] ?? 'No priority'}
-          position="top"
-          withArrow
-        >
+        <Tooltip label={priorityLabel} position="top" withArrow>
           <span
             role="img"
-            aria-label={PRIORITY_LABELS[feature.priority ?? 4] ?? 'No priority'}
+            aria-label={priorityLabel}
             className="flex shrink-0 items-center text-text-muted"
           >
             <PriorityIcon priority={feature.priority} size={14} />
