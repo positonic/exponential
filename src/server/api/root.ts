@@ -8,7 +8,6 @@ import { toolRouter } from "./routers/tool";
 import { videoRouter } from "~/server/api/routers/video";
 import { goalRouter } from "./routers/goal";
 import { dayRouter } from "~/server/api/routers/day";
-import { outcomeRouter } from "./routers/outcome";
 import { lifeDomainRouter } from "./routers/lifeDomain";
 import { workflowRouter } from "./routers/workflow";
 import { transcriptionRouter } from "./routers/transcription";
@@ -106,7 +105,6 @@ export const appRouter = createTRPCRouter({
   video: videoRouter,
   goal: goalRouter,
   day: dayRouter,
-  outcome: outcomeRouter,
   lifeDomain: lifeDomainRouter,
   workflow: workflowRouter,
   transcription: transcriptionRouter,

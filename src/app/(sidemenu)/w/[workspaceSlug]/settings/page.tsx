@@ -1507,7 +1507,7 @@ export default function WorkspaceSettingsPage() {
           <SettingsDangerZone icon={IconShieldExclamation}>
             <SettingsDangerRow
               title="Delete workspace"
-              description="Permanently remove this workspace and all projects, actions, goals, outcomes, contacts, and deals. This action cannot be undone."
+              description="Permanently remove this workspace and all projects, actions, goals, contacts, and deals. This action cannot be undone."
               action={
                 <Button color="red" variant="outline" onClick={openDeleteModal}>
                   Delete workspace

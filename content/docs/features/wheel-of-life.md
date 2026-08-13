@@ -197,10 +197,10 @@ Link assessment insights to goals:
 - Align priorities with goal focus
 - Track goal progress by domain
 
-### Outcomes
+### Key Results
 
-Set outcomes based on assessment:
-- Weekly outcomes for priority domains
+Set key results based on assessment:
+- Weekly targets for priority domains
 - Monthly milestones for improvement
 - Quarterly targets for satisfaction
 
@@ -243,7 +243,7 @@ Include Wheel of Life in weekly plan:
 ### Using Results
 
 - Create goals for priority gaps
-- Set outcomes for improvement
+- Set goals for improvement
 - Build habits supporting change
 - Track progress quarterly
 
@@ -252,7 +252,7 @@ Include Wheel of Life in weekly plan:
 **Low-Satisfaction Domains**:
 1. Identify specific issues
 2. Create measurable goal
-3. Set weekly outcomes
+3. Set weekly commitments
 4. Build supporting habits
 
 **Overinvested Domains**:

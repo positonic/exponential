@@ -13,7 +13,7 @@ Exponential is your AI-powered productivity platform. Organize projects, track t
 |---------|-------------|
 | **Projects** | Organize work with status, priority, and progress tracking |
 | **Actions** | Manage tasks with flexible scheduling and assignments |
-| **Goals** | Set strategic objectives and track measurable outcomes |
+| **Goals** | Set strategic objectives and track measurable key results |
 | **Journal** | Reflect daily and plan ahead |
 | **AI Assistant** | Chat with intelligent agents for help and insights |
 | **Integrations** | Connect Slack, Fireflies, and more |
@@ -45,7 +45,7 @@ Explore what Exponential can do:
 
 - [Projects](/docs/features/projects) - Project management
 - [Actions & Tasks](/docs/features/actions) - Task management
-- [Goals & Outcomes](/docs/features/goals-outcomes) - Strategic alignment
+- [Goals](/docs/features/goals) - Strategic alignment
 - [AI Assistant](/docs/features/ai-assistant) - Get AI help
 - [All Features](/docs/features) - Complete feature list
 
@@ -72,7 +72,7 @@ Extend with optional features:
 |--------------|------------|
 | Get started quickly | [Quickstart](/docs/getting-started) |
 | Organize my projects | [Projects Guide](/docs/features/projects) |
-| Set goals and track outcomes | [Goals & Outcomes](/docs/features/goals-outcomes) |
+| Set goals and track progress | [Goals](/docs/features/goals) |
 | Work with my team | [Teams](/docs/features/teams) |
 | Connect Slack | [Slack Integration](/docs/features/slack) |
 | Capture meeting actions | [Fireflies Setup](/docs/features/fireflies) |

@@ -101,7 +101,6 @@ const RESULT_SECTIONS: { type: SearchType; label: string; icon: React.ElementTyp
   { type: 'epic', label: 'Epics', icon: IconBolt },
   { type: 'goal', label: 'Goals', icon: IconTarget },
   { type: 'keyResult', label: 'Key results', icon: IconTrophy },
-  { type: 'outcome', label: 'Outcomes', icon: IconFlag },
   { type: 'feature', label: 'Features', icon: IconBulb },
   { type: 'product', label: 'Products', icon: IconLayoutGrid },
   { type: 'page', label: 'Pages', icon: IconBook2 },
@@ -115,7 +114,7 @@ const MODE_TYPES: Record<Exclude<Mode, 'ai'>, SearchType[] | null> = {
   all: null,
   tasks: ['action', 'ticket', 'epic'],
   projects: ['project', 'product'],
-  goals: ['goal', 'keyResult', 'outcome'],
+  goals: ['goal', 'keyResult'],
 };
 
 // Each search fans out to one `contains` query per entity type, and none of

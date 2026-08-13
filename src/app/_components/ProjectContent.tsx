@@ -8,8 +8,7 @@ import ProjectDetails from "./ProjectDetails";
 import { Team } from "./Team";
 import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
 // import { Plan } from "./Plan";
-import { OutcomesTable } from "./OutcomesTable";
-import { OutcomeTimeline } from "./OutcomeTimeline";
+import { ProjectTimeline } from "./ProjectTimeline";
 import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { Button } from "@mantine/core";
 import { HTMLContent } from "./HTMLContent";
@@ -35,7 +34,6 @@ import {
   IconSettings,
   // IconClipboardList,
   IconTargetArrow,
-  IconActivity,
   IconClock,
   IconMicrophone,
   IconMessageCircle,
@@ -56,7 +54,6 @@ import {
 } from "@tabler/icons-react";
 import { format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
-import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { SmartContentRenderer } from "./SmartContentRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
@@ -83,7 +80,6 @@ type TabValue =
   | "tasks"
   | "plan"
   | "goals"
-  | "outcomes"
   | "timeline"
   | "transcriptions"
   | "integrations"
@@ -97,7 +93,6 @@ const VALID_TABS: TabValue[] = [
   "tasks",
   "plan",
   "goals",
-  "outcomes",
   "timeline",
   "transcriptions",
   "integrations",
@@ -207,10 +202,6 @@ export function ProjectContent({
     { enabled: !!project },
   );
   const goalsQuery = api.goal.getProjectGoals.useQuery(
-    { projectId: resolvedProjectId },
-    { enabled: !!project },
-  );
-  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery(
     { projectId: resolvedProjectId },
     { enabled: !!project },
   );
@@ -501,12 +492,6 @@ export function ProjectContent({
               >
                 Goals
               </Tabs.Tab>
-              <Tabs.Tab
-                value="outcomes"
-                leftSection={<IconActivity size={14} />}
-              >
-                Outcomes
-              </Tabs.Tab>
               <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
@@ -530,7 +515,7 @@ export function ProjectContent({
                     value="weekly-outcomes" 
                     leftSection={<IconCalendarWeek size={14} />}
                   >
-                    Weekly Outcomes
+                    Weekly Commitments
                   </Tabs.Tab>
                 </>
               )}
@@ -564,9 +549,9 @@ export function ProjectContent({
             {/* Content Area */}
             <Tabs.Panel value="overview">
               {legacyOverview ? (
-                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} />
               ) : (
-                <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+                <ProjectOverview project={project} goals={goalsQuery.data ?? []} />
               )}
             </Tabs.Panel>
 
@@ -601,30 +586,13 @@ export function ProjectContent({
               <InitiativeDashboard projectId={resolvedProjectId} />
             </Tabs.Panel>
 
-            <Tabs.Panel value="outcomes">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full bg-surface-secondary"
-              >
-                <OutcomesTable outcomes={outcomesQuery.data ?? []} />
-                <div className="mt-4">
-                  <CreateOutcomeModal projectId={resolvedProjectId}>
-                    <Button variant="filled" color="dark" leftSection="+">
-                      Add Outcome
-                    </Button>
-                  </CreateOutcomeModal>
-                </div>
-              </Paper>
-            </Tabs.Panel>
-
             <Tabs.Panel value="timeline">
               <Paper
                 p="md"
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <OutcomeTimeline projectId={resolvedProjectId} />
+                <ProjectTimeline projectId={resolvedProjectId} />
               </Paper>
             </Tabs.Panel>
 

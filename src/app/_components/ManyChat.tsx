@@ -556,7 +556,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Status: ${goalStatus || 'Unknown'}
       - Current health: ${goalHealth || 'no-update'}
       🎯 ACTIONS:
-      - When creating actions or outcomes, link to this goal where appropriate
+      - When creating actions, link to this goal where appropriate
       - When asked about progress, refer to this goal's description and why
       - When posting an Objective update whose health is unclear, default to this Current health so the status badge does not silently change
     ` : '';
@@ -584,7 +584,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
                   - Context shows current/recent data only - use tools for historical/complete data
                   - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights, firefliesCheckExisting, firefliesTestApiKey, firefliesCreateIntegration, firefliesGenerateWebhookToken, firefliesGetWebhookUrl
-                  - For project goals and outcomes: use get_project_context tool with the project ID
+                  - For project goals: use get_project_context tool with the project ID
                   - If authentication fails, inform user and suggest checking token validity
 
                   🔧 FIREFLIES INTEGRATION WIZARD:

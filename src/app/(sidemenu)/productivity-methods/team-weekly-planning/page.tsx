@@ -13,7 +13,7 @@ export default function TeamWeeklyPlanningPage() {
     { id: 'strategic-positioning', label: 'Strategic Positioning' },
     { id: 'dual-approach', label: 'The Dual Approach' },
     { id: 'member-centric', label: 'Member-Centric View' },
-    { id: 'outcome-centric', label: 'Outcome-Centric View' },
+    { id: 'outcome-centric', label: 'Commitment-Centric View' },
     { id: 'agile-comparison', label: 'Agile Framework Integration' },
     { id: 'implementation', label: 'Implementation Guide' },
     { id: 'team-dynamics', label: 'Team Dynamics' },
@@ -111,7 +111,7 @@ export default function TeamWeeklyPlanningPage() {
               <Text size="sm">
                 <strong>Evolution from Individual Practice:</strong> This methodology extends David Allen&apos;s weekly review
                 concept from personal productivity to team collaboration, maintaining the core principle of regular
-                reflection while adding collaborative planning and outcome alignment. We call our adaptation the Weekly Plan.
+                reflection while adding collaborative planning and goal alignment. We call our adaptation the Weekly Plan.
               </Text>
             </Alert>
           </Box>
@@ -150,7 +150,7 @@ export default function TeamWeeklyPlanningPage() {
                     <Text fw={500} size="sm" className="text-text-primary">More Structured than Pure Kanban</Text>
                   </Group>
                   <Text size="sm" className="text-text-secondary pl-6">
-                    Defined weekly outcomes and planning cycles provide rhythm and alignment that pure flow-based 
+                    Defined weekly commitments and planning cycles provide rhythm and alignment that pure flow-based 
                     systems sometimes lack.
                   </Text>
                 </Box>

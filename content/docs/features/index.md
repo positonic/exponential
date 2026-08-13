@@ -29,15 +29,15 @@ Capture ideas quickly in Inbox. Focus on what matters with the Today view that s
 
 [Learn more about Inbox & Today](/docs/features/inbox-today)
 
-### Goals & Outcomes
-Align your daily work with strategic goals using a hierarchical system. Set goals, define measurable outcomes, and track progress over time.
+### Goals
+Align your daily work with strategic goals using a hierarchical system. Set goals, define measurable key results, and track progress over time.
 
-[Learn more about Goals & Outcomes](/docs/features/goals-outcomes)
+[Learn more about Goals](/docs/features/goals)
 
 ## Reflection & Planning
 
 ### Daily Journal
-Reflect on your day, capture gratitude, and plan ahead. The journal integrates with your tasks and outcomes for context.
+Reflect on your day, capture gratitude, and plan ahead. The journal integrates with your tasks and goals for context.
 
 [Learn more about Journal](/docs/features/journal)
 
@@ -144,7 +144,7 @@ Customize your navigation sidebar. Hide features you don't use to stay focused.
 | Manage my daily tasks | [Inbox & Today](/docs/features/inbox-today) |
 | Organize projects | [Projects](/docs/features/projects) |
 | Group related work together | [Epics](/docs/features/epics) |
-| Set strategic goals | [Goals & Outcomes](/docs/features/goals-outcomes) |
+| Set strategic goals | [Goals](/docs/features/goals) |
 | Collaborate with team | [Teams](/docs/features/teams) |
 | Connect external tools | [Integrations](/docs/features/integrations) |
 | Chat with AI | [AI Assistant](/docs/features/ai-assistant) |

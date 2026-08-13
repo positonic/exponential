@@ -6,7 +6,7 @@
  * (owner / workspace member), is rejected for an Objective they cannot access,
  * and the record is authored by the calling user. See ADR-0016.
  *
- * Prior art: `src/server/api/routers/__tests__/goal-outcome.integration.test.ts`.
+ * Prior art: `src/server/api/routers/__tests__/goal.integration.test.ts`.
  */
 
 import { describe, it, expect, beforeEach } from "vitest";

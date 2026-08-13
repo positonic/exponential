@@ -9,7 +9,7 @@ const steps = [
   {
     number: "01",
     icon: IconTarget,
-    title: "Define outcomes, not tasks",
+    title: "Define goals, not tasks",
     description:
       "Set what success looks like for your organization this week, month, or quarter. AI breaks it down from there.",
     color: "var(--color-accent-indigo)",
@@ -19,7 +19,7 @@ const steps = [
     icon: IconSparkles,
     title: "AI agents execute",
     description:
-      "AI decomposes outcomes into actions, assigns work, tracks progress, and surfaces what needs human attention.",
+      "AI decomposes goals into actions, assigns work, tracks progress, and surfaces what needs human attention.",
     color: "var(--color-brand-success)",
   },
   {

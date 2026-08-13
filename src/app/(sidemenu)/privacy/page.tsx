@@ -40,7 +40,7 @@ export default function PrivacyPolicy() {
           <h3 className="text-xl font-semibold mb-3">Content You Create</h3>
           <ul className="list-disc pl-5 text-text-secondary space-y-2">
             <li><strong>Projects:</strong> Project names, descriptions, statuses, and priority levels you create.</li>
-            <li><strong>Goals and Outcomes:</strong> Strategic goals and measurable outcomes you define.</li>
+            <li><strong>Goals and Key Results:</strong> Strategic goals and the measurable key results you define.</li>
             <li><strong>Actions:</strong> Tasks and action items you create and track.</li>
             <li><strong>Journal Entries:</strong> Daily reflections and planning notes you write.</li>
             <li><strong>Workspace Data:</strong> Workspace names, settings, and organizational structure.</li>
@@ -280,7 +280,7 @@ export default function PrivacyPolicy() {
         <div className="mb-4">
           <h3 className="text-xl font-semibold mb-3">Service Delivery</h3>
           <ul className="list-disc pl-5 text-text-secondary space-y-2">
-            <li>Display your projects, goals, outcomes, and actions in the application</li>
+            <li>Display your projects, goals, key results, and actions in the application</li>
             <li>Sync and display your calendar events from connected integrations</li>
             <li>Store and retrieve your journal entries and daily planning notes</li>
             <li>Manage your workspaces and organizational structure</li>

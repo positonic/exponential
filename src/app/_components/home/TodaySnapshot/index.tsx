@@ -3,7 +3,6 @@
 import { Card, Text, Stack, Group, Badge } from "@mantine/core";
 import { ActionsDueToday } from "./ActionsDueToday";
 import { CalendarEventsToday } from "./CalendarEventsToday";
-import { OutcomeAwareness } from "./OutcomeAwareness";
 
 interface TodaySnapshotProps {
   workspaceId?: string;
@@ -33,11 +32,10 @@ export function TodaySnapshot({ workspaceId }: TodaySnapshotProps) {
           </Badge>
         </Group>
 
-        {/* Three-column grid on desktop, stack on mobile */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {/* Two-column grid on desktop, stack on mobile */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <ActionsDueToday workspaceId={workspaceId} />
           <CalendarEventsToday />
-          <OutcomeAwareness workspaceId={workspaceId} />
         </div>
       </Stack>
     </Card>

@@ -113,7 +113,7 @@ export default function WeeklyTeamCheckinPage() {
               Weekly Team Check-in
             </Title>
             <Text size="sm" c="dimmed">
-              Review your active projects and weekly outcomes in {workspace.name}
+              Review your active projects and weekly commitments in {workspace.name}
             </Text>
           </div>
           <Group>

@@ -165,5 +165,5 @@ The OKR plugin enhances your existing Goals system:
 
 ## Next Steps
 
-- [Learn about Goals & Outcomes](/docs/features/goals-outcomes)
+- [Learn about Goals](/docs/features/goals)
 - [Return to Plugins overview](/docs/features/plugins)

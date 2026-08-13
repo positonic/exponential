@@ -25,7 +25,6 @@ export const createProjectTools = (ctx: any) => {
                 lifeDomain: true
               }
             },
-            outcomes: true,
           }
         });
 
@@ -49,13 +48,6 @@ export const createProjectTools = (ctx: any) => {
             lifeDomain: g.lifeDomain?.title ?? 'Unknown',
             dueDate: g.dueDate?.toISOString(),
           })),
-          outcomes: project.outcomes.map((o: any) => ({
-            id: o.id,
-            description: o.description,
-            type: o.type ?? 'daily',
-            dueDate: o.dueDate?.toISOString(),
-            whyThisOutcome: o.whyThisOutcome,
-          })),
         }, null, 2);
       } catch (error) {
         console.error('Error getting project context:', error);
@@ -64,7 +56,7 @@ export const createProjectTools = (ctx: any) => {
     },
     {
       name: "get_project_context",
-      description: "Gets the full context for a project including its goals and outcomes. Use this when asked about project outcomes, goals, or objectives.",
+      description: "Gets the full context for a project including its goals. Use this when asked about project goals or objectives.",
       schema: getProjectContextSchema,
     }
   );

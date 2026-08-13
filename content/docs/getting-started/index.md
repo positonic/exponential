@@ -111,11 +111,11 @@ Your sidebar is organized into sections:
 
 A project might be "Website Redesign" containing actions like "Create wireframes" and "Review copy."
 
-### Goals & Outcomes
+### Goals & Key Results
 
 For strategic alignment:
 - **Goals** = What you want to achieve (e.g., "Increase revenue")
-- **Outcomes** = Measurable results (e.g., "Close 5 deals this quarter")
+- **Key results** = Measurable progress (e.g., "Close 5 deals this quarter")
 
 Link projects to goals to ensure your daily work supports your strategy.
 
@@ -147,7 +147,7 @@ Based on your role:
 ### For Managers
 
 1. [Create a Team workspace](/docs/features/workspaces)
-2. [Set up Goals & Outcomes](/docs/features/goals-outcomes)
+2. [Set up Goals](/docs/features/goals)
 3. [Configure Fireflies](/docs/features/fireflies) for meeting capture
 
 ### For Power Users
@@ -193,5 +193,5 @@ Ready to go deeper? Choose your path:
 
 - [Configuration Guide](/docs/getting-started/configuration) - Customize your setup
 - [Projects Guide](/docs/features/projects) - Master project management
-- [Goals & Outcomes](/docs/features/goals-outcomes) - Strategic alignment
+- [Goals](/docs/features/goals) - Strategic alignment
 - [AI Assistant](/docs/features/ai-assistant) - Get AI help

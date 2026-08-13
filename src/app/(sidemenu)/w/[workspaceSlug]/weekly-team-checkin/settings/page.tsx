@@ -291,7 +291,7 @@ export default function WeeklyTeamCheckinSettingsPage() {
                 • Only <strong>organization teams</strong> can receive shared weekly plans
               </Text>
               <Text size="sm" className="text-text-secondary">
-                • Team members can view your weekly progress and outcomes
+                • Team members can view your weekly progress and commitments
               </Text>
               <Text size="sm" className="text-text-secondary">
                 • You can enable/disable sharing for each organization team individually

@@ -175,8 +175,7 @@ export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
     },
     include: {
       lifeDomain: true,
-      projects: true,
-      outcomes: true
+      projects: true
     }
   });
 }
@@ -190,7 +189,6 @@ export async function getAllMyGoals({ ctx }: { ctx: Context }) {
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
       parentGoal: { select: { id: true, title: true } }
     }
   });
@@ -206,7 +204,6 @@ interface GoalInput {
   status?: string; // "planned" | "active" | "completed" | "archived"
   lifeDomainId?: number;
   projectId?: string;
-  outcomeIds?: string[];
   driUserId?: string;
   workspaceId?: string;
   parentGoalId?: number | null;
@@ -253,14 +250,10 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
       } : undefined,
-      outcomes: input.outcomeIds?.length ? {
-        connect: input.outcomeIds.map(id => ({ id }))
-      } : undefined,
     },
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
     },
   });
 
@@ -372,7 +365,6 @@ interface UpdateGoalInput {
   projectId?: string | null;
   /** Replace the goal's project links wholesale; `[]` clears them. */
   projectIds?: string[];
-  outcomeIds?: string[];
   driUserId?: string | null;
   workspaceId?: string | null;
   parentGoalId?: number | null;
@@ -449,10 +441,6 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
         : { set: [], connect: [{ id: input.projectId }] };
   }
 
-  if (input.outcomeIds !== undefined) {
-    data.outcomes = { set: input.outcomeIds.map((id) => ({ id })) };
-  }
-
   const updated = await ctx.db.goal.update({
     where: {
       id: input.id,
@@ -461,7 +449,6 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
     },
   });
 
@@ -538,7 +525,6 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
       // The list nests sub-goals under their parent; the parent's title is what
       // labels a sub-goal whose parent isn't itself on this project.
       parentGoal: { select: { id: true, title: true } },
@@ -563,30 +549,25 @@ export async function getGoalTree({ ctx, workspaceId, status }: { ctx: Context, 
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
       keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
       childGoals: {
         include: {
           lifeDomain: true,
           projects: true,
-          outcomes: true,
           keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
           childGoals: {
             include: {
               lifeDomain: true,
               projects: true,
-              outcomes: true,
               keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
               childGoals: {
                 include: {
                   lifeDomain: true,
                   projects: true,
-                  outcomes: true,
                   childGoals: {
                     include: {
                       lifeDomain: true,
                       projects: true,
-                      outcomes: true,
                       childGoals: true,
                     },
                     orderBy: { displayOrder: "asc" },
@@ -734,7 +715,6 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
           createdBy: { select: { id: true, name: true, image: true } },
         },
       },
-      outcomes: true,
       keyResults: {
         select: {
           id: true,

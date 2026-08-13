@@ -2,7 +2,6 @@
 
 import { Card, Text, Stack, Group, Badge } from '@mantine/core';
 import { HabitsDueToday } from './HabitsDueToday';
-import { OutcomesByGoal } from './OutcomesByGoal';
 import { NextActions } from './NextActions';
 
 interface TodayFocusPanelProps {
@@ -26,11 +25,6 @@ export function TodayFocusPanel({ workspaceId }: TodayFocusPanelProps) {
         {/* Habits Section */}
         <div>
           <HabitsDueToday />
-        </div>
-
-        {/* Outcomes by Goal Section */}
-        <div>
-          <OutcomesByGoal workspaceId={workspaceId} />
         </div>
 
         {/* Next Actions Section */}

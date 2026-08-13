@@ -19,7 +19,6 @@ export interface EditableGoal {
   id: number;
   status?: string;
   parentGoalId?: number | null;
-  outcomes?: { id: string }[];
   workspaceId?: string | null;
   driUserId?: string | null;
 }
@@ -36,7 +35,6 @@ export interface GoalEditFormState {
   lifeDomainId: number | null;
   selectedProjectId: string | undefined;
   driUserId: string | null;
-  selectedOutcomeIds: string[];
   selectedWorkspaceId: string | null;
   /** The parent picker holds a string; the API wants a number. */
   parentGoalId: string | null;
@@ -54,7 +52,6 @@ export interface GoalUpdatePayload {
   lifeDomainId: number | null;
   projectId?: string;
   driUserId?: string;
-  outcomeIds?: string[];
   workspaceId?: string | null;
   parentGoalId?: number | null;
 }
@@ -79,9 +76,6 @@ export function buildGoalUpdatePayload(
     // value means "leave the links alone" rather than "unlink everything".
     projectId: form.selectedProjectId,
     driUserId: form.driUserId ?? undefined,
-    ...(goal.outcomes !== undefined
-      ? { outcomeIds: form.selectedOutcomeIds }
-      : {}),
     ...(goal.workspaceId !== undefined
       ? { workspaceId: form.selectedWorkspaceId ?? null }
       : {}),

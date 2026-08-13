@@ -57,7 +57,7 @@ export const ValuePropositionSection: React.FC<ValuePropositionSectionProps> = (
       icon: <IconCalendarWeek size={32} stroke={1.5} />,
       iconColor: "var(--color-brand-info)",
       iconBgColor: "var(--color-surface-secondary)",
-      title: "Weekly Outcomes",
+      title: "Weekly Planning",
       description: "Plan your week around results, not activities. Track what actually moves the needle."
     },
     {

@@ -1,7 +1,7 @@
 'use client';
 
 import { Container, Title, Text, SimpleGrid, Paper, Stack, ThemeIcon, Button, Group } from '@mantine/core';
-import { IconTarget, IconRepeat, IconTrophy, IconCircleDashed, IconChartBar, IconArrowRight } from '@tabler/icons-react';
+import { IconTarget, IconRepeat, IconCircleDashed, IconChartBar, IconArrowRight } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 
@@ -19,13 +19,6 @@ const alignmentFeatures = [
     icon: IconTarget,
     color: 'blue',
     href: '/goals',
-  },
-  {
-    title: 'Outcomes',
-    description: 'Measurable results at different time horizons. Track what you want to achieve daily, weekly, monthly.',
-    icon: IconTrophy,
-    color: 'yellow',
-    href: '/outcomes',
   },
   {
     title: 'Habits',
@@ -70,7 +63,7 @@ export default function AlignmentPage() {
         </Title>
         <Text size="lg" className="text-text-secondary max-w-2xl mx-auto">
           Connect your daily actions to your life vision. Understand how goals, habits,
-          outcomes, and OKRs work together to create meaningful progress.
+          and OKRs work together to create meaningful progress.
         </Text>
       </Stack>
 
@@ -106,9 +99,8 @@ export default function AlignmentPage() {
         <Stack gap="md">
           <Step number={1} title="Assess" description="Start with a Wheel of Life assessment to identify which life domains need attention." />
           <Step number={2} title="Set Goals" description="Create strategic goals in your priority life domains." />
-          <Step number={3} title="Define Outcomes" description="Specify what success looks like at different time horizons." />
-          <Step number={4} title="Build Habits" description="Establish daily routines that move you toward your outcomes." />
-          <Step number={5} title="Track Progress" description="Use OKRs for quantitative tracking on key objectives." />
+          <Step number={3} title="Build Habits" description="Establish daily routines that move you toward your goals." />
+          <Step number={4} title="Track Progress" description="Use OKRs for quantitative tracking on key objectives." />
         </Stack>
       </Paper>
 

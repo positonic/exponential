@@ -15,7 +15,7 @@ const stats = [
   },
   {
     value: "44%",
-    label: "Outcome Achievement",
+    label: "Goal Achievement",
   },
   {
     value: "3x",

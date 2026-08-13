@@ -13,46 +13,18 @@ import {
 import { Calendar } from "@mantine/dates";
 import {
   IconPlus,
-  IconActivity,
   IconCalendar,
   IconTarget,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { ActionsList } from "./actions/ActionsList";
 import { CreateActionModal } from "./CreateActionModal";
-import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { ProjectCalendarCard } from "./ProjectCalendarCard";
 import { useState } from "react";
 import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { getFocusSectionTitle } from "~/lib/dateUtils";
-
-// Define OutcomeType locally to match CreateOutcomeModal.tsx
-type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
-
-// Helper function to get outcome type color
-function getOutcomeTypeColor(type: string): string {
-  switch (type.toLowerCase()) {
-    case "daily":
-      return "blue";
-    case "weekly":
-      return "green";
-    case "monthly":
-      return "violet";
-    case "quarterly":
-      return "orange";
-    case "annual":
-      return "red";
-    default:
-      return "gray";
-  }
-}
-
-// Helper function to format outcome type for display
-function formatOutcomeType(type: string): string {
-  return type.charAt(0).toUpperCase() + type.slice(1);
-}
 
 interface TodayOverviewProps {
   focus?: FocusPeriod;
@@ -86,21 +58,6 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
 
   const actions = focus === "today" ? actionsToday : actionsFromRange;
 
-  // Fetch outcomes based on focus
-  const { data: outcomesFromRange = [] } = api.outcome.getByDateRange.useQuery(
-    {
-      startDate: effectiveDateRange.startDate,
-      endDate: effectiveDateRange.endDate,
-      workspaceId: workspaceId ?? undefined,
-    },
-    { enabled: focus !== "today" && workspaceId !== null }
-  );
-
-  const { data: allOutcomes = [] } = api.outcome.getMyOutcomes.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: focus === "today" && workspaceId !== null }
-  );
-
   // Goals - always fetch all and filter client-side
   const { data: goals = [] } = api.goal.getAllMyGoals.useQuery(
     { workspaceId: workspaceId ?? undefined },
@@ -108,12 +65,6 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
   );
 
   // Filter items based on focus
-  const outcomes = focus === "today"
-    ? allOutcomes.filter(
-        (outcome) => outcome.dueDate && isSameDay(outcome.dueDate, today)
-      )
-    : outcomesFromRange;
-
   const filteredGoals = focus === "today"
     ? goals.filter((goal) => goal.dueDate && isSameDay(goal.dueDate, today))
     : goals.filter(
@@ -128,20 +79,12 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
   // Helper for calendar rendering - get items for a specific date
   const getItemsForDate = (date: Date) => {
     const dateStr = date.toDateString();
-    const items: { type: "goal" | "outcome"; title: string; color: string; subLabel?: string }[] = [];
+    const items: { type: "goal"; title: string; color: string; subLabel?: string }[] = [];
 
     // Check goals
     goals.forEach((goal) => {
       if (goal.dueDate && new Date(goal.dueDate).toDateString() === dateStr) {
         items.push({ type: "goal", title: goal.title, color: "yellow", subLabel: goal.lifeDomain?.title });
-      }
-    });
-
-    // Check outcomes - use all outcomes for calendar display
-    const outcomesToCheck = focus === "today" ? allOutcomes : outcomesFromRange;
-    outcomesToCheck.forEach((outcome) => {
-      if (outcome.dueDate && new Date(outcome.dueDate).toDateString() === dateStr) {
-        items.push({ type: "outcome", title: outcome.description, color: getOutcomeTypeColor(outcome.type ?? ""), subLabel: outcome.type ?? undefined });
       }
     });
 
@@ -156,13 +99,13 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
     });
   };
 
-  const getEmptyMessage = (type: "goals" | "outcomes" | "actions") => {
+  const getEmptyMessage = (type: "goals" | "actions") => {
     const periodText = focus === "today" ? "today" : focus === "tomorrow" ? "tomorrow" : focus === "week" ? "this week" : "this month";
     return `No ${type} due ${periodText}`;
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-8">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-6">
       {/* Left Column - Calendar */}
       <div className="lg:col-span-2">
         <Card
@@ -268,7 +211,6 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
                     dueDate: goal.dueDate,
                     period: goal.period ?? null,
                     lifeDomainId: goal.lifeDomainId,
-                    outcomes: goal.outcomes,
                   }}
                   trigger={
                     <div className="cursor-pointer rounded-md p-2 hover:bg-surface-hover">
@@ -307,90 +249,6 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
             ) : (
               <Text size="sm" c="dimmed" ta="center" py="md">
                 {getEmptyMessage("goals")}
-              </Text>
-            )}
-          </Stack>
-        </Card>
-      </div>
-
-      {/* Outcomes */}
-      <div className="lg:col-span-2">
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Group justify="space-between" mb="md">
-            <Group gap="xs">
-              <IconActivity size={18} className="text-text-primary" />
-              <Text fw={600} size="lg" className="text-text-primary">
-                {getFocusSectionTitle(focus, "Outcomes")}
-              </Text>
-            </Group>
-            <CreateOutcomeModal>
-              <ActionIcon variant="subtle" size="md" aria-label="Add outcome">
-                <IconPlus size={16} />
-              </ActionIcon>
-            </CreateOutcomeModal>
-          </Group>
-
-          <Stack gap="md">
-            {outcomes.length > 0 ? (
-              outcomes.map((outcome) => (
-                <CreateOutcomeModal
-                  key={outcome.id}
-                  outcome={{
-                    id: outcome.id,
-                    description: outcome.description,
-                    dueDate: outcome.dueDate,
-                    type: outcome.type as OutcomeType,
-                    whyThisOutcome: outcome.whyThisOutcome,
-                    projectId: outcome.projects?.[0]?.id,
-                    goalId: outcome.goals?.[0]?.id,
-                  }}
-                  trigger={
-                    <div className="cursor-pointer rounded-md p-2 hover:bg-surface-hover">
-                      <Stack gap={2}>
-                        <Group justify="space-between" wrap="nowrap">
-                          <Text
-                            size="sm"
-                            fw={500}
-                            className="text-text-primary"
-                            lineClamp={2}
-                          >
-                            {outcome.description}
-                          </Text>
-                        </Group>
-                        <Group gap="xs">
-                          {outcome.type && (
-                            <Badge
-                              variant="light"
-                              color={getOutcomeTypeColor(outcome.type)}
-                              size="xs"
-                            >
-                              {formatOutcomeType(outcome.type)}
-                            </Badge>
-                          )}
-                          {outcome.dueDate && (
-                            <Group gap={4} align="center" className="text-xs text-text-muted">
-                              <IconCalendar size={12} />
-                              <span>
-                                {outcome.dueDate.toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                })}
-                              </span>
-                            </Group>
-                          )}
-                        </Group>
-                      </Stack>
-                    </div>
-                  }
-                />
-              ))
-            ) : (
-              <Text size="sm" c="dimmed" ta="center" py="md">
-                {getEmptyMessage("outcomes")}
               </Text>
             )}
           </Stack>

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import {
   IconActivity,
-  IconCalendarEvent,
   IconChecklist,
   IconLayersIntersect,
   IconMessage,
@@ -11,20 +10,18 @@ import {
 } from "@tabler/icons-react";
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
-import { OutcomeTimeline } from "./OutcomeTimeline";
+import { ProjectTimeline } from "./ProjectTimeline";
 import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
-type Outcome = RouterOutputs["outcome"]["getProjectOutcomes"][number];
 type ActivityRow = RouterOutputs["project"]["getRecentActivity"][number];
 type Transcription = NonNullable<Project["transcriptionSessions"]>[number];
 
 interface ProjectOverviewProps {
   project: Project;
   goals: Goal[];
-  outcomes: Outcome[];
 }
 
 const STANDUP_NOTES_PREVIEW_CHARS = 200;
@@ -135,7 +132,7 @@ function describeActivity(row: ActivityRow): { verb: string; target: string | nu
   }
 }
 
-export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
+export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
   const [openTranscription, setOpenTranscription] = useState<Transcription | null>(null);
 
   const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
@@ -149,14 +146,6 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
   const weekStart = useMemo(() => startOfThisWeek(), []);
   const weekEnd = useMemo(() => endOfThisWeek(), []);
   const today = useMemo(() => startOfDay(new Date()), []);
-
-  const outcomesThisWeek = useMemo(
-    () =>
-      outcomes
-        .filter((o) => o.dueDate && isAfter(new Date(o.dueDate), new Date(weekStart.getTime() - 1)) && isBefore(new Date(o.dueDate), weekEnd))
-        .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()),
-    [outcomes, weekStart, weekEnd],
-  );
 
   const actionsThisWeek = useMemo(() => {
     return actions
@@ -222,43 +211,11 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
             Timeline
           </div>
         </div>
-        <OutcomeTimeline projectId={project.id} />
+        <ProjectTimeline projectId={project.id} />
       </section>
 
       {/* ── 3. This week ────────────────────────────────── */}
       <div className={styles.twoCol}>
-        <section className={styles.section}>
-          <div className={styles.sectionHead}>
-            <div className={styles.sectionTitle}>
-              <IconCalendarEvent size={14} className={styles.sectionTitleIcon} />
-              Outcomes this week
-              <span className={styles.sectionMeta}>{outcomesThisWeek.length}</span>
-            </div>
-          </div>
-          <div className={styles.sectionBodyFlush}>
-            {outcomesThisWeek.length === 0 ? (
-              <div className={styles.empty}>
-                <div className={styles.emptyIcon}>
-                  <IconCalendarEvent size={16} />
-                </div>
-                <div>Nothing due this week.</div>
-              </div>
-            ) : (
-              outcomesThisWeek.map((o) => (
-                <div key={o.id} className={styles.row}>
-                  <div className={styles.rowBody}>
-                    <div className={styles.rowTitle}>{o.description}</div>
-                    <div className={styles.rowSub}>
-                      {o.type && <span>{o.type}</span>}
-                      {o.dueDate && <span className={styles.rowDue}>{formatRelativeDay(new Date(o.dueDate))}</span>}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
         <section className={styles.section}>
           <div className={styles.sectionHead}>
             <div className={styles.sectionTitle}>

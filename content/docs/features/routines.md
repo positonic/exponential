@@ -12,7 +12,7 @@ Routines are the bookends of a productive day. The Startup Routine prepares you 
 - **Morning structure**: Consistent daily startup
 - **Evening reflection**: Process the day
 - **Journaling integration**: Built-in reflection sections
-- **Outcome setting**: Plan daily results
+- **Intention setting**: Plan daily priorities
 - **Configurable sections**: Customize your routine
 
 ## Startup Routine
@@ -64,14 +64,12 @@ Reflective questions to answer:
 
 **Configure**: Toggle `doQuestions` in settings
 
-#### Daily Outcomes
+#### Daily Priorities
 
-Set measurable results for the day:
-- 3-5 key outcomes
+Set what matters for the day:
+- 3-5 key priorities
 - Specific and achievable
-- Linked to weekly outcomes
-
-Use `Cmd+Enter` to quickly add multiple outcomes.
+- Linked to your weekly commitments
 
 ### Morning Workflow
 
@@ -83,7 +81,7 @@ Use `Cmd+Enter` to quickly add multiple outcomes.
 4. **Add considerations** for awareness
 5. **List not-to-dos** for focus
 6. **Answer questions** for clarity
-7. **Set daily outcomes** (3-5 items)
+7. **Set daily priorities** (3-5 items)
 8. **Review and commit**
 
 ## Wind-Down Routine
@@ -114,9 +112,9 @@ Practice appreciation:
 - Big and small gratitudes
 - Cultivate positive mindset
 
-#### Outcome Review
+#### Priority Review
 
-Review daily outcomes:
+Review the day's priorities:
 - What did you complete?
 - What remains unfinished?
 - Why or why not?
@@ -144,7 +142,7 @@ Review avoidance list:
 1. **Open Wind-Down Routine**
 2. **Complete journal** entry
 3. **Write gratitudes** (3 items minimum)
-4. **Review outcomes** completion
+4. **Review priority** completion
 5. **Log exercise** if applicable
 6. **Review not-to-do** success
 7. **Save all progress**
@@ -205,7 +203,6 @@ All journal sections support rich formatting:
 | `Cmd+B` | Bold |
 | `Cmd+I` | Italic |
 | `Cmd+U` | Underline |
-| `Cmd+Enter` | Add outcome (in outcome section) |
 
 ## Day-Based Organization
 
@@ -227,11 +224,11 @@ Days grouped into weeks for:
 
 ## Integration with Other Features
 
-### Daily Outcomes
+### Daily Priorities
 
-Set outcomes during startup that link to:
-- [Goals & Outcomes](/docs/features/goals-outcomes)
-- Weekly outcomes
+Set priorities during startup that link to:
+- [Goals](/docs/features/goals)
+- Weekly commitments
 - Project milestones
 
 ### Journal
@@ -253,7 +250,7 @@ Connect routine to task management:
 
 Routines prepare you for [Weekly Plan](/docs/features/weekly-plan):
 - Accumulated journal entries
-- Daily outcomes completion
+- Daily priority completion
 - Week's gratitudes
 - Energy patterns
 
@@ -273,7 +270,7 @@ Routines prepare you for [Weekly Plan](/docs/features/weekly-plan):
 
 **Focus**:
 - Start with mindset
-- Limit outcomes to 3-5
+- Limit priorities to 3-5
 - Be realistic about the day
 
 ### Wind-Down Routine

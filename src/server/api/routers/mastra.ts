@@ -931,14 +931,6 @@ export const mastraRouter = createTRPCRouter({
               status: true,
             }
           },
-          outcomes: {
-            select: {
-              id: true,
-              description: true,
-              type: true,
-              dueDate: true,
-            }
-          }
         },
         orderBy: [
           { lifeDomainId: 'asc' },
@@ -961,12 +953,6 @@ export const mastraRouter = createTRPCRouter({
             id: project.id,
             name: project.name,
             status: project.status,
-          })),
-          outcomes: goal.outcomes.map(outcome => ({
-            id: outcome.id,
-            description: outcome.description,
-            type: outcome.type ?? 'daily',
-            dueDate: outcome.dueDate ? outcome.dueDate.toISOString() : null,
           })),
         })),
         total: goals.length,
@@ -1013,7 +999,6 @@ export const mastraRouter = createTRPCRouter({
               lifeDomain: true
             }
           },
-          outcomes: true,
           projectMembers: true,
         }
       });
@@ -1054,12 +1039,6 @@ export const mastraRouter = createTRPCRouter({
             title: goal.lifeDomain.title,
             description: goal.lifeDomain.description,
           } : null,
-        })),
-        outcomes: project.outcomes.map(outcome => ({
-          id: outcome.id,
-          description: outcome.description,
-          type: outcome.type ?? 'daily',
-          dueDate: outcome.dueDate?.toISOString(),
         })),
         teamMembers: project.projectMembers.map((member: any) => ({
           id: member.id,
@@ -2134,8 +2113,6 @@ export const mastraRouter = createTRPCRouter({
           pendingActionsCount: z.number(),
           overdueActionsCount: z.number(),
           calendarEventsCount: z.number(),
-          dailyOutcomesCount: z.number(),
-          weeklyOutcomesCount: z.number(),
           completedHabitsCount: z.number(),
           totalHabitsCount: z.number(),
           staleProjectIds: z.array(z.string()),
@@ -2158,8 +2135,6 @@ export const mastraRouter = createTRPCRouter({
           ? `- ${context.overdueActionsCount} action${context.overdueActionsCount !== 1 ? "s" : ""} from earlier days (no judgment - just information)`
           : null,
         `- ${context.calendarEventsCount} calendar event${context.calendarEventsCount !== 1 ? "s" : ""} today`,
-        `- ${context.dailyOutcomesCount} daily outcome${context.dailyOutcomesCount !== 1 ? "s" : ""} set for today`,
-        `- ${context.weeklyOutcomesCount} weekly outcome${context.weeklyOutcomesCount !== 1 ? "s" : ""} this week`,
         `- Habits: ${context.completedHabitsCount}/${context.totalHabitsCount} completed`,
         context.staleProjectIds.length > 0
           ? `- ${context.staleProjectIds.length} project${context.staleProjectIds.length !== 1 ? "s" : ""} haven't had recent activity`
@@ -5073,8 +5048,6 @@ function getFallbackSuggestion(context: {
   pendingActionsCount: number;
   overdueActionsCount: number;
   calendarEventsCount: number;
-  dailyOutcomesCount: number;
-  weeklyOutcomesCount: number;
   completedHabitsCount: number;
   totalHabitsCount: number;
   staleProjectIds: string[];
@@ -5082,16 +5055,8 @@ function getFallbackSuggestion(context: {
   isSunday: boolean;
 }): string {
   // Provide contextual fallback suggestions when AI is unavailable
-  if (context.dailyOutcomesCount === 0) {
-    return "Consider setting one small intention for today - what would make it feel meaningful?";
-  }
-
   if (context.pendingActionsCount === 0 && context.calendarEventsCount === 0) {
     return "Your day looks open. This might be a good time for something restorative or a project you've been curious about.";
-  }
-
-  if (context.isMonday && context.weeklyOutcomesCount === 0) {
-    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
   }
 
   if (context.isSunday) {
@@ -5100,6 +5065,15 @@ function getFallbackSuggestion(context: {
 
   if (context.pendingActionsCount > 0) {
     return "You have some actions lined up for today. Starting with the one that feels most approachable can build nice momentum.";
+  }
+
+  // Ordered AFTER the actions branch deliberately. This used to be gated on
+  // `isMonday && weeklyOutcomesCount === 0` — "it's Monday and you haven't
+  // planned the week yet". Outcomes are gone, so that signal is too; keeping
+  // the branch above would fire on every Monday and swallow the more specific
+  // suggestions below it. A loaded Monday now gets the actions nudge instead.
+  if (context.isMonday) {
+    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
   }
 
   if (context.completedHabitsCount < context.totalHabitsCount) {

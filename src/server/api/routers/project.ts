@@ -131,7 +131,6 @@ export const projectRouter = createTRPCRouter({
         include: {
           actions: input?.include?.actions ?? false,
           goals: true,
-          outcomes: true,
           lifeDomains: true,
           keyResults: {
             select: { keyResultId: true },
@@ -177,9 +176,8 @@ export const projectRouter = createTRPCRouter({
           name: projects[0].name,
           createdById: projects[0].createdById,
           status: projects[0].status,
-          goalsCount: projects[0].goals?.length || 0,
-          actionsCount: projects[0].actions?.length || 0,
-          outcomesCount: projects[0].outcomes?.length || 0
+          goalsCount: projects[0].goals?.length ?? 0,
+          actionsCount: projects[0].actions?.length ?? 0
         } : 'No projects found'
       });
 
@@ -208,7 +206,6 @@ export const projectRouter = createTRPCRouter({
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
-        outcomeIds: z.array(z.string()).optional(),
         keyResultIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         teamId: z.string().optional(),
@@ -266,18 +263,13 @@ export const projectRouter = createTRPCRouter({
       });
 
       // Connect relations if provided
-      if (input.goalIds?.length || input.outcomeIds?.length || input.lifeDomainIds?.length) {
+      if (input.goalIds?.length || input.lifeDomainIds?.length) {
         await ctx.db.project.update({
           where: { id: project.id },
           data: {
             ...(input.goalIds?.length && {
               goals: {
                 connect: input.goalIds.map(id => ({ id: parseInt(id) })),
-              },
-            }),
-            ...(input.outcomeIds?.length && {
-              outcomes: {
-                connect: input.outcomeIds.map(id => ({ id })),
               },
             }),
             ...(input.lifeDomainIds?.length && {
@@ -381,7 +373,6 @@ export const projectRouter = createTRPCRouter({
         taskManagementTool: z.enum(["internal", "monday", "notion"]).optional(),
         taskManagementConfig: z.record(z.any()).optional(),
         goalIds: z.array(z.string()).optional(),
-        outcomeIds: z.array(z.string()).optional(),
         keyResultIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         workspaceId: z.string().nullable().optional(),
@@ -398,7 +389,7 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
+      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
 
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -466,9 +457,6 @@ export const projectRouter = createTRPCRouter({
           slug,
           goals: goalIds?.length ? {
             set: goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          outcomes: outcomeIds !== undefined ? {
-            set: outcomeIds.map(id => ({ id })),
           } : undefined,
           lifeDomains: lifeDomainIds !== undefined ? {
             set: lifeDomainIds.map(id => ({ id })),
@@ -613,11 +601,6 @@ export const projectRouter = createTRPCRouter({
                 include: { user: { select: { id: true, name: true, email: true, image: true } } },
               },
               tags: { include: { tag: true } },
-            },
-          },
-          outcomes: {
-            orderBy: {
-              dueDate: 'asc',
             },
           },
           goals: {
@@ -820,14 +803,6 @@ export const projectRouter = createTRPCRouter({
               image: true,
             },
           },
-          outcomes: {
-            where: {
-              type: 'weekly',
-            },
-            orderBy: {
-              dueDate: 'asc',
-            },
-          },
           goals: {
             select: { id: true, title: true },
           },
@@ -924,7 +899,6 @@ export const projectRouter = createTRPCRouter({
         where: { id: projectExists.id },
         include: {
           goals: true,
-          outcomes: true,
           lifeDomains: true,
           actions: true,
           keyResults: {

@@ -79,7 +79,6 @@ export const goalRouter = createTRPCRouter({
         include: {
           lifeDomain: true,
           projects: true,
-          outcomes: true,
           childGoals: { select: { id: true, title: true, status: true, health: true } },
           // Key result VALUES (not just the count) so progress can be resolved
           // below without a second round trip — a list of goals with no progress
@@ -120,7 +119,6 @@ export const goalRouter = createTRPCRouter({
       status: z.enum(["planned", "active", "completed", "archived"]).optional(),
       lifeDomainId: z.number().optional(),
       projectId: z.string().optional(),
-      outcomeIds: z.array(z.string()).optional(),
       driUserId: z.string().optional(),
       workspaceId: z.string().optional(),
       parentGoalId: z.number().optional(),
@@ -182,14 +180,10 @@ export const goalRouter = createTRPCRouter({
           projects: input.projectId
             ? { connect: [{ id: input.projectId }] }
             : undefined,
-          outcomes: input.outcomeIds?.length
-            ? { connect: input.outcomeIds.map(id => ({ id })) }
-            : undefined,
         },
         include: {
           lifeDomain: true,
           projects: true,
-          outcomes: true,
         },
       });
 
@@ -230,7 +224,6 @@ export const goalRouter = createTRPCRouter({
       lifeDomainId: z.number().nullable().optional(),
       projectId: z.string().nullable().optional(),
       projectIds: z.array(z.string()).optional(),
-      outcomeIds: z.array(z.string()).optional(),
       driUserId: z.string().nullable().optional(),
       workspaceId: z.string().nullable().optional(),
       parentGoalId: z.number().nullable().optional(),

@@ -30,7 +30,6 @@ export interface SearchResult {
     | "action"
     | "goal"
     | "keyResult"
-    | "outcome"
     | "ticket"
     | "feature"
     | "epic"
@@ -229,33 +228,6 @@ async function searchKeyResults({ db, userId, q, workspaceId, limit }: SearchArg
     workspace: kr.workspace,
     // Deep link into the OKR drawer, as FavouritesNav does.
     url: kr.workspace ? `/w/${kr.workspace.slug}/goals?tab=okrs&drawer=keyResult:${kr.id}` : null,
-  }));
-}
-
-// Mirrors outcome list scoping: strictly owner-scoped (no workspace-wide
-// sharing on the canonical list).
-async function searchOutcomes({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
-  const outcomes = await db.outcome.findMany({
-    where: {
-      userId,
-      ...(workspaceId ? { workspaceId } : {}),
-      description: insensitive(q),
-    },
-    select: {
-      id: true,
-      description: true,
-      type: true,
-      workspace: { select: { id: true, slug: true, name: true } },
-    },
-    take: limit,
-  });
-  return outcomes.map((o) => ({
-    type: "outcome",
-    id: o.id,
-    title: o.description,
-    subtitle: o.type,
-    workspace: o.workspace,
-    url: o.workspace ? `/w/${o.workspace.slug}/outcomes` : null,
   }));
 }
 
@@ -513,7 +485,6 @@ export const searchRouter = createTRPCRouter({
       searchActions(args),
       searchGoals(args),
       searchKeyResults(args),
-      searchOutcomes(args),
       searchTickets(args),
       searchFeatures(args),
       searchEpics(args),

@@ -8,7 +8,6 @@ import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
-type Outcome = RouterOutputs["outcome"]["getProjectOutcomes"][number];
 type Action = RouterOutputs["action"]["getProjectActions"][number];
 
 type PastSubItem = { text: string; done: boolean };
@@ -27,11 +26,10 @@ type TimelineItem =
 interface Props {
   project: Project;
   goals: Goal[];
-  outcomes: Outcome[];
   actions: Action[];
 }
 
-export function ProjectOverviewTimeline({ project, goals, outcomes, actions }: Props) {
+export function ProjectOverviewTimeline({ project, goals, actions }: Props) {
   const items = useMemo<TimelineItem[]>(() => {
     const today = startOfDay(new Date());
     const list: TimelineItem[] = [];
@@ -60,21 +58,12 @@ export function ProjectOverviewTimeline({ project, goals, outcomes, actions }: P
     // Today marker
     list.push({ id: "now", kind: "now", title: "Today", date: today });
 
-    // Upcoming goal / outcome due dates (next 3)
+    // Upcoming goal due dates (next 3)
     type Upcoming = { id: string; title: string; date: Date };
     const upcoming: Upcoming[] = [];
     for (const g of goals) {
       if (g.dueDate && new Date(g.dueDate) >= today) {
         upcoming.push({ id: `goal-${g.id}`, title: `Goal: ${g.title}`, date: new Date(g.dueDate) });
-      }
-    }
-    for (const o of outcomes) {
-      if (o.dueDate && new Date(o.dueDate) >= today) {
-        upcoming.push({
-          id: `outcome-${o.id}`,
-          title: `Outcome: ${o.description}`,
-          date: new Date(o.dueDate),
-        });
       }
     }
     upcoming.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -93,7 +82,7 @@ export function ProjectOverviewTimeline({ project, goals, outcomes, actions }: P
     }
 
     return list;
-  }, [project, goals, outcomes, actions]);
+  }, [project, goals, actions]);
 
   // One group open at a time — default: past group open
   const [openId, setOpenId] = useState<string | null>("past");
