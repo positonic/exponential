@@ -74,6 +74,23 @@ describe("markdownToMatrixHtml", () => {
       "<p>line one<br/>line two</p><p>next para</p>",
     );
   });
+
+  it("keeps loosely-spaced bullets in one list", () => {
+    expect(markdownToMatrixHtml("- one\n\n- two")).toBe(
+      "<ul><li>one</li><li>two</li></ul>",
+    );
+  });
+
+  it("nests tab-indented bullets", () => {
+    expect(markdownToMatrixHtml("- top\n\t- nested")).toBe(
+      "<ul><li>top<ul><li>nested</li></ul></li></ul>",
+    );
+  });
+
+  it("passes fenced code through verbatim instead of parsing it as structure", () => {
+    const html = markdownToMatrixHtml("```\n# not a heading\n- not a bullet\n```");
+    expect(html).toBe("<pre><code># not a heading\n- not a bullet</code></pre>");
+  });
 });
 
 describe("markdownToPlainText", () => {
@@ -84,6 +101,10 @@ describe("markdownToPlainText", () => {
     expect(text).toContain("clear-pipeline shared with Ewan");
     expect(text).toContain("• Update: A seismic ingestion approach was shared.");
     expect(text).toContain("  • Including the delivery playbook.");
+  });
+
+  it("keeps fenced code content verbatim, dropping only the fence markers", () => {
+    expect(markdownToPlainText("```\n# kept as-is\n```")).toBe("# kept as-is");
   });
 });
 
@@ -145,5 +166,10 @@ describe("renderMeetingSummary", () => {
     const { text, html } = renderMeetingSummary(meeting("We agreed to ship on Friday."));
     expect(text).toContain("We agreed to ship on Friday.");
     expect(html).toContain("<p>We agreed to ship on Friday.</p>");
+  });
+
+  it("emits no stray blank block when the meeting has no summary", () => {
+    const { text } = renderMeetingSummary(meeting(null));
+    expect(text).not.toContain("\n\n\n");
   });
 });

@@ -153,6 +153,9 @@ export function markdownToMatrixHtml(markdown: string): string {
   // Bullet runs are collected into a tree first so nesting emits valid HTML.
   let listRoots: ListItem[] = [];
   let listStack: { depth: number; item: ListItem }[] = [];
+  // Fenced code blocks pass through verbatim (escaped) — their `#`/`- ` lines
+  // are content, not structure.
+  let fenceLines: string[] | null = null;
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
@@ -165,14 +168,36 @@ export function markdownToMatrixHtml(markdown: string): string {
     listRoots = [];
     listStack = [];
   };
+  const flushFence = () => {
+    if (fenceLines === null) return;
+    out.push(`<pre><code>${fenceLines.map(escapeHtml).join("\n")}</code></pre>`);
+    fenceLines = null;
+  };
 
   for (const rawLine of markdown.split("\n")) {
     const line = rawLine.trimEnd();
 
-    const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
+    if (/^\s*```/.test(line)) {
+      if (fenceLines === null) {
+        flushParagraph();
+        flushList();
+        fenceLines = [];
+      } else {
+        flushFence();
+      }
+      continue;
+    }
+    if (fenceLines !== null) {
+      fenceLines.push(rawLine);
+      continue;
+    }
+
+    const bullet = /^([ \t]*)[-*]\s+(.*)$/.exec(line);
     if (bullet) {
       flushParagraph();
-      const depth = Math.floor(bullet[1]!.length / 2);
+      // Tabs count as one character otherwise, collapsing real nesting.
+      const indent = bullet[1]!.replace(/\t/g, "  ");
+      const depth = Math.floor(indent.length / 2);
       const item: ListItem = {
         html: inlineMarkdownToHtml(escapeHtml(bullet[2]!)),
         children: [],
@@ -187,6 +212,13 @@ export function markdownToMatrixHtml(markdown: string): string {
       continue;
     }
 
+    if (line.trim().length === 0) {
+      // A blank line must not close an open list: loosely-spaced bullets are
+      // still one list, and a following bullet continues it.
+      flushParagraph();
+      continue;
+    }
+
     flushList();
 
     const heading = /^\s*#{1,6}\s+(.*)$/.exec(line);
@@ -196,14 +228,10 @@ export function markdownToMatrixHtml(markdown: string): string {
       continue;
     }
 
-    if (line.trim().length === 0) {
-      flushParagraph();
-      continue;
-    }
-
     paragraph.push(inlineMarkdownToHtml(escapeHtml(line)));
   }
 
+  flushFence();
   flushList();
   flushParagraph();
   return out.join("");
@@ -214,16 +242,24 @@ export function markdownToMatrixHtml(markdown: string): string {
  * dropped, bullets become `•` (indentation kept), inline markup stripped.
  */
 export function markdownToPlainText(markdown: string): string {
+  let inFence = false;
   return markdown
     .split("\n")
     .map((rawLine) => {
       const line = rawLine.trimEnd();
+      if (/^\s*```/.test(line)) {
+        // Fence markers are markup; the lines between them are content.
+        inFence = !inFence;
+        return null;
+      }
+      if (inFence) return rawLine;
       const bullet = /^(\s*)[-*]\s+(.*)$/.exec(line);
       if (bullet) return `${bullet[1]}• ${stripInlineMarkdown(bullet[2]!)}`;
       const heading = /^\s*#{1,6}\s+(.*)$/.exec(line);
       if (heading) return stripInlineMarkdown(heading[1]!);
       return stripInlineMarkdown(line);
     })
+    .filter((line): line is string => line !== null)
     .join("\n");
 }
 
@@ -263,11 +299,11 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
     )
     .join("\n\n");
 
+  // No stray blank block when the meeting has no summary text at all.
   const textParts = [
     `📋 ${title}`,
     project ? `${date} · ${project}` : date,
-    "",
-    textBody,
+    ...(textBody ? ["", textBody] : []),
     "",
     actionLine,
     url,
