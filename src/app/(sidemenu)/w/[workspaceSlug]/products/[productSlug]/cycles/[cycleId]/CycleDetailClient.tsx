@@ -20,7 +20,6 @@ import { IconArrowLeft } from "@tabler/icons-react";
 import { DateInput } from "@mantine/dates";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
-import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 const STATUS_OPTIONS = [
   { value: "PLANNED", label: "Planned" },
@@ -36,7 +35,7 @@ export function CycleDetailClient() {
   const params = useParams();
   const cycleId = params.cycleId as string;
   const productSlug = params.productSlug as string;
-  const { workspace } = useWorkspace();
+  const workspaceSlug = params.workspaceSlug as string;
   const utils = api.useUtils();
 
   const { data: cycle, isLoading } = api.product.cycle.getById.useQuery(
@@ -97,9 +96,7 @@ export function CycleDetailClient() {
           workspaceId: cycle.workspaceId,
         });
       }
-      if (workspace) {
-        router.push(`/w/${workspace.slug}/products/${productSlug}/cycles`);
-      }
+      router.push(`/w/${workspaceSlug}/products/${productSlug}/cycles`);
     },
   });
 
@@ -159,24 +156,18 @@ export function CycleDetailClient() {
     .filter((t) => t.status === "DONE")
     .reduce((sum, t) => sum + (t.points ?? 0), 0);
 
-  // Only render the back link once the workspace has resolved — otherwise the
-  // slug is undefined and the href becomes "/w/undefined/…" (a broken link).
-  const backPath = workspace
-    ? `/w/${workspace.slug}/products/${productSlug}/cycles`
-    : null;
+  const backPath = `/w/${workspaceSlug}/products/${productSlug}/cycles`;
 
   return (
     <Stack gap="lg">
       {/* Back nav */}
-      {backPath && (
-        <Link
-          href={backPath}
-          className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
-        >
-          <IconArrowLeft size={14} />
-          Cycles
-        </Link>
-      )}
+      <Link
+        href={backPath}
+        className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
+      >
+        <IconArrowLeft size={14} />
+        Cycles
+      </Link>
 
       <Group justify="space-between" align="flex-start">
         {isEditingHeader ? (
