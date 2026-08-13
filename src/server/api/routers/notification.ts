@@ -46,6 +46,11 @@ async function resolveChannelAvailability(db: PrismaClient, userId: string) {
   };
 }
 
+/** Visibility window shared by list/unreadCount/markAllRead — a future scheduledFor means the notification hasn't fired yet. */
+const firedWindow = () => ({
+  OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+});
+
 export const notificationRouter = createTRPCRouter({
   /**
    * List the current user's Notification rows — the read side of the
@@ -69,8 +74,7 @@ export const notificationRouter = createTRPCRouter({
         where: {
           userId: ctx.session.user.id,
           ...(input?.category ? { category: input.category } : {}),
-          // A future scheduledFor means the notification hasn't fired yet.
-          OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+          ...firedWindow(),
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: limit + 1,
@@ -122,6 +126,7 @@ export const notificationRouter = createTRPCRouter({
           userId: ctx.session.user.id,
           readAt: null,
           ...(input?.category ? { category: input.category } : {}),
+          ...firedWindow(),
         },
         data: { readAt: new Date() },
       });
@@ -137,7 +142,7 @@ export const notificationRouter = createTRPCRouter({
           userId: ctx.session.user.id,
           readAt: null,
           ...(input?.category ? { category: input.category } : {}),
-          OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+          ...firedWindow(),
         },
       });
     }),
