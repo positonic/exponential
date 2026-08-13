@@ -627,16 +627,18 @@ If you weren't expecting this invitation, you can safely ignore this email.
 
 /**
  * Send a notification email to an existing user who has just been added to a workspace.
- * Unlike the invitation email, the recipient already has an account, so the CTA links
- * them straight into the workspace rather than to a sign-up flow.
+ * Unlike the invitation email, the recipient already has an account. The CTA still goes
+ * through the /invite/<token> landing page (not the bare workspace URL): they're usually
+ * signed out where they read email, and the landing page prefills their address and
+ * offers a one-click sign-in code instead of an anonymous /signin wall.
  */
 export async function sendWorkspaceMemberAddedEmail(params: {
   to: string;
   workspaceName: string;
   inviterName: string;
-  workspaceUrl: string;
+  ctaUrl: string;
 }): Promise<void> {
-  const { to, workspaceName, inviterName, workspaceUrl } = params;
+  const { to, workspaceName, inviterName, ctaUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
 
@@ -675,19 +677,23 @@ export async function sendWorkspaceMemberAddedEmail(params: {
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${workspaceUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       Open Workspace
                     </a>
                   </td>
                 </tr>
               </table>
 
+              <p style="margin: 0 0 24px; font-size: 13px; line-height: 1.6; color: #6b7280;">
+                If you're not signed in on this device, sign in as <strong>${to}</strong> — we'll email you a short sign-in code, or use Google or Microsoft.
+              </p>
+
               <!-- Fallback Link -->
               <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${workspaceUrl}
+                ${ctaUrl}
               </p>
             </td>
           </tr>
@@ -713,7 +719,9 @@ You've been added to ${workspaceName}
 
 ${inviterName} has added you to the ${workspaceName} workspace on ${appName}.
 
-Open the workspace: ${workspaceUrl}
+Open the workspace: ${ctaUrl}
+
+If you're not signed in on this device, sign in as ${to} — we'll email you a short sign-in code, or use Google or Microsoft.
 
 If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
 `.trim();

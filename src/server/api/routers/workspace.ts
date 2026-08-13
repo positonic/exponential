@@ -650,7 +650,51 @@ export const workspaceRouter = createTRPCRouter({
               },
             );
           } else {
-            const workspaceUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            // Land the email on /invite/<token> rather than the bare
+            // workspace URL: the recipient is usually signed out in the
+            // browser their mail client opens, and a /w/<slug> link just
+            // bounces them off middleware onto an anonymous /signin wall.
+            // The invite landing page is public, survives mail scanners
+            // (the token identifies, it doesn't authenticate — ADR-0056),
+            // prefills their email and offers a one-click sign-in code.
+            // If minting the record fails, fall back to the workspace URL
+            // rather than failing the mutation — membership already exists.
+            let ctaUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            try {
+              const landingToken = generateSecureToken();
+              await ctx.db.workspaceInvitation.upsert({
+                where: {
+                  workspaceId_email: {
+                    workspaceId: input.workspaceId,
+                    email: input.email,
+                  },
+                },
+                update: {
+                  token: landingToken,
+                  role: input.role,
+                  status: "accepted",
+                  acceptedAt: new Date(),
+                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  createdById: ctx.session.user.id,
+                },
+                create: {
+                  workspaceId: input.workspaceId,
+                  email: input.email,
+                  role: input.role,
+                  token: landingToken,
+                  status: "accepted",
+                  acceptedAt: new Date(),
+                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  createdById: ctx.session.user.id,
+                },
+              });
+              ctaUrl = generateInviteUrl(landingToken);
+            } catch (err: unknown) {
+              console.error(
+                "[workspace.addMember] Failed to mint invite landing token, falling back to workspace URL:",
+                err,
+              );
+            }
             sendWorkspaceMemberAddedEmail({
               to: newMember.user.email,
               workspaceName: workspace.name ?? "a workspace",
@@ -658,7 +702,7 @@ export const workspaceRouter = createTRPCRouter({
                 ctx.session.user.name ??
                 ctx.session.user.email ??
                 "A workspace member",
-              workspaceUrl,
+              ctaUrl,
             }).catch((err: unknown) => {
               console.error(
                 "[workspace.addMember] Failed to send member-added email:",

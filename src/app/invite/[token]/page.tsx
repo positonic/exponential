@@ -122,6 +122,20 @@ export default function InviteAcceptPage() {
     );
   }
 
+  // A signed-out visitor gets the landing page (sign-in options with their
+  // email prefilled) whether the invitation is still pending or was already
+  // accepted. The accepted case is the "you've been added" email for existing
+  // users: membership is already granted, so the only job left is signing in —
+  // bouncing them to an anonymous /signin wall or an "Already Used" card is a
+  // dead end. Expired *pending* invites still fall through to the expired card.
+  if (
+    !invitation.isLoggedIn &&
+    (invitation.status === "accepted" ||
+      (invitation.status === "pending" && !invitation.isExpired))
+  ) {
+    return <InviteLandingPage token={token} invitation={invitation} />;
+  }
+
   if (invitation.isExpired) {
     return (
       <Container size="sm" className="py-16">
@@ -166,10 +180,6 @@ export default function InviteAcceptPage() {
         </Card>
       </Container>
     );
-  }
-
-  if (!invitation.isLoggedIn) {
-    return <InviteLandingPage token={token} invitation={invitation} />;
   }
 
   if (!invitation.isForCurrentUser) {
@@ -293,6 +303,10 @@ function InviteLandingPage({
 }) {
   const router = useRouter();
   const callbackUrl = `/invite/${token}`;
+  // The "member added" email for existing users lands here with an
+  // already-accepted invitation: membership is granted, so the page's job is
+  // just getting them signed in — the copy drops the join/accept framing.
+  const alreadyMember = invitation.status === "accepted";
   const workspaceName = invitation.workspace.name;
   const workspaceSlug = invitation.workspace.slug;
   const workspaceInitial = workspaceName.charAt(0).toUpperCase();
@@ -402,19 +416,31 @@ function InviteLandingPage({
             <div className="eyebrow">
               <span className="eyebrow__dot" aria-hidden="true" />
               <span>
-                You&apos;ve been invited · expires in {daysUntilExpiry} days
+                {alreadyMember
+                  ? "You're a member · sign in to continue"
+                  : `You've been invited · expires in ${daysUntilExpiry} days`}
               </span>
             </div>
 
             <h1 className="auth-title">
-              Join{" "}
+              {alreadyMember ? "Open" : "Join"}{" "}
               <span className="auth-title__brand">{workspaceName}</span> on{" "}
               {PRODUCT_NAME}
             </h1>
             <p className="auth-sub">
-              <b>{inviterName}</b> invited you to collaborate on the{" "}
-              <b>{workspaceName}</b> workspace — where the team runs its
-              rituals, projects and OKRs together.
+              {alreadyMember ? (
+                <>
+                  <b>{inviterName}</b> added you to the <b>{workspaceName}</b>{" "}
+                  workspace — sign in below and you&apos;ll land right inside
+                  it.
+                </>
+              ) : (
+                <>
+                  <b>{inviterName}</b> invited you to collaborate on the{" "}
+                  <b>{workspaceName}</b> workspace — where the team runs its
+                  rituals, projects and OKRs together.
+                </>
+              )}
             </p>
 
             <div className="invite-card">
@@ -548,13 +574,17 @@ function InviteLandingPage({
                 type="submit"
                 disabled={isBusy}
               >
-                <span>Accept invite &amp; join {workspaceName}</span>
+                <span>
+                  {alreadyMember
+                    ? `Sign in & open ${workspaceName}`
+                    : `Accept invite & join ${workspaceName}`}
+                </span>
                 <ArrowRightGlyph />
               </button>
             </form>
 
             <p className="terms">
-              By joining, you agree to our{" "}
+              By {alreadyMember ? "signing in" : "joining"}, you agree to our{" "}
               <a href="/terms">Terms of Service</a> and{" "}
               <a href="/privacy">Privacy Policy</a>, and to share your name and
               email with members of <b>{workspaceName}</b>.
