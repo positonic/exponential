@@ -20,6 +20,21 @@ import {
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
 
+/**
+ * Escape a value before interpolating it into an email's HTML body.
+ *
+ * Workspace and person names are attacker-writable text that lands in someone
+ * else's inbox, where injected markup reads as part of a legitimate email.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 interface PostmarkConfig {
   apiKey: string | null;
   from: string;
@@ -641,6 +656,11 @@ export async function sendWorkspaceMemberAddedEmail(params: {
   const { to, workspaceName, inviterName, ctaUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
+  // Names come from whoever did the adding; the address is validated but still
+  // interpolated into markup. Escape everything that reaches the HTML body.
+  const safeTo = escapeHtml(to);
+  const safeWorkspaceName = escapeHtml(workspaceName);
+  const safeInviterName = escapeHtml(inviterName);
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -650,7 +670,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
-  <title>You've been added to ${workspaceName} on ${appName}</title>
+  <title>You've been added to ${safeWorkspaceName} on ${appName}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
@@ -661,7 +681,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
               <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
-                You've been added to ${workspaceName}
+                You've been added to ${safeWorkspaceName}
               </h1>
             </td>
           </tr>
@@ -670,7 +690,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${inviterName}</strong> has added you to the <strong>${workspaceName}</strong> workspace on ${appName}.
+                <strong>${safeInviterName}</strong> has added you to the <strong>${safeWorkspaceName}</strong> workspace on ${appName}.
               </p>
 
               <!-- CTA Button -->
@@ -685,7 +705,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
               </table>
 
               <p style="margin: 0 0 24px; font-size: 13px; line-height: 1.6; color: #6b7280;">
-                If you're not signed in on this device, sign in as <strong>${to}</strong> — we'll email you a short sign-in code, or use Google or Microsoft.
+                If you're not signed in on this device, sign in as <strong>${safeTo}</strong> — we'll email you a short sign-in code, or use Google or Microsoft.
               </p>
 
               <!-- Fallback Link -->
@@ -702,7 +722,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 24px 32px 32px;">
               <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
+                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${safeInviterName} to be removed.
               </p>
             </td>
           </tr>

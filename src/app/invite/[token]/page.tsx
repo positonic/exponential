@@ -127,30 +127,47 @@ export default function InviteAcceptPage() {
   // accepted. The accepted case is the "you've been added" email for existing
   // users: membership is already granted, so the only job left is signing in —
   // bouncing them to an anonymous /signin wall or an "Already Used" card is a
-  // dead end. Expired *pending* invites still fall through to the expired card.
+  // dead end. Expiry still gates both: this page is public and shows the
+  // workspace name, inviter and member count, so a forwarded link shouldn't
+  // keep serving that forever — and removeMember expires the row on the way
+  // out, which is what stops a removed member's link from still rendering.
   if (
     !invitation.isLoggedIn &&
-    (invitation.status === "accepted" ||
-      (invitation.status === "pending" && !invitation.isExpired))
+    !invitation.isExpired &&
+    (invitation.status === "accepted" || invitation.status === "pending")
   ) {
     return <InviteLandingPage token={token} invitation={invitation} />;
   }
 
   if (invitation.isExpired) {
+    // An accepted invitation's link is the "you've been added" email, not a
+    // join offer — "ask the admin for a new invitation" is the wrong advice
+    // for someone who may still be a member, so point them at the workspace.
+    const wasAdded = invitation.status === "accepted";
     return (
       <Container size="sm" className="py-16">
         <Card className="bg-surface-secondary border-border-primary" withBorder>
           <Stack gap="md" align="center" className="py-8">
             <IconClock size={48} className="text-yellow-500" />
             <Title order={2} className="text-text-primary">
-              Invitation Expired
+              {wasAdded ? "Link Expired" : "Invitation Expired"}
             </Title>
             <Text className="text-text-secondary text-center">
-              This invitation has expired. Please contact the workspace admin to
-              request a new invitation.
+              {wasAdded
+                ? `This link has expired. If you still have access to ${invitation.workspace.name}, open it below and sign in when asked.`
+                : "This invitation has expired. Please contact the workspace admin to request a new invitation."}
             </Text>
-            <Button variant="light" onClick={() => router.push("/")}>
-              Go to Home
+            <Button
+              variant="light"
+              onClick={() =>
+                router.push(
+                  wasAdded ? `/w/${invitation.workspace.slug}` : "/"
+                )
+              }
+            >
+              {wasAdded
+                ? `Open ${invitation.workspace.name}`
+                : "Go to Home"}
             </Button>
           </Stack>
         </Card>

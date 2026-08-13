@@ -141,7 +141,11 @@ describe("workspace.addMember (existing user)", () => {
 
   it("emails a /invite/<token> landing link backed by an accepted invitation", async () => {
     stubExistingUserPath(db);
-    db.workspaceInvitation.upsert.mockResolvedValue({} as never);
+    // Prisma returns the stored row; the CTA is built from *its* token.
+    db.workspaceInvitation.upsert.mockImplementation(
+      (args: { create: { token: string } }) =>
+        ({ token: args.create.token }) as never,
+    );
 
     const result = await caller(db).workspace.addMember({
       workspaceId: WORKSPACE_ID,
@@ -168,6 +172,29 @@ describe("workspace.addMember (existing user)", () => {
     expect(sendTeamInvitationEmail).not.toHaveBeenCalled();
   });
 
+  it("keeps an existing invitation's token so an already-sent link still works", async () => {
+    stubExistingUserPath(db);
+    // This address was invited by email first, then added once the account
+    // existed: the earlier email is still clickable, so its token must survive.
+    const EXISTING_TOKEN = "a".repeat(64);
+    db.workspaceInvitation.upsert.mockResolvedValue({
+      token: EXISTING_TOKEN,
+    } as never);
+
+    await caller(db).workspace.addMember({
+      workspaceId: WORKSPACE_ID,
+      email: INVITEE_EMAIL,
+      role: "member",
+    });
+
+    // Nothing in the update payload may rotate the token.
+    const upsertArgs = db.workspaceInvitation.upsert.mock.calls[0]![0];
+    expect(upsertArgs.update).not.toHaveProperty("token");
+
+    const emailArgs = vi.mocked(sendWorkspaceMemberAddedEmail).mock.calls[0]![0];
+    expect(emailArgs.ctaUrl).toContain(`/invite/${EXISTING_TOKEN}`);
+  });
+
   it("falls back to the workspace URL when the landing token can't be stored", async () => {
     stubExistingUserPath(db);
     db.workspaceInvitation.upsert.mockRejectedValue(new Error("db down"));
@@ -185,5 +212,65 @@ describe("workspace.addMember (existing user)", () => {
     const emailArgs = vi.mocked(sendWorkspaceMemberAddedEmail).mock.calls[0]![0];
     expect(emailArgs.ctaUrl).toContain("/w/clear");
     expect(emailArgs.ctaUrl).not.toContain("/invite/");
+  });
+});
+
+describe("workspace.removeMember (invite landing cleanup)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  it("expires the member's invitation so its landing page stops rendering", async () => {
+    db.user.findUnique.mockResolvedValueOnce({ isAgent: false } as never);
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role: "owner" } as never)
+      .mockResolvedValueOnce({
+        role: "member",
+        user: { email: INVITEE_EMAIL },
+      } as never);
+    db.workspaceUser.delete.mockResolvedValue({} as never);
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+    db.workspaceInvitation.updateMany.mockResolvedValue({ count: 1 } as never);
+
+    const before = Date.now();
+    const result = await caller(db).workspace.removeMember({
+      workspaceId: WORKSPACE_ID,
+      userId: INVITEE_ID,
+    });
+
+    expect(result.success).toBe(true);
+    expect(db.workspaceInvitation.updateMany).toHaveBeenCalledTimes(1);
+    const args = db.workspaceInvitation.updateMany.mock.calls[0]![0]!;
+    expect(args.where).toMatchObject({
+      workspaceId: WORKSPACE_ID,
+      email: INVITEE_EMAIL,
+    });
+    expect((args.data as { expiresAt: Date }).expiresAt.getTime()).toBeGreaterThanOrEqual(
+      before,
+    );
+  });
+
+  it("still removes the member when expiring the invitation fails", async () => {
+    db.user.findUnique.mockResolvedValueOnce({ isAgent: false } as never);
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role: "owner" } as never)
+      .mockResolvedValueOnce({
+        role: "member",
+        user: { email: INVITEE_EMAIL },
+      } as never);
+    db.workspaceUser.delete.mockResolvedValue({} as never);
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+    db.workspaceInvitation.updateMany.mockRejectedValue(new Error("db down"));
+
+    const result = await caller(db).workspace.removeMember({
+      workspaceId: WORKSPACE_ID,
+      userId: INVITEE_ID,
+    });
+
+    expect(result.success).toBe(true);
+    expect(db.workspaceUser.delete).toHaveBeenCalledTimes(1);
   });
 });
