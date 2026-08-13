@@ -99,7 +99,16 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - signin (login page)
+     *
+     * ...and any request for a static asset in /public (trailing file
+     * extension). Those are not pages, so default-deny gating them only
+     * breaks them: a logged-out visitor to the marketing home got a 307 to
+     * /signin for `/expo-logo-20.png`, so the header logo rendered as alt
+     * text. `/_next/image` is excluded above, but the optimizer fetches the
+     * source path back through the deployment, so it inherited the same
+     * redirect. Serving public bytes to anonymous users is intended — the
+     * whole directory is CDN-cached and unauthenticated by design.
      */
-    '/((?!api|monitoring|_next/static|_next/image|favicon.ico|signin).*)',
+    '/((?!api|monitoring|_next/static|_next/image|favicon.ico|signin|.*\\.(?:png|jpe?g|gif|svg|ico|webp|avif|css|js|map|woff2?|ttf|otf|mp4|webm)$).*)',
   ],
 };
