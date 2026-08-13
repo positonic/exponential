@@ -667,41 +667,46 @@ export const actionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updateData } = input;
 
-      // Verify user has edit access to this action
-      const access = await getActionAccess(ctx.db, ctx.session.user.id, id);
+      // Check if action is being marked as completed
+      const isCompleting = updateData.status === "COMPLETED" || updateData.kanbanStatus === "DONE";
+      const isUncompleting = updateData.status === "ACTIVE" || (updateData.kanbanStatus && updateData.kanbanStatus !== "DONE");
+
+      // The access check and the pre-update snapshot are independent reads, so
+      // they go out together rather than stacking two round trips. Both are
+      // reads — nothing is written before the FORBIDDEN check below.
+      const [access, currentAction] = await Promise.all([
+        // Verify user has edit access to this action
+        getActionAccess(ctx.db, ctx.session.user.id, id),
+        // Get current action to check previous state
+        ctx.db.action.findUnique({
+          where: { id },
+          select: {
+            status: true,
+            kanbanStatus: true,
+            completedAt: true,
+            scheduledStart: true,
+            scheduledEnd: true,
+            projectId: true,
+            dueDate: true,
+            workspaceId: true,
+            name: true,
+            description: true,
+            priority: true,
+            epicId: true,
+            effortEstimate: true,
+            // T7: include workspaceId and any fields we diff against `updateData`
+            // so we can compute fieldsChanged without an extra query.
+            project: { select: { workspaceId: true } },
+          },
+        }),
+      ]);
+
       if (!access || !canEditAction(access)) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "You do not have permission to edit this action",
         });
       }
-
-      // Check if action is being marked as completed
-      const isCompleting = updateData.status === "COMPLETED" || updateData.kanbanStatus === "DONE";
-      const isUncompleting = updateData.status === "ACTIVE" || (updateData.kanbanStatus && updateData.kanbanStatus !== "DONE");
-
-      // Get current action to check previous state
-      const currentAction = await ctx.db.action.findUnique({
-        where: { id },
-        select: {
-          status: true,
-          kanbanStatus: true,
-          completedAt: true,
-          scheduledStart: true,
-          scheduledEnd: true,
-          projectId: true,
-          dueDate: true,
-          workspaceId: true,
-          name: true,
-          description: true,
-          priority: true,
-          epicId: true,
-          effortEstimate: true,
-          // T7: include workspaceId and any fields we diff against `updateData`
-          // so we can compute fieldsChanged without an extra query.
-          project: { select: { workspaceId: true } },
-        },
-      });
 
       const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
 
@@ -921,25 +926,29 @@ export const actionRouter = createTRPCRouter({
           });
 
           if (remainingOverdue === 0) {
-            // All overdue tasks cleared - mark processedOverdue on today's daily plan
-            await ctx.db.dailyPlan.updateMany({
-              where: {
-                userId: ctx.session.user.id,
-                date: today,
-                processedOverdue: false,
-              },
-              data: { processedOverdue: true },
-            });
-
-            // Also mark on DailyScore directly (decoupled from daily plan)
-            await ctx.db.dailyScore.updateMany({
-              where: {
-                userId: ctx.session.user.id,
-                date: today,
-                processedOverdue: false,
-              },
-              data: { processedOverdue: true },
-            });
+            // All overdue tasks cleared. The two writes are independent, so
+            // they go out together — this block sits on the critical path of
+            // every reschedule of an already-overdue action.
+            await Promise.all([
+              // Mark processedOverdue on today's daily plan
+              ctx.db.dailyPlan.updateMany({
+                where: {
+                  userId: ctx.session.user.id,
+                  date: today,
+                  processedOverdue: false,
+                },
+                data: { processedOverdue: true },
+              }),
+              // Also mark on DailyScore directly (decoupled from daily plan)
+              ctx.db.dailyScore.updateMany({
+                where: {
+                  userId: ctx.session.user.id,
+                  date: today,
+                  processedOverdue: false,
+                },
+                data: { processedOverdue: true },
+              }),
+            ]);
           }
 
           // Fire and forget - recalculate today's score since overdue count changed
