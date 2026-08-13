@@ -4,6 +4,9 @@ import { Container } from '@mantine/core';
 import { Heatmap } from '~/app/_components/home/activity/Heatmap';
 import { WeekInReview } from '~/app/_components/home/activity/WeekInReview';
 import { WorkspaceActivityFullFeed } from '~/app/_components/home/activity/WorkspaceActivityFullFeed';
+// The wsa-week / wsa-heatmap / wsa-analytics rules live here. FullFeed also
+// imports it, but this page must not depend on that transitively.
+import '~/app/_components/home/activity/activity-home.css';
 
 /**
  * `/w/[workspaceSlug]/activity` — the workspace's activity destination:
