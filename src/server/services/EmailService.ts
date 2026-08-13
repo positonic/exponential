@@ -20,6 +20,21 @@ import {
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
 
+/**
+ * Escape a value before interpolating it into an email's HTML body.
+ *
+ * Workspace and person names are attacker-writable text that lands in someone
+ * else's inbox, where injected markup reads as part of a legitimate email.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 interface PostmarkConfig {
   apiKey: string | null;
   from: string;
@@ -627,18 +642,25 @@ If you weren't expecting this invitation, you can safely ignore this email.
 
 /**
  * Send a notification email to an existing user who has just been added to a workspace.
- * Unlike the invitation email, the recipient already has an account, so the CTA links
- * them straight into the workspace rather than to a sign-up flow.
+ * Unlike the invitation email, the recipient already has an account. The CTA still goes
+ * through the /invite/<token> landing page (not the bare workspace URL): they're usually
+ * signed out where they read email, and the landing page prefills their address and
+ * offers a one-click sign-in code instead of an anonymous /signin wall.
  */
 export async function sendWorkspaceMemberAddedEmail(params: {
   to: string;
   workspaceName: string;
   inviterName: string;
-  workspaceUrl: string;
+  ctaUrl: string;
 }): Promise<void> {
-  const { to, workspaceName, inviterName, workspaceUrl } = params;
+  const { to, workspaceName, inviterName, ctaUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
+  // Names come from whoever did the adding; the address is validated but still
+  // interpolated into markup. Escape everything that reaches the HTML body.
+  const safeTo = escapeHtml(to);
+  const safeWorkspaceName = escapeHtml(workspaceName);
+  const safeInviterName = escapeHtml(inviterName);
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -648,7 +670,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
-  <title>You've been added to ${workspaceName} on ${appName}</title>
+  <title>You've been added to ${safeWorkspaceName} on ${appName}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
@@ -659,7 +681,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
               <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
-                You've been added to ${workspaceName}
+                You've been added to ${safeWorkspaceName}
               </h1>
             </td>
           </tr>
@@ -668,26 +690,30 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${inviterName}</strong> has added you to the <strong>${workspaceName}</strong> workspace on ${appName}.
+                <strong>${safeInviterName}</strong> has added you to the <strong>${safeWorkspaceName}</strong> workspace on ${appName}.
               </p>
 
               <!-- CTA Button -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${workspaceUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       Open Workspace
                     </a>
                   </td>
                 </tr>
               </table>
 
+              <p style="margin: 0 0 24px; font-size: 13px; line-height: 1.6; color: #6b7280;">
+                If you're not signed in on this device, sign in as <strong>${safeTo}</strong> — we'll email you a short sign-in code, or use Google or Microsoft.
+              </p>
+
               <!-- Fallback Link -->
               <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${workspaceUrl}
+                ${ctaUrl}
               </p>
             </td>
           </tr>
@@ -696,7 +722,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 24px 32px 32px;">
               <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
+                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${safeInviterName} to be removed.
               </p>
             </td>
           </tr>
@@ -713,7 +739,9 @@ You've been added to ${workspaceName}
 
 ${inviterName} has added you to the ${workspaceName} workspace on ${appName}.
 
-Open the workspace: ${workspaceUrl}
+Open the workspace: ${ctaUrl}
+
+If you're not signed in on this device, sign in as ${to} — we'll email you a short sign-in code, or use Google or Microsoft.
 
 If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
 `.trim();

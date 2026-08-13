@@ -648,7 +648,64 @@ export const workspaceRouter = createTRPCRouter({
               },
             );
           } else {
-            const workspaceUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            // Land the email on /invite/<token> rather than the bare
+            // workspace URL: the recipient is usually signed out in the
+            // browser their mail client opens, and a /w/<slug> link just
+            // bounces them off middleware onto an anonymous /signin wall.
+            // The invite landing page is public, survives mail scanners
+            // (the token identifies, it doesn't authenticate — ADR-0056),
+            // prefills their email and offers a one-click sign-in code.
+            // If minting the record fails, fall back to the workspace URL
+            // rather than failing the mutation — membership already exists.
+            let ctaUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            try {
+              const landing = await ctx.db.workspaceInvitation.upsert({
+                where: {
+                  workspaceId_email: {
+                    workspaceId: input.workspaceId,
+                    email: input.email,
+                  },
+                },
+                // The token is deliberately absent from `update`: this address
+                // may already have a pending invitation whose token is sitting
+                // in an email someone can still click. Rotating it here would
+                // dead-end that link on "Invalid Invitation"; reusing the row's
+                // existing token instead re-points it at the accepted landing.
+                update: {
+                  role: input.role,
+                  status: "accepted",
+                  acceptedAt: new Date(),
+                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  createdById: ctx.session.user.id,
+                },
+                create: {
+                  workspaceId: input.workspaceId,
+                  email: input.email,
+                  role: input.role,
+                  token: generateSecureToken(),
+                  status: "accepted",
+                  acceptedAt: new Date(),
+                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  createdById: ctx.session.user.id,
+                },
+              });
+              ctaUrl = generateInviteUrl(landing.token);
+            } catch (err: unknown) {
+              // Degrading to the bare /w/<slug> link silently would put the
+              // recipient back on the signin wall this path exists to avoid,
+              // so it goes to Sentry rather than only to the server log.
+              console.error(
+                "[workspace.addMember] Failed to mint invite landing token, falling back to workspace URL:",
+                err,
+              );
+              reportHandledErrorServer(err, {
+                area: "workspace-member-added-landing-token",
+                context: {
+                  workspaceId: input.workspaceId,
+                  recipientEmail: newMember.user.email ?? "",
+                },
+              });
+            }
             sendWorkspaceMemberAddedEmail({
               to: newMember.user.email,
               workspaceName: workspace.name ?? "a workspace",
@@ -656,7 +713,7 @@ export const workspaceRouter = createTRPCRouter({
                 ctx.session.user.name ??
                 ctx.session.user.email ??
                 "A workspace member",
-              workspaceUrl,
+              ctaUrl,
             }).catch((err: unknown) => {
               console.error(
                 "[workspace.addMember] Failed to send member-added email:",
@@ -801,6 +858,7 @@ export const workspaceRouter = createTRPCRouter({
             workspaceId: input.workspaceId,
           },
         },
+        include: { user: { select: { email: true } } },
       });
 
       if (memberToRemove?.role === "owner") {
@@ -823,6 +881,36 @@ export const workspaceRouter = createTRPCRouter({
       // Delegation invariant (ADR-0049): the removed member's external agents
       // lose their memberships here too — agent access never outlives its owner's.
       await cascadeOwnerRemovedFromWorkspace(ctx.db, input.userId, input.workspaceId);
+
+      // Retire any invitation row for this address. Its token renders a public
+      // landing page carrying the workspace name, inviter and member count, and
+      // addMember now mints one of these for existing users — without this it
+      // would keep serving that after the member is gone. Expiring rather than
+      // deleting keeps the invitation history intact. Non-fatal: the member is
+      // already out, so a failure here must not fail the mutation.
+      if (memberToRemove?.user.email) {
+        try {
+          await ctx.db.workspaceInvitation.updateMany({
+            where: {
+              workspaceId: input.workspaceId,
+              email: memberToRemove.user.email,
+            },
+            data: { expiresAt: new Date() },
+          });
+        } catch (err: unknown) {
+          console.error(
+            "[workspace.removeMember] Failed to expire invitation for removed member:",
+            err,
+          );
+          reportHandledErrorServer(err, {
+            area: "workspace-remove-member-invitation-expiry",
+            context: {
+              workspaceId: input.workspaceId,
+              removedUserId: input.userId,
+            },
+          });
+        }
+      }
 
       return { success: true };
     }),
