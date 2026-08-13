@@ -97,12 +97,14 @@ export function YourWorkPanel() {
 
   // Mention notifications — the ADR-0045 pipeline writes these rows; this
   // inbox is their first reader. User-scoped, not workspace-scoped: a mention
-  // follows the person.
+  // follows the person. Only unread ones render — marking read removes the
+  // row for good. Fetch a deep page: the list mixes read and unread, and a
+  // burst of read mentions must not push unread ones off the page.
   const utils = api.useUtils();
   const { data: mentionData, isLoading: mentionsLoading } =
     api.notification.list.useQuery({
       category: NOTIFICATION_CATEGORIES.MENTION,
-      limit: 5,
+      limit: 50,
     });
   const { data: unreadMentions } = api.notification.unreadCount.useQuery({
     category: NOTIFICATION_CATEGORIES.MENTION,
@@ -121,8 +123,15 @@ export function YourWorkPanel() {
   if (!workspaceId || !workspaceSlug) return null;
 
   const now = new Date();
+  // status === 'ACTIVE' alone is not enough: legacy rows completed from the
+  // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
   const active = (actions ?? [])
-    .filter((a) => a.status === 'ACTIVE')
+    .filter(
+      (a) =>
+        a.status === 'ACTIVE' &&
+        a.kanbanStatus !== 'DONE' &&
+        a.kanbanStatus !== 'CANCELLED',
+    )
     .sort((a, b) => {
       if (!a.dueDate && !b.dueDate) return 0;
       if (!a.dueDate) return 1;
@@ -147,7 +156,9 @@ export function YourWorkPanel() {
   const driProjects = dri?.projects ?? [];
   const driCount = driGoals.length + driKeyResults.length + driProjects.length;
   const recentMeetings = (meetings ?? []).slice(0, 5);
-  const mentions = mentionData?.notifications ?? [];
+  const mentions = (mentionData?.notifications ?? [])
+    .filter((mention) => mention.readAt === null)
+    .slice(0, 5);
 
   const personalSectionsEmpty =
     !isLoading &&
@@ -284,7 +295,6 @@ export function YourWorkPanel() {
             )}
           </div>
           {mentions.map((mention) => {
-            const isUnread = mention.readAt === null;
             const row = (
               <>
                 <IconAt
@@ -292,26 +302,19 @@ export function YourWorkPanel() {
                   stroke={1.75}
                   style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
                 />
-                <span
-                  className={
-                    isUnread
-                      ? `${styles.rowLabel} ${styles.rowLabelUnread}`
-                      : styles.rowLabel
-                  }
-                >
+                <span className={`${styles.rowLabel} ${styles.rowLabelUnread}`}>
                   {mention.title}
                   {mention.message ? ` — ${mention.message}` : ''}
                 </span>
-                {isUnread && <span className={styles.unreadDot} aria-label="Unread" />}
+                <span className={styles.unreadDot} aria-label="Unread" />
                 <span className={styles.rowMeta}>
                   {formatDue(new Date(mention.createdAt))}
                 </span>
               </>
             );
             // Opening a mention reads it — mark before the navigation unmounts us.
-            const readOnOpen = () => {
-              if (isUnread) markRead.mutate({ notificationId: mention.id });
-            };
+            const readOnOpen = () =>
+              markRead.mutate({ notificationId: mention.id });
             return mention.deeplink ? (
               <UnstyledButton
                 key={mention.id}

@@ -779,6 +779,22 @@ export const actionRouter = createTRPCRouter({
         ...updateData,
         ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
         ...(isUncompleting && wasCompleted && { completedAt: null }),
+        // Callers that complete via kanbanStatus alone must move the coarse
+        // `status` too — list views filter on status === "ACTIVE" and would
+        // otherwise keep showing a kanban-DONE action (and vice versa). An
+        // explicit `status` in the input always wins; DELETED/DRAFT rows are
+        // left alone so a kanban move can't resurrect them.
+        ...(updateData.status === undefined &&
+          updateData.kanbanStatus !== undefined &&
+          currentAction &&
+          ["ACTIVE", "COMPLETED", "CANCELLED"].includes(currentAction.status) && {
+            status:
+              updateData.kanbanStatus === "DONE"
+                ? ("COMPLETED" as const)
+                : updateData.kanbanStatus === "CANCELLED"
+                  ? ("CANCELLED" as const)
+                  : ("ACTIVE" as const),
+          }),
         ...(updateData.priority !== undefined && { kanbanOrder: null }),
       };
 
@@ -971,6 +987,7 @@ export const actionRouter = createTRPCRouter({
         },
         select: {
           id: true,
+          status: true,
           kanbanStatus: true,
           completedAt: true,
           projectId: true,
@@ -995,11 +1012,25 @@ export const actionRouter = createTRPCRouter({
       const isUncompleting = input.kanbanStatus !== "DONE";
       const wasCompleted = action.kanbanStatus === "DONE";
 
-      // Prepare update data with completion timestamp
+      // Prepare update data with completion timestamp. The coarse `status`
+      // field moves in lockstep: list views (home overdue, "Assigned to you")
+      // filter on status === "ACTIVE", so a kanban DONE that left status
+      // ACTIVE would resurrect the action there on every load. DELETED/DRAFT
+      // rows are left alone — kanban moves must not resurrect them.
+      const statusForKanban =
+        input.kanbanStatus === "DONE"
+          ? ("COMPLETED" as const)
+          : input.kanbanStatus === "CANCELLED"
+            ? ("CANCELLED" as const)
+            : ("ACTIVE" as const);
+      const shouldSyncStatus =
+        ["ACTIVE", "COMPLETED", "CANCELLED"].includes(action.status) &&
+        action.status !== statusForKanban;
       const updateData = {
         kanbanStatus: input.kanbanStatus,
         ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
         ...(isUncompleting && wasCompleted && { completedAt: null }),
+        ...(shouldSyncStatus && { status: statusForKanban }),
       };
 
       // Update the kanban status

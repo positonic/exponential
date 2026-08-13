@@ -74,10 +74,14 @@ export function AttentionPanel() {
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
+  // status === 'ACTIVE' alone is not enough: legacy rows completed from the
+  // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
   const overdue = (actions ?? [])
     .filter(
       (a) =>
         a.status === 'ACTIVE' &&
+        a.kanbanStatus !== 'DONE' &&
+        a.kanbanStatus !== 'CANCELLED' &&
         a.dueDate !== null &&
         new Date(a.dueDate) < startOfToday,
     )

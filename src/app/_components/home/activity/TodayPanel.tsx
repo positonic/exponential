@@ -50,8 +50,14 @@ export function TodayPanel() {
   const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
   const weekOut = new Date(startOfToday.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+  // status === 'ACTIVE' alone is not enough: legacy rows completed from the
+  // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
   const active = (actions ?? []).filter(
-    (a) => a.status === 'ACTIVE' && a.dueDate !== null,
+    (a) =>
+      a.status === 'ACTIVE' &&
+      a.kanbanStatus !== 'DONE' &&
+      a.kanbanStatus !== 'CANCELLED' &&
+      a.dueDate !== null,
   );
   const dueToday = active.filter((a) => {
     const due = new Date(a.dueDate ?? 0);
