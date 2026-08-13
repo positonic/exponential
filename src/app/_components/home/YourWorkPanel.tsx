@@ -13,6 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { NOTIFICATION_CATEGORIES } from '~/server/services/notifications/emit/constants';
 import { ActivityFeed } from './activity/ActivityFeed';
 import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
@@ -99,9 +100,12 @@ export function YourWorkPanel() {
   // follows the person.
   const utils = api.useUtils();
   const { data: mentionData, isLoading: mentionsLoading } =
-    api.notification.list.useQuery({ category: 'mention', limit: 5 });
+    api.notification.list.useQuery({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      limit: 5,
+    });
   const { data: unreadMentions } = api.notification.unreadCount.useQuery({
-    category: 'mention',
+    category: NOTIFICATION_CATEGORIES.MENTION,
   });
   const invalidateInbox = () => {
     void utils.notification.list.invalidate();
@@ -270,7 +274,9 @@ export function YourWorkPanel() {
               <button
                 type="button"
                 className={styles.sectionAction}
-                onClick={() => markAllRead.mutate({ category: 'mention' })}
+                onClick={() =>
+                  markAllRead.mutate({ category: NOTIFICATION_CATEGORIES.MENTION })
+                }
                 disabled={markAllRead.isPending}
               >
                 Mark all read

@@ -62,7 +62,7 @@ export const notificationRouter = createTRPCRouter({
     .input(
       z
         .object({
-          category: z.string().optional(),
+          category: z.enum(CATEGORY_LIST).optional(),
           limit: z.number().int().min(1).max(50).default(20),
           cursor: z.string().optional(),
         })
@@ -119,7 +119,7 @@ export const notificationRouter = createTRPCRouter({
 
   /** Mark every unread Notification read, optionally within one category. */
   markAllRead: protectedProcedure
-    .input(z.object({ category: z.string().optional() }).optional())
+    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
     .mutation(async ({ ctx, input }) => {
       const result = await ctx.db.notification.updateMany({
         where: {
@@ -135,7 +135,7 @@ export const notificationRouter = createTRPCRouter({
 
   /** Unread Notification count for the badge, optionally per category. */
   unreadCount: protectedProcedure
-    .input(z.object({ category: z.string().optional() }).optional())
+    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
     .query(async ({ ctx, input }) => {
       return ctx.db.notification.count({
         where: {
