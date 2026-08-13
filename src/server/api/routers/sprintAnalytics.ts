@@ -6,6 +6,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   sprintAnalyticsService,
+  type AllCyclesMetricsResult,
   type CycleSummary,
   type CycleTicketMetricsResult,
   type CycleVelocityPoint,
@@ -87,6 +88,22 @@ export const sprintAnalyticsRouter = createTRPCRouter({
     .query(async ({ ctx, input }): Promise<CycleSummary[]> => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
       return sprintAnalyticsService.getWorkspaceCycles(input.workspaceId);
+    }),
+
+  /**
+   * Metrics page (UI): the workspace's all-cycles roll-up — summed velocity,
+   * overall completion and merged-PR turnaround across every cycle, plus the
+   * per-cycle series behind them for the trend chart.
+   *
+   * Enforces workspace membership. Computed live and batched (see
+   * `getAllCyclesMetrics`); nothing is read from the dormant `SprintMetrics`
+   * table. See ADR-0047.
+   */
+  getAllCyclesMetrics: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1) }))
+    .query(async ({ ctx, input }): Promise<AllCyclesMetricsResult> => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      return sprintAnalyticsService.getAllCyclesMetrics(input.workspaceId);
     }),
 
   /**
