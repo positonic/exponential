@@ -123,6 +123,31 @@ export function ticketUrlId(ticket: { id: string; number: number }): string {
   return ticket.number > 0 ? String(ticket.number) : ticket.id;
 }
 
+/** One `shortId` condition in the shape Prisma's `TicketWhereInput` accepts. */
+interface ShortIdContains {
+  shortId: { contains: string; mode: "insensitive" };
+}
+
+/**
+ * Where-clauses matching a ticket's `shortId` against a free-text query, for
+ * spreading into a Prisma `OR`. Beyond the plain substring match, a multi-word
+ * query matches shortIds containing every word in any order: fun IDs are
+ * `adjective.noun`, and people reliably recall the two words but not which
+ * came first — a search for "toucan.prime" (or "toucan prime") must find
+ * `prime.toucan`.
+ */
+export function shortIdSearchWhere(
+  query: string,
+): (ShortIdContains | { AND: ShortIdContains[] })[] {
+  const contains = (value: string): ShortIdContains => ({
+    shortId: { contains: value, mode: "insensitive" },
+  });
+  const words = query.split(/[.\s]+/).filter(Boolean);
+  return words.length > 1
+    ? [contains(query), { AND: words.map(contains) }]
+    : [contains(query)];
+}
+
 /**
  * Parse a ticket URL segment into a sequential-number lookup key. Accepts a
  * bare number (`29`) or a Linear-style id (`PLAT-29`, case-insensitive).

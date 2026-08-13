@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTicketUrlId, ticketUrlId } from "../fun-ids";
+import { parseTicketUrlId, shortIdSearchWhere, ticketUrlId } from "../fun-ids";
 
 describe("parseTicketUrlId", () => {
   it("parses a bare number", () => {
@@ -38,6 +38,41 @@ describe("parseTicketUrlId", () => {
   it("parses large numbers", () => {
     expect(parseTicketUrlId("999999")).toBe(999999);
     expect(parseTicketUrlId("PLAT-1000000")).toBe(1000000);
+  });
+});
+
+describe("shortIdSearchWhere", () => {
+  const contains = (value: string) => ({
+    shortId: { contains: value, mode: "insensitive" },
+  });
+
+  it("returns a single substring clause for a one-word query", () => {
+    expect(shortIdSearchWhere("toucan")).toEqual([contains("toucan")]);
+  });
+
+  it("adds an any-order clause for a dotted fun id", () => {
+    expect(shortIdSearchWhere("toucan.prime")).toEqual([
+      contains("toucan.prime"),
+      { AND: [contains("toucan"), contains("prime")] },
+    ]);
+  });
+
+  it("splits on whitespace too", () => {
+    expect(shortIdSearchWhere("toucan prime")).toEqual([
+      contains("toucan prime"),
+      { AND: [contains("toucan"), contains("prime")] },
+    ]);
+  });
+
+  it("ignores empty segments from stray separators", () => {
+    expect(shortIdSearchWhere("toucan..prime ")).toEqual([
+      contains("toucan..prime "),
+      { AND: [contains("toucan"), contains("prime")] },
+    ]);
+  });
+
+  it("treats a trailing separator as still one word", () => {
+    expect(shortIdSearchWhere("toucan.")).toEqual([contains("toucan.")]);
   });
 });
 

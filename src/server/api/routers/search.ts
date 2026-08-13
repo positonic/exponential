@@ -12,7 +12,7 @@ import {
   isWorkspaceGuest,
 } from "~/server/services/access";
 import { stripHtml } from "~/lib/utils";
-import { ticketUrlId } from "~/lib/fun-ids";
+import { shortIdSearchWhere, ticketUrlId } from "~/lib/fun-ids";
 
 /**
  * Global search — the server-side equivalent of the Cmd+K palette
@@ -270,7 +270,9 @@ async function searchTickets({ db, userId, q, workspaceId, limit }: SearchArgs):
       },
       OR: [
         { title: insensitive(q) },
-        { shortId: insensitive(q) },
+        // Fun shortIds match word-order-insensitively ("toucan.prime" finds
+        // prime.toucan).
+        ...shortIdSearchWhere(q),
         // An all-digits query also matches the ticket's sequential number.
         ...(/^\d+$/.test(q) && parseInt(q, 10) > 0
           ? [{ number: parseInt(q, 10) }]
