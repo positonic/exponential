@@ -176,8 +176,8 @@ export const projectRouter = createTRPCRouter({
           name: projects[0].name,
           createdById: projects[0].createdById,
           status: projects[0].status,
-          goalsCount: projects[0].goals?.length || 0,
-          actionsCount: projects[0].actions?.length || 0
+          goalsCount: projects[0].goals?.length ?? 0,
+          actionsCount: projects[0].actions?.length ?? 0
         } : 'No projects found'
       });
 

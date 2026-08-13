@@ -5059,16 +5059,21 @@ function getFallbackSuggestion(context: {
     return "Your day looks open. This might be a good time for something restorative or a project you've been curious about.";
   }
 
-  if (context.isMonday) {
-    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
-  }
-
   if (context.isSunday) {
     return "Sundays can be great for light reflection. What went well this week that you'd like to continue?";
   }
 
   if (context.pendingActionsCount > 0) {
     return "You have some actions lined up for today. Starting with the one that feels most approachable can build nice momentum.";
+  }
+
+  // Ordered AFTER the actions branch deliberately. This used to be gated on
+  // `isMonday && weeklyOutcomesCount === 0` — "it's Monday and you haven't
+  // planned the week yet". Outcomes are gone, so that signal is too; keeping
+  // the branch above would fire on every Monday and swallow the more specific
+  // suggestions below it. A loaded Monday now gets the actions nudge instead.
+  if (context.isMonday) {
+    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
   }
 
   if (context.completedHabitsCount < context.totalHabitsCount) {

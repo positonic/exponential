@@ -147,7 +147,7 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
           </div>
           <div className="flex items-center gap-2">
             <Text size="xs" c="dimmed">
-              {weeklyOutcomesData?.outcomes.length || 0} commitments
+              {weeklyOutcomesData?.outcomes.length ?? 0} commitments
             </Text>
             <Button 
               leftSection={<IconPlus size={16} />} 
