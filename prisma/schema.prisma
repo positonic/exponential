@@ -2044,6 +2044,9 @@ model Notification {
   deeplink     String?
   dedupeKey    String
   scheduledFor DateTime?
+  /// In-app read state (null = unread). Set by the inbox UI; delivery
+  /// channels never touch it.
+  readAt       DateTime?
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -2051,6 +2054,7 @@ model Notification {
 
   @@unique([dedupeKey, userId])
   @@index([userId])
+  @@index([userId, readAt])
   @@index([category])
   @@index([scheduledFor])
   @@index([createdAt])

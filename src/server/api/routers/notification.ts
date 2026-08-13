@@ -82,6 +82,7 @@ export const notificationRouter = createTRPCRouter({
           message: true,
           deeplink: true,
           createdAt: true,
+          readAt: true,
         },
       });
 
@@ -90,6 +91,54 @@ export const notificationRouter = createTRPCRouter({
         nextCursor = rows.pop()!.id;
       }
       return { notifications: rows, nextCursor };
+    }),
+
+  /**
+   * Mark one Notification read. Scoped to the current user via updateMany so
+   * a foreign id is a silent no-op rather than an oracle; idempotent (an
+   * already-read row keeps its original readAt).
+   */
+  markRead: protectedProcedure
+    .input(z.object({ notificationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.notification.updateMany({
+        where: {
+          id: input.notificationId,
+          userId: ctx.session.user.id,
+          readAt: null,
+        },
+        data: { readAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  /** Mark every unread Notification read, optionally within one category. */
+  markAllRead: protectedProcedure
+    .input(z.object({ category: z.string().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.notification.updateMany({
+        where: {
+          userId: ctx.session.user.id,
+          readAt: null,
+          ...(input?.category ? { category: input.category } : {}),
+        },
+        data: { readAt: new Date() },
+      });
+      return { success: true, count: result.count };
+    }),
+
+  /** Unread Notification count for the badge, optionally per category. */
+  unreadCount: protectedProcedure
+    .input(z.object({ category: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.db.notification.count({
+        where: {
+          userId: ctx.session.user.id,
+          readAt: null,
+          ...(input?.category ? { category: input.category } : {}),
+          OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+        },
+      });
     }),
 
   // Get user notification preferences
