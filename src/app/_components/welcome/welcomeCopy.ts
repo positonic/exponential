@@ -145,6 +145,18 @@ export const COPY = {
     skip: "Skip for now",
   },
   goToToday: "Go to Today",
+  /** Invited variant — shown instead of chat/checklist when the user joined via an invitation. */
+  invited: {
+    title: (workspaceName: string) => `You've joined ${workspaceName}`,
+    subtitleWithInviter: (inviterName: string) =>
+      `${inviterName} invited you — you're in.`,
+    subtitle: "You're in.",
+    calTitle: "Connect your calendar",
+    calDesc: "Optional — meetings and the team's work in one place",
+    calConnected: "Connected",
+    calSkipped: "Skipped",
+    cta: (workspaceName: string) => `Take me to ${workspaceName}`,
+  },
 };
 
 /** Framework diagram cells: Goals → Actions → Today. */

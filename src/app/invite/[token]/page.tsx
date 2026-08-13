@@ -79,12 +79,19 @@ export default function InviteAcceptPage() {
     invitation.isLoggedIn &&
     invitation.isMember;
   const workspaceSlug = invitation?.workspace.slug;
+  // A fresh invitee (hasn't finished welcome yet) goes through the invited
+  // welcome variant first; returning members go straight into the workspace.
+  const redirectTarget = invitation?.viewerCompletedWelcome
+    ? workspaceSlug
+      ? `/w/${workspaceSlug}`
+      : null
+    : "/welcome";
 
   useEffect(() => {
-    if (shouldAutoRedirect && workspaceSlug) {
-      router.replace(`/w/${workspaceSlug}`);
+    if (shouldAutoRedirect && redirectTarget) {
+      router.replace(redirectTarget);
     }
-  }, [shouldAutoRedirect, workspaceSlug, router]);
+  }, [shouldAutoRedirect, redirectTarget, router]);
 
   if (isLoading || shouldAutoRedirect) {
     return (

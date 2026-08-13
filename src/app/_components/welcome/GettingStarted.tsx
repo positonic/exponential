@@ -6,6 +6,7 @@ import { Loader } from "@mantine/core";
 import { useWelcomeSetup } from "./useWelcomeSetup";
 import { WelcomeChatView } from "./WelcomeChatView";
 import { WelcomeChecklistView } from "./WelcomeChecklistView";
+import { WelcomeInvited } from "./WelcomeInvited";
 import { COPY } from "./welcomeCopy";
 import styles from "./Welcome.module.css";
 
@@ -45,6 +46,26 @@ export function GettingStarted() {
     return (
       <div className="flex h-[60vh] items-center justify-center">
         <Loader size="sm" color="blue" />
+      </div>
+    );
+  }
+
+  // Invited variant: the user joined someone else's workspace via an
+  // invitation — no chat/checklist (and no view toggle), just the shortened
+  // "you're in" flow. The explore exit stays available like everywhere else.
+  if (setup.invitedContext) {
+    return (
+      <div style={{ position: "relative" }}>
+        <div className={styles.topBar}>
+          <button
+            type="button"
+            className={styles.exploreLink}
+            onClick={() => void setup.exploreOnOwn()}
+          >
+            {COPY.chips.explore}
+          </button>
+        </div>
+        <WelcomeInvited setup={setup} />
       </div>
     );
   }
