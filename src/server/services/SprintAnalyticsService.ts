@@ -727,7 +727,7 @@ export class SprintAnalyticsService {
       cycles: [],
     };
 
-    const cycles = await this.prisma.list.findMany({
+    const fetched = await this.prisma.list.findMany({
       where: { workspaceId, listType: "SPRINT" },
       // Chronological for the trend chart; undated cycles fall to the end.
       orderBy: [{ startDate: "asc" }, { createdAt: "asc" }],
@@ -737,8 +737,32 @@ export class SprintAnalyticsService {
         status: true,
         startDate: true,
         endDate: true,
+        createdAt: true,
       },
     });
+
+    // Undated cycles (e.g. auto-created by the Notion import, which sets no
+    // dates) have no chronology, and createdAt is import order — which can be
+    // newest-first. Order them by the number in their name ("Cycle 7") so
+    // imported history still reads oldest → newest; unnumbered ones keep
+    // createdAt order at the very end.
+    const cycleNumber = (name: string): number | null => {
+      const match = /(\d+)\s*$/.exec(name.trim());
+      return match?.[1] ? Number(match[1]) : null;
+    };
+    const cycles = [
+      ...fetched.filter((c) => c.startDate),
+      ...fetched
+        .filter((c) => !c.startDate)
+        .sort((a, b) => {
+          const an = cycleNumber(a.name);
+          const bn = cycleNumber(b.name);
+          if (an != null && bn != null) return an - bn;
+          if (an != null) return -1;
+          if (bn != null) return 1;
+          return a.createdAt.getTime() - b.createdAt.getTime();
+        }),
+    ];
 
     if (cycles.length === 0) return empty;
 

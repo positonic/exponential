@@ -14,9 +14,9 @@ import './activity-home.css';
  *
  * Sections by area:
  *   `hero` — `Hero` (this-week / streak / active projects)
- *   `week` — `WeekInReview` (sparkline + multi-week stats)
  *   `main` — `Heatmap` + `ActivityFeed`
  *   `rail` — `ActiveProjects` + `GithubReposPanel` + `WhatsAppGroupsPanel`
+ *   `week` — `WeekInReview` (sparkline + multi-week stats, below the fold)
  */
 export function WorkspaceHomeActivityLayout() {
   return (
@@ -24,9 +24,6 @@ export function WorkspaceHomeActivityLayout() {
       <div className="wsa">
         <div className="wsa__hero">
           <Hero />
-        </div>
-        <div className="wsa__week">
-          <WeekInReview />
         </div>
         <div className="wsa__main">
           <Heatmap />
@@ -36,6 +33,9 @@ export function WorkspaceHomeActivityLayout() {
           <ActiveProjects />
           <GithubReposPanel />
           <WhatsAppGroupsPanel />
+        </div>
+        <div className="wsa__week">
+          <WeekInReview />
         </div>
       </div>
     </div>
