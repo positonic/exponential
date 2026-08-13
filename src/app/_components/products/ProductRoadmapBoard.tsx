@@ -159,7 +159,11 @@ function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {
           position="top"
           withArrow
         >
-          <span className="flex shrink-0 items-center text-text-muted">
+          <span
+            role="img"
+            aria-label={PRIORITY_LABELS[feature.priority ?? 4] ?? 'No priority'}
+            className="flex shrink-0 items-center text-text-muted"
+          >
             <PriorityIcon priority={feature.priority} size={14} />
           </span>
         </Tooltip>
@@ -256,14 +260,16 @@ function FeatureCard({
 
 // ---------------------------------------------------------------------------
 // Helpers - bucket a feature list into status columns, each column sorted by
-// priority (0 = Urgent first; unset sorts after the explicit "No priority" 4).
+// priority (0 = Urgent first). Unset ranks the same as the explicit
+// "No priority" 4 - both render the identical label, so they must not order
+// differently.
 // ---------------------------------------------------------------------------
 
 function priorityRank(f: RoadmapFeature) {
-  return f.priority ?? 5;
+  return f.priority ?? 4;
 }
 
-function bucketByStatus(features: RoadmapFeature[]) {
+export function bucketByStatus(features: RoadmapFeature[]) {
   const map: Record<string, RoadmapFeature[]> = {};
   for (const col of FEATURE_STATUSES) map[col.value] = [];
   for (const f of features) (map[f.status] ??= []).push(f);
