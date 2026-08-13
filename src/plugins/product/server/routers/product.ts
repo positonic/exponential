@@ -11,6 +11,7 @@ import {
   COMPLETED_TICKET_STATUSES,
   STATUS_ORDER,
 } from "~/lib/ticket-statuses";
+import { currentCycleWhere, currentCycleOrder } from "../currentCycle";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -212,26 +213,12 @@ export const productRouter = createTRPCRouter({
         "QA",
       ] as const;
 
-      // Read-only "current cycle" predicate: an ACTIVE sprint that hasn't
-      // ended, a PLANNED one whose window contains today (covers workspaces
-      // where the lazy reconcile in cycle.list hasn't run yet), or an ACTIVE
-      // one that ended but was never reconciled to COMPLETED. Cycles are
-      // workspace-scoped (List, listType SPRINT), so this matches any current
-      // sprint in the workspace; we prefer the one holding this product's
-      // tickets below.
-      const currentCycleWhere = {
-        workspaceId: product.workspaceId,
-        listType: "SPRINT" as const,
-        OR: [
-          { status: "ACTIVE" as const, OR: [{ endDate: null }, { endDate: { gt: now } }] },
-          {
-            status: "PLANNED" as const,
-            startDate: { lte: now },
-            endDate: { gt: now },
-          },
-          { status: "ACTIVE" as const, endDate: { lte: now } },
-        ],
-      };
+      // Read-only "current cycle" predicate, shared with the workspace-home
+      // cycle block — see ../currentCycle.ts for the reconcile-tolerance
+      // rationale. Cycles are workspace-scoped (List, listType SPRINT), so
+      // this matches any current sprint in the workspace; we prefer the one
+      // holding this product's tickets below.
+      const cycleWhere = currentCycleWhere(product.workspaceId, now);
       const currentCycleSelect = {
         id: true,
         name: true,
@@ -239,13 +226,6 @@ export const productRouter = createTRPCRouter({
         startDate: true,
         endDate: true,
       };
-      // Deterministic pick when several sprints qualify (e.g. parallel team
-      // cycles with the same startDate) — id breaks the tie so the same cycle
-      // is always chosen.
-      const currentCycleOrder = [
-        { startDate: "desc" as const },
-        { id: "desc" as const },
-      ];
 
       const [
         statusGroups,
@@ -276,7 +256,7 @@ export const productRouter = createTRPCRouter({
         // the hero shows "their" cycle rather than an unrelated workspace one.
         ctx.db.list.findFirst({
           where: {
-            ...currentCycleWhere,
+            ...cycleWhere,
             tickets: { some: { productId: input.productId } },
           },
           orderBy: currentCycleOrder,
@@ -285,7 +265,7 @@ export const productRouter = createTRPCRouter({
         // Fallback: the workspace's current cycle even if this product has no
         // tickets in it yet — the hero then prompts to commit tickets.
         ctx.db.list.findFirst({
-          where: currentCycleWhere,
+          where: cycleWhere,
           orderBy: currentCycleOrder,
           select: currentCycleSelect,
         }),

@@ -21,6 +21,7 @@ import {
   sendWorkspaceMemberAddedEmail,
 } from "~/server/services/EmailService";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { resolveNewUserRedirect } from "~/server/services/welcome/resolveNewUserRedirect";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
 import { getWorkspaceFocusSummary } from "~/server/services/activity/workspaceFocusSummary";
@@ -1444,7 +1445,17 @@ export const workspaceRouter = createTRPCRouter({
               .then((membership) => membership !== null),
             ctx.db.user.findUnique({
               where: { id: viewerId },
-              select: { welcomeCompletedAt: true },
+              select: {
+                welcomeCompletedAt: true,
+                // User has no createdAt column; the earliest owned workspace
+                // (the auto-created Personal one) stands in for account
+                // creation time — same proxy /home uses.
+                ownedWorkspaces: {
+                  orderBy: { createdAt: "asc" },
+                  take: 1,
+                  select: { createdAt: true },
+                },
+              },
             }),
           ])
         : [false, null];
@@ -1460,13 +1471,76 @@ export const workspaceRouter = createTRPCRouter({
         isLoggedIn: !!ctx.session?.user,
         isForCurrentUser: invitation.email === ctx.session?.user?.email,
         isMember,
-        // Logged-out viewers default to true so nothing changes for them —
-        // only a logged-in member who hasn't finished welcome gets routed
-        // through /welcome instead of straight into the workspace.
-        viewerCompletedWelcome: viewerId
-          ? viewer?.welcomeCompletedAt !== null &&
-            viewer?.welcomeCompletedAt !== undefined
-          : true,
+        // Only a genuinely NEW invitee (account under the new-user window,
+        // welcome unfinished — the same rule /home applies) is routed through
+        // the invited welcome variant. An existing user who was added to a
+        // workspace goes straight into it; /welcome would be a detour for an
+        // account that's already set up. Logged-out viewers default to false —
+        // they get the landing page anyway.
+        viewerShouldSeeWelcome: viewer
+          ? resolveNewUserRedirect({
+              createdAt: viewer.ownedWorkspaces[0]?.createdAt ?? null,
+              welcomeCompletedAt: viewer.welcomeCompletedAt,
+            }) !== null
+          : false,
+      };
+    }),
+
+  /**
+   * Context for the "You've joined this workspace" banner on the workspace
+   * home. Non-null only while the viewer is a recent joiner: a member (not
+   * the owner) whose membership started inside the last 7 days. The inviter
+   * name comes from the accepted invitation matching their email when one
+   * exists — members can also be added directly, so a missing invitation
+   * still shows the banner, just without the inviter line.
+   */
+  getRecentJoinContext: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const RECENT_JOIN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+      const userId = ctx.session.user.id;
+
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: { userId, workspaceId: input.workspaceId },
+        },
+        select: {
+          joinedAt: true,
+          workspace: { select: { ownerId: true, name: true, slug: true } },
+        },
+      });
+      if (!membership) return null;
+      if (membership.workspace.ownerId === userId) return null;
+
+      const joinedAgoMs = Date.now() - membership.joinedAt.getTime();
+      if (joinedAgoMs > RECENT_JOIN_WINDOW_MS) return null;
+
+      const email = ctx.session.user.email;
+      const invitation = email
+        ? await ctx.db.workspaceInvitation.findFirst({
+            where: {
+              email,
+              workspaceId: input.workspaceId,
+              status: "accepted",
+            },
+            orderBy: { acceptedAt: "desc" },
+            select: { createdBy: { select: { name: true, email: true } } },
+          })
+        : null;
+
+      // `??` alone would let a whitespace-only stored name through and render
+      // "  invited you" — treat blank as missing (same rule as the welcome
+      // page's resolveInvitedContext).
+      const inviterName =
+        invitation?.createdBy.name?.trim() ||
+        invitation?.createdBy.email?.trim() ||
+        null;
+
+      return {
+        workspaceName: membership.workspace.name,
+        workspaceSlug: membership.workspace.slug,
+        joinedAt: membership.joinedAt,
+        inviterName,
       };
     }),
 
