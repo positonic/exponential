@@ -125,6 +125,7 @@ export const adrRouter = createTRPCRouter({
               product: { select: { id: true, name: true, slug: true } },
             },
           },
+          _count: { select: { ticketLinks: true } },
         },
         orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { path: "asc" }],
       });
@@ -192,6 +193,23 @@ export const adrRouter = createTRPCRouter({
                 },
               },
             },
+          },
+          ticketLinks: {
+            include: {
+              ticket: {
+                select: {
+                  id: true,
+                  shortId: true,
+                  number: true,
+                  title: true,
+                  status: true,
+                  productId: true,
+                },
+              },
+              feature: { select: { id: true, name: true, status: true } },
+              createdBy: { select: { id: true, name: true } },
+            },
+            orderBy: { createdAt: "asc" },
           },
         },
       });
@@ -412,6 +430,110 @@ export const adrRouter = createTRPCRouter({
         }
         throw error;
       }
+    }),
+
+  /**
+   * Link an implementing ticket OR feature to an ADR — the Decision Log's
+   * only writable surface. User-authored data: it survives repo
+   * disconnection and even soft-deletion of the document.
+   */
+  linkTicket: humanOnlyProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string(),
+          adrId: z.string(),
+          ticketId: z.string().optional(),
+          featureId: z.string().optional(),
+        })
+        .refine(
+          (v) => (v.ticketId ? !v.featureId : !!v.featureId),
+          "Provide exactly one of ticketId or featureId",
+        ),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const adr = await ctx.db.adrDocument.findFirst({
+        where: { id: input.adrId, repository: { workspaceId: input.workspaceId } },
+        select: { id: true },
+      });
+      if (!adr) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+      }
+      if (input.ticketId) {
+        const ticket = await ctx.db.ticket.findFirst({
+          where: { id: input.ticketId, product: { workspaceId: input.workspaceId } },
+          select: { id: true },
+        });
+        if (!ticket) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+      }
+      if (input.featureId) {
+        const feature = await ctx.db.feature.findFirst({
+          where: { id: input.featureId, product: { workspaceId: input.workspaceId } },
+          select: { id: true },
+        });
+        if (!feature) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+        }
+      }
+      const existing = await ctx.db.adrTicketLink.findFirst({
+        where: {
+          adrId: adr.id,
+          ticketId: input.ticketId ?? null,
+          featureId: input.featureId ?? null,
+        },
+      });
+      if (existing) return existing;
+      try {
+        return await ctx.db.adrTicketLink.create({
+          data: {
+            adrId: adr.id,
+            ticketId: input.ticketId ?? null,
+            featureId: input.featureId ?? null,
+            createdById: ctx.session.user.id,
+          },
+        });
+      } catch (error) {
+        // Two rapid clicks can race past the findFirst; the DB unique holds
+        // the line — treat the loser as the idempotent success it is.
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          const raced = await ctx.db.adrTicketLink.findFirst({
+            where: {
+              adrId: adr.id,
+              ticketId: input.ticketId ?? null,
+              featureId: input.featureId ?? null,
+            },
+          });
+          if (raced) return raced;
+        }
+        throw error;
+      }
+    }),
+
+  /** Remove one implemented-by link. */
+  unlinkTicket: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), linkId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const link = await ctx.db.adrTicketLink.findFirst({
+        where: {
+          id: input.linkId,
+          adr: { repository: { workspaceId: input.workspaceId } },
+        },
+        select: { id: true },
+      });
+      if (!link) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Link not found" });
+      }
+      await ctx.db.adrTicketLink.delete({ where: { id: link.id } });
+      return { deleted: true };
     }),
 
   /** Recent sync runs (the ledger), workspace-wide or for one config. */

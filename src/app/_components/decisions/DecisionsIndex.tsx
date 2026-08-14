@@ -208,6 +208,7 @@ export function DecisionsIndex({
               <Table.Th>Product</Table.Th>
               <Table.Th>Status</Table.Th>
               <Table.Th>Decided</Table.Th>
+              <Table.Th>Links</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -269,6 +270,11 @@ export function DecisionsIndex({
                     {adr.decidedAt
                       ? new Date(adr.decidedAt).toLocaleDateString()
                       : "—"}
+                  </Text>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm" className="text-text-secondary">
+                    {adr._count.ticketLinks > 0 ? adr._count.ticketLinks : "—"}
                   </Text>
                 </Table.Td>
               </Table.Tr>

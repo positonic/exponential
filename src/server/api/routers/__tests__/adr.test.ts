@@ -145,6 +145,19 @@ describe("adr router authz", () => {
           }),
       ],
       ["syncNow", (c) => c.adr.syncNow({ workspaceId: WORKSPACE_ID, configId: "cfg-1" })],
+      [
+        "linkTicket",
+        (c) =>
+          c.adr.linkTicket({
+            workspaceId: WORKSPACE_ID,
+            adrId: "adr-1",
+            ticketId: "t-1",
+          }),
+      ],
+      [
+        "unlinkTicket",
+        (c) => c.adr.unlinkTicket({ workspaceId: WORKSPACE_ID, linkId: "link-1" }),
+      ],
     ];
 
     for (const [name, call] of calls) {
@@ -189,6 +202,68 @@ describe("adr router authz", () => {
         caller(db).adr.list({ workspaceId: WORKSPACE_ID }),
       ).resolves.toEqual([]);
     });
+
+    it("denies a viewer on linkTicket, allows a member (idempotent)", async () => {
+      asHuman(db);
+      withWorkspaceRole(db, "viewer");
+      await expect(
+        caller(db).adr.linkTicket({
+          workspaceId: WORKSPACE_ID,
+          adrId: "adr-1",
+          ticketId: "t-1",
+        }),
+      ).rejects.toThrow();
+
+      withWorkspaceRole(db, "member");
+      db.adrDocument.findFirst.mockResolvedValue({ id: "adr-1" } as never);
+      db.ticket.findFirst.mockResolvedValue({ id: "t-1" } as never);
+      db.adrTicketLink.findFirst.mockResolvedValue(null);
+      db.adrTicketLink.create.mockResolvedValue({ id: "link-1" } as never);
+
+      await expect(
+        caller(db).adr.linkTicket({
+          workspaceId: WORKSPACE_ID,
+          adrId: "adr-1",
+          ticketId: "t-1",
+        }),
+      ).resolves.toMatchObject({ id: "link-1" });
+      expect(db.adrTicketLink.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            adrId: "adr-1",
+            ticketId: "t-1",
+            featureId: null,
+            createdById: USER_ID,
+          }),
+        }),
+      );
+
+      // Re-linking the same pair returns the existing row, creates nothing new.
+      db.adrTicketLink.findFirst.mockResolvedValue({ id: "link-1" } as never);
+      db.adrTicketLink.create.mockClear();
+      await caller(db).adr.linkTicket({
+        workspaceId: WORKSPACE_ID,
+        adrId: "adr-1",
+        ticketId: "t-1",
+      });
+      expect(db.adrTicketLink.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a linkTicket naming both or neither target", async () => {
+      asHuman(db);
+      withWorkspaceRole(db, "member");
+      await expect(
+        caller(db).adr.linkTicket({
+          workspaceId: WORKSPACE_ID,
+          adrId: "adr-1",
+          ticketId: "t-1",
+          featureId: "f-1",
+        }),
+      ).rejects.toThrow();
+      await expect(
+        caller(db).adr.linkTicket({ workspaceId: WORKSPACE_ID, adrId: "adr-1" }),
+      ).rejects.toThrow();
+    });
   });
 
   describe("config mutations are admin-only", () => {
@@ -231,6 +306,37 @@ describe("adr router authz", () => {
         await expect(call(caller(db))).rejects.toThrow();
       });
     }
+
+    it("a disabled repo's documents and links stay visible on the index", async () => {
+      // Soft-disconnect end to end: disableConfig flips state only, so the
+      // list (which keys off enrolment, not enabled) keeps serving the docs
+      // and their user-authored links.
+      asHuman(db);
+      withWorkspaceRole(db, "member");
+      db.adrSyncConfig.findMany.mockResolvedValue([
+        { repositoryId: "repo-1", shortCode: "API" },
+      ] as never);
+      db.adrDocument.findMany.mockResolvedValue([
+        {
+          id: "doc-1",
+          repositoryId: "repo-1",
+          path: "docs/adr/0001-x.md",
+          number: 1,
+          slug: "x",
+          title: "X",
+          status: "ACCEPTED",
+          statusRaw: "Accepted",
+          decidedAt: null,
+          updatedAt: new Date(),
+          repository: { id: "repo-1", fullName: "acme/api", productId: null, product: null },
+          _count: { ticketLinks: 2 },
+        },
+      ] as never);
+
+      const rows = await caller(db).adr.list({ workspaceId: WORKSPACE_ID });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ label: "API-0001", _count: { ticketLinks: 2 } });
+    });
 
     it("allows an admin on disableConfig (and keeps it a soft state change)", async () => {
       asHuman(db);
