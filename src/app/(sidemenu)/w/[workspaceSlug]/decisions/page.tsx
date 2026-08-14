@@ -228,7 +228,13 @@ export default function DecisionsPage() {
               <Table.Tr key={adr.id}>
                 <Table.Td>
                   <Group gap={4} wrap="nowrap">
-                    <Text size="sm" fw={600} className="whitespace-nowrap">
+                    <Text
+                      component={Link}
+                      href={`/w/${workspace.slug}/decisions/${adr.id}`}
+                      size="sm"
+                      fw={600}
+                      className="whitespace-nowrap text-brand-primary hover:underline"
+                    >
                       {adr.label ?? "—"}
                     </Text>
                     {adr.isDuplicateLabel ? (
@@ -243,7 +249,14 @@ export default function DecisionsPage() {
                   </Group>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{adr.title}</Text>
+                  <Text
+                    component={Link}
+                    href={`/w/${workspace.slug}/decisions/${adr.id}`}
+                    size="sm"
+                    className="hover:underline"
+                  >
+                    {adr.title}
+                  </Text>
                 </Table.Td>
                 <Table.Td>
                   <Badge variant="outline" color="gray">
