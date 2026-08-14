@@ -417,22 +417,26 @@ export async function runAdrSync(
       thisRepoDocs,
     );
 
-    await db.adrLink.deleteMany({
-      where: {
-        OR: [
-          { type: "SUPERSEDES", from: { repositoryId: config.repository.id } },
-          { type: "MENTIONS", from: { repositoryId: config.repository.id } },
-          { type: "MENTIONS", to: { repositoryId: config.repository.id } },
-        ],
-      },
-    });
+    // One transaction so a crash between delete and create can't leave the
+    // repo's edges missing until the next changed-tree sync.
     const derivedLinks = [...supersedes, ...mentionsOut, ...mentionsIn];
-    if (derivedLinks.length > 0) {
-      await db.adrLink.createMany({
-        data: derivedLinks,
-        skipDuplicates: true,
+    await db.$transaction(async (tx) => {
+      await tx.adrLink.deleteMany({
+        where: {
+          OR: [
+            { type: "SUPERSEDES", from: { repositoryId: config.repository.id } },
+            { type: "MENTIONS", from: { repositoryId: config.repository.id } },
+            { type: "MENTIONS", to: { repositoryId: config.repository.id } },
+          ],
+        },
       });
-    }
+      if (derivedLinks.length > 0) {
+        await tx.adrLink.createMany({
+          data: derivedLinks,
+          skipDuplicates: true,
+        });
+      }
+    });
 
     await db.adrSyncConfig.update({
       where: { id: configId },
@@ -441,8 +445,11 @@ export async function runAdrSync(
         // fetch failure would otherwise be locked in — the next run would see
         // an unchanged tree and short-circuit past the retry forever on a
         // quiet repo. Unchanged blobs still skip via their blob SHA.
+        // lastCommitSha gets the same guard: a failed file's stored body is
+        // still the OLD text, so pinning its deep link at the new head would
+        // break the "link shows exactly what's projected" invariant.
         lastTreeSha: failed === 0 ? combined : null,
-        lastCommitSha: head.commitSha,
+        lastCommitSha: failed === 0 ? head.commitSha : config.lastCommitSha,
         lastSyncedAt: now(),
       },
     });

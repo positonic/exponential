@@ -82,6 +82,11 @@ function makeRemote(overrides?: Partial<AdrRemote>): {
 
 beforeEach(() => {
   mockReset(db);
+  // Run the $transaction callback against the same mock client.
+  db.$transaction.mockImplementation(
+    (async (fn: (tx: PrismaClient) => Promise<unknown>) =>
+      fn(db as unknown as PrismaClient)) as never,
+  );
   db.adrSyncRun.create.mockResolvedValue({ id: "run1" } as never);
   db.adrSyncRun.update.mockResolvedValue({} as never);
   db.adrSyncConfig.update.mockResolvedValue({} as never);

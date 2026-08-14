@@ -219,7 +219,10 @@ export const adrRouter = createTRPCRouter({
         label: label(doc.repositoryId, doc.number),
         // Deep link pinned at the last-synced state, never HEAD: the stored
         // body matches this commit even when the file was blob-SHA-skipped.
-        githubUrl: `https://github.com/${doc.repository.fullName}/blob/${config?.lastCommitSha ?? "HEAD"}/${doc.path}`,
+        githubUrl: `https://github.com/${doc.repository.fullName}/blob/${config?.lastCommitSha ?? "HEAD"}/${doc.path
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`,
         linksFrom: doc.linksFrom.map((link) => ({
           ...link,
           to: { ...link.to, label: label(link.to.repositoryId, link.to.number) },

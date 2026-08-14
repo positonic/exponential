@@ -161,4 +161,95 @@ describe("deriveMentions", () => {
 
     expect(deriveMentions([source], REPOS, [source, target])).toHaveLength(1);
   });
+
+  // ── False-edge regression cases (false edges are worse than missing ones) ──
+
+  it("does NOT pair a repo name with a bare list marker or count", () => {
+    const source = doc({
+      id: "api-9",
+      repositoryId: "r-api",
+      number: 9,
+      body: "1. Move ingestion to clear-context-pipeline\nWe retry 5 times before calling clear-context-pipeline.\n",
+    });
+    const targets = [
+      doc({ id: "pipe-1", repositoryId: "r-pipe", number: 1 }),
+      doc({ id: "pipe-5", repositoryId: "r-pipe", number: 5 }),
+    ];
+    expect(deriveMentions([source], REPOS, [source, ...targets])).toEqual([]);
+  });
+
+  it("treats a number that exists in the SOURCE repo as a local reference", () => {
+    const source = doc({
+      id: "api-9",
+      repositoryId: "r-api",
+      number: 9,
+      body: "Supersedes ADR-0007; see also clear-context-pipeline.\n",
+    });
+    const local = doc({ id: "api-7", repositoryId: "r-api", number: 7 });
+    const foreign = doc({ id: "pipe-7", repositoryId: "r-pipe", number: 7 });
+
+    expect(
+      deriveMentions([source, local], REPOS, [source, local, foreign]),
+    ).toEqual([]);
+  });
+
+  it("never guesses when the target repo has duplicate numbers", () => {
+    const source = doc({
+      id: "pipe-1",
+      repositoryId: "r-pipe",
+      number: 1,
+      body: "See API-0055 for details.\n",
+    });
+    const dupA = doc({ id: "api-55a", repositoryId: "r-api", number: 55 });
+    const dupB = doc({ id: "api-55b", repositoryId: "r-api", number: 55 });
+
+    expect(deriveMentions([source], REPOS, [source, dupA, dupB])).toEqual([]);
+  });
+
+  it("does not fire a shorter repo name inside a longer one, or inside words", () => {
+    const repos = [
+      ...REPOS,
+      { repositoryId: "r-clear", fullName: "clear/clear", shortCode: "CLR" },
+    ];
+    const source = doc({
+      id: "pipe-1",
+      repositoryId: "r-pipe",
+      number: 1,
+      body: "clear-api handles auth (see 0004). Clearly capital matters.\n",
+    });
+    const clearDoc = doc({ id: "clear-4", repositoryId: "r-clear", number: 4 });
+    const apiDoc = doc({ id: "api-4", repositoryId: "r-api", number: 4 });
+
+    const links = deriveMentions([source], repos, [source, clearDoc, apiDoc]);
+    // "clear-api" + 0004 → r-api's doc; the bare "clear" repo must NOT match
+    // inside "clear-api" or "Clearly".
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ toId: "api-4" });
+  });
+
+  it("ignores numbers embedded in dates", () => {
+    const source = doc({
+      id: "pipe-1",
+      repositoryId: "r-pipe",
+      number: 1,
+      body: "Released 2026-06-14 alongside clear-api.\n",
+    });
+    const target = doc({ id: "api-6", repositoryId: "r-api", number: 6 });
+    expect(deriveMentions([source], REPOS, [source, target])).toEqual([]);
+  });
+
+  it("escapes regex metacharacters in repo names", () => {
+    const repos = [
+      ...REPOS,
+      { repositoryId: "r-next", fullName: "acme/next.js", shortCode: "NEXT" },
+    ];
+    const source = doc({
+      id: "api-1",
+      repositoryId: "r-api",
+      number: 1,
+      body: "nextXjs is not the same repo, no number here anyway.\n",
+    });
+    // Must not throw and must not match "nextXjs" via an unescaped dot.
+    expect(deriveMentions([source], repos, [source])).toEqual([]);
+  });
 });
