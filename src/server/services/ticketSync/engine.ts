@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
+import { notionPageUrl } from "~/lib/notionUrl";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
@@ -317,6 +318,7 @@ export async function runInboundTicketSync(
               ticketId: ticket.id,
               provider: config.provider,
               externalId: ticket.notionPageId,
+              externalUrl: notionPageUrl(ticket.notionPageId),
               // No snapshot: the first merge treats differences as two-sided
               // changes and resolves by last-write-wins.
               snapshot: Prisma.DbNull,
