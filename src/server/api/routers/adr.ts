@@ -45,6 +45,11 @@ export const adrRouter = createTRPCRouter({
           .optional(),
         /** Filter to one product's repos; "workspace" = repos with no product. */
         productId: z.string().optional(),
+        /**
+         * With a real productId: ALSO include workspace-level (null-product)
+         * ADRs — the product Decisions lens shows them with a marker.
+         */
+        includeWorkspaceWide: z.boolean().optional(),
         search: z.string().max(200).optional(),
       }),
     )
@@ -87,7 +92,9 @@ export const adrRouter = createTRPCRouter({
                 repository:
                   input.productId === "workspace"
                     ? { productId: null }
-                    : { productId: input.productId },
+                    : input.includeWorkspaceWide
+                      ? { OR: [{ productId: input.productId }, { productId: null }] }
+                      : { productId: input.productId },
               }
             : {}),
           ...(search

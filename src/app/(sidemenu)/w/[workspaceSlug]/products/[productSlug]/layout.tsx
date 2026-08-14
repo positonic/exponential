@@ -8,6 +8,7 @@ import {
   IconBulb,
   IconCalendarClock,
   IconClipboardList,
+  IconGavel,
   IconSettings,
   IconPlus,
   IconAffiliate,
@@ -39,6 +40,7 @@ const tabs = [
   { value: "graph", href: "/graph", label: "Graph", icon: IconAffiliate },
   { value: "cycles", href: "/cycles", label: "Cycles", icon: IconCalendarClock },
   { value: "insights", href: "/insights", label: "Insights", icon: IconTargetArrow },
+  { value: "decisions", href: "/decisions", label: "Decisions", icon: IconGavel },
   { value: "retro", href: "/retrospectives", label: "Retro", icon: IconClipboardList },
 ] as const;
 
