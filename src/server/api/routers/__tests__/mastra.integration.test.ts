@@ -347,7 +347,7 @@ describe("mastra action creation — do-date (scheduledStart) handling", () => {
     db = getTestDb();
   });
 
-  it("createAction persists an explicit scheduledStart alongside dueDate", async () => {
+  it("createAction persists an explicit scheduledStart (dueDate stays null)", async () => {
     const user = await createUser(db);
     const project = await createProject(db, { createdById: user.id });
 
@@ -415,14 +415,20 @@ describe("mastra action creation — do-date (scheduledStart) handling", () => {
   it("quickCreateAction: without explicit dates the text parser still sets the do-date", async () => {
     const user = await createUser(db);
 
+    // chrono resolves "today" to the current instant, so assert against a
+    // tight window around the call instead of comparing day strings — the
+    // latter flakes if the run crosses midnight between parse and assert.
+    const before = Date.now();
     const caller = createTestCaller(user.id);
     const { action } = await caller.mastra.quickCreateAction({
       text: "Buy milk today",
     });
+    const after = Date.now();
 
     const persisted = await db.action.findUnique({ where: { id: action.id } });
     expect(persisted?.scheduledStart).not.toBeNull();
-    const today = new Date();
-    expect(persisted?.scheduledStart?.toDateString()).toBe(today.toDateString());
+    const scheduled = persisted!.scheduledStart!.getTime();
+    expect(scheduled).toBeGreaterThanOrEqual(before - 60_000);
+    expect(scheduled).toBeLessThanOrEqual(after + 60_000);
   });
 });

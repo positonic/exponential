@@ -1113,14 +1113,14 @@ export const mastraRouter = createTRPCRouter({
       name: z.string().min(1),
       description: z.string().optional(),
       priority: z.enum(PRIORITY_VALUES),
-      dueDate: z.string().optional(), // ISO string — deadline
-      scheduledStart: z.string().optional(), // ISO string — do-date (the day the user plans to DO it; what /today keys on)
+      dueDate: z.string().min(1).optional(), // ISO string — deadline
+      scheduledStart: z.string().min(1).optional(), // ISO string — do-date (the day the user plans to DO it; what /today keys on)
     }))
     .mutation(async ({ ctx, input }) => {
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
 
-      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, scheduledStart=${input.scheduledStart || "none"}, userId=${userId}`);
+      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, userId=${userId}`);
 
       // Verify user has access to this project via all access paths
       const access = await getProjectAccess(ctx.db, userId, input.projectId);
@@ -1178,9 +1178,10 @@ export const mastraRouter = createTRPCRouter({
       // into a clean action name, dropping the date phrase the text parser
       // relies on — an explicit value survives that rewrite and wins over
       // whatever the parser extracts. scheduledStart is the do-date /today
-      // keys on; dueDate is the deadline.
-      scheduledStart: z.string().optional(),
-      dueDate: z.string().optional(),
+      // keys on; dueDate is the deadline. min(1) keeps a blank string from
+      // silently clearing the text-parsed date via the precedence logic.
+      scheduledStart: z.string().min(1).optional(),
+      dueDate: z.string().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
