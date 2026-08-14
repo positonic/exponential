@@ -29,9 +29,25 @@ const shortCodeSchema = z
   .regex(/^[A-Z][A-Z0-9]*$/, "Short code must be uppercase letters/digits");
 
 export const adrRouter = createTRPCRouter({
-  /** Non-deleted ADRs across the workspace's enrolled repos. */
+  /**
+   * Non-deleted ADRs across the workspace's enrolled repos, with optional
+   * repo/status/product filters and free-text search over title and body.
+   * Duplicate labels (this workspace has real ones) are flagged against the
+   * FULL set, not the filtered view — a label is a label, not a key.
+   */
   list: humanOnlyProcedure
-    .input(z.object({ workspaceId: z.string() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        repositoryIds: z.array(z.string()).optional(),
+        statuses: z
+          .array(z.enum(["PROPOSED", "ACCEPTED", "SUPERSEDED", "DEPRECATED", "UNKNOWN"]))
+          .optional(),
+        /** Filter to one product's repos; "workspace" = repos with no product. */
+        productId: z.string().optional(),
+        search: z.string().max(200).optional(),
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .query(async ({ ctx, input }) => {
       const configs = await ctx.db.adrSyncConfig.findMany({
@@ -41,11 +57,47 @@ export const adrRouter = createTRPCRouter({
       const shortCodeByRepo = new Map(
         configs.map((c) => [c.repositoryId, c.shortCode]),
       );
+      const enrolledRepoIds = configs.map((c) => c.repositoryId);
 
+      // Duplicate-label detection runs over the full non-deleted set so a
+      // filtered view still flags collisions hidden outside it.
+      const allLabels = await ctx.db.adrDocument.findMany({
+        where: { repositoryId: { in: enrolledRepoIds }, deletedAt: null },
+        select: { repositoryId: true, number: true },
+      });
+      const labelCounts = new Map<string, number>();
+      for (const doc of allLabels) {
+        if (doc.number === null) continue;
+        const label = `${shortCodeByRepo.get(doc.repositoryId) ?? "ADR"}-${doc.number}`;
+        labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+      }
+
+      const search = input.search?.trim();
       const documents = await ctx.db.adrDocument.findMany({
         where: {
-          repositoryId: { in: configs.map((c) => c.repositoryId) },
+          repositoryId: {
+            in: input.repositoryIds?.length
+              ? enrolledRepoIds.filter((id) => input.repositoryIds!.includes(id))
+              : enrolledRepoIds,
+          },
           deletedAt: null,
+          ...(input.statuses?.length ? { status: { in: input.statuses } } : {}),
+          ...(input.productId
+            ? {
+                repository:
+                  input.productId === "workspace"
+                    ? { productId: null }
+                    : { productId: input.productId },
+              }
+            : {}),
+          ...(search
+            ? {
+                OR: [
+                  { title: { contains: search, mode: "insensitive" as const } },
+                  { body: { contains: search, mode: "insensitive" as const } },
+                ],
+              }
+            : {}),
         },
         select: {
           id: true,
@@ -70,14 +122,21 @@ export const adrRouter = createTRPCRouter({
         orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { path: "asc" }],
       });
 
-      return documents.map((doc) => ({
-        ...doc,
-        shortCode: shortCodeByRepo.get(doc.repositoryId) ?? null,
-        label:
-          doc.number !== null
-            ? `${shortCodeByRepo.get(doc.repositoryId) ?? "ADR"}-${String(doc.number).padStart(4, "0")}`
-            : null,
-      }));
+      return documents.map((doc) => {
+        const shortCode = shortCodeByRepo.get(doc.repositoryId) ?? null;
+        const labelKey =
+          doc.number !== null ? `${shortCode ?? "ADR"}-${doc.number}` : null;
+        return {
+          ...doc,
+          shortCode,
+          label:
+            doc.number !== null
+              ? `${shortCode ?? "ADR"}-${String(doc.number).padStart(4, "0")}`
+              : null,
+          isDuplicateLabel:
+            labelKey !== null && (labelCounts.get(labelKey) ?? 0) > 1,
+        };
+      });
     }),
 
   /** The workspace's ADR sync configs (enrolment state), with repo info. */

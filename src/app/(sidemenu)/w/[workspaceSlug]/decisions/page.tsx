@@ -1,6 +1,21 @@
 "use client";
 
-import { Badge, Container, Group, Skeleton, Table, Text, Title } from "@mantine/core";
+import { useMemo, useState } from "react";
+import {
+  Badge,
+  Container,
+  Group,
+  MultiSelect,
+  Select,
+  Skeleton,
+  Table,
+  Text,
+  TextInput,
+  Title,
+  Tooltip,
+} from "@mantine/core";
+import { IconAlertTriangle, IconSearch } from "@tabler/icons-react";
+import { useDebouncedValue } from "@mantine/hooks";
 import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
@@ -17,6 +32,16 @@ const STATUS_COLOR: Record<string, string> = {
   SUPERSEDED: "orange",
   DEPRECATED: "red",
 };
+
+const STATUS_OPTIONS = [
+  { value: "PROPOSED", label: "Proposed" },
+  { value: "ACCEPTED", label: "Accepted" },
+  { value: "SUPERSEDED", label: "Superseded" },
+  { value: "DEPRECATED", label: "Deprecated" },
+  { value: "UNKNOWN", label: "No status" },
+] as const;
+
+type AdrStatusValue = (typeof STATUS_OPTIONS)[number]["value"];
 
 function StatusChip({ status, statusRaw }: { status: string; statusRaw: string | null }) {
   if (status === "UNKNOWN") {
@@ -36,12 +61,56 @@ function StatusChip({ status, statusRaw }: { status: string; statusRaw: string |
 export default function DecisionsPage() {
   const { workspace, workspaceId, isLoading } = useWorkspace();
 
+  const [repoFilter, setRepoFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebouncedValue(search, 250);
+
   const { data: adrs, isLoading: adrsLoading } = api.adr.list.useQuery(
+    {
+      workspaceId: workspaceId ?? "",
+      repositoryIds: repoFilter.length > 0 ? repoFilter : undefined,
+      statuses:
+        statusFilter.length > 0 ? (statusFilter as AdrStatusValue[]) : undefined,
+      productId: productFilter ?? undefined,
+      search: debouncedSearch.trim() || undefined,
+    },
+    { enabled: !!workspaceId },
+  );
+
+  const { data: configs } = api.adr.listConfigs.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+  const { data: products } = api.product.product.list.useQuery(
     { workspaceId: workspaceId ?? "" },
     { enabled: !!workspaceId },
   );
 
-  if (isLoading || (workspace && adrsLoading)) {
+  const repoOptions = useMemo(
+    () =>
+      (configs ?? []).map((c) => ({
+        value: c.repositoryId,
+        label: c.repository.fullName,
+      })),
+    [configs],
+  );
+  const productOptions = useMemo(
+    () => [
+      { value: "workspace", label: "Workspace-level (no product)" },
+      ...(products ?? []).map((p) => ({ value: p.id, label: p.name })),
+    ],
+    [products],
+  );
+
+  const hasFilters =
+    repoFilter.length > 0 ||
+    statusFilter.length > 0 ||
+    productFilter !== null ||
+    debouncedSearch.trim().length > 0;
+
+  if (isLoading) {
     return (
       <Container size="xl" className="py-8">
         <Skeleton height={40} width={240} mb="lg" />
@@ -70,16 +139,67 @@ export default function DecisionsPage() {
         </div>
       </Group>
 
-      {!adrs || adrs.length === 0 ? (
+      <Group mb="md" gap="sm" align="flex-end" wrap="wrap">
+        <TextInput
+          size="sm"
+          w={240}
+          leftSection={<IconSearch size={14} />}
+          placeholder="Search title and body…"
+          value={search}
+          onChange={(e) => setSearch(e.currentTarget.value)}
+          aria-label="Search decisions"
+        />
+        <MultiSelect
+          size="sm"
+          w={240}
+          data={repoOptions}
+          value={repoFilter}
+          onChange={setRepoFilter}
+          placeholder="All repositories"
+          clearable
+          searchable
+          aria-label="Filter by repository"
+        />
+        <MultiSelect
+          size="sm"
+          w={200}
+          data={[...STATUS_OPTIONS]}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          placeholder="All statuses"
+          clearable
+          aria-label="Filter by status"
+        />
+        <Select
+          size="sm"
+          w={220}
+          data={productOptions}
+          value={productFilter}
+          onChange={setProductFilter}
+          placeholder="All products"
+          clearable
+          aria-label="Filter by product"
+        />
+      </Group>
+
+      {adrsLoading ? (
+        <Skeleton height={300} />
+      ) : !adrs || adrs.length === 0 ? (
         <Text className="text-text-secondary">
-          No decisions synced yet. Enrol repositories under{" "}
-          <Link
-            href={`/w/${workspace.slug}/settings/decisions`}
-            className="text-brand-primary hover:underline"
-          >
-            Settings → Decisions
-          </Link>
-          , then run a sync.
+          {hasFilters ? (
+            "No decisions match these filters."
+          ) : (
+            <>
+              No decisions synced yet. Enrol repositories under{" "}
+              <Link
+                href={`/w/${workspace.slug}/settings/decisions`}
+                className="text-brand-primary hover:underline"
+              >
+                Settings → Decisions
+              </Link>
+              , then run a sync.
+            </>
+          )}
         </Text>
       ) : (
         <Table striped highlightOnHover>
@@ -88,6 +208,7 @@ export default function DecisionsPage() {
               <Table.Th>Label</Table.Th>
               <Table.Th>Title</Table.Th>
               <Table.Th>Repository</Table.Th>
+              <Table.Th>Product</Table.Th>
               <Table.Th>Status</Table.Th>
               <Table.Th>Decided</Table.Th>
             </Table.Tr>
@@ -96,9 +217,20 @@ export default function DecisionsPage() {
             {adrs.map((adr) => (
               <Table.Tr key={adr.id}>
                 <Table.Td>
-                  <Text size="sm" fw={600} className="whitespace-nowrap">
-                    {adr.label ?? "—"}
-                  </Text>
+                  <Group gap={4} wrap="nowrap">
+                    <Text size="sm" fw={600} className="whitespace-nowrap">
+                      {adr.label ?? "—"}
+                    </Text>
+                    {adr.isDuplicateLabel ? (
+                      <Tooltip label="Duplicate label — another decision shares this number. Consider renumbering in the repo.">
+                        <IconAlertTriangle
+                          size={14}
+                          className="text-brand-warning"
+                          aria-label="Duplicate label"
+                        />
+                      </Tooltip>
+                    ) : null}
+                  </Group>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm">{adr.title}</Text>
@@ -107,6 +239,11 @@ export default function DecisionsPage() {
                   <Badge variant="outline" color="gray">
                     {adr.repository.fullName}
                   </Badge>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm" className="text-text-secondary">
+                    {adr.repository.product?.name ?? "Workspace"}
+                  </Text>
                 </Table.Td>
                 <Table.Td>
                   <StatusChip status={adr.status} statusRaw={adr.statusRaw} />
