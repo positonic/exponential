@@ -67,10 +67,12 @@ const STATUS_BORDER: Record<string, string> = {
 export function DecisionGraphCanvas({ repos, nodes, edges, onNodeClick }: Props) {
   const flowNodes: Node[] = useMemo(() => {
     const result: Node[] = [];
-    repos.forEach((repo, repoIndex) => {
+    let columnIndex = 0;
+    for (const repo of repos) {
       const repoDocs = nodes.filter((n) => n.repositoryId === repo.repositoryId);
-      if (repoDocs.length === 0) return;
-      const x = repoIndex * COLUMN_WIDTH;
+      if (repoDocs.length === 0) continue;
+      const x = columnIndex * COLUMN_WIDTH;
+      columnIndex++;
 
       result.push({
         id: `repo:${repo.repositoryId}`,
@@ -117,7 +119,7 @@ export function DecisionGraphCanvas({ repos, nodes, edges, onNodeClick }: Props)
           },
         });
       });
-    });
+    }
     return result;
   }, [repos, nodes]);
 

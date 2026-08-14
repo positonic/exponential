@@ -63,6 +63,19 @@ describe("pushTouchesAdrPaths", () => {
     ).toBe(false);
   });
 
+  it("treats a possibly-truncated payload (>=20 commits) as matching — err on the cheap side", () => {
+    const commits = Array.from({ length: 20 }, () => ({
+      modified: ["src/unrelated.ts"],
+    }));
+    expect(pushTouchesAdrPaths(push({ commits }), ["docs/adr"])).toBe(true);
+  });
+
+  it("a root enrolment matches every file, mirroring the engine's root sync", () => {
+    expect(
+      pushTouchesAdrPaths(push({ commits: [{ added: ["0001-x.md"] }] }), ["/"]),
+    ).toBe(true);
+  });
+
   it("ignores pushes touching only files outside enrolled dirs", () => {
     expect(
       pushTouchesAdrPaths(
@@ -122,6 +135,21 @@ describe("triggerAdrSyncFromPush", () => {
 
     expect(runSync).not.toHaveBeenCalled();
     expect(result.triggered).toEqual([]);
+  });
+
+  it("skips a config whose run is already in flight (two pushes seconds apart)", async () => {
+    db.adrSyncConfig.findMany.mockResolvedValue([
+      { id: "cfg1", adrPaths: ["docs/adr"] },
+    ] as never);
+    db.adrSyncRun.findFirst.mockResolvedValue({ id: "run-live" } as never);
+    const runSync = vi.fn();
+
+    const result = await triggerAdrSyncFromPush(db, push(), { runSync });
+
+    expect(runSync).not.toHaveBeenCalled();
+    expect(result.triggered).toEqual([
+      { configId: "cfg1", status: "skipped-running" },
+    ]);
   });
 
   it("one enrolment's failure doesn't block another workspace's", async () => {

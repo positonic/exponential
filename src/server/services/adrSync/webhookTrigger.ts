@@ -30,6 +30,13 @@ export interface PushEventLike {
   }>;
 }
 
+/**
+ * GitHub truncates the push payload's commits array at this count. Beyond it
+ * the file lists are incomplete, so path filtering would silently miss ADR
+ * edits sitting in older commits.
+ */
+const PUSH_COMMITS_TRUNCATION_LIMIT = 20;
+
 /** Pure: does this push (default branch only) touch any enrolled ADR dir? */
 export function pushTouchesAdrPaths(
   push: PushEventLike,
@@ -40,7 +47,14 @@ export function pushTouchesAdrPaths(
   const defaultBranch = push.repository.default_branch;
   if (!defaultBranch || branch !== defaultBranch) return false;
 
-  const changed = (push.commits ?? []).flatMap((commit) => [
+  const commits = push.commits ?? [];
+  // Possibly-truncated payload: err on the cheap side and trigger — a
+  // no-change sync short-circuits on the tree SHA at ~1 API call, while a
+  // silently missed ADR edit would stay stale until the next qualifying
+  // push or cron tick.
+  if (commits.length >= PUSH_COMMITS_TRUNCATION_LIMIT) return true;
+
+  const changed = commits.flatMap((commit) => [
     ...(commit.added ?? []),
     ...(commit.modified ?? []),
     ...(commit.removed ?? []),
@@ -48,7 +62,9 @@ export function pushTouchesAdrPaths(
   return changed.some((file) =>
     adrPaths.some((dir) => {
       const normalized = dir.replace(/^\/+|\/+$/g, "");
-      return normalized.length > 0 && file.startsWith(`${normalized}/`);
+      // A root enrolment ("/" or "") covers every file — the engine syncs it
+      // from the repo root, so the trigger must match it too.
+      return normalized.length === 0 || file.startsWith(`${normalized}/`);
     }),
   );
 }
@@ -74,6 +90,21 @@ export async function triggerAdrSyncFromPush(
   const triggered: Array<{ configId: string; status: string }> = [];
   for (const config of configs) {
     if (!pushTouchesAdrPaths(push, config.adrPaths)) continue;
+    // Overlap guard, same shape as the scheduler's: two pushes seconds apart
+    // must not run the same config concurrently (the loser could persist the
+    // OLDER head). A skipped push is caught by the hourly cron backstop.
+    const inFlight = await db.adrSyncRun.findFirst({
+      where: {
+        configId: config.id,
+        status: "running",
+        startedAt: { gt: new Date(Date.now() - 30 * 60_000) },
+      },
+      select: { id: true },
+    });
+    if (inFlight) {
+      triggered.push({ configId: config.id, status: "skipped-running" });
+      continue;
+    }
     try {
       const result = await runSync(db, config.id, "webhook", {
         remoteFactory: deps?.remoteFactory,
