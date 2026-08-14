@@ -17,6 +17,7 @@ import { IconArrowLeft, IconBrandGithub } from "@tabler/icons-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { ImplementedByPicker } from "~/app/_components/decisions/ImplementedByPicker";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 
@@ -187,6 +188,15 @@ export default function DecisionDetailPage() {
           ))}
         </Stack>
       ) : null}
+
+      <Divider my="lg" />
+
+      <ImplementedByPicker
+        workspaceId={workspaceId ?? ""}
+        adrId={adr.id}
+        links={adr.ticketLinks}
+        canEdit
+      />
 
       <Divider my="lg" />
 
