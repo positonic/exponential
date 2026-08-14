@@ -9,7 +9,8 @@ import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
 import { runDueAdrSyncs, STALE_RUN_MINUTES } from "../scheduler";
-import type { AdrSyncResult } from "../engine";
+import { combineTreeShas, type AdrSyncResult } from "../engine";
+import type { AdrRemote } from "../github";
 
 const db = mockDeep<PrismaClient>() as DeepMockProxy<PrismaClient>;
 
@@ -124,6 +125,71 @@ describe("runDueAdrSyncs", () => {
       detail: expect.stringContaining("exploded"),
     });
     expect(result.items[1]?.outcome).toBe("ran");
+  });
+
+  it("cron sweep of an unchanged repo costs the tree walk only — ZERO blob fetches", async () => {
+    // End-to-end through the REAL engine: scheduler → runAdrSync → fake
+    // remote. This is the hourly rate-limit budget requirement, asserted on
+    // the cron path itself.
+    db.adrSyncConfig.findMany.mockResolvedValue([
+      { id: "cfg1", repositoryId: "repo1" },
+    ] as never);
+    db.adrSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      workspaceId: "ws1",
+      repositoryId: "repo1",
+      shortCode: "API",
+      adrPaths: ["docs/adr"],
+      integrationId: "int1",
+      enabled: true,
+      // Matches what the fake remote will report — the short-circuit key.
+      lastTreeSha: combineTreeShas([{ path: "docs/adr", sha: "t-adr" }]),
+      lastCommitSha: "c0",
+      lastSyncedAt: new Date("2026-08-14T11:00:00Z"),
+      createdById: "user1",
+      createdAt: new Date("2026-08-01"),
+      updatedAt: new Date("2026-08-01"),
+      repository: { id: "repo1", owner: "acme", name: "api" },
+      integration: { providerConfig: { installationId: 42 } },
+    } as never);
+    db.adrSyncRun.create.mockResolvedValue({ id: "run1" } as never);
+
+    const apiCalls = { getHead: 0, getTree: 0, getBlob: 0 };
+    const remote: AdrRemote = {
+      getHead: async () => {
+        apiCalls.getHead++;
+        return { commitSha: "c1", treeSha: "root1" };
+      },
+      getTree: async (_o, _r, sha) => {
+        apiCalls.getTree++;
+        if (sha === "root1")
+          return {
+            truncated: false,
+            entries: [{ path: "docs", type: "tree" as const, sha: "t-docs" }],
+          };
+        if (sha === "t-docs")
+          return {
+            truncated: false,
+            entries: [{ path: "adr", type: "tree" as const, sha: "t-adr" }],
+          };
+        return { truncated: false, entries: [] };
+      },
+      getBlob: async () => {
+        apiCalls.getBlob++;
+        return "";
+      },
+    };
+
+    const result = await runDueAdrSyncs(db, NOW, {
+      remoteFactory: async () => remote,
+    });
+
+    expect(result.items[0]?.outcome).toBe("unchanged");
+    expect(apiCalls.getBlob).toBe(0);
+    // Head + the two-level walk to docs/adr — the ~1-call-per-repo budget.
+    expect(apiCalls.getHead).toBe(1);
+    expect(apiCalls.getTree).toBe(2);
+    expect(db.adrDocument.findMany).not.toHaveBeenCalled();
   });
 
   it("surfaces an engine error result as an error item", async () => {
