@@ -12,6 +12,11 @@ import { runDueAdrSyncs } from "~/server/services/adrSync/scheduler";
  * Overlap and stale-run guarding live in the scheduler; this route only
  * authenticates (CRON_SECRET) and reports the sweep summary.
  */
+// The sweep is sequential across every workspace's configs, and a newly
+// enrolled repo's first sync fetches every blob — don't let the platform
+// default kill it mid-sweep (cf. auto-summarize-meetings).
+export const maxDuration = 300;
+
 export async function GET(_request: NextRequest) {
   try {
     const headersList = await headers();

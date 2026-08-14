@@ -65,9 +65,11 @@ export async function runDueAdrSyncs(
           });
           continue;
         }
-        // Presumed crashed — unblock the config and record why.
-        await db.adrSyncRun.update({
-          where: { id: inFlight.id },
+        // Presumed crashed — unblock the config and record why. Guarded on
+        // status so a run that finished in the race window since findFirst
+        // is never clobbered back to "error".
+        await db.adrSyncRun.updateMany({
+          where: { id: inFlight.id, status: "running" },
           data: {
             status: "error",
             finishedAt: now,

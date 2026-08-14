@@ -96,9 +96,11 @@ describe("runDueAdrSyncs", () => {
 
     const result = await runDueAdrSyncs(db, NOW, { runSync });
 
-    expect(db.adrSyncRun.update).toHaveBeenCalledWith(
+    // Guarded on status so a run that finished in the race window is never
+    // clobbered back to "error".
+    expect(db.adrSyncRun.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "run-stale" },
+        where: { id: "run-stale", status: "running" },
         data: expect.objectContaining({ status: "error" }),
       }),
     );

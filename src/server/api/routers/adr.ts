@@ -486,14 +486,35 @@ export const adrRouter = createTRPCRouter({
         },
       });
       if (existing) return existing;
-      return ctx.db.adrTicketLink.create({
-        data: {
-          adrId: adr.id,
-          ticketId: input.ticketId ?? null,
-          featureId: input.featureId ?? null,
-          createdById: ctx.session.user.id,
-        },
-      });
+      try {
+        return await ctx.db.adrTicketLink.create({
+          data: {
+            adrId: adr.id,
+            ticketId: input.ticketId ?? null,
+            featureId: input.featureId ?? null,
+            createdById: ctx.session.user.id,
+          },
+        });
+      } catch (error) {
+        // Two rapid clicks can race past the findFirst; the DB unique holds
+        // the line — treat the loser as the idempotent success it is.
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          const raced = await ctx.db.adrTicketLink.findFirst({
+            where: {
+              adrId: adr.id,
+              ticketId: input.ticketId ?? null,
+              featureId: input.featureId ?? null,
+            },
+          });
+          if (raced) return raced;
+        }
+        throw error;
+      }
     }),
 
   /** Remove one implemented-by link. */
