@@ -208,6 +208,19 @@ describe("runAdrSync", () => {
         reason: expect.stringContaining("boom"),
       }),
     );
+    // The per-file outcome is persisted onto the run ledger, not just returned.
+    expect(db.adrSyncRun.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "run1" },
+        data: expect.objectContaining({
+          status: "success",
+          failed: 1,
+          items: expect.arrayContaining([
+            expect.objectContaining({ action: "failed" }),
+          ]),
+        }),
+      }),
+    );
   });
 
   it("skips an unfilled template file and records it in the run items", async () => {

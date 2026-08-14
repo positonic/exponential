@@ -125,4 +125,104 @@ describe("parseAdr", () => {
     });
     expect(parsed.title).toBe("connected accounts");
   });
+
+  // ── Fixtures verbatim from real ADRs in the wild ──────────────────────────
+
+  it("reads the `## Status` section format (exponential's dominant format)", () => {
+    // Verbatim head of exponential's docs/adr/0001-activity-feed-storage.md
+    const parsed = parseAdr({
+      path: "docs/adr/0001-activity-feed-storage.md",
+      content: `# Activity feed: two storage paths, union at read
+
+## Status
+
+Accepted — 2026-05-14.
+
+⚠️ **Accuracy caveat (2026-06-14):** the GitHub half of this ADR (decisions #3–#5
+`,
+    });
+    expect(parsed.title).toBe("Activity feed: two storage paths, union at read");
+    expect(parsed.status).toBe("ACCEPTED");
+    expect(parsed.statusRaw).toBe("Accepted — 2026-05-14.");
+    expect(parsed.decidedAt?.toISOString().slice(0, 10)).toBe("2026-05-14");
+  });
+
+  it("reads a bold Deferred-status under a `## Status` heading as UNKNOWN with verbatim raw", () => {
+    // Verbatim from exponential's docs/adr/0019-persist-polled-commits.md
+    const parsed = parseAdr({
+      path: "docs/adr/0019-persist-polled-commits.md",
+      content: `# Persist polled commits
+
+## Status
+
+**Deferred — 2026-06-14.** **Declaration premise superseded by
+[ADR-0020](0020-github-repo-association-via-app-installation.md).**
+`,
+    });
+    expect(parsed.status).toBe("UNKNOWN");
+    expect(parsed.statusRaw).toContain("Deferred — 2026-06-14.");
+  });
+
+  it("reads the `# ADR-NNNN: Title` + plain Status line format", () => {
+    // Verbatim head of exponential's docs/adr/0029-ai-bug-fixer-workflow.md
+    const parsed = parseAdr({
+      path: "docs/adr/0029-ai-bug-fixer-workflow.md",
+      content: `# ADR-0029: Autonomous AI bug-fixer via GitHub Actions
+
+Status: Accepted
+
+## Context
+`,
+    });
+    expect(parsed.title).toBe("Autonomous AI bug-fixer via GitHub Actions");
+    expect(parsed.number).toBe(29);
+    expect(parsed.status).toBe("ACCEPTED");
+  });
+
+  it("handles a no-status ADR that opens straight into Context (mastra's format)", () => {
+    // Verbatim head of mastra's docs/adr/0001-robust-tool-inputs.md
+    const parsed = parseAdr({
+      path: "docs/adr/0001-robust-tool-inputs.md",
+      content: `# Robust tool inputs: coerce to preserve intent, never invent it
+
+## Context
+
+Agent tools (called by Zoe et al. from the exponential chat surface) repeatedly
+`,
+    });
+    expect(parsed.status).toBe("UNKNOWN");
+    expect(parsed.statusRaw).toBeNull();
+    expect(parsed.title).toBe(
+      "Robust tool inputs: coerce to preserve intent, never invent it",
+    );
+  });
+
+  it("parses a lowercase status and a parenthesised date", () => {
+    const lower = parseAdr({
+      path: "docs/adr/0056-x.md",
+      content: `# X\n\nStatus: accepted\n`,
+    });
+    expect(lower.status).toBe("ACCEPTED");
+    const dated = parseAdr({
+      path: "docs/adr/0044-welcome-flow.md",
+      content: `# Welcome flow\n\nStatus: Accepted (2026-07-17)\n`,
+    });
+    expect(dated.status).toBe("ACCEPTED");
+    expect(dated.decidedAt?.toISOString().slice(0, 10)).toBe("2026-07-17");
+  });
+
+  it("tolerates a duplicate-number pair — both parse, identity is a label not a key", () => {
+    // exponential itself has two 0055s.
+    const a = parseAdr({
+      path: "docs/adr/0055-outcomes-deprecated-and-removed-from-the-product.md",
+      content: `# Outcomes deprecated\n\nStatus: Accepted\n`,
+    });
+    const b = parseAdr({
+      path: "docs/adr/0055-password-credential-in-its-own-table.md",
+      content: `# Password credential in its own table\n\nStatus: Accepted\n`,
+    });
+    expect(a.number).toBe(55);
+    expect(b.number).toBe(55);
+    expect(a.slug).not.toBe(b.slug);
+  });
 });

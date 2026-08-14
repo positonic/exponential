@@ -35,6 +35,8 @@ const HEADER_SCAN_LINES = 15;
 
 const STATUS_LINE_RE = /^[-*\s]*\**Status\**\s*:\s*(.+)$/i;
 const DATE_LINE_RE = /^[-*\s]*\**Date\**\s*:\s*(.+)$/i;
+/** `## Status` section heading — the status text is the next non-empty line. */
+const STATUS_HEADING_RE = /^#{2,}\s*Status\s*$/i;
 
 /**
  * The unfilled-template signature: a status offering the choices instead of
@@ -44,10 +46,13 @@ const TEMPLATE_STATUS_RE = /proposed\s*\|\s*accepted/i;
 
 function mapStatus(raw: string | null): AdrStatus {
   if (!raw) return "UNKNOWN";
+  // Anchor at the start: the leading word is the primary state. A trailing
+  // "…superseded by NNNN" is an edge (derived separately), not the state —
+  // e.g. "Deferred — premise superseded by ADR-0020" must NOT map SUPERSEDED.
   const s = raw.trim().toLowerCase();
   if (s.startsWith("propos")) return "PROPOSED";
   if (s.startsWith("accept")) return "ACCEPTED";
-  if (s.includes("supersed")) return "SUPERSEDED";
+  if (s.startsWith("supersed")) return "SUPERSEDED";
   if (s.startsWith("deprecat")) return "DEPRECATED";
   return "UNKNOWN";
 }
@@ -109,7 +114,10 @@ export function parseAdr({
     title = slug ? slug.replace(/-/g, " ") : base;
   }
 
-  // Status: frontmatter wins, else a `Status:` line in the first N body lines.
+  // Status, in order of precedence: frontmatter `status:`; a `Status: ...`
+  // line; a `## Status` section heading whose next non-empty line is the
+  // status text (the dominant format in this workspace's own repos). Scanning
+  // is bounded to the first N body lines.
   let statusRaw: string | null = frontmatter.status ?? null;
   let dateRaw: string | null = frontmatter.date ?? null;
   const headLines = lines.slice(0, HEADER_SCAN_LINES);
@@ -122,6 +130,19 @@ export function parseAdr({
       }
     }
   }
+  if (!statusRaw) {
+    for (let i = 0; i < headLines.length; i++) {
+      if (!STATUS_HEADING_RE.test(headLines[i]?.trim() ?? "")) continue;
+      for (let j = i + 1; j < lines.length && j < i + 1 + HEADER_SCAN_LINES; j++) {
+        const candidate = lines[j]?.trim() ?? "";
+        if (candidate.length === 0) continue;
+        if (candidate.startsWith("#")) break; // next section — no status text
+        statusRaw = candidate.replace(/^\**|\**$/g, "").trim();
+        break;
+      }
+      break;
+    }
+  }
   if (!dateRaw) {
     for (const line of headLines) {
       const m = DATE_LINE_RE.exec(line);
@@ -130,6 +151,11 @@ export function parseAdr({
         break;
       }
     }
+  }
+  // "Accepted — 2026-05-14." style: the date lives inside the status text.
+  if (!dateRaw && statusRaw) {
+    const m = /\b(\d{4}-\d{2}-\d{2})\b/.exec(statusRaw);
+    if (m?.[1]) dateRaw = m[1];
   }
 
   const isTemplate = statusRaw !== null && TEMPLATE_STATUS_RE.test(statusRaw);
