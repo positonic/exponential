@@ -1113,13 +1113,14 @@ export const mastraRouter = createTRPCRouter({
       name: z.string().min(1),
       description: z.string().optional(),
       priority: z.enum(PRIORITY_VALUES),
-      dueDate: z.string().optional(), // ISO string
+      dueDate: z.string().optional(), // ISO string — deadline
+      scheduledStart: z.string().optional(), // ISO string — do-date (the day the user plans to DO it; what /today keys on)
     }))
     .mutation(async ({ ctx, input }) => {
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
 
-      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, userId=${userId}`);
+      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, scheduledStart=${input.scheduledStart || "none"}, userId=${userId}`);
 
       // Verify user has access to this project via all access paths
       const access = await getProjectAccess(ctx.db, userId, input.projectId);
@@ -1141,7 +1142,8 @@ export const mastraRouter = createTRPCRouter({
           name: input.name,
           description: input.description,
           priority: input.priority,
-          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          dueDate: parseAgentDate(input.dueDate, "dueDate"),
+          scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart"),
           projectId: input.projectId,
           createdById: userId,
           workspaceId: mastraProject?.workspaceId ?? null,
@@ -1158,6 +1160,7 @@ export const mastraRouter = createTRPCRouter({
           status: action.status,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
           projectId: action.projectId,
         }
       };
@@ -1171,11 +1174,18 @@ export const mastraRouter = createTRPCRouter({
       // Canonical priority enum. Optional and backward-compatible: when omitted,
       // the action falls back to "Quick" (the historical hardcoded value).
       priority: z.enum(PRIORITY_VALUES).optional(),
+      // Explicit dates (ISO strings). Agents often rewrite the user's request
+      // into a clean action name, dropping the date phrase the text parser
+      // relies on — an explicit value survives that rewrite and wins over
+      // whatever the parser extracts. scheduledStart is the do-date /today
+      // keys on; dueDate is the deadline.
+      scheduledStart: z.string().optional(),
+      dueDate: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
@@ -1194,6 +1204,17 @@ export const mastraRouter = createTRPCRouter({
         }
         parsed.projectId = input.projectId;
       }
+
+      // Explicit dates win over text-parsed ones (same precedence rationale as
+      // projectId above). When neither is passed, the parsed values stand.
+      const scheduledStart =
+        input.scheduledStart !== undefined
+          ? parseAgentDate(input.scheduledStart, "scheduledStart")
+          : parsed.scheduledStart;
+      const dueDate =
+        input.dueDate !== undefined
+          ? parseAgentDate(input.dueDate, "dueDate")
+          : parsed.dueDate;
 
       // Get kanban order if project specified
       let kanbanOrder: number | null = null;
@@ -1223,8 +1244,8 @@ export const mastraRouter = createTRPCRouter({
           priority: input.priority ?? "Quick",
           status: "ACTIVE",
           createdById: userId,
-          scheduledStart: parsed.scheduledStart,
-          dueDate: parsed.dueDate,
+          scheduledStart,
+          dueDate,
           source: deriveActionSource(ctx.tokenType),
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
@@ -1244,6 +1265,7 @@ export const mastraRouter = createTRPCRouter({
           name: action.name,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
           project: action.project,
         },
         parsing: parsed.parsingMetadata,
