@@ -237,6 +237,65 @@ export const adrRouter = createTRPCRouter({
       };
     }),
 
+  /**
+   * The decision network for the graph view: every non-deleted ADR as a node
+   * (clustered by repo client-side) and every derived edge. Read-only.
+   */
+  graph: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .query(async ({ ctx, input }) => {
+      const configs = await ctx.db.adrSyncConfig.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: {
+          repositoryId: true,
+          shortCode: true,
+          repository: { select: { fullName: true } },
+        },
+      });
+      const shortCodeByRepo = new Map(
+        configs.map((c) => [c.repositoryId, c.shortCode]),
+      );
+      const repoIds = configs.map((c) => c.repositoryId);
+
+      const documents = await ctx.db.adrDocument.findMany({
+        where: { repositoryId: { in: repoIds }, deletedAt: null },
+        select: {
+          id: true,
+          repositoryId: true,
+          number: true,
+          title: true,
+          status: true,
+          decidedAt: true,
+        },
+        orderBy: [{ repositoryId: "asc" }, { number: "asc" }, { path: "asc" }],
+      });
+      const docIds = new Set(documents.map((d) => d.id));
+
+      const links = await ctx.db.adrLink.findMany({
+        where: { from: { repositoryId: { in: repoIds } } },
+        select: { id: true, type: true, fromId: true, toId: true, evidence: true },
+      });
+
+      return {
+        repos: configs.map((c) => ({
+          repositoryId: c.repositoryId,
+          fullName: c.repository.fullName,
+          shortCode: c.shortCode,
+        })),
+        nodes: documents.map((doc) => ({
+          ...doc,
+          label:
+            doc.number !== null
+              ? `${shortCodeByRepo.get(doc.repositoryId) ?? "ADR"}-${String(doc.number).padStart(4, "0")}`
+              : null,
+        })),
+        // Both endpoints must be visible nodes (a soft-deleted doc keeps its
+        // edges in the DB but drops out of the picture).
+        edges: links.filter((l) => docIds.has(l.fromId) && docIds.has(l.toId)),
+      };
+    }),
+
   /** The workspace's ADR sync configs (enrolment state), with repo info. */
   listConfigs: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string() }))
