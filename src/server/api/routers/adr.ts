@@ -45,6 +45,11 @@ export const adrRouter = createTRPCRouter({
           .optional(),
         /** Filter to one product's repos; "workspace" = repos with no product. */
         productId: z.string().optional(),
+        /**
+         * With a real productId: ALSO include workspace-level (null-product)
+         * ADRs — the product Decisions lens shows them with a marker.
+         */
+        includeWorkspaceWide: z.boolean().optional(),
         search: z.string().max(200).optional(),
       }),
     )
@@ -87,7 +92,9 @@ export const adrRouter = createTRPCRouter({
                 repository:
                   input.productId === "workspace"
                     ? { productId: null }
-                    : { productId: input.productId },
+                    : input.includeWorkspaceWide
+                      ? { OR: [{ productId: input.productId }, { productId: null }] }
+                      : { productId: input.productId },
               }
             : {}),
           ...(search
@@ -137,6 +144,97 @@ export const adrRouter = createTRPCRouter({
             labelKey !== null && (labelCounts.get(labelKey) ?? 0) > 1,
         };
       });
+    }),
+
+  /** One ADR with its links, for the detail page. Read-only, like everything here. */
+  get: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), adrId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .query(async ({ ctx, input }) => {
+      const doc = await ctx.db.adrDocument.findFirst({
+        where: {
+          id: input.adrId,
+          repository: { workspaceId: input.workspaceId },
+        },
+        include: {
+          repository: {
+            select: {
+              id: true,
+              fullName: true,
+              productId: true,
+              product: { select: { id: true, name: true, slug: true } },
+            },
+          },
+          linksFrom: {
+            include: {
+              to: {
+                select: {
+                  id: true,
+                  repositoryId: true,
+                  number: true,
+                  title: true,
+                  status: true,
+                  deletedAt: true,
+                },
+              },
+            },
+          },
+          linksTo: {
+            include: {
+              from: {
+                select: {
+                  id: true,
+                  repositoryId: true,
+                  number: true,
+                  title: true,
+                  status: true,
+                  deletedAt: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!doc) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+      }
+
+      const configs = await ctx.db.adrSyncConfig.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: { repositoryId: true, shortCode: true, lastCommitSha: true },
+      });
+      const shortCodeByRepo = new Map(
+        configs.map((c) => [c.repositoryId, c.shortCode]),
+      );
+      const config = configs.find((c) => c.repositoryId === doc.repositoryId);
+
+      const label = (repositoryId: string, number: number | null) =>
+        number !== null
+          ? `${shortCodeByRepo.get(repositoryId) ?? "ADR"}-${String(number).padStart(4, "0")}`
+          : null;
+
+      return {
+        ...doc,
+        shortCode: shortCodeByRepo.get(doc.repositoryId) ?? null,
+        label: label(doc.repositoryId, doc.number),
+        // Deep link pinned at the last-synced state, never HEAD: the stored
+        // body matches this commit even when the file was blob-SHA-skipped.
+        githubUrl: `https://github.com/${doc.repository.fullName}/blob/${config?.lastCommitSha ?? "HEAD"}/${doc.path
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/")}`,
+        linksFrom: doc.linksFrom.map((link) => ({
+          ...link,
+          to: { ...link.to, label: label(link.to.repositoryId, link.to.number) },
+        })),
+        linksTo: doc.linksTo.map((link) => ({
+          ...link,
+          from: {
+            ...link.from,
+            label: label(link.from.repositoryId, link.from.number),
+          },
+        })),
+      };
     }),
 
   /** The workspace's ADR sync configs (enrolment state), with repo info. */

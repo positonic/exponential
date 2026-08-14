@@ -1,5 +1,6 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { parseAdr } from "./parser";
+import { deriveMentions, deriveSupersedes } from "./linkDerivation";
 import {
   createInstallationAdrRemote,
   readInstallationId,
@@ -367,6 +368,76 @@ export async function runAdrSync(
       }
     }
 
+    // Recompute derived edges touching this repo from the fresh docs.
+    //
+    // SUPERSEDES is always intra-repo (resolved by number within the repo),
+    // so deleting by from-side repo covers every stale edge.
+    //
+    // MENTIONS is cross-repo, recomputed in both directions WITHOUT any
+    // refetch: outbound from this repo's fresh bodies, and inbound by
+    // re-matching other repos' STORED bodies against this repo's docs.
+    const workspaceConfigs = await db.adrSyncConfig.findMany({
+      where: { workspaceId: config.workspaceId },
+      select: {
+        repositoryId: true,
+        shortCode: true,
+        repository: { select: { fullName: true } },
+      },
+    });
+    const repoIdentities = workspaceConfigs.map((c) => ({
+      repositoryId: c.repositoryId,
+      fullName: c.repository.fullName,
+      shortCode: c.shortCode,
+    }));
+    const allDocs = await db.adrDocument.findMany({
+      where: {
+        repositoryId: { in: workspaceConfigs.map((c) => c.repositoryId) },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        repositoryId: true,
+        number: true,
+        statusRaw: true,
+        body: true,
+      },
+    });
+    const thisRepoDocs = allDocs.filter(
+      (d) => d.repositoryId === config.repository.id,
+    );
+    const otherRepoDocs = allDocs.filter(
+      (d) => d.repositoryId !== config.repository.id,
+    );
+
+    const supersedes = deriveSupersedes(thisRepoDocs);
+    const mentionsOut = deriveMentions(thisRepoDocs, repoIdentities, allDocs);
+    const mentionsIn = deriveMentions(
+      otherRepoDocs,
+      repoIdentities,
+      thisRepoDocs,
+    );
+
+    // One transaction so a crash between delete and create can't leave the
+    // repo's edges missing until the next changed-tree sync.
+    const derivedLinks = [...supersedes, ...mentionsOut, ...mentionsIn];
+    await db.$transaction(async (tx) => {
+      await tx.adrLink.deleteMany({
+        where: {
+          OR: [
+            { type: "SUPERSEDES", from: { repositoryId: config.repository.id } },
+            { type: "MENTIONS", from: { repositoryId: config.repository.id } },
+            { type: "MENTIONS", to: { repositoryId: config.repository.id } },
+          ],
+        },
+      });
+      if (derivedLinks.length > 0) {
+        await tx.adrLink.createMany({
+          data: derivedLinks,
+          skipDuplicates: true,
+        });
+      }
+    });
+
     await db.adrSyncConfig.update({
       where: { id: configId },
       data: {
@@ -374,8 +445,11 @@ export async function runAdrSync(
         // fetch failure would otherwise be locked in — the next run would see
         // an unchanged tree and short-circuit past the retry forever on a
         // quiet repo. Unchanged blobs still skip via their blob SHA.
+        // lastCommitSha gets the same guard: a failed file's stored body is
+        // still the OLD text, so pinning its deep link at the new head would
+        // break the "link shows exactly what's projected" invariant.
         lastTreeSha: failed === 0 ? combined : null,
-        lastCommitSha: head.commitSha,
+        lastCommitSha: failed === 0 ? head.commitSha : config.lastCommitSha,
         lastSyncedAt: now(),
       },
     });
