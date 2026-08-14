@@ -17,6 +17,7 @@ import {
   createWorkspace,
   addWorkspaceMember,
   createGoal,
+  createProject,
 } from "~/test/factories";
 
 describe("mastra.addGoalComment", () => {
@@ -336,5 +337,98 @@ describe("mastra.createCrmContact (legacy) workspace resolution", () => {
     expect(result.created).toBe(true);
     const persisted = await db.crmContact.findUnique({ where: { id: result.contactId! } });
     expect(persisted?.workspaceId).toBe(ws.id);
+  });
+});
+
+describe("mastra action creation — do-date (scheduledStart) handling", () => {
+  let db: ReturnType<typeof getTestDb>;
+
+  beforeEach(() => {
+    db = getTestDb();
+  });
+
+  it("createAction persists an explicit scheduledStart (dueDate stays null)", async () => {
+    const user = await createUser(db);
+    const project = await createProject(db, { createdById: user.id });
+
+    const doDate = "2026-08-14T00:00:00.000Z";
+    const caller = createTestCaller(user.id);
+    const { action } = await caller.mastra.createAction({
+      projectId: project.id,
+      name: "Ship the fix",
+      priority: "Quick",
+      scheduledStart: doDate,
+    });
+
+    expect(action.scheduledStart).toBe(doDate);
+    const persisted = await db.action.findUnique({ where: { id: action.id } });
+    expect(persisted?.scheduledStart?.toISOString()).toBe(doDate);
+    expect(persisted?.dueDate).toBeNull();
+  });
+
+  it("createAction rejects a malformed scheduledStart instead of persisting Invalid Date", async () => {
+    const user = await createUser(db);
+    const project = await createProject(db, { createdById: user.id });
+
+    const caller = createTestCaller(user.id);
+    await expect(
+      caller.mastra.createAction({
+        projectId: project.id,
+        name: "Bad date",
+        priority: "Quick",
+        scheduledStart: "not-a-date",
+      }),
+    ).rejects.toThrow(/scheduledStart/);
+  });
+
+  it("quickCreateAction: explicit scheduledStart wins over the text-parsed date", async () => {
+    const user = await createUser(db);
+
+    // Text says "tomorrow", but the agent resolved the user's intent to an
+    // explicit do-date — the explicit value must win.
+    const doDate = "2026-08-14T00:00:00.000Z";
+    const caller = createTestCaller(user.id);
+    const { action } = await caller.mastra.quickCreateAction({
+      text: "Buy milk tomorrow",
+      scheduledStart: doDate,
+    });
+
+    const persisted = await db.action.findUnique({ where: { id: action.id } });
+    expect(persisted?.scheduledStart?.toISOString()).toBe(doDate);
+  });
+
+  it("quickCreateAction: explicit scheduledStart applies when the rewritten text has no date phrase", async () => {
+    const user = await createUser(db);
+
+    const doDate = "2026-08-14T00:00:00.000Z";
+    const caller = createTestCaller(user.id);
+    const { action } = await caller.mastra.quickCreateAction({
+      text: "Buy milk",
+      scheduledStart: doDate,
+    });
+
+    expect(action.scheduledStart).toBe(doDate);
+    const persisted = await db.action.findUnique({ where: { id: action.id } });
+    expect(persisted?.scheduledStart?.toISOString()).toBe(doDate);
+  });
+
+  it("quickCreateAction: without explicit dates the text parser still sets the do-date", async () => {
+    const user = await createUser(db);
+
+    // chrono resolves "today" to the current instant, so assert against a
+    // tight window around the call instead of comparing day strings — the
+    // latter flakes if the run crosses midnight between parse and assert.
+    const before = Date.now();
+    const caller = createTestCaller(user.id);
+    const { action } = await caller.mastra.quickCreateAction({
+      text: "Buy milk today",
+    });
+    const after = Date.now();
+
+    const persisted = await db.action.findUnique({ where: { id: action.id } });
+    expect(persisted?.scheduledStart).not.toBeNull();
+    const scheduled = persisted!.scheduledStart!.getTime();
+    expect(scheduled).toBeGreaterThanOrEqual(before - 60_000);
+    expect(scheduled).toBeLessThanOrEqual(after + 60_000);
   });
 });
