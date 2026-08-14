@@ -307,6 +307,37 @@ describe("adr router authz", () => {
       });
     }
 
+    it("a disabled repo's documents and links stay visible on the index", async () => {
+      // Soft-disconnect end to end: disableConfig flips state only, so the
+      // list (which keys off enrolment, not enabled) keeps serving the docs
+      // and their user-authored links.
+      asHuman(db);
+      withWorkspaceRole(db, "member");
+      db.adrSyncConfig.findMany.mockResolvedValue([
+        { repositoryId: "repo-1", shortCode: "API" },
+      ] as never);
+      db.adrDocument.findMany.mockResolvedValue([
+        {
+          id: "doc-1",
+          repositoryId: "repo-1",
+          path: "docs/adr/0001-x.md",
+          number: 1,
+          slug: "x",
+          title: "X",
+          status: "ACCEPTED",
+          statusRaw: "Accepted",
+          decidedAt: null,
+          updatedAt: new Date(),
+          repository: { id: "repo-1", fullName: "acme/api", productId: null, product: null },
+          _count: { ticketLinks: 2 },
+        },
+      ] as never);
+
+      const rows = await caller(db).adr.list({ workspaceId: WORKSPACE_ID });
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ label: "API-0001", _count: { ticketLinks: 2 } });
+    });
+
     it("allows an admin on disableConfig (and keeps it a soft state change)", async () => {
       asHuman(db);
       withWorkspaceRole(db, "admin");
