@@ -279,6 +279,37 @@ export const adrRouter = createTRPCRouter({
       return results;
     }),
 
+  /** Recent sync runs (the ledger), workspace-wide or for one config. */
+  listRuns: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        configId: z.string().optional(),
+        limit: z.number().min(1).max(100).default(30),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.adrSyncRun.findMany({
+        where: {
+          config: { workspaceId: input.workspaceId },
+          ...(input.configId ? { configId: input.configId } : {}),
+        },
+        include: {
+          config: {
+            select: {
+              id: true,
+              shortCode: true,
+              repository: { select: { fullName: true } },
+            },
+          },
+          triggeredBy: { select: { id: true, name: true } },
+        },
+        orderBy: { startedAt: "desc" },
+        take: input.limit,
+      });
+    }),
+
   /**
    * Disable a config: soft state change only. Nulls the integration link and
    * flips `enabled` off; documents, links and run history are all retained

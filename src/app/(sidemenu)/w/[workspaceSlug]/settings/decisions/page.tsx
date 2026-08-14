@@ -17,7 +17,12 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconAlertTriangle, IconBrandGithub, IconSearch } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconBrandGithub,
+  IconRefresh,
+  IconSearch,
+} from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -136,6 +141,39 @@ export default function DecisionsSettingsPage() {
       notifications.show({ title: "Couldn't disable", message: error.message, color: "red" }),
   });
 
+  const { data: runs } = api.adr.listRuns.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId, refetchInterval: 15_000 },
+  );
+  const lastRunByConfig = useMemo(() => {
+    const byConfig = new Map<string, NonNullable<typeof runs>[number]>();
+    for (const run of runs ?? []) {
+      if (!byConfig.has(run.configId)) byConfig.set(run.configId, run);
+    }
+    return byConfig;
+  }, [runs]);
+
+  const [syncingConfigId, setSyncingConfigId] = useState<string | null>(null);
+  const syncNow = api.adr.syncNow.useMutation({
+    onSuccess: async (result) => {
+      notifications.show({
+        title: result.status === "unchanged" ? "Already up to date" : "Synced",
+        message:
+          result.status === "unchanged"
+            ? "No changes since the last sync."
+            : `${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${result.deleted} removed${result.failed > 0 ? `, ${result.failed} failed` : ""}.`,
+        color: result.status === "error" ? "red" : "green",
+      });
+      await Promise.all([
+        utils.adr.listRuns.invalidate(),
+        utils.adr.listConfigs.invalidate(),
+        utils.adr.list.invalidate(),
+      ]);
+    },
+    onError: (error) =>
+      notifications.show({ title: "Sync failed", message: error.message, color: "red" }),
+  });
+
   const setProduct = api.adr.setRepositoryProduct.useMutation({
     onSuccess: async () => {
       await Promise.all([
@@ -248,6 +286,7 @@ export default function DecisionsSettingsPage() {
                   <Table.Th>Short code</Table.Th>
                   <Table.Th>ADR paths</Table.Th>
                   <Table.Th>Product</Table.Th>
+                  <Table.Th>Last run</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -379,6 +418,60 @@ export default function DecisionsSettingsPage() {
                           aria-label={`Product for ${repo.fullName}`}
                         />
                       </Table.Td>
+                      <Table.Td>
+                        {config ? (
+                          <Group gap="xs" wrap="nowrap">
+                            {(() => {
+                              const lastRun = lastRunByConfig.get(config.id);
+                              if (!lastRun) {
+                                return (
+                                  <Badge size="xs" variant="light" color="gray">
+                                    never synced
+                                  </Badge>
+                                );
+                              }
+                              const color =
+                                lastRun.status === "error"
+                                  ? "red"
+                                  : lastRun.status === "running"
+                                    ? "blue"
+                                    : "green";
+                              return (
+                                <Badge
+                                  size="xs"
+                                  variant="light"
+                                  color={color}
+                                  title={lastRun.error ?? undefined}
+                                >
+                                  {lastRun.status} ·{" "}
+                                  {new Date(lastRun.startedAt).toLocaleString()}
+                                </Badge>
+                              );
+                            })()}
+                            <Button
+                              size="compact-xs"
+                              variant="subtle"
+                              leftSection={<IconRefresh size={12} />}
+                              loading={syncNow.isPending && syncingConfigId === config.id}
+                              disabled={!config.enabled || !workspaceId}
+                              onClick={() => {
+                                if (!workspaceId) return;
+                                setSyncingConfigId(config.id);
+                                syncNow.mutate(
+                                  { workspaceId, configId: config.id },
+                                  { onSettled: () => setSyncingConfigId(null) },
+                                );
+                              }}
+                            >
+                              Sync now
+                            </Button>
+                          </Group>
+                        ) : (
+                          <Text size="xs" className="text-text-muted">
+                            not enrolled
+                          </Text>
+                        )}
+                      </Table.Td>
                     </Table.Tr>
                   );
                 })}
@@ -395,10 +488,101 @@ export default function DecisionsSettingsPage() {
               >
                 Save enrolment
               </Button>
+              <Button
+                variant="light"
+                size="sm"
+                leftSection={<IconRefresh size={14} />}
+                loading={syncNow.isPending && syncingConfigId === "all"}
+                disabled={
+                  !workspaceId ||
+                  (configs ?? []).filter((c) => c.enabled).length === 0
+                }
+                onClick={async () => {
+                  if (!workspaceId) return;
+                  setSyncingConfigId("all");
+                  try {
+                    // Sequential on purpose: one repo's failure surfaces its
+                    // own run record without aborting the rest.
+                    for (const config of (configs ?? []).filter((c) => c.enabled)) {
+                      await syncNow.mutateAsync({ workspaceId, configId: config.id });
+                    }
+                  } catch {
+                    // Per-config errors already notified by the mutation.
+                  } finally {
+                    setSyncingConfigId(null);
+                  }
+                }}
+              >
+                Sync all
+              </Button>
             </Group>
           </Stack>
         </Paper>
       )}
+
+      {(runs ?? []).length > 0 ? (
+        <Paper p="lg" withBorder className="bg-surface-secondary" mt="lg">
+          <Stack gap="md">
+            <Title order={4}>Recent sync runs</Title>
+            <Table verticalSpacing="xs">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Repository</Table.Th>
+                  <Table.Th>Trigger</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Outcome</Table.Th>
+                  <Table.Th>Started</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {(runs ?? []).map((run) => (
+                  <Table.Tr key={run.id}>
+                    <Table.Td>
+                      <Text size="sm">{run.config.repository.fullName}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm" className="text-text-secondary">
+                        {run.trigger}
+                        {run.triggeredBy?.name ? ` · ${run.triggeredBy.name}` : ""}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge
+                        size="xs"
+                        variant="light"
+                        color={
+                          run.status === "error"
+                            ? "red"
+                            : run.status === "running"
+                              ? "blue"
+                              : run.status === "unchanged"
+                                ? "gray"
+                                : "green"
+                        }
+                        title={run.error ?? undefined}
+                      >
+                        {run.status}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" className="text-text-secondary">
+                        {run.status === "unchanged"
+                          ? "—"
+                          : `${run.created} created · ${run.updated} updated · ${run.skipped} skipped · ${run.deleted} removed${run.failed > 0 ? ` · ${run.failed} failed` : ""}`}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" className="text-text-secondary whitespace-nowrap">
+                        {new Date(run.startedAt).toLocaleString()}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Stack>
+        </Paper>
+      ) : null}
     </Container>
   );
 }
