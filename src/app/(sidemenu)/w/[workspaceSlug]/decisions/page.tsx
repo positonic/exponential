@@ -1,6 +1,8 @@
 "use client";
 
-import { Container, Group, Skeleton, Text, Title } from "@mantine/core";
+import { Button, Container, Group, Skeleton, Text, Title } from "@mantine/core";
+import { IconAffiliate } from "@tabler/icons-react";
+import Link from "next/link";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DecisionsIndex } from "~/app/_components/decisions/DecisionsIndex";
 
@@ -39,6 +41,15 @@ export default function DecisionsPage() {
             repos. Read-only — git is the source of truth.
           </Text>
         </div>
+        <Button
+          component={Link}
+          href={`/w/${workspace.slug}/decisions/graph`}
+          variant="light"
+          size="sm"
+          leftSection={<IconAffiliate size={16} />}
+        >
+          Graph
+        </Button>
       </Group>
       <DecisionsIndex workspaceId={workspaceId} workspaceSlug={workspace.slug} />
     </Container>

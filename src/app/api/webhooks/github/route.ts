@@ -1,9 +1,15 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
+import { triggerAdrSyncFromPush } from "~/server/services/adrSync/webhookTrigger";
 import { safeSignatureEquals } from "~/server/utils/webhookSignature";
+
+// ADR sync work deferred via after() still needs runtime beyond the response;
+// without an explicit budget the platform default can kill a first-enrolment
+// sync mid-run and leave its AdrSyncRun stuck "running".
+export const maxDuration = 120;
 
 function verifySignature(
   payload: string,
@@ -65,6 +71,20 @@ export async function POST(request: NextRequest) {
         break;
       case "push":
         await githubActivityService.processPushEvent(data, delivery);
+        // Decision Log fast-follow: a default-branch push touching enrolled
+        // adrPaths lands the ADR within seconds instead of at the next hourly
+        // cron. Deferred with after() so the sync runs OUTSIDE the request
+        // path — a slow first-enrolment sync can neither blow GitHub's 10s
+        // delivery window nor take down the activity handling above. Failures
+        // are contained (redelivery is idempotent via the tree-SHA
+        // short-circuit, and the hourly cron is the backstop).
+        after(async () => {
+          try {
+            await triggerAdrSyncFromPush(db, data);
+          } catch (error) {
+            console.error("[AdrSync] webhook trigger failed:", error);
+          }
+        });
         break;
       case "pull_request":
         await githubActivityService.processPullRequestEvent(data, delivery);
