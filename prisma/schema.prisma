@@ -276,6 +276,9 @@ model User {
   requirementsChecked   Requirement[]         @relation("RequirementCheckedBy")
   ticketSyncConfigs     TicketSyncConfig[]    @relation("TicketSyncConfigCreatedBy")
   ticketSyncRuns        TicketSyncRun[]       @relation("TicketSyncRunTriggeredBy")
+  adrSyncConfigs        AdrSyncConfig[]       @relation("AdrSyncConfigCreatedBy")
+  adrSyncRuns           AdrSyncRun[]          @relation("AdrSyncRunTriggeredBy")
+  adrTicketLinks        AdrTicketLink[]       @relation("AdrTicketLinkCreatedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -444,6 +447,8 @@ model Workspace {
   integrations            Integration[]
   // GitHub repo connection (ADR-0020): repos this workspace tracks
   workspaceRepositories   WorkspaceRepository[]
+  // Decision Log (ADR projection)
+  adrSyncConfigs          AdrSyncConfig[]
   // Notification override relations
   notificationOverrides   WorkspaceNotificationOverride[]
   // Slack channel config relation
@@ -1465,6 +1470,7 @@ model Integration {
   // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
   workspaceRepositories   WorkspaceRepository[]
   syncConfigs             TicketSyncConfig[]
+  adrSyncConfigs          AdrSyncConfig[]
   // Outbound routing (matrix-server rows): rooms bound through this server, and the
   // log of what has been posted through it.
   outboundChannelLinks    ChannelLink[]            @relation("ChannelLinkServer")
@@ -4153,6 +4159,7 @@ model Product {
   ticketSyncConfigs TicketSyncConfig[]
   featureDrafts     MeetingFeatureDraft[]
   epics             Epic[]
+  repositories      WorkspaceRepository[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -4240,6 +4247,7 @@ model Feature {
   comments            FeatureComment[]
   pages               FeaturePage[]
   keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
+  adrLinks            AdrTicketLink[]
 
   @@index([productId])
   @@index([goalId])
@@ -4621,6 +4629,7 @@ model Ticket {
   depsIn    TicketDependency[] @relation("TicketDepsIn")
   tags      TicketTag[]
   syncs     TicketSync[]
+  adrLinks  AdrTicketLink[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -4945,6 +4954,9 @@ model WorkspaceRepository {
   fullName       String
   installationId String?
   addedById      String?
+  /// Optional product assignment (Decision Log): ADRs derive their product
+  /// through the repo. Null = workspace-level repo (e.g. shared architecture).
+  productId      String?
   syncStatus     String    @default("pending")
   lastSyncedAt   DateTime?
   createdAt      DateTime  @default(now())
@@ -4952,10 +4964,15 @@ model WorkspaceRepository {
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   addedBy     User?       @relation("WorkspaceRepositoryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  product     Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  adrSyncConfigs AdrSyncConfig[]
+  adrDocuments   AdrDocument[]
 
   @@unique([workspaceId, fullName])
   @@index([workspaceId])
   @@index([integrationId])
+  @@index([productId])
 }
 
 model TicketSyncConfig {
@@ -5075,6 +5092,159 @@ model TicketSyncRun {
   triggeredBy   User?            @relation("TicketSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
   revertedByRun TicketSyncRun?   @relation("TicketSyncRunRevertedBy", fields: [revertedByRunId], references: [id], onDelete: SetNull)
   revertedRuns  TicketSyncRun[]  @relation("TicketSyncRunRevertedBy")
+
+  @@index([configId, startedAt])
+  @@index([triggeredById])
+}
+
+// ── Decision Log (cross-repo ADR projection) ────────────────────────────────
+// Read-only projection of ADR markdown files from enrolled GitHub repos. Git
+// is the source of truth; every row here is derived and re-derivable, except
+// AdrTicketLink which is user-authored linkage and must survive repo
+// disconnection. Documents are only ever soft-deleted (deletedAt).
+
+enum AdrStatus {
+  PROPOSED
+  ACCEPTED
+  SUPERSEDED
+  DEPRECATED
+  UNKNOWN
+}
+
+enum AdrLinkType {
+  SUPERSEDES
+  MENTIONS
+}
+
+model AdrSyncConfig {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  repositoryId String
+  /// Workspace-unique label prefix; ADRs render as `SHORTCODE-NUMBER`
+  /// (e.g. API-0003). A label, not a key — collisions are flagged, not refused.
+  shortCode    String
+  /// Repo-relative directories searched for ADR markdown files.
+  adrPaths     String[] @default(["docs/adr"])
+  /// Null means DISCONNECTED — disconnect is a soft state change, never a row
+  /// delete, so documents, links and run history always survive (ADR-0042).
+  integrationId String?
+  enabled       Boolean  @default(true)
+  /// Git tree SHA(s) covering adrPaths at the last successful pull — the sync
+  /// short-circuit key: unchanged tree ⇒ zero file fetches for this repo.
+  lastTreeSha   String?
+  /// Default-branch head commit at the last successful pull; GitHub deep links
+  /// pin here rather than at HEAD.
+  lastCommitSha String?
+  lastSyncedAt  DateTime?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repository  WorkspaceRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  integration Integration?        @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  createdBy   User                @relation("AdrSyncConfigCreatedBy", fields: [createdById], references: [id])
+  runs        AdrSyncRun[]
+
+  @@unique([workspaceId, repositoryId])
+  @@unique([workspaceId, shortCode])
+  @@index([repositoryId])
+  @@index([integrationId])
+  @@index([createdById])
+}
+
+model AdrDocument {
+  id           String    @id @default(cuid())
+  repositoryId String
+  /// Repo-relative file path — the stable half of the natural key.
+  path         String
+  /// Sequence number parsed from the filename (`0003-...`); null when absent.
+  number       Int?
+  slug         String?
+  title        String
+  status       AdrStatus @default(UNKNOWN)
+  /// Verbatim status string from the file (drives SUPERSEDES derivation).
+  statusRaw    String?
+  decidedAt    DateTime?
+  /// Full markdown content as last synced.
+  body         String    @db.Text
+  /// Git blob SHA from the tree listing — an unchanged blob is skipped
+  /// without a content fetch.
+  contentHash  String
+  /// Blob SHA last seen for this file.
+  lastSeenSha  String
+  /// Set when the file vanished from the repo; documents are never hard-deleted.
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  repository  WorkspaceRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  linksFrom   AdrLink[]           @relation("AdrLinkFrom")
+  linksTo     AdrLink[]           @relation("AdrLinkTo")
+  ticketLinks AdrTicketLink[]
+
+  @@unique([repositoryId, path])
+  @@index([repositoryId, deletedAt])
+}
+
+model AdrLink {
+  id        String      @id @default(cuid())
+  type      AdrLinkType
+  /// SUPERSEDES points from superseder to superseded.
+  fromId    String
+  toId      String
+  /// The matched line supporting a MENTIONS edge ("detected" provenance).
+  evidence  String?
+  createdAt DateTime    @default(now())
+
+  from AdrDocument @relation("AdrLinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   AdrDocument @relation("AdrLinkTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, type])
+  @@index([toId])
+}
+
+model AdrTicketLink {
+  id          String   @id @default(cuid())
+  adrId       String
+  ticketId    String?
+  featureId   String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  adr       AdrDocument @relation(fields: [adrId], references: [id], onDelete: Cascade)
+  ticket    Ticket?     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  feature   Feature?    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy User        @relation("AdrTicketLinkCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([adrId, ticketId])
+  @@unique([adrId, featureId])
+  @@index([ticketId])
+  @@index([featureId])
+}
+
+model AdrSyncRun {
+  id         String    @id @default(cuid())
+  configId   String
+  /// manual | cron | webhook
+  trigger    String
+  /// running | success | unchanged | error
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  skipped    Int       @default(0)
+  deleted    Int       @default(0)
+  failed     Int       @default(0)
+  /// Per-file outcomes: [{ path, action, reason? }]
+  items      Json?
+  /// Who triggered the run; null for cron runs.
+  triggeredById String?
+
+  config      AdrSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  triggeredBy User?         @relation("AdrSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
 
   @@index([configId, startedAt])
   @@index([triggeredById])
