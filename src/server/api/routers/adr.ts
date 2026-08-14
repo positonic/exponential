@@ -1,0 +1,238 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
+import { requireWorkspaceMembership } from "~/server/services/access";
+import { runAdrSync } from "~/server/services/adrSync/engine";
+import {
+  GITHUB_INSTALLATION_PROVIDER,
+  GITHUB_INSTALLATION_TYPE,
+} from "~/server/services/github/connectionState";
+
+/**
+ * Decision Log router (ADR projection).
+ *
+ * Gating (deliberate, per the feature's privacy decision):
+ * - every procedure builds on `humanOnlyProcedure` — external-agent
+ *   principals are denied outright (ADR-0049);
+ * - reads gate at `edit` permission (minimum workspace role `member`) — ADR
+ *   content is member-visible, NOT viewer-visible;
+ * - config mutations gate at `manage_members` (admin);
+ * - there is deliberately NO write path to ADR content anywhere here — git is
+ *   the source of truth and the projection is one-way.
+ */
+
+const shortCodeSchema = z
+  .string()
+  .min(2)
+  .max(10)
+  .regex(/^[A-Z][A-Z0-9]*$/, "Short code must be uppercase letters/digits");
+
+export const adrRouter = createTRPCRouter({
+  /** Non-deleted ADRs across the workspace's enrolled repos. */
+  list: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .query(async ({ ctx, input }) => {
+      const configs = await ctx.db.adrSyncConfig.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: { repositoryId: true, shortCode: true },
+      });
+      const shortCodeByRepo = new Map(
+        configs.map((c) => [c.repositoryId, c.shortCode]),
+      );
+
+      const documents = await ctx.db.adrDocument.findMany({
+        where: {
+          repositoryId: { in: configs.map((c) => c.repositoryId) },
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          repositoryId: true,
+          path: true,
+          number: true,
+          slug: true,
+          title: true,
+          status: true,
+          statusRaw: true,
+          decidedAt: true,
+          updatedAt: true,
+          repository: {
+            select: {
+              id: true,
+              fullName: true,
+              productId: true,
+              product: { select: { id: true, name: true, slug: true } },
+            },
+          },
+        },
+        orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { path: "asc" }],
+      });
+
+      return documents.map((doc) => ({
+        ...doc,
+        shortCode: shortCodeByRepo.get(doc.repositoryId) ?? null,
+        label:
+          doc.number !== null
+            ? `${shortCodeByRepo.get(doc.repositoryId) ?? "ADR"}-${String(doc.number).padStart(4, "0")}`
+            : null,
+      }));
+    }),
+
+  /** The workspace's ADR sync configs (enrolment state), with repo info. */
+  listConfigs: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.adrSyncConfig.findMany({
+        where: { workspaceId: input.workspaceId },
+        include: {
+          repository: {
+            select: {
+              id: true,
+              fullName: true,
+              owner: true,
+              name: true,
+              productId: true,
+              product: { select: { id: true, name: true, slug: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      });
+    }),
+
+  /**
+   * Bulk enrolment: create or update sync configs for many repos in one
+   * submission. Admin only. Short codes must be workspace-unique — both
+   * within the submission and against existing configs of other repos.
+   */
+  upsertConfigs: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        configs: z
+          .array(
+            z.object({
+              repositoryId: z.string(),
+              shortCode: shortCodeSchema,
+              adrPaths: z.array(z.string().min(1)).min(1).default(["docs/adr"]),
+              enabled: z.boolean().default(true),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const codes = input.configs.map((c) => c.shortCode);
+      if (new Set(codes).size !== codes.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Short codes must be unique within the submission",
+        });
+      }
+
+      const repos = await ctx.db.workspaceRepository.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          id: { in: input.configs.map((c) => c.repositoryId) },
+        },
+        select: { id: true },
+      });
+      const knownRepoIds = new Set(repos.map((r) => r.id));
+      const unknown = input.configs.filter((c) => !knownRepoIds.has(c.repositoryId));
+      if (unknown.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "One or more repositories are not tracked by this workspace",
+        });
+      }
+
+      // Codes taken by OTHER repos' configs collide; re-submitting a repo's
+      // own code is fine.
+      const existingConfigs = await ctx.db.adrSyncConfig.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: { repositoryId: true, shortCode: true },
+      });
+      const takenByOther = new Set(
+        existingConfigs
+          .filter(
+            (existing) =>
+              !input.configs.some((c) => c.repositoryId === existing.repositoryId),
+          )
+          .map((existing) => existing.shortCode),
+      );
+      const collisions = codes.filter((code) => takenByOther.has(code));
+      if (collisions.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Short code already in use: ${collisions.join(", ")}`,
+        });
+      }
+
+      const installation = await ctx.db.integration.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          provider: GITHUB_INSTALLATION_PROVIDER,
+          type: GITHUB_INSTALLATION_TYPE,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      });
+      if (!installation) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "GitHub App is not installed for this workspace",
+        });
+      }
+
+      const results = [];
+      for (const config of input.configs) {
+        results.push(
+          await ctx.db.adrSyncConfig.upsert({
+            where: {
+              workspaceId_repositoryId: {
+                workspaceId: input.workspaceId,
+                repositoryId: config.repositoryId,
+              },
+            },
+            create: {
+              workspaceId: input.workspaceId,
+              repositoryId: config.repositoryId,
+              shortCode: config.shortCode,
+              adrPaths: config.adrPaths,
+              enabled: config.enabled,
+              integrationId: installation.id,
+              createdById: ctx.session.user.id,
+            },
+            update: {
+              shortCode: config.shortCode,
+              adrPaths: config.adrPaths,
+              enabled: config.enabled,
+              // Re-enrolling reconnects a previously disconnected config.
+              integrationId: installation.id,
+            },
+          }),
+        );
+      }
+      return results;
+    }),
+
+  /** Run one config's sync immediately. Admin only. */
+  syncNow: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), configId: z.string() }))
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const config = await ctx.db.adrSyncConfig.findFirst({
+        where: { id: input.configId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!config) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Sync config not found" });
+      }
+      return runAdrSync(ctx.db, config.id, "manual", {
+        triggeredById: ctx.session.user.id,
+      });
+    }),
+});
