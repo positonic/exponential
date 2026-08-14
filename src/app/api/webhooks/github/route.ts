@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
+import { triggerAdrSyncFromPush } from "~/server/services/adrSync/webhookTrigger";
 import { safeSignatureEquals } from "~/server/utils/webhookSignature";
 
 function verifySignature(
@@ -65,6 +66,16 @@ export async function POST(request: NextRequest) {
         break;
       case "push":
         await githubActivityService.processPushEvent(data, delivery);
+        // Decision Log fast-follow: a default-branch push touching enrolled
+        // adrPaths lands the ADR within seconds instead of at the next hourly
+        // cron. Best-effort — a failure here must never break the activity
+        // handling above (redelivery is idempotent via the tree-SHA
+        // short-circuit).
+        try {
+          await triggerAdrSyncFromPush(db, data);
+        } catch (error) {
+          console.error("[AdrSync] webhook trigger failed:", error);
+        }
         break;
       case "pull_request":
         await githubActivityService.processPullRequestEvent(data, delivery);
