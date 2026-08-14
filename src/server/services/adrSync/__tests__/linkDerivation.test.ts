@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveSupersedes } from "../linkDerivation";
-import type { AdrDocForLinks } from "../linkDerivation";
+import { deriveMentions, deriveSupersedes } from "../linkDerivation";
+import type { AdrDocForLinks, RepoIdentity } from "../linkDerivation";
 
 function doc(overrides: Partial<AdrDocForLinks> & { id: string }): AdrDocForLinks {
   return {
@@ -80,5 +80,85 @@ describe("deriveSupersedes", () => {
         doc({ id: "b", number: 2, statusRaw: null }),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("deriveMentions", () => {
+  const REPOS: RepoIdentity[] = [
+    { repositoryId: "r-api", fullName: "clear/clear-api", shortCode: "API" },
+    { repositoryId: "r-pipe", fullName: "clear/clear-context-pipeline", shortCode: "PIPE" },
+  ];
+
+  it("links a SHORTCODE-NNNN reference to the other repo's doc with the line as evidence", () => {
+    const source = doc({
+      id: "pipe-2",
+      repositoryId: "r-pipe",
+      number: 2,
+      body: "## Context\n\nThe API half of this decision is API-0003.\n",
+    });
+    const target = doc({ id: "api-3", repositoryId: "r-api", number: 3 });
+
+    expect(deriveMentions([source], REPOS, [source, target])).toEqual([
+      {
+        type: "MENTIONS",
+        fromId: "pipe-2",
+        toId: "api-3",
+        evidence: "The API half of this decision is API-0003.",
+      },
+    ]);
+  });
+
+  it("links a bare repo-name mention when a number on the same line identifies the doc", () => {
+    // The motivating CLEAR case: clear-api/0003 and clear-context-pipeline/0002
+    // are two halves of one decision written twice.
+    const source = doc({
+      id: "api-3",
+      repositoryId: "r-api",
+      number: 3,
+      body: "The pipeline half is 0002 in clear-context-pipeline.\n",
+    });
+    const target = doc({ id: "pipe-2", repositoryId: "r-pipe", number: 2 });
+
+    const links = deriveMentions([source], REPOS, [source, target]);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      fromId: "api-3",
+      toId: "pipe-2",
+      evidence: expect.stringContaining("clear-context-pipeline"),
+    });
+  });
+
+  it("never links a doc to its own repo (own short code / own name)", () => {
+    const a = doc({
+      id: "api-1",
+      repositoryId: "r-api",
+      number: 1,
+      body: "Supersedes API-0002; see clear-api 0002.\n",
+    });
+    const b = doc({ id: "api-2", repositoryId: "r-api", number: 2 });
+
+    expect(deriveMentions([a], REPOS, [a, b])).toEqual([]);
+  });
+
+  it("ignores short codes that belong to no enrolled repo", () => {
+    const source = doc({
+      id: "api-1",
+      repositoryId: "r-api",
+      number: 1,
+      body: "Follows RFC-1234 and HTTP-0002 conventions.\n",
+    });
+    expect(deriveMentions([source], REPOS, [source])).toEqual([]);
+  });
+
+  it("dedupes multiple references to the same target", () => {
+    const source = doc({
+      id: "pipe-1",
+      repositoryId: "r-pipe",
+      number: 1,
+      body: "API-0003 is the sibling.\nAgain: API-0003.\n",
+    });
+    const target = doc({ id: "api-3", repositoryId: "r-api", number: 3 });
+
+    expect(deriveMentions([source], REPOS, [source, target])).toHaveLength(1);
   });
 });

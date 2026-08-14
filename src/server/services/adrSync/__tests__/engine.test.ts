@@ -85,6 +85,14 @@ beforeEach(() => {
   db.adrSyncRun.create.mockResolvedValue({ id: "run1" } as never);
   db.adrSyncRun.update.mockResolvedValue({} as never);
   db.adrSyncConfig.update.mockResolvedValue({} as never);
+  // Link recompute reads the workspace's enrolled repos.
+  db.adrSyncConfig.findMany.mockResolvedValue([
+    {
+      repositoryId: "repo1",
+      shortCode: "API",
+      repository: { fullName: "acme/api" },
+    },
+  ] as never);
   db.adrDocument.findMany.mockResolvedValue([]);
   db.adrDocument.create.mockResolvedValue({} as never);
   db.adrDocument.update.mockResolvedValue({} as never);
@@ -152,9 +160,13 @@ describe("runAdrSync", () => {
     db.adrDocument.findMany.mockResolvedValue([
       {
         id: "doc1",
+        repositoryId: "repo1",
         path: "docs/adr/0001-use-postgres.md",
         contentHash: "b1",
         deletedAt: null,
+        number: 1,
+        statusRaw: "Accepted",
+        body: "",
       },
     ] as never);
     const { remote, calls } = makeRemote();
@@ -174,9 +186,13 @@ describe("runAdrSync", () => {
     db.adrDocument.findMany.mockResolvedValue([
       {
         id: "doc-gone",
+        repositoryId: "repo1",
         path: "docs/adr/0000-removed.md",
         contentHash: "old",
         deletedAt: null,
+        number: 0,
+        statusRaw: null,
+        body: "",
       },
     ] as never);
     const { remote } = makeRemote();
@@ -327,7 +343,13 @@ describe("runAdrSync", () => {
 
     expect(result.status).toBe("success");
     expect(db.adrLink.deleteMany).toHaveBeenCalledWith({
-      where: { type: "SUPERSEDES", from: { repositoryId: "repo1" } },
+      where: {
+        OR: [
+          { type: "SUPERSEDES", from: { repositoryId: "repo1" } },
+          { type: "MENTIONS", from: { repositoryId: "repo1" } },
+          { type: "MENTIONS", to: { repositoryId: "repo1" } },
+        ],
+      },
     });
     expect(db.adrLink.createMany).toHaveBeenCalledWith({
       data: [
@@ -339,6 +361,59 @@ describe("runAdrSync", () => {
       ],
       skipDuplicates: true,
     });
+  });
+
+  it("recomputes cross-repo MENTIONS in both directions without refetching other repos", async () => {
+    db.adrSyncConfig.findUnique.mockResolvedValue(CONFIG as never);
+    db.adrSyncConfig.findMany.mockResolvedValue([
+      { repositoryId: "repo1", shortCode: "API", repository: { fullName: "acme/api" } },
+      { repositoryId: "repo2", shortCode: "PIPE", repository: { fullName: "acme/pipeline" } },
+    ] as never);
+    db.adrDocument.findMany
+      .mockResolvedValueOnce([] as never) // pre-sync existing docs
+      .mockResolvedValueOnce([
+        // this repo's doc mentions the other repo's ADR by short code…
+        {
+          id: "api-1",
+          repositoryId: "repo1",
+          number: 1,
+          statusRaw: "Accepted",
+          body: "See PIPE-0002 for the other half of this decision.",
+        },
+        // …and the other repo's STORED body names this repo + a number.
+        {
+          id: "pipe-2",
+          repositoryId: "repo2",
+          number: 2,
+          statusRaw: "Accepted",
+          body: "The api half lives in acme/api as 0001.",
+        },
+      ] as never);
+    const { remote } = makeRemote();
+
+    const result = await runAdrSync(db, "cfg1", "manual", {
+      remoteFactory: async () => remote,
+    });
+
+    expect(result.status).toBe("success");
+    const created = db.adrLink.createMany.mock.calls[0]?.[0] as {
+      data: Array<{ type: string; fromId: string; toId: string; evidence: string | null }>;
+    };
+    const mentions = created.data.filter((l) => l.type === "MENTIONS");
+    expect(mentions).toContainEqual(
+      expect.objectContaining({
+        fromId: "api-1",
+        toId: "pipe-2",
+        evidence: expect.stringContaining("PIPE-0002"),
+      }),
+    );
+    expect(mentions).toContainEqual(
+      expect.objectContaining({
+        fromId: "pipe-2",
+        toId: "api-1",
+        evidence: expect.stringContaining("acme/api"),
+      }),
+    );
   });
 
   it("errors the run (not the sweep) when the config is disconnected", async () => {
