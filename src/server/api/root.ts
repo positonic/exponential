@@ -2,6 +2,7 @@ import { postRouter } from "~/server/api/routers/post";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 import { actionRouter } from "./routers/action";
 import { adminRouter } from "./routers/admin";
+import { adrRouter } from "./routers/adr";
 import { projectRouter } from "./routers/project";
 import { searchRouter } from "./routers/search";
 import { toolRouter } from "./routers/tool";
@@ -101,6 +102,7 @@ export const appRouter = createTRPCRouter({
   search: searchRouter,
   action: actionRouter,
   admin: adminRouter,
+  adr: adrRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,
