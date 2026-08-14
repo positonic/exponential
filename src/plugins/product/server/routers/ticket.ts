@@ -163,6 +163,7 @@ export const ticketRouter = createTRPCRouter({
           syncs: {
             select: {
               provider: true,
+              externalId: true,
               externalUrl: true,
               lastSyncedAt: true,
               tombstonedAt: true,
@@ -236,6 +237,7 @@ export const ticketRouter = createTRPCRouter({
           syncs: {
             select: {
               provider: true,
+              externalId: true,
               externalUrl: true,
               lastSyncedAt: true,
               tombstonedAt: true,
