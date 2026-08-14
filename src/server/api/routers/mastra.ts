@@ -1186,7 +1186,7 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
