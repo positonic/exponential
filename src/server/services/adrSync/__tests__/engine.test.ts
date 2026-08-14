@@ -49,18 +49,27 @@ function makeRemote(overrides?: Partial<AdrRemote>): {
     getHead: vi.fn(async () => ({ commitSha: "c1", treeSha: "root1" })),
     getTree: vi.fn(async (_o, _r, sha, recursive) => {
       if (sha === "root1" && !recursive) {
-        return [{ path: "docs", type: "tree" as const, sha: "t-docs" }];
+        return {
+          truncated: false,
+          entries: [{ path: "docs", type: "tree" as const, sha: "t-docs" }],
+        };
       }
       if (sha === "t-docs" && !recursive) {
-        return [{ path: "adr", type: "tree" as const, sha: "t-adr" }];
+        return {
+          truncated: false,
+          entries: [{ path: "adr", type: "tree" as const, sha: "t-adr" }],
+        };
       }
       if (sha === "t-adr") {
-        return [
-          { path: "0001-use-postgres.md", type: "blob" as const, sha: "b1" },
-          { path: "README.txt", type: "blob" as const, sha: "b2" },
-        ];
+        return {
+          truncated: false,
+          entries: [
+            { path: "0001-use-postgres.md", type: "blob" as const, sha: "b1" },
+            { path: "README.txt", type: "blob" as const, sha: "b2" },
+          ],
+        };
       }
-      return [];
+      return { truncated: false, entries: [] };
     }),
     getBlob: vi.fn(async () => {
       calls.getBlob++;
@@ -242,6 +251,56 @@ describe("runAdrSync", () => {
     expect(result.items).toContainEqual(
       expect.objectContaining({ action: "skipped-template" }),
     );
+  });
+
+  it("does NOT advance lastTreeSha when any file failed, so the next run retries", async () => {
+    db.adrSyncConfig.findUnique.mockResolvedValue(CONFIG as never);
+    const { remote } = makeRemote({
+      getBlob: vi.fn(async () => {
+        throw new Error("rate limited");
+      }),
+    });
+
+    await runAdrSync(db, "cfg1", "manual", {
+      remoteFactory: async () => remote,
+    });
+
+    expect(db.adrSyncConfig.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastTreeSha: null }),
+      }),
+    );
+  });
+
+  it("fails the run on a truncated tree listing instead of mass-soft-deleting", async () => {
+    db.adrSyncConfig.findUnique.mockResolvedValue(CONFIG as never);
+    db.adrDocument.findMany.mockResolvedValue([
+      {
+        id: "doc1",
+        path: "docs/adr/0001-use-postgres.md",
+        contentHash: "b1",
+        deletedAt: null,
+      },
+    ] as never);
+    const base = makeRemote();
+    const { remote } = makeRemote({
+      getTree: vi.fn(async (o, r, sha, recursive) => {
+        if (sha === "t-adr" && recursive) {
+          return { truncated: true, entries: [] };
+        }
+        return base.remote.getTree(o, r, sha, recursive);
+      }),
+    });
+
+    const result = await runAdrSync(db, "cfg1", "manual", {
+      remoteFactory: async () => remote,
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("truncated");
+    // No soft-deletes and no short-circuit key advanced.
+    expect(db.adrDocument.update).not.toHaveBeenCalled();
+    expect(db.adrSyncConfig.update).not.toHaveBeenCalled();
   });
 
   it("errors the run (not the sweep) when the config is disconnected", async () => {

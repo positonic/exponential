@@ -67,7 +67,11 @@ export default function DecisionsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebouncedValue(search, 250);
 
-  const { data: adrs, isLoading: adrsLoading } = api.adr.list.useQuery(
+  const {
+    data: adrs,
+    isLoading: adrsLoading,
+    error: adrsError,
+  } = api.adr.list.useQuery(
     {
       workspaceId: workspaceId ?? "",
       repositoryIds: repoFilter.length > 0 ? repoFilter : undefined,
@@ -184,6 +188,12 @@ export default function DecisionsPage() {
 
       {adrsLoading ? (
         <Skeleton height={300} />
+      ) : adrsError ? (
+        <Text className="text-text-secondary">
+          {adrsError.data?.code === "FORBIDDEN"
+            ? "You don't have access to this workspace's decisions — they are visible to workspace members only."
+            : `Couldn't load decisions: ${adrsError.message}`}
+        </Text>
       ) : !adrs || adrs.length === 0 ? (
         <Text className="text-text-secondary">
           {hasFilters ? (

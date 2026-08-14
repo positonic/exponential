@@ -247,36 +247,73 @@ export const adrRouter = createTRPCRouter({
         });
       }
 
-      const results = [];
-      for (const config of input.configs) {
-        results.push(
-          await ctx.db.adrSyncConfig.upsert({
-            where: {
-              workspaceId_repositoryId: {
-                workspaceId: input.workspaceId,
-                repositoryId: config.repositoryId,
+      // One transaction so a multi-repo save never half-applies. Codes being
+      // swapped WITHIN the submission (A takes B's code and vice versa) would
+      // trip the unique constraint mid-loop, so existing rows in the
+      // submission are first parked on placeholder codes to free theirs.
+      try {
+        return await ctx.db.$transaction(async (tx) => {
+          const existingInSubmission = existingConfigs.filter((existing) =>
+            input.configs.some((c) => c.repositoryId === existing.repositoryId),
+          );
+          for (const existing of existingInSubmission) {
+            await tx.adrSyncConfig.update({
+              where: {
+                workspaceId_repositoryId: {
+                  workspaceId: input.workspaceId,
+                  repositoryId: existing.repositoryId,
+                },
               },
-            },
-            create: {
-              workspaceId: input.workspaceId,
-              repositoryId: config.repositoryId,
-              shortCode: config.shortCode,
-              adrPaths: config.adrPaths,
-              enabled: config.enabled,
-              integrationId: installation.id,
-              createdById: ctx.session.user.id,
-            },
-            update: {
-              shortCode: config.shortCode,
-              adrPaths: config.adrPaths,
-              enabled: config.enabled,
-              // Re-enrolling reconnects a previously disconnected config.
-              integrationId: installation.id,
-            },
-          }),
-        );
+              // repositoryId is unique per workspace, so this placeholder is too.
+              data: { shortCode: `~swap~${existing.repositoryId}` },
+            });
+          }
+
+          const results = [];
+          for (const config of input.configs) {
+            results.push(
+              await tx.adrSyncConfig.upsert({
+                where: {
+                  workspaceId_repositoryId: {
+                    workspaceId: input.workspaceId,
+                    repositoryId: config.repositoryId,
+                  },
+                },
+                create: {
+                  workspaceId: input.workspaceId,
+                  repositoryId: config.repositoryId,
+                  shortCode: config.shortCode,
+                  adrPaths: config.adrPaths,
+                  enabled: config.enabled,
+                  integrationId: installation.id,
+                  createdById: ctx.session.user.id,
+                },
+                update: {
+                  shortCode: config.shortCode,
+                  adrPaths: config.adrPaths,
+                  enabled: config.enabled,
+                  // Re-enrolling reconnects a previously disconnected config.
+                  integrationId: installation.id,
+                },
+              }),
+            );
+          }
+          return results;
+        });
+      } catch (error) {
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A short code in this submission collides with an existing one",
+          });
+        }
+        throw error;
       }
-      return results;
     }),
 
   /** Recent sync runs (the ledger), workspace-wide or for one config. */

@@ -156,13 +156,24 @@ export default function DecisionsSettingsPage() {
   const [syncingConfigId, setSyncingConfigId] = useState<string | null>(null);
   const syncNow = api.adr.syncNow.useMutation({
     onSuccess: async (result) => {
+      // The engine returns error RESULTS rather than throwing — branch on
+      // status or the real reason would be discarded.
+      if (result.status === "error") {
+        notifications.show({
+          title: "Sync failed",
+          message: result.error ?? "Unknown error",
+          color: "red",
+        });
+        await utils.adr.listRuns.invalidate();
+        return;
+      }
       notifications.show({
         title: result.status === "unchanged" ? "Already up to date" : "Synced",
         message:
           result.status === "unchanged"
             ? "No changes since the last sync."
             : `${result.created} created, ${result.updated} updated, ${result.skipped} skipped, ${result.deleted} removed${result.failed > 0 ? `, ${result.failed} failed` : ""}.`,
-        color: result.status === "error" ? "red" : "green",
+        color: "green",
       });
       await Promise.all([
         utils.adr.listRuns.invalidate(),

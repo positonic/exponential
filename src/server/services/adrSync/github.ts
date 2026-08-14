@@ -17,6 +17,16 @@ export interface AdrTreeEntry {
   sha: string;
 }
 
+export interface AdrTreeListing {
+  entries: AdrTreeEntry[];
+  /**
+   * GitHub truncates very large recursive listings (~100k entries / 7MB).
+   * A truncated listing must NEVER drive a sync: files absent from it would
+   * be mistaken for deletions.
+   */
+  truncated: boolean;
+}
+
 export interface AdrRemote {
   /** Default-branch head: commit SHA and its root tree SHA. */
   getHead(
@@ -29,7 +39,7 @@ export interface AdrRemote {
     repo: string,
     treeSha: string,
     recursive?: boolean,
-  ): Promise<AdrTreeEntry[]>;
+  ): Promise<AdrTreeListing>;
   /** Fetch one blob's content, decoded to UTF-8. */
   getBlob(owner: string, repo: string, blobSha: string): Promise<string>;
 }
@@ -73,18 +83,21 @@ export const createInstallationAdrRemote: AdrRemoteFactory = async (
         tree_sha: treeSha,
         ...(recursive ? { recursive: "true" } : {}),
       });
-      return (data.tree ?? [])
-        .filter(
-          (e): e is typeof e & { path: string; sha: string } =>
-            typeof e.path === "string" &&
-            typeof e.sha === "string" &&
-            (e.type === "blob" || e.type === "tree"),
-        )
-        .map((e) => ({
-          path: e.path,
-          type: e.type as "blob" | "tree",
-          sha: e.sha,
-        }));
+      return {
+        truncated: data.truncated === true,
+        entries: (data.tree ?? [])
+          .filter(
+            (e): e is typeof e & { path: string; sha: string } =>
+              typeof e.path === "string" &&
+              typeof e.sha === "string" &&
+              (e.type === "blob" || e.type === "tree"),
+          )
+          .map((e) => ({
+            path: e.path,
+            type: e.type as "blob" | "tree",
+            sha: e.sha,
+          })),
+      };
     },
     async getBlob(owner, repo, blobSha) {
       const { data } = await octokit.rest.git.getBlob({

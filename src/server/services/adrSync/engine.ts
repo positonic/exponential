@@ -75,8 +75,13 @@ async function resolveDirTreeSha(
   let currentSha = rootTreeSha;
   const segments = dirPath.split("/").filter((s) => s.length > 0);
   for (const segment of segments) {
-    const entries = await remote.getTree(owner, repo, currentSha);
-    const next = entries.find((e) => e.type === "tree" && e.path === segment);
+    const listing = await remote.getTree(owner, repo, currentSha);
+    if (listing.truncated) {
+      throw new Error(`Tree listing truncated while resolving ${dirPath}`);
+    }
+    const next = listing.entries.find(
+      (e) => e.type === "tree" && e.path === segment,
+    );
     if (!next) return null;
     currentSha = next.sha;
   }
@@ -122,16 +127,21 @@ export async function probeAdrPaths(
       results.push({ path: dirPath, exists: false, markdownCount: 0 });
       continue;
     }
-    const entries = await remote.getTree(
+    const listing = await remote.getTree(
       repository.owner,
       repository.name,
       dirSha,
       true,
     );
+    if (listing.truncated) {
+      throw new Error(
+        `Tree listing for ${dirPath} was truncated by GitHub — path covers too many files`,
+      );
+    }
     results.push({
       path: dirPath,
       exists: true,
-      markdownCount: entries.filter(
+      markdownCount: listing.entries.filter(
         (e) => e.type === "blob" && /\.md$/i.test(e.path),
       ).length,
     });
@@ -247,16 +257,19 @@ export async function runAdrSync(
       };
     }
 
-    // List every markdown blob under the enrolled dirs.
+    // List every markdown blob under the enrolled dirs. A truncated listing
+    // must fail the run: files missing from it would read as deletions and
+    // the advanced tree SHA would lock the loss in as "unchanged".
     const blobs: Array<{ path: string; sha: string }> = [];
     for (const dir of dirShas) {
       if (!dir.sha) continue;
-      const entries: AdrTreeEntry[] = await remote.getTree(
-        owner,
-        repoName,
-        dir.sha,
-        true,
-      );
+      const listing = await remote.getTree(owner, repoName, dir.sha, true);
+      if (listing.truncated) {
+        return await fail(
+          `Tree listing for ${dir.path} was truncated by GitHub — path covers too many files to sync safely`,
+        );
+      }
+      const entries: AdrTreeEntry[] = listing.entries;
       for (const entry of entries) {
         if (entry.type === "blob" && /\.md$/i.test(entry.path)) {
           blobs.push({ path: `${dir.path}/${entry.path}`, sha: entry.sha });
@@ -357,7 +370,11 @@ export async function runAdrSync(
     await db.adrSyncConfig.update({
       where: { id: configId },
       data: {
-        lastTreeSha: combined,
+        // Advance the short-circuit key only on a CLEAN run: a transient blob
+        // fetch failure would otherwise be locked in — the next run would see
+        // an unchanged tree and short-circuit past the retry forever on a
+        // quiet repo. Unchanged blobs still skip via their blob SHA.
+        lastTreeSha: failed === 0 ? combined : null,
         lastCommitSha: head.commitSha,
         lastSyncedAt: now(),
       },
