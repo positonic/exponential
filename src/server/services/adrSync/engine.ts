@@ -83,6 +83,62 @@ async function resolveDirTreeSha(
   return currentSha;
 }
 
+/**
+ * Pre-enrolment probe: how many markdown files live under each candidate dir?
+ * Read-only against GitHub; touches no rows. Backs the settings page's
+ * detected-count preview.
+ */
+export async function probeAdrPaths(
+  db: PrismaClient,
+  params: {
+    repositoryId: string;
+    adrPaths: string[];
+    /** The workspace's GitHub App installation integration id. */
+    installationId: number;
+  },
+  deps?: AdrSyncDeps,
+): Promise<Array<{ path: string; exists: boolean; markdownCount: number }>> {
+  const remoteFactory = deps?.remoteFactory ?? createInstallationAdrRemote;
+  const repository = await db.workspaceRepository.findUnique({
+    where: { id: params.repositoryId },
+    select: { owner: true, name: true },
+  });
+  if (!repository) {
+    throw new Error("Repository not found");
+  }
+  const remote = await remoteFactory(params.installationId);
+  const head = await remote.getHead(repository.owner, repository.name);
+
+  const results: Array<{ path: string; exists: boolean; markdownCount: number }> = [];
+  for (const dirPath of params.adrPaths) {
+    const dirSha = await resolveDirTreeSha(
+      remote,
+      repository.owner,
+      repository.name,
+      head.treeSha,
+      dirPath,
+    );
+    if (!dirSha) {
+      results.push({ path: dirPath, exists: false, markdownCount: 0 });
+      continue;
+    }
+    const entries = await remote.getTree(
+      repository.owner,
+      repository.name,
+      dirSha,
+      true,
+    );
+    results.push({
+      path: dirPath,
+      exists: true,
+      markdownCount: entries.filter(
+        (e) => e.type === "blob" && /\.md$/i.test(e.path),
+      ).length,
+    });
+  }
+  return results;
+}
+
 export async function runAdrSync(
   db: PrismaClient,
   configId: string,

@@ -2,7 +2,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access";
-import { runAdrSync } from "~/server/services/adrSync/engine";
+import { probeAdrPaths, runAdrSync } from "~/server/services/adrSync/engine";
+import { readInstallationId } from "~/server/services/adrSync/github";
 import {
   GITHUB_INSTALLATION_PROVIDER,
   GITHUB_INSTALLATION_TYPE,
@@ -217,6 +218,108 @@ export const adrRouter = createTRPCRouter({
         );
       }
       return results;
+    }),
+
+  /**
+   * Disable a config: soft state change only. Nulls the integration link and
+   * flips `enabled` off; documents, links and run history are all retained
+   * (ADR-0042 precedent).
+   */
+  disableConfig: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), configId: z.string() }))
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const config = await ctx.db.adrSyncConfig.findFirst({
+        where: { id: input.configId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!config) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Sync config not found" });
+      }
+      return ctx.db.adrSyncConfig.update({
+        where: { id: config.id },
+        data: { enabled: false, integrationId: null },
+      });
+    }),
+
+  /**
+   * Assign (or clear) a repo's product. ADRs derive their product through the
+   * repo; null means workspace-level (e.g. a shared architecture repo).
+   */
+  setRepositoryProduct: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        repositoryId: z.string(),
+        productId: z.string().nullable(),
+      }),
+    )
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const repository = await ctx.db.workspaceRepository.findFirst({
+        where: { id: input.repositoryId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!repository) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Repository not found" });
+      }
+      if (input.productId !== null) {
+        const product = await ctx.db.product.findFirst({
+          where: { id: input.productId, workspaceId: input.workspaceId },
+          select: { id: true },
+        });
+        if (!product) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
+        }
+      }
+      return ctx.db.workspaceRepository.update({
+        where: { id: repository.id },
+        data: { productId: input.productId },
+      });
+    }),
+
+  /**
+   * Pre-enrolment probe: does each candidate path exist, and how many markdown
+   * files does it hold? Read-only against GitHub; writes nothing.
+   */
+  probePaths: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        repositoryId: z.string(),
+        adrPaths: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const repository = await ctx.db.workspaceRepository.findFirst({
+        where: { id: input.repositoryId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!repository) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Repository not found" });
+      }
+      const installation = await ctx.db.integration.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          provider: GITHUB_INSTALLATION_PROVIDER,
+          type: GITHUB_INSTALLATION_TYPE,
+          status: "ACTIVE",
+        },
+        select: { providerConfig: true },
+      });
+      const installationId = readInstallationId(installation?.providerConfig);
+      if (!installationId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "GitHub App is not installed for this workspace",
+        });
+      }
+      return probeAdrPaths(ctx.db, {
+        repositoryId: repository.id,
+        adrPaths: input.adrPaths,
+        installationId,
+      });
     }),
 
   /** Run one config's sync immediately. Admin only. */
