@@ -303,6 +303,44 @@ describe("runAdrSync", () => {
     expect(db.adrSyncConfig.update).not.toHaveBeenCalled();
   });
 
+  it("recomputes SUPERSEDES edges for the repo after upserting", async () => {
+    db.adrSyncConfig.findUnique.mockResolvedValue(CONFIG as never);
+    // First findMany: existing docs (pre-sync). Second: fresh repo docs for
+    // link derivation, one of which declares supersession.
+    db.adrDocument.findMany
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([
+        {
+          id: "old",
+          repositoryId: "repo1",
+          number: 1,
+          statusRaw: "Superseded by ADR-0002",
+          body: "",
+        },
+        { id: "new", repositoryId: "repo1", number: 2, statusRaw: "Accepted", body: "" },
+      ] as never);
+    const { remote } = makeRemote();
+
+    const result = await runAdrSync(db, "cfg1", "manual", {
+      remoteFactory: async () => remote,
+    });
+
+    expect(result.status).toBe("success");
+    expect(db.adrLink.deleteMany).toHaveBeenCalledWith({
+      where: { type: "SUPERSEDES", from: { repositoryId: "repo1" } },
+    });
+    expect(db.adrLink.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          type: "SUPERSEDES",
+          fromId: "new",
+          toId: "old",
+        }),
+      ],
+      skipDuplicates: true,
+    });
+  });
+
   it("errors the run (not the sweep) when the config is disconnected", async () => {
     db.adrSyncConfig.findUnique.mockResolvedValue({
       ...CONFIG,

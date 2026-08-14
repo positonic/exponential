@@ -1,5 +1,6 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { parseAdr } from "./parser";
+import { deriveSupersedes } from "./linkDerivation";
 import {
   createInstallationAdrRemote,
   readInstallationId,
@@ -365,6 +366,31 @@ export async function runAdrSync(
         deleted++;
         items.push({ path: doc.path, action: "deleted", reason: "file removed from repo" });
       }
+    }
+
+    // Recompute derived SUPERSEDES edges for this repo from the fresh docs.
+    // SUPERSEDES is always intra-repo (resolved by number within the repo),
+    // so deleting by from-side repo covers every stale edge. MENTIONS edges
+    // are recomputed separately and never touched here.
+    const repoDocs = await db.adrDocument.findMany({
+      where: { repositoryId: config.repository.id, deletedAt: null },
+      select: {
+        id: true,
+        repositoryId: true,
+        number: true,
+        statusRaw: true,
+        body: true,
+      },
+    });
+    const supersedes = deriveSupersedes(repoDocs);
+    await db.adrLink.deleteMany({
+      where: { type: "SUPERSEDES", from: { repositoryId: config.repository.id } },
+    });
+    if (supersedes.length > 0) {
+      await db.adrLink.createMany({
+        data: supersedes,
+        skipDuplicates: true,
+      });
     }
 
     await db.adrSyncConfig.update({
