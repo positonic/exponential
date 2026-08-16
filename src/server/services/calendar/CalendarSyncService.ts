@@ -52,11 +52,33 @@ function textOf(value: unknown): string | null {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * node-ical parses VALUE=DATE values as *server-local* midnight, which makes
+ * the stored instant depend on the machine's timezone. Re-anchor all-day
+ * dates to UTC midnight of the same calendar date, so a stored all-day row
+ * always renders as `toISOString().slice(0, 10)` regardless of server TZ.
+ */
+function allDayUtc(d: Date): Date {
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
+/** Keep events overlapping the window; zero-duration events count when their instant is inside. */
+function overlapsWindow(startsAt: Date, endsAt: Date, window: { from: Date; to: Date }): boolean {
+  return (
+    startsAt < window.to &&
+    (endsAt > window.from ||
+      (endsAt.getTime() === startsAt.getTime() && endsAt >= window.from))
+  );
+}
+
+/**
  * Parse ICS text into normalized events overlapping `window`.
  *
- * Recurring events (RRULE) are skipped for now — recurrence expansion lands
- * separately. Cancelled events are dropped. An event with no DTEND gets the
- * RFC 5545 default duration: one day for all-day events, zero otherwise.
+ * Recurring events are expanded into concrete instances within the window —
+ * RRULE (honoring COUNT/UNTIL), EXDATE exclusions, and RECURRENCE-ID
+ * overrides (a moved instance carries its override's time/title/location).
+ * Cancelled events and cancelled override instances are dropped. An event
+ * with no DTEND gets the RFC 5545 default duration: one day for all-day
+ * events, zero otherwise.
  */
 export function parseIcsFeed(
   icsText: string,
@@ -72,26 +94,50 @@ export function parseIcsFeed(
   for (const component of Object.values(parsed)) {
     if (!component || component.type !== "VEVENT") continue;
     const event = component;
-
-    // Recurrence expansion is a separate slice.
-    if (event.rrule) continue;
-    if (event.status === "CANCELLED") continue;
     if (!event.uid || !(event.start instanceof Date)) continue;
 
+    if (event.rrule) {
+      // expandOngoing keeps instances that started before the window but are
+      // still running at its start (e.g. a multi-day recurring event).
+      const instances = ical.expandRecurringEvent(event, {
+        from: window.from,
+        to: window.to,
+        expandOngoing: true,
+      });
+      for (const instance of instances) {
+        // A cancelled RECURRENCE-ID override is how feeds delete one
+        // instance without an EXDATE.
+        if (instance.event.status === "CANCELLED") continue;
+        const isAllDay = instance.isFullDay;
+        const startsAt = isAllDay ? allDayUtc(instance.start) : instance.start;
+        const endsAt = isAllDay ? allDayUtc(instance.end) : instance.end;
+        if (!overlapsWindow(startsAt, endsAt, window)) continue;
+        events.push({
+          externalId: event.uid,
+          // instance.event is the override VEVENT for moved instances, the
+          // base event otherwise — so overridden titles/locations stick.
+          title: textOf(instance.event.summary ?? event.summary),
+          location: textOf(instance.event.location ?? event.location),
+          startsAt,
+          endsAt,
+          isAllDay,
+        });
+      }
+      continue;
+    }
+
+    if (event.status === "CANCELLED") continue;
+
     const isAllDay = event.datetype === "date";
-    const startsAt = event.start;
-    const endsAt =
+    const rawStart = event.start;
+    const rawEnd =
       event.end instanceof Date
         ? event.end
-        : new Date(startsAt.getTime() + (isAllDay ? MS_PER_DAY : 0));
+        : new Date(rawStart.getTime() + (isAllDay ? MS_PER_DAY : 0));
+    const startsAt = isAllDay ? allDayUtc(rawStart) : rawStart;
+    const endsAt = isAllDay ? allDayUtc(rawEnd) : rawEnd;
 
-    // Keep events overlapping the window (end exclusive on both sides, with
-    // zero-duration events kept when their instant is inside the window).
-    const overlaps =
-      startsAt < window.to &&
-      (endsAt > window.from ||
-        (endsAt.getTime() === startsAt.getTime() && endsAt >= window.from));
-    if (!overlaps) continue;
+    if (!overlapsWindow(startsAt, endsAt, window)) continue;
 
     events.push({
       externalId: event.uid,
