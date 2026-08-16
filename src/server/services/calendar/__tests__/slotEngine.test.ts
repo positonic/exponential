@@ -96,4 +96,113 @@ describe("computeSlots", () => {
 
     expect(slots).toHaveLength(7);
   });
+
+  describe("work hours ∩ timezones", () => {
+    const nineToFive = (timezone: string | null) => ({
+      workHoursEnabled: true,
+      workDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      workHoursStart: "09:00",
+      workHoursEnd: "17:00",
+      timezone,
+    });
+
+    // Tue 2026-08-18, whole day UTC.
+    const DAY_RANGE = {
+      from: new Date("2026-08-18T00:00:00Z"),
+      to: new Date("2026-08-19T00:00:00Z"),
+    };
+
+    it("clamps slots to an attendee's hours in THEIR timezone", () => {
+      // Berlin (UTC+2 in August): 9–17 local = 07:00–15:00Z.
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([["a", []]]),
+        attendeeSettings: new Map([["a", nineToFive("Europe/Berlin")]]),
+        durationMinutes: 60,
+        range: DAY_RANGE,
+      });
+
+      expect(slots[0]!.startsAt.toISOString()).toBe("2026-08-18T07:00:00.000Z");
+      expect(slots.at(-1)!.endsAt.toISOString()).toBe("2026-08-18T15:00:00.000Z");
+    });
+
+    it("intersects two attendees' hours across timezones", () => {
+      // Berlin 9–17 = 07:00–15:00Z; Los Angeles (UTC-7) 9–17 = 16:00–24:00Z.
+      // No overlap on this day → no slots.
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([
+          ["berlin", []],
+          ["la", []],
+        ]),
+        attendeeSettings: new Map([
+          ["berlin", nineToFive("Europe/Berlin")],
+          ["la", nineToFive("America/Los_Angeles")],
+        ]),
+        durationMinutes: 60,
+        range: DAY_RANGE,
+      });
+
+      expect(slots).toHaveLength(0);
+    });
+
+    it("the outside-hours escape hatch bypasses the filter", () => {
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([
+          ["berlin", []],
+          ["la", []],
+        ]),
+        attendeeSettings: new Map([
+          ["berlin", nineToFive("Europe/Berlin")],
+          ["la", nineToFive("America/Los_Angeles")],
+        ]),
+        includeOutsideWorkHours: true,
+        durationMinutes: 60,
+        range: DAY_RANGE,
+        maxSlots: 5,
+      });
+
+      expect(slots).toHaveLength(5);
+    });
+
+    it("excludes non-work days in the attendee's zone", () => {
+      // Sat 2026-08-22 UTC — a Mon–Fri attendee blocks the whole day.
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([["a", []]]),
+        attendeeSettings: new Map([["a", nineToFive("Europe/Berlin")]]),
+        durationMinutes: 60,
+        range: {
+          from: new Date("2026-08-22T00:00:00Z"),
+          to: new Date("2026-08-23T00:00:00Z"),
+        },
+      });
+
+      expect(slots).toHaveLength(0);
+    });
+
+    it("attendees with work hours disabled are unconstrained", () => {
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([["a", []]]),
+        attendeeSettings: new Map([
+          ["a", { ...nineToFive("Europe/Berlin"), workHoursEnabled: false }],
+        ]),
+        durationMinutes: 60,
+        range: DAY_RANGE,
+      });
+
+      // Full UTC day on a 30-min grid, capped at the default 20.
+      expect(slots).toHaveLength(20);
+      expect(slots[0]!.startsAt.toISOString()).toBe("2026-08-18T00:00:00.000Z");
+    });
+
+    it("falls back to the organizer's timezone when the attendee has none", () => {
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([["a", []]]),
+        attendeeSettings: new Map([["a", nineToFive(null)]]),
+        organizerTimezone: "Europe/Berlin",
+        durationMinutes: 60,
+        range: DAY_RANGE,
+      });
+
+      expect(slots[0]!.startsAt.toISOString()).toBe("2026-08-18T07:00:00.000Z");
+    });
+  });
 });

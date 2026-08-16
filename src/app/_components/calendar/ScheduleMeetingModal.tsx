@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   Button,
+  Checkbox,
   Group,
   Modal,
   MultiSelect,
@@ -41,6 +42,7 @@ export function ScheduleMeetingModal({
   const [title, setTitle] = useState("");
   const [selectedSlot, setSelectedSlot] = useState<{ startsAt: Date; endsAt: Date } | null>(null);
   const [searching, setSearching] = useState(false);
+  const [includeOutsideWorkHours, setIncludeOutsideWorkHours] = useState(false);
 
   const { data: members } = api.workspaceScheduling.listSchedulableMembers.useQuery(
     { workspaceId: workspaceId! },
@@ -63,6 +65,7 @@ export function ScheduleMeetingModal({
       workspaceId: workspaceId!,
       attendeeUserIds: attendeeIds,
       durationMinutes: Number(durationMinutes),
+      includeOutsideWorkHours,
       ...range,
     },
     { enabled: searching && !!workspaceId && attendeeIds.length > 0, retry: false },
@@ -162,6 +165,16 @@ export function ScheduleMeetingModal({
             Find times (next 7 days)
           </Button>
         </Group>
+
+        <Checkbox
+          size="xs"
+          label="Include times outside attendees' working hours"
+          checked={includeOutsideWorkHours}
+          onChange={(e) => {
+            setIncludeOutsideWorkHours(e.currentTarget.checked);
+            setSelectedSlot(null);
+          }}
+        />
 
         {unknownCount > 0 && (
           <Text size="xs" c="dimmed">

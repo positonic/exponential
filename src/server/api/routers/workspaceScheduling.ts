@@ -117,6 +117,7 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         durationMinutes: z.number().int().min(15).max(8 * 60),
         rangeStart: z.date(),
         rangeEnd: z.date(),
+        includeOutsideWorkHours: z.boolean().default(false),
       }),
     )
     .use(requireWorkspaceMembership("view"))
@@ -143,8 +144,56 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         (id) => (busyBlocksByUser.get(id) ?? []).length === 0,
       );
 
+      // Work-hours settings for every attendee (self-describing fields, not
+      // event data — no privacy concern) + the organizer's timezone as the
+      // fallback zone for attendees who never set one.
+      const [attendeeRows, organizerRow] = await Promise.all([
+        db.user.findMany({
+          where: { id: { in: input.attendeeUserIds } },
+          select: {
+            id: true,
+            workHoursEnabled: true,
+            workDaysJson: true,
+            workHoursStart: true,
+            workHoursEnd: true,
+            timezone: true,
+          },
+        }),
+        db.user.findUnique({
+          where: { id: ctx.session.user.id },
+          select: { timezone: true },
+        }),
+      ]);
+      const attendeeSettings = new Map(
+        attendeeRows.map((row) => {
+          let workDays: string[] = [];
+          if (row.workDaysJson) {
+            try {
+              workDays = (JSON.parse(row.workDaysJson) as string[]).map((d) =>
+                d.toLowerCase(),
+              );
+            } catch {
+              workDays = [];
+            }
+          }
+          return [
+            row.id,
+            {
+              workHoursEnabled: row.workHoursEnabled,
+              workDays,
+              workHoursStart: row.workHoursStart,
+              workHoursEnd: row.workHoursEnd,
+              timezone: row.timezone,
+            },
+          ] as const;
+        }),
+      );
+
       const slots = computeSlots({
         busyBlocksByUser,
+        attendeeSettings,
+        organizerTimezone: organizerRow?.timezone ?? null,
+        includeOutsideWorkHours: input.includeOutsideWorkHours,
         durationMinutes: input.durationMinutes,
         range: { from: input.rangeStart, to: input.rangeEnd },
       });

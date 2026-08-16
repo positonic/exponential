@@ -292,6 +292,26 @@ describe("workspaceScheduling router (mocked)", () => {
       ] as never);
       // user-nodata has no synced rows at all → truly unknown.
       dbMock.calendarEvent.groupBy.mockResolvedValue([] as never);
+      // Work hours off for both attendees — this test is about free/busy.
+      dbMock.user.findMany.mockResolvedValue([
+        {
+          id: "user-a",
+          workHoursEnabled: false,
+          workDaysJson: null,
+          workHoursStart: null,
+          workHoursEnd: null,
+          timezone: null,
+        },
+        {
+          id: "user-nodata",
+          workHoursEnabled: false,
+          workDaysJson: null,
+          workHoursStart: null,
+          workHoursEnd: null,
+          timezone: null,
+        },
+      ] as never);
+      dbMock.user.findUnique.mockResolvedValue({ timezone: null } as never);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       const result = await caller.workspaceScheduling.suggestSlots({
