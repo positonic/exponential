@@ -325,6 +325,95 @@ export const workspaceSchedulingRouter = createTRPCRouter({
       };
     }),
 
+  /**
+   * Cancel = the only mutation after create (reschedule is cancel + rebook,
+   * a V3 non-goal). Bumps SEQUENCE and emails METHOD:CANCEL against the
+   * original UID, which is what removes the event from attendees' real
+   * calendars. Organizer-only.
+   */
+  cancelMeeting: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), meetingId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .mutation(async ({ ctx, input }) => {
+      const db = ctx.db as PrismaClient;
+      const userId = ctx.session.user.id;
+      await assertNotViewer(db, userId, input.workspaceId);
+
+      const meeting = await db.meeting.findFirst({
+        where: { id: input.meetingId, workspaceId: input.workspaceId },
+        include: {
+          attendees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          organizer: { select: { id: true, name: true, email: true } },
+        },
+      });
+      if (!meeting) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Meeting not found" });
+      }
+      if (meeting.organizerId !== userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the organizer can cancel a meeting",
+        });
+      }
+      if (meeting.status === "cancelled") {
+        return { id: meeting.id, status: meeting.status, invitesSent: 0 };
+      }
+
+      const cancelled = await db.meeting.update({
+        where: { id: meeting.id },
+        data: { status: "cancelled", sequence: { increment: 1 } },
+        select: { sequence: true },
+      });
+
+      const organizer = {
+        name: meeting.organizer.name,
+        email: meeting.organizer.email ?? "noreply@exponential.im",
+      };
+      const recipients = meeting.attendees
+        .map((a) => a.user)
+        .filter((u): u is typeof u & { email: string } => !!u.email);
+      const ics = buildInviteIcs({
+        method: "CANCEL",
+        uid: meeting.icalUid,
+        sequence: cancelled.sequence,
+        organizer,
+        attendees: recipients.map((u) => ({ name: u.name, email: u.email })),
+        title: meeting.title,
+        description: meeting.description,
+        location: meeting.location,
+        startsAt: meeting.startsAt,
+        endsAt: meeting.endsAt,
+      });
+
+      let invitesSent = 0;
+      for (const recipient of recipients) {
+        try {
+          await sendMeetingInviteEmail({
+            to: recipient.email,
+            method: "CANCEL",
+            meetingTitle: meeting.title,
+            organizerName: organizer.name ?? organizer.email,
+            startsAt: meeting.startsAt,
+            endsAt: meeting.endsAt,
+            location: meeting.location,
+            icsContent: ics,
+            workspaceId: input.workspaceId,
+          });
+          invitesSent += 1;
+        } catch (error) {
+          const { reportHandledErrorServer } = await import(
+            "~/server/utils/reportHandledErrorServer"
+          );
+          reportHandledErrorServer(error, {
+            area: "workspaceScheduling.cancelMeeting.invite",
+            context: { meetingId: meeting.id },
+          });
+        }
+      }
+
+      return { id: meeting.id, status: "cancelled", invitesSent };
+    }),
+
   listMeetings: protectedProcedure
     .input(
       z.object({

@@ -13,9 +13,12 @@ import {
   TextInput,
   UnstyledButton,
 } from "@mantine/core";
-import { IconCalendarPlus } from "@tabler/icons-react";
+import { IconCalendarPlus, IconCalendarX } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
+import { ActionIcon, Tooltip } from "@mantine/core";
+import { useSession } from "next-auth/react";
 
 /**
  * "Schedule meeting" (V3 workspace scheduling), first cut: pick a workspace,
@@ -48,6 +51,45 @@ export function ScheduleMeetingModal({
     { workspaceId: workspaceId! },
     { enabled: opened && !!workspaceId },
   );
+
+  const { data: session } = useSession();
+  const { data: upcomingMeetings } = api.workspaceScheduling.listMeetings.useQuery(
+    { workspaceId: workspaceId!, from: new Date() },
+    { enabled: opened && !!workspaceId },
+  );
+
+  const cancelMeeting = api.workspaceScheduling.cancelMeeting.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.workspaceScheduling.listMeetings.invalidate(),
+        utils.calendar.getEventsMultiCalendar.invalidate(),
+      ]);
+      notifications.show({
+        title: "Meeting cancelled",
+        message: `${result.invitesSent} cancellation${result.invitesSent === 1 ? "" : "s"} sent to attendees' calendars.`,
+        color: "blue",
+      });
+    },
+    onError: (error) => {
+      notifications.show({ title: "Couldn't cancel", message: error.message, color: "red" });
+    },
+  });
+
+  const confirmCancel = (meeting: { id: string; title: string }) => {
+    if (!workspaceId) return;
+    modals.openConfirmModal({
+      title: "Cancel meeting?",
+      children: (
+        <Text size="sm">
+          Attendees will receive a cancellation that removes “{meeting.title}”
+          from their calendars. Rescheduling means booking a new meeting.
+        </Text>
+      ),
+      labels: { confirm: "Cancel meeting", cancel: "Keep meeting" },
+      confirmProps: { color: "red" },
+      onConfirm: () => cancelMeeting.mutate({ workspaceId, meetingId: meeting.id }),
+    });
+  };
 
   // Rolling week starting "now" — good enough for the first cut.
   const range = useMemo(
@@ -130,6 +172,48 @@ export function ScheduleMeetingModal({
           searchable
           placeholder="Pick a workspace"
         />
+
+        {workspaceId && (upcomingMeetings?.length ?? 0) > 0 && (
+          <Stack gap={4}>
+            <Text size="sm" fw={600}>
+              Upcoming meetings
+            </Text>
+            {upcomingMeetings!.filter((m) => m.status !== "cancelled").map((meeting) => (
+              <Group key={meeting.id} gap="xs" wrap="nowrap" className="rounded border border-border-primary px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <Text size="sm" className="truncate">
+                    {meeting.title}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {meeting.startsAt.toLocaleString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {" · "}
+                    {meeting.attendees.length} attendee{meeting.attendees.length === 1 ? "" : "s"}
+                  </Text>
+                </div>
+                {meeting.organizer.id === session?.user?.id && (
+                  <Tooltip label="Cancel meeting" withinPortal>
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      size="sm"
+                      aria-label={`Cancel ${meeting.title}`}
+                      loading={cancelMeeting.isPending}
+                      onClick={() => confirmCancel(meeting)}
+                    >
+                      <IconCalendarX size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              </Group>
+            ))}
+          </Stack>
+        )}
 
         <MultiSelect
           label="Attendees"

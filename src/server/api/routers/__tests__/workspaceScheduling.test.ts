@@ -149,6 +149,17 @@ describe("workspaceScheduling router (mocked)", () => {
       expect(sendMeetingInviteEmailMock).not.toHaveBeenCalled();
     });
 
+    it("rejects viewers on cancelMeeting", async () => {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.cancelMeeting({
+          workspaceId: WORKSPACE_ID,
+          meetingId: "meeting-1",
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.meeting.update).not.toHaveBeenCalled();
+    });
+
     it("rejects viewers on listMeetings", async () => {
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       await expect(
@@ -255,6 +266,85 @@ describe("workspaceScheduling router (mocked)", () => {
 
       expect(result.id).toBe("meeting-1");
       expect(result.invitesSent).toBe(0);
+    });
+  });
+
+  describe("cancelMeeting", () => {
+    const storedMeeting = {
+      id: "meeting-1",
+      workspaceId: WORKSPACE_ID,
+      organizerId: ORGANIZER_ID,
+      title: "Design sync",
+      description: null,
+      location: null,
+      startsAt: new Date("2026-08-18T09:00:00Z"),
+      endsAt: new Date("2026-08-18T10:00:00Z"),
+      icalUid: "uid-1@exponential.im",
+      sequence: 0,
+      status: "confirmed",
+      organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+      attendees: [{ user: { id: "user-a", name: "A", email: "a@example.com" } }],
+    };
+
+    beforeEach(() => {
+      dbMock.workspaceUser.findFirst.mockResolvedValue({ role: "member" } as never);
+    });
+
+    it("only the organizer can cancel", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue(storedMeeting as never);
+
+      const caller = createMockCaller({ userId: "user-a", db: dbMock });
+      await expect(
+        caller.workspaceScheduling.cancelMeeting({
+          workspaceId: WORKSPACE_ID,
+          meetingId: "meeting-1",
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.meeting.update).not.toHaveBeenCalled();
+    });
+
+    it("bumps SEQUENCE, flips status, and sends METHOD:CANCEL against the original UID", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue(storedMeeting as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      const result = await caller.workspaceScheduling.cancelMeeting({
+        workspaceId: WORKSPACE_ID,
+        meetingId: "meeting-1",
+      });
+
+      expect(result).toMatchObject({ status: "cancelled", invitesSent: 1 });
+      expect(dbMock.meeting.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: "cancelled", sequence: { increment: 1 } },
+        }),
+      );
+      const call = sendMeetingInviteEmailMock.mock.calls[0]![0] as {
+        method: string;
+        icsContent: string;
+      };
+      expect(call.method).toBe("CANCEL");
+      expect(call.icsContent).toContain("METHOD:CANCEL");
+      expect(call.icsContent).toContain("STATUS:CANCELLED");
+      expect(call.icsContent).toContain("UID:uid-1@exponential.im");
+      expect(call.icsContent).toContain("SEQUENCE:1");
+    });
+
+    it("cancelling an already-cancelled meeting is a no-op", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        status: "cancelled",
+      } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      const result = await caller.workspaceScheduling.cancelMeeting({
+        workspaceId: WORKSPACE_ID,
+        meetingId: "meeting-1",
+      });
+
+      expect(result.invitesSent).toBe(0);
+      expect(dbMock.meeting.update).not.toHaveBeenCalled();
+      expect(sendMeetingInviteEmailMock).not.toHaveBeenCalled();
     });
   });
 
