@@ -133,6 +133,53 @@ describe("syncConnectedAccount — Microsoft busy-time sync", () => {
     expect(rows.map((r) => r.externalId)).toEqual(["graph-1"]);
   });
 
+  it("skips Google accounts of non-testers, sweeps Google testers", async () => {
+    const nonTester = await createUser(db, { email: "regular@example.com" });
+    await db.connectedAccount.create({
+      data: {
+        userId: nonTester.id,
+        provider: "google",
+        providerAccountId: `g-${nonTester.id}`,
+        access_token: "tok",
+        refresh_token: "ref",
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      },
+    });
+    const tester = await createUser(db, { email: "tester@example.com" });
+    const testerAccount = await db.connectedAccount.create({
+      data: {
+        userId: tester.id,
+        provider: "google",
+        providerAccountId: `g-${tester.id}`,
+        access_token: "tok",
+        refresh_token: "ref",
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+      },
+    });
+
+    vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", "tester@example.com");
+    // Whatever the Google client does under the hood, this run must never
+    // reach the real API — a failing stub still proves "attempted".
+    stubGraph({ error: "stubbed" }, 500);
+    try {
+      const result = await runCalendarSync(db);
+
+      // Only the tester's account was attempted at all.
+      expect(result.accounts.processed).toBe(1);
+      const testerRow = await db.connectedAccount.findUniqueOrThrow({
+        where: { id: testerAccount.id },
+      });
+      expect(testerRow.calendarLastSyncAttemptAt).not.toBeNull();
+
+      const nonTesterRow = await db.connectedAccount.findFirstOrThrow({
+        where: { userId: nonTester.id },
+      });
+      expect(nonTesterRow.calendarLastSyncAttemptAt).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("runCalendarSync sweeps Microsoft accounts alongside feeds", async () => {
     const { user, account } = await seedAccount();
     stubGraph(graphPayload([{ id: "graph-1", subject: "Swept", start: startA, end: endA }]));

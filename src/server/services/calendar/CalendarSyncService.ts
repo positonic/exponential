@@ -591,10 +591,11 @@ export interface CalendarSweepResult {
 }
 
 /**
- * Providers included in the busy-time account sweep. Microsoft only for now
- * — the Google path follows once the OAuth-tester gate is threaded through.
+ * Providers included in the busy-time account sweep. Google accounts are
+ * additionally gated per user by the OAuth-tester allowlist — non-testers'
+ * tokens must not be exercised against Google's unverified scopes.
  */
-const SWEEP_ACCOUNT_PROVIDERS = ["microsoft-entra-id"];
+const SWEEP_ACCOUNT_PROVIDERS = ["microsoft-entra-id", "google"];
 
 /**
  * One bounded cron sweep: re-sync the enabled ICS feeds and the connected
@@ -637,15 +638,22 @@ export async function runCalendarSync(
   // Busy-time account sweep — same fairness ordering, its own batch cap.
   // Only accounts with a usable token are worth attempting; a token-less row
   // would just churn into error state every 15 minutes.
-  const accounts = await db.connectedAccount.findMany({
+  const candidates = await db.connectedAccount.findMany({
     where: {
       provider: { in: SWEEP_ACCOUNT_PROVIDERS },
       access_token: { not: null },
     },
-    select: { id: true },
+    select: { id: true, provider: true, user: { select: { email: true } } },
     orderBy: { calendarLastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: ACCOUNT_SYNC_BATCH_SIZE,
   });
+
+  // Same lazy-import rationale as the provider services.
+  const { isGoogleOAuthTester } = await import("~/lib/googleAuth");
+  const accounts = candidates.filter(
+    (account) =>
+      account.provider !== "google" || isGoogleOAuthTester(account.user.email),
+  );
 
   result.accounts.processed = accounts.length;
   for (const account of accounts) {
