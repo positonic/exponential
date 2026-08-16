@@ -13,8 +13,16 @@ _Avoid_: Self-hosted, BYOC, customer cloud, or air-gapped as synonyms — those 
 ### Meetings
 
 **Meeting**:
-A recorded conversation captured as a transcript, summary, and participant list. Stored in `TranscriptionSession` in the schema; the user-facing word is always "meeting", never "transcription" or "session".
+A recorded conversation captured as a transcript, summary, and participant list. Stored in `TranscriptionSession` in the schema; the user-facing word is always "meeting", never "transcription" or "session". Strictly distinct from a **Scheduled meeting** (a future calendar booking) — a Meeting is a thing that *happened*. Known wart: the Prisma model named `Meeting` stores Scheduled meetings, not this concept (decision 2026-08-16: renaming the model was considered and rejected as churn; unifying the two entities into one lifecycle is deferred to its own design session).
 _Avoid_: Transcription, session, call.
+
+**Scheduled meeting**:
+A future calendar booking created from the schedule-meeting flow: workspace-scoped, organizer plus attendee **workspace members**, written to real calendars exclusively via iCalendar invite email (METHOD:REQUEST / CANCEL against a stable UID — no API write-back). Stored in the Prisma `Meeting` + `MeetingAttendee` models (see the naming wart under **Meeting**). Lifecycle: confirmed → cancelled; reschedule = cancel + rebook.
+_Avoid_: Meeting (reserved for the recorded conversation), event (reserved for `CalendarEvent` busy rows), booking.
+
+**Scheduling window**:
+The outer bound on suggested Scheduled-meeting times — 07:00–20:00 judged on *each attendee's own wall clock*. The fallback constraint when an attendee's **work hours** don't apply: "include times outside working hours" relaxes suggestions from work hours to the scheduling window, never to 24/7. Hardcoded (decision 2026-08-16: per-user/workspace configurability deferred until requested; work hours themselves are already per-user in Settings → Profile).
+_Avoid_: Business hours (that's work hours), daytime.
 
 **Ritual**:
 A recurring team meeting on a stable cadence with a stable participant set — standup, retro, weekly sync, planning, all-hands. Detected by calendar recurrence rule (future work) or a user mark on a meeting series.

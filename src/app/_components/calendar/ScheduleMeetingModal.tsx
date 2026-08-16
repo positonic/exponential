@@ -7,27 +7,52 @@ import {
   Group,
   Modal,
   MultiSelect,
+  SegmentedControl,
   Select,
   Stack,
   Text,
   TextInput,
   UnstyledButton,
 } from "@mantine/core";
-import { IconCalendarPlus, IconCalendarX } from "@tabler/icons-react";
+import {
+  IconCalendarPlus,
+  IconCalendarX,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { ActionIcon, Tooltip } from "@mantine/core";
 import { useSession } from "next-auth/react";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { AvailabilityGrid, type GridSlot } from "./AvailabilityGrid";
+import {
+  SCHEDULING_WINDOW_START_MINUTES,
+  SCHEDULING_WINDOW_END_MINUTES,
+} from "~/server/services/calendar/slotEngine";
 
 /**
- * "Schedule meeting" (V3 workspace scheduling), first cut: pick a workspace,
- * attendees (members only — availability-unknown ones are labelled but
- * invitable), duration → suggested slots over the next 7 days → confirm.
- * Confirming creates the Meeting and emails every attendee a METHOD:REQUEST
- * invite their mail client renders natively.
+ * "Schedule meeting" (V3 workspace scheduling): pick a workspace, attendees
+ * (members only — availability-unknown ones are labelled but invitable),
+ * duration → pick a time from either a day-grouped suggestion list or the
+ * LettuceMeet-style availability grid, over a pageable rolling week.
+ * Confirming creates the Scheduled meeting and emails every attendee a
+ * METHOD:REQUEST invite their mail client renders natively.
+ *
+ * Suggestions never leave the scheduling window (07:00–20:00 on each
+ * attendee's wall clock) — the outside-hours checkbox relaxes work hours to
+ * that window, not to 24/7.
  */
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+/** Server caps ranges at 30 days — 3 weeks ahead keeps us inside it. */
+const MAX_WEEK_OFFSET = 3;
+
+const minutesAsHhMm = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+/** e.g. "07:00–20:00" — derived from the engine's constants, never retyped. */
+const WINDOW_LABEL = `${minutesAsHhMm(SCHEDULING_WINDOW_START_MINUTES)}–${minutesAsHhMm(SCHEDULING_WINDOW_END_MINUTES)}`;
 export function ScheduleMeetingModal({
   opened,
   onClose,
@@ -53,9 +78,11 @@ export function ScheduleMeetingModal({
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<{ startsAt: Date; endsAt: Date } | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<GridSlot | null>(null);
   const [searching, setSearching] = useState(false);
   const [includeOutsideWorkHours, setIncludeOutsideWorkHours] = useState(false);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [weekOffset, setWeekOffset] = useState(0);
 
   const { data: projects } = api.project.getAll.useQuery(
     { workspaceId: workspaceId ?? undefined },
@@ -106,16 +133,17 @@ export function ScheduleMeetingModal({
     });
   };
 
-  // Rolling week starting "now" — good enough for the first cut.
-  const range = useMemo(
-    () => ({
-      rangeStart: new Date(),
-      rangeEnd: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    }),
+  // Rolling week, pageable a week at a time with the ‹ › controls. The base
+  // is quantized to the half hour so paging back to an already-fetched week
+  // reuses the react-query cache instead of minting a fresh key.
+  const range = useMemo(() => {
+    const halfHourMs = 30 * 60 * 1000;
+    const base =
+      Math.floor(Date.now() / halfHourMs) * halfHourMs + weekOffset * WEEK_MS;
+    return { rangeStart: new Date(base), rangeEnd: new Date(base + WEEK_MS) };
     // Recompute per open so a long-lived tab doesn't search the past.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [opened],
-  );
+  }, [opened, weekOffset]);
 
   const slotsQuery = api.workspaceScheduling.suggestSlots.useQuery(
     {
@@ -125,8 +153,50 @@ export function ScheduleMeetingModal({
       includeOutsideWorkHours,
       ...range,
     },
-    { enabled: searching && !!workspaceId && attendeeIds.length > 0, retry: false },
+    {
+      enabled: searching && viewMode === "list" && !!workspaceId && attendeeIds.length > 0,
+      retry: false,
+    },
   );
+
+  const gridQuery = api.workspaceScheduling.availabilityGrid.useQuery(
+    {
+      workspaceId: workspaceId!,
+      attendeeUserIds: attendeeIds,
+      includeOutsideWorkHours,
+      ...range,
+    },
+    {
+      enabled: opened && viewMode === "grid" && !!workspaceId && attendeeIds.length > 0,
+      retry: false,
+    },
+  );
+
+  const memberNameById = useMemo(
+    () =>
+      new Map((members ?? []).map((m) => [m.id, m.name ?? m.email ?? "Unknown member"])),
+    [members],
+  );
+
+  /** Grid selection: partial-availability slots need an explicit override. */
+  const selectSlotWithWarning = (slot: GridSlot, busyUserIds: string[]) => {
+    if (busyUserIds.length === 0) {
+      setSelectedSlot(slot);
+      return;
+    }
+    const names = busyUserIds.map((id) => memberNameById.get(id) ?? "Unknown member");
+    modals.openConfirmModal({
+      title: "Book over a conflict?",
+      children: (
+        <Text size="sm">
+          This time excludes {names.join(", ")} — they&apos;re busy then. Pick it
+          anyway and they&apos;ll still be invited.
+        </Text>
+      ),
+      labels: { confirm: "Pick this time", cancel: "Choose another" },
+      onConfirm: () => setSelectedSlot(slot),
+    });
+  };
 
   const createMeeting = api.workspaceScheduling.createMeeting.useMutation({
     onSuccess: async (meeting) => {
@@ -151,6 +221,8 @@ export function ScheduleMeetingModal({
     setProjectId(null);
     setSelectedSlot(null);
     setSearching(false);
+    setViewMode("list");
+    setWeekOffset(0);
     onClose();
   };
 
@@ -174,8 +246,39 @@ export function ScheduleMeetingModal({
       minute: "2-digit",
     })} – ${slot.endsAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
 
+  const timeOnlyLabel = (slot: { startsAt: Date; endsAt: Date }) =>
+    `${slot.startsAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })} – ${slot.endsAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+
+  // Day-grouped suggestions: the per-day server cap spreads them across the
+  // week, and the headings make the week scannable.
+  const slotsByDay = useMemo(() => {
+    const groups = new Map<string, GridSlot[]>();
+    for (const slot of slotsQuery.data?.slots ?? []) {
+      const key = slot.startsAt.toLocaleDateString(undefined, {
+        weekday: "long",
+        day: "numeric",
+        month: "short",
+      });
+      const existing = groups.get(key);
+      if (existing) existing.push(slot);
+      else groups.set(key, [slot]);
+    }
+    return [...groups.entries()];
+  }, [slotsQuery.data]);
+
+  const rangeLabel = `${range.rangeStart.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  })} – ${range.rangeEnd.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+
   return (
-    <Modal opened={opened} onClose={handleClose} title="Schedule meeting" centered size="lg">
+    <Modal
+      opened={opened}
+      onClose={handleClose}
+      title="Schedule meeting"
+      centered
+      size={viewMode === "grid" ? "90%" : "lg"}
+    >
       <Stack gap="sm">
         <Select
           label="Workspace"
@@ -255,7 +358,13 @@ export function ScheduleMeetingModal({
               { value: "60", label: "1 hour" },
             ]}
             value={durationMinutes}
-            onChange={(value) => value && setDurationMinutes(value)}
+            onChange={(value) => {
+              if (!value) return;
+              setDurationMinutes(value);
+              // The picked slot's end was computed with the old duration —
+              // keeping it would book a meeting of the wrong length.
+              setSelectedSlot(null);
+            }}
           />
           <Button
             mt="xl"
@@ -264,19 +373,65 @@ export function ScheduleMeetingModal({
             disabled={!workspaceId || attendeeIds.length === 0}
             loading={searching && slotsQuery.isLoading}
           >
-            Find times (next 7 days)
+            Find times
           </Button>
         </Group>
 
         <Checkbox
           size="xs"
-          label="Include times outside attendees' working hours"
+          label={`Include times outside working hours (still ${WINDOW_LABEL} in each attendee's local time)`}
           checked={includeOutsideWorkHours}
           onChange={(e) => {
             setIncludeOutsideWorkHours(e.currentTarget.checked);
             setSelectedSlot(null);
           }}
         />
+
+        {workspaceId && attendeeIds.length > 0 && (
+          <Group justify="space-between" wrap="nowrap">
+            <SegmentedControl
+              size="xs"
+              value={viewMode}
+              onChange={(value) => {
+                setViewMode(value as "list" | "grid");
+                setSelectedSlot(null);
+              }}
+              data={[
+                { value: "list", label: "List" },
+                { value: "grid", label: "Grid" },
+              ]}
+            />
+            <Group gap={4} wrap="nowrap">
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                disabled={weekOffset === 0}
+                aria-label="Previous week"
+                onClick={() => {
+                  setWeekOffset((offset) => offset - 1);
+                  setSelectedSlot(null);
+                }}
+              >
+                <IconChevronLeft size={16} />
+              </ActionIcon>
+              <Text size="xs" c="dimmed" className="whitespace-nowrap">
+                {rangeLabel}
+              </Text>
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                disabled={weekOffset >= MAX_WEEK_OFFSET}
+                aria-label="Next week"
+                onClick={() => {
+                  setWeekOffset((offset) => offset + 1);
+                  setSelectedSlot(null);
+                }}
+              >
+                <IconChevronRight size={16} />
+              </ActionIcon>
+            </Group>
+          </Group>
+        )}
 
         {unknownCount > 0 && (
           <Text size="xs" c="dimmed">
@@ -286,7 +441,13 @@ export function ScheduleMeetingModal({
           </Text>
         )}
 
-        {searching && slotsQuery.data && (
+        {viewMode === "list" && searching && slotsQuery.error && (
+          <Text size="sm" c="dimmed">
+            Couldn&apos;t find times: {slotsQuery.error.message}
+          </Text>
+        )}
+
+        {viewMode === "list" && searching && slotsQuery.data && (
           <Stack gap={4}>
             <Text size="sm" fw={600}>
               Suggested times
@@ -295,31 +456,72 @@ export function ScheduleMeetingModal({
               Availability can be up to ~15 minutes stale — a very recent booking may
               not show yet.
             </Text>
-            {slotsQuery.data.slots.length === 0 ? (
+            {slotsByDay.length === 0 ? (
               <Text size="sm" c="dimmed">
-                No free slots in the next 7 days — try a shorter duration or fewer
-                attendees.
+                No free slots this week — page to next week, try a shorter duration,
+                or fewer attendees.
               </Text>
             ) : (
-              slotsQuery.data.slots.slice(0, 8).map((slot) => (
-                <UnstyledButton
-                  key={slot.startsAt.toISOString()}
-                  onClick={() => setSelectedSlot(slot)}
-                  className={`rounded border px-3 py-2 text-sm transition-colors ${
-                    selectedSlot?.startsAt.getTime() === slot.startsAt.getTime()
-                      ? "border-border-focus bg-surface-hover"
-                      : "border-border-primary hover:bg-surface-hover"
-                  }`}
-                >
-                  {slotLabel(slot)}
-                </UnstyledButton>
+              slotsByDay.map(([day, slots]) => (
+                <div key={day}>
+                  <Text size="xs" fw={600} c="dimmed" mt={4}>
+                    {day}
+                  </Text>
+                  <Group gap={6} mt={4}>
+                    {slots.map((slot) => (
+                      <UnstyledButton
+                        key={slot.startsAt.toISOString()}
+                        onClick={() => setSelectedSlot(slot)}
+                        className={`rounded border px-3 py-1.5 text-sm transition-colors ${
+                          selectedSlot?.startsAt.getTime() === slot.startsAt.getTime()
+                            ? "border-border-focus bg-surface-hover"
+                            : "border-border-primary hover:bg-surface-hover"
+                        }`}
+                      >
+                        {timeOnlyLabel(slot)}
+                      </UnstyledButton>
+                    ))}
+                  </Group>
+                </div>
               ))
             )}
           </Stack>
         )}
 
+        {viewMode === "grid" && (
+          <Stack gap={4}>
+            <Text size="xs" c="dimmed">
+              Click a cell to propose a {durationMinutes}-minute meeting starting
+              there. Availability can be up to ~15 minutes stale.
+            </Text>
+            {gridQuery.isLoading ? (
+              <Text size="sm" c="dimmed">
+                Loading availability…
+              </Text>
+            ) : gridQuery.error ? (
+              <Text size="sm" c="dimmed">
+                Couldn&apos;t load availability: {gridQuery.error.message}
+              </Text>
+            ) : gridQuery.data ? (
+              <AvailabilityGrid
+                cellStartsAt={gridQuery.data.cellStartsAt}
+                cellMinutes={gridQuery.data.cellMinutes}
+                attendees={gridQuery.data.attendees}
+                availabilityUnknownUserIds={gridQuery.data.availabilityUnknownUserIds}
+                memberNameById={memberNameById}
+                durationMinutes={Number(durationMinutes)}
+                selectedSlot={selectedSlot}
+                onSelectSlot={selectSlotWithWarning}
+              />
+            ) : null}
+          </Stack>
+        )}
+
         {selectedSlot && (
           <>
+            <Text size="sm" fw={500}>
+              Selected: {slotLabel(selectedSlot)}
+            </Text>
             <TextInput
               label="Title"
               placeholder="What's the meeting about?"
