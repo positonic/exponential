@@ -23,9 +23,14 @@ export function CalendarPageContent() {
   const { data: connectionStatuses, isLoading: statusLoading } =
     api.calendar.getAllConnectionStatuses.useQuery();
 
+  // ICS subscription feeds count as a calendar source too — a feed-only user
+  // must still get events fetched and the grid rendered.
+  const { data: feeds } = api.calendar.listFeeds.useQuery();
+
   const googleConnected = connectionStatuses?.google?.isConnected ?? false;
   const microsoftConnected = connectionStatuses?.microsoft?.isConnected ?? false;
-  const calendarConnected = googleConnected || microsoftConnected;
+  const hasFeeds = (feeds?.length ?? 0) > 0;
+  const calendarConnected = googleConnected || microsoftConnected || hasFeeds;
   // Google's calendar scopes are pending verification — non-testers get the
   // premium message instead of a connect button that would dead-end.
   const googleGated = connectionStatuses?.google?.gated ?? false;

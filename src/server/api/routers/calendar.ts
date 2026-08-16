@@ -6,6 +6,9 @@ import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
 import type { CalendarInfo, CalendarProvider } from "~/server/services/CalendarProvider";
 import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { encryptToBase64 } from "~/server/utils/encryption";
+import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
+import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 
@@ -188,7 +191,152 @@ async function resolveAccount(
   });
 }
 
+/**
+ * Shape ICS `CalendarEvent` rows into the multi-calendar payload shape so the
+ * existing calendar surfaces render them like any other source. The feed id
+ * doubles as `calendarId`/`accountId`, which keeps eventHue stable per feed.
+ */
+async function listIcsEventsForRange(
+  db: DbClient,
+  userId: string,
+  timeMin: Date,
+  timeMax: Date,
+) {
+  const rows = await db.calendarEvent.findMany({
+    where: {
+      userId,
+      sourceType: "ics",
+      startsAt: { lt: timeMax },
+      endsAt: { gt: timeMin },
+      calendarFeed: { isEnabled: true },
+    },
+    select: {
+      id: true,
+      calendarFeedId: true,
+      externalId: true,
+      title: true,
+      location: true,
+      startsAt: true,
+      endsAt: true,
+      isAllDay: true,
+      calendarFeed: { select: { name: true } },
+    },
+    orderBy: { startsAt: "asc" },
+  });
+
+  return rows.map((row) => ({
+    accountId: row.calendarFeedId ?? "ics",
+    accountEmail: null as string | null,
+    calendarId: row.calendarFeedId ?? "ics",
+    calendarName: row.calendarFeed?.name,
+    provider: "ics" as const,
+    id: row.id,
+    summary: row.title ?? "(untitled)",
+    start: row.isAllDay
+      ? { date: row.startsAt.toISOString().slice(0, 10) }
+      : { dateTime: row.startsAt.toISOString() },
+    end: row.isAllDay
+      ? { date: row.endsAt.toISOString().slice(0, 10) }
+      : { dateTime: row.endsAt.toISOString() },
+    location: row.location ?? undefined,
+    htmlLink: "",
+    status: "confirmed",
+  }));
+}
+
 export const calendarRouter = createTRPCRouter({
+  // ============================================
+  // Calendar feeds (ICS subscription URLs)
+  //
+  // Deliberately NOT threaded through providerSchema or the OAuth-shaped
+  // procedures above — a feed has no account or token behind it. ICS enters
+  // the system here (CRUD + sync) and at the read-path merges only.
+  // ============================================
+
+  addFeed: protectedProcedure
+    .input(
+      z.object({
+        url: z.string().min(1, "Feed URL is required"),
+        name: z.string().trim().min(1).max(100).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      try {
+        await assertSafeFeedUrl(input.url);
+      } catch (error) {
+        if (error instanceof UnsafeFeedUrlError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw error;
+      }
+
+      const feed = await ctx.db.calendarFeed.create({
+        data: {
+          userId,
+          name: input.name ?? new URL(input.url).hostname,
+          urlEncrypted: encryptToBase64(input.url),
+        },
+      });
+
+      // Inline first sync so the pasted feed is visible immediately. A
+      // failure is recorded on the feed rather than thrown — the feed row
+      // exists either way, with syncStatus telling the UI what happened.
+      const result = await syncFeed(ctx.db as PrismaClient, feed.id);
+
+      if (result.ok && !input.name && result.calendarName) {
+        await ctx.db.calendarFeed.update({
+          where: { id: feed.id },
+          data: { name: result.calendarName },
+        });
+      }
+
+      return ctx.db.calendarFeed.findUniqueOrThrow({
+        where: { id: feed.id },
+        select: {
+          id: true,
+          name: true,
+          timezone: true,
+          isEnabled: true,
+          syncStatus: true,
+          lastSyncedAt: true,
+          lastSyncError: true,
+        },
+      });
+    }),
+
+  listFeeds: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.calendarFeed.findMany({
+      where: { userId: ctx.session.user.id },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        isEnabled: true,
+        syncStatus: true,
+        lastSyncedAt: true,
+        lastSyncError: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }),
+
+  removeFeed: protectedProcedure
+    .input(z.object({ feedId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // deleteMany so the userId scoping is part of the delete itself —
+      // someone else's feed id deletes zero rows. Events cascade.
+      const { count } = await ctx.db.calendarFeed.deleteMany({
+        where: { id: input.feedId, userId: ctx.session.user.id },
+      });
+      if (count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feed not found" });
+      }
+      return { success: true };
+    }),
+
   // Returns connection status for a single provider (backwards compatible)
   getConnectionStatus: protectedProcedure
     .input(z.object({ provider: providerSchema }).optional())
@@ -662,7 +810,7 @@ export const calendarRouter = createTRPCRouter({
         calendarId: string;
         calendarName?: string;
         calendarColor?: string;
-        provider: "google" | "microsoft";
+        provider: "google" | "microsoft" | "ics";
         id: string;
         summary: string;
         description?: string;
@@ -673,6 +821,21 @@ export const calendarRouter = createTRPCRouter({
         htmlLink: string;
         status: string;
       }> = [];
+
+      // DB-backed ICS feed events merge in alongside the live provider
+      // fetches. Defaults mirror the UI's typical range when unset.
+      const icsTimeMin = input.timeMin ?? new Date();
+      const icsTimeMax =
+        input.timeMax ?? new Date(icsTimeMin.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const icsEventsPromise = listIcsEventsForRange(
+        ctx.db as DbClient,
+        userId,
+        icsTimeMin,
+        icsTimeMax,
+      ).catch((error) => {
+        console.error("Failed to load ICS feed events:", error);
+        return [];
+      });
 
       const perAccountEvents = await Promise.all(
         connectedAccounts.map(async (account) => {
@@ -706,6 +869,8 @@ export const calendarRouter = createTRPCRouter({
       for (const events of perAccountEvents) {
         allEvents.push(...events);
       }
+
+      allEvents.push(...(await icsEventsPromise));
 
       // Sort all events by start time
       return allEvents.sort((a, b) => {
