@@ -183,6 +183,60 @@ describe("calendar router — ICS feeds (mocked)", () => {
     });
   });
 
+  describe("refreshMyFeeds", () => {
+    it("rate-limits when every feed synced within the last minute", async () => {
+      dbMock.calendarFeed.findMany.mockResolvedValue([
+        { id: "feed-1", lastSyncedAt: new Date(Date.now() - 10_000) },
+        { id: "feed-2", lastSyncedAt: new Date(Date.now() - 30_000) },
+      ] as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      await expect(caller.calendar.refreshMyFeeds()).rejects.toMatchObject({
+        code: "TOO_MANY_REQUESTS",
+      });
+      expect(syncFeedMock).not.toHaveBeenCalled();
+    });
+
+    it("re-syncs every enabled feed when at least one is stale", async () => {
+      dbMock.calendarFeed.findMany.mockResolvedValue([
+        { id: "feed-1", lastSyncedAt: new Date(Date.now() - 10_000) },
+        { id: "feed-2", lastSyncedAt: new Date(Date.now() - 10 * 60_000) },
+      ] as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.refreshMyFeeds();
+
+      expect(res.refreshed).toBe(2);
+      expect(syncFeedMock).toHaveBeenCalledTimes(2);
+      // Only enabled feeds are considered at all.
+      const arg = dbMock.calendarFeed.findMany.mock.calls[0]![0] as {
+        where: { userId: string; isEnabled: boolean };
+      };
+      expect(arg.where).toMatchObject({ userId, isEnabled: true });
+    });
+
+    it("never-synced feeds are always refreshable", async () => {
+      dbMock.calendarFeed.findMany.mockResolvedValue([
+        { id: "feed-1", lastSyncedAt: null },
+      ] as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.refreshMyFeeds();
+
+      expect(res.refreshed).toBe(1);
+    });
+
+    it("is a no-op with no feeds", async () => {
+      dbMock.calendarFeed.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.refreshMyFeeds();
+
+      expect(res.refreshed).toBe(0);
+      expect(syncFeedMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe("removeFeed", () => {
     it("deletes with the owner scoping baked into the where", async () => {
       dbMock.calendarFeed.deleteMany.mockResolvedValue({ count: 1 } as never);

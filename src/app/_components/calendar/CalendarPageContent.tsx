@@ -301,6 +301,7 @@ export function CalendarPageContent() {
 
   // Handle refresh - clear server cache then refetch
   const clearCache = api.calendar.clearCache.useMutation();
+  const refreshFeeds = api.calendar.refreshMyFeeds.useMutation();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -314,9 +315,16 @@ export function CalendarPageContent() {
       if (microsoftConnected) {
         clearPromises.push(clearCache.mutateAsync({ provider: "microsoft" }));
       }
+      if (hasFeeds) {
+        // Re-sync ICS feeds inline. Rate-limited server-side (~1/min) —
+        // a TOO_MANY_REQUESTS just means the events are already fresh, so
+        // swallow it and refetch.
+        clearPromises.push(refreshFeeds.mutateAsync().catch(() => undefined));
+      }
       await Promise.all(clearPromises);
       // Invalidate client-side cache to trigger refetch
       await utils.calendar.getEventsMultiCalendar.invalidate();
+      await utils.calendar.listFeeds.invalidate();
     } finally {
       setIsRefreshing(false);
     }

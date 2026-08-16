@@ -323,6 +323,37 @@ export const calendarRouter = createTRPCRouter({
     });
   }),
 
+  // "Refresh now" — re-sync the caller's enabled feeds inline. Rate-limited
+  // to roughly one refresh a minute via lastSyncedAt, which survives
+  // serverless instance churn where in-memory counters don't.
+  refreshMyFeeds: protectedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const feeds = await ctx.db.calendarFeed.findMany({
+      where: { userId, isEnabled: true },
+      select: { id: true, lastSyncedAt: true },
+    });
+
+    if (feeds.length === 0) return { refreshed: 0 };
+
+    const oneMinuteAgo = Date.now() - 60 * 1000;
+    const allFresh = feeds.every(
+      (feed) => feed.lastSyncedAt && feed.lastSyncedAt.getTime() > oneMinuteAgo,
+    );
+    if (allFresh) {
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: "Feeds were just refreshed — try again in a minute.",
+      });
+    }
+
+    let refreshed = 0;
+    for (const feed of feeds) {
+      const result = await syncFeed(ctx.db as PrismaClient, feed.id);
+      if (result.ok) refreshed += 1;
+    }
+    return { refreshed };
+  }),
+
   removeFeed: protectedProcedure
     .input(z.object({ feedId: z.string() }))
     .mutation(async ({ ctx, input }) => {

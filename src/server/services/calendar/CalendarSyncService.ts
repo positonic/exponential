@@ -310,3 +310,49 @@ export async function syncFeed(
     calendarTimezone: parsed.calendarTimezone,
   };
 }
+
+/**
+ * Feeds per cron invocation. Bounded so the sweep always fits the function
+ * timeout — leftovers are oldest-first next run, and the every-15-minutes
+ * cadence with this cap comfortably covers the ≤30-minute freshness
+ * requirement.
+ */
+const SYNC_BATCH_SIZE = 50;
+
+export interface CalendarSweepResult {
+  processed: number;
+  succeeded: number;
+  failed: { feedId: string; error: string }[];
+}
+
+/**
+ * One bounded cron sweep: re-sync the enabled feeds that have gone longest
+ * without a sync (never-synced first). Failures are recorded per-feed by
+ * `syncFeed` and reported here; one broken feed never stops the sweep.
+ */
+export async function runCalendarSync(
+  db: PrismaClient,
+  resolveHost?: ResolveHost,
+): Promise<CalendarSweepResult> {
+  const feeds = await db.calendarFeed.findMany({
+    where: { isEnabled: true },
+    select: { id: true },
+    orderBy: { lastSyncedAt: { sort: "asc", nulls: "first" } },
+    take: SYNC_BATCH_SIZE,
+  });
+
+  const result: CalendarSweepResult = { processed: feeds.length, succeeded: 0, failed: [] };
+
+  // Sequential on purpose: feed hosts are third parties, and a serverless
+  // function fanning out N concurrent fetches is how timeouts get flaky.
+  for (const feed of feeds) {
+    const outcome = await syncFeed(db, feed.id, resolveHost);
+    if (outcome.ok) {
+      result.succeeded += 1;
+    } else {
+      result.failed.push({ feedId: feed.id, error: outcome.error });
+    }
+  }
+
+  return result;
+}
