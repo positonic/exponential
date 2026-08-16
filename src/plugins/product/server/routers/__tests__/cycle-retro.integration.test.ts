@@ -7,6 +7,7 @@ import {
   createWorkspace,
   createProduct,
   createCycle,
+  createTicket,
 } from "~/test/factories";
 
 describe("cycle router", () => {
@@ -121,6 +122,169 @@ describe("cycle router", () => {
       endDate: new Date("2030-02-17"),
     });
     expect(cycle.productId).toBe(product.id);
+  });
+
+  it("scopes the update overlap check per product", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const productA = await createProduct(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+    const productB = await createProduct(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+
+    const caller = createTestCaller(user.id);
+    const a1 = await caller.product.cycle.create({
+      workspaceId: ws.id,
+      productId: productA.id,
+      name: "A1",
+      startDate: new Date("2030-03-04"),
+      endDate: new Date("2030-03-18"),
+    });
+    await caller.product.cycle.create({
+      workspaceId: ws.id,
+      productId: productA.id,
+      name: "A2",
+      startDate: new Date("2030-04-01"),
+      endDate: new Date("2030-04-15"),
+    });
+    await caller.product.cycle.create({
+      workspaceId: ws.id,
+      productId: productB.id,
+      name: "B1",
+      startDate: new Date("2030-05-06"),
+      endDate: new Date("2030-05-20"),
+    });
+
+    // Moving A1 onto B1's dates is fine — different product
+    const moved = await caller.product.cycle.update({
+      id: a1.id,
+      startDate: new Date("2030-05-06"),
+      endDate: new Date("2030-05-20"),
+    });
+    expect(moved.startDate).toEqual(new Date("2030-05-06"));
+
+    // Moving A1 onto sibling A2's dates still conflicts
+    await expect(
+      caller.product.cycle.update({
+        id: a1.id,
+        startDate: new Date("2030-04-08"),
+        endDate: new Date("2030-04-22"),
+      }),
+    ).rejects.toThrow(/overlap/i);
+
+    // A legacy shared cycle (productId null) may move onto a product cycle's
+    // dates — null is its own scope
+    const legacy = await createCycle(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+    const legacyMoved = await caller.product.cycle.update({
+      id: legacy.id,
+      startDate: new Date("2030-04-01"),
+      endDate: new Date("2030-04-15"),
+    });
+    expect(legacyMoved.startDate).toEqual(new Date("2030-04-01"));
+  });
+
+  it("auto-generates cycles per product, suppressed by legacy shared coverage", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const productA = await createProduct(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+    const productB = await createProduct(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+
+    const caller = createTestCaller(user.id);
+
+    // Each product's Cycles tab generates its own upcoming cycles
+    const aCycles = await caller.product.cycle.list({
+      workspaceId: ws.id,
+      productId: productA.id,
+      autoCreate: true,
+    });
+    expect(aCycles.length).toBeGreaterThan(0);
+    expect(aCycles.every((c) => c.productId === productA.id)).toBe(true);
+
+    const bCycles = await caller.product.cycle.list({
+      workspaceId: ws.id,
+      productId: productB.id,
+      autoCreate: true,
+    });
+    const bOwned = bCycles.filter((c) => c.productId === productB.id);
+    expect(bOwned.length).toBeGreaterThan(0);
+    // B's listing never contains A's cycles (only its own + shared)
+    expect(bCycles.some((c) => c.productId === productA.id)).toBe(false);
+
+    // A workspace with legacy shared coverage generates nothing new
+    const ws2 = await createWorkspace(db, { ownerId: user.id });
+    const productC = await createProduct(db, {
+      workspaceId: ws2.id,
+      createdById: user.id,
+    });
+    const now = new Date();
+    const legacyEnd = new Date(now);
+    legacyEnd.setDate(legacyEnd.getDate() + 60); // beyond the lookahead horizon
+    await createCycle(db, {
+      workspaceId: ws2.id,
+      createdById: user.id,
+      startDate: now,
+      endDate: legacyEnd,
+    });
+    const cCycles = await caller.product.cycle.list({
+      workspaceId: ws2.id,
+      productId: productC.id,
+      autoCreate: true,
+    });
+    expect(cCycles.filter((c) => c.productId === productC.id)).toHaveLength(0);
+    expect(cCycles.filter((c) => c.productId === null)).toHaveLength(1);
+  });
+
+  it("rejects linking a ticket to another product's cycle, allows shared cycles", async () => {
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id });
+    const productA = await createProduct(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+    const productB = await createProduct(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+
+    const caller = createTestCaller(user.id);
+    const bCycle = await caller.product.cycle.create({
+      workspaceId: ws.id,
+      productId: productB.id,
+      name: "B only",
+    });
+    const ticket = await createTicket(db, {
+      productId: productA.id,
+      createdById: user.id,
+    });
+
+    // Product A's ticket may not join product B's cycle
+    await expect(
+      caller.product.ticket.update({ id: ticket.id, cycleId: bCycle.id }),
+    ).rejects.toThrow(TRPCError);
+
+    // A legacy shared cycle (productId null) is joinable from any product
+    const shared = await createCycle(db, {
+      workspaceId: ws.id,
+      createdById: user.id,
+    });
+    const updated = await caller.product.ticket.update({
+      id: ticket.id,
+      cycleId: shared.id,
+    });
+    expect(updated.cycleId).toBe(shared.id);
   });
 
   it("rejects a productId from another workspace", async () => {

@@ -713,14 +713,16 @@ model List {
 
   workspaceId String
   // Cycles (listType SPRINT) are scoped to a single product; null = legacy
-  // workspace-shared cycle. Overlap validation only applies within one product.
+  // workspace-shared cycle. Overlap validation only applies within one
+  // product. On product delete the cycle reverts to workspace-shared
+  // (SetNull) so sprint history survives.
   productId   String?
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  product        Product?         @relation("ProductCycles", fields: [productId], references: [id], onDelete: Cascade)
+  product        Product?         @relation("ProductCycles", fields: [productId], references: [id], onDelete: SetNull)
   createdBy      User             @relation("ListsCreated", fields: [createdById], references: [id])
   actions        ActionList[]
   tickets        Ticket[]         @relation("TicketCycle")

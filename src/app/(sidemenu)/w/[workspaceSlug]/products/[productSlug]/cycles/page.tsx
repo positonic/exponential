@@ -50,10 +50,11 @@ export default function CyclesListPage() {
   const { workspace, workspaceId } = useWorkspace();
   const [autoCreatePaused, setAutoCreatePaused] = useState(false);
 
-  const { data: product } = api.product.product.getBySlug.useQuery(
-    { workspaceId: workspaceId ?? "", slug: productSlug },
-    { enabled: !!workspaceId && !!productSlug },
-  );
+  const { data: product, isError: isProductError } =
+    api.product.product.getBySlug.useQuery(
+      { workspaceId: workspaceId ?? "", slug: productSlug },
+      { enabled: !!workspaceId && !!productSlug },
+    );
 
   const { data: cycles, isLoading } = api.product.cycle.list.useQuery(
     {
@@ -192,7 +193,12 @@ export default function CyclesListPage() {
         </div>
       )}
 
-      {isLoading || !product ? (
+      {isProductError ? (
+        <EmptyState
+          icon={IconCalendarClock}
+          message="Product not found. It may have been renamed or deleted — check the URL."
+        />
+      ) : isLoading || !product ? (
         <Stack gap="sm">
           {[1, 2].map((i) => (
             <Skeleton key={i} height={80} />

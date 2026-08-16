@@ -31,10 +31,11 @@ export default function NewCyclePage() {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const { data: product } = api.product.product.getBySlug.useQuery(
-    { workspaceId: workspaceId ?? "", slug: productSlug },
-    { enabled: !!workspaceId && !!productSlug },
-  );
+  const { data: product, isError: isProductError } =
+    api.product.product.getBySlug.useQuery(
+      { workspaceId: workspaceId ?? "", slug: productSlug },
+      { enabled: !!workspaceId && !!productSlug },
+    );
 
   const createCycle = api.product.cycle.create.useMutation({
     onSuccess: async (cycle) => {
@@ -121,6 +122,12 @@ export default function NewCyclePage() {
               autosize
               minRows={2}
             />
+            {isProductError && (
+              <Text size="sm" className="text-text-error">
+                Product not found. It may have been renamed or deleted — check
+                the URL.
+              </Text>
+            )}
             {error && (
               <Text size="sm" className="text-text-error">
                 {error}
