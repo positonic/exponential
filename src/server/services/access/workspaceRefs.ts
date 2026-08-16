@@ -54,13 +54,14 @@ export async function assertWorkspaceScopedRefs(
   refs: WorkspaceScopedRefs,
   /**
    * The pointing row's product, when it has one (tickets always do; actions
-   * never do). Supplying it additionally requires that an epic belong to that
-   * same product — epics are per-product, so a ticket may not borrow another
-   * product's epic even inside one workspace.
+   * never do). Supplying it additionally requires that an epic or cycle
+   * belong to that same product — both are per-product, so a ticket may not
+   * borrow another product's epic or cycle even inside one workspace.
    *
-   * An epic with no product yet (pre-backfill) is exempt: it is still
-   * workspace-scoped in practice, and rejecting it would break every existing
-   * ticket→epic link the moment this ships.
+   * An epic with no product yet (pre-backfill), or a cycle with no product
+   * (legacy workspace-shared), is exempt: it is still workspace-scoped in
+   * practice, and rejecting it would break every existing link the moment
+   * this ships.
    */
   productId?: string,
 ): Promise<void> {
@@ -114,12 +115,20 @@ export async function assertWorkspaceScopedRefs(
       db.list
         .findUnique({
           where: { id: refs.cycleId },
-          select: { workspaceId: true },
+          select: { workspaceId: true, productId: true },
         })
-        .then((row) => ({
-          label: "Cycle",
-          refWorkspaceId: row?.workspaceId ?? null,
-        })),
+        .then((row) => {
+          if (row && productId && row.productId && row.productId !== productId) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Cycle not found in this product",
+            });
+          }
+          return {
+            label: "Cycle",
+            refWorkspaceId: row?.workspaceId ?? null,
+          };
+        }),
     );
   }
 

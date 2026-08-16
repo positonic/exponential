@@ -79,8 +79,8 @@ export default function NewTicketPage() {
   );
 
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
   );
 
   const [title, setTitle] = useState("");

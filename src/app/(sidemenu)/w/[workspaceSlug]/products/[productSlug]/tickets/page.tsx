@@ -452,8 +452,8 @@ export default function TicketsBacklogPage() {
   );
 
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
   );
 
   // Epics are per-product. `includeUnassigned` keeps pre-backfill epics (no

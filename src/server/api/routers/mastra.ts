@@ -4784,10 +4784,12 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // List the cycles (SPRINT lists) an agent can reference. Cycles are
-  // workspace-scoped; pass a productId to resolve the workspace from a product
-  // the agent already knows. Pure read — unlike the plugin's cycle.list, this
-  // never auto-creates upcoming cycles. Declared as a query per ADR-0041
-  // (agent tools POST; allowMethodOverride accepts it).
+  // product-scoped (List.productId; null = legacy workspace-shared): passing a
+  // productId returns that product's cycles plus shared ones, matching the
+  // plugin's cycle.list; passing only a workspaceId returns every cycle in the
+  // workspace. Pure read — unlike the plugin's cycle.list, this never
+  // auto-creates upcoming cycles. Declared as a query per ADR-0041 (agent
+  // tools POST; allowMethodOverride accepts it).
   listCycles: protectedProcedure
     .input(
       z.object({
@@ -4808,7 +4810,13 @@ export const mastraRouter = createTRPCRouter({
       }
 
       const cycles = await ctx.db.list.findMany({
-        where: { workspaceId, listType: "SPRINT" },
+        where: {
+          workspaceId,
+          listType: "SPRINT",
+          ...(input.productId
+            ? { OR: [{ productId: input.productId }, { productId: null }] }
+            : {}),
+        },
         select: {
           id: true,
           name: true,

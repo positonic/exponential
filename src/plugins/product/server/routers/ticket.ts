@@ -390,7 +390,8 @@ export const ticketRouter = createTRPCRouter({
 
       // A linked epic/feature/cycle/scope must live in the product's own
       // workspace, or its fields leak back through this ticket's includes.
-      // The trailing product id additionally holds an epic to this product.
+      // The trailing product id additionally holds an epic or cycle to this
+      // product (legacy product-less rows are exempt).
       await assertWorkspaceScopedRefs(
         ctx.db,
         ctx.session.user.id,

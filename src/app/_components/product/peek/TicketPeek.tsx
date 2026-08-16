@@ -77,8 +77,8 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
     { enabled: !!workspaceId && !!ticket?.product.id },
   );
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
   const { data: tags } = api.tag.list.useQuery(
     { workspaceId: workspaceId ?? "" },
