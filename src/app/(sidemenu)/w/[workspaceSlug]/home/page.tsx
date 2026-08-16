@@ -1,8 +1,10 @@
 'use client';
 
-import { Suspense } from 'react';
-import { Container, Skeleton, Stack, Text } from '@mantine/core';
+import { Suspense, useState } from 'react';
+import { Button, Container, Group, Skeleton, Stack, Text } from '@mantine/core';
+import { IconCalendarPlus } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { ScheduleMeetingModal } from '~/app/_components/calendar/ScheduleMeetingModal';
 import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components/home/WorkspaceHomeConceptD';
 import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
 import { WorkspaceHomeCoaching } from '~/app/_components/home/WorkspaceHomeCoaching';
@@ -12,6 +14,7 @@ import { validateHomeLayout } from '~/app/_components/home/HomeLayoutPicker';
 
 function WorkspaceHomeContent() {
   const { workspace, isLoading: workspaceLoading } = useWorkspace();
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   if (workspaceLoading) {
     return (
@@ -50,6 +53,22 @@ function WorkspaceHomeContent() {
       {/* Activity layout shows GitHub in the rail widget; other layouts have no
           rail, so they keep the top Connect banner. */}
       {layout !== 'activity' && <GithubConnectCta />}
+      {/* Workspace-page entry point for cross-member scheduling (V3). */}
+      <Group justify="flex-end" px="md" pt="sm">
+        <Button
+          size="xs"
+          variant="light"
+          leftSection={<IconCalendarPlus size={14} />}
+          onClick={() => setScheduleOpen(true)}
+        >
+          Schedule meeting
+        </Button>
+      </Group>
+      <ScheduleMeetingModal
+        opened={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        defaultWorkspaceId={workspace.id}
+      />
       {layoutContent}
     </>
   );

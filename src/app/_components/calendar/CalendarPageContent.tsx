@@ -21,6 +21,7 @@ import {
   TimezonePromptModal,
   TZ_PROMPT_DISMISSED_KEY,
 } from "./TimezonePromptModal";
+import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
 
 export function CalendarPageContent() {
@@ -64,6 +65,7 @@ export function CalendarPageContent() {
   // X-WR-TIMEZONE handed up from the sidebar's feed-add flow — this page owns
   // the single prompt, so the section doesn't open a second stacked modal.
   const [tzSuggestion, setTzSuggestion] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const tzPromptOpen =
     calendarConnected && tzData !== undefined && tzData.timezone === null && !tzPromptDismissed;
   const dismissTzPrompt = () => {
@@ -80,7 +82,10 @@ export function CalendarPageContent() {
   // set, and with both components mounted — shows one toast, not two.
   useCalendarConnectionToast(calendarConnected);
 
-  // Fetch calendar events from all selected calendars
+  // Fetch calendar events from all selected calendars. Deliberately NOT
+  // gated on having a connected source: DB-backed sources (workspace
+  // meetings, ICS feeds) exist without any OAuth connection, and for a
+  // connection-less user the query is a cheap DB read.
   const { data: events, isLoading: eventsLoading } =
     api.calendar.getEventsMultiCalendar.useQuery(
       {
@@ -89,12 +94,15 @@ export function CalendarPageContent() {
         maxResults: view === "week" ? 100 : 50,
       },
       {
-        enabled: calendarConnected,
         retry: false,
         staleTime: 5 * 60 * 1000,
         refetchOnWindowFocus: false,
       }
     );
+
+  // A user whose only calendar content is meetings still gets the grid —
+  // the connect-a-calendar empty state is for users with nothing to show.
+  const hasRenderableEvents = (events?.length ?? 0) > 0;
 
   // Fetch scheduled actions for the date range
   const { data: scheduledActionsData } =
@@ -395,7 +403,7 @@ export function CalendarPageContent() {
       );
     }
 
-    if (!calendarConnected) {
+    if (!calendarConnected && !hasRenderableEvents) {
       // With Google gated, Outlook is the only calendar we can actually
       // connect — lead with the premium message rather than a broken option.
       if (googleGated) {
@@ -501,7 +509,9 @@ export function CalendarPageContent() {
         isDisconnecting={disconnectCalendar.isPending}
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
+        onScheduleMeeting={() => setScheduleOpen(true)}
       />
+      <ScheduleMeetingModal opened={scheduleOpen} onClose={() => setScheduleOpen(false)} />
       <TimezonePromptModal
         opened={tzPromptOpen}
         onClose={dismissTzPrompt}

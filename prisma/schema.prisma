@@ -134,6 +134,8 @@ model User {
   calendarPreferences            CalendarPreference[]
   calendarFeeds                  CalendarFeed[]
   calendarEvents                 CalendarEvent[]
+  meetingsOrganized              Meeting[]                       @relation("MeetingOrganizer")
+  meetingAttendances             MeetingAttendee[]
   outcomes                       Outcome[]
   posts                          Post[]
   projects                       Project[]
@@ -401,6 +403,7 @@ model Workspace {
 
   owner                   User                            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members                 WorkspaceUser[]
+  meetings                Meeting[]
   projects                Project[]
   epics                   Epic[]
   goals                   Goal[]
@@ -1036,6 +1039,7 @@ model Project {
   slackConfig           SlackChannelConfig?
   channelLinks          ChannelLink[]
   transcriptionSessions TranscriptionSession[]
+  meetings              Meeting[]
   workflows             Workflow[]
   goals                 Goal[]                     @relation("GoalProjects")
   outcomes              Outcome[]                  @relation("ProjectOutcomes")
@@ -2086,6 +2090,50 @@ model CalendarEvent {
   @@index([userId, startsAt, endsAt])
   @@index([calendarFeedId])
   @@index([connectedAccountId])
+}
+
+/// A scheduled workspace meeting (V3 calendar scheduling) — forward-looking,
+/// distinct from the retrospective TranscriptionSession. The write path to
+/// attendees' real calendars is exclusively the iCalendar email invite
+/// (METHOD:REQUEST / METHOD:CANCEL against icalUid, monotonic sequence) —
+/// no API write-back. Reschedule = cancel + rebook (V3 non-goal).
+model Meeting {
+  id          String   @id @default(cuid())
+  workspaceId String
+  organizerId String
+  projectId   String?
+  title       String
+  /// Markdown (ADR-0017).
+  description String?
+  /// Manual free-text location or meeting link — no auto conference links.
+  location    String?
+  startsAt    DateTime
+  endsAt      DateTime
+  /// Stable across the meeting's lifetime; what external calendars key on.
+  icalUid     String   @unique
+  /// Bumped on every outbound iCalendar change (cancel included).
+  sequence    Int      @default(0)
+  status      String   @default("confirmed") // confirmed | cancelled
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organizer User              @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+  project   Project?          @relation(fields: [projectId], references: [id])
+  attendees MeetingAttendee[]
+
+  @@index([workspaceId, startsAt])
+}
+
+model MeetingAttendee {
+  id        String  @id @default(cuid())
+  meetingId String
+  userId    String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+  @@index([userId])
 }
 
 model ScheduledNotification {

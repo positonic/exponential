@@ -41,7 +41,7 @@ export interface CalendarEventWithSource extends CalendarEvent {
   calendarId: string;
   calendarName?: string;
   calendarColor?: string;
-  provider?: "google" | "microsoft" | "ics";
+  provider?: "google" | "microsoft" | "ics" | "meeting";
 }
 
 export interface CreateEventInput {

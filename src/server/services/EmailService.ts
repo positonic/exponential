@@ -99,6 +99,13 @@ export async function resolvePostmark(
 // Source of truth is `colorTokens.light.brand.primary` in `src/styles/colors.ts`.
 const EMAIL_BRAND_COLOR = colorTokens.light.brand.primary;
 
+interface EmailAttachment {
+  Name: string;
+  /** Base64-encoded file content. */
+  Content: string;
+  ContentType: string;
+}
+
 interface SendEmailParams {
   to: string;
   subject: string;
@@ -109,9 +116,11 @@ interface SendEmailParams {
    * preferred over the env default. Omit for pre-login / non-workspace emails.
    */
   workspaceId?: string;
+  /** Postmark Attachments array — e.g. an iCalendar invite. */
+  attachments?: EmailAttachment[];
 }
 
-async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendEmailParams): Promise<void> {
+async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachments }: SendEmailParams): Promise<void> {
   const { apiKey, from } = await resolvePostmark(workspaceId);
 
   if (!apiKey) {
@@ -135,6 +144,7 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendE
       HtmlBody: htmlBody,
       TextBody: textBody,
       MessageStream: "outbound",
+      ...(attachments && attachments.length > 0 ? { Attachments: attachments } : {}),
     }),
   });
 
@@ -1278,6 +1288,74 @@ Unsubscribe: ${params.unsubscribeUrl}`;
   return { subject: params.subject, htmlBody, textBody };
 }
 
+/**
+ * Send a meeting invite (or cancellation) with the iCalendar payload as a
+ * Postmark attachment. The .ics IS the write path to the attendee's real
+ * calendar — Outlook and Gmail render METHOD:REQUEST natively with
+ * Accept/Decline, and METHOD:CANCEL against the same UID removes it.
+ */
+export async function sendMeetingInviteEmail(params: {
+  to: string;
+  method: "REQUEST" | "CANCEL";
+  meetingTitle: string;
+  organizerName: string;
+  startsAt: Date;
+  endsAt: Date;
+  location?: string | null;
+  icsContent: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const { to, method, meetingTitle, organizerName, startsAt, endsAt, location, icsContent, workspaceId } = params;
+
+  const cancelled = method === "CANCEL";
+  const subject = cancelled
+    ? `Cancelled: ${meetingTitle}`
+    : `Invitation: ${meetingTitle}`;
+  const when = `${startsAt.toUTCString()} – ${endsAt.toUTCString()}`;
+
+  const textBody = [
+    cancelled
+      ? `${organizerName} cancelled the meeting "${meetingTitle}".`
+      : `${organizerName} invited you to "${meetingTitle}".`,
+    ``,
+    `When: ${when}`,
+    ...(location ? [`Where: ${location}`] : []),
+    ``,
+    cancelled
+      ? `The attached calendar file removes the event from your calendar.`
+      : `Open the attached calendar file or use your mail client's Accept/Decline buttons to respond.`,
+  ].join("\n");
+
+  const htmlBody = `
+    <div style="font-family: sans-serif; max-width: 560px;">
+      <h2 style="color: ${EMAIL_BRAND_COLOR};">${cancelled ? "Meeting cancelled" : "Meeting invitation"}</h2>
+      <p>${organizerName} ${cancelled ? "cancelled" : "invited you to"} <strong>${meetingTitle}</strong>.</p>
+      <p><strong>When:</strong> ${when}</p>
+      ${location ? `<p><strong>Where:</strong> ${location}</p>` : ""}
+      <p style="color: #4b5563;">${
+        cancelled
+          ? "The attached calendar file removes the event from your calendar."
+          : "Your mail client should offer Accept / Decline directly; otherwise open the attached invite."
+      }</p>
+    </div>
+  `;
+
+  await sendEmail({
+    to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId,
+    attachments: [
+      {
+        Name: "invite.ics",
+        Content: Buffer.from(icsContent, "utf8").toString("base64"),
+        ContentType: `text/calendar; charset=utf-8; method=${method}`,
+      },
+    ],
+  });
+}
+
 export const EmailService = {
   sendSignInCodeEmail,
   sendWelcomeEmail,
@@ -1289,4 +1367,5 @@ export const EmailService = {
   sendCrmOnboardingWelcomeEmail,
   sendCrmAutomationEmail,
   sendBroadcastDigestEmail,
+  sendMeetingInviteEmail,
 };

@@ -1,0 +1,388 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  Button,
+  Checkbox,
+  Group,
+  Modal,
+  MultiSelect,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  UnstyledButton,
+} from "@mantine/core";
+import { IconCalendarPlus, IconCalendarX } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
+import { modals } from "@mantine/modals";
+import { api } from "~/trpc/react";
+import { ActionIcon, Tooltip } from "@mantine/core";
+import { useSession } from "next-auth/react";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+
+/**
+ * "Schedule meeting" (V3 workspace scheduling), first cut: pick a workspace,
+ * attendees (members only — availability-unknown ones are labelled but
+ * invitable), duration → suggested slots over the next 7 days → confirm.
+ * Confirming creates the Meeting and emails every attendee a METHOD:REQUEST
+ * invite their mail client renders natively.
+ */
+export function ScheduleMeetingModal({
+  opened,
+  onClose,
+  defaultWorkspaceId,
+}: {
+  opened: boolean;
+  onClose: () => void;
+  /** Preselects the workspace — the workspace-page entry point sets this. */
+  defaultWorkspaceId?: string;
+}) {
+  const utils = api.useUtils();
+
+  const { data: workspaces } = api.workspace.list.useQuery(undefined, {
+    enabled: opened,
+  });
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  useEffect(() => {
+    if (opened && defaultWorkspaceId) setWorkspaceId(defaultWorkspaceId);
+  }, [opened, defaultWorkspaceId]);
+  const [attendeeIds, setAttendeeIds] = useState<string[]>([]);
+  const [durationMinutes, setDurationMinutes] = useState("30");
+  const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<{ startsAt: Date; endsAt: Date } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [includeOutsideWorkHours, setIncludeOutsideWorkHours] = useState(false);
+
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: opened && !!workspaceId },
+  );
+
+  const { data: members } = api.workspaceScheduling.listSchedulableMembers.useQuery(
+    { workspaceId: workspaceId! },
+    { enabled: opened && !!workspaceId },
+  );
+
+  const { data: session } = useSession();
+  const { data: upcomingMeetings } = api.workspaceScheduling.listMeetings.useQuery(
+    { workspaceId: workspaceId!, from: new Date() },
+    { enabled: opened && !!workspaceId },
+  );
+
+  const cancelMeeting = api.workspaceScheduling.cancelMeeting.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.workspaceScheduling.listMeetings.invalidate(),
+        utils.calendar.getEventsMultiCalendar.invalidate(),
+      ]);
+      notifications.show({
+        title: "Meeting cancelled",
+        message: `${result.invitesSent} cancellation${result.invitesSent === 1 ? "" : "s"} sent to attendees' calendars.`,
+        color: "blue",
+      });
+    },
+    onError: (error) => {
+      notifications.show({ title: "Couldn't cancel", message: error.message, color: "red" });
+    },
+  });
+
+  const confirmCancel = (meeting: { id: string; title: string }) => {
+    if (!workspaceId) return;
+    modals.openConfirmModal({
+      title: "Cancel meeting?",
+      children: (
+        <Text size="sm">
+          Attendees will receive a cancellation that removes “{meeting.title}”
+          from their calendars. Rescheduling means booking a new meeting.
+        </Text>
+      ),
+      labels: { confirm: "Cancel meeting", cancel: "Keep meeting" },
+      confirmProps: { color: "red" },
+      onConfirm: () => cancelMeeting.mutate({ workspaceId, meetingId: meeting.id }),
+    });
+  };
+
+  // Rolling week starting "now" — good enough for the first cut.
+  const range = useMemo(
+    () => ({
+      rangeStart: new Date(),
+      rangeEnd: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    }),
+    // Recompute per open so a long-lived tab doesn't search the past.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [opened],
+  );
+
+  const slotsQuery = api.workspaceScheduling.suggestSlots.useQuery(
+    {
+      workspaceId: workspaceId!,
+      attendeeUserIds: attendeeIds,
+      durationMinutes: Number(durationMinutes),
+      includeOutsideWorkHours,
+      ...range,
+    },
+    { enabled: searching && !!workspaceId && attendeeIds.length > 0, retry: false },
+  );
+
+  const createMeeting = api.workspaceScheduling.createMeeting.useMutation({
+    onSuccess: async (meeting) => {
+      await utils.calendar.getEventsMultiCalendar.invalidate();
+      notifications.show({
+        title: "Meeting scheduled",
+        message: `${meeting.title} — ${meeting.invitesSent} invite${meeting.invitesSent === 1 ? "" : "s"} sent.`,
+        color: "blue",
+      });
+      handleClose();
+    },
+    onError: (error) => {
+      notifications.show({ title: "Couldn't schedule", message: error.message, color: "red" });
+    },
+  });
+
+  const handleClose = () => {
+    setAttendeeIds([]);
+    setTitle("");
+    setLocation("");
+    setDescription("");
+    setProjectId(null);
+    setSelectedSlot(null);
+    setSearching(false);
+    onClose();
+  };
+
+  const memberOptions = (members ?? []).map((member) => ({
+    value: member.id,
+    label:
+      (member.name ?? member.email ?? "Unknown") +
+      (member.availabilityKnown ? "" : " (no availability data)"),
+  }));
+
+  const unknownCount = (members ?? []).filter(
+    (m) => attendeeIds.includes(m.id) && !m.availabilityKnown,
+  ).length;
+
+  const slotLabel = (slot: { startsAt: Date; endsAt: Date }) =>
+    `${slot.startsAt.toLocaleString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })} – ${slot.endsAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+
+  return (
+    <Modal opened={opened} onClose={handleClose} title="Schedule meeting" centered size="lg">
+      <Stack gap="sm">
+        <Select
+          label="Workspace"
+          data={(workspaces ?? []).map((w) => ({ value: w.id, label: w.name }))}
+          value={workspaceId}
+          onChange={(value) => {
+            setWorkspaceId(value);
+            setAttendeeIds([]);
+            setSearching(false);
+            setSelectedSlot(null);
+          }}
+          searchable
+          placeholder="Pick a workspace"
+        />
+
+        {workspaceId && (upcomingMeetings?.length ?? 0) > 0 && (
+          <Stack gap={4}>
+            <Text size="sm" fw={600}>
+              Upcoming meetings
+            </Text>
+            {upcomingMeetings!.filter((m) => m.status !== "cancelled").map((meeting) => (
+              <Group key={meeting.id} gap="xs" wrap="nowrap" className="rounded border border-border-primary px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <Text size="sm" className="truncate">
+                    {meeting.title}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {meeting.startsAt.toLocaleString(undefined, {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {" · "}
+                    {meeting.attendees.length} attendee{meeting.attendees.length === 1 ? "" : "s"}
+                  </Text>
+                </div>
+                {meeting.organizer.id === session?.user?.id && (
+                  <Tooltip label="Cancel meeting" withinPortal>
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      size="sm"
+                      aria-label={`Cancel ${meeting.title}`}
+                      loading={cancelMeeting.isPending}
+                      onClick={() => confirmCancel(meeting)}
+                    >
+                      <IconCalendarX size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+              </Group>
+            ))}
+          </Stack>
+        )}
+
+        <MultiSelect
+          label="Attendees"
+          data={memberOptions}
+          value={attendeeIds}
+          onChange={(value) => {
+            setAttendeeIds(value);
+            setSearching(false);
+            setSelectedSlot(null);
+          }}
+          searchable
+          disabled={!workspaceId}
+          placeholder={workspaceId ? "Pick workspace members" : "Pick a workspace first"}
+        />
+
+        <Group grow>
+          <Select
+            label="Duration"
+            data={[
+              { value: "30", label: "30 minutes" },
+              { value: "60", label: "1 hour" },
+            ]}
+            value={durationMinutes}
+            onChange={(value) => value && setDurationMinutes(value)}
+          />
+          <Button
+            mt="xl"
+            variant="light"
+            onClick={() => setSearching(true)}
+            disabled={!workspaceId || attendeeIds.length === 0}
+            loading={searching && slotsQuery.isLoading}
+          >
+            Find times (next 7 days)
+          </Button>
+        </Group>
+
+        <Checkbox
+          size="xs"
+          label="Include times outside attendees' working hours"
+          checked={includeOutsideWorkHours}
+          onChange={(e) => {
+            setIncludeOutsideWorkHours(e.currentTarget.checked);
+            setSelectedSlot(null);
+          }}
+        />
+
+        {unknownCount > 0 && (
+          <Text size="xs" c="dimmed">
+            {unknownCount} attendee{unknownCount === 1 ? " has" : "s have"} no calendar
+            connected — they can be invited, but their availability doesn&apos;t constrain
+            the suggestions.
+          </Text>
+        )}
+
+        {searching && slotsQuery.data && (
+          <Stack gap={4}>
+            <Text size="sm" fw={600}>
+              Suggested times
+            </Text>
+            <Text size="xs" c="dimmed">
+              Availability can be up to ~15 minutes stale — a very recent booking may
+              not show yet.
+            </Text>
+            {slotsQuery.data.slots.length === 0 ? (
+              <Text size="sm" c="dimmed">
+                No free slots in the next 7 days — try a shorter duration or fewer
+                attendees.
+              </Text>
+            ) : (
+              slotsQuery.data.slots.slice(0, 8).map((slot) => (
+                <UnstyledButton
+                  key={slot.startsAt.toISOString()}
+                  onClick={() => setSelectedSlot(slot)}
+                  className={`rounded border px-3 py-2 text-sm transition-colors ${
+                    selectedSlot?.startsAt.getTime() === slot.startsAt.getTime()
+                      ? "border-border-focus bg-surface-hover"
+                      : "border-border-primary hover:bg-surface-hover"
+                  }`}
+                >
+                  {slotLabel(slot)}
+                </UnstyledButton>
+              ))
+            )}
+          </Stack>
+        )}
+
+        {selectedSlot && (
+          <>
+            <TextInput
+              label="Title"
+              placeholder="What's the meeting about?"
+              value={title}
+              onChange={(e) => setTitle(e.currentTarget.value)}
+              data-autofocus
+            />
+            <TextInput
+              label="Location / meeting link"
+              placeholder="Room, address, or a video-call link"
+              value={location}
+              onChange={(e) => setLocation(e.currentTarget.value)}
+            />
+            <Select
+              label="Project"
+              placeholder="Link to a project (optional)"
+              data={(projects ?? []).map((p) => ({ value: p.id, label: p.name }))}
+              value={projectId}
+              onChange={setProjectId}
+              searchable
+              clearable
+            />
+            <div>
+              <Text size="sm" fw={500} mb={4}>
+                Description
+              </Text>
+              <MarkdownInput
+                value={description}
+                onChange={setDescription}
+                placeholder="Agenda, links, context… (Markdown)"
+                minRows={3}
+              />
+            </div>
+          </>
+        )}
+
+        <Group justify="flex-end" mt="xs">
+          <Button variant="subtle" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button
+            leftSection={<IconCalendarPlus size={16} />}
+            disabled={!workspaceId || !selectedSlot || title.trim().length === 0}
+            loading={createMeeting.isPending}
+            onClick={() =>
+              workspaceId &&
+              selectedSlot &&
+              createMeeting.mutate({
+                workspaceId,
+                title: title.trim(),
+                location: location.trim() || undefined,
+                description: description.trim() || undefined,
+                projectId: projectId ?? undefined,
+                startsAt: selectedSlot.startsAt,
+                endsAt: selectedSlot.endsAt,
+                attendeeUserIds: attendeeIds,
+              })
+            }
+          >
+            Schedule & send invites
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
