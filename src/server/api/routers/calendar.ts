@@ -10,6 +10,7 @@ import { encryptToBase64 } from "~/server/utils/encryption";
 import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
 import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
 import { listIcsCalendarEvents } from "~/server/services/calendar/icsEventRead";
+import { listMeetingCalendarEvents } from "~/server/services/calendar/meetingEventRead";
 import { todayWindow } from "~/server/services/calendar/todayWindow";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
@@ -552,12 +553,22 @@ export const calendarRouter = createTRPCRouter({
         reportHandledErrorServer(error, { area: "calendar.getTodayEvents.icsMerge" });
         return [];
       });
+      const meetingEvents = await listMeetingCalendarEvents(
+        ctx.db as PrismaClient,
+        userId,
+        todayStart,
+        todayEnd,
+      ).catch((error) => {
+        reportHandledErrorServer(error, { area: "calendar.getTodayEvents.meetingMerge" });
+        return [];
+      });
+      const dbEvents = [...icsEvents, ...meetingEvents];
 
-      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return icsEvents;
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return dbEvents;
 
       const service = getCalendarService(provider);
       const providerEvents = await service.getTodayEvents(userId);
-      return [...providerEvents, ...icsEvents].sort((a, b) => {
+      return [...providerEvents, ...dbEvents].sort((a, b) => {
         const aTime = a.start?.dateTime ?? a.start?.date ?? "";
         const bTime = b.start?.dateTime ?? b.start?.date ?? "";
         return aTime.localeCompare(bTime);
@@ -864,7 +875,7 @@ export const calendarRouter = createTRPCRouter({
         calendarId: string;
         calendarName?: string;
         calendarColor?: string;
-        provider: "google" | "microsoft" | "ics";
+        provider: "google" | "microsoft" | "ics" | "meeting";
         id: string;
         summary: string;
         description?: string;
@@ -888,6 +899,15 @@ export const calendarRouter = createTRPCRouter({
         icsTimeMax,
       ).catch((error) => {
         reportHandledErrorServer(error, { area: "calendar.getEventsMultiCalendar.icsMerge" });
+        return [];
+      });
+      const meetingEventsPromise = listMeetingCalendarEvents(
+        ctx.db as PrismaClient,
+        userId,
+        icsTimeMin,
+        icsTimeMax,
+      ).catch((error) => {
+        reportHandledErrorServer(error, { area: "calendar.getEventsMultiCalendar.meetingMerge" });
         return [];
       });
 
@@ -925,6 +945,7 @@ export const calendarRouter = createTRPCRouter({
       }
 
       allEvents.push(...(await icsEventsPromise));
+      allEvents.push(...(await meetingEventsPromise));
 
       // Sort all events by start time
       return allEvents.sort((a, b) => {
