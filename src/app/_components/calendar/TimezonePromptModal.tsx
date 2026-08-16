@@ -5,6 +5,21 @@ import { Button, Group, Modal, Select, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 
+/**
+ * sessionStorage key marking that the user dismissed a timezone prompt this
+ * session. Shared by every surface that can open one, so "Not now" anywhere
+ * means not again anywhere.
+ */
+export const TZ_PROMPT_DISMISSED_KEY = "calendar-timezone-prompt-dismissed";
+
+export function markTimezonePromptDismissed(): void {
+  try {
+    window.sessionStorage.setItem(TZ_PROMPT_DISMISSED_KEY, "1");
+  } catch {
+    // Storage unavailable (private mode etc.) — prompting again is harmless.
+  }
+}
+
 /** Browser-detected IANA timezone, e.g. "Europe/Berlin". */
 export function detectBrowserTimezone(): string | null {
   try {

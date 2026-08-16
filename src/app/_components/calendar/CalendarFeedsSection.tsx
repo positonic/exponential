@@ -23,9 +23,10 @@ import {
   IconUnlink,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { getEventHue, EVENT_HUE_DOT } from "./eventHue";
-import { TimezonePromptModal } from "./TimezonePromptModal";
+import { markTimezonePromptDismissed, TimezonePromptModal } from "./TimezonePromptModal";
 
 /**
  * ICS calendar feed management: list with enable/disable + remove, sync
@@ -34,8 +35,19 @@ import { TimezonePromptModal } from "./TimezonePromptModal";
  * (ADR-0057) — so this lives beside, not inside, the account sections.
  *
  * `compact` renders the sidebar variant; the default fits a settings card.
+ *
+ * When `onTimezoneSuggestion` is provided (the /calendar page, whose
+ * CalendarPageContent owns the page-level timezone prompt), this section
+ * hands the feed's X-WR-TIMEZONE up instead of opening its own modal —
+ * otherwise two prompts stack on adding the first feed.
  */
-export function CalendarFeedsSection({ compact = false }: { compact?: boolean }) {
+export function CalendarFeedsSection({
+  compact = false,
+  onTimezoneSuggestion,
+}: {
+  compact?: boolean;
+  onTimezoneSuggestion?: (suggestedTimezone: string | null) => void;
+}) {
   const utils = api.useUtils();
   const { data: feeds, isLoading } = api.calendar.listFeeds.useQuery();
 
@@ -77,8 +89,12 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
         });
       }
       if (tzData?.timezone == null) {
-        setTzSuggestion(feed.timezone);
-        setTzPromptOpen(true);
+        if (onTimezoneSuggestion) {
+          onTimezoneSuggestion(feed.timezone);
+        } else {
+          setTzSuggestion(feed.timezone);
+          setTzPromptOpen(true);
+        }
       }
     },
     onError: (error) => {
@@ -128,16 +144,35 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
 
   const feedList = feeds ?? [];
 
+  const confirmRemove = (feed: { id: string; name: string }) => {
+    modals.openConfirmModal({
+      title: "Remove calendar feed?",
+      children: (
+        <Text size="sm">
+          {feed.name} and all its synced events will be removed. The feed URL
+          is not recoverable afterwards — you would need to paste it again.
+        </Text>
+      ),
+      labels: { confirm: "Remove feed", cancel: "Keep feed" },
+      confirmProps: { color: "red" },
+      onConfirm: () => removeFeed.mutate({ feedId: feed.id }),
+    });
+  };
+
   const statusFor = (feed: (typeof feedList)[number]) => {
     if (feed.syncStatus === "error") {
+      const errorText = feed.lastSyncError ?? "The last sync failed.";
       return (
-        <Tooltip
-          label={feed.lastSyncError ?? "The last sync failed."}
-          multiline
-          maw={280}
-          withinPortal
-        >
-          <IconAlertTriangle size={14} className="text-brand-warning flex-shrink-0" />
+        <Tooltip label={errorText} multiline maw={280} withinPortal>
+          {/* Focusable so keyboard/screen-reader users can reach the error. */}
+          <ActionIcon
+            variant="transparent"
+            size="sm"
+            aria-label={`Sync failed: ${errorText}`}
+            className="flex-shrink-0 cursor-default"
+          >
+            <IconAlertTriangle size={14} className="text-brand-warning" />
+          </ActionIcon>
         </Tooltip>
       );
     }
@@ -206,12 +241,12 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
                     leftSection={<IconRefresh size={14} />}
                     onClick={() => refreshFeeds.mutate()}
                   >
-                    Refresh feeds
+                    Refresh all feeds
                   </Menu.Item>
                   <Menu.Item
                     leftSection={<IconUnlink size={14} />}
                     color="red"
-                    onClick={() => removeFeed.mutate({ feedId: feed.id })}
+                    onClick={() => confirmRemove(feed)}
                   >
                     Remove feed
                   </Menu.Item>
@@ -287,7 +322,12 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
 
       <TimezonePromptModal
         opened={tzPromptOpen}
-        onClose={() => setTzPromptOpen(false)}
+        onClose={() => {
+          // Shared dismissal — "Not now" here must stop the page-level
+          // prompt from re-asking immediately.
+          markTimezonePromptDismissed();
+          setTzPromptOpen(false);
+        }}
         suggestedTimezone={tzSuggestion}
       />
     </>

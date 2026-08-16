@@ -10,6 +10,8 @@ import { encryptToBase64 } from "~/server/utils/encryption";
 import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
 import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
 import { listIcsCalendarEvents } from "~/server/services/calendar/icsEventRead";
+import { todayWindow } from "~/server/services/calendar/todayWindow";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 
@@ -192,6 +194,10 @@ async function resolveAccount(
   });
 }
 
+const MAX_FEEDS_PER_USER = 20;
+/** Feeds re-synced per Refresh-now click — bounded against the route budget. */
+const REFRESH_BATCH_SIZE = 10;
+
 export const calendarRouter = createTRPCRouter({
   // ============================================
   // Calendar feeds (ICS subscription URLs)
@@ -204,12 +210,22 @@ export const calendarRouter = createTRPCRouter({
   addFeed: protectedProcedure
     .input(
       z.object({
-        url: z.string().min(1, "Feed URL is required"),
+        url: z.string().min(1, "Feed URL is required").max(2048, "Feed URL is too long"),
         name: z.string().trim().min(1).max(100).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Per-user cap: the cron batch is finite, so one user with hundreds of
+      // feeds would quietly break the freshness guarantee for everyone else.
+      const feedCount = await ctx.db.calendarFeed.count({ where: { userId } });
+      if (feedCount >= MAX_FEEDS_PER_USER) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `You can connect at most ${MAX_FEEDS_PER_USER} calendar feeds. Remove one first.`,
+        });
+      }
 
       try {
         await assertSafeFeedUrl(input.url);
@@ -285,30 +301,40 @@ export const calendarRouter = createTRPCRouter({
     }),
 
   // "Refresh now" — re-sync the caller's enabled feeds inline. Rate-limited
-  // to roughly one refresh a minute via lastSyncedAt, which survives
-  // serverless instance churn where in-memory counters don't.
+  // to roughly one refresh a minute via lastSyncAttemptAt (attempt, not
+  // success — a permanently failing feed must not disable the limit), which
+  // survives serverless instance churn where in-memory counters don't.
   refreshMyFeeds: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.session.user.id;
     const feeds = await ctx.db.calendarFeed.findMany({
       where: { userId, isEnabled: true },
-      select: { id: true, lastSyncedAt: true },
+      select: { id: true, lastSyncedAt: true, lastSyncAttemptAt: true },
+      // Longest-unattempted first, so the capped batch is spent where it helps.
+      orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     });
 
     if (feeds.length === 0) return { refreshed: 0 };
 
     const oneMinuteAgo = Date.now() - 60 * 1000;
-    const allFresh = feeds.every(
-      (feed) => feed.lastSyncedAt && feed.lastSyncedAt.getTime() > oneMinuteAgo,
+    const allAttemptedRecently = feeds.every(
+      (feed) => feed.lastSyncAttemptAt && feed.lastSyncAttemptAt.getTime() > oneMinuteAgo,
     );
-    if (allFresh) {
+    if (allAttemptedRecently) {
       throw new TRPCError({
         code: "TOO_MANY_REQUESTS",
         message: "Feeds were just refreshed — try again in a minute.",
       });
     }
 
+    // Skip feeds that synced successfully within the last minute, and bound
+    // the loop — each sync can spend real seconds on a third-party host and
+    // the route budget is finite.
+    const stale = feeds
+      .filter((feed) => !feed.lastSyncedAt || feed.lastSyncedAt.getTime() <= oneMinuteAgo)
+      .slice(0, REFRESH_BATCH_SIZE);
+
     let refreshed = 0;
-    for (const feed of feeds) {
+    for (const feed of stale) {
       const result = await syncFeed(ctx.db as PrismaClient, feed.id);
       if (result.ok) refreshed += 1;
     }
@@ -502,17 +528,20 @@ export const calendarRouter = createTRPCRouter({
       // ICS feed events merge in regardless of provider or Google gating —
       // every consumer calls this once with the default provider, so this is
       // the single place today's DB-backed events enter the Today surfaces.
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(todayStart);
-      todayEnd.setDate(todayEnd.getDate() + 1);
+      // "Today" is the user's day when they've set a timezone; the provider
+      // path keeps its server-local convention for now.
+      const userRow = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      });
+      const { start: todayStart, end: todayEnd } = todayWindow(userRow?.timezone ?? null);
       const icsEvents = await listIcsCalendarEvents(
         ctx.db as PrismaClient,
         userId,
         todayStart,
         todayEnd,
       ).catch((error) => {
-        console.error("Failed to load ICS feed events for today:", error);
+        reportHandledErrorServer(error, { area: "calendar.getTodayEvents.icsMerge" });
         return [];
       });
 
@@ -850,7 +879,7 @@ export const calendarRouter = createTRPCRouter({
         icsTimeMin,
         icsTimeMax,
       ).catch((error) => {
-        console.error("Failed to load ICS feed events:", error);
+        reportHandledErrorServer(error, { area: "calendar.getEventsMultiCalendar.icsMerge" });
         return [];
       });
 

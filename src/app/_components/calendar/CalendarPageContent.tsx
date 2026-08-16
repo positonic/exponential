@@ -16,11 +16,12 @@ import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import { EditActionModal } from "~/app/_components/EditActionModal";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
-import { TimezonePromptModal } from "./TimezonePromptModal";
+import {
+  markTimezonePromptDismissed,
+  TimezonePromptModal,
+  TZ_PROMPT_DISMISSED_KEY,
+} from "./TimezonePromptModal";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
-
-/** sessionStorage key marking that the user dismissed the timezone prompt. */
-const TZ_PROMPT_DISMISSED_KEY = "calendar-timezone-prompt-dismissed";
 
 export function CalendarPageContent() {
   // Query connection status for all providers
@@ -60,10 +61,13 @@ export function CalendarPageContent() {
       typeof window !== "undefined" &&
       window.sessionStorage.getItem(TZ_PROMPT_DISMISSED_KEY) === "1",
   );
+  // X-WR-TIMEZONE handed up from the sidebar's feed-add flow — this page owns
+  // the single prompt, so the section doesn't open a second stacked modal.
+  const [tzSuggestion, setTzSuggestion] = useState<string | null>(null);
   const tzPromptOpen =
     calendarConnected && tzData !== undefined && tzData.timezone === null && !tzPromptDismissed;
   const dismissTzPrompt = () => {
-    window.sessionStorage.setItem(TZ_PROMPT_DISMISSED_KEY, "1");
+    markTimezonePromptDismissed();
     setTzPromptDismissed(true);
   };
 
@@ -498,10 +502,15 @@ export function CalendarPageContent() {
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
       />
-      <TimezonePromptModal opened={tzPromptOpen} onClose={dismissTzPrompt} />
+      <TimezonePromptModal
+        opened={tzPromptOpen}
+        onClose={dismissTzPrompt}
+        suggestedTimezone={tzSuggestion}
+      />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">{renderCalendarContent()}</div>
         <CalendarSidebar
+          onTimezoneSuggestion={setTzSuggestion}
           selectedDate={selectedDate}
           onDateSelect={setDate}
         />

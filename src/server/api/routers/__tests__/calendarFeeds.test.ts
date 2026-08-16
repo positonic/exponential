@@ -106,6 +106,10 @@ describe("calendar router — ICS feeds (mocked)", () => {
   });
 
   describe("addFeed", () => {
+    beforeEach(() => {
+      dbMock.calendarFeed.count.mockResolvedValue(0);
+    });
+
     it("encrypts the URL at rest and runs the inline first sync", async () => {
       dbMock.calendarFeed.create.mockResolvedValue({ id: "feed-1" } as never);
       dbMock.calendarFeed.findUniqueOrThrow.mockResolvedValue({
@@ -130,6 +134,26 @@ describe("calendar router — ICS feeds (mocked)", () => {
       expect(createArg.data.urlEncrypted).not.toContain("outlook.office365.com");
       expect(decryptFromBase64(createArg.data.urlEncrypted)).toBe(FEED_URL);
       expect(syncFeedMock).toHaveBeenCalledWith(expect.anything(), "feed-1");
+    });
+
+    it("rejects the 21st feed without creating a row", async () => {
+      dbMock.calendarFeed.count.mockResolvedValue(20);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      await expect(caller.calendar.addFeed({ url: FEED_URL })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+
+      expect(dbMock.calendarFeed.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects an overlong URL without creating a row", async () => {
+      const caller = createMockCaller({ userId, db: dbMock });
+      await expect(
+        caller.calendar.addFeed({ url: `https://example.com/${"x".repeat(2048)}` }),
+      ).rejects.toThrow();
+
+      expect(dbMock.calendarFeed.create).not.toHaveBeenCalled();
     });
 
     it("rejects an unsafe URL without creating a row", async () => {
@@ -184,10 +208,20 @@ describe("calendar router — ICS feeds (mocked)", () => {
   });
 
   describe("refreshMyFeeds", () => {
-    it("rate-limits when every feed synced within the last minute", async () => {
+    it("rate-limits on ATTEMPT time — a failing feed can't disable the limit", async () => {
+      // Both feeds were attempted seconds ago; feed-2's attempt failed
+      // (lastSyncedAt stale) but that must not bypass the limit.
       dbMock.calendarFeed.findMany.mockResolvedValue([
-        { id: "feed-1", lastSyncedAt: new Date(Date.now() - 10_000) },
-        { id: "feed-2", lastSyncedAt: new Date(Date.now() - 30_000) },
+        {
+          id: "feed-1",
+          lastSyncedAt: new Date(Date.now() - 10_000),
+          lastSyncAttemptAt: new Date(Date.now() - 10_000),
+        },
+        {
+          id: "feed-2",
+          lastSyncedAt: new Date(Date.now() - 60 * 60_000),
+          lastSyncAttemptAt: new Date(Date.now() - 30_000),
+        },
       ] as never);
 
       const caller = createMockCaller({ userId, db: dbMock });
@@ -197,17 +231,26 @@ describe("calendar router — ICS feeds (mocked)", () => {
       expect(syncFeedMock).not.toHaveBeenCalled();
     });
 
-    it("re-syncs every enabled feed when at least one is stale", async () => {
+    it("re-syncs only stale feeds, skipping ones that just synced fine", async () => {
       dbMock.calendarFeed.findMany.mockResolvedValue([
-        { id: "feed-1", lastSyncedAt: new Date(Date.now() - 10_000) },
-        { id: "feed-2", lastSyncedAt: new Date(Date.now() - 10 * 60_000) },
+        {
+          id: "feed-fresh",
+          lastSyncedAt: new Date(Date.now() - 10_000),
+          lastSyncAttemptAt: new Date(Date.now() - 10_000),
+        },
+        {
+          id: "feed-stale",
+          lastSyncedAt: new Date(Date.now() - 10 * 60_000),
+          lastSyncAttemptAt: new Date(Date.now() - 10 * 60_000),
+        },
       ] as never);
 
       const caller = createMockCaller({ userId, db: dbMock });
       const res = await caller.calendar.refreshMyFeeds();
 
-      expect(res.refreshed).toBe(2);
-      expect(syncFeedMock).toHaveBeenCalledTimes(2);
+      expect(res.refreshed).toBe(1);
+      expect(syncFeedMock).toHaveBeenCalledTimes(1);
+      expect(syncFeedMock).toHaveBeenCalledWith(expect.anything(), "feed-stale");
       // Only enabled feeds are considered at all.
       const arg = dbMock.calendarFeed.findMany.mock.calls[0]![0] as {
         where: { userId: string; isEnabled: boolean };
@@ -215,9 +258,24 @@ describe("calendar router — ICS feeds (mocked)", () => {
       expect(arg.where).toMatchObject({ userId, isEnabled: true });
     });
 
+    it("caps the number of feeds re-synced per invocation", async () => {
+      const staleFeeds = Array.from({ length: 15 }, (_, i) => ({
+        id: `feed-${i}`,
+        lastSyncedAt: null,
+        lastSyncAttemptAt: null,
+      }));
+      dbMock.calendarFeed.findMany.mockResolvedValue(staleFeeds as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.refreshMyFeeds();
+
+      expect(res.refreshed).toBe(10);
+      expect(syncFeedMock).toHaveBeenCalledTimes(10);
+    });
+
     it("never-synced feeds are always refreshable", async () => {
       dbMock.calendarFeed.findMany.mockResolvedValue([
-        { id: "feed-1", lastSyncedAt: null },
+        { id: "feed-1", lastSyncedAt: null, lastSyncAttemptAt: null },
       ] as never);
 
       const caller = createMockCaller({ userId, db: dbMock });
