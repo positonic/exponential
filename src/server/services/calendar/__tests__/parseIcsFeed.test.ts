@@ -252,6 +252,49 @@ describe("parseIcsFeed", () => {
       ]);
     });
 
+    it("skips an event whose RRULE explodes without failing the rest of the feed", () => {
+      const ics = calendar([
+        ...vevent([
+          "UID:rec-bad",
+          "DTSTART:20260803T090000Z",
+          "DTEND:20260803T091500Z",
+          // Per-minute forever: blows the backend's per-rule iteration cap.
+          "RRULE:FREQ=MINUTELY",
+          "SUMMARY:Malformed cadence",
+        ]),
+        ...vevent([
+          "UID:evt-good",
+          "DTSTART:20260818T090000Z",
+          "DTEND:20260818T100000Z",
+          "SUMMARY:Still here",
+        ]),
+      ]);
+
+      const { events } = parseIcsFeed(ics, WINDOW);
+
+      expect(events.some((e) => e.externalId === "evt-good")).toBe(true);
+      expect(events.some((e) => e.externalId === "rec-bad")).toBe(false);
+    });
+
+    it("fails the parse when the feed expands past the aggregate event cap", () => {
+      // 8 hourly recurrences × ~1,400 instances each in the 2-month window
+      // clears the 10k aggregate cap while staying under the per-rule cap.
+      const blocks: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        blocks.push(
+          ...vevent([
+            `UID:hourly-${i}`,
+            "DTSTART:20260801T000000Z",
+            "DTEND:20260801T003000Z",
+            "RRULE:FREQ=HOURLY",
+            `SUMMARY:Hourly ${i}`,
+          ]),
+        );
+      }
+
+      expect(() => parseIcsFeed(calendar(blocks), WINDOW)).toThrow(/too many|more than/i);
+    });
+
     it("expands all-day recurrences anchored to UTC midnight of the calendar date", () => {
       const ics = calendar(
         vevent([

@@ -61,6 +61,15 @@ function allDayUtc(d: Date): Date {
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
+/**
+ * Aggregate cap across ALL events in one feed. node-ical's rrule backend caps
+ * a single rule at 10k iterations, but a crafted 5 MB feed can carry
+ * thousands of separate hourly RRULEs — unbounded in aggregate, enough to
+ * OOM the sync function. Exceeding this fails the sync (prior events are
+ * retained) rather than truncating silently.
+ */
+const MAX_EVENTS_PER_FEED = 10_000;
+
 /** Keep events overlapping the window; zero-duration events count when their instant is inside. */
 function overlapsWindow(startsAt: Date, endsAt: Date, window: { from: Date; to: Date }): boolean {
   return (
@@ -99,11 +108,18 @@ export function parseIcsFeed(
     if (event.rrule) {
       // expandOngoing keeps instances that started before the window but are
       // still running at its start (e.g. a multi-day recurring event).
-      const instances = ical.expandRecurringEvent(event, {
-        from: window.from,
-        to: window.to,
-        expandOngoing: true,
-      });
+      // One malformed RRULE (the backend throws past its per-rule iteration
+      // cap) skips that event rather than failing the whole feed.
+      let instances: ReturnType<typeof ical.expandRecurringEvent>;
+      try {
+        instances = ical.expandRecurringEvent(event, {
+          from: window.from,
+          to: window.to,
+          expandOngoing: true,
+        });
+      } catch {
+        continue;
+      }
       for (const instance of instances) {
         // A cancelled RECURRENCE-ID override is how feeds delete one
         // instance without an EXDATE.
@@ -112,6 +128,13 @@ export function parseIcsFeed(
         const startsAt = isAllDay ? allDayUtc(instance.start) : instance.start;
         const endsAt = isAllDay ? allDayUtc(instance.end) : instance.end;
         if (!overlapsWindow(startsAt, endsAt, window)) continue;
+        // Checked per push (not at the end) so a crafted feed can't
+        // accumulate millions of instances before the cap fires.
+        if (events.length >= MAX_EVENTS_PER_FEED) {
+          throw new FeedFetchError(
+            `Feed expands to more than ${MAX_EVENTS_PER_FEED} events inside the sync window.`,
+          );
+        }
         events.push({
           externalId: event.uid,
           // instance.event is the override VEVENT for moved instances, the
@@ -139,6 +162,11 @@ export function parseIcsFeed(
 
     if (!overlapsWindow(startsAt, endsAt, window)) continue;
 
+    if (events.length >= MAX_EVENTS_PER_FEED) {
+      throw new FeedFetchError(
+        `Feed expands to more than ${MAX_EVENTS_PER_FEED} events inside the sync window.`,
+      );
+    }
     events.push({
       externalId: event.uid,
       title: textOf(event.summary),
@@ -250,12 +278,52 @@ export async function syncFeed(
   const feed = await db.calendarFeed.findUnique({ where: { id: feedId } });
   if (!feed) return { ok: false, error: "Feed not found" };
 
-  const recordFailure = async (message: string): Promise<SyncFeedResult> => {
+  const syncedAt = new Date();
+
+  // Stamp the attempt before doing anything fallible — the cron sweep orders
+  // by this, so even a sync that crashes mid-flight moves to the back of the
+  // queue instead of starving every other feed.
+  await db.calendarFeed.update({
+    where: { id: feedId },
+    data: { lastSyncAttemptAt: syncedAt },
+  });
+
+  // Set once the URL decrypts; used to keep the bearer-secret URL out of
+  // every stored/reported error message.
+  let decryptedUrl: string | null = null;
+
+  const recordFailure = async (
+    message: string,
+    cause?: unknown,
+  ): Promise<SyncFeedResult> => {
+    // An ICS URL is a bearer secret (ADR-0057): never let it reach
+    // lastSyncError, which listFeeds returns to the client.
+    const redacted = decryptedUrl
+      ? message.split(decryptedUrl).join("<feed url>")
+      : message;
+    // Report only the *transition* into error state, not every recurring
+    // failure — a feed stuck broken for weeks should be findable in Sentry
+    // without each 15-minute sweep re-alerting. Imported lazily: the static
+    // import chain reaches ~/server/db, whose env validation breaks the pure
+    // parse tests that import this module.
+    if (feed.syncStatus !== "error") {
+      try {
+        const { reportHandledErrorServer } = await import(
+          "~/server/utils/reportHandledErrorServer"
+        );
+        reportHandledErrorServer(cause ?? new Error(redacted), {
+          area: "calendar.syncFeed",
+          context: { feedId },
+        });
+      } catch {
+        // Reporting must never break the sync flow.
+      }
+    }
     await db.calendarFeed.update({
       where: { id: feedId },
-      data: { syncStatus: "error", lastSyncError: message.slice(0, 500) },
+      data: { syncStatus: "error", lastSyncError: redacted.slice(0, 500) },
     });
-    return { ok: false, error: message };
+    return { ok: false, error: redacted };
   };
 
   const url = decryptFromBase64(feed.urlEncrypted);
@@ -264,15 +332,23 @@ export async function syncFeed(
       "Could not decrypt the feed URL — check DATABASE_ENCRYPTION_KEY.",
     );
   }
+  decryptedUrl = url;
 
   let parsed: ParsedIcsFeed;
-  const syncedAt = new Date();
   try {
     const icsText = await fetchIcsText(url, resolveHost);
+    // Expired/revoked published-calendar links commonly 200 with an HTML
+    // sign-in page; parsing that yields zero events and would otherwise wipe
+    // the feed's rows while reporting "ok". Not a calendar → sync failure.
+    if (!/^BEGIN:VCALENDAR/m.test(icsText)) {
+      return recordFailure(
+        "The URL did not return an ICS calendar (got HTML or other content).",
+      );
+    }
     parsed = parseIcsFeed(icsText, getSyncWindow(syncedAt));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown sync error";
-    return recordFailure(message);
+    return recordFailure(message, error);
   }
 
   await db.$transaction([
@@ -334,10 +410,13 @@ export async function runCalendarSync(
   db: PrismaClient,
   resolveHost?: ResolveHost,
 ): Promise<CalendarSweepResult> {
+  // Ordered by ATTEMPT time, not success time — a feed that fails every
+  // sync still advances to the back of the queue, so broken feeds can't
+  // monopolize the batch and starve healthy ones.
   const feeds = await db.calendarFeed.findMany({
     where: { isEnabled: true },
     select: { id: true },
-    orderBy: { lastSyncedAt: { sort: "asc", nulls: "first" } },
+    orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
     take: SYNC_BATCH_SIZE,
   });
 

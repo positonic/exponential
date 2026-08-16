@@ -2033,6 +2033,9 @@ model CalendarFeed {
   isEnabled     Boolean   @default(true)
   syncStatus    String    @default("pending") // pending | ok | error
   lastSyncedAt  DateTime?
+  /// Stamped on every sync attempt, success or failure — the cron sweep
+  /// orders by this so permanently failing feeds can't starve healthy ones.
+  lastSyncAttemptAt DateTime?
   lastSyncError String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -2066,7 +2069,10 @@ model CalendarEvent {
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   calendarFeed       CalendarFeed? @relation(fields: [calendarFeedId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, sourceType, externalId, startsAt])
+  /// Feed-scoped so the same event (UID + start) appearing in two of a
+  /// user's feeds keeps both rows — each feed owns its copy independently.
+  /// V2's provider rows (null calendarFeedId) add their own key shape.
+  @@unique([calendarFeedId, externalId, startsAt])
   @@index([userId, startsAt, endsAt])
   @@index([calendarFeedId])
 }

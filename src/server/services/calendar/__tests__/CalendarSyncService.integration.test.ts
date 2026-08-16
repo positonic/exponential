@@ -132,6 +132,79 @@ describe("syncFeed — delete-and-replace transaction", () => {
     expect(rows[0]).toMatchObject({ externalId: "evt-a", title: "A renamed" });
   });
 
+  it("treats a 200 response that is not an ICS calendar as a failure, keeping prior rows", async () => {
+    // Expired Outlook published-calendar links 200 with an HTML sign-in
+    // page — that must never wipe the feed's events under an "ok" status.
+    const { user, feed } = await seedFeed();
+    stubFeedResponse(calendar([vevent("evt-a", startA, endA, "A")]));
+    await syncFeed(db, feed.id, resolvePublic);
+
+    stubFeedResponse("<html><body>Sign in to view this calendar</body></html>");
+    const result = await syncFeed(db, feed.id, resolvePublic);
+
+    expect(result.ok).toBe(false);
+    const rows = await db.calendarEvent.findMany({ where: { userId: user.id } });
+    expect(rows.map((r) => r.externalId)).toEqual(["evt-a"]);
+
+    const updated = await db.calendarFeed.findUniqueOrThrow({ where: { id: feed.id } });
+    expect(updated.syncStatus).toBe("error");
+    expect(updated.lastSyncError).toMatch(/did not return an ICS calendar/);
+  });
+
+  it("keeps both copies when the same event (UID + start) appears in two feeds", async () => {
+    const { user, feed } = await seedFeed();
+    const feed2 = await db.calendarFeed.create({
+      data: {
+        userId: user.id,
+        name: "Second view",
+        urlEncrypted: encryptToBase64("https://feeds.example.com/other.ics"),
+      },
+    });
+
+    const shared = calendar([vevent("evt-shared", startA, endA, "Shared meeting")]);
+    stubFeedResponse(shared);
+    await syncFeed(db, feed.id, resolvePublic);
+    stubFeedResponse(shared);
+    await syncFeed(db, feed2.id, resolvePublic);
+
+    const rows = await db.calendarEvent.findMany({
+      where: { userId: user.id },
+      orderBy: { calendarFeedId: "asc" },
+    });
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.calendarFeedId))).toEqual(new Set([feed.id, feed2.id]));
+  });
+
+  it("stamps lastSyncAttemptAt on failed attempts (sweep-queue fairness)", async () => {
+    const { feed } = await seedFeed();
+    stubFeedResponse("nope", 500);
+    const before = new Date();
+    await syncFeed(db, feed.id, resolvePublic);
+
+    const updated = await db.calendarFeed.findUniqueOrThrow({ where: { id: feed.id } });
+    expect(updated.lastSyncAttemptAt).not.toBeNull();
+    expect(updated.lastSyncAttemptAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 1000);
+    // The success timestamp must NOT move on failure.
+    expect(updated.lastSyncedAt).toBeNull();
+  });
+
+  it("redacts the feed URL from stored sync errors", async () => {
+    const { feed } = await seedFeed();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error(`connect failed for ${FEED_URL} (simulated)`);
+      }),
+    );
+
+    const result = await syncFeed(db, feed.id, resolvePublic);
+
+    expect(result.ok).toBe(false);
+    const updated = await db.calendarFeed.findUniqueOrThrow({ where: { id: feed.id } });
+    expect(updated.lastSyncError).not.toContain(FEED_URL);
+    expect(updated.lastSyncError).toContain("<feed url>");
+  });
+
   it("keeps previously synced rows and records the error when the fetch fails", async () => {
     const { user, feed } = await seedFeed();
     stubFeedResponse(calendar([vevent("evt-a", startA, endA, "A")]));

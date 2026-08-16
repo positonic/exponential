@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 
 import { db } from "~/server/db";
 import { runCalendarSync } from "~/server/services/calendar/CalendarSyncService";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 export const maxDuration = 300;
 
@@ -28,11 +29,14 @@ export async function GET(_request: NextRequest) {
 
     const result = await runCalendarSync(db);
     if (result.failed.length > 0) {
+      // Per-feed error *transitions* are reported to Sentry inside syncFeed;
+      // this log keeps the batch summary greppable in function logs.
       console.error("[Cron] calendar feed syncs failed:", result.failed);
     }
 
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
+    reportHandledErrorServer(error, { area: "cron.sync-calendars" });
     console.error("[Cron] sync-calendars failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
