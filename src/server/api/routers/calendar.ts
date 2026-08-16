@@ -9,6 +9,7 @@ import { isGoogleOAuthTester } from "~/lib/googleAuth";
 import { encryptToBase64 } from "~/server/utils/encryption";
 import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
 import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
+import { listIcsCalendarEvents } from "~/server/services/calendar/icsEventRead";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 
@@ -189,59 +190,6 @@ async function resolveAccount(
     select: { id: true, provider: true },
     orderBy: { createdAt: "asc" },
   });
-}
-
-/**
- * Shape ICS `CalendarEvent` rows into the multi-calendar payload shape so the
- * existing calendar surfaces render them like any other source. The feed id
- * doubles as `calendarId`/`accountId`, which keeps eventHue stable per feed.
- */
-async function listIcsEventsForRange(
-  db: DbClient,
-  userId: string,
-  timeMin: Date,
-  timeMax: Date,
-) {
-  const rows = await db.calendarEvent.findMany({
-    where: {
-      userId,
-      sourceType: "ics",
-      startsAt: { lt: timeMax },
-      endsAt: { gt: timeMin },
-      calendarFeed: { isEnabled: true },
-    },
-    select: {
-      id: true,
-      calendarFeedId: true,
-      externalId: true,
-      title: true,
-      location: true,
-      startsAt: true,
-      endsAt: true,
-      isAllDay: true,
-      calendarFeed: { select: { name: true } },
-    },
-    orderBy: { startsAt: "asc" },
-  });
-
-  return rows.map((row) => ({
-    accountId: row.calendarFeedId ?? "ics",
-    accountEmail: null as string | null,
-    calendarId: row.calendarFeedId ?? "ics",
-    calendarName: row.calendarFeed?.name,
-    provider: "ics" as const,
-    id: row.id,
-    summary: row.title ?? "(untitled)",
-    start: row.isAllDay
-      ? { date: row.startsAt.toISOString().slice(0, 10) }
-      : { dateTime: row.startsAt.toISOString() },
-    end: row.isAllDay
-      ? { date: row.endsAt.toISOString().slice(0, 10) }
-      : { dateTime: row.endsAt.toISOString() },
-    location: row.location ?? undefined,
-    htmlLink: "",
-    status: "confirmed",
-  }));
 }
 
 export const calendarRouter = createTRPCRouter({
@@ -549,9 +497,34 @@ export const calendarRouter = createTRPCRouter({
     .input(z.object({ provider: providerSchema }).optional())
     .query(async ({ ctx, input }) => {
       const provider = input?.provider ?? "google";
-      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
+      const userId = ctx.session.user.id;
+
+      // ICS feed events merge in regardless of provider or Google gating —
+      // every consumer calls this once with the default provider, so this is
+      // the single place today's DB-backed events enter the Today surfaces.
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(todayStart);
+      todayEnd.setDate(todayEnd.getDate() + 1);
+      const icsEvents = await listIcsCalendarEvents(
+        ctx.db as PrismaClient,
+        userId,
+        todayStart,
+        todayEnd,
+      ).catch((error) => {
+        console.error("Failed to load ICS feed events for today:", error);
+        return [];
+      });
+
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return icsEvents;
+
       const service = getCalendarService(provider);
-      return service.getTodayEvents(ctx.session.user.id);
+      const providerEvents = await service.getTodayEvents(userId);
+      return [...providerEvents, ...icsEvents].sort((a, b) => {
+        const aTime = a.start?.dateTime ?? a.start?.date ?? "";
+        const bTime = b.start?.dateTime ?? b.start?.date ?? "";
+        return aTime.localeCompare(bTime);
+      });
     }),
 
   getUpcomingEvents: protectedProcedure
@@ -871,8 +844,8 @@ export const calendarRouter = createTRPCRouter({
       const icsTimeMin = input.timeMin ?? new Date();
       const icsTimeMax =
         input.timeMax ?? new Date(icsTimeMin.getTime() + 30 * 24 * 60 * 60 * 1000);
-      const icsEventsPromise = listIcsEventsForRange(
-        ctx.db as DbClient,
+      const icsEventsPromise = listIcsCalendarEvents(
+        ctx.db as PrismaClient,
         userId,
         icsTimeMin,
         icsTimeMax,

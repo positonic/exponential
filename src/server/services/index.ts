@@ -1,7 +1,9 @@
 import { GoogleCalendarService } from './GoogleCalendarService';
 import { MicrosoftCalendarService } from './MicrosoftCalendarService';
+import { listIcsCalendarEvents } from './calendar/icsEventRead';
 import type { CalendarProvider } from './CalendarProvider';
 import type { PrismaClient } from '@prisma/client';
+import { db } from '~/server/db';
 
 const googleService = new GoogleCalendarService();
 const microsoftService = new MicrosoftCalendarService();
@@ -18,9 +20,10 @@ export async function getEventsMultiCalendar(
 ) {
   const timeMinDate = new Date(timeMin);
   const timeMaxDate = new Date(timeMax);
-  const [googleEvents, microsoftEvents] = await Promise.allSettled([
+  const [googleEvents, microsoftEvents, icsEvents] = await Promise.allSettled([
     googleService.getEvents(userId, { timeMin: timeMinDate, timeMax: timeMaxDate, maxResults }),
     microsoftService.getEvents(userId, { timeMin: timeMinDate, timeMax: timeMaxDate, maxResults }),
+    listIcsCalendarEvents(db, userId, timeMinDate, timeMaxDate),
   ]);
 
   const allEvents = [];
@@ -31,6 +34,11 @@ export async function getEventsMultiCalendar(
 
   if (microsoftEvents.status === 'fulfilled') {
     allEvents.push(...microsoftEvents.value.map(e => ({ ...e, provider: 'microsoft' as const })));
+  }
+
+  if (icsEvents.status === 'fulfilled') {
+    // Already carries provider: 'ics'.
+    allEvents.push(...icsEvents.value);
   }
 
   // Sort by start time
