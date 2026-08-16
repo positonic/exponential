@@ -475,6 +475,9 @@ export const calendarRouter = createTRPCRouter({
         access_token: true,
         refresh_token: true,
         providerEmail: true,
+        calendarSyncStatus: true,
+        calendarLastSyncedAt: true,
+        calendarLastSyncError: true,
         user: { select: { email: true, name: true } },
       },
       orderBy: { id: "asc" },
@@ -512,6 +515,11 @@ export const calendarRouter = createTRPCRouter({
           name: account.user.name,
           selectedCalendarIds,
           calendars,
+          // Server-side busy-time sync bookkeeping (V2) for the sidebar's
+          // per-account status display.
+          syncStatus: account.calendarSyncStatus,
+          lastSyncedAt: account.calendarLastSyncedAt,
+          lastSyncError: account.calendarLastSyncError,
         };
       }),
     );

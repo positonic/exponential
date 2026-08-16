@@ -12,6 +12,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import { decryptFromBase64 } from "~/server/utils/encryption";
 import { type ResolveHost } from "~/server/utils/privateAddress";
+import type { CalendarEvent as ProviderEvent, CalendarProvider } from "../CalendarProvider";
 import { assertSafeFeedUrl } from "./feedUrlGuard";
 
 /** Rolling sync window: −1 week / +8 weeks around "now". */
@@ -395,16 +396,212 @@ export async function syncFeed(
  */
 const SYNC_BATCH_SIZE = 50;
 
+/** Connected accounts per cron invocation — same bounding rationale. */
+const ACCOUNT_SYNC_BATCH_SIZE = 25;
+
+/** Per-calendar page size for provider fetches (no pagination in V2). */
+const PROVIDER_MAX_RESULTS = 500;
+
+/** Selected calendars synced per account, mirroring the display path's cap. */
+const MAX_CALENDARS_PER_ACCOUNT = 10;
+
+/**
+ * Instantiated lazily so importing this module (e.g. the pure parse tests)
+ * doesn't pull the provider services' env/db dependencies.
+ */
+async function providerServiceFor(provider: string): Promise<CalendarProvider | null> {
+  if (provider === "microsoft-entra-id") {
+    const { MicrosoftCalendarService } = await import("../MicrosoftCalendarService");
+    return new MicrosoftCalendarService();
+  }
+  if (provider === "google") {
+    const { GoogleCalendarService } = await import("../GoogleCalendarService");
+    return new GoogleCalendarService();
+  }
+  return null;
+}
+
+/**
+ * Parse a provider event's start/end into a concrete instant.
+ *
+ * Google emits RFC 3339 with an offset; Microsoft Graph emits a local-time
+ * string with NO offset plus a separate timeZone (UTC unless a Prefer header
+ * asked otherwise). A bare string parsed with `new Date()` would be read in
+ * the *server's* zone, so UTC-declared strings get an explicit Z.
+ */
+function providerInstant(
+  point: { dateTime?: string; date?: string; timeZone?: string },
+): { at: Date; isAllDay: boolean } | null {
+  if (point.date) {
+    const [y, m, d] = point.date.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return { at: new Date(Date.UTC(y, m - 1, d)), isAllDay: true };
+  }
+  if (!point.dateTime) return null;
+  const hasOffset = /(?:Z|[+-]\d\d:?\d\d)$/i.test(point.dateTime);
+  const raw =
+    !hasOffset && (point.timeZone === undefined || point.timeZone === "UTC")
+      ? `${point.dateTime}Z`
+      : point.dateTime;
+  const at = new Date(raw);
+  if (Number.isNaN(at.getTime())) return null;
+  return { at, isAllDay: false };
+}
+
+/** Normalize one provider event; null = skip (cancelled or unparseable). */
+export function normalizeProviderEvent(event: ProviderEvent): NormalizedEvent | null {
+  if (event.status === "cancelled") return null;
+  const start = providerInstant(event.start);
+  const end = event.end ? providerInstant(event.end) : null;
+  if (!start) return null;
+  return {
+    externalId: event.id,
+    title: event.summary ?? null,
+    location: event.location ?? null,
+    startsAt: start.at,
+    endsAt: end?.at ?? start.at,
+    isAllDay: start.isAllDay,
+  };
+}
+
+export type SyncAccountResult =
+  | { ok: true; eventCount: number }
+  | { ok: false; error: string };
+
+/**
+ * Server-side busy-time sync for one connected account (V2): fetch the
+ * account's selected calendars via the provider service — which refreshes
+ * tokens from the stored refresh_token, no user session in hand — and
+ * delete-and-replace its CalendarEvent rows. Failures retain prior rows and
+ * land on the account's calendarSyncStatus, mirroring feed sync.
+ */
+export async function syncConnectedAccount(
+  db: PrismaClient,
+  accountId: string,
+): Promise<SyncAccountResult> {
+  const account = await db.connectedAccount.findUnique({
+    where: { id: accountId },
+    select: {
+      id: true,
+      userId: true,
+      provider: true,
+      calendarSyncStatus: true,
+      calendarPreference: { select: { selectedCalendarIds: true } },
+    },
+  });
+  if (!account) return { ok: false, error: "Account not found" };
+
+  const syncedAt = new Date();
+  await db.connectedAccount.update({
+    where: { id: accountId },
+    data: { calendarLastSyncAttemptAt: syncedAt },
+  });
+
+  const recordFailure = async (message: string, cause?: unknown): Promise<SyncAccountResult> => {
+    if (account.calendarSyncStatus !== "error") {
+      try {
+        const { reportHandledErrorServer } = await import(
+          "~/server/utils/reportHandledErrorServer"
+        );
+        reportHandledErrorServer(cause ?? new Error(message), {
+          area: "calendar.syncConnectedAccount",
+          context: { accountId, provider: account.provider },
+        });
+      } catch {
+        // Reporting must never break the sync flow.
+      }
+    }
+    await db.connectedAccount.update({
+      where: { id: accountId },
+      data: { calendarSyncStatus: "error", calendarLastSyncError: message.slice(0, 500) },
+    });
+    return { ok: false, error: message };
+  };
+
+  const service = await providerServiceFor(account.provider);
+  if (!service) return recordFailure(`Unsupported provider: ${account.provider}`);
+
+  const sourceType = account.provider === "google" ? "google" : "microsoft";
+  const window = getSyncWindow(syncedAt);
+  const calendarIds = (account.calendarPreference?.selectedCalendarIds ?? [])
+    .slice(0, MAX_CALENDARS_PER_ACCOUNT);
+  if (calendarIds.length === 0) calendarIds.push("primary");
+
+  const rows: (NormalizedEvent & { providerCalendarId: string })[] = [];
+  try {
+    for (const calendarId of calendarIds) {
+      const events = await service.getEvents(account.userId, {
+        accountId: account.id,
+        calendarId,
+        timeMin: window.from,
+        timeMax: window.to,
+        maxResults: PROVIDER_MAX_RESULTS,
+        useCache: false,
+      });
+      for (const event of events) {
+        const normalized = normalizeProviderEvent(event);
+        if (normalized) rows.push({ ...normalized, providerCalendarId: calendarId });
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown sync error";
+    return recordFailure(message, error);
+  }
+
+  await db.$transaction([
+    db.calendarEvent.deleteMany({ where: { connectedAccountId: accountId } }),
+    db.calendarEvent.createMany({
+      data: rows.map((row) => ({
+        userId: account.userId,
+        sourceType,
+        connectedAccountId: accountId,
+        providerCalendarId: row.providerCalendarId,
+        externalId: row.externalId,
+        title: row.title,
+        location: row.location,
+        startsAt: row.startsAt,
+        endsAt: row.endsAt,
+        isAllDay: row.isAllDay,
+        syncedAt,
+      })),
+      skipDuplicates: true,
+    }),
+    db.connectedAccount.update({
+      where: { id: accountId },
+      data: {
+        calendarSyncStatus: "ok",
+        calendarLastSyncedAt: syncedAt,
+        calendarLastSyncError: null,
+      },
+    }),
+  ]);
+
+  return { ok: true, eventCount: rows.length };
+}
+
 export interface CalendarSweepResult {
   processed: number;
   succeeded: number;
   failed: { feedId: string; error: string }[];
+  accounts: {
+    processed: number;
+    succeeded: number;
+    failed: { accountId: string; error: string }[];
+  };
 }
 
 /**
- * One bounded cron sweep: re-sync the enabled feeds that have gone longest
- * without a sync (never-synced first). Failures are recorded per-feed by
- * `syncFeed` and reported here; one broken feed never stops the sweep.
+ * Providers included in the busy-time account sweep. Google accounts are
+ * additionally gated per user by the OAuth-tester allowlist — non-testers'
+ * tokens must not be exercised against Google's unverified scopes.
+ */
+const SWEEP_ACCOUNT_PROVIDERS = ["microsoft-entra-id", "google"];
+
+/**
+ * One bounded cron sweep: re-sync the enabled ICS feeds and the connected
+ * accounts (busy-time, V2) that have gone longest without a sync
+ * (never-synced first). Failures are recorded per-source by the sync
+ * functions and reported here; one broken source never stops the sweep.
  */
 export async function runCalendarSync(
   db: PrismaClient,
@@ -420,7 +617,12 @@ export async function runCalendarSync(
     take: SYNC_BATCH_SIZE,
   });
 
-  const result: CalendarSweepResult = { processed: feeds.length, succeeded: 0, failed: [] };
+  const result: CalendarSweepResult = {
+    processed: feeds.length,
+    succeeded: 0,
+    failed: [],
+    accounts: { processed: 0, succeeded: 0, failed: [] },
+  };
 
   // Sequential on purpose: feed hosts are third parties, and a serverless
   // function fanning out N concurrent fetches is how timeouts get flaky.
@@ -430,6 +632,36 @@ export async function runCalendarSync(
       result.succeeded += 1;
     } else {
       result.failed.push({ feedId: feed.id, error: outcome.error });
+    }
+  }
+
+  // Busy-time account sweep — same fairness ordering, its own batch cap.
+  // Only accounts with a usable token are worth attempting; a token-less row
+  // would just churn into error state every 15 minutes.
+  const candidates = await db.connectedAccount.findMany({
+    where: {
+      provider: { in: SWEEP_ACCOUNT_PROVIDERS },
+      access_token: { not: null },
+    },
+    select: { id: true, provider: true, user: { select: { email: true } } },
+    orderBy: { calendarLastSyncAttemptAt: { sort: "asc", nulls: "first" } },
+    take: ACCOUNT_SYNC_BATCH_SIZE,
+  });
+
+  // Same lazy-import rationale as the provider services.
+  const { isGoogleOAuthTester } = await import("~/lib/googleAuth");
+  const accounts = candidates.filter(
+    (account) =>
+      account.provider !== "google" || isGoogleOAuthTester(account.user.email),
+  );
+
+  result.accounts.processed = accounts.length;
+  for (const account of accounts) {
+    const outcome = await syncConnectedAccount(db, account.id);
+    if (outcome.ok) {
+      result.accounts.succeeded += 1;
+    } else {
+      result.accounts.failed.push({ accountId: account.id, error: outcome.error });
     }
   }
 
