@@ -4,7 +4,11 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { listBusyBlocksByUser } from "~/server/services/calendar/freeBusy";
-import { computeSlots } from "~/server/services/calendar/slotEngine";
+import {
+  computeSlots,
+  computeAvailabilityGrid,
+  type AttendeeWorkSettings,
+} from "~/server/services/calendar/slotEngine";
 import { buildInviteIcs } from "~/server/services/calendar/inviteIcs";
 import { sendMeetingInviteEmail } from "~/server/services/EmailService";
 
@@ -52,6 +56,58 @@ async function listWorkspaceMemberIds(db: PrismaClient, workspaceId: string): Pr
     }),
   ]);
   return new Set([...direct.map((m) => m.userId), ...viaTeam.map((m) => m.userId)]);
+}
+
+/**
+ * Work-hours settings for a set of users (self-describing fields, not event
+ * data — no privacy concern) plus the organizer's timezone, the fallback
+ * zone for attendees who never set one.
+ */
+async function loadAttendeeSettings(
+  db: PrismaClient,
+  attendeeUserIds: string[],
+  organizerId: string,
+): Promise<{ attendeeSettings: Map<string, AttendeeWorkSettings>; organizerTimezone: string | null }> {
+  const [attendeeRows, organizerRow] = await Promise.all([
+    db.user.findMany({
+      where: { id: { in: attendeeUserIds } },
+      select: {
+        id: true,
+        workHoursEnabled: true,
+        workDaysJson: true,
+        workHoursStart: true,
+        workHoursEnd: true,
+        timezone: true,
+      },
+    }),
+    db.user.findUnique({
+      where: { id: organizerId },
+      select: { timezone: true },
+    }),
+  ]);
+  const attendeeSettings = new Map<string, AttendeeWorkSettings>(
+    attendeeRows.map((row) => {
+      let workDays: string[] = [];
+      if (row.workDaysJson) {
+        try {
+          workDays = (JSON.parse(row.workDaysJson) as string[]).map((d) => d.toLowerCase());
+        } catch {
+          workDays = [];
+        }
+      }
+      return [
+        row.id,
+        {
+          workHoursEnabled: row.workHoursEnabled,
+          workDays,
+          workHoursStart: row.workHoursStart,
+          workHoursEnd: row.workHoursEnd,
+          timezone: row.timezone,
+        },
+      ] as const;
+    }),
+  );
+  return { attendeeSettings, organizerTimezone: organizerRow?.timezone ?? null };
 }
 
 function assertSaneRange(rangeStart: Date, rangeEnd: Date) {
@@ -135,64 +191,30 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         });
       }
 
-      const busyBlocksByUser = await listBusyBlocksByUser(db, input.attendeeUserIds, {
+      // The organizer always ends up an attendee (createMeeting adds them),
+      // so their calendar constrains suggestions too — a "free for everyone"
+      // slot the organizer can't make is not a real option.
+      const allAttendeeIds = [...new Set([...input.attendeeUserIds, ctx.session.user.id])];
+
+      const busyBlocksByUser = await listBusyBlocksByUser(db, allAttendeeIds, {
         from: input.rangeStart,
         to: input.rangeEnd,
       });
 
-      const availabilityUnknownUserIds = input.attendeeUserIds.filter(
+      const availabilityUnknownUserIds = allAttendeeIds.filter(
         (id) => (busyBlocksByUser.get(id) ?? []).length === 0,
       );
 
-      // Work-hours settings for every attendee (self-describing fields, not
-      // event data — no privacy concern) + the organizer's timezone as the
-      // fallback zone for attendees who never set one.
-      const [attendeeRows, organizerRow] = await Promise.all([
-        db.user.findMany({
-          where: { id: { in: input.attendeeUserIds } },
-          select: {
-            id: true,
-            workHoursEnabled: true,
-            workDaysJson: true,
-            workHoursStart: true,
-            workHoursEnd: true,
-            timezone: true,
-          },
-        }),
-        db.user.findUnique({
-          where: { id: ctx.session.user.id },
-          select: { timezone: true },
-        }),
-      ]);
-      const attendeeSettings = new Map(
-        attendeeRows.map((row) => {
-          let workDays: string[] = [];
-          if (row.workDaysJson) {
-            try {
-              workDays = (JSON.parse(row.workDaysJson) as string[]).map((d) =>
-                d.toLowerCase(),
-              );
-            } catch {
-              workDays = [];
-            }
-          }
-          return [
-            row.id,
-            {
-              workHoursEnabled: row.workHoursEnabled,
-              workDays,
-              workHoursStart: row.workHoursStart,
-              workHoursEnd: row.workHoursEnd,
-              timezone: row.timezone,
-            },
-          ] as const;
-        }),
+      const { attendeeSettings, organizerTimezone } = await loadAttendeeSettings(
+        db,
+        allAttendeeIds,
+        ctx.session.user.id,
       );
 
       const slots = computeSlots({
         busyBlocksByUser,
         attendeeSettings,
-        organizerTimezone: organizerRow?.timezone ?? null,
+        organizerTimezone,
         includeOutsideWorkHours: input.includeOutsideWorkHours,
         durationMinutes: input.durationMinutes,
         range: { from: input.rangeStart, to: input.rangeEnd },
@@ -207,6 +229,67 @@ export const workspaceSchedulingRouter = createTRPCRouter({
           db,
           availabilityUnknownUserIds,
         ),
+      };
+    }),
+
+  /**
+   * Per-attendee, per-cell availability for the grid view. Exposes each
+   * attendee's busy CELLS (quantized times only — the structural free/busy
+   * contract still guarantees no titles/locations/attendees) to non-viewer
+   * workspace members. Decision: ADR-0058 — free/busy existence is
+   * workspace-visible; event content never is.
+   */
+  availabilityGrid: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        attendeeUserIds: z.array(z.string()).min(1).max(50),
+        rangeStart: z.date(),
+        rangeEnd: z.date(),
+        includeOutsideWorkHours: z.boolean().default(false),
+      }),
+    )
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const db = ctx.db as PrismaClient;
+      await assertNotViewer(db, ctx.session.user.id, input.workspaceId);
+      assertSaneRange(input.rangeStart, input.rangeEnd);
+
+      const memberIds = await listWorkspaceMemberIds(db, input.workspaceId);
+      if (input.attendeeUserIds.some((id) => !memberIds.has(id))) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Attendees must be members of the workspace",
+        });
+      }
+
+      const allAttendeeIds = [...new Set([...input.attendeeUserIds, ctx.session.user.id])];
+
+      const busyBlocksByUser = await listBusyBlocksByUser(db, allAttendeeIds, {
+        from: input.rangeStart,
+        to: input.rangeEnd,
+      });
+      const { attendeeSettings, organizerTimezone } = await loadAttendeeSettings(
+        db,
+        allAttendeeIds,
+        ctx.session.user.id,
+      );
+
+      const grid = computeAvailabilityGrid({
+        busyBlocksByUser,
+        attendeeSettings,
+        organizerTimezone,
+        includeOutsideWorkHours: input.includeOutsideWorkHours,
+        range: { from: input.rangeStart, to: input.rangeEnd },
+      });
+
+      const emptyInRange = allAttendeeIds.filter(
+        (id) => (busyBlocksByUser.get(id) ?? []).length === 0,
+      );
+
+      return {
+        ...grid,
+        availabilityUnknownUserIds: await filterTrulyUnknown(db, emptyInRange),
       };
     }),
 

@@ -134,6 +134,18 @@ describe("workspaceScheduling router (mocked)", () => {
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
 
+    it("rejects viewers on availabilityGrid", async () => {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.availabilityGrid({
+          workspaceId: WORKSPACE_ID,
+          attendeeUserIds: ["user-a"],
+          rangeStart: new Date("2026-08-18T00:00:00Z"),
+          rangeEnd: new Date("2026-08-19T00:00:00Z"),
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
     it("rejects viewers on createMeeting", async () => {
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       await expect(
@@ -382,7 +394,8 @@ describe("workspaceScheduling router (mocked)", () => {
       ] as never);
       // user-nodata has no synced rows at all → truly unknown.
       dbMock.calendarEvent.groupBy.mockResolvedValue([] as never);
-      // Work hours off for both attendees — this test is about free/busy.
+      // Work hours off for both attendees — this test is about free/busy
+      // (the 07:00–20:00 scheduling window still applies, in UTC here).
       dbMock.user.findMany.mockResolvedValue([
         {
           id: "user-a",
@@ -401,7 +414,7 @@ describe("workspaceScheduling router (mocked)", () => {
           timezone: null,
         },
       ] as never);
-      dbMock.user.findUnique.mockResolvedValue({ timezone: null } as never);
+      dbMock.user.findUnique.mockResolvedValue({ timezone: "UTC" } as never);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       const result = await caller.workspaceScheduling.suggestSlots({
@@ -419,7 +432,68 @@ describe("workspaceScheduling router (mocked)", () => {
         "2026-08-18T17:30:00.000Z",
         "2026-08-18T18:00:00.000Z",
       ]);
-      expect(result.availabilityUnknownUserIds).toEqual(["user-nodata"]);
+      // The organizer rides along in the availability computation and has no
+      // synced calendar either — flagged honestly.
+      expect(result.availabilityUnknownUserIds).toEqual(["user-nodata", ORGANIZER_ID]);
+    });
+  });
+
+  describe("availabilityGrid", () => {
+    beforeEach(() => {
+      dbMock.workspaceUser.findFirst.mockResolvedValue({ role: "member" } as never);
+    });
+
+    it("rejects attendees outside the workspace", async () => {
+      memberRoster([ORGANIZER_ID, "user-a"]);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.availabilityGrid({
+          workspaceId: WORKSPACE_ID,
+          attendeeUserIds: ["user-outsider"],
+          rangeStart: new Date("2026-08-18T00:00:00Z"),
+          rangeEnd: new Date("2026-08-19T00:00:00Z"),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("returns per-attendee cell statuses including the organizer", async () => {
+      memberRoster([ORGANIZER_ID, "user-a"]);
+      dbMock.calendarEvent.findMany.mockResolvedValue([
+        {
+          userId: "user-a",
+          startsAt: new Date("2026-08-18T09:00:00Z"),
+          endsAt: new Date("2026-08-18T10:00:00Z"),
+          isAllDay: false,
+          sourceType: "microsoft",
+        },
+      ] as never);
+      dbMock.calendarEvent.groupBy.mockResolvedValue([] as never);
+      dbMock.user.findMany.mockResolvedValue([
+        {
+          id: "user-a",
+          workHoursEnabled: false,
+          workDaysJson: null,
+          workHoursStart: null,
+          workHoursEnd: null,
+          timezone: null,
+        },
+      ] as never);
+      dbMock.user.findUnique.mockResolvedValue({ timezone: "UTC" } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      const result = await caller.workspaceScheduling.availabilityGrid({
+        workspaceId: WORKSPACE_ID,
+        attendeeUserIds: ["user-a"],
+        rangeStart: new Date("2026-08-18T09:00:00Z"),
+        rangeEnd: new Date("2026-08-18T10:00:00Z"),
+      });
+
+      const byUser = new Map(result.attendees.map((a) => [a.userId, a.statuses]));
+      expect(byUser.get("user-a")).toEqual(["busy", "busy"]);
+      expect(byUser.get(ORGANIZER_ID)).toEqual(["free", "free"]);
+      // The statuses expose quantized times only — never event details.
+      expect(JSON.stringify(result)).not.toContain("title");
     });
   });
 });
