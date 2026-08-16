@@ -125,6 +125,8 @@ model User {
   notificationChannelPreferences NotificationChannelPreference[]
   navigationPreference           NavigationPreference?
   calendarPreferences            CalendarPreference[]
+  calendarFeeds                  CalendarFeed[]
+  calendarEvents                 CalendarEvent[]
   outcomes                       Outcome[]
   posts                          Post[]
   projects                       Project[]
@@ -217,6 +219,10 @@ model User {
   // Onboarding: Attribution
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
+
+  // IANA timezone name (e.g. "Europe/Berlin"). Prompted for when the user
+  // connects a calendar source; work hours are interpreted in this zone.
+  timezone         String?
 
   // Onboarding: Work Hours
   workHoursEnabled Boolean   @default(true)
@@ -2009,6 +2015,66 @@ model CalendarPreference {
   @@unique([connectedAccountId])
   @@index([userId])
   @@index([connectedAccountId])
+}
+
+/// A per-user ICS subscription URL (e.g. an Outlook published calendar).
+/// Deliberately NOT a ConnectedAccount — there is no account or token behind
+/// a feed, just a bearer-secret URL. See ADR on calendar feeds.
+model CalendarFeed {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  /// encryptToBase64() ciphertext — an ICS URL is a bearer secret. Never
+  /// store or log the plaintext.
+  urlEncrypted  String
+  /// From the feed's X-WR-TIMEZONE, informational only.
+  timezone      String?
+  /// Sidebar visibility toggle. Feeds have no CalendarPreference row.
+  isEnabled     Boolean   @default(true)
+  syncStatus    String    @default("pending") // pending | ok | error
+  lastSyncedAt  DateTime?
+  /// Stamped on every sync attempt, success or failure — the cron sweep
+  /// orders by this so permanently failing feeds can't starve healthy ones.
+  lastSyncAttemptAt DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events        CalendarEvent[]
+
+  @@index([userId])
+}
+
+/// Persisted external calendar events — the app's first event persistence
+/// layer. ICS feed rows in V1; Google/Microsoft busy-time rows in V2.
+/// `title`/`location` are stored for the owner's own rendering and must
+/// NEVER cross users: cross-user reads select only startsAt/endsAt/isAllDay/
+/// sourceType (free/busy).
+model CalendarEvent {
+  id                 String        @id @default(cuid())
+  userId             String
+  sourceType         String // "ics" | "google" | "microsoft"
+  calendarFeedId     String? // set when sourceType=ics
+  connectedAccountId String? // set when sourceType=google|microsoft
+  providerCalendarId String?
+  /// iCal UID / provider event id. Recurrence instances share it and are
+  /// disambiguated by startsAt (see the unique constraint).
+  externalId         String
+  title              String?
+  location           String?
+  startsAt           DateTime
+  endsAt             DateTime
+  isAllDay           Boolean       @default(false)
+  syncedAt           DateTime
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarFeed       CalendarFeed? @relation(fields: [calendarFeedId], references: [id], onDelete: Cascade)
+
+  /// Feed-scoped so the same event (UID + start) appearing in two of a
+  /// user's feeds keeps both rows — each feed owns its copy independently.
+  /// V2's provider rows (null calendarFeedId) add their own key shape.
+  @@unique([calendarFeedId, externalId, startsAt])
+  @@index([userId, startsAt, endsAt])
+  @@index([calendarFeedId])
 }
 
 model ScheduledNotification {

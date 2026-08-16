@@ -6,6 +6,12 @@ import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
 import type { CalendarInfo, CalendarProvider } from "~/server/services/CalendarProvider";
 import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { encryptToBase64 } from "~/server/utils/encryption";
+import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
+import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
+import { listIcsCalendarEvents } from "~/server/services/calendar/icsEventRead";
+import { todayWindow } from "~/server/services/calendar/todayWindow";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 
@@ -188,7 +194,167 @@ async function resolveAccount(
   });
 }
 
+const MAX_FEEDS_PER_USER = 20;
+/** Feeds re-synced per Refresh-now click — bounded against the route budget. */
+const REFRESH_BATCH_SIZE = 10;
+
 export const calendarRouter = createTRPCRouter({
+  // ============================================
+  // Calendar feeds (ICS subscription URLs)
+  //
+  // Deliberately NOT threaded through providerSchema or the OAuth-shaped
+  // procedures above — a feed has no account or token behind it. ICS enters
+  // the system here (CRUD + sync) and at the read-path merges only.
+  // ============================================
+
+  addFeed: protectedProcedure
+    .input(
+      z.object({
+        url: z.string().min(1, "Feed URL is required").max(2048, "Feed URL is too long"),
+        name: z.string().trim().min(1).max(100).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Per-user cap: the cron batch is finite, so one user with hundreds of
+      // feeds would quietly break the freshness guarantee for everyone else.
+      const feedCount = await ctx.db.calendarFeed.count({ where: { userId } });
+      if (feedCount >= MAX_FEEDS_PER_USER) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `You can connect at most ${MAX_FEEDS_PER_USER} calendar feeds. Remove one first.`,
+        });
+      }
+
+      try {
+        await assertSafeFeedUrl(input.url);
+      } catch (error) {
+        if (error instanceof UnsafeFeedUrlError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        throw error;
+      }
+
+      const feed = await ctx.db.calendarFeed.create({
+        data: {
+          userId,
+          name: input.name ?? new URL(input.url).hostname,
+          urlEncrypted: encryptToBase64(input.url),
+        },
+      });
+
+      // Inline first sync so the pasted feed is visible immediately. A
+      // failure is recorded on the feed rather than thrown — the feed row
+      // exists either way, with syncStatus telling the UI what happened.
+      const result = await syncFeed(ctx.db as PrismaClient, feed.id);
+
+      if (result.ok && !input.name && result.calendarName) {
+        await ctx.db.calendarFeed.update({
+          where: { id: feed.id },
+          data: { name: result.calendarName },
+        });
+      }
+
+      return ctx.db.calendarFeed.findUniqueOrThrow({
+        where: { id: feed.id },
+        select: {
+          id: true,
+          name: true,
+          timezone: true,
+          isEnabled: true,
+          syncStatus: true,
+          lastSyncedAt: true,
+          lastSyncError: true,
+        },
+      });
+    }),
+
+  listFeeds: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.calendarFeed.findMany({
+      where: { userId: ctx.session.user.id },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        isEnabled: true,
+        syncStatus: true,
+        lastSyncedAt: true,
+        lastSyncError: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }),
+
+  setFeedEnabled: protectedProcedure
+    .input(z.object({ feedId: z.string(), isEnabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const { count } = await ctx.db.calendarFeed.updateMany({
+        where: { id: input.feedId, userId: ctx.session.user.id },
+        data: { isEnabled: input.isEnabled },
+      });
+      if (count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feed not found" });
+      }
+      return { success: true };
+    }),
+
+  // "Refresh now" — re-sync the caller's enabled feeds inline. Rate-limited
+  // to roughly one refresh a minute via lastSyncAttemptAt (attempt, not
+  // success — a permanently failing feed must not disable the limit), which
+  // survives serverless instance churn where in-memory counters don't.
+  refreshMyFeeds: protectedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const feeds = await ctx.db.calendarFeed.findMany({
+      where: { userId, isEnabled: true },
+      select: { id: true, lastSyncedAt: true, lastSyncAttemptAt: true },
+      // Longest-unattempted first, so the capped batch is spent where it helps.
+      orderBy: { lastSyncAttemptAt: { sort: "asc", nulls: "first" } },
+    });
+
+    if (feeds.length === 0) return { refreshed: 0 };
+
+    const oneMinuteAgo = Date.now() - 60 * 1000;
+    const allAttemptedRecently = feeds.every(
+      (feed) => feed.lastSyncAttemptAt && feed.lastSyncAttemptAt.getTime() > oneMinuteAgo,
+    );
+    if (allAttemptedRecently) {
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: "Feeds were just refreshed — try again in a minute.",
+      });
+    }
+
+    // Skip feeds that synced successfully within the last minute, and bound
+    // the loop — each sync can spend real seconds on a third-party host and
+    // the route budget is finite.
+    const stale = feeds
+      .filter((feed) => !feed.lastSyncedAt || feed.lastSyncedAt.getTime() <= oneMinuteAgo)
+      .slice(0, REFRESH_BATCH_SIZE);
+
+    let refreshed = 0;
+    for (const feed of stale) {
+      const result = await syncFeed(ctx.db as PrismaClient, feed.id);
+      if (result.ok) refreshed += 1;
+    }
+    return { refreshed };
+  }),
+
+  removeFeed: protectedProcedure
+    .input(z.object({ feedId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // deleteMany so the userId scoping is part of the delete itself —
+      // someone else's feed id deletes zero rows. Events cascade.
+      const { count } = await ctx.db.calendarFeed.deleteMany({
+        where: { id: input.feedId, userId: ctx.session.user.id },
+      });
+      if (count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feed not found" });
+      }
+      return { success: true };
+    }),
+
   // Returns connection status for a single provider (backwards compatible)
   getConnectionStatus: protectedProcedure
     .input(z.object({ provider: providerSchema }).optional())
@@ -357,9 +523,37 @@ export const calendarRouter = createTRPCRouter({
     .input(z.object({ provider: providerSchema }).optional())
     .query(async ({ ctx, input }) => {
       const provider = input?.provider ?? "google";
-      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return [];
+      const userId = ctx.session.user.id;
+
+      // ICS feed events merge in regardless of provider or Google gating —
+      // every consumer calls this once with the default provider, so this is
+      // the single place today's DB-backed events enter the Today surfaces.
+      // "Today" is the user's day when they've set a timezone; the provider
+      // path keeps its server-local convention for now.
+      const userRow = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      });
+      const { start: todayStart, end: todayEnd } = todayWindow(userRow?.timezone ?? null);
+      const icsEvents = await listIcsCalendarEvents(
+        ctx.db as PrismaClient,
+        userId,
+        todayStart,
+        todayEnd,
+      ).catch((error) => {
+        reportHandledErrorServer(error, { area: "calendar.getTodayEvents.icsMerge" });
+        return [];
+      });
+
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) return icsEvents;
+
       const service = getCalendarService(provider);
-      return service.getTodayEvents(ctx.session.user.id);
+      const providerEvents = await service.getTodayEvents(userId);
+      return [...providerEvents, ...icsEvents].sort((a, b) => {
+        const aTime = a.start?.dateTime ?? a.start?.date ?? "";
+        const bTime = b.start?.dateTime ?? b.start?.date ?? "";
+        return aTime.localeCompare(bTime);
+      });
     }),
 
   getUpcomingEvents: protectedProcedure
@@ -662,7 +856,7 @@ export const calendarRouter = createTRPCRouter({
         calendarId: string;
         calendarName?: string;
         calendarColor?: string;
-        provider: "google" | "microsoft";
+        provider: "google" | "microsoft" | "ics";
         id: string;
         summary: string;
         description?: string;
@@ -673,6 +867,21 @@ export const calendarRouter = createTRPCRouter({
         htmlLink: string;
         status: string;
       }> = [];
+
+      // DB-backed ICS feed events merge in alongside the live provider
+      // fetches. Defaults mirror the UI's typical range when unset.
+      const icsTimeMin = input.timeMin ?? new Date();
+      const icsTimeMax =
+        input.timeMax ?? new Date(icsTimeMin.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const icsEventsPromise = listIcsCalendarEvents(
+        ctx.db as PrismaClient,
+        userId,
+        icsTimeMin,
+        icsTimeMax,
+      ).catch((error) => {
+        reportHandledErrorServer(error, { area: "calendar.getEventsMultiCalendar.icsMerge" });
+        return [];
+      });
 
       const perAccountEvents = await Promise.all(
         connectedAccounts.map(async (account) => {
@@ -706,6 +915,8 @@ export const calendarRouter = createTRPCRouter({
       for (const events of perAccountEvents) {
         allEvents.push(...events);
       }
+
+      allEvents.push(...(await icsEventsPromise));
 
       // Sort all events by start time
       return allEvents.sort((a, b) => {

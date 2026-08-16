@@ -16,6 +16,7 @@ import {
 } from '@tabler/icons-react';
 import { ProfileCard } from './ProfileCard';
 import { WorkHoursCard } from './WorkHoursCard';
+import { TimezoneCard } from './TimezoneCard';
 
 const PROVIDERS = [
   { id: 'discord', label: 'Discord', icon: IconBrandDiscord, color: 'indigo' },
@@ -40,6 +41,8 @@ export default function ProfileSettingsPage() {
         <ProfileCard />
 
         {/* Work Hours */}
+        <TimezoneCard />
+
         <WorkHoursCard />
 
         {/* Connected Accounts */}

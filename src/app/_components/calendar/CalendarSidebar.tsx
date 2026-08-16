@@ -20,16 +20,20 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { CalendarMiniWidget } from "./CalendarMiniWidget";
+import { CalendarFeedsSection } from "./CalendarFeedsSection";
 import { getEventHue, EVENT_HUE_DOT } from "./eventHue";
 
 interface CalendarSidebarProps {
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
+  /** Forwarded to CalendarFeedsSection — the page owns the timezone prompt. */
+  onTimezoneSuggestion?: (suggestedTimezone: string | null) => void;
 }
 
 export function CalendarSidebar({
   selectedDate,
   onDateSelect,
+  onTimezoneSuggestion,
 }: CalendarSidebarProps) {
   const utils = api.useUtils();
 
@@ -279,6 +283,14 @@ export function CalendarSidebar({
               </UnstyledButton>
             )}
           </Stack>
+        </div>
+
+        {/* Calendar feeds (ICS subscriptions — not accounts, ADR-0057) */}
+        <div>
+          <Text size="sm" fw={600} mb="sm" className="text-text-primary">
+            Calendar feeds
+          </Text>
+          <CalendarFeedsSection compact onTimezoneSuggestion={onTimezoneSuggestion} />
         </div>
       </Stack>
     </div>

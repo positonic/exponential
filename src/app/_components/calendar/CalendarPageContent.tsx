@@ -16,6 +16,11 @@ import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import { EditActionModal } from "~/app/_components/EditActionModal";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
+import {
+  markTimezonePromptDismissed,
+  TimezonePromptModal,
+  TZ_PROMPT_DISMISSED_KEY,
+} from "./TimezonePromptModal";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
 
 export function CalendarPageContent() {
@@ -23,9 +28,14 @@ export function CalendarPageContent() {
   const { data: connectionStatuses, isLoading: statusLoading } =
     api.calendar.getAllConnectionStatuses.useQuery();
 
+  // ICS subscription feeds count as a calendar source too — a feed-only user
+  // must still get events fetched and the grid rendered.
+  const { data: feeds } = api.calendar.listFeeds.useQuery();
+
   const googleConnected = connectionStatuses?.google?.isConnected ?? false;
   const microsoftConnected = connectionStatuses?.microsoft?.isConnected ?? false;
-  const calendarConnected = googleConnected || microsoftConnected;
+  const hasFeeds = (feeds?.length ?? 0) > 0;
+  const calendarConnected = googleConnected || microsoftConnected || hasFeeds;
   // Google's calendar scopes are pending verification — non-testers get the
   // premium message instead of a connect button that would dead-end.
   const googleGated = connectionStatuses?.google?.gated ?? false;
@@ -39,6 +49,27 @@ export function CalendarPageContent() {
     goNext,
     goPrevious,
   } = useCalendarNavigation();
+
+  // Timezone checkpoint: a connected calendar source (OAuth landing or an
+  // existing connection) with no User.timezone prompts once per session —
+  // work-hours and scheduling interpretation depend on it.
+  const { data: tzData } = api.user.getTimezone.useQuery(undefined, {
+    enabled: calendarConnected,
+  });
+  const [tzPromptDismissed, setTzPromptDismissed] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(TZ_PROMPT_DISMISSED_KEY) === "1",
+  );
+  // X-WR-TIMEZONE handed up from the sidebar's feed-add flow — this page owns
+  // the single prompt, so the section doesn't open a second stacked modal.
+  const [tzSuggestion, setTzSuggestion] = useState<string | null>(null);
+  const tzPromptOpen =
+    calendarConnected && tzData !== undefined && tzData.timezone === null && !tzPromptDismissed;
+  const dismissTzPrompt = () => {
+    markTimezonePromptDismissed();
+    setTzPromptDismissed(true);
+  };
 
   // Show toast for calendar_connected / calendar_error search params.
   // Must live here (not in GoogleCalendarConnect/MicrosoftCalendarConnect)
@@ -296,6 +327,7 @@ export function CalendarPageContent() {
 
   // Handle refresh - clear server cache then refetch
   const clearCache = api.calendar.clearCache.useMutation();
+  const refreshFeeds = api.calendar.refreshMyFeeds.useMutation();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -309,9 +341,16 @@ export function CalendarPageContent() {
       if (microsoftConnected) {
         clearPromises.push(clearCache.mutateAsync({ provider: "microsoft" }));
       }
+      if (hasFeeds) {
+        // Re-sync ICS feeds inline. Rate-limited server-side (~1/min) —
+        // a TOO_MANY_REQUESTS just means the events are already fresh, so
+        // swallow it and refetch.
+        clearPromises.push(refreshFeeds.mutateAsync().catch(() => undefined));
+      }
       await Promise.all(clearPromises);
       // Invalidate client-side cache to trigger refetch
       await utils.calendar.getEventsMultiCalendar.invalidate();
+      await utils.calendar.listFeeds.invalidate();
     } finally {
       setIsRefreshing(false);
     }
@@ -463,9 +502,15 @@ export function CalendarPageContent() {
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
       />
+      <TimezonePromptModal
+        opened={tzPromptOpen}
+        onClose={dismissTzPrompt}
+        suggestedTimezone={tzSuggestion}
+      />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">{renderCalendarContent()}</div>
         <CalendarSidebar
+          onTimezoneSuggestion={setTzSuggestion}
           selectedDate={selectedDate}
           onDateSelect={setDate}
         />
