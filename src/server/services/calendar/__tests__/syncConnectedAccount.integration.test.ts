@@ -133,6 +133,28 @@ describe("syncConnectedAccount — Microsoft busy-time sync", () => {
     expect(rows.map((r) => r.externalId)).toEqual(["graph-1"]);
   });
 
+  it("marks the account without wiping rows when the token refresh itself fails", async () => {
+    const { user, account } = await seedAccount();
+    stubGraph(graphPayload([{ id: "graph-1", subject: "Keep me", start: startA, end: endA }]));
+    await syncConnectedAccount(db, account.id);
+
+    // Expire the token; the refresh endpoint rejects (revoked consent).
+    await db.connectedAccount.update({
+      where: { id: account.id },
+      data: { expires_at: Math.floor(Date.now() / 1000) - 60 },
+    });
+    stubGraph({ error: "invalid_grant" }, 400);
+
+    const result = await syncConnectedAccount(db, account.id);
+
+    expect(result.ok).toBe(false);
+    const rows = await db.calendarEvent.findMany({ where: { userId: user.id } });
+    expect(rows.map((r) => r.externalId)).toEqual(["graph-1"]);
+    const updated = await db.connectedAccount.findUniqueOrThrow({ where: { id: account.id } });
+    expect(updated.calendarSyncStatus).toBe("error");
+    expect(updated.calendarLastSyncError).toMatch(/reconnect/i);
+  });
+
   it("skips Google accounts of non-testers, sweeps Google testers", async () => {
     const nonTester = await createUser(db, { email: "regular@example.com" });
     await db.connectedAccount.create({

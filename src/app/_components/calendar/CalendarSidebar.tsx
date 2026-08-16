@@ -9,8 +9,10 @@ import {
   Menu,
   ActionIcon,
   Loader,
+  Tooltip,
 } from "@mantine/core";
 import {
+  IconAlertTriangle,
   IconBrandGoogle,
   IconBrandWindows,
   IconPlus,
@@ -182,6 +184,25 @@ export function CalendarSidebar({
                     >
                       {account.email ?? account.name ?? "Calendar account"}
                     </Text>
+                    {/* Busy-time sync status (V2) — display fetches are
+                        live, so only surface the background sync's error. */}
+                    {account.syncStatus === "error" && (
+                      <Tooltip
+                        label={account.lastSyncError ?? "Background calendar sync failed."}
+                        multiline
+                        maw={280}
+                        withinPortal
+                      >
+                        <ActionIcon
+                          variant="transparent"
+                          size="sm"
+                          aria-label={`Background sync failed: ${account.lastSyncError ?? "unknown error"}`}
+                          className="flex-shrink-0 cursor-default"
+                        >
+                          <IconAlertTriangle size={14} className="text-brand-warning" />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
                     <Menu position="bottom-end" withinPortal>
                       <Menu.Target>
                         <ActionIcon
