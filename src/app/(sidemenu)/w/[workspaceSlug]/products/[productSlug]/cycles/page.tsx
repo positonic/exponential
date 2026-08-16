@@ -50,22 +50,33 @@ export default function CyclesListPage() {
   const { workspace, workspaceId } = useWorkspace();
   const [autoCreatePaused, setAutoCreatePaused] = useState(false);
 
+  const { data: product } = api.product.product.getBySlug.useQuery(
+    { workspaceId: workspaceId ?? "", slug: productSlug },
+    { enabled: !!workspaceId && !!productSlug },
+  );
+
   const { data: cycles, isLoading } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "", autoCreate: !autoCreatePaused },
-    { enabled: !!workspaceId },
+    {
+      workspaceId: workspaceId ?? "",
+      productId: product?.id,
+      autoCreate: !autoCreatePaused,
+    },
+    // Wait for the product so auto-generation runs product-scoped, never
+    // against the whole workspace.
+    { enabled: !!workspaceId && !!product?.id },
   );
 
   const utils = api.useUtils();
 
   const deleteCycle = api.product.cycle.delete.useMutation({
     onSuccess: () => {
-      void utils.product.cycle.list.invalidate({ workspaceId: workspaceId ?? "" });
+      void utils.product.cycle.list.invalidate();
     },
   });
 
   const updateCycle = api.product.cycle.update.useMutation({
     onSuccess: () => {
-      void utils.product.cycle.list.invalidate({ workspaceId: workspaceId ?? "" });
+      void utils.product.cycle.list.invalidate();
     },
   });
 
@@ -181,7 +192,7 @@ export default function CyclesListPage() {
         </div>
       )}
 
-      {isLoading ? (
+      {isLoading || !product ? (
         <Stack gap="sm">
           {[1, 2].map((i) => (
             <Skeleton key={i} height={80} />

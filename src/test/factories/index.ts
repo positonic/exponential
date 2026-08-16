@@ -428,18 +428,24 @@ export async function createCycle(
   overrides: {
     workspaceId: string;
     createdById: string;
+    productId?: string;
     name?: string;
     slug?: string;
+    startDate?: Date;
+    endDate?: Date;
   },
 ) {
   return db.list.create({
     data: {
       workspaceId: overrides.workspaceId,
       createdById: overrides.createdById,
+      productId: overrides.productId,
       name: overrides.name ?? `Test Cycle ${uid()}`,
       slug: overrides.slug ?? `test-cycle-${uid()}`,
       listType: "SPRINT",
       status: "PLANNED",
+      startDate: overrides.startDate,
+      endDate: overrides.endDate,
     },
   });
 }

@@ -67,11 +67,7 @@ export function CycleDetailClient() {
   const updateCycle = api.product.cycle.update.useMutation({
     onSuccess: async () => {
       await utils.product.cycle.getById.invalidate({ id: cycleId });
-      if (cycle?.workspaceId) {
-        await utils.product.cycle.list.invalidate({
-          workspaceId: cycle.workspaceId,
-        });
-      }
+      await utils.product.cycle.list.invalidate();
     },
   });
 
@@ -80,22 +76,14 @@ export function CycleDetailClient() {
       setHeaderError(null);
       setIsEditingHeader(false);
       await utils.product.cycle.getById.invalidate({ id: cycleId });
-      if (cycle?.workspaceId) {
-        await utils.product.cycle.list.invalidate({
-          workspaceId: cycle.workspaceId,
-        });
-      }
+      await utils.product.cycle.list.invalidate();
     },
     onError: (err) => setHeaderError(err.message),
   });
 
   const deleteCycle = api.product.cycle.delete.useMutation({
     onSuccess: async () => {
-      if (cycle?.workspaceId) {
-        await utils.product.cycle.list.invalidate({
-          workspaceId: cycle.workspaceId,
-        });
-      }
+      await utils.product.cycle.list.invalidate();
       router.push(`/w/${workspaceSlug}/products/${productSlug}/cycles`);
     },
   });

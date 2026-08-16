@@ -712,11 +712,15 @@ model List {
   displayOrder Int @default(0)
 
   workspaceId String
+  // Cycles (listType SPRINT) are scoped to a single product; null = legacy
+  // workspace-shared cycle. Overlap validation only applies within one product.
+  productId   String?
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product        Product?         @relation("ProductCycles", fields: [productId], references: [id], onDelete: Cascade)
   createdBy      User             @relation("ListsCreated", fields: [createdById], references: [id])
   actions        ActionList[]
   tickets        Ticket[]         @relation("TicketCycle")
@@ -727,6 +731,7 @@ model List {
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
+  @@index([productId])
   @@index([createdById])
   @@index([status])
 }
@@ -4160,6 +4165,7 @@ model Product {
   featureDrafts     MeetingFeatureDraft[]
   epics             Epic[]
   repositories      WorkspaceRepository[]
+  cycles            List[]                @relation("ProductCycles")
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])

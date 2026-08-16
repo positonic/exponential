@@ -245,8 +245,8 @@ export default function TicketDetailPage() {
   // Data for selectors
   const members = workspace?.members ?? [];
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
   // Only this ticket's own product's epics are linkable — the router rejects
   // another product's epic, so offering it would be a dead option.
