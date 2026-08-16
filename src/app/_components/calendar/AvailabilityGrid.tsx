@@ -1,20 +1,25 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { useMemo } from "react";
 import { Text, Tooltip } from "@mantine/core";
+import {
+  buildGridLayout,
+  computeSpanState,
+  type CellStatus,
+  type SpanState,
+} from "./availabilityGridModel";
 
 /**
  * LettuceMeet-style availability grid (V3 scheduling, grid view).
  *
- * Viewer-local time axis over the scheduling window (07:00–20:00), one
- * column per day, 30-min cells. Each cell is a candidate slot START for the
- * chosen duration: shading reflects how many attendees are free for the
- * whole span, hover names who's busy, and cells that fail anyone's
- * work-hours/window constraint render muted and unclickable. Partial cells
- * are selectable — the modal warns exactly who they exclude.
+ * Viewer-local time axis over the scheduling window, one column per day,
+ * cells bucketed from the server's instants (see availabilityGridModel).
+ * Each cell is a candidate slot START for the chosen duration: shading
+ * reflects how many attendees are free for the whole span, hover names
+ * who's busy, and cells that fail anyone's work-hours/window constraint
+ * render muted. Partial cells are selectable — the modal warns exactly who
+ * they exclude.
  */
-
-type CellStatus = "free" | "busy" | "outside";
 
 export interface GridSlot {
   startsAt: Date;
@@ -34,17 +39,6 @@ interface AvailabilityGridProps {
   onSelectSlot: (slot: GridSlot, busyUserIds: string[]) => void;
 }
 
-/** The grid renders the scheduling window on the viewer's wall clock. */
-const WINDOW_START_MINUTES = 7 * 60;
-const WINDOW_END_MINUTES = 20 * 60;
-
-interface SpanState {
-  /** null → the span runs off the loaded range: not offerable. */
-  kind: "unloaded" | "outside" | "open";
-  busyUserIds: string[];
-  freeCount: number;
-}
-
 export function AvailabilityGrid({
   cellStartsAt,
   cellMinutes,
@@ -55,56 +49,12 @@ export function AvailabilityGrid({
   selectedSlot,
   onSelectSlot,
 }: AvailabilityGridProps) {
-  const cellMs = cellMinutes * 60 * 1000;
-
-  const indexByMs = useMemo(
-    () => new Map(cellStartsAt.map((date, index) => [date.getTime(), index])),
-    [cellStartsAt],
+  const layout = useMemo(
+    () => buildGridLayout(cellStartsAt, cellMinutes),
+    [cellStartsAt, cellMinutes],
   );
 
-  // Viewer-local days spanned by the loaded cells.
-  const days = useMemo(() => {
-    const seen = new Map<string, Date>();
-    for (const date of cellStartsAt) {
-      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-      if (!seen.has(key)) {
-        seen.set(key, new Date(date.getFullYear(), date.getMonth(), date.getDate()));
-      }
-    }
-    return [...seen.values()];
-  }, [cellStartsAt]);
-
-  // Row start times (minutes since viewer-local midnight) inside the window.
-  const rowMinutes = useMemo(() => {
-    const rows: number[] = [];
-    for (
-      let minutes = WINDOW_START_MINUTES;
-      minutes + cellMinutes <= WINDOW_END_MINUTES;
-      minutes += cellMinutes
-    ) {
-      rows.push(minutes);
-    }
-    return rows;
-  }, [cellMinutes]);
-
   const spanCells = Math.max(1, Math.ceil(durationMinutes / cellMinutes));
-
-  const spanState = (startMs: number): SpanState => {
-    const busy = new Set<string>();
-    let outside = false;
-    for (let i = 0; i < spanCells; i += 1) {
-      const index = indexByMs.get(startMs + i * cellMs);
-      if (index === undefined) return { kind: "unloaded", busyUserIds: [], freeCount: 0 };
-      for (const attendee of attendees) {
-        const status = attendee.statuses[index];
-        if (status === "outside") outside = true;
-        if (status === "busy") busy.add(attendee.userId);
-      }
-    }
-    if (outside) return { kind: "outside", busyUserIds: [], freeCount: 0 };
-    const busyUserIds = [...busy];
-    return { kind: "open", busyUserIds, freeCount: attendees.length - busyUserIds.length };
-  };
 
   const nameOf = (userId: string) => memberNameById.get(userId) ?? "Unknown member";
 
@@ -140,66 +90,40 @@ export function AvailabilityGrid({
         <div
           className="grid gap-px"
           style={{
-            gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(5.5rem, 1fr))`,
+            gridTemplateColumns: `3.5rem repeat(${layout.days.length}, minmax(5.5rem, 1fr))`,
           }}
         >
           <div />
-          {days.map((day) => (
-            <Text key={day.getTime()} size="xs" fw={600} ta="center" className="pb-1">
-              {day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+          {layout.days.map((day) => (
+            <Text key={day.key} size="xs" fw={600} ta="center" className="pb-1">
+              {day.date.toLocaleDateString(undefined, {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+              })}
             </Text>
           ))}
 
-          {rowMinutes.map((minutes) => (
-            <Fragment key={minutes}>
-              <div className="pr-2 text-right">
-                {minutes % 60 === 0 && (
-                  <Text size="xs" c="dimmed">
-                    {hourLabel(minutes)}
-                  </Text>
-                )}
-              </div>
-              {days.map((day) => {
-                const startMs = new Date(
-                  day.getFullYear(),
-                  day.getMonth(),
-                  day.getDate(),
-                  Math.floor(minutes / 60),
-                  minutes % 60,
-                ).getTime();
-                const state = spanState(startMs);
-                const selected = selectedSlot?.startsAt.getTime() === startMs;
-                const clickable = state.kind === "open";
-                return (
-                  <Tooltip key={`${day.getTime()}-${minutes}`} label={tooltipFor(state)} withinPortal>
-                    <button
-                      type="button"
-                      disabled={!clickable}
-                      aria-label={`${day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" })} ${hourLabel(minutes)} — ${tooltipFor(state)}`}
-                      onClick={() =>
-                        clickable &&
-                        onSelectSlot(
-                          {
-                            startsAt: new Date(startMs),
-                            endsAt: new Date(startMs + durationMinutes * 60 * 1000),
-                          },
-                          state.busyUserIds,
-                        )
-                      }
-                      className={`h-5 w-full border-0 p-0 transition-colors ${
-                        clickable ? "cursor-pointer" : "cursor-not-allowed opacity-40"
-                      }`}
-                      style={{
-                        backgroundColor: cellBackground(state),
-                        ...(selected
-                          ? { boxShadow: "inset 0 0 0 2px var(--color-brand-primary)" }
-                          : {}),
-                      }}
-                    />
-                  </Tooltip>
-                );
-              })}
-            </Fragment>
+          {layout.rowMinutes.map((minutes) => (
+            <RowCells
+              key={minutes}
+              minutes={minutes}
+              hourLabel={
+                // Label the first row of each hour — rows can sit at :15/:45
+                // in offset timezones, so exact :00 isn't guaranteed.
+                minutes % 60 < cellMinutes ? hourLabel(minutes) : null
+              }
+              layout={layout}
+              cellStartsAt={cellStartsAt}
+              cellMinutes={cellMinutes}
+              spanCells={spanCells}
+              attendees={attendees}
+              durationMinutes={durationMinutes}
+              selectedSlot={selectedSlot}
+              onSelectSlot={onSelectSlot}
+              tooltipFor={tooltipFor}
+              cellBackground={cellBackground}
+            />
           ))}
         </div>
       </div>
@@ -221,6 +145,84 @@ export function AvailabilityGrid({
         </Text>
       )}
     </div>
+  );
+}
+
+function RowCells({
+  minutes,
+  hourLabel,
+  layout,
+  cellStartsAt,
+  cellMinutes,
+  spanCells,
+  attendees,
+  durationMinutes,
+  selectedSlot,
+  onSelectSlot,
+  tooltipFor,
+  cellBackground,
+}: {
+  minutes: number;
+  hourLabel: string | null;
+  layout: ReturnType<typeof buildGridLayout>;
+  cellStartsAt: Date[];
+  cellMinutes: number;
+  spanCells: number;
+  attendees: { userId: string; statuses: CellStatus[] }[];
+  durationMinutes: number;
+  selectedSlot: GridSlot | null;
+  onSelectSlot: (slot: GridSlot, busyUserIds: string[]) => void;
+  tooltipFor: (state: SpanState) => string;
+  cellBackground: (state: SpanState) => string;
+}) {
+  return (
+    <>
+      <div className="pr-2 text-right">
+        {hourLabel && (
+          <Text size="xs" c="dimmed">
+            {hourLabel}
+          </Text>
+        )}
+      </div>
+      {layout.days.map((day) => {
+        const index = layout.indexAt(day.key, minutes);
+        const state = computeSpanState(index, cellStartsAt, cellMinutes, spanCells, attendees);
+        const startsAt = index !== undefined ? cellStartsAt[index]! : null;
+        const selected =
+          startsAt !== null && selectedSlot?.startsAt.getTime() === startsAt.getTime();
+        const clickable = state.kind === "open" && startsAt !== null;
+        return (
+          <Tooltip key={day.key} label={tooltipFor(state)} withinPortal>
+            {/* aria-disabled (not disabled) so muted cells stay focusable and
+                the tooltip explaining WHY still fires for them. */}
+            <button
+              type="button"
+              aria-disabled={!clickable}
+              aria-label={`${day.date.toLocaleDateString(undefined, { weekday: "short", day: "numeric" })} ${startsAt ? startsAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""} — ${tooltipFor(state)}`}
+              onClick={() => {
+                if (!clickable || startsAt === null) return;
+                onSelectSlot(
+                  {
+                    startsAt,
+                    endsAt: new Date(startsAt.getTime() + durationMinutes * 60 * 1000),
+                  },
+                  state.busyUserIds,
+                );
+              }}
+              className={`h-5 w-full border-0 p-0 transition-colors ${
+                clickable ? "cursor-pointer" : "cursor-not-allowed opacity-40"
+              }`}
+              style={{
+                backgroundColor: cellBackground(state),
+                ...(selected
+                  ? { boxShadow: "inset 0 0 0 2px var(--color-brand-primary)" }
+                  : {}),
+              }}
+            />
+          </Tooltip>
+        );
+      })}
+    </>
   );
 }
 

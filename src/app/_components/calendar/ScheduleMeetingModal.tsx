@@ -27,6 +27,10 @@ import { ActionIcon, Tooltip } from "@mantine/core";
 import { useSession } from "next-auth/react";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { AvailabilityGrid, type GridSlot } from "./AvailabilityGrid";
+import {
+  SCHEDULING_WINDOW_START_MINUTES,
+  SCHEDULING_WINDOW_END_MINUTES,
+} from "~/server/services/calendar/slotEngine";
 
 /**
  * "Schedule meeting" (V3 workspace scheduling): pick a workspace, attendees
@@ -44,6 +48,11 @@ import { AvailabilityGrid, type GridSlot } from "./AvailabilityGrid";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Server caps ranges at 30 days — 3 weeks ahead keeps us inside it. */
 const MAX_WEEK_OFFSET = 3;
+
+const minutesAsHhMm = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+/** e.g. "07:00–20:00" — derived from the engine's constants, never retyped. */
+const WINDOW_LABEL = `${minutesAsHhMm(SCHEDULING_WINDOW_START_MINUTES)}–${minutesAsHhMm(SCHEDULING_WINDOW_END_MINUTES)}`;
 export function ScheduleMeetingModal({
   opened,
   onClose,
@@ -124,9 +133,13 @@ export function ScheduleMeetingModal({
     });
   };
 
-  // Rolling week, pageable a week at a time with the ‹ › controls.
+  // Rolling week, pageable a week at a time with the ‹ › controls. The base
+  // is quantized to the half hour so paging back to an already-fetched week
+  // reuses the react-query cache instead of minting a fresh key.
   const range = useMemo(() => {
-    const base = Date.now() + weekOffset * WEEK_MS;
+    const halfHourMs = 30 * 60 * 1000;
+    const base =
+      Math.floor(Date.now() / halfHourMs) * halfHourMs + weekOffset * WEEK_MS;
     return { rangeStart: new Date(base), rangeEnd: new Date(base + WEEK_MS) };
     // Recompute per open so a long-lived tab doesn't search the past.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -345,7 +358,13 @@ export function ScheduleMeetingModal({
               { value: "60", label: "1 hour" },
             ]}
             value={durationMinutes}
-            onChange={(value) => value && setDurationMinutes(value)}
+            onChange={(value) => {
+              if (!value) return;
+              setDurationMinutes(value);
+              // The picked slot's end was computed with the old duration —
+              // keeping it would book a meeting of the wrong length.
+              setSelectedSlot(null);
+            }}
           />
           <Button
             mt="xl"
@@ -360,7 +379,7 @@ export function ScheduleMeetingModal({
 
         <Checkbox
           size="xs"
-          label="Include times outside working hours (still 07:00–20:00 in each attendee's local time)"
+          label={`Include times outside working hours (still ${WINDOW_LABEL} in each attendee's local time)`}
           checked={includeOutsideWorkHours}
           onChange={(e) => {
             setIncludeOutsideWorkHours(e.currentTarget.checked);
@@ -419,6 +438,12 @@ export function ScheduleMeetingModal({
             {unknownCount} attendee{unknownCount === 1 ? " has" : "s have"} no calendar
             connected — they can be invited, but their availability doesn&apos;t constrain
             the suggestions.
+          </Text>
+        )}
+
+        {viewMode === "list" && searching && slotsQuery.error && (
+          <Text size="sm" c="dimmed">
+            Couldn&apos;t find times: {slotsQuery.error.message}
           </Text>
         )}
 

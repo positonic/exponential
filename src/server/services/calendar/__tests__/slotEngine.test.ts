@@ -110,6 +110,28 @@ describe("computeSlots", () => {
     expect(slots).toHaveLength(7);
   });
 
+  it("maxSlots and the per-day cap compose — total stops mid-day", () => {
+    const slots = computeSlots({
+      busyBlocksByUser: new Map([["a", []]]),
+      organizerTimezone: "UTC",
+      durationMinutes: 60,
+      range: { from: new Date("2026-08-18T00:00:00Z"), to: new Date("2026-08-20T00:00:00Z") },
+      maxSlots: 6,
+      maxSlotsPerDay: 4,
+    });
+
+    const byDay = new Map<string, number>();
+    for (const slot of slots) {
+      const day = slot.startsAt.toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    }
+    // 4 on day one (per-day cap), then maxSlots cuts day two at 2.
+    expect([...byDay.entries()]).toEqual([
+      ["2026-08-18", 4],
+      ["2026-08-19", 2],
+    ]);
+  });
+
   it("spreads suggestions across days with the per-day cap", () => {
     const slots = computeSlots({
       busyBlocksByUser: new Map([["a", []]]),
@@ -177,6 +199,33 @@ describe("computeSlots", () => {
 
       expect(slots[0]!.startsAt.toISOString()).toBe("2026-08-18T05:00:00.000Z");
       expect(slots.at(-1)!.endsAt.toISOString()).toBe("2026-08-18T18:00:00.000Z");
+    });
+
+    it("work hours wider than the window are clamped — the window is the OUTER bound", () => {
+      // 00:00–23:59 "work hours" must not reopen 2 AM.
+      const slots = computeSlots({
+        busyBlocksByUser: new Map([["a", []]]),
+        attendeeSettings: new Map([
+          [
+            "a",
+            {
+              workHoursEnabled: true,
+              workDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+              workHoursStart: "00:00",
+              workHoursEnd: "23:59",
+              timezone: "UTC",
+            },
+          ],
+        ]),
+        organizerTimezone: "UTC",
+        durationMinutes: 60,
+        range: DAY_RANGE,
+        maxSlotsPerDay: 99,
+        maxSlots: 99,
+      });
+
+      expect(slots[0]!.startsAt.toISOString()).toBe("2026-08-18T07:00:00.000Z");
+      expect(slots.at(-1)!.endsAt.toISOString()).toBe("2026-08-18T20:00:00.000Z");
     });
 
     it("the escape hatch relaxes to the window, never to 24/7", () => {

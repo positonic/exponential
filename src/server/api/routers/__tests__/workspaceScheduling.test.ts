@@ -93,6 +93,14 @@ import { createMockCaller } from "~/test/trpc-helpers";
 const WORKSPACE_ID = "ws-1";
 const ORGANIZER_ID = "user-organizer";
 
+// assertSaneRange rejects ranges entirely in the past, so range-bearing
+// tests build dates relative to "now" — a UTC midnight a week out — instead
+// of fixed calendar days that would time-bomb the suite.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const BASE = new Date(Math.ceil(Date.now() / DAY_MS) * DAY_MS + 7 * DAY_MS);
+const at = (hours: number, minutes = 0) =>
+  new Date(BASE.getTime() + hours * 60 * 60 * 1000 + minutes * 60 * 1000);
+
 describe("workspaceScheduling router (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
 
@@ -374,8 +382,47 @@ describe("workspaceScheduling router (mocked)", () => {
           workspaceId: WORKSPACE_ID,
           attendeeUserIds: ["user-outsider"],
           durationMinutes: 30,
-          rangeStart: new Date("2026-08-18T00:00:00Z"),
-          rangeEnd: new Date("2026-08-19T00:00:00Z"),
+          rangeStart: at(0),
+          rangeEnd: at(24),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("rejects a range longer than 30 days", async () => {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.suggestSlots({
+          workspaceId: WORKSPACE_ID,
+          attendeeUserIds: ["user-a"],
+          durationMinutes: 30,
+          rangeStart: at(0),
+          rangeEnd: at(31 * 24),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("rejects an inverted range", async () => {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.suggestSlots({
+          workspaceId: WORKSPACE_ID,
+          attendeeUserIds: ["user-a"],
+          durationMinutes: 30,
+          rangeStart: at(24),
+          rangeEnd: at(0),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("rejects a range entirely in the past (no free/busy history mining)", async () => {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.suggestSlots({
+          workspaceId: WORKSPACE_ID,
+          attendeeUserIds: ["user-a"],
+          durationMinutes: 30,
+          rangeStart: new Date(Date.now() - 10 * DAY_MS),
+          rangeEnd: new Date(Date.now() - 3 * DAY_MS),
         }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     });
@@ -386,8 +433,8 @@ describe("workspaceScheduling router (mocked)", () => {
       dbMock.calendarEvent.findMany.mockResolvedValue([
         {
           userId: "user-a",
-          startsAt: new Date("2026-08-18T09:00:00Z"),
-          endsAt: new Date("2026-08-18T17:00:00Z"),
+          startsAt: at(9),
+          endsAt: at(17),
           isAllDay: false,
           sourceType: "microsoft",
         },
@@ -421,16 +468,16 @@ describe("workspaceScheduling router (mocked)", () => {
         workspaceId: WORKSPACE_ID,
         attendeeUserIds: ["user-a", "user-nodata"],
         durationMinutes: 60,
-        rangeStart: new Date("2026-08-18T08:00:00Z"),
-        rangeEnd: new Date("2026-08-18T19:00:00Z"),
+        rangeStart: at(8),
+        rangeEnd: at(19),
       });
 
       // 08:00 works; 09:00–17:00 blocked; 17:00 and 17:30 fit before 19:00.
       expect(result.slots.map((s) => s.startsAt.toISOString())).toEqual([
-        "2026-08-18T08:00:00.000Z",
-        "2026-08-18T17:00:00.000Z",
-        "2026-08-18T17:30:00.000Z",
-        "2026-08-18T18:00:00.000Z",
+        at(8).toISOString(),
+        at(17).toISOString(),
+        at(17, 30).toISOString(),
+        at(18).toISOString(),
       ]);
       // The organizer rides along in the availability computation and has no
       // synced calendar either — flagged honestly.
@@ -451,8 +498,20 @@ describe("workspaceScheduling router (mocked)", () => {
         caller.workspaceScheduling.availabilityGrid({
           workspaceId: WORKSPACE_ID,
           attendeeUserIds: ["user-outsider"],
-          rangeStart: new Date("2026-08-18T00:00:00Z"),
-          rangeEnd: new Date("2026-08-19T00:00:00Z"),
+          rangeStart: at(0),
+          rangeEnd: at(24),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("rejects ranges beyond its own 10-day cap (tighter than suggestSlots)", async () => {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.availabilityGrid({
+          workspaceId: WORKSPACE_ID,
+          attendeeUserIds: ["user-a"],
+          rangeStart: at(0),
+          rangeEnd: at(11 * 24),
         }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     });
@@ -462,8 +521,8 @@ describe("workspaceScheduling router (mocked)", () => {
       dbMock.calendarEvent.findMany.mockResolvedValue([
         {
           userId: "user-a",
-          startsAt: new Date("2026-08-18T09:00:00Z"),
-          endsAt: new Date("2026-08-18T10:00:00Z"),
+          startsAt: at(9),
+          endsAt: at(10),
           isAllDay: false,
           sourceType: "microsoft",
         },
@@ -485,8 +544,8 @@ describe("workspaceScheduling router (mocked)", () => {
       const result = await caller.workspaceScheduling.availabilityGrid({
         workspaceId: WORKSPACE_ID,
         attendeeUserIds: ["user-a"],
-        rangeStart: new Date("2026-08-18T09:00:00Z"),
-        rangeEnd: new Date("2026-08-18T10:00:00Z"),
+        rangeStart: at(9),
+        rangeEnd: at(10),
       });
 
       const byUser = new Map(result.attendees.map((a) => [a.userId, a.statuses]));

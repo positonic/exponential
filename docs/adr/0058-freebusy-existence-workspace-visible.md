@@ -3,8 +3,11 @@
 Status: accepted
 
 The availability-grid view of the schedule-meeting flow shows the organizer
-*each attendee's* busy blocks (start/end times only), where V3 previously
-exposed only the computed intersection ("these slots work for everyone").
+*each attendee's* busy time, where V3 previously exposed only the computed
+intersection ("these slots work for everyone"). The exposed shape is
+30-minute-quantized cell statuses (`free | busy | outside`), with "outside"
+masking "busy" — strictly coarser than raw busy blocks. Returning raw
+start/end blocks later would be an *expansion* of this boundary, not parity.
 This deliberately loosens the exposure boundary: a non-viewer workspace
 member can now see *when* another member is busy — late starts, gaps, how
 packed a day is — which the intersection hid.

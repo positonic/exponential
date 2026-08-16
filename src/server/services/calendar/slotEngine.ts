@@ -136,32 +136,71 @@ function withinDailyWindow(
 }
 
 /**
- * One attendee's time-of-day verdict on a slot: their working hours when
- * enabled and not relaxed, else the scheduling window — both on their own
- * wall clock (organizer timezone as fallback).
+ * One attendee's resolved time-of-day constraint: their working hours when
+ * enabled and not relaxed, else the scheduling window — always clamped to
+ * the window, which is the OUTER bound (work hours of 00:00–23:59 must not
+ * reopen 2 AM). Judged on their own wall clock (organizer timezone as
+ * fallback). The verdict depends only on this constraint, not the attendee's
+ * identity, so callers dedupe by `key` before evaluating candidate slots.
  */
-function attendeeAllows(
-  startsAt: Date,
-  endsAt: Date,
+interface TimeConstraint {
+  timeZone: string | null;
+  startMinutes: number;
+  endMinutes: number;
+  days: string[] | null;
+  key: string;
+}
+
+function constraintOf(
   settings: AttendeeWorkSettings | undefined,
   organizerTimezone: string | null,
   includeOutsideWorkHours: boolean,
-): boolean {
+): TimeConstraint {
   const timeZone = settings?.timezone ?? organizerTimezone;
-  if (includeOutsideWorkHours || !settings?.workHoursEnabled) {
-    return withinDailyWindow(
-      startsAt,
-      endsAt,
-      timeZone,
+  let startMinutes = SCHEDULING_WINDOW_START_MINUTES;
+  let endMinutes = SCHEDULING_WINDOW_END_MINUTES;
+  let days: string[] | null = null;
+  if (!includeOutsideWorkHours && settings?.workHoursEnabled) {
+    startMinutes = Math.max(
+      parseHhMm(settings.workHoursStart) ?? 9 * 60,
       SCHEDULING_WINDOW_START_MINUTES,
-      SCHEDULING_WINDOW_END_MINUTES,
-      null,
     );
+    endMinutes = Math.min(
+      parseHhMm(settings.workHoursEnd) ?? 17 * 60,
+      SCHEDULING_WINDOW_END_MINUTES,
+    );
+    days = settings.workDays.length > 0 ? settings.workDays : DEFAULT_WORK_DAYS;
   }
-  const startMinutes = parseHhMm(settings.workHoursStart) ?? 9 * 60;
-  const endMinutes = parseHhMm(settings.workHoursEnd) ?? 17 * 60;
-  const workDays = settings.workDays.length > 0 ? settings.workDays : DEFAULT_WORK_DAYS;
-  return withinDailyWindow(startsAt, endsAt, timeZone, startMinutes, endMinutes, workDays);
+  return {
+    timeZone,
+    startMinutes,
+    endMinutes,
+    days,
+    key: `${timeZone ?? ""}|${startMinutes}|${endMinutes}|${days?.join(",") ?? "*"}`,
+  };
+}
+
+function constraintAllows(startsAt: Date, endsAt: Date, c: TimeConstraint): boolean {
+  return withinDailyWindow(startsAt, endsAt, c.timeZone, c.startMinutes, c.endMinutes, c.days);
+}
+
+/** Distinct constraints across attendees — most workspaces share a handful. */
+function uniqueConstraints(
+  attendeeIds: string[],
+  attendeeSettings: Map<string, AttendeeWorkSettings> | undefined,
+  organizerTimezone: string | null,
+  includeOutsideWorkHours: boolean,
+): TimeConstraint[] {
+  const byKey = new Map<string, TimeConstraint>();
+  for (const id of attendeeIds) {
+    const constraint = constraintOf(
+      attendeeSettings?.get(id),
+      organizerTimezone,
+      includeOutsideWorkHours,
+    );
+    byKey.set(constraint.key, constraint);
+  }
+  return [...byKey.values()];
 }
 
 /** "2026-08-18" in `timeZone` — the per-day-cap bucket key. */
@@ -199,9 +238,17 @@ export function computeSlots({
   // whose block it is doesn't matter here.
   const allBusy = [...busyBlocksByUser.values()].flat();
   // Every attendee constrains time-of-day — via work hours or the window.
+  // The verdict depends only on the resolved constraint, so evaluate each
+  // DISTINCT constraint once per candidate instead of once per attendee.
   const attendeeIds = [
     ...new Set([...busyBlocksByUser.keys(), ...(attendeeSettings?.keys() ?? [])]),
   ];
+  const constraints = uniqueConstraints(
+    attendeeIds,
+    attendeeSettings,
+    organizerTimezone,
+    includeOutsideWorkHours,
+  );
 
   const slots: Slot[] = [];
   const perDay = new Map<string, number>();
@@ -219,16 +266,7 @@ export function computeSlots({
       overlaps(startsAt, endsAt, block.startsAt, block.endsAt),
     );
     if (clashes) continue;
-    const excluded = attendeeIds.some(
-      (id) =>
-        !attendeeAllows(
-          startsAt,
-          endsAt,
-          attendeeSettings?.get(id),
-          organizerTimezone,
-          includeOutsideWorkHours,
-        ),
-    );
+    const excluded = constraints.some((c) => !constraintAllows(startsAt, endsAt, c));
     if (excluded) continue;
     const dayKey = dayKeyInZone(startsAt, organizerTimezone);
     const dayCount = perDay.get(dayKey) ?? 0;
@@ -294,16 +332,27 @@ export function computeAvailabilityGrid({
     cellStartsAt.push(new Date(start));
   }
 
+  // Wall-clock verdicts per DISTINCT constraint (attendees typically share a
+  // few timezones/settings), then per-attendee statuses on top of them.
+  const allowedByConstraintKey = new Map<string, boolean[]>();
   const attendees = attendeeIds.map((userId) => {
     const blocks = busyBlocksByUser.get(userId) ?? [];
-    const settings = attendeeSettings?.get(userId);
-    const statuses = cellStartsAt.map((startsAt): CellStatus => {
+    const constraint = constraintOf(
+      attendeeSettings?.get(userId),
+      organizerTimezone,
+      includeOutsideWorkHours,
+    );
+    let cached = allowedByConstraintKey.get(constraint.key);
+    if (!cached) {
+      cached = cellStartsAt.map((startsAt) =>
+        constraintAllows(startsAt, new Date(startsAt.getTime() + incrementMs), constraint),
+      );
+      allowedByConstraintKey.set(constraint.key, cached);
+    }
+    const allowed = cached;
+    const statuses = cellStartsAt.map((startsAt, index): CellStatus => {
+      if (!allowed[index]) return "outside";
       const endsAt = new Date(startsAt.getTime() + incrementMs);
-      if (
-        !attendeeAllows(startsAt, endsAt, settings, organizerTimezone, includeOutsideWorkHours)
-      ) {
-        return "outside";
-      }
       const busy = blocks.some((block) =>
         overlaps(startsAt, endsAt, block.startsAt, block.endsAt),
       );
