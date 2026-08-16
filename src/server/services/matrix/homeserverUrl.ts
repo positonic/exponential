@@ -1,5 +1,5 @@
 /**
- * Guarding the one place Exponential fetches a URL the user chose.
+ * Guarding one of the places Exponential fetches a URL the user chose.
  *
  * Registering a homeserver hands the server an arbitrary URL and asks it to make a
  * request — an SSRF primitive. Workspace owner/admin is a real gate, but not enough on
@@ -14,17 +14,19 @@
  *  3. Resolved address — the hostname's actual A/AAAA records, which is the only way to
  *     catch a public name that deliberately points at a private address.
  *
+ * The checks live in the shared `assertSafeOutboundUrl` skeleton (also used by the
+ * ICS calendar feed guard); this wrapper supplies the homeserver-specific error type
+ * and wording.
+ *
  * This does not defeat DNS rebinding: the name is resolved here and again by `fetch`,
  * and a hostile resolver can answer differently each time. Closing that needs pinning
  * the connection to the checked IP, which is out of scope for V1 — it raises the cost
  * substantially without being the attack anyone reaches for first.
  */
 
-import { isIP } from "node:net";
-
 import {
+  assertSafeOutboundUrl,
   defaultResolveHost,
-  isPrivateAddress,
   type ResolveHost,
 } from "~/server/utils/privateAddress";
 
@@ -38,20 +40,6 @@ export class UnsafeHomeserverUrlError extends Error {
 }
 
 /**
- * Localhost is allowed outside production so the feature stays testable against a local
- * homeserver. It is refused in production, where a loopback address can only mean the
- * app server itself.
- */
-function localhostAllowed(): boolean {
-  return process.env.NODE_ENV !== "production";
-}
-
-function isLocalhostName(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-}
-
-/**
  * Throw unless `rawUrl` is a homeserver this server may safely call.
  *
  * Resolves DNS, so callers should treat it as a network operation.
@@ -60,47 +48,20 @@ export async function assertSafeHomeserverUrl(
   rawUrl: string,
   resolveHost: ResolveHost = defaultResolveHost,
 ): Promise<void> {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new UnsafeHomeserverUrlError("That is not a valid URL.");
-  }
-
-  const allowLocal = localhostAllowed() && isLocalhostName(url.hostname);
-
-  if (url.protocol !== "https:" && !allowLocal) {
-    throw new UnsafeHomeserverUrlError(
-      "The homeserver URL must use https, so the bot's access token is never sent in the clear.",
-    );
-  }
-
-  if (allowLocal) return;
-
-  const hostname = url.hostname.replace(/^\[|\]$/g, "");
-
-  if (isIP(hostname)) {
-    if (isPrivateAddress(hostname)) {
-      throw new UnsafeHomeserverUrlError(
+  await assertSafeOutboundUrl(
+    rawUrl,
+    {
+      invalidUrl: "That is not a valid URL.",
+      insecureProtocol:
+        "The homeserver URL must use https, so the bot's access token is never sent in the clear.",
+      privateAddress:
         "That address is on a private or loopback network, which Exponential will not call.",
-      );
-    }
-    return;
-  }
-
-  let addresses: string[];
-  try {
-    addresses = await resolveHost(hostname);
-  } catch {
-    throw new UnsafeHomeserverUrlError(
-      `Could not resolve ${url.hostname}. Check the homeserver URL is correct and publicly resolvable.`,
-    );
-  }
-
-  // Every answer must be public: one private record is enough to make the name unsafe.
-  if (addresses.length === 0 || addresses.some((address) => isPrivateAddress(address))) {
-    throw new UnsafeHomeserverUrlError(
-      `${url.hostname} resolves to a private or loopback address, which Exponential will not call.`,
-    );
-  }
+      unresolvable: (hostname) =>
+        `Could not resolve ${hostname}. Check the homeserver URL is correct and publicly resolvable.`,
+      resolvesPrivate: (hostname) =>
+        `${hostname} resolves to a private or loopback address, which Exponential will not call.`,
+    },
+    (message) => new UnsafeHomeserverUrlError(message),
+    resolveHost,
+  );
 }

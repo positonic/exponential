@@ -50,6 +50,26 @@ describe("assertSafeFeedUrl", () => {
     }
   });
 
+  it("rejects IPv4-mapped and NAT64 IPv6 forms hiding a private address", async () => {
+    for (const host of [
+      "[::ffff:7f00:1]", // hex form of ::ffff:127.0.0.1
+      "[0:0:0:0:0:ffff:127.0.0.1]", // uncompressed dotted form
+      "[::ffff:a9fe:a9fe]", // 169.254.169.254 — cloud metadata
+      "[64:ff9b::7f00:1]", // NAT64 to loopback
+    ]) {
+      await expect(
+        assertSafeFeedUrl(`https://${host}/calendar.ics`, resolvePublic),
+      ).rejects.toThrow(UnsafeFeedUrlError);
+    }
+  });
+
+  it("still accepts a public IPv4-mapped IPv6 literal", async () => {
+    // 93.184.216.34 mapped — public address, no reason to refuse.
+    await expect(
+      assertSafeFeedUrl("https://[::ffff:93.184.216.34]/calendar.ics", resolvePublic),
+    ).resolves.toBeUndefined();
+  });
+
   it("rejects hostnames that resolve to a private address", async () => {
     await expect(
       assertSafeFeedUrl("https://internal.example.com/calendar.ics", resolvePrivate),
