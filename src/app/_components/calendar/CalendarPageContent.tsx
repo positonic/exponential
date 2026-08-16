@@ -21,6 +21,7 @@ import {
   TimezonePromptModal,
   TZ_PROMPT_DISMISSED_KEY,
 } from "./TimezonePromptModal";
+import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
 
 export function CalendarPageContent() {
@@ -64,6 +65,7 @@ export function CalendarPageContent() {
   // X-WR-TIMEZONE handed up from the sidebar's feed-add flow — this page owns
   // the single prompt, so the section doesn't open a second stacked modal.
   const [tzSuggestion, setTzSuggestion] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const tzPromptOpen =
     calendarConnected && tzData !== undefined && tzData.timezone === null && !tzPromptDismissed;
   const dismissTzPrompt = () => {
@@ -501,7 +503,9 @@ export function CalendarPageContent() {
         isDisconnecting={disconnectCalendar.isPending}
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
+        onScheduleMeeting={() => setScheduleOpen(true)}
       />
+      <ScheduleMeetingModal opened={scheduleOpen} onClose={() => setScheduleOpen(false)} />
       <TimezonePromptModal
         opened={tzPromptOpen}
         onClose={dismissTzPrompt}
