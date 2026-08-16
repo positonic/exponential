@@ -57,10 +57,17 @@ model ConnectedAccount {
   expires_at         Int?
   token_type         String?
   scope              String?
+  // Server-side busy-time sync bookkeeping (V2 calendar sync) — mirrors the
+  // CalendarFeed fields. Attempt-stamped so the cron sweep can order fairly.
+  calendarSyncStatus        String    @default("pending") // pending | ok | error
+  calendarLastSyncedAt      DateTime?
+  calendarLastSyncAttemptAt DateTime?
+  calendarLastSyncError     String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   calendarPreference CalendarPreference?
+  calendarEvents     CalendarEvent[]
 
   @@unique([userId, provider, providerAccountId])
   @@index([userId])
@@ -2068,13 +2075,17 @@ model CalendarEvent {
   syncedAt           DateTime
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   calendarFeed       CalendarFeed? @relation(fields: [calendarFeedId], references: [id], onDelete: Cascade)
+  connectedAccount   ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
 
   /// Feed-scoped so the same event (UID + start) appearing in two of a
   /// user's feeds keeps both rows — each feed owns its copy independently.
-  /// V2's provider rows (null calendarFeedId) add their own key shape.
   @@unique([calendarFeedId, externalId, startsAt])
+  /// Provider rows (V2): scoped per account + calendar, so a shared event
+  /// visible in two calendars keeps both busy blocks.
+  @@unique([connectedAccountId, providerCalendarId, externalId, startsAt])
   @@index([userId, startsAt, endsAt])
   @@index([calendarFeedId])
+  @@index([connectedAccountId])
 }
 
 model ScheduledNotification {
