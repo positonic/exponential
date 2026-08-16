@@ -16,7 +16,11 @@ import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import { EditActionModal } from "~/app/_components/EditActionModal";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
+import { TimezonePromptModal } from "./TimezonePromptModal";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
+
+/** sessionStorage key marking that the user dismissed the timezone prompt. */
+const TZ_PROMPT_DISMISSED_KEY = "calendar-timezone-prompt-dismissed";
 
 export function CalendarPageContent() {
   // Query connection status for all providers
@@ -44,6 +48,24 @@ export function CalendarPageContent() {
     goNext,
     goPrevious,
   } = useCalendarNavigation();
+
+  // Timezone checkpoint: a connected calendar source (OAuth landing or an
+  // existing connection) with no User.timezone prompts once per session —
+  // work-hours and scheduling interpretation depend on it.
+  const { data: tzData } = api.user.getTimezone.useQuery(undefined, {
+    enabled: calendarConnected,
+  });
+  const [tzPromptDismissed, setTzPromptDismissed] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(TZ_PROMPT_DISMISSED_KEY) === "1",
+  );
+  const tzPromptOpen =
+    calendarConnected && tzData !== undefined && tzData.timezone === null && !tzPromptDismissed;
+  const dismissTzPrompt = () => {
+    window.sessionStorage.setItem(TZ_PROMPT_DISMISSED_KEY, "1");
+    setTzPromptDismissed(true);
+  };
 
   // Show toast for calendar_connected / calendar_error search params.
   // Must live here (not in GoogleCalendarConnect/MicrosoftCalendarConnect)
@@ -476,6 +498,7 @@ export function CalendarPageContent() {
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
       />
+      <TimezonePromptModal opened={tzPromptOpen} onClose={dismissTzPrompt} />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">{renderCalendarContent()}</div>
         <CalendarSidebar

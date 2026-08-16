@@ -25,6 +25,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { getEventHue, EVENT_HUE_DOT } from "./eventHue";
+import { TimezonePromptModal } from "./TimezonePromptModal";
 
 /**
  * ICS calendar feed management: list with enable/disable + remove, sync
@@ -41,6 +42,13 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
   const [addOpen, setAddOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [name, setName] = useState("");
+
+  // Timezone checkpoint: adding a feed is a "connected a calendar source"
+  // moment — prompt users without a timezone, prefilled from the feed's
+  // X-WR-TIMEZONE when it names a real IANA zone.
+  const { data: tzData } = api.user.getTimezone.useQuery();
+  const [tzPromptOpen, setTzPromptOpen] = useState(false);
+  const [tzSuggestion, setTzSuggestion] = useState<string | null>(null);
 
   const invalidate = async () => {
     await Promise.all([
@@ -67,6 +75,10 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
           message: `${feed.name} is now syncing into your calendar.`,
           color: "blue",
         });
+      }
+      if (tzData?.timezone == null) {
+        setTzSuggestion(feed.timezone);
+        setTzPromptOpen(true);
       }
     },
     onError: (error) => {
@@ -272,6 +284,12 @@ export function CalendarFeedsSection({ compact = false }: { compact?: boolean })
           </Group>
         </Stack>
       </Modal>
+
+      <TimezonePromptModal
+        opened={tzPromptOpen}
+        onClose={() => setTzPromptOpen(false)}
+        suggestedTimezone={tzSuggestion}
+      />
     </>
   );
 }
