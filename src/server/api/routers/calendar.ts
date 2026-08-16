@@ -323,6 +323,19 @@ export const calendarRouter = createTRPCRouter({
     });
   }),
 
+  setFeedEnabled: protectedProcedure
+    .input(z.object({ feedId: z.string(), isEnabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const { count } = await ctx.db.calendarFeed.updateMany({
+        where: { id: input.feedId, userId: ctx.session.user.id },
+        data: { isEnabled: input.isEnabled },
+      });
+      if (count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feed not found" });
+      }
+      return { success: true };
+    }),
+
   // "Refresh now" — re-sync the caller's enabled feeds inline. Rate-limited
   // to roughly one refresh a minute via lastSyncedAt, which survives
   // serverless instance churn where in-memory counters don't.

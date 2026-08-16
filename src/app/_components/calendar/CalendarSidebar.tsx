@@ -20,6 +20,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { CalendarMiniWidget } from "./CalendarMiniWidget";
+import { CalendarFeedsSection } from "./CalendarFeedsSection";
 import { getEventHue, EVENT_HUE_DOT } from "./eventHue";
 
 interface CalendarSidebarProps {
@@ -279,6 +280,14 @@ export function CalendarSidebar({
               </UnstyledButton>
             )}
           </Stack>
+        </div>
+
+        {/* Calendar feeds (ICS subscriptions — not accounts, ADR-0057) */}
+        <div>
+          <Text size="sm" fw={600} mb="sm" className="text-text-primary">
+            Calendar feeds
+          </Text>
+          <CalendarFeedsSection compact />
         </div>
       </Stack>
     </div>

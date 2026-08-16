@@ -24,6 +24,7 @@ import { api } from '~/trpc/react';
 import { GoogleCalendarConnect } from '~/app/_components/GoogleCalendarConnect';
 import { GooglePremiumFeature } from '~/app/_components/GooglePremiumFeature';
 import { CalendarMultiSelect } from '~/app/_components/calendar/CalendarMultiSelect';
+import { CalendarFeedsSection } from '~/app/_components/calendar/CalendarFeedsSection';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { GithubRepositoriesCard } from '~/app/_components/integrations/GithubRepositoriesCard';
@@ -192,6 +193,23 @@ export default function IntegrationsSettingsPage() {
               />
             </div>
           )}
+        </Paper>
+
+        {/* Calendar feeds (ICS subscriptions) */}
+        <Paper p="lg" withBorder className="bg-surface-secondary">
+          <Group gap="sm" mb="md">
+            <IconCalendar size={20} className="text-text-muted" />
+            <div>
+              <Text fw={500} className="text-text-primary">
+                Calendar feeds
+              </Text>
+              <Text size="xs" c="dimmed">
+                Subscribe to published calendars by ICS address — works with
+                Outlook even without connecting an account
+              </Text>
+            </div>
+          </Group>
+          <CalendarFeedsSection />
         </Paper>
 
         {/* Fireflies */}
