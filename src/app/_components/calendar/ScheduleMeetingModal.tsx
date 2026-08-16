@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Checkbox,
@@ -19,6 +19,7 @@ import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { ActionIcon, Tooltip } from "@mantine/core";
 import { useSession } from "next-auth/react";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 
 /**
  * "Schedule meeting" (V3 workspace scheduling), first cut: pick a workspace,
@@ -30,9 +31,12 @@ import { useSession } from "next-auth/react";
 export function ScheduleMeetingModal({
   opened,
   onClose,
+  defaultWorkspaceId,
 }: {
   opened: boolean;
   onClose: () => void;
+  /** Preselects the workspace — the workspace-page entry point sets this. */
+  defaultWorkspaceId?: string;
 }) {
   const utils = api.useUtils();
 
@@ -40,12 +44,23 @@ export function ScheduleMeetingModal({
     enabled: opened,
   });
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  useEffect(() => {
+    if (opened && defaultWorkspaceId) setWorkspaceId(defaultWorkspaceId);
+  }, [opened, defaultWorkspaceId]);
   const [attendeeIds, setAttendeeIds] = useState<string[]>([]);
   const [durationMinutes, setDurationMinutes] = useState("30");
   const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ startsAt: Date; endsAt: Date } | null>(null);
   const [searching, setSearching] = useState(false);
   const [includeOutsideWorkHours, setIncludeOutsideWorkHours] = useState(false);
+
+  const { data: projects } = api.project.getAll.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: opened && !!workspaceId },
+  );
 
   const { data: members } = api.workspaceScheduling.listSchedulableMembers.useQuery(
     { workspaceId: workspaceId! },
@@ -131,6 +146,9 @@ export function ScheduleMeetingModal({
   const handleClose = () => {
     setAttendeeIds([]);
     setTitle("");
+    setLocation("");
+    setDescription("");
+    setProjectId(null);
     setSelectedSlot(null);
     setSearching(false);
     onClose();
@@ -301,13 +319,41 @@ export function ScheduleMeetingModal({
         )}
 
         {selectedSlot && (
-          <TextInput
-            label="Title"
-            placeholder="What's the meeting about?"
-            value={title}
-            onChange={(e) => setTitle(e.currentTarget.value)}
-            data-autofocus
-          />
+          <>
+            <TextInput
+              label="Title"
+              placeholder="What's the meeting about?"
+              value={title}
+              onChange={(e) => setTitle(e.currentTarget.value)}
+              data-autofocus
+            />
+            <TextInput
+              label="Location / meeting link"
+              placeholder="Room, address, or a video-call link"
+              value={location}
+              onChange={(e) => setLocation(e.currentTarget.value)}
+            />
+            <Select
+              label="Project"
+              placeholder="Link to a project (optional)"
+              data={(projects ?? []).map((p) => ({ value: p.id, label: p.name }))}
+              value={projectId}
+              onChange={setProjectId}
+              searchable
+              clearable
+            />
+            <div>
+              <Text size="sm" fw={500} mb={4}>
+                Description
+              </Text>
+              <MarkdownInput
+                value={description}
+                onChange={setDescription}
+                placeholder="Agenda, links, context… (Markdown)"
+                minRows={3}
+              />
+            </div>
+          </>
         )}
 
         <Group justify="flex-end" mt="xs">
@@ -324,6 +370,9 @@ export function ScheduleMeetingModal({
               createMeeting.mutate({
                 workspaceId,
                 title: title.trim(),
+                location: location.trim() || undefined,
+                description: description.trim() || undefined,
+                projectId: projectId ?? undefined,
                 startsAt: selectedSlot.startsAt,
                 endsAt: selectedSlot.endsAt,
                 attendeeUserIds: attendeeIds,
