@@ -59,8 +59,10 @@ export function normalizeActionText(text: string): string {
  * Merge action items from multiple sources, earlier sources winning on
  * duplicates. Used to combine notes-derived items (authoritative, human-
  * curated) with transcript-derived ones (inferred). Dedupe here is exact
- * normalized text only — semantic near-duplicates are handled upstream by
- * telling the transcript extraction which actions the notes already yielded.
+ * normalized text only — near-duplicate rewordings are handled upstream:
+ * the AI transcript pass is told which actions the notes already yielded
+ * (excludeActions), and the Fireflies-summary pass (no LLM involved) is
+ * filtered through filterNearDuplicateActions before merging.
  */
 export function mergeActionItems(
   primary: ParsedActionItem[],
@@ -85,6 +87,57 @@ export function mergeActionItems(
   return merged;
 }
 
+const SIMILARITY_STOPWORDS = new Set([
+  "the", "and", "for", "with", "will", "should", "that", "this", "from",
+  "into", "them", "then", "when", "about", "have", "has", "are", "was",
+  "our", "their", "your", "need", "needs",
+]);
+
+function significantTokens(text: string): Set<string> {
+  return new Set(
+    normalizeActionText(text)
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length >= 3 && !SIMILARITY_STOPWORDS.has(token))
+  );
+}
+
+/**
+ * Drop candidates that are near-duplicate rewordings of an existing item
+ * ("Zineb will send the baseline doc" vs "Zineb to send baseline document to
+ * James"). Token-overlap against the smaller significant-token set, so a
+ * shorter rewording of a longer item still matches. Deterministic and
+ * dependency-free: it guards the Fireflies-summary path, where no LLM sees
+ * the notes items and exact-match dedupe alone lets rewordings through.
+ */
+export function filterNearDuplicateActions(
+  candidates: ParsedActionItem[],
+  existing: ParsedActionItem[],
+  threshold = 0.6
+): ParsedActionItem[] {
+  const existingTokenSets = existing
+    .map((item) => significantTokens(item.text))
+    .filter((tokens) => tokens.size > 0);
+  if (existingTokenSets.length === 0) {
+    return candidates;
+  }
+
+  return candidates.filter((candidate) => {
+    const tokens = significantTokens(candidate.text);
+    if (tokens.size === 0) {
+      return true;
+    }
+    return !existingTokenSets.some((other) => {
+      let intersection = 0;
+      for (const token of tokens) {
+        if (other.has(token)) {
+          intersection++;
+        }
+      }
+      return intersection / Math.min(tokens.size, other.size) >= threshold;
+    });
+  });
+}
+
 /**
  * Deterministic fallback for written notes: every top-level numbered or
  * bulleted list line is an action item; indented sub-lines are supporting
@@ -94,14 +147,19 @@ export function mergeActionItems(
  */
 export function extractNotesListItems(notesText: string): ParsedActionItem[] {
   const listItemPattern = /^(?:\d+[.)]|[-*•+])\s+(.+)$/;
+  const emptyListItemPattern = /^(?:\d+[.)]|[-*•+])\s*$/;
+  const lineIndent = (rawLine: string): number =>
+    /^\s*/.exec(rawLine)?.[0]?.length ?? 0;
   const items: { text: string; details: string[] }[] = [];
 
   // When the notes have an explicit "Action Items" heading, only the list
   // under it is actions — other bullets (context, observations) are not.
   // Without such a heading, every top-level list item is treated as an action.
+  // Heading markup varies ("Action Items:", "# Action Items", "**Action
+  // Items:**"), so strip the decoration and match the bare words.
   const lines = notesText.split(/\r?\n/);
   const headingIndex = lines.findIndex((line) =>
-    /^#*\s*\**\s*action\s*items?\s*\**\s*:?\s*$/i.test(line.trim())
+    /^action\s*items?$/i.test(line.trim().replace(/^[#*\s]+|[#*:\s]+$/g, ""))
   );
   let scopedLines = lines;
   if (headingIndex !== -1) {
@@ -109,21 +167,38 @@ export function extractNotesListItems(notesText: string): ParsedActionItem[] {
     for (const rawLine of lines.slice(headingIndex + 1)) {
       const trimmed = rawLine.trim();
       const isListLine =
-        listItemPattern.test(trimmed) || /^\d+[.)]\s*$/.test(trimmed);
-      // The section ends at the first non-blank line that isn't part of the
-      // list (a new heading or paragraph).
-      if (trimmed.length > 0 && !isListLine) {
+        listItemPattern.test(trimmed) || emptyListItemPattern.test(trimmed);
+      // The section ends at the first non-indented, non-blank line that isn't
+      // part of the list (a new heading or paragraph). Indented plain lines
+      // are wrapped continuations of the item above, not terminators.
+      if (trimmed.length > 0 && !isListLine && lineIndent(rawLine) === 0) {
         break;
       }
       scopedLines.push(rawLine);
     }
   }
 
+  // Sub-bullets are relative to the list's own base indent, not to column
+  // zero: notes pasted from Notion/Slack often carry a uniform leading indent,
+  // which must not demote every item after the first to a detail.
+  let baseIndent = Infinity;
   for (const rawLine of scopedLines) {
-    const indent = /^\s*/.exec(rawLine)?.[0]?.length ?? 0;
+    if (listItemPattern.test(rawLine.trim())) {
+      baseIndent = Math.min(baseIndent, lineIndent(rawLine));
+    }
+  }
+
+  for (const rawLine of scopedLines) {
+    const indent = lineIndent(rawLine);
     const line = rawLine.trim();
     const match = listItemPattern.exec(line);
+    const lastItem = items[items.length - 1];
+
     if (!match?.[1]) {
+      // An indented plain line under an item is a wrapped continuation of it.
+      if (line.length > 0 && indent > baseIndent && lastItem) {
+        lastItem.details.push(line);
+      }
       continue;
     }
     const text = match[1].trim();
@@ -131,8 +206,7 @@ export function extractNotesListItems(notesText: string): ParsedActionItem[] {
       continue;
     }
 
-    const lastItem = items[items.length - 1];
-    if (indent > 0 && lastItem) {
+    if (indent > baseIndent && lastItem) {
       lastItem.details.push(text);
     } else {
       items.push({ text, details: [] });
@@ -290,32 +364,35 @@ export class ActionExtractionService {
       excludeActions.map((text) => normalizeActionText(text))
     );
     const results: ParsedActionItem[] = [];
+    let anyChunkParsed = false;
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i]!;
       console.log(`[ActionExtraction] Processing chunk ${i + 1}/${chunks.length} (${chunk.length} chars): "${chunk.slice(0, 100)}..."`);
 
-      const response = await model.invoke([
-        new SystemMessage(buildSystemPrompt()),
-        new HumanMessage(buildChunkPrompt(chunk, excludeActions)),
-      ]);
-
-      const rawContent = typeof response.content === "string" ? response.content : "";
-      console.log(`[ActionExtraction] Raw model response: ${rawContent}`);
+      // The invoke itself is inside the try: an OpenAI rate-limit/timeout on
+      // one chunk must degrade to that chunk contributing nothing, not
+      // propagate and discard what the caller already extracted from notes.
       let parsed: z.infer<typeof extractionSchema> | null = null;
-
       try {
+        const response = await model.invoke([
+          new SystemMessage(buildSystemPrompt()),
+          new HumanMessage(buildChunkPrompt(chunk, excludeActions)),
+        ]);
+        const rawContent = typeof response.content === "string" ? response.content : "";
+        console.log(`[ActionExtraction] Raw model response: ${rawContent}`);
         const json = parseJsonFromModelOutput(rawContent);
         parsed = extractionSchema.parse(json);
         console.log(`[ActionExtraction] Parsed ${parsed.actions.length} actions from chunk`);
-      } catch (parseErr) {
-        console.log(`[ActionExtraction] Failed to parse model response: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+      } catch (chunkErr) {
+        console.log(`[ActionExtraction] Chunk ${i + 1}/${chunks.length} failed: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`);
         parsed = null;
       }
 
       if (!parsed) {
         continue;
       }
+      anyChunkParsed = true;
 
       for (const action of parsed.actions) {
         const normalized = normalizeActionText(action.text);
@@ -347,11 +424,11 @@ export class ActionExtractionService {
     }
 
     console.log(`[ActionExtraction] AI extraction found ${results.length} items total`);
-    if (results.length === 0 && excludeActions.length === 0) {
-      // Zero items with no exclusions means the extraction itself likely
-      // failed, so fall back to regex. With exclusions present, zero items is
-      // a legitimate outcome (the notes already covered everything) and the
-      // regex fallback would just re-add what the model correctly withheld.
+    if (results.length === 0 && !anyChunkParsed) {
+      // No chunk parsed at all: the extraction itself failed, so fall back to
+      // regex. When at least one chunk parsed, an empty result is the model's
+      // legitimate answer (e.g. the notes-derived exclusions already covered
+      // everything) and the regex fallback would just override it with noise.
       console.log("[ActionExtraction] Falling back to regex extraction");
       const fallbackResults = FirefliesService.extractActionItemsFromTranscriptText(transcriptText);
       console.log(`[ActionExtraction] Regex fallback found ${fallbackResults.length} items`);
@@ -394,6 +471,7 @@ export class ActionExtractionService {
     const chunks = chunkTranscript(notesText, MAX_CHARS_PER_CHUNK);
     const dedupe = new Set<string>();
     const results: ParsedActionItem[] = [];
+    let anyChunkParsed = false;
 
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i]!;
@@ -416,6 +494,7 @@ export class ActionExtractionService {
       if (!parsed) {
         continue;
       }
+      anyChunkParsed = true;
 
       for (const action of parsed.actions) {
         const normalized = normalizeActionText(action.text);
@@ -446,8 +525,12 @@ export class ActionExtractionService {
       }
     }
 
-    if (results.length === 0) {
-      console.log("[ActionExtraction] Notes AI extraction found nothing, using deterministic list parsing");
+    if (results.length === 0 && !anyChunkParsed) {
+      // Fall back only when the extraction itself failed. A successfully
+      // parsed empty result is the model's judgment that the notes contain no
+      // actions (e.g. context bullets with no action list) — the deterministic
+      // parser would override that by promoting every bullet to an action.
+      console.log("[ActionExtraction] Notes AI extraction failed, using deterministic list parsing");
       return extractNotesListItems(notesText).slice(0, maxActions);
     }
 

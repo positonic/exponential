@@ -20,8 +20,10 @@ vi.mock("@langchain/openai", () => ({
 import {
   ActionExtractionService,
   extractNotesListItems,
+  filterNearDuplicateActions,
   mergeActionItems,
 } from "../ActionExtractionService";
+import { FirefliesService } from "../FirefliesService";
 
 // Mirrors the real-world notes that surfaced the bug: prose bullet before the
 // heading, numbered list with an indented sub-bullet, a trailing empty item,
@@ -89,6 +91,52 @@ describe("extractNotesListItems", () => {
 
   it("returns nothing for prose-only notes", () => {
     expect(extractNotesListItems("We talked about the roadmap.\nGood meeting.")).toEqual([]);
+  });
+
+  it("keeps a uniformly-indented list as separate actions (pasted-from-Notion shape)", () => {
+    const items = extractNotesListItems(
+      "  - Task A\n  - Task B\n    - extra context for B\n  - Task C",
+    );
+    expect(items.map((item) => item.text)).toEqual(["Task A", "Task B", "Task C"]);
+    expect(items[1]?.context).toContain("extra context for B");
+  });
+
+  it('recognizes a "**Action Items:**" heading (colon inside the bold)', () => {
+    const items = extractNotesListItems(
+      "* Context bullet, not an action\n\n**Action Items:**\n\n1. Hire designers\n2. Hire comms",
+    );
+    expect(items.map((item) => item.text)).toEqual(["Hire designers", "Hire comms"]);
+  });
+
+  it("treats an indented continuation line as detail, not a section terminator", () => {
+    const items = extractNotesListItems(
+      "Action Items:\n1. Do the thing\n   because reasons\n2. Do the other thing",
+    );
+    expect(items.map((item) => item.text)).toEqual([
+      "Do the thing",
+      "Do the other thing",
+    ]);
+    expect(items[0]?.context).toContain("because reasons");
+  });
+});
+
+describe("filterNearDuplicateActions", () => {
+  it("drops a reworded duplicate of an existing item", () => {
+    const kept = filterNearDuplicateActions(
+      [
+        { text: "Zineb will send the baseline doc" },
+        { text: "Create a fundraising case document" },
+      ],
+      [{ text: "Zineb to send baseline document to James" }],
+    );
+    expect(kept.map((item) => item.text)).toEqual([
+      "Create a fundraising case document",
+    ]);
+  });
+
+  it("keeps everything when there are no existing items", () => {
+    const candidates = [{ text: "Hire designers" }];
+    expect(filterNearDuplicateActions(candidates, [])).toEqual(candidates);
   });
 });
 
@@ -180,6 +228,18 @@ describe("ActionExtractionService.extractFromNotes", () => {
     expect(await ActionExtractionService.extractFromNotes("   ")).toEqual([]);
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  it("trusts a successfully-parsed empty result instead of promoting bullets via the fallback", async () => {
+    invokeMock.mockResolvedValueOnce(notesModelReply([]));
+
+    // Context bullets, no action list: the model correctly returns no actions,
+    // and the deterministic parser must not override that judgment.
+    const items = await ActionExtractionService.extractFromNotes(
+      "- We discussed the roadmap\n- Zineb walked us through the baseline",
+    );
+
+    expect(items).toEqual([]);
+  });
 });
 
 describe("ActionExtractionService.extractFromTranscript with excludeActions", () => {
@@ -229,6 +289,7 @@ describe("ActionExtractionService.extractFromTranscript with excludeActions", ()
 
   it("does not run the regex fallback when exclusions explain the empty result", async () => {
     invokeMock.mockResolvedValueOnce(notesModelReply([]));
+    const regexSpy = vi.spyOn(FirefliesService, "extractActionItemsFromTranscriptText");
 
     const items = await ActionExtractionService.extractFromTranscript(
       "I will hire designers for the response plan.",
@@ -238,5 +299,24 @@ describe("ActionExtractionService.extractFromTranscript with excludeActions", ()
     // Without the guard, the regex fallback would re-extract "hire designers"
     // from this sentence — exactly what the exclusion said was covered.
     expect(items).toEqual([]);
+    expect(regexSpy).not.toHaveBeenCalled();
+  });
+
+  it("degrades to the regex fallback instead of throwing when the model call rejects", async () => {
+    invokeMock.mockRejectedValueOnce(new Error("rate limited"));
+    const sentinel = [{ text: "regex found this" }];
+    const regexSpy = vi
+      .spyOn(FirefliesService, "extractActionItemsFromTranscriptText")
+      .mockReturnValueOnce(sentinel);
+
+    // Must not throw even with exclusions present: a thrown transcript pass
+    // would discard the caller's already-extracted notes items.
+    const items = await ActionExtractionService.extractFromTranscript(
+      "transcript text here",
+      { excludeActions: ["Hire designers"] },
+    );
+
+    expect(regexSpy).toHaveBeenCalledOnce();
+    expect(items).toEqual(sentinel);
   });
 });
