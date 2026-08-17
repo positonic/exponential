@@ -47,23 +47,6 @@ export function FirefliesSummaryDisplay({ summary }: FirefliesSummaryProps) {
 function renderSummarySections(summary: FirefliesSummary) {
   return (
     <>
-      {summary.keywords && summary.keywords.length > 0 && (
-        <Accordion.Item value="keywords">
-          <Accordion.Control>
-            <Title order={5}>Keywords</Title>
-          </Accordion.Control>
-          <Accordion.Panel>
-            <Group gap="xs">
-              {summary.keywords.map((keyword: string, index: number) => (
-                <Badge key={index} variant="light" size="sm">
-                  {keyword}
-                </Badge>
-              ))}
-            </Group>
-          </Accordion.Panel>
-        </Accordion.Item>
-      )}
-
       {summary.action_items &&
         (Array.isArray(summary.action_items)
           ? summary.action_items.length > 0
@@ -218,6 +201,23 @@ function renderSummarySections(summary: FirefliesSummary) {
                 ),
               )}
             </List>
+          </Accordion.Panel>
+        </Accordion.Item>
+      )}
+
+      {summary.keywords && summary.keywords.length > 0 && (
+        <Accordion.Item value="keywords">
+          <Accordion.Control>
+            <Title order={5}>Keywords</Title>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Group gap="xs">
+              {summary.keywords.map((keyword: string, index: number) => (
+                <Badge key={index} variant="light" size="sm">
+                  {keyword}
+                </Badge>
+              ))}
+            </Group>
           </Accordion.Panel>
         </Accordion.Item>
       )}
