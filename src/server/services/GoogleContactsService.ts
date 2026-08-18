@@ -1,5 +1,6 @@
 import { GoogleTokenManager } from "./GoogleTokenManager";
 import { google } from "googleapis";
+import { GOOGLE_SCOPES } from "~/lib/googleAuth";
 
 export interface GoogleContact {
   resourceName: string;
@@ -76,7 +77,7 @@ export class GoogleContactsService {
   ): Promise<{ contacts: GoogleContact[]; nextPageToken?: string }> {
     const accessToken = await GoogleTokenManager.getValidAccessToken(
       userId,
-      "https://www.googleapis.com/auth/contacts.readonly",
+      GOOGLE_SCOPES.CONTACTS,
     );
 
     const people = google.people({ version: "v1" });
@@ -129,7 +130,7 @@ export class GoogleContactsService {
   ): Promise<GoogleCalendarEvent[]> {
     const accessToken = await GoogleTokenManager.getValidAccessToken(
       userId,
-      "https://www.googleapis.com/auth/calendar.events",
+      GOOGLE_SCOPES.CALENDAR,
     );
 
     const oauth2Client = new google.auth.OAuth2(

@@ -2,7 +2,7 @@
  * Unit tests for checkGoogleScopes — verifies the helper aggregates scopes
  * across MULTIPLE Google accounts. The motivating bug: a user connects a
  * second, calendar-only Google account and it must NOT hide the calendar/
- * contacts/Gmail scopes already granted on their first account.
+ * contacts scopes already granted on their first account.
  *
  * `~/server/db` is mocked so this stays a pure, DB-free unit test (per
  * CLAUDE.md "Test database safety").
@@ -27,7 +27,10 @@ import {
 
 const CAL = GOOGLE_SCOPES.CALENDAR;
 const CONTACTS = GOOGLE_SCOPES.CONTACTS;
-const GMAIL = GOOGLE_SCOPES.GMAIL;
+// A third, distinct scope for split-across-accounts scenarios. Not in
+// GOOGLE_SCOPES because no feature checks for it individually — it is only
+// requested alongside CALENDAR as part of the calendar scope set.
+const CAL_LIST = "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
 
 describe("checkGoogleScopes (multi-account)", () => {
   beforeEach(() => {
@@ -48,24 +51,24 @@ describe("checkGoogleScopes (multi-account)", () => {
   });
 
   it("is satisfied when a SECOND account carries the required scope", async () => {
-    // Account A is calendar-only; account B has the CRM scopes.
+    // Account A is calendar-only; account B has the contacts scopes.
     findMany.mockResolvedValue([
       { scope: CAL },
-      { scope: `${CAL} ${CONTACTS} ${GMAIL}` },
+      { scope: `${CAL} ${CAL_LIST} ${CONTACTS}` },
     ]);
-    const result = await checkGoogleScopes("u1", [GMAIL]);
+    const result = await checkGoogleScopes("u1", [CONTACTS]);
     expect(result.hasScopes).toBe(true);
-    expect(result.currentScopes).toContain(GMAIL);
+    expect(result.currentScopes).toContain(CONTACTS);
   });
 
   it("requires ALL requested scopes to live on a SINGLE account", async () => {
-    // Gmail and contacts are split across two accounts — neither alone
-    // satisfies a request for both, so it must report false.
+    // The calendar-list and contacts scopes are split across two accounts —
+    // neither alone satisfies a request for both, so it must report false.
     findMany.mockResolvedValue([
       { scope: `${CAL} ${CONTACTS}` },
-      { scope: `${CAL} ${GMAIL}` },
+      { scope: `${CAL} ${CAL_LIST}` },
     ]);
-    const both = await checkGoogleScopes("u1", [CONTACTS, GMAIL]);
+    const both = await checkGoogleScopes("u1", [CONTACTS, CAL_LIST]);
     expect(both.hasScopes).toBe(false);
     // Falls back to the broadest account's scopes for context.
     expect(both.currentScopes.length).toBeGreaterThan(0);
@@ -73,7 +76,7 @@ describe("checkGoogleScopes (multi-account)", () => {
 
   it("returns false when no account has the scope, exposing broadest scopes", async () => {
     findMany.mockResolvedValue([{ scope: CAL }, { scope: `${CAL} ${CONTACTS}` }]);
-    const result = await checkGoogleScopes("u1", [GMAIL]);
+    const result = await checkGoogleScopes("u1", [CAL_LIST]);
     expect(result.hasScopes).toBe(false);
     expect(result.currentScopes).toEqual([CAL, CONTACTS]);
   });

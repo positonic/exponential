@@ -7,7 +7,10 @@ import { headers } from "next/headers";
 interface OAuthState {
   userId: string;
   returnUrl: string;
-  scopeType?: "calendar" | "contacts" | "crm";
+  // "contacts" is retained even though no live flow starts a contacts request
+  // anymore: state round-trips through Google, so a consent begun before a
+  // deploy can still land here carrying the old value.
+  scopeType?: "calendar" | "contacts";
 }
 
 function parseState(state: string | null): OAuthState | null {
@@ -197,7 +200,7 @@ export async function GET(request: NextRequest) {
         console.log("✅ Created new Google calendar connection");
       }
     } else {
-      // CRM / contacts flow → legacy Account path (unchanged). Account also
+      // Contacts (CRM import) flow → legacy Account path (unchanged). Account also
       // backs sign-in, so its (provider, providerAccountId) is globally unique
       // and we never reassign it across users.
       const existingAccount = await db.account.findUnique({
@@ -235,7 +238,7 @@ export async function GET(request: NextRequest) {
           where: { id: existingAccount.id },
           data: updateData,
         });
-        console.log("✅ Updated existing Google account (CRM scopes)");
+        console.log("✅ Updated existing Google account (contacts scopes)");
       } else {
         if (!tokens.refresh_token) {
           console.error("❌ Cannot create Google account without refresh token!");
@@ -255,7 +258,7 @@ export async function GET(request: NextRequest) {
             providerEmail: googleUserInfo.email,
           },
         });
-        console.log("✅ Created new Google account record (CRM scopes)");
+        console.log("✅ Created new Google account record (contacts scopes)");
       }
     }
 

@@ -3,65 +3,22 @@
  *
  * This module provides helpers to check which Google scopes a user has authorized,
  * enabling incremental authorization where we only request permissions as needed.
+ *
+ * The scope registry itself lives in `./googleScopes` (pure constants, safe
+ * for client components); it is re-exported here so server code keeps a
+ * single import path.
  */
 
 import { db } from "~/server/db";
+import { GOOGLE_SCOPES } from "./googleScopes";
 
-/**
- * Google OAuth scope sets for incremental authorization.
- *
- * We use incremental authorization to minimize permissions requested during onboarding:
- * - "calendar": Only calendar access (sensitive scope, faster Google verification)
- * - "contacts": Calendar + Contacts (sensitive scopes)
- * - "crm": Calendar + Contacts + Gmail (includes restricted scope, requires security audit)
- */
-/**
- * Identity scopes requested alongside every set. Without these the
- * `oauth2/v2/userinfo` call returns 401, so the OAuth callback can't read the
- * Google account id/email it needs to upsert the Account by
- * (provider, providerAccountId). These are non-sensitive and don't affect
- * Google's verification tier. They also make the calendar account's
- * providerAccountId match the one stored at NextAuth sign-in, so reconnecting
- * dedupes onto the same row instead of creating a duplicate.
- */
-const GOOGLE_IDENTITY_SCOPES = [
-  "openid",
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
-] as const;
-
-// Calendar access. `calendar.events` grants read/write of events on any
-// calendar the user can access, but it does NOT permit `calendarList.list`
-// (listing the user's calendars) — that needs `calendar.readonly`. The
-// multi-calendar sidebar lists calendars per account, so both are required.
-const GOOGLE_CALENDAR_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.readonly",
-] as const;
-
-export const GOOGLE_SCOPE_SETS = {
-  calendar: [
-    ...GOOGLE_IDENTITY_SCOPES,
-    ...GOOGLE_CALENDAR_SCOPES,
-  ],
-  contacts: [
-    ...GOOGLE_IDENTITY_SCOPES,
-    ...GOOGLE_CALENDAR_SCOPES,
-    "https://www.googleapis.com/auth/contacts.readonly",
-  ],
-  crm: [
-    ...GOOGLE_IDENTITY_SCOPES,
-    ...GOOGLE_CALENDAR_SCOPES,
-    "https://www.googleapis.com/auth/contacts.readonly",
-    "https://www.googleapis.com/auth/gmail.readonly",
-  ],
-} as const;
-
-export type GoogleScopeType = keyof typeof GOOGLE_SCOPE_SETS;
+export { GOOGLE_SCOPE_SETS, getGoogleAuthUrl } from "./googleScopes";
+export type { GoogleScopeType } from "./googleScopes";
+export { GOOGLE_SCOPES };
 
 /**
  * Whether this user may use the Google features that depend on scopes Google
- * has not verified yet (calendar, contacts, Gmail).
+ * has not verified yet (calendar, contacts).
  *
  * Verification for those scopes is still pending, so only the accounts
  * registered as test users on the Google Cloud Console project can actually
@@ -88,15 +45,6 @@ export function isGoogleOAuthTester(email: string | null | undefined): boolean {
     .filter((entry) => entry.length > 0)
     .includes(normalized);
 }
-
-/**
- * Individual Google OAuth scopes used in the application
- */
-export const GOOGLE_SCOPES = {
-  CALENDAR: "https://www.googleapis.com/auth/calendar.events",
-  CONTACTS: "https://www.googleapis.com/auth/contacts.readonly",
-  GMAIL: "https://www.googleapis.com/auth/gmail.readonly",
-} as const;
 
 /**
  * Check if a user has authorized specific Google scopes.
@@ -154,29 +102,4 @@ export async function hasCalendarAccess(userId: string): Promise<boolean> {
 export async function hasContactsAccess(userId: string): Promise<boolean> {
   const { hasScopes } = await checkGoogleScopes(userId, [GOOGLE_SCOPES.CONTACTS]);
   return hasScopes;
-}
-
-/**
- * Check if user has Gmail access (for CRM email sync)
- */
-export async function hasGmailAccess(userId: string): Promise<boolean> {
-  const { hasScopes } = await checkGoogleScopes(userId, [GOOGLE_SCOPES.GMAIL]);
-  return hasScopes;
-}
-
-/**
- * Get the OAuth URL for requesting additional scopes
- *
- * @param scopeType - The scope set to request
- * @param returnUrl - Where to redirect after authorization
- */
-export function getGoogleAuthUrl(
-  scopeType: "calendar" | "contacts" | "crm",
-  returnUrl: string
-): string {
-  const params = new URLSearchParams({
-    type: scopeType,
-    returnUrl,
-  });
-  return `/api/auth/google-calendar?${params.toString()}`;
 }

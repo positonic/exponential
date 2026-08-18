@@ -12,7 +12,7 @@ import {
   enqueueContactEnrichment,
 } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
-import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { GOOGLE_SCOPES, isGoogleOAuthTester } from "~/lib/googleAuth";
 
 // Workspace roles allowed to spend enrichment budget (a paid web search + LLM
 // call per run). Viewers and project-only "guests" are excluded (ADR-0036).
@@ -1299,7 +1299,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      // Contacts/Gmail scopes are still awaiting Google verification, so for
+      // Contacts scopes are still awaiting Google verification, so for
       // non-testers report the integration as unavailable rather than probing
       // for a connection they could never have completed.
       if (!isGoogleOAuthTester(ctx.session.user.email)) {
@@ -1332,12 +1332,11 @@ export const crmContactRouter = createTRPCRouter({
         };
       }
 
-      // Check if account has all required scopes
-      const requiredScopes = [
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/contacts.readonly",
-        "https://www.googleapis.com/auth/gmail.readonly",
-      ];
+      // Check if account has all the scopes the Google import needs. The app
+      // no longer REQUESTS contacts.readonly (paused pending Google
+      // verification — see googleScopes.ts), so only accounts that granted
+      // it before the freeze can import.
+      const requiredScopes = [GOOGLE_SCOPES.CALENDAR, GOOGLE_SCOPES.CONTACTS];
 
       const hasAllScopes = GoogleTokenManager.hasRequiredScopes(
         connection,

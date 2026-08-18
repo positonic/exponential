@@ -5,6 +5,7 @@ import { listMeetingCalendarEvents } from './calendar/meetingEventRead';
 import type { CalendarProvider } from './CalendarProvider';
 import type { PrismaClient } from '@prisma/client';
 import { db } from '~/server/db';
+import { GOOGLE_SCOPES } from '~/lib/googleAuth';
 
 const googleService = new GoogleCalendarService();
 const microsoftService = new MicrosoftCalendarService();
@@ -63,7 +64,7 @@ export async function checkProviderConnection(
 ): Promise<{ isConnected: boolean; hasCalendarScope: boolean }> {
   const providerName = provider === 'google' ? 'google' : 'microsoft-entra-id';
   const requiredScope = provider === 'google'
-    ? 'https://www.googleapis.com/auth/calendar.events'
+    ? GOOGLE_SCOPES.CALENDAR
     : 'Calendars.Read';
 
   const account = await db.account.findFirst({
