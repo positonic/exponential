@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Drawer,
   Text,
@@ -11,25 +12,38 @@ import {
   Textarea,
   ActionIcon,
   Avatar,
-  Divider,
+  Anchor,
   Loader,
   NumberInput,
   TextInput,
   Input,
   Select,
+  Tooltip,
+  Collapse,
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import {
   IconArrowRight,
+  IconBolt,
+  IconBuilding,
+  IconCalendar,
+  IconChevronDown,
+  IconChevronUp,
   IconCurrencyDollar,
   IconNote,
+  IconPencil,
+  IconPercentage,
+  IconPlus,
+  IconTargetArrow,
   IconTrash,
-  IconEdit,
+  IconUser,
+  IconUserCheck,
   IconCheck,
   IconX,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 
 interface PipelineStage {
@@ -55,6 +69,139 @@ interface DealDetailDrawerProps {
   pipelines: PipelineOption[];
 }
 
+// Relative time helper matching the contact detail page's activity feed.
+function getRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - new Date(date).getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  if (diffDays === 1) return "1 day ago";
+  if (diffDays < 30) return `${diffDays} days ago`;
+  if (diffDays < 60) return "1 month ago";
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  return new Date(date).toLocaleDateString();
+}
+
+// Highlight card component (same visual language as the contact detail page)
+function HighlightCard({
+  icon,
+  label,
+  value,
+  href,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  href?: string;
+}) {
+  const card = (
+    <div
+      className={`rounded-lg border border-border-primary bg-surface-secondary p-4 ${
+        href ? "cursor-pointer hover:border-border-focus transition-colors" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <Text size="xs" className="text-text-muted">
+          {label}
+        </Text>
+        <span className="text-text-muted">{icon}</span>
+      </div>
+      <div className="mt-2">{value}</div>
+    </div>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className="block">
+        {card}
+      </Link>
+    );
+  }
+  return card;
+}
+
+// Detail row component (same visual language as the contact detail page)
+function DetailRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-3 py-1">
+      <div className="w-28 shrink-0 flex items-start gap-1.5">
+        <span className="text-text-muted opacity-50">{icon}</span>
+        <Text size="xs" className="text-text-muted">
+          {label}
+        </Text>
+      </div>
+      <div className="flex-1 text-sm">{value}</div>
+    </div>
+  );
+}
+
+// Collapsible section component (same visual language as the contact detail page)
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  action,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="border-b border-border-primary last:border-b-0">
+      <div className="flex items-center justify-between py-3 px-1">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex flex-1 items-center justify-between text-left hover:bg-surface-hover transition-colors"
+        >
+          <Text size="xs" className="font-medium text-text-muted">
+            {isOpen ? "▾" : "▸"} {title}
+          </Text>
+          {isOpen ? (
+            <IconChevronUp size={14} className="text-text-muted" />
+          ) : (
+            <IconChevronDown size={14} className="text-text-muted" />
+          )}
+        </button>
+        {action ? (
+          <div
+            className="ml-2"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            {action}
+          </div>
+        ) : null}
+      </div>
+      <Collapse in={isOpen}>
+        <div className="pb-4 px-1">{children}</div>
+      </Collapse>
+    </div>
+  );
+}
+
+const ACTIVITY_LABELS: Record<string, string> = {
+  CREATED: "created the deal",
+  STAGE_CHANGE: "moved the deal",
+  NOTE: "added a note",
+  VALUE_CHANGE: "updated the value",
+};
+
 export function DealDetailDrawer({
   dealId,
   projectId,
@@ -62,6 +209,7 @@ export function DealDetailDrawer({
   onClose,
   pipelines,
 }: DealDetailDrawerProps) {
+  const { workspace, workspaceId } = useWorkspace();
   const [noteText, setNoteText] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -70,6 +218,8 @@ export function DealDetailDrawer({
   const [editExpectedCloseDate, setEditExpectedCloseDate] = useState<Date | null>(null);
   const [editProjectId, setEditProjectId] = useState<string>("");
   const [editStageId, setEditStageId] = useState<string>("");
+  const [editContactId, setEditContactId] = useState<string | null>(null);
+  const [editOrganizationId, setEditOrganizationId] = useState<string | null>(null);
 
   // Stages of the pipeline currently chosen in the editor.
   const editPipeline =
@@ -81,6 +231,16 @@ export function DealDetailDrawer({
   const { data: deal, isLoading } = api.pipeline.getDeal.useQuery(
     { id: dealId! },
     { enabled: !!dealId && opened },
+  );
+
+  // Contacts/organizations for the edit form's link selectors.
+  const { data: contactsData } = api.crmContact.getAll.useQuery(
+    { workspaceId: workspaceId!, limit: 100 },
+    { enabled: opened && isEditing && !!workspaceId },
+  );
+  const { data: orgsData } = api.crmOrganization.getAll.useQuery(
+    { workspaceId: workspaceId!, limit: 100 },
+    { enabled: opened && isEditing && !!workspaceId },
   );
 
   const addNoteMutation = api.pipeline.addNote.useMutation({
@@ -136,6 +296,8 @@ export function DealDetailDrawer({
     setEditExpectedCloseDate(deal.expectedCloseDate ? new Date(deal.expectedCloseDate) : null);
     setEditProjectId(deal.projectId);
     setEditStageId(deal.stageId);
+    setEditContactId(deal.contact?.id ?? null);
+    setEditOrganizationId(deal.organization?.id ?? null);
     setIsEditing(true);
   }
 
@@ -162,6 +324,8 @@ export function DealDetailDrawer({
       expectedCloseDate: editExpectedCloseDate,
       projectId: editProjectId,
       stageId: editStageId,
+      contactId: editContactId,
+      organizationId: editOrganizationId,
     });
   }
 
@@ -174,12 +338,59 @@ export function DealDetailDrawer({
     }).format(value);
   }
 
+  // The deal's current contact/organization may fall outside the first page of
+  // options, so make sure they are always selectable in the edit form.
+  const contactOptions = (() => {
+    const options = (contactsData?.contacts ?? []).map((c) => ({
+      value: c.id,
+      label: [c.firstName, c.lastName].filter(Boolean).join(" ") || "Unnamed",
+    }));
+    if (deal?.contact && !options.some((o) => o.value === deal.contact!.id)) {
+      options.unshift({
+        value: deal.contact.id,
+        label:
+          [deal.contact.firstName, deal.contact.lastName]
+            .filter(Boolean)
+            .join(" ") || "Unnamed",
+      });
+    }
+    return options;
+  })();
+
+  const orgOptions = (() => {
+    const options = (orgsData?.organizations ?? []).map((o) => ({
+      value: o.id,
+      label: o.name,
+    }));
+    if (
+      deal?.organization &&
+      !options.some((o) => o.value === deal.organization!.id)
+    ) {
+      options.unshift({
+        value: deal.organization.id,
+        label: deal.organization.name,
+      });
+    }
+    return options;
+  })();
+
+  const basePath = workspace ? `/w/${workspace.slug}/crm` : null;
+  const contactName = deal?.contact
+    ? [deal.contact.firstName, deal.contact.lastName].filter(Boolean).join(" ") ||
+      "Unnamed"
+    : null;
+  const pipelineName =
+    pipelines.find((p) => p.id === deal?.projectId)?.name ?? null;
+
   return (
     <Drawer
       opened={opened}
-      onClose={onClose}
+      onClose={() => {
+        setIsEditing(false);
+        onClose();
+      }}
       position="right"
-      size="md"
+      size="lg"
       title={
         <Text fw={600} size="lg">
           Deal Details
@@ -192,309 +403,572 @@ export function DealDetailDrawer({
         </div>
       )}
 
-      {deal && (
-        <Stack gap="md">
-          {/* Header with edit/delete */}
-          <Group justify="space-between">
-            {isEditing ? (
-              <TextInput
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.currentTarget.value)}
-                className="flex-1"
-              />
-            ) : (
-              <Text fw={600} size="xl">
-                {deal.title}
-              </Text>
-            )}
-            <Group gap="xs">
-              {isEditing ? (
-                <>
-                  <ActionIcon
-                    variant="light"
-                    color="green"
-                    onClick={saveEdits}
-                    loading={updateDealMutation.isPending}
-                  >
-                    <IconCheck size={16} />
-                  </ActionIcon>
-                  <ActionIcon
-                    variant="light"
-                    color="gray"
-                    onClick={() => setIsEditing(false)}
-                  >
-                    <IconX size={16} />
-                  </ActionIcon>
-                </>
-              ) : (
-                <>
-                  <ActionIcon variant="light" onClick={startEditing}>
-                    <IconEdit size={16} />
-                  </ActionIcon>
-                  <ActionIcon
-                    variant="light"
-                    color="red"
-                    onClick={() => deleteDealMutation.mutate({ id: deal.id })}
-                    loading={deleteDealMutation.isPending}
-                  >
-                    <IconTrash size={16} />
-                  </ActionIcon>
-                </>
-              )}
+      {deal && !isEditing && (
+        <Stack gap="lg">
+          {/* Header */}
+          <Group justify="space-between" wrap="nowrap">
+            <Group gap="md" wrap="nowrap" className="min-w-0">
+              <Avatar
+                size="lg"
+                radius="xl"
+                color={getAvatarColor(getColorSeed(deal.title))}
+              >
+                <span
+                  style={{
+                    color: getTextColor(getAvatarColor(getColorSeed(deal.title))),
+                  }}
+                >
+                  {getInitial(deal.title)}
+                </span>
+              </Avatar>
+              <div className="min-w-0">
+                <Text fw={600} size="xl" className="truncate">
+                  {deal.title}
+                </Text>
+                <Group gap="xs" mt={4}>
+                  <Badge variant="light" color={deal.stage.color} size="sm">
+                    {deal.stage.name}
+                  </Badge>
+                  {pipelineName && (
+                    <Text size="xs" className="text-text-muted">
+                      {pipelineName}
+                    </Text>
+                  )}
+                </Group>
+              </div>
+            </Group>
+            <Group gap="xs" wrap="nowrap">
+              <Tooltip label="Edit deal">
+                <ActionIcon variant="light" onClick={startEditing}>
+                  <IconPencil size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Delete deal">
+                <ActionIcon
+                  variant="light"
+                  color="red"
+                  onClick={() => deleteDealMutation.mutate({ id: deal.id })}
+                  loading={deleteDealMutation.isPending}
+                >
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </Tooltip>
             </Group>
           </Group>
 
-          {/* Stage badge (read-only view) */}
-          {!isEditing && (
-            <Badge variant="light" color={deal.stage.color} size="lg">
-              {deal.stage.name}
-            </Badge>
-          )}
-
-          {/* Editable fields */}
-          {isEditing ? (
-            <Stack gap="sm">
-              {pipelines.length > 1 && (
-                <Select
-                  label="Pipeline"
-                  data={pipelines.map((p) => ({ value: p.id, label: p.name }))}
-                  value={editProjectId}
-                  onChange={handleEditPipelineChange}
-                  allowDeselect={false}
-                />
-              )}
-              <Select
-                label="Stage"
-                data={editStages.map((s) => ({ value: s.id, label: s.name }))}
-                value={editStageId}
-                onChange={(val) => val && setEditStageId(val)}
-                allowDeselect={false}
+          {/* Highlights */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <IconBolt size={16} className="text-text-muted" />
+              <Text size="sm" className="font-medium text-text-muted">
+                Highlights
+              </Text>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <HighlightCard
+                icon={<IconCurrencyDollar size={14} />}
+                label="Value"
+                value={
+                  deal.value != null ? (
+                    <Text size="sm" className="font-medium text-text-primary">
+                      {formatCurrency(deal.value, deal.currency)}
+                    </Text>
+                  ) : (
+                    <Text size="sm" className="text-text-muted">
+                      No value
+                    </Text>
+                  )
+                }
               />
-              <Group grow>
-                <NumberInput
-                  label="Value"
-                  prefix="$"
-                  min={0}
-                  thousandSeparator=","
-                  value={editValue ?? ""}
-                  onChange={(val) => setEditValue(typeof val === "number" ? val : undefined)}
-                />
-                <NumberInput
-                  label="Probability"
-                  suffix="%"
-                  min={0}
-                  max={100}
-                  value={editProbability ?? ""}
-                  onChange={(val) => setEditProbability(typeof val === "number" ? val : undefined)}
-                />
-              </Group>
-              <Input.Wrapper label="Expected Close Date">
-                <div>
-                  <UnifiedDatePicker
-                    value={editExpectedCloseDate}
-                    onChange={setEditExpectedCloseDate}
-                    placeholder="Select date"
-                    notificationContext="deal"
-                  />
-                </div>
-              </Input.Wrapper>
-            </Stack>
-          ) : (
-            <Stack gap="xs">
-              {deal.value != null && (
-                <Group gap="xs">
-                  <IconCurrencyDollar size={16} className="text-text-muted" />
-                  <Text size="sm" fw={600}>
-                    {formatCurrency(deal.value, deal.currency)}
-                  </Text>
-                </Group>
-              )}
-              {deal.probability != null && (
-                <Text size="sm" className="text-text-secondary">
-                  Win probability: {deal.probability}%
-                </Text>
-              )}
-              {deal.expectedCloseDate && (
-                <Text size="sm" className="text-text-secondary">
-                  Expected close:{" "}
-                  {new Date(deal.expectedCloseDate).toLocaleDateString()}
-                </Text>
-              )}
-              {deal.closedAt && (
-                <Text size="sm" className="text-text-secondary">
-                  Closed: {new Date(deal.closedAt).toLocaleDateString()}
-                </Text>
-              )}
-            </Stack>
-          )}
-
-          {/* Contact & Organization */}
-          {(deal.contact ?? deal.organization) && (
-            <>
-              <Divider />
-              <Stack gap="xs">
-                {deal.contact && (
-                  <Group gap="xs">
+              <HighlightCard
+                icon={<IconTargetArrow size={14} />}
+                label="Win probability"
+                value={
+                  deal.probability != null ? (
+                    <Text size="sm" className="font-medium text-text-primary">
+                      {deal.probability}%
+                    </Text>
+                  ) : (
                     <Text size="sm" className="text-text-muted">
-                      Contact:
+                      Not set
                     </Text>
-                    <Text size="sm">
-                      {[deal.contact.firstName, deal.contact.lastName]
-                        .filter(Boolean)
-                        .join(" ")}
+                  )
+                }
+              />
+              <HighlightCard
+                icon={<IconCalendar size={14} />}
+                label="Expected close"
+                value={
+                  deal.expectedCloseDate ? (
+                    <Text size="sm" className="font-medium text-text-primary">
+                      {new Date(deal.expectedCloseDate).toLocaleDateString()}
                     </Text>
-                  </Group>
-                )}
-                {deal.organization && (
-                  <Group gap="xs">
+                  ) : (
                     <Text size="sm" className="text-text-muted">
-                      Organization:
+                      No close date
                     </Text>
-                    <Text size="sm">{deal.organization.name}</Text>
-                  </Group>
-                )}
-              </Stack>
-            </>
-          )}
-
-          {/* Assignee */}
-          {deal.assignedTo && (
-            <>
-              <Divider />
-              <Group gap="xs">
-                <Text size="sm" className="text-text-muted">
-                  Assigned to:
-                </Text>
-                <Avatar
-                  src={deal.assignedTo.image}
-                  size="sm"
-                  radius="xl"
-                  color={getAvatarColor(getColorSeed(deal.assignedTo.name ?? ""))}
-                >
-                  <span style={{ color: getTextColor(getAvatarColor(getColorSeed(deal.assignedTo.name ?? ""))) }}>
-                    {getInitial(deal.assignedTo.name ?? "")}
-                  </span>
-                </Avatar>
-                <Text size="sm">{deal.assignedTo.name}</Text>
-              </Group>
-            </>
-          )}
+                  )
+                }
+              />
+              <HighlightCard
+                icon={<IconUser size={14} />}
+                label="Contact"
+                href={
+                  deal.contact && basePath
+                    ? `${basePath}/contacts/${deal.contact.id}`
+                    : undefined
+                }
+                value={
+                  contactName ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar
+                        size="xs"
+                        radius="xl"
+                        color={getAvatarColor(getColorSeed(contactName))}
+                      >
+                        <span
+                          style={{
+                            color: getTextColor(
+                              getAvatarColor(getColorSeed(contactName)),
+                            ),
+                            fontSize: 10,
+                          }}
+                        >
+                          {getInitial(contactName)}
+                        </span>
+                      </Avatar>
+                      <Text size="sm" className="font-medium text-text-primary">
+                        {contactName}
+                      </Text>
+                    </div>
+                  ) : (
+                    <Text size="sm" className="text-text-muted">
+                      No contact
+                    </Text>
+                  )
+                }
+              />
+              <HighlightCard
+                icon={<IconBuilding size={14} />}
+                label="Company"
+                href={
+                  deal.organization && basePath
+                    ? `${basePath}/organizations/${deal.organization.id}`
+                    : undefined
+                }
+                value={
+                  deal.organization ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar size="xs" radius="sm" color="cyan">
+                        {getInitial(deal.organization.name)}
+                      </Avatar>
+                      <Text size="sm" className="font-medium text-text-primary">
+                        {deal.organization.name}
+                      </Text>
+                    </div>
+                  ) : (
+                    <Text size="sm" className="text-text-muted">
+                      No company
+                    </Text>
+                  )
+                }
+              />
+              <HighlightCard
+                icon={<IconUserCheck size={14} />}
+                label="Assignee"
+                value={
+                  deal.assignedTo ? (
+                    <div className="flex items-center gap-2">
+                      <Avatar
+                        src={deal.assignedTo.image}
+                        size="xs"
+                        radius="xl"
+                        color={getAvatarColor(
+                          getColorSeed(deal.assignedTo.name ?? ""),
+                        )}
+                      >
+                        <span
+                          style={{
+                            color: getTextColor(
+                              getAvatarColor(
+                                getColorSeed(deal.assignedTo.name ?? ""),
+                              ),
+                            ),
+                            fontSize: 10,
+                          }}
+                        >
+                          {getInitial(deal.assignedTo.name ?? "")}
+                        </span>
+                      </Avatar>
+                      <Text size="sm" className="font-medium text-text-primary">
+                        {deal.assignedTo.name}
+                      </Text>
+                    </div>
+                  ) : (
+                    <Text size="sm" className="text-text-muted">
+                      Unassigned
+                    </Text>
+                  )
+                }
+              />
+            </div>
+          </div>
 
           {/* Description */}
           {deal.description && (
-            <>
-              <Divider />
-              <Stack gap="xs">
-                <Text size="sm" fw={500}>
+            <div className="rounded-lg border border-border-primary bg-surface-secondary p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <IconNote size={16} className="text-text-muted" />
+                <Text size="sm" className="font-medium text-text-primary">
                   Description
                 </Text>
-                <Text size="sm" className="text-text-secondary">
-                  {deal.description}
-                </Text>
-              </Stack>
-            </>
+              </div>
+              <Text size="sm" className="text-text-secondary">
+                {deal.description}
+              </Text>
+            </div>
           )}
 
-          {/* Add note */}
-          <Divider />
-          <Stack gap="xs">
-            <Text size="sm" fw={500}>
-              Add Note
-            </Text>
-            <Textarea
-              placeholder="Write a note..."
-              value={noteText}
-              onChange={(e) => setNoteText(e.currentTarget.value)}
-              minRows={2}
-            />
-            <Button
-              size="xs"
-              variant="light"
-              leftSection={<IconNote size={14} />}
-              onClick={() => {
-                if (!noteText.trim()) return;
-                addNoteMutation.mutate({
-                  dealId: deal.id,
-                  content: noteText.trim(),
-                });
-              }}
-              loading={addNoteMutation.isPending}
-              disabled={!noteText.trim()}
-            >
-              Add Note
-            </Button>
-          </Stack>
-
-          {/* Activity timeline */}
-          <Divider />
-          <Stack gap="xs">
-            <Text size="sm" fw={500}>
-              Activity
-            </Text>
-            {deal.activities.length === 0 && (
-              <Text size="sm" c="dimmed">
-                No activity yet
-              </Text>
-            )}
-            {deal.activities.map((activity) => (
-              <div
-                key={activity.id}
-                className="rounded-md border border-border-primary p-3"
-              >
-                <Group justify="space-between" mb={4}>
-                  <Group gap="xs">
-                    {activity.type === "STAGE_CHANGE" && (
-                      <IconArrowRight size={14} className="text-blue-500" />
-                    )}
-                    {activity.type === "NOTE" && (
-                      <IconNote size={14} className="text-text-muted" />
-                    )}
-                    {activity.type === "VALUE_CHANGE" && (
-                      <IconCurrencyDollar size={14} className="text-text-muted" />
-                    )}
-                    <Text size="xs" fw={500}>
-                      {activity.type.replace("_", " ")}
-                    </Text>
-                  </Group>
-                  <Text size="xs" className="text-text-muted">
-                    {new Date(activity.createdAt).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </Text>
-                </Group>
-                {activity.content && (
-                  <Text size="xs" className="text-text-secondary">
-                    {activity.content}
-                  </Text>
-                )}
-                {activity.user && (
-                  <Group gap={4} mt={4}>
-                    <Avatar
-                      src={activity.user.image}
-                      size={16}
-                      radius="xl"
-                      color={getAvatarColor(getColorSeed(activity.user.name ?? ""))}
-                    >
-                      <span
-                        style={{
-                          color: getTextColor(getAvatarColor(getColorSeed(activity.user.name ?? ""))),
-                          fontSize: 8,
-                        }}
-                      >
-                        {getInitial(activity.user.name ?? "")}
-                      </span>
-                    </Avatar>
-                    <Text size="xs" className="text-text-muted">
-                      {activity.user.name}
-                    </Text>
-                  </Group>
-                )}
+          {/* Activity */}
+          <div className="rounded-lg border border-border-primary bg-surface-secondary">
+            <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
+              <div className="flex items-center gap-2">
+                <IconBolt size={16} className="text-text-muted" />
+                <Text size="sm" className="font-medium text-text-primary">
+                  Activity
+                </Text>
+                <Badge size="xs" variant="light">
+                  {deal.activities.length}
+                </Badge>
               </div>
-            ))}
-          </Stack>
+            </div>
+            <div className="px-4 divide-y divide-border-primary">
+              {deal.activities.length === 0 && (
+                <div className="py-8 text-center">
+                  <Text size="sm" className="text-text-muted">
+                    No activity yet
+                  </Text>
+                </div>
+              )}
+              {deal.activities.map((activity) => {
+                const actor = activity.user?.name ?? "System";
+                return (
+                  <div key={activity.id} className="flex items-start gap-3 py-3">
+                    <Avatar
+                      src={activity.user?.image}
+                      size="sm"
+                      radius="xl"
+                      className="mt-0.5"
+                      color={getAvatarColor(getColorSeed(actor))}
+                    >
+                      {activity.type === "STAGE_CHANGE" ? (
+                        <IconArrowRight size={14} />
+                      ) : activity.type === "NOTE" ? (
+                        <IconNote size={14} />
+                      ) : activity.type === "VALUE_CHANGE" ? (
+                        <IconCurrencyDollar size={14} />
+                      ) : (
+                        <span
+                          style={{
+                            color: getTextColor(
+                              getAvatarColor(getColorSeed(actor)),
+                            ),
+                          }}
+                        >
+                          {getInitial(actor)}
+                        </span>
+                      )}
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                        <div>
+                          <Text
+                            span
+                            size="sm"
+                            className="font-medium text-text-primary"
+                          >
+                            {actor}
+                          </Text>{" "}
+                          <Text span size="sm" className="text-text-muted">
+                            {ACTIVITY_LABELS[activity.type] ??
+                              activity.type.replace("_", " ").toLowerCase()}
+                          </Text>
+                        </div>
+                        <Text size="xs" className="text-text-muted">
+                          {getRelativeTime(new Date(activity.createdAt))}
+                        </Text>
+                      </div>
+                      {activity.content && (
+                        <Text
+                          size="sm"
+                          className="text-text-secondary mt-1"
+                        >
+                          {activity.content}
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Add note */}
+            <div className="border-t border-border-primary p-4">
+              <Textarea
+                placeholder="Write a note..."
+                value={noteText}
+                onChange={(e) => setNoteText(e.currentTarget.value)}
+                minRows={2}
+              />
+              <Group justify="flex-end" mt="xs">
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconPlus size={14} />}
+                  onClick={() => {
+                    if (!noteText.trim()) return;
+                    addNoteMutation.mutate({
+                      dealId: deal.id,
+                      content: noteText.trim(),
+                    });
+                  }}
+                  loading={addNoteMutation.isPending}
+                  disabled={!noteText.trim()}
+                >
+                  Add Note
+                </Button>
+              </Group>
+            </div>
+          </div>
+
+          {/* Record Details */}
+          <div>
+            <CollapsibleSection
+              title="Record Details"
+              action={
+                <Tooltip label="Edit details">
+                  <ActionIcon
+                    variant="subtle"
+                    size="sm"
+                    onClick={startEditing}
+                    aria-label="Edit deal details"
+                  >
+                    <IconPencil size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              }
+            >
+              <Stack gap="sm">
+                <DetailRow
+                  icon={<IconNote size={14} />}
+                  label="Title"
+                  value={<Text className="text-text-primary">{deal.title}</Text>}
+                />
+                <DetailRow
+                  icon={<IconBolt size={14} />}
+                  label="Stage"
+                  value={
+                    <Badge variant="light" color={deal.stage.color} size="sm">
+                      {deal.stage.name}
+                    </Badge>
+                  }
+                />
+                <DetailRow
+                  icon={<IconCurrencyDollar size={14} />}
+                  label="Value"
+                  value={
+                    deal.value != null ? (
+                      <Text className="text-text-primary">
+                        {formatCurrency(deal.value, deal.currency)}
+                      </Text>
+                    ) : (
+                      <Text className="text-text-muted">—</Text>
+                    )
+                  }
+                />
+                <DetailRow
+                  icon={<IconPercentage size={14} />}
+                  label="Probability"
+                  value={
+                    deal.probability != null ? (
+                      <Text className="text-text-primary">
+                        {deal.probability}%
+                      </Text>
+                    ) : (
+                      <Text className="text-text-muted">—</Text>
+                    )
+                  }
+                />
+                <DetailRow
+                  icon={<IconCalendar size={14} />}
+                  label="Expected close"
+                  value={
+                    deal.expectedCloseDate ? (
+                      <Text className="text-text-primary">
+                        {new Date(deal.expectedCloseDate).toLocaleDateString()}
+                      </Text>
+                    ) : (
+                      <Text className="text-text-muted">—</Text>
+                    )
+                  }
+                />
+                {deal.closedAt && (
+                  <DetailRow
+                    icon={<IconCalendar size={14} />}
+                    label="Closed"
+                    value={
+                      <Text className="text-text-primary">
+                        {new Date(deal.closedAt).toLocaleDateString()}
+                      </Text>
+                    }
+                  />
+                )}
+                <DetailRow
+                  icon={<IconUser size={14} />}
+                  label="Contact"
+                  value={
+                    deal.contact && basePath ? (
+                      <Anchor
+                        component={Link}
+                        href={`${basePath}/contacts/${deal.contact.id}`}
+                        size="sm"
+                      >
+                        {contactName}
+                      </Anchor>
+                    ) : (
+                      <Text className="text-text-muted">—</Text>
+                    )
+                  }
+                />
+                <DetailRow
+                  icon={<IconBuilding size={14} />}
+                  label="Company"
+                  value={
+                    deal.organization && basePath ? (
+                      <Anchor
+                        component={Link}
+                        href={`${basePath}/organizations/${deal.organization.id}`}
+                        size="sm"
+                      >
+                        {deal.organization.name}
+                      </Anchor>
+                    ) : (
+                      <Text className="text-text-muted">—</Text>
+                    )
+                  }
+                />
+                <DetailRow
+                  icon={<IconUserCheck size={14} />}
+                  label="Assignee"
+                  value={
+                    deal.assignedTo ? (
+                      <Text className="text-text-primary">
+                        {deal.assignedTo.name}
+                      </Text>
+                    ) : (
+                      <Text className="text-text-muted">—</Text>
+                    )
+                  }
+                />
+              </Stack>
+            </CollapsibleSection>
+          </div>
+        </Stack>
+      )}
+
+      {deal && isEditing && (
+        <Stack gap="md">
+          <Group justify="space-between">
+            <Text fw={600} size="lg">
+              Edit Deal
+            </Text>
+            <Group gap="xs">
+              <ActionIcon
+                variant="light"
+                color="green"
+                onClick={saveEdits}
+                loading={updateDealMutation.isPending}
+                aria-label="Save changes"
+              >
+                <IconCheck size={16} />
+              </ActionIcon>
+              <ActionIcon
+                variant="light"
+                color="gray"
+                onClick={() => setIsEditing(false)}
+                aria-label="Cancel editing"
+              >
+                <IconX size={16} />
+              </ActionIcon>
+            </Group>
+          </Group>
+
+          <TextInput
+            label="Title"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.currentTarget.value)}
+          />
+          {pipelines.length > 1 && (
+            <Select
+              label="Pipeline"
+              data={pipelines.map((p) => ({ value: p.id, label: p.name }))}
+              value={editProjectId}
+              onChange={handleEditPipelineChange}
+              allowDeselect={false}
+            />
+          )}
+          <Select
+            label="Stage"
+            data={editStages.map((s) => ({ value: s.id, label: s.name }))}
+            value={editStageId}
+            onChange={(val) => val && setEditStageId(val)}
+            allowDeselect={false}
+          />
+          <Group grow>
+            <NumberInput
+              label="Value"
+              prefix="$"
+              min={0}
+              thousandSeparator=","
+              value={editValue ?? ""}
+              onChange={(val) => setEditValue(typeof val === "number" ? val : undefined)}
+            />
+            <NumberInput
+              label="Probability"
+              suffix="%"
+              min={0}
+              max={100}
+              value={editProbability ?? ""}
+              onChange={(val) => setEditProbability(typeof val === "number" ? val : undefined)}
+            />
+          </Group>
+          <Select
+            label="Contact"
+            placeholder="Link to a contact"
+            data={contactOptions}
+            value={editContactId}
+            onChange={setEditContactId}
+            searchable
+            clearable
+          />
+          <Select
+            label="Organization"
+            placeholder="Link to an organization"
+            data={orgOptions}
+            value={editOrganizationId}
+            onChange={setEditOrganizationId}
+            searchable
+            clearable
+          />
+          <Input.Wrapper label="Expected Close Date">
+            <div>
+              <UnifiedDatePicker
+                value={editExpectedCloseDate}
+                onChange={setEditExpectedCloseDate}
+                placeholder="Select date"
+                notificationContext="deal"
+              />
+            </div>
+          </Input.Wrapper>
         </Stack>
       )}
     </Drawer>
