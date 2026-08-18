@@ -494,7 +494,7 @@ export default function ContactsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <Avatar size="sm" radius="xl">
+                        <Avatar size="sm" radius="xl" src={contact.imageUrl}>
                           {contact.firstName?.[0]?.toUpperCase() ??
                             contact.lastName?.[0]?.toUpperCase() ??
                             contact.email?.[0]?.toUpperCase() ??
