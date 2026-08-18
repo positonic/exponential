@@ -1332,8 +1332,10 @@ export const crmContactRouter = createTRPCRouter({
         };
       }
 
-      // Check if account has all the scopes the import dialog's connect
-      // button requests (GOOGLE_SCOPE_SETS.contacts, minus identity scopes).
+      // Check if account has all the scopes the Google import needs. The app
+      // no longer REQUESTS contacts.readonly (paused pending Google
+      // verification — see googleScopes.ts), so only accounts that granted
+      // it before the freeze can import.
       const requiredScopes = [GOOGLE_SCOPES.CALENDAR, GOOGLE_SCOPES.CONTACTS];
 
       const hasAllScopes = GoogleTokenManager.hasRequiredScopes(

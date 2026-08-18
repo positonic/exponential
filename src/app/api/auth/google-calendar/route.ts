@@ -12,15 +12,13 @@ import type { GooglePremiumFeatureKind } from "~/types/google";
 /**
  * Which explainer a gated user sees per scope set. Exhaustive over
  * `GOOGLE_SCOPE_SETS`, so adding a scope set is a type error here rather than
- * a silent fallback that shows the wrong copy. `contacts` is only ever
- * started from the CRM contact-import flow.
+ * a silent fallback that shows the wrong copy.
  */
 const GATED_FEATURE_BY_SCOPE_TYPE: Record<
   GoogleScopeType,
   GooglePremiumFeatureKind
 > = {
   calendar: "calendar",
-  contacts: "contacts",
 };
 
 export async function GET(request: NextRequest) {

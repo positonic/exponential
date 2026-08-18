@@ -40,19 +40,23 @@ const GOOGLE_CALENDAR_SCOPES = [
 /**
  * Google OAuth scope sets for incremental authorization.
  *
- * We use incremental authorization to minimize permissions requested during onboarding:
- * - "calendar": Only calendar access (sensitive scopes)
- * - "contacts": Calendar + Contacts, for the CRM contact import (sensitive scopes)
+ * "calendar" (identity + the two calendar scopes) is currently the ONLY set —
+ * it is exactly what is registered on the Cloud Console consent screen and
+ * what the verification demo shows.
+ *
+ * There is deliberately no "contacts" set: `contacts.readonly` is not part of
+ * the current Google verification, and the app must not request any scope the
+ * Console doesn't register (the repo is public, and Google's reviewers
+ * compare the codebase against the Console). To re-enable the CRM contact
+ * import for new grants: add a `contacts` set here ([...GOOGLE_IDENTITY_SCOPES,
+ * ...GOOGLE_CALENDAR_SCOPES, GOOGLE_SCOPES.CONTACTS]), restore the connect
+ * button in the CRM ImportDialog, register the scope in the Console, and
+ * re-submit for verification with an updated demo video.
  */
 export const GOOGLE_SCOPE_SETS = {
   calendar: [
     ...GOOGLE_IDENTITY_SCOPES,
     ...GOOGLE_CALENDAR_SCOPES,
-  ],
-  contacts: [
-    ...GOOGLE_IDENTITY_SCOPES,
-    ...GOOGLE_CALENDAR_SCOPES,
-    "https://www.googleapis.com/auth/contacts.readonly",
   ],
 } as const;
 
@@ -60,6 +64,10 @@ export type GoogleScopeType = keyof typeof GOOGLE_SCOPE_SETS;
 
 /**
  * Individual Google OAuth scopes used in the application.
+ *
+ * CONTACTS is check-only: it appears in no scope set above, so the app never
+ * REQUESTS it — it exists to recognise accounts that granted it before the
+ * verification freeze, which keeps the CRM import working for them.
  *
  * No Gmail scope on purpose: the app has no Gmail API integration (email sync
  * is IMAP-based via app passwords), and `gmail.readonly` is a RESTRICTED

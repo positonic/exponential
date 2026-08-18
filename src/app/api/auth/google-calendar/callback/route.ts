@@ -7,6 +7,9 @@ import { headers } from "next/headers";
 interface OAuthState {
   userId: string;
   returnUrl: string;
+  // "contacts" is retained even though no live flow starts a contacts request
+  // anymore: state round-trips through Google, so a consent begun before a
+  // deploy can still land here carrying the old value.
   scopeType?: "calendar" | "contacts";
 }
 
