@@ -130,6 +130,11 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachm
     throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
 
+  // Subjects can carry user-authored text (workspace, project, person names).
+  // Postmark's JSON API builds the MIME itself, but strip header-control
+  // characters anyway so no caller can ever smuggle CR/LF into a header.
+  const safeSubject = subject.replace(/[\r\n\0]/g, " ");
+
   const response = await fetch(POSTMARK_API_URL, {
     method: "POST",
     headers: {
@@ -140,7 +145,7 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachm
     body: JSON.stringify({
       From: from,
       To: to,
-      Subject: subject,
+      Subject: safeSubject,
       HtmlBody: htmlBody,
       TextBody: textBody,
       MessageStream: "outbound",
@@ -368,29 +373,42 @@ export interface FirstLoginWelcomeInvited {
   inviterName: string | null;
 }
 
+export interface FirstLoginWelcomeParams {
+  to: string;
+  name?: string | null;
+  invited?: FirstLoginWelcomeInvited;
+  chatTools?: { slack: boolean; matrix: boolean };
+}
+
 /**
- * Send the **Welcome email** — the single onboarding email a user ever
+ * Build the **Welcome email** — the single onboarding email a user ever
  * receives, fired once from `events.createUser` after the first successful
  * sign-in on any provider. Replaces both the OAuth-only welcome and the long
  * welcome-with-code email: the sign-in code emails stay minimal, and the pitch
  * waits until the person is actually in (see CONTEXT.md, "Welcome email").
  *
- * One shared body with a variant frame: with `invited` set, the subject and
- * opening name the first accepted invited workspace and the inviter. Tailoring
- * is deterministic only — `chatTools` decides which chat tool the task-layer
- * bullet names (Matrix only when the invited workspace demonstrably uses it;
- * Slack is the default, including for organic signups).
+ * One shared body with a variant frame: with `invited` set, the frame names
+ * the first accepted invited workspace (subject and heading) and the inviter
+ * (opening line). Tailoring is deterministic only — `chatTools` decides which
+ * chat tool the task-layer bullet names (Matrix only when the invited
+ * workspace demonstrably uses it; Slack is the default, including for organic
+ * signups).
+ *
+ * Pure content builder, no I/O — exported so the branch matrix
+ * (invited × inviter × chatTools × name) is unit-testable without a Postmark
+ * stub. `sendFirstLoginWelcomeEmail` below is the thin send wrapper.
  */
-export async function sendFirstLoginWelcomeEmail(params: {
-  to: string;
-  name?: string | null;
-  invited?: FirstLoginWelcomeInvited;
-  chatTools?: { slack: boolean; matrix: boolean };
-}): Promise<void> {
-  const { to, name, invited, chatTools } = params;
+export function buildFirstLoginWelcomeEmail(params: FirstLoginWelcomeParams): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { name, invited, chatTools } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
-  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
+  // NEXTAUTH_URL is commonly configured with a trailing slash; strip it so
+  // the CTA link isn't `https://host//daily-plan`.
+  const appUrl = (process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv()).replace(/\/+$/, "");
   const dailyPlannerUrl = `${appUrl}/daily-plan`;
 
   const chatToolPhrase = chatTools?.matrix
@@ -566,12 +584,15 @@ I'll check in with ideas on getting the most from ${appName}. Reply anytime—I 
 — James
 `.trim();
 
-  await sendEmail({
-    to,
-    subject,
-    htmlBody,
-    textBody,
-  });
+  return { subject, htmlBody, textBody };
+}
+
+/** Send the Welcome email — thin wrapper over the pure builder above. */
+export async function sendFirstLoginWelcomeEmail(
+  params: FirstLoginWelcomeParams
+): Promise<void> {
+  const { subject, htmlBody, textBody } = buildFirstLoginWelcomeEmail(params);
+  await sendEmail({ to: params.to, subject, htmlBody, textBody });
 }
 
 /**
