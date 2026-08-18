@@ -39,8 +39,13 @@ vi.mock("../FirefliesService", () => ({
 }));
 
 vi.mock("../ActionExtractionService", () => ({
-  ActionExtractionService: { extractFromTranscript: vi.fn() },
+  ActionExtractionService: {
+    extractFromNotes: vi.fn(),
+    extractFromTranscript: vi.fn(),
+  },
   numberScreenshotMarkers: vi.fn((text: string) => ({ numberedText: text, count: 0 })),
+  filterNearDuplicateActions: vi.fn((items: unknown[]) => items),
+  mergeActionItems: vi.fn((a: unknown[], b: unknown[]) => [...a, ...b]),
 }));
 
 vi.mock("../notifications/NotificationServiceFactory", () => ({
@@ -117,6 +122,7 @@ describe("screenshot pairing survives a failed create mid-list", () => {
       user: { id: USER_ID },
       title: "Test meeting",
       summary: null,
+      notes: "- a curated notes action",
       transcription: "some transcript text with [SCREENSHOT] markers",
     } as never);
     db.screenshot.findMany.mockResolvedValue([
@@ -128,14 +134,20 @@ describe("screenshot pairing survives a failed create mid-list", () => {
     db.actionScreenshot.createMany.mockResolvedValue({ count: 2 } as never);
     db.transcriptionSession.update.mockResolvedValue({} as never);
 
+    // Mirrors the post-PR-600 shape: a notes-derived item (no screenshotRefs)
+    // sits ahead of the transcript items (with refs) in the merged array.
+    vi.mocked(ActionExtractionService.extractFromNotes).mockResolvedValue([
+      { text: "Notes action" },
+    ]);
     vi.mocked(ActionExtractionService.extractFromTranscript).mockResolvedValue([
       { text: "First action", screenshotRefs: [1] },
       { text: "Second action", screenshotRefs: [2] },
       { text: "Third action", screenshotRefs: [3] },
     ]);
 
-    // The middle create fails — before the fix this shifted "Third action"
-    // onto the second item's refs, attaching shot-2 to the wrong action.
+    // A mid-list create fails — before the fix this shifted "Third action"
+    // onto the second transcript item's refs, attaching shot-2 to the wrong
+    // action.
     mockActionCreateFailingOn(db, "Second action");
 
     await TranscriptionProcessingService.generateDraftActions(
