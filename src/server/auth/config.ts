@@ -10,7 +10,7 @@ import Postmark from "next-auth/providers/postmark";
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
 import { sendFirstLoginWelcomeEmail, sendSignInCodeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
-import { MATRIX_SERVER_PROVIDER } from "~/server/services/matrix/constants";
+import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
@@ -417,10 +417,16 @@ export const authConfig = {
         user.email
       );
       if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
-        await db.user.update({
-          where: { id: user.id },
-          data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
-        });
+        try {
+          await db.user.update({
+            where: { id: user.id },
+            data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
+          });
+        } catch (error) {
+          // Best-effort: landing in Personal instead of the invited workspace
+          // must not cost the user their only Welcome email below.
+          console.error("[Auth] Failed to set invited workspace as default:", error);
+        }
       }
 
       // The Welcome email — the single onboarding email a user ever receives.
@@ -429,69 +435,23 @@ export const authConfig = {
       // stay minimal by design (see CONTEXT.md, "Welcome email"). Invited
       // users get a frame naming their first accepted workspace and inviter,
       // and the task-layer bullet names the chat tool that workspace actually
-      // uses. Fire-and-forget: a failed send must never block account
-      // creation. Not routed through `reportHandledError` for the same
-      // Edge-bundle reason as in `sendVerificationRequest` above.
-      let invited: { workspaceName: string; inviterName: string | null } | undefined;
-      let chatTools: { slack: boolean; matrix: boolean } | undefined;
-      try {
-        if (firstAcceptedWorkspaceId) {
-          const [workspace, invitation, slackIntegration, matrixServer] =
-            await Promise.all([
-              db.workspace.findUnique({
-                where: { id: firstAcceptedWorkspaceId },
-                select: { name: true },
-              }),
-              db.workspaceInvitation.findFirst({
-                where: {
-                  workspaceId: firstAcceptedWorkspaceId,
-                  email: user.email,
-                  status: "accepted",
-                },
-                select: { createdBy: { select: { name: true, email: true } } },
-              }),
-              db.integration.findFirst({
-                where: {
-                  provider: "slack",
-                  status: "ACTIVE",
-                  workspaceId: firstAcceptedWorkspaceId,
-                },
-                select: { id: true },
-              }),
-              db.integration.findFirst({
-                where: {
-                  provider: MATRIX_SERVER_PROVIDER,
-                  status: "ACTIVE",
-                  workspaceId: firstAcceptedWorkspaceId,
-                },
-                select: { id: true },
-              }),
-            ]);
+      // uses (resolved in `resolveWelcomeEmailContext`, which never throws).
+      //
+      // Awaited deliberately: this event runs inside the sign-in request on
+      // Vercel, and a detached promise races the lambda freeze — the send
+      // could silently never happen. The `.catch` still guarantees a failed
+      // send can't block account creation. Not routed through
+      // `reportHandledError` for the same Edge-bundle reason as in
+      // `sendVerificationRequest` above.
+      const context: WelcomeEmailContext = firstAcceptedWorkspaceId
+        ? await resolveWelcomeEmailContext(db, firstAcceptedWorkspaceId, user.email)
+        : {};
 
-          if (workspace) {
-            // `??` alone would let a whitespace-only stored name through —
-            // treat blank as missing (same guard as `resolveInvitedContext`).
-            const inviterName =
-              invitation?.createdBy.name?.trim() ||
-              invitation?.createdBy.email?.trim() ||
-              null;
-            invited = { workspaceName: workspace.name, inviterName };
-            chatTools = {
-              slack: slackIntegration !== null,
-              matrix: matrixServer !== null,
-            };
-          }
-        }
-      } catch (error) {
-        // Context is flavor, the email is not: fall through and send generic.
-        console.error("[Auth] Failed to resolve welcome email context:", error);
-      }
-
-      sendFirstLoginWelcomeEmail({
+      await sendFirstLoginWelcomeEmail({
         to: user.email,
         name: user.name,
-        invited,
-        chatTools,
+        invited: context.invited,
+        chatTools: context.chatTools,
       }).catch((error) => {
         console.error("[Auth] Failed to send welcome email:", error);
       });
