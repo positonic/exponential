@@ -51,6 +51,7 @@ import {
   IconChevronDown,
   IconArrowRight,
   IconCheckbox,
+  IconCalendarPlus,
 } from "@tabler/icons-react";
 import { TranscriptView } from "./meeting/TranscriptView";
 import { MeetingProjectPicker } from "./meeting/MeetingProjectPicker";
@@ -63,6 +64,7 @@ import {
 } from "~/lib/meetingCardViewModel";
 import type { WeeklyMeetingStatsResult } from "~/server/services/meetings/weeklyMeetingStats";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
+import { ScheduleMeetingModal } from "./calendar/ScheduleMeetingModal";
 
 type MeetingType =
   | "all"
@@ -523,6 +525,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // Slack Summary Modal state
   const [slackModalOpened, setSlackModalOpened] = useState(false);
   const [selectedMeetingForSlack, setSelectedMeetingForSlack] = useState<any>(null);
+
+  // Cross-member scheduling modal state (V3)
+  const [scheduleModalOpened, setScheduleModalOpened] = useState(false);
 
   // Fireflies settings modal state
   const [firefliesModalOpened, setFirefliesModalOpened] = useState(false);
@@ -1085,9 +1090,28 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 Connect Fireflies
               </button>
             )}
+            {/* Workspace-page entry point for cross-member scheduling (V3);
+                hidden on the legacy non-workspace /meetings page. */}
+            {workspaceId && (
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconCalendarPlus size={14} />}
+                onClick={() => setScheduleModalOpened(true)}
+              >
+                Schedule meeting
+              </Button>
+            )}
             <CreateTranscriptionModal workspaceId={workspaceId} />
           </Group>
         </Group>
+        {workspaceId && (
+          <ScheduleMeetingModal
+            opened={scheduleModalOpened}
+            onClose={() => setScheduleModalOpened(false)}
+            defaultWorkspaceId={workspaceId}
+          />
+        )}
         <div className="mt-6 h-px w-full bg-border-primary" />
       </div>
 
