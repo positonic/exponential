@@ -7,16 +7,24 @@ export interface ParsedActionItem {
   screenshotRefs?: number[];
 }
 
+export interface CreatedActionItem {
+  id: string;
+  externalId?: string;
+  title: string;
+  url?: string;
+}
+
 export interface ActionProcessorResult {
   success: boolean;
   processedCount: number;
   errors: string[];
-  createdItems: Array<{
-    id: string;
-    externalId?: string;
-    title: string;
-    url?: string;
-  }>;
+  createdItems: CreatedActionItem[];
+  /**
+   * Index-parallel with the input actionItems: itemResults[i] is the created
+   * item for actionItems[i], or null if that create failed. Use this (not
+   * createdItems) when pairing outputs back to inputs by index.
+   */
+  itemResults?: Array<CreatedActionItem | null>;
 }
 
 export interface ActionProcessorConfig {

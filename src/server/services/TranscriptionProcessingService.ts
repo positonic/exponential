@@ -241,13 +241,16 @@ export class TranscriptionProcessingService {
       result.errors = actionResult.errors;
       result.success = actionResult.errors.length === 0;
 
-      // Create screenshot-action associations based on AI screenshotRefs
+      // Create screenshot-action associations based on AI screenshotRefs.
+      // itemResults is index-parallel with the input actionItems (null where a
+      // create failed), so a mid-list failure can't shift the pairings.
+      const itemResults = actionResult.itemResults ?? [];
       if (screenshots.length > 0 && actionResult.createdItems.length > 0) {
         const junctionData: { actionId: string; screenshotId: string }[] = [];
 
-        for (let i = 0; i < actionResult.createdItems.length && i < processedData.actionItems.length; i++) {
+        for (let i = 0; i < itemResults.length && i < processedData.actionItems.length; i++) {
           const item = processedData.actionItems[i];
-          const created = actionResult.createdItems[i];
+          const created = itemResults[i];
           if (!item?.screenshotRefs?.length || !created) continue;
 
           for (const ref of item.screenshotRefs) {

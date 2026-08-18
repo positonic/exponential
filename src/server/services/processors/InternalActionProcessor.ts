@@ -1,4 +1,4 @@
-import { ActionProcessor, type ParsedActionItem, type ActionProcessorResult, type ActionProcessorConfig } from './ActionProcessor';
+import { ActionProcessor, type ParsedActionItem, type ActionProcessorResult, type ActionProcessorConfig, type CreatedActionItem } from './ActionProcessor';
 import { db } from '~/server/db';
 import { type PRIORITY_VALUES } from '~/types/priority';
 
@@ -11,23 +11,30 @@ export class InternalActionProcessor extends ActionProcessor {
   }
 
   async processActionItems(actionItems: ParsedActionItem[]): Promise<ActionProcessorResult> {
+    // Index-parallel with actionItems: null marks a failed create so callers
+    // can pair inputs to outputs by index (see ActionProcessorResult.itemResults)
+    const itemResults: Array<CreatedActionItem | null> = [];
     const result: ActionProcessorResult = {
       success: true,
       processedCount: 0,
       errors: [],
-      createdItems: []
+      createdItems: [],
+      itemResults
     };
 
     try {
       for (const item of actionItems) {
         try {
           const action = await this.createAction(item);
-          result.createdItems.push({
+          const created = {
             id: action.id,
             title: action.name,
-          });
+          };
+          result.createdItems.push(created);
+          itemResults.push(created);
           result.processedCount++;
         } catch (error) {
+          itemResults.push(null);
           result.errors.push(`Failed to create action "${item.text}": ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
       }
