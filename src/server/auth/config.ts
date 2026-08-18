@@ -9,7 +9,8 @@ import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
-import { sendSignInCodeEmail, sendWelcomeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
+import { sendFirstLoginWelcomeEmail, sendSignInCodeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
+import { MATRIX_SERVER_PROVIDER } from "~/server/services/matrix/constants";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
@@ -310,16 +311,9 @@ export const authConfig = {
         },
       });
 
-      // If no user exists, allow sign in (new user - will need onboarding)
+      // If no user exists, allow sign in. The Welcome email fires from
+      // events.createUser — once per user, on any provider — not from here.
       if (!existingUser) {
-        // Send welcome email to new OAuth users only (magic link users already got theirs)
-        // The 'postmark' provider is used for magic link auth
-        if (account?.provider && account.provider !== "postmark") {
-          // Pass provider as-is to handle all configured OAuth providers (google, discord, notion, etc.)
-          sendWelcomeEmail(user.email, user.name, account.provider).catch((error) => {
-            console.error("[Auth] Failed to send welcome email:", error);
-          });
-        }
         return true;
       }
 
@@ -428,6 +422,79 @@ export const authConfig = {
           data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
         });
       }
+
+      // The Welcome email — the single onboarding email a user ever receives.
+      // Sent from here because this event fires exactly once per user, after
+      // the first successful sign-in on any provider; the sign-in code emails
+      // stay minimal by design (see CONTEXT.md, "Welcome email"). Invited
+      // users get a frame naming their first accepted workspace and inviter,
+      // and the task-layer bullet names the chat tool that workspace actually
+      // uses. Fire-and-forget: a failed send must never block account
+      // creation. Not routed through `reportHandledError` for the same
+      // Edge-bundle reason as in `sendVerificationRequest` above.
+      let invited: { workspaceName: string; inviterName: string | null } | undefined;
+      let chatTools: { slack: boolean; matrix: boolean } | undefined;
+      try {
+        if (firstAcceptedWorkspaceId) {
+          const [workspace, invitation, slackIntegration, matrixServer] =
+            await Promise.all([
+              db.workspace.findUnique({
+                where: { id: firstAcceptedWorkspaceId },
+                select: { name: true },
+              }),
+              db.workspaceInvitation.findFirst({
+                where: {
+                  workspaceId: firstAcceptedWorkspaceId,
+                  email: user.email,
+                  status: "accepted",
+                },
+                select: { createdBy: { select: { name: true, email: true } } },
+              }),
+              db.integration.findFirst({
+                where: {
+                  provider: "slack",
+                  status: "ACTIVE",
+                  workspaceId: firstAcceptedWorkspaceId,
+                },
+                select: { id: true },
+              }),
+              db.integration.findFirst({
+                where: {
+                  provider: MATRIX_SERVER_PROVIDER,
+                  status: "ACTIVE",
+                  workspaceId: firstAcceptedWorkspaceId,
+                },
+                select: { id: true },
+              }),
+            ]);
+
+          if (workspace) {
+            // `??` alone would let a whitespace-only stored name through —
+            // treat blank as missing (same guard as `resolveInvitedContext`).
+            const inviterName =
+              invitation?.createdBy.name?.trim() ||
+              invitation?.createdBy.email?.trim() ||
+              null;
+            invited = { workspaceName: workspace.name, inviterName };
+            chatTools = {
+              slack: slackIntegration !== null,
+              matrix: matrixServer !== null,
+            };
+          }
+        }
+      } catch (error) {
+        // Context is flavor, the email is not: fall through and send generic.
+        console.error("[Auth] Failed to resolve welcome email context:", error);
+      }
+
+      sendFirstLoginWelcomeEmail({
+        to: user.email,
+        name: user.name,
+        invited,
+        chatTools,
+      }).catch((error) => {
+        console.error("[Auth] Failed to send welcome email:", error);
+      });
     },
   },
 } satisfies NextAuthConfig;
