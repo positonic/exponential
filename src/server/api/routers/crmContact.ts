@@ -12,7 +12,7 @@ import {
   enqueueContactEnrichment,
 } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
-import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { GOOGLE_SCOPES, isGoogleOAuthTester } from "~/lib/googleAuth";
 
 // Workspace roles allowed to spend enrichment budget (a paid web search + LLM
 // call per run). Viewers and project-only "guests" are excluded (ADR-0036).
@@ -1332,13 +1332,9 @@ export const crmContactRouter = createTRPCRouter({
         };
       }
 
-      // Check if account has all required scopes. Must stay a subset of
-      // GOOGLE_SCOPE_SETS.contacts — the set the import dialog's connect
-      // button actually requests — or hasAllScopes can never become true.
-      const requiredScopes = [
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/contacts.readonly",
-      ];
+      // Check if account has all the scopes the import dialog's connect
+      // button requests (GOOGLE_SCOPE_SETS.contacts, minus identity scopes).
+      const requiredScopes = [GOOGLE_SCOPES.CALENDAR, GOOGLE_SCOPES.CONTACTS];
 
       const hasAllScopes = GoogleTokenManager.hasRequiredScopes(
         connection,

@@ -5,7 +5,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
 import type { CalendarInfo, CalendarProvider } from "~/server/services/CalendarProvider";
-import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { GOOGLE_SCOPES, isGoogleOAuthTester } from "~/lib/googleAuth";
 import { encryptToBase64 } from "~/server/utils/encryption";
 import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
 import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
@@ -57,7 +57,7 @@ function isGoogleCalendarGated(
 function calendarScopeFor(accountProvider: string): string {
   return accountProvider === "microsoft-entra-id"
     ? "Calendars.Read"
-    : "https://www.googleapis.com/auth/calendar.events";
+    : GOOGLE_SCOPES.CALENDAR;
 }
 
 /** Whether an account currently has a usable (scoped + non-expired-or-refreshable) calendar connection */
