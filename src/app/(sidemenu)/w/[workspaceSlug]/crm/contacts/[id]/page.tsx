@@ -558,7 +558,7 @@ export default function ContactDetailPage() {
 
       {/* Contact Header */}
       <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-6 py-4">
-        <Avatar size="lg" radius="xl">
+        <Avatar size="lg" radius="xl" src={contact.imageUrl}>
           {getInitialFromName(contact.firstName ?? contact.lastName)}
         </Avatar>
         <div className="flex-1">

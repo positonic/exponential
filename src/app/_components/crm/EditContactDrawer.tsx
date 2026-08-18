@@ -221,6 +221,9 @@ export function EditContactDrawer({
   const removeScreenshot = api.crmContact.removeScreenshot.useMutation({
     onSuccess: () => {
       void utils.crmContact.listScreenshots.invalidate({ contactId: contact.id });
+      // The latest image doubles as the contact's avatar on getById/getAll.
+      void utils.crmContact.getById.invalidate({ id: contact.id });
+      void utils.crmContact.getAll.invalidate();
     },
     onError: (error) => {
       notifications.show({ title: 'Error', message: error.message, color: 'red' });
@@ -323,6 +326,9 @@ export function EditContactDrawer({
           .map((s) => s.id);
         setPastedScreenshots((prev) => prev.filter((s) => failedIds.includes(s.id)));
         void utils.crmContact.listScreenshots.invalidate({ contactId: contact.id });
+        // The latest image doubles as the contact's avatar on getById/getAll.
+        void utils.crmContact.getById.invalidate({ id: contact.id });
+        void utils.crmContact.getAll.invalidate();
 
         if (failedIds.length > 0) {
           // Contact saved, but some images didn't upload — keep the drawer open

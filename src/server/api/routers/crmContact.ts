@@ -267,6 +267,12 @@ export const crmContactRouter = createTRPCRouter({
               image: true,
             },
           },
+          // Latest uploaded image doubles as the contact's avatar.
+          screenshots: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { screenshot: { select: { url: true } } },
+          },
         },
         orderBy: [
           { lastInteractionAt: { sort: "desc", nulls: "last" } },
@@ -278,8 +284,9 @@ export const crmContactRouter = createTRPCRouter({
 
       // Decrypt PII fields before returning
       const decrypted = contacts.map((c) => {
+        const imageUrl = c.screenshots[0]?.screenshot.url ?? null;
         try {
-          return decryptContactPII(c);
+          return { ...decryptContactPII(c), imageUrl };
         } catch (e) {
           console.error("PII decryption failed for contact", c.id, e);
           // Return with null PII fields on decryption failure
@@ -292,6 +299,7 @@ export const crmContactRouter = createTRPCRouter({
             twitter: null,
             github: null,
             bluesky: null,
+            imageUrl,
           };
         }
       });
@@ -357,6 +365,12 @@ export const crmContactRouter = createTRPCRouter({
                 take: 20,
               }
             : false,
+          // Latest uploaded image doubles as the contact's avatar.
+          screenshots: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { screenshot: { select: { url: true } } },
+          },
         },
       });
 
@@ -369,8 +383,9 @@ export const crmContactRouter = createTRPCRouter({
       }
 
       // Decrypt PII fields before returning
+      const imageUrl = contact.screenshots[0]?.screenshot.url ?? null;
       try {
-        return decryptContactPII(contact);
+        return { ...decryptContactPII(contact), imageUrl };
       } catch (e) {
         console.error("PII decryption failed for contact", contact.id, e);
         return {
@@ -382,6 +397,7 @@ export const crmContactRouter = createTRPCRouter({
           twitter: null,
           github: null,
           bluesky: null,
+          imageUrl,
         };
       }
     }),
