@@ -23,6 +23,7 @@ import {
   type LoggedToolCall,
 } from "~/server/utils/redactToolArgs";
 import { composePromptVersion } from "~/server/services/promptVersion";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
 import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
 import { buildProjectAccessWhere } from "~/server/services/access";
@@ -801,6 +802,22 @@ export async function POST(req: Request) {
                   ?? formatErr(readUnknown(chunk.payload, 'error'));
                 const { userMessage, loggedMessage } =
                   formatUserFacingStreamError(rawMsg);
+                // The stream itself closes cleanly after this, so the client's
+                // catch/reportHandledError path never fires — without this,
+                // agent-side failures leave no Sentry event and no Bug Ticket.
+                // First occurrence per turn only; the ingest fingerprint dedups
+                // recurrences across turns onto one ticket.
+                if (!hadAgentError) {
+                  reportHandledErrorServer(new Error(loggedMessage), {
+                    area: "agent-stream",
+                    kind: "model",
+                    context: {
+                      agentId: activeAgentId,
+                      threadId,
+                      platform,
+                    },
+                  });
+                }
                 hadAgentError = true;
                 agentErrorMessage = loggedMessage;
                 console.error('❌ [chat/stream] Agent error chunk', { error: loggedMessage });
@@ -1061,6 +1078,17 @@ export async function POST(req: Request) {
             toolCallNames,
             finishReason: lastStepFinishReason ?? 'unknown',
             error: err instanceof Error ? err.message : (typeof err === 'string' ? err : 'unknown error'),
+          });
+          // Server-side failures abort the stream before the client can
+          // classify anything, so this is the only place they can be reported.
+          reportHandledErrorServer(err, {
+            area: "chat-stream-server",
+            context: {
+              agentId: activeAgentId,
+              threadId,
+              platform,
+              partialChars: String(fullText.length),
+            },
           });
           // Persist the failed turn so stream failures are queryable in the DB,
           // not just the server console. hadError=true keeps these rows out of
