@@ -117,10 +117,10 @@ export function ImportDialog({
     onClose();
   };
 
-  // Handle OAuth redirect - request CRM scopes (calendar + contacts + gmail)
+  // Handle OAuth redirect - request the contacts scope set (calendar + contacts)
   const handleConnectGoogle = () => {
     const returnUrl = window.location.pathname;
-    window.location.href = `/api/auth/google-calendar?type=crm&returnUrl=${encodeURIComponent(returnUrl)}`;
+    window.location.href = `/api/auth/google-calendar?type=contacts&returnUrl=${encodeURIComponent(returnUrl)}`;
   };
 
   // Handle import start
@@ -152,7 +152,7 @@ export function ImportDialog({
       closeOnEscape={step !== "progress"}
     >
       <Stack gap="lg">
-        {/* Gated: contacts/Gmail scopes are still awaiting Google verification */}
+        {/* Gated: contacts scopes are still awaiting Google verification */}
         {step === "connect" && connection?.gated && (
           <GooglePremiumFeature feature="contacts" variant="alert" />
         )}
@@ -176,8 +176,8 @@ export function ImportDialog({
               </Alert>
             ) : (
               <Text size="sm" c="dimmed">
-                Connect your Google account to import contacts from Gmail and
-                Google Calendar.
+                Connect your Google account to import contacts from Google
+                Contacts and Google Calendar.
               </Text>
             )}
 
@@ -193,12 +193,11 @@ export function ImportDialog({
                 <List size="sm" spacing="xs">
                   <List.Item>
                     <strong>Google Contacts</strong> - Read your contacts
+                    (read-only)
                   </List.Item>
                   <List.Item>
-                    <strong>Gmail</strong> - Read email metadata (read-only)
-                  </List.Item>
-                  <List.Item>
-                    <strong>Google Calendar</strong> - Read calendar events
+                    <strong>Google Calendar</strong> - View and edit calendar
+                    events, and see your list of calendars
                   </List.Item>
                 </List>
               </Stack>
@@ -242,7 +241,7 @@ export function ImportDialog({
                       <IconMail size={16} />
                       <IconCalendar size={16} />
                       <Text size="sm">
-                        <strong>Gmail & Calendar</strong> - Import from both
+                        <strong>Contacts & Calendar</strong> - Import from both
                         sources (Recommended)
                       </Text>
                     </Group>
@@ -255,12 +254,12 @@ export function ImportDialog({
                     <Group gap="xs">
                       <IconMail size={16} />
                       <Text size="sm">
-                        <strong>Gmail Contacts Only</strong> - Import from
-                        Google Contacts
+                        <strong>Google Contacts Only</strong> - Import from
+                        your saved contacts
                       </Text>
                     </Group>
                   }
-                  description="Import saved contacts from your Gmail address book"
+                  description="Import saved contacts from your Google Contacts address book"
                 />
                 <Radio
                   value="CALENDAR"

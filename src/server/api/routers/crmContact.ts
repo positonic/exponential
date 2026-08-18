@@ -1299,7 +1299,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      // Contacts/Gmail scopes are still awaiting Google verification, so for
+      // Contacts scopes are still awaiting Google verification, so for
       // non-testers report the integration as unavailable rather than probing
       // for a connection they could never have completed.
       if (!isGoogleOAuthTester(ctx.session.user.email)) {
@@ -1332,11 +1332,12 @@ export const crmContactRouter = createTRPCRouter({
         };
       }
 
-      // Check if account has all required scopes
+      // Check if account has all required scopes. Must stay a subset of
+      // GOOGLE_SCOPE_SETS.contacts — the set the import dialog's connect
+      // button actually requests — or hasAllScopes can never become true.
       const requiredScopes = [
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/contacts.readonly",
-        "https://www.googleapis.com/auth/gmail.readonly",
       ];
 
       const hasAllScopes = GoogleTokenManager.hasRequiredScopes(

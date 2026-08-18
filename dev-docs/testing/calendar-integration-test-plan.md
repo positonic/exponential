@@ -41,7 +41,7 @@ This document outlines the comprehensive testing strategy for the Google Calenda
 - [ ] Complete OAuth flow from button click to callback
 - [ ] Token storage and retrieval
 - [ ] Refresh token handling
-- [ ] Scope verification (calendar.readonly, calendar.events)
+- [ ] Scope verification (calendar.events, calendar.calendarlist.readonly)
 
 ### Calendar Service Integration
 - [ ] Events fetching from Google Calendar API

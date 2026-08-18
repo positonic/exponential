@@ -377,7 +377,7 @@ export default function ContactsPage() {
                 leftSection={<IconUpload size={14} />}
                 onClick={openImportDialog}
               >
-                Import contacts from Gmail/Calendar
+                Import contacts from Google Contacts/Calendar
               </Menu.Item>
               <Menu.Item leftSection={<IconDownload size={14} />}>
                 Export to CSV

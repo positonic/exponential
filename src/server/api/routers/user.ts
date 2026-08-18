@@ -7,7 +7,7 @@ import { isGoogleOAuthTester } from "~/lib/googleAuth";
 export const userRouter = createTRPCRouter({
   /**
    * Whether this user may use the Google features whose scopes Google has not
-   * verified yet (calendar, contacts, Gmail). The UI uses this to show the
+   * verified yet (calendar, contacts). The UI uses this to show the
    * "premium feature" message instead of connect buttons that would dead-end
    * on Google's unverified-app screen. Google *sign-in* is not affected.
    */
