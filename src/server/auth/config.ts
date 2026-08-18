@@ -9,7 +9,8 @@ import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
-import { sendSignInCodeEmail, sendWelcomeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
+import { sendFirstLoginWelcomeEmail, sendSignInCodeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
+import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
@@ -310,16 +311,9 @@ export const authConfig = {
         },
       });
 
-      // If no user exists, allow sign in (new user - will need onboarding)
+      // If no user exists, allow sign in. The Welcome email fires from
+      // events.createUser — once per user, on any provider — not from here.
       if (!existingUser) {
-        // Send welcome email to new OAuth users only (magic link users already got theirs)
-        // The 'postmark' provider is used for magic link auth
-        if (account?.provider && account.provider !== "postmark") {
-          // Pass provider as-is to handle all configured OAuth providers (google, discord, notion, etc.)
-          sendWelcomeEmail(user.email, user.name, account.provider).catch((error) => {
-            console.error("[Auth] Failed to send welcome email:", error);
-          });
-        }
         return true;
       }
 
@@ -423,11 +417,44 @@ export const authConfig = {
         user.email
       );
       if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
-        await db.user.update({
-          where: { id: user.id },
-          data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
-        });
+        try {
+          await db.user.update({
+            where: { id: user.id },
+            data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
+          });
+        } catch (error) {
+          // Best-effort: landing in Personal instead of the invited workspace
+          // must not cost the user their only Welcome email below.
+          console.error("[Auth] Failed to set invited workspace as default:", error);
+        }
       }
+
+      // The Welcome email — the single onboarding email a user ever receives.
+      // Sent from here because this event fires exactly once per user, after
+      // the first successful sign-in on any provider; the sign-in code emails
+      // stay minimal by design (see CONTEXT.md, "Welcome email"). Invited
+      // users get a frame naming their first accepted workspace and inviter,
+      // and the task-layer bullet names the chat tool that workspace actually
+      // uses (resolved in `resolveWelcomeEmailContext`, which never throws).
+      //
+      // Awaited deliberately: this event runs inside the sign-in request on
+      // Vercel, and a detached promise races the lambda freeze — the send
+      // could silently never happen. The `.catch` still guarantees a failed
+      // send can't block account creation. Not routed through
+      // `reportHandledError` for the same Edge-bundle reason as in
+      // `sendVerificationRequest` above.
+      const context: WelcomeEmailContext = firstAcceptedWorkspaceId
+        ? await resolveWelcomeEmailContext(db, firstAcceptedWorkspaceId, user.email)
+        : {};
+
+      await sendFirstLoginWelcomeEmail({
+        to: user.email,
+        name: user.name,
+        invited: context.invited,
+        chatTools: context.chatTools,
+      }).catch((error) => {
+        console.error("[Auth] Failed to send welcome email:", error);
+      });
     },
   },
 } satisfies NextAuthConfig;

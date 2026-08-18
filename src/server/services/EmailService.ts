@@ -130,6 +130,11 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachm
     throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
 
+  // Subjects can carry user-authored text (workspace, project, person names).
+  // Postmark's JSON API builds the MIME itself, but strip header-control
+  // characters anyway so no caller can ever smuggle CR/LF into a header.
+  const safeSubject = subject.replace(/[\r\n\0]/g, " ");
+
   const response = await fetch(POSTMARK_API_URL, {
     method: "POST",
     headers: {
@@ -140,7 +145,7 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachm
     body: JSON.stringify({
       From: from,
       To: to,
-      Subject: subject,
+      Subject: safeSubject,
       HtmlBody: htmlBody,
       TextBody: textBody,
       MessageStream: "outbound",
@@ -255,65 +260,21 @@ Didn't request this? You can safely ignore this email.
 }
 
 /**
- * Generate the welcome email HTML content (shared between magic link and OAuth flows)
+ * Send the Sign-in code email for a brand-new email address (first sign-in).
+ *
+ * Deliberately as minimal as the returning-user variant above — greeting, code,
+ * expiry, nothing else — so the code is visible in preview panes and
+ * notification banners. All onboarding content waits for the **Welcome email**
+ * (`sendFirstLoginWelcomeEmail`), sent after the first successful sign-in.
+ * Workspace-agnostic on purpose: an invitee already received the invite email
+ * naming the workspace, and this path must not grow DB lookups for flavor text.
+ * Carries a code rather than a link — see ADR-0056.
  */
-function generateWelcomeEmailContent(options: {
-  brandColor: string;
-  appName: string;
-  appUrl: string;
-  ctaUrl: string;
-  ctaText: string;
-  showExpiration?: boolean;
-  greeting: string;
-  /**
-   * When set, the email shows a **Sign-in code** to type instead of a button to
-   * click (ADR-0056). Used for the email sign-up path, where a link would be
-   * spent by the recipient's mail scanner before they ever saw it. The OAuth
-   * welcome keeps its button — those users are already signed in.
-   */
-  signInCode?: string;
-}): { htmlBody: string; textBody: string } {
-  const { brandColor, appName, appUrl, ctaUrl, ctaText, showExpiration, greeting, signInCode } = options;
-  const dailyPlannerUrl = `${appUrl}/daily-plan`;
-
-  const actionBlockHtml = signInCode
-    ? `
-              <!-- Sign-in code -->
-              <!-- The lead-in is not decoration: without it the code lands bare
-                   under a paragraph about Daily Planning, and the HTML body is
-                   what most recipients actually read. Keep it saying the same
-                   thing as \`actionBlockText\` below. -->
-              <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${ctaText} — enter this code on the sign-in page:
-              </p>
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td align="center" style="padding: 8px 0 24px;">
-                    <div style="display: inline-block; padding: 16px 32px; background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; letter-spacing: 4px; color: #111827;">
-                      ${formatSignInCode(signInCode)}
-                    </div>
-                  </td>
-                </tr>
-              </table>`
-    : `
-              <!-- CTA Button -->
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                      ${ctaText}
-                    </a>
-                  </td>
-                </tr>
-              </table>`;
-
-  const expirationNotice = signInCode
-    ? `This sign-in code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.`
-    : "This sign-in link expires in 24 hours.";
-
-  const actionBlockText = signInCode
-    ? `${ctaText} — enter this code on the sign-in page:\n\n${formatSignInCode(signInCode)}`
-    : `${ctaText}: ${ctaUrl}`;
+export async function sendWelcomeWithSignInCodeEmail(
+  email: string,
+  code: string
+): Promise<void> {
+  const appName = PRODUCT_NAME;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -329,11 +290,11 @@ function generateWelcomeEmailContent(options: {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
     <tr>
       <td align="center" style="padding: 40px 20px;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
-              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #111827;">
+              <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
                 Welcome to ${appName}
               </h1>
             </td>
@@ -343,10 +304,176 @@ function generateWelcomeEmailContent(options: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${greeting}
+                Hi there,
+              </p>
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                Sign in &amp; start planning — enter this code on the sign-in page:
+              </p>
+
+              <!-- Sign-in code -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <div style="display: inline-block; padding: 16px 32px; background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; letter-spacing: 4px; color: #111827;">
+                      ${formatSignInCode(code)}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Expiration Notice -->
+              <p style="margin: 0; padding: 12px 16px; background-color: #f3f4f6; border-radius: 6px; font-size: 13px; color: #6b7280;">
+                This sign-in code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 24px 32px 32px;">
+              <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
+                Didn't request this? You can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`.trim();
+
+  const textBody = `
+Welcome to ${appName}
+
+Hi there,
+
+Sign in & start planning — enter this code on the sign-in page:
+
+${formatSignInCode(code)}
+
+This sign-in code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
+
+Didn't request this? You can safely ignore this email.
+`.trim();
+
+  await sendEmail({
+    to: email,
+    subject: `Welcome to ${appName} — your sign-in code`,
+    htmlBody,
+    textBody,
+  });
+}
+
+/** Invited-workspace frame for the Welcome email. */
+export interface FirstLoginWelcomeInvited {
+  workspaceName: string;
+  /** Inviter's display name; null renders a nameless "You've been added" opening. */
+  inviterName: string | null;
+}
+
+export interface FirstLoginWelcomeParams {
+  to: string;
+  name?: string | null;
+  invited?: FirstLoginWelcomeInvited;
+  chatTools?: { slack: boolean; matrix: boolean };
+}
+
+/**
+ * Build the **Welcome email** — the single onboarding email a user ever
+ * receives, fired once from `events.createUser` after the first successful
+ * sign-in on any provider. Replaces both the OAuth-only welcome and the long
+ * welcome-with-code email: the sign-in code emails stay minimal, and the pitch
+ * waits until the person is actually in (see CONTEXT.md, "Welcome email").
+ *
+ * One shared body with a variant frame: with `invited` set, the frame names
+ * the first accepted invited workspace (subject and heading) and the inviter
+ * (opening line). Tailoring is deterministic only — `chatTools` decides which
+ * chat tool the task-layer bullet names (Matrix only when the invited
+ * workspace demonstrably uses it; Slack is the default, including for organic
+ * signups).
+ *
+ * Pure content builder, no I/O — exported so the branch matrix
+ * (invited × inviter × chatTools × name) is unit-testable without a Postmark
+ * stub. `sendFirstLoginWelcomeEmail` below is the thin send wrapper.
+ */
+export function buildFirstLoginWelcomeEmail(params: FirstLoginWelcomeParams): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { name, invited, chatTools } = params;
+  const brandColor = EMAIL_BRAND_COLOR;
+  const appName = PRODUCT_NAME;
+  // NEXTAUTH_URL is commonly configured with a trailing slash; strip it so
+  // the CTA link isn't `https://host//daily-plan`.
+  const appUrl = (process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv()).replace(/\/+$/, "");
+  const dailyPlannerUrl = `${appUrl}/daily-plan`;
+
+  const chatToolPhrase = chatTools?.matrix
+    ? chatTools.slack
+      ? "Slack or Matrix"
+      : "Matrix"
+    : "Slack";
+
+  // `??` alone would let a whitespace-only stored name through and render
+  // "Hi  ," — treat blank as missing (same guard as `resolveInvitedContext`).
+  const trimmedName = name?.trim();
+  const greetingHtml = trimmedName ? `Hi ${escapeHtml(trimmedName)},` : "Hi there,";
+  const greetingText = trimmedName ? `Hi ${trimmedName},` : "Hi there,";
+
+  const heading = invited
+    ? `You've joined ${invited.workspaceName}`
+    : `Welcome to ${appName}`;
+
+  const openingHtml = invited
+    ? invited.inviterName
+      ? `<strong>${escapeHtml(invited.inviterName)}</strong> added you to <strong>${escapeHtml(invited.workspaceName)}</strong> — you're in.`
+      : `You've been added to <strong>${escapeHtml(invited.workspaceName)}</strong> — you're in.`
+    : `Thanks for signing up for ${appName}.`;
+  const openingText = invited
+    ? invited.inviterName
+      ? `${invited.inviterName} added you to ${invited.workspaceName} — you're in.`
+      : `You've been added to ${invited.workspaceName} — you're in.`
+    : `Thanks for signing up for ${appName}.`;
+
+  const subject = invited
+    ? `Welcome to ${invited.workspaceName} on ${appName}`
+    : `Welcome to ${appName} — here's the only thing you need to do`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>${escapeHtml(heading)}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 32px 32px 24px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #111827;">
+                ${escapeHtml(heading)}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 0 32px;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                ${greetingHtml}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                Thanks for signing up for ${appName}.
+                ${openingHtml}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
                 I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
@@ -364,18 +491,20 @@ function generateWelcomeEmailContent(options: {
               <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
                 Today, do one thing:
               </p>
-              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
                 Open ${appName} and go through <a href="${dailyPlannerUrl}" style="color: ${brandColor}; text-decoration: none;">Daily Planning</a>. In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
               </p>
 
-              ${actionBlockHtml}
-
-              ${showExpiration ? `
-              <!-- Expiration Notice -->
-              <p style="margin: 0 0 24px; padding: 12px 16px; background-color: #fef3c7; border-radius: 6px; font-size: 13px; color: #92400e;">
-                ${expirationNotice}
-              </p>
-              ` : ''}
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <a href="${dailyPlannerUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      Start today's plan
+                    </a>
+                  </td>
+                </tr>
+              </table>
 
               <!-- After that section -->
               <div style="padding: 20px; background-color: #f3f4f6; border-radius: 6px; margin-bottom: 24px;">
@@ -383,22 +512,15 @@ function generateWelcomeEmailContent(options: {
                   After that, if you want to go deeper:
                 </p>
                 <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #4b5563;">
-                  <li><strong>Let AI handle your task layer.</strong> Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.</li>
-                  <li><strong>Set outcomes, not tasks.</strong> What result do you want this week? ${appName} works backward from there.</li>
+                  <li><strong>Let AI handle your task layer.</strong> Connect a meeting, voice note, or ${chatToolPhrase} thread. Watch it become actions automatically.</li>
+                  <li><strong>Set personal goals and goals for the projects you're working on, not tasks.</strong> What result do you want this week? ${appName} works backward from there.</li>
                   <li><strong>Run a weekly plan.</strong> Five minutes to see which projects are healthy and which need attention.</li>
-                  <li><strong>Connect your tools.</strong> Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.</li>
+                  <li><strong>Connect your tools.</strong> Slack, Notion, GitHub, Google Calendar. One workspace with a single page which tells you what you should work on today - instead of six browser tabs!</li>
                 </ul>
               </div>
 
-              <!-- What it won't do -->
-              <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
-                What ${appName} won't do:
-              </p>
-              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                It won't magically organize your life while you scroll Twitter. You'll need to show up once a day, look at what matters, and decide what to focus on.
-              </p>
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                The AI handles execution. You handle intent. That's the deal.
+                AI handles execution. You handle intent. That's the deal.
               </p>
             </td>
           </tr>
@@ -423,11 +545,11 @@ function generateWelcomeEmailContent(options: {
 `.trim();
 
   const textBody = `
-Welcome to ${appName}
+${heading}
 
-${greeting}
+${greetingText}
 
-Thanks for signing up for ${appName}.
+${openingText}
 
 I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
 
@@ -439,27 +561,21 @@ TODAY, DO ONE THING:
 
 Open ${appName} and go through Daily Planning (${dailyPlannerUrl}). In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
 
-${actionBlockText}
-${showExpiration ? `\n${expirationNotice}\n` : ''}
 ---
 
 AFTER THAT, IF YOU WANT TO GO DEEPER:
 
-• Let AI handle your task layer. Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.
+• Let AI handle your task layer. Connect a meeting, voice note, or ${chatToolPhrase} thread. Watch it become actions automatically.
 
-• Set outcomes, not tasks. What result do you want this week? ${appName} works backward from there.
+• Set personal goals and goals for the projects you're working on, not tasks. What result do you want this week? ${appName} works backward from there.
 
 • Run a weekly plan. Five minutes to see which projects are healthy and which need attention.
 
-• Connect your tools. Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.
+• Connect your tools. Slack, Notion, GitHub, Google Calendar. One workspace with a single page which tells you what you should work on today - instead of six browser tabs!
 
 ---
 
-WHAT ${appName.toUpperCase()} WON'T DO:
-
-It won't magically organize your life while you scroll Twitter. You'll need to show up once a day, look at what matters, and decide what to focus on.
-
-The AI handles execution. You handle intent. That's the deal.
+AI handles execution. You handle intent. That's the deal.
 
 ---
 
@@ -468,79 +584,15 @@ I'll check in with ideas on getting the most from ${appName}. Reply anytime—I 
 — James
 `.trim();
 
-  return { htmlBody, textBody };
+  return { subject, htmlBody, textBody };
 }
 
-/**
- * Send the welcome email with an embedded **Sign-in code** (for new users
- * signing up via email). Carries a code rather than a link — see ADR-0056.
- */
-export async function sendWelcomeWithSignInCodeEmail(
-  email: string,
-  code: string
+/** Send the Welcome email — thin wrapper over the pure builder above. */
+export async function sendFirstLoginWelcomeEmail(
+  params: FirstLoginWelcomeParams
 ): Promise<void> {
-  const brandColor = EMAIL_BRAND_COLOR;
-  const appName = PRODUCT_NAME;
-  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
-
-  const { htmlBody, textBody } = generateWelcomeEmailContent({
-    brandColor,
-    appName,
-    appUrl,
-    ctaUrl: appUrl,
-    ctaText: "Sign in & start planning",
-    showExpiration: true,
-    greeting: "Hi there,",
-    signInCode: code,
-  });
-
-  await sendEmail({
-    to: email,
-    subject: `Welcome to ${appName} — here's the only thing you need to do`,
-    htmlBody,
-    textBody,
-  });
-}
-
-/**
- * Send welcome email to new users (for OAuth sign-ups)
- */
-export async function sendWelcomeEmail(
-  email: string,
-  name?: string | null,
-  authProvider?: string
-): Promise<void> {
-  const brandColor = EMAIL_BRAND_COLOR;
-  const appName = PRODUCT_NAME;
-  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
-  const signInUrl = `${appUrl}/signin`;
-
-  const greeting = name ? `Hi ${name},` : "Hi there,";
-
-  // Determine CTA based on auth provider
-  let ctaText = "Go to Dashboard";
-  if (authProvider === "google") {
-    ctaText = "Sign in with Google";
-  } else if (authProvider === "discord") {
-    ctaText = "Sign in with Discord";
-  }
-
-  const { htmlBody, textBody } = generateWelcomeEmailContent({
-    brandColor,
-    appName,
-    appUrl,
-    ctaUrl: signInUrl,
-    ctaText,
-    showExpiration: false,
-    greeting,
-  });
-
-  await sendEmail({
-    to: email,
-    subject: `Welcome to ${appName} — here's the only thing you need to do`,
-    htmlBody,
-    textBody,
-  });
+  const { subject, htmlBody, textBody } = buildFirstLoginWelcomeEmail(params);
+  await sendEmail({ to: params.to, subject, htmlBody, textBody });
 }
 
 /**
@@ -1358,8 +1410,8 @@ export async function sendMeetingInviteEmail(params: {
 
 export const EmailService = {
   sendSignInCodeEmail,
-  sendWelcomeEmail,
   sendWelcomeWithSignInCodeEmail,
+  sendFirstLoginWelcomeEmail,
   sendTeamInvitationEmail,
   sendWorkspaceMemberAddedEmail,
   sendAssignmentNotificationEmail,
