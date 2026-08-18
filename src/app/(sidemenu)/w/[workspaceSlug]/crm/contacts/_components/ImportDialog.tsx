@@ -27,6 +27,7 @@ import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { subMonths, subYears } from "date-fns";
 import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
+import { getGoogleAuthUrl } from "~/lib/googleScopes";
 
 interface ImportDialogProps {
   opened: boolean;
@@ -119,8 +120,7 @@ export function ImportDialog({
 
   // Handle OAuth redirect - request the contacts scope set (calendar + contacts)
   const handleConnectGoogle = () => {
-    const returnUrl = window.location.pathname;
-    window.location.href = `/api/auth/google-calendar?type=contacts&returnUrl=${encodeURIComponent(returnUrl)}`;
+    window.location.href = getGoogleAuthUrl("contacts", window.location.pathname);
   };
 
   // Handle import start
