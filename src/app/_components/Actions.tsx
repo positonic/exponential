@@ -1088,6 +1088,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       ) : (
         <ActionsList
           viewName={showNotionUnassigned ? "notion-unassigned" : viewName}
+          projectId={projectId}
           actions={(filteredActions ?? []) as Action[]}
           showProject={!projectId}
           bulkActions={bulkActions}

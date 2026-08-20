@@ -284,7 +284,10 @@ export const actionRouter = createTRPCRouter({
       return ctx.db.action.findMany({
         where: whereClause,
         include: {
-          project: true,
+          // Every row in this query shares one project, so a full project row
+          // (description, aiInstructions, taskManagementConfig JSON) would be
+          // duplicated N times per response. Select only what rows render.
+          project: { select: { id: true, name: true, slug: true, workspaceId: true } },
           syncs: true, // Include ActionSync records to show sync status
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
