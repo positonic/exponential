@@ -196,7 +196,7 @@ export function ProjectContent({
   // URL slugs use the compound "slug-cuid" format, so when the CUID is present
   // we can extract it and start the dependent queries in parallel with getById
   // instead of serializing a second network round-trip behind it.
-  const idFromSlug = /-(c[a-z0-9]{24,})$/.exec(projectId)?.[1];
+  const idFromSlug = /(?:^|-)(c[a-z0-9]{24,})$/.exec(projectId)?.[1];
   const resolvedProjectId = project?.id ?? idFromSlug ?? projectId;
   const dependentQueriesEnabled = !!project || !!idFromSlug;
   const { data: projectActions } = api.action.getProjectActions.useQuery(

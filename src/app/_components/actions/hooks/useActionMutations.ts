@@ -88,7 +88,7 @@ export function useActionMutations(
       if (!ctx) return;
       utils.action.getAll.setData(undefined, ctx.getAll);
       utils.action.getToday.setData(undefined, ctx.getToday);
-      if (projectId) {
+      if (projectId && ctx.projectActions) {
         utils.action.getProjectActions.setData({ projectId }, ctx.projectActions);
       }
       notifications.show({
