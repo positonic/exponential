@@ -36,6 +36,9 @@ import { useBulkSelection } from "./hooks/useBulkSelection";
 
 interface ActionsListProps {
   viewName: string;
+  /** When the list renders a single project's actions, the project id — lets
+   * mutations optimistically patch the getProjectActions cache. */
+  projectId?: string;
   actions: Action[];
   isLoading?: boolean;
   showProject?: boolean;
@@ -61,6 +64,7 @@ interface ActionsListProps {
 
 export function ActionsList({
   viewName,
+  projectId,
   actions,
   isLoading = false,
   bulkActions,
@@ -97,7 +101,7 @@ export function ActionsList({
     },
   });
 
-  const { updateAction } = useActionMutations({ viewName });
+  const { updateAction } = useActionMutations({ viewName, projectId });
 
   // Modal state
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);

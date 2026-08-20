@@ -894,13 +894,18 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Return full project with includes (use resolved id in case input was a slug)
+      // Return the project with only the relations the detail page actually
+      // renders. Keep this lean: transcription sessions in particular carry
+      // multi-megabyte columns (transcription, sentencesJson, analyticsJson)
+      // that made this query the page-load bottleneck for meeting-heavy
+      // projects. The details modal lazily fetches the full session via
+      // transcription.getById, and the tasks tab loads actions via
+      // action.getProjectActions.
       return ctx.db.project.findUnique({
         where: { id: projectExists.id },
         include: {
-          goals: true,
-          lifeDomains: true,
-          actions: true,
+          goals: { select: { id: true, title: true } },
+          lifeDomains: { select: { id: true, title: true } },
           keyResults: {
             select: {
               keyResultId: true,
@@ -938,8 +943,15 @@ export const projectRouter = createTRPCRouter({
             },
           },
           transcriptionSessions: {
-            include: {
-              screenshots: true,
+            select: {
+              id: true,
+              sessionId: true,
+              title: true,
+              description: true,
+              notes: true,
+              meetingDate: true,
+              createdAt: true,
+              processedAt: true,
               sourceIntegration: {
                 select: {
                   id: true,
@@ -951,10 +963,8 @@ export const projectRouter = createTRPCRouter({
                 select: {
                   id: true,
                   name: true,
-                  description: true,
                   status: true,
                   priority: true,
-                  dueDate: true,
                 },
               },
             },

@@ -7,7 +7,6 @@ import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
 import { Team } from "./Team";
 import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
-// import { Plan } from "./Plan";
 import { ProjectTimeline } from "./ProjectTimeline";
 import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { Button } from "@mantine/core";
@@ -78,7 +77,6 @@ import { useMemo } from "react";
 type TabValue =
   | "overview"
   | "tasks"
-  | "plan"
   | "goals"
   | "timeline"
   | "transcriptions"
@@ -91,7 +89,6 @@ type TabValue =
 const VALID_TABS: TabValue[] = [
   "overview",
   "tasks",
-  "plan",
   "goals",
   "timeline",
   "transcriptions",
@@ -195,19 +192,24 @@ export function ProjectContent({
   });
 
   // Use the resolved project ID (from getById which handles slug resolution)
-  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev..."
-  const resolvedProjectId = project?.id ?? projectId;
+  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev...".
+  // URL slugs use the compound "slug-cuid" format, so when the CUID is present
+  // we can extract it and start the dependent queries in parallel with getById
+  // instead of serializing a second network round-trip behind it.
+  const idFromSlug = /-(c[a-z0-9]{24,})$/.exec(projectId)?.[1];
+  const resolvedProjectId = project?.id ?? idFromSlug ?? projectId;
+  const dependentQueriesEnabled = !!project || !!idFromSlug;
   const { data: projectActions } = api.action.getProjectActions.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const goalsQuery = api.goal.getProjectGoals.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const utils = api.useUtils();
 
@@ -495,13 +497,6 @@ export function ProjectContent({
               <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
-              {/* <Tabs.Tab
-                value="plan"
-                leftSection={<IconClipboardList size={14} />}
-              >
-                Plan
-              </Tabs.Tab> */}
-              
               {/* Team Weekly Planning Tabs - Only show for team projects */}
               {project.teamId && (
                 <>
@@ -577,10 +572,6 @@ export function ProjectContent({
                 />
               </Stack>
             </Tabs.Panel>
-
-            {/* <Tabs.Panel value="plan">
-              <Plan projectId={projectId} />
-            </Tabs.Panel> */}
 
             <Tabs.Panel value="goals">
               <InitiativeDashboard projectId={resolvedProjectId} />

@@ -9,7 +9,7 @@ type UpdateMutationConfig = {
   onSettled?: (data: unknown) => void;
 };
 
-const { invalidates, lastConfig, mockMutate } = vi.hoisted(() => {
+const { invalidates, projectActionsCache, lastConfig, mockMutate } = vi.hoisted(() => {
   const invalidates = {
     getAll: vi.fn(),
     getToday: vi.fn(),
@@ -18,9 +18,14 @@ const { invalidates, lastConfig, mockMutate } = vi.hoisted(() => {
     getTodayScore: vi.fn(),
     getProductivityStats: vi.fn(),
   };
+  const projectActionsCache = {
+    cancel: vi.fn(async () => {}),
+    getData: vi.fn(() => undefined as unknown),
+    setData: vi.fn(),
+  };
   const lastConfig = { current: undefined as UpdateMutationConfig | undefined };
   const mockMutate = vi.fn();
-  return { invalidates, lastConfig, mockMutate };
+  return { invalidates, projectActionsCache, lastConfig, mockMutate };
 });
 
 vi.mock("~/trpc/react", () => ({
@@ -43,6 +48,9 @@ vi.mock("~/trpc/react", () => ({
           invalidate: invalidates.getByTranscription,
         },
         getProjectActions: {
+          cancel: projectActionsCache.cancel,
+          getData: projectActionsCache.getData,
+          setData: projectActionsCache.setData,
           invalidate: invalidates.getProjectActions,
         },
       },
@@ -66,6 +74,9 @@ import { useActionMutations } from "../useActionMutations";
 
 beforeEach(() => {
   Object.values(invalidates).forEach((m) => m.mockClear());
+  projectActionsCache.cancel.mockClear();
+  projectActionsCache.getData.mockClear();
+  projectActionsCache.setData.mockClear();
   mockMutate.mockClear();
   lastConfig.current = undefined;
 });
@@ -115,5 +126,59 @@ describe("useActionMutations onSettled routing", () => {
     lastConfig.current?.onSettled?.({ projectId: null });
     expect(invalidates.getTodayScore).toHaveBeenCalledTimes(1);
     expect(invalidates.getProductivityStats).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useActionMutations optimistic project cache", () => {
+  test("with projectId in context, onMutate patches getProjectActions", async () => {
+    renderHook(() =>
+      useActionMutations({ viewName: "project-x", projectId: "proj-123" }),
+    );
+    await lastConfig.current?.onMutate?.({ id: "a1", status: "COMPLETED" });
+    expect(projectActionsCache.cancel).toHaveBeenCalledWith({
+      projectId: "proj-123",
+    });
+    expect(projectActionsCache.setData).toHaveBeenCalledTimes(1);
+    expect(projectActionsCache.setData.mock.calls[0]?.[0]).toEqual({
+      projectId: "proj-123",
+    });
+    // The updater marks the matching row COMPLETED and leaves others alone.
+    const apply = projectActionsCache.setData.mock.calls[0]?.[1] as (
+      list: Array<{ id: string; status: string }> | undefined,
+    ) => Array<{ id: string; status: string }>;
+    expect(
+      apply([
+        { id: "a1", status: "ACTIVE" },
+        { id: "a2", status: "ACTIVE" },
+      ]),
+    ).toEqual([
+      { id: "a1", status: "COMPLETED" },
+      { id: "a2", status: "ACTIVE" },
+    ]);
+  });
+
+  test("onError restores the getProjectActions snapshot", async () => {
+    const previous = [{ id: "a1", status: "ACTIVE" }];
+    projectActionsCache.getData.mockReturnValueOnce(previous);
+    renderHook(() =>
+      useActionMutations({ viewName: "project-x", projectId: "proj-123" }),
+    );
+    const ctx = await lastConfig.current?.onMutate?.({
+      id: "a1",
+      status: "COMPLETED",
+    });
+    projectActionsCache.setData.mockClear();
+    lastConfig.current?.onError?.(new Error("boom"), { id: "a1" }, ctx);
+    expect(projectActionsCache.setData).toHaveBeenCalledWith(
+      { projectId: "proj-123" },
+      previous,
+    );
+  });
+
+  test("without projectId, getProjectActions cache is untouched", async () => {
+    renderHook(() => useActionMutations({ viewName: "today" }));
+    await lastConfig.current?.onMutate?.({ id: "a1", status: "COMPLETED" });
+    expect(projectActionsCache.cancel).not.toHaveBeenCalled();
+    expect(projectActionsCache.setData).not.toHaveBeenCalled();
   });
 });

@@ -186,17 +186,11 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
           );
         });
 
-        utils.project.getById.setData(
-          { id: newAction.projectId },
-          (oldProject) => {
-            if (!oldProject) return undefined;
-            return {
-              ...oldProject,
-              actions: Array.isArray(oldProject.actions)
-                ? [...oldProject.actions, optimisticAction]
-                : [optimisticAction],
-            };
-          }
+        // The project tasks page renders from action.getProjectActions, so
+        // patch that cache directly for an instant appearance there too.
+        utils.action.getProjectActions.setData(
+          { projectId: newAction.projectId },
+          (old) => (old ? [...old, optimisticAction] : [optimisticAction]),
         );
       }
 

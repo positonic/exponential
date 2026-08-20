@@ -15,10 +15,12 @@ interface UseActionMutationsResult {
 
 type GetAllActions = RouterOutputs["action"]["getAll"];
 type GetTodayActions = RouterOutputs["action"]["getToday"];
+type GetProjectActions = RouterOutputs["action"]["getProjectActions"];
 
 interface OptimisticSnapshot {
   getAll: GetAllActions | undefined;
   getToday: GetTodayActions | undefined;
+  projectActions: GetProjectActions | undefined;
 }
 
 /**
@@ -32,16 +34,24 @@ export function useActionMutations(
 ): UseActionMutationsResult {
   const utils = api.useUtils();
 
+  const projectId = context.projectId;
+
   const mutation = api.action.update.useMutation({
     onMutate: async (variables) => {
       await Promise.all([
         utils.action.getAll.cancel(),
         utils.action.getToday.cancel(),
+        projectId
+          ? utils.action.getProjectActions.cancel({ projectId })
+          : Promise.resolve(),
       ]);
 
       const snapshot: OptimisticSnapshot = {
         getAll: utils.action.getAll.getData(),
         getToday: utils.action.getToday.getData(),
+        projectActions: projectId
+          ? utils.action.getProjectActions.getData({ projectId })
+          : undefined,
       };
 
       const apply = <T extends { id: string }>(list: T[] | undefined): T[] => {
@@ -63,6 +73,12 @@ export function useActionMutations(
 
       utils.action.getAll.setData(undefined, apply);
       utils.action.getToday.setData(undefined, apply);
+      if (projectId) {
+        // The project tasks page renders from getProjectActions, so patch it
+        // too — otherwise completing a row there waits for the server
+        // roundtrip + refetch before the UI reacts.
+        utils.action.getProjectActions.setData({ projectId }, apply);
+      }
 
       return snapshot;
     },
@@ -71,6 +87,9 @@ export function useActionMutations(
       if (!ctx) return;
       utils.action.getAll.setData(undefined, ctx.getAll);
       utils.action.getToday.setData(undefined, ctx.getToday);
+      if (projectId) {
+        utils.action.getProjectActions.setData({ projectId }, ctx.projectActions);
+      }
       notifications.show({
         title: "Update failed",
         message: "Could not update action.",
