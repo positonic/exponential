@@ -188,9 +188,11 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
 
         // The project tasks page renders from action.getProjectActions, so
         // patch that cache directly for an instant appearance there too.
+        // Only when it's already populated — seeding an unfetched key would
+        // make the tasks list render just this one row until a refetch.
         utils.action.getProjectActions.setData(
           { projectId: newAction.projectId },
-          (old) => (old ? [...old, optimisticAction] : [optimisticAction]),
+          (old) => (old ? [...old, optimisticAction] : old),
         );
       }
 

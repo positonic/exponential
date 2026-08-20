@@ -73,10 +73,11 @@ export function useActionMutations(
 
       utils.action.getAll.setData(undefined, apply);
       utils.action.getToday.setData(undefined, apply);
-      if (projectId) {
+      if (projectId && snapshot.projectActions) {
         // The project tasks page renders from getProjectActions, so patch it
         // too — otherwise completing a row there waits for the server
-        // roundtrip + refetch before the UI reacts.
+        // roundtrip + refetch before the UI reacts. Skip when the cache is
+        // unfetched: apply() would seed it with an empty list.
         utils.action.getProjectActions.setData({ projectId }, apply);
       }
 

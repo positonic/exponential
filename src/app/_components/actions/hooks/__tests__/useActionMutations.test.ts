@@ -131,6 +131,9 @@ describe("useActionMutations onSettled routing", () => {
 
 describe("useActionMutations optimistic project cache", () => {
   test("with projectId in context, onMutate patches getProjectActions", async () => {
+    projectActionsCache.getData.mockReturnValueOnce([
+      { id: "a1", status: "ACTIVE" },
+    ]);
     renderHook(() =>
       useActionMutations({ viewName: "project-x", projectId: "proj-123" }),
     );
@@ -179,6 +182,15 @@ describe("useActionMutations optimistic project cache", () => {
     renderHook(() => useActionMutations({ viewName: "today" }));
     await lastConfig.current?.onMutate?.({ id: "a1", status: "COMPLETED" });
     expect(projectActionsCache.cancel).not.toHaveBeenCalled();
+    expect(projectActionsCache.setData).not.toHaveBeenCalled();
+  });
+
+  test("with an unfetched getProjectActions cache, no empty list is seeded", async () => {
+    projectActionsCache.getData.mockReturnValueOnce(undefined);
+    renderHook(() =>
+      useActionMutations({ viewName: "project-x", projectId: "proj-123" }),
+    );
+    await lastConfig.current?.onMutate?.({ id: "a1", status: "COMPLETED" });
     expect(projectActionsCache.setData).not.toHaveBeenCalled();
   });
 });
