@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "~/trpc/react";
 import { Select, Text, Group, Progress, Title, Container, ScrollArea } from "@mantine/core";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
@@ -16,6 +16,33 @@ interface OneOnOneBoardProps {
   userName?: string;
   isSharedView?: boolean;
   workspaceId?: string;
+}
+
+// Rendered in the dedicated Tasks column on wide screens, and on a second
+// line under the project name once that column is hidden (below xl).
+function TaskProgressSummary({ project, completionPercentage }: { project: Project; completionPercentage: number }) {
+  const totalCount = project.actions?.length ?? 0;
+  const completedCount = project.actions?.filter(
+    (action) => action.status === "DONE" || action.kanbanStatus === "DONE"
+  ).length ?? 0;
+
+  return (
+    <Group gap="xs" align="center" wrap="nowrap">
+      <Text size="sm" className="text-text-secondary whitespace-nowrap">
+        {completedCount}/{totalCount} completed
+      </Text>
+      <Progress
+        value={completionPercentage}
+        size="sm"
+        style={{ width: 80 }}
+        color={completionPercentage === 100 ? "green" : "blue"}
+        className="bg-surface-secondary"
+      />
+      <Text size="xs" className="text-text-muted">
+        {completionPercentage}%
+      </Text>
+    </Group>
+  );
 }
 
 export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, workspaceId }: OneOnOneBoardProps) {
@@ -118,7 +145,11 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
   }
 
   return (
-    <Container size="xl" py="xl">
+    // w-full: the workspace layout is a column flexbox, and Container's auto
+    // inline margins make it size to fit-content there — without an explicit
+    // width the table's min-widths would push the whole page wider instead of
+    // scrolling inside the ScrollArea.
+    <Container size="xl" py="xl" className="w-full">
       <Title order={2} mb="xl" className="text-text-primary">
         {isSharedView && userName ? `${userName}'s Weekly Plan` : 'Weekly Plan'}
       </Title>
@@ -127,11 +158,11 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-border-primary">
-              <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '40px' }}></th>
-              <th className="text-left p-3 text-text-secondary font-medium text-sm">Project name</th>
-              <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Status</th>
-              <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Priority</th>
-              <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '300px' }}>Tasks (read only)</th>
+              <th className="text-left p-3 text-text-secondary font-medium text-sm w-10"></th>
+              <th className="text-left p-3 text-text-secondary font-medium text-sm min-w-[200px]">Project name</th>
+              <th className="text-left p-3 text-text-secondary font-medium text-sm w-[140px] min-w-[140px]">Status</th>
+              <th className="text-left p-3 text-text-secondary font-medium text-sm w-[140px] min-w-[140px]">Priority</th>
+              <th className="hidden xl:table-cell text-left p-3 text-text-secondary font-medium text-sm w-[280px] min-w-[240px]">Tasks (read only)</th>
             </tr>
           </thead>
           <tbody>
@@ -140,8 +171,8 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
               const completionPercentage = calculateCompletionPercentage(project);
               
               return (
-                <>
-                  <tr key={project.id} className="border-b border-border-primary hover:bg-surface-hover transition-colors">
+                <Fragment key={project.id}>
+                  <tr className="border-b border-border-primary hover:bg-surface-hover transition-colors">
                     <td className="p-3">
                       <button
                         onClick={() => toggleProjectExpanded(project.id)}
@@ -159,6 +190,10 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
                       <Text fw={500} className="text-text-primary">
                         {project.name}
                       </Text>
+                      {/* Below xl the Tasks column is hidden, so the progress moves under the name */}
+                      <div className="mt-1 xl:hidden">
+                        <TaskProgressSummary project={project} completionPercentage={completionPercentage} />
+                      </div>
                     </td>
                     <td className="p-3">
                       <Select
@@ -214,22 +249,8 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
                         }}
                       />
                     </td>
-                    <td className="p-3">
-                      <Group gap="xs" align="center">
-                        <Text size="sm" className="text-text-secondary">
-                          {project.actions?.filter(a => a.status === "DONE" || a.kanbanStatus === "DONE").length || 0}/{project.actions?.length || 0} completed
-                        </Text>
-                        <Progress 
-                          value={completionPercentage} 
-                          size="sm" 
-                          style={{ width: 80 }}
-                          color={completionPercentage === 100 ? "green" : "blue"}
-                          className="bg-surface-secondary"
-                        />
-                        <Text size="xs" className="text-text-muted">
-                          {completionPercentage}%
-                        </Text>
-                      </Group>
+                    <td className="hidden xl:table-cell p-3">
+                      <TaskProgressSummary project={project} completionPercentage={completionPercentage} />
                     </td>
                   </tr>
                   {/* Expanded row showing tasks */}
@@ -248,7 +269,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>
