@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Container,
@@ -14,7 +14,9 @@ import {
   ActionIcon,
   VisuallyHidden,
   Avatar,
+  Collapse,
 } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import {
   IconPlus,
   IconTarget,
@@ -28,6 +30,10 @@ import {
   IconChevronRight,
   IconCornerDownRight,
   IconFolder,
+  IconSearch,
+  IconFilter,
+  IconUser,
+  IconActivity,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -36,9 +42,69 @@ import { GoalIcon } from "../GoalIcon";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
+import { usePageSearchHotkey } from "~/hooks/usePageSearchHotkey";
+import { useProjectViewState } from "~/app/_components/projects/useProjectViewState";
+import { FilterBar } from "~/app/_components/filters";
+import { hasActiveFilters } from "~/types/filter";
+import type { FilterBarConfig, FilterMember, FilterState } from "~/types/filter";
 import Link from "next/link";
+import styles from "./InitiativeDashboard.module.css";
 
 type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
+
+/** URL query params the goals FilterBar owns (distinct from the OKR tab's
+ * `year`/`period` params, which live on the same page). */
+const GOAL_FILTER_KEYS = ["target", "health", "driId"] as const;
+
+/** Filter value for goals that have no OKR period set. */
+const NO_TARGET_VALUE = "none";
+
+const HEALTH_FILTER_OPTIONS = [
+  { value: "on-track", label: "On track" },
+  { value: "at-risk", label: "At risk" },
+  { value: "off-track", label: "Off track" },
+  { value: "no-update", label: "No update" },
+];
+
+/** Order OKR periods newest-year first; within a year: Annual, then Q1–Q4. */
+function comparePeriods(a: string, b: string): number {
+  const parse = (p: string) => {
+    const [kind, year] = p.split("-");
+    const rank = kind === "Annual" ? 0 : Number(kind?.replace("Q", "")) || 9;
+    return { year: Number(year) || 0, rank };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (pa.year !== pb.year) return pb.year - pa.year;
+  return pa.rank - pb.rank;
+}
+
+function filterGoalRows(
+  goals: GoalRow[],
+  filters: FilterState,
+  searchQuery: string,
+): GoalRow[] {
+  const q = searchQuery.trim().toLowerCase();
+  const target = filters.target as string[] | undefined;
+  const health = filters.health as string[] | undefined;
+  const dri = filters.driId as string[] | undefined;
+  return goals.filter((g) => {
+    if (target && target.length > 0) {
+      if (!target.includes(g.period ?? NO_TARGET_VALUE)) return false;
+    }
+    if (health && health.length > 0) {
+      if (!health.includes(g.health ?? "no-update")) return false;
+    }
+    if (dri && dri.length > 0) {
+      if (!g.driUserId || !dri.includes(g.driUserId)) return false;
+    }
+    if (q) {
+      const haystack = `${g.title} ${g.description ?? ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
 
 const healthConfig: Record<HealthStatus, { color: string; icon: typeof IconCircleCheckFilled; label: string }> = {
   "on-track": { color: "var(--mantine-color-green-6)", icon: IconCircleCheckFilled, label: "On track" },
@@ -489,9 +555,27 @@ function ProjectSubRow({
 export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [collapsedIds, setCollapsedIds] = useState<Set<number>>(() => new Set());
-  const { workspaceId, workspaceSlug } = useWorkspace();
+  const { workspace, workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
   const pathname = usePathname();
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const {
+    filters,
+    setFilters,
+    searchQuery,
+    deferredSearchQuery,
+    setSearchQuery,
+  } = useProjectViewState(GOAL_FILTER_KEYS);
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") searchRef.current?.blur();
+    },
+    [],
+  );
+  usePageSearchHotkey(searchRef);
 
   const { data: projectGoals, isLoading: projectGoalsLoading } = api.goal.getProjectGoals.useQuery(
     { projectId: projectId ?? "" },
@@ -509,17 +593,79 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
     [projectId, projectGoals, allGoals],
   );
 
-  // Filter goals by status, then nest sub-goals under whichever parent survived
-  // the filter. Rows are flattened depth-first so the table stays a plain table.
-  const filteredGoals = useMemo(
+  // Filter goals by status pill, then by the FilterBar's target/health/DRI
+  // selections and the search box, then nest sub-goals under whichever parent
+  // survived. Rows are flattened depth-first so the table stays a plain table.
+  const statusGoals = useMemo(
     () => goalsSource.filter(g => g.status === statusFilter) as unknown as GoalRow[],
     [goalsSource, statusFilter],
+  );
+  const filteredGoals = useMemo(
+    () => filterGoalRows(statusGoals, filters, deferredSearchQuery),
+    [statusGoals, filters, deferredSearchQuery],
   );
   const goalTree = useMemo(() => buildGoalTree(filteredGoals), [filteredGoals]);
   const visibleRows = useMemo(
     () => flattenGoalTree(goalTree, collapsedIds),
     [goalTree, collapsedIds],
   );
+
+  // Target options come from the periods actually in use, so the filter never
+  // offers a period with zero goals behind it. Built from the unfiltered
+  // source list — options must not disappear as they're applied.
+  const goalFilterConfig: FilterBarConfig = useMemo(() => {
+    const periods = new Set<string>();
+    let hasNoTarget = false;
+    for (const g of goalsSource as unknown as GoalRow[]) {
+      if (g.period) periods.add(g.period);
+      else hasNoTarget = true;
+    }
+    const targetOptions = [...periods]
+      .sort(comparePeriods)
+      .map((p) => ({ value: p, label: p }));
+    if (hasNoTarget) {
+      targetOptions.push({ value: NO_TARGET_VALUE, label: "No target" });
+    }
+    return {
+      fields: [
+        {
+          key: "target",
+          label: "Target",
+          type: "multi-select",
+          icon: IconTarget,
+          badgeColor: "cyan",
+          options: targetOptions,
+        },
+        {
+          key: "health",
+          label: "Health",
+          type: "multi-select",
+          icon: IconActivity,
+          badgeColor: "green",
+          options: HEALTH_FILTER_OPTIONS,
+        },
+        {
+          key: "driId",
+          label: "Owner",
+          type: "user",
+          icon: IconUser,
+          badgeColor: "blue",
+        },
+      ],
+    };
+  }, [goalsSource]);
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
+  const filtersActive = hasActiveFilters(goalFilterConfig, filters);
 
   const toggleCollapsed = (goalId: number) => {
     setCollapsedIds((prev) => {
@@ -563,36 +709,74 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
           </CreateGoalModal>
         </Group>
 
-        {/* Status filter tabs - pill style like Linear */}
-        <Group gap="xs">
-          <Badge
-            variant={statusFilter === "active" ? "filled" : "light"}
-            color={statusFilter === "active" ? "dark" : "gray"}
-            size="lg"
-            className="cursor-pointer"
-            onClick={() => setStatusFilter("active")}
-          >
-            Active
-          </Badge>
-          <Badge
-            variant={statusFilter === "planned" ? "filled" : "light"}
-            color={statusFilter === "planned" ? "dark" : "gray"}
-            size="lg"
-            className="cursor-pointer"
-            onClick={() => setStatusFilter("planned")}
-          >
-            Planned
-          </Badge>
-          <Badge
-            variant={statusFilter === "completed" ? "filled" : "light"}
-            color={statusFilter === "completed" ? "dark" : "gray"}
-            size="lg"
-            className="cursor-pointer"
-            onClick={() => setStatusFilter("completed")}
-          >
-            Completed
-          </Badge>
+        {/* Status pills left; search + filter (projects-page look) right */}
+        <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+          <Group gap="xs">
+            <Badge
+              variant={statusFilter === "active" ? "filled" : "light"}
+              color={statusFilter === "active" ? "dark" : "gray"}
+              size="lg"
+              className="cursor-pointer"
+              onClick={() => setStatusFilter("active")}
+            >
+              Active
+            </Badge>
+            <Badge
+              variant={statusFilter === "planned" ? "filled" : "light"}
+              color={statusFilter === "planned" ? "dark" : "gray"}
+              size="lg"
+              className="cursor-pointer"
+              onClick={() => setStatusFilter("planned")}
+            >
+              Planned
+            </Badge>
+            <Badge
+              variant={statusFilter === "completed" ? "filled" : "light"}
+              color={statusFilter === "completed" ? "dark" : "gray"}
+              size="lg"
+              className="cursor-pointer"
+              onClick={() => setStatusFilter("completed")}
+            >
+              Completed
+            </Badge>
+          </Group>
+
+          <div className={styles.actions}>
+            <div className={styles.searchWrap}>
+              <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
+              <input
+                ref={searchRef}
+                type="text"
+                placeholder="Search  ⌘F"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                className={styles.searchInput}
+              />
+            </div>
+            <button
+              className={styles.actionBtn}
+              type="button"
+              onClick={toggleFilterRow}
+              data-active={filtersActive ? "true" : "false"}
+            >
+              <IconFilter size={13} stroke={1.75} />
+              Filter
+            </button>
+          </div>
         </Group>
+
+        {/* Collapsible filter row */}
+        <Collapse in={filterRowOpen || filtersActive}>
+          <div className={styles.filterRow}>
+            <FilterBar
+              config={goalFilterConfig}
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+            />
+          </div>
+        </Collapse>
 
         {/* Table */}
         {isLoading ? (
@@ -640,6 +824,16 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
               )}
             </Table.Tbody>
           </Table>
+        ) : statusGoals.length > 0 ? (
+          <div className="py-16 text-center">
+            <IconSearch size={48} className="text-text-muted mx-auto mb-4" />
+            <Text size="lg" fw={500} className="text-text-primary">
+              No {terminology.goals.toLowerCase()} match your search or filters
+            </Text>
+            <Text size="sm" c="dimmed" mt={4}>
+              Try a different search, or clear the active filters.
+            </Text>
+          </div>
         ) : (
           <div className="py-16 text-center">
             <IconTarget size={48} className="text-text-muted mx-auto mb-4" />

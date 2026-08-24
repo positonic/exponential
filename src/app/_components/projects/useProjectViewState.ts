@@ -16,7 +16,7 @@ import type {
   SortDirection,
 } from "~/app/_components/toolbar/useProjectSort";
 
-const FILTER_KEYS = ["status", "priority", "driId"] as const;
+const PROJECT_FILTER_KEYS = ["status", "priority", "driId"] as const;
 const QUERY_PARAM = "q";
 const SORT_PARAM = "sort";
 
@@ -67,9 +67,12 @@ function toDate(val: unknown): Date | null {
   return null;
 }
 
-function parseFilters(params: URLSearchParams): FilterState {
+function parseFilters(
+  params: URLSearchParams,
+  filterKeys: readonly string[],
+): FilterState {
   const result: FilterState = {};
-  for (const key of FILTER_KEYS) {
+  for (const key of filterKeys) {
     const raw = params.get(key);
     if (raw) {
       const values = raw.split(",").filter(Boolean);
@@ -106,7 +109,14 @@ export interface ProjectViewState {
   viewParamsQueryString: string;
 }
 
-export function useProjectViewState(): ProjectViewState {
+/**
+ * URL-mirrored view state (filters, debounced `?q=`, sort) for a filterable
+ * list page. `filterKeys` names the query params the page's FilterBar owns;
+ * the project views use the default, the goals view passes its own keys.
+ */
+export function useProjectViewState(
+  filterKeys: readonly string[] = PROJECT_FILTER_KEYS,
+): ProjectViewState {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -115,8 +125,8 @@ export function useProjectViewState(): ProjectViewState {
   const [, startTransition] = useTransition();
 
   const filters = useMemo(
-    () => parseFilters(new URLSearchParams(paramsString)),
-    [paramsString],
+    () => parseFilters(new URLSearchParams(paramsString), filterKeys),
+    [paramsString, filterKeys],
   );
   const sortState = useMemo(
     () => parseSort(new URLSearchParams(paramsString)),
@@ -137,7 +147,7 @@ export function useProjectViewState(): ProjectViewState {
   const viewParamsQueryString = useMemo(() => {
     const params = new URLSearchParams(paramsString);
     const out = new URLSearchParams();
-    for (const key of FILTER_KEYS) {
+    for (const key of filterKeys) {
       const v = params.get(key);
       if (v) out.set(key, v);
     }
@@ -147,7 +157,7 @@ export function useProjectViewState(): ProjectViewState {
     const s = params.get(SORT_PARAM);
     if (s) out.set(SORT_PARAM, s);
     return out.toString();
-  }, [paramsString, searchQuery]);
+  }, [paramsString, searchQuery, filterKeys]);
 
   const updateParams = useCallback(
     (mutator: (params: URLSearchParams) => void) => {
@@ -193,8 +203,10 @@ export function useProjectViewState(): ProjectViewState {
     (next: FilterState | ((prev: FilterState) => FilterState)) => {
       updateParams((params) => {
         const resolved =
-          typeof next === "function" ? next(parseFilters(params)) : next;
-        for (const key of FILTER_KEYS) {
+          typeof next === "function"
+            ? next(parseFilters(params, filterKeys))
+            : next;
+        for (const key of filterKeys) {
           const val = resolved[key];
           if (Array.isArray(val) && val.length > 0) {
             params.set(key, val.join(","));
@@ -204,7 +216,7 @@ export function useProjectViewState(): ProjectViewState {
         }
       });
     },
-    [updateParams],
+    [updateParams, filterKeys],
   );
 
   const setSearchQuery = useCallback((next: string) => {
