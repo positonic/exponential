@@ -13,6 +13,7 @@ import {
   Stack,
   ActionIcon,
   VisuallyHidden,
+  Avatar,
 } from "@mantine/core";
 import {
   IconPlus,
@@ -95,6 +96,7 @@ interface GoalRow {
   dueDate: Date | null;
   parentGoalId: number | null;
   driUserId: string | null;
+  driUser?: { id: string; name: string | null; image: string | null } | null;
   icon: string | null;
   iconColor: string | null;
   projects: GoalProject[];
@@ -314,14 +316,28 @@ function InitiativeRow({
         </Group>
       </Table.Td>
 
-      {/* Owner */}
+      {/* Owner (the goal's DRI) */}
       <Table.Td>
-        <Group gap={6} wrap="nowrap">
-          <IconUsers size={14} className="text-text-muted" />
-          <Text size="sm" c="dimmed">
-            {goal.driUserId ? "Assigned" : "Unassigned"}
-          </Text>
-        </Group>
+        {goal.driUser ? (
+          <Group gap={6} wrap="nowrap">
+            <Avatar
+              src={goal.driUser.image}
+              name={goal.driUser.name ?? undefined}
+              size={20}
+              radius="xl"
+            />
+            <Text size="sm" className="text-text-primary" truncate="end">
+              {goal.driUser.name ?? "Unknown"}
+            </Text>
+          </Group>
+        ) : (
+          <Group gap={6} wrap="nowrap">
+            <IconUsers size={14} className="text-text-muted" />
+            <Text size="sm" c="dimmed">
+              Unassigned
+            </Text>
+          </Group>
+        )}
       </Table.Td>
 
       {/* Target */}

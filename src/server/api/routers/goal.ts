@@ -94,6 +94,7 @@ export const goalRouter = createTRPCRouter({
             },
           },
           workspace: { select: { id: true, name: true, slug: true } },
+          driUser: { select: { id: true, name: true, image: true } },
           _count: { select: { keyResults: true } },
         },
         orderBy: { displayOrder: "asc" },

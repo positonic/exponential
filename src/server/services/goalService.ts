@@ -528,6 +528,7 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
       // The list nests sub-goals under their parent; the parent's title is what
       // labels a sub-goal whose parent isn't itself on this project.
       parentGoal: { select: { id: true, title: true } },
+      driUser: { select: { id: true, name: true, image: true } },
     },
     orderBy: { displayOrder: "asc" },
   });
