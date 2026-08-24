@@ -64,13 +64,18 @@ import {
   periodCountdownLabel,
   periodStatus,
   statusToConfidence,
+  objectiveEffectiveConfidence,
+  effectiveStatus,
 } from "../utils/okrDashboardUtils";
 
+// Filter options mirror the objective card's status pill exactly (ok/warn/
+// bad/idle confidence buckets) so filtering never hides a card whose badge
+// contradicts the checked status.
 const objectiveStatusOptions = [
-  { value: "achieved", label: "Achieved" },
-  { value: "on-track", label: "On track" },
-  { value: "at-risk", label: "At risk" },
-  { value: "off-track", label: "Off track" },
+  { value: "ok", label: "On track" },
+  { value: "warn", label: "At risk" },
+  { value: "bad", label: "Off track" },
+  { value: "idle", label: "Not started" },
 ];
 
 const unitOptions = [
@@ -280,10 +285,20 @@ export function OkrDashboard({
 
   // Status filter narrows the objective list (cards and timeline). The header
   // summary and hero cards keep describing the whole period, unfiltered.
+  // Classification uses the same resolver as the card's status pill, so a
+  // card badged "On track" always survives the "On track" checkbox.
   const filteredObjectives = useMemo(() => {
     if (statusFilter.length === 0) return visibleObjectives;
     return visibleObjectives.filter((o) =>
-      statusFilter.includes(statusFromObjectiveProgress(o.progress)),
+      statusFilter.includes(
+        objectiveEffectiveConfidence(
+          o.healthOverride,
+          o.health,
+          o.keyResults.map(
+            (k) => effectiveStatus(k.statusOverride, k.status) ?? "",
+          ),
+        ),
+      ),
     );
   }, [visibleObjectives, statusFilter]);
 
@@ -300,12 +315,12 @@ export function OkrDashboard({
     return Array.from(groups.entries());
   }, [grouping, filteredObjectives]);
 
-  // O1/O2/… codes stay tied to the objective's position in the filtered list
-  // so a card keeps the same code whether or not grouping is on.
+  // O1/O2/… codes stay tied to the objective's position in the period's full
+  // list, so filtering or grouping never renumbers a card — "O3" keeps meaning
+  // the same objective while a filter is applied.
   const objectiveCodes = useMemo(
-    () =>
-      new Map(filteredObjectives.map((o, idx) => [o.id, `O${idx + 1}`])),
-    [filteredObjectives],
+    () => new Map(visibleObjectives.map((o, idx) => [o.id, `O${idx + 1}`])),
+    [visibleObjectives],
   );
 
   useEffect(() => {
