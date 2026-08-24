@@ -26,9 +26,11 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCornerDownRight,
+  IconFolder,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { slugify } from "~/utils/slugify";
 import { GoalIcon } from "../GoalIcon";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
@@ -95,10 +97,18 @@ interface GoalRow {
   driUserId: string | null;
   icon: string | null;
   iconColor: string | null;
-  projects: { id: string; name: string; progress: number; status: string }[];
+  projects: GoalProject[];
   parentGoal?: { id: number; title: string } | null;
   childGoals?: { id: number; title: string; status: string; health: string | null }[];
   _count?: { keyResults: number };
+}
+
+interface GoalProject {
+  id: string;
+  name: string;
+  progress: number;
+  status: string;
+  endDate: Date | null;
 }
 
 /** A goal plus its place in the hierarchy of the rows currently on screen. */
@@ -151,22 +161,37 @@ function buildGoalTree(goals: GoalRow[]): GoalTreeNode[] {
   return roots;
 }
 
+/** One rendered table row: a goal in the hierarchy, or a project nested under one. */
+type VisibleRow =
+  | { kind: "goal"; node: GoalTreeNode }
+  | { kind: "project"; project: GoalProject; parentGoal: GoalRow; depth: number };
+
 /**
  * Depth-first flatten, skipping the children of collapsed rows. `emitted`
  * guarantees one row per goal even if a parent cycle left a node reachable from
- * two places — a duplicate row would also collide on React's key.
+ * two places — a duplicate row would also collide on React's key. An expanded
+ * goal's connected projects render directly beneath it, before any sub-goal
+ * subtree, so they always read as belonging to that goal.
  */
 function flattenGoalTree(
   nodes: GoalTreeNode[],
   collapsedIds: Set<number>,
   emitted = new Set<number>(),
-): GoalTreeNode[] {
-  return nodes.flatMap((node) => {
+): VisibleRow[] {
+  return nodes.flatMap((node): VisibleRow[] => {
     if (emitted.has(node.goal.id)) return [];
     emitted.add(node.goal.id);
-    return collapsedIds.has(node.goal.id)
-      ? [node]
-      : [node, ...flattenGoalTree(node.children, collapsedIds, emitted)];
+    if (collapsedIds.has(node.goal.id)) return [{ kind: "goal", node }];
+    return [
+      { kind: "goal", node },
+      ...node.goal.projects.map((project): VisibleRow => ({
+        kind: "project",
+        project,
+        parentGoal: node.goal,
+        depth: node.depth + 1,
+      })),
+      ...flattenGoalTree(node.children, collapsedIds, emitted),
+    ];
   });
 }
 
@@ -190,6 +215,7 @@ function InitiativeRow({
   const projectCount = goal.projects.length;
   const activeProjectCount = goal.projects.filter(p => p.status === "ACTIVE").length;
   const krCount = goal._count?.keyResults ?? 0;
+  const hasNestedRows = childCount > 0 || projectCount > 0;
   const isNested = depth > 0;
   const parentTitle = goal.parentGoal?.title ?? null;
   // Nesting is only visible when the parent is on screen above this row; if it
@@ -205,13 +231,13 @@ function InitiativeRow({
       {/* Name */}
       <Table.Td>
         <Group gap={4} wrap="nowrap" style={{ paddingLeft: depth * 28 }}>
-          {childCount > 0 ? (
+          {hasNestedRows ? (
             <ActionIcon
               variant="subtle"
               color="gray"
               size="sm"
               className="shrink-0"
-              aria-label={isExpanded ? `Collapse ${subGoalLabel.toLowerCase()}s` : `Expand ${subGoalLabel.toLowerCase()}s`}
+              aria-label={isExpanded ? "Collapse nested rows" : "Expand nested rows"}
               aria-expanded={isExpanded}
               onClick={onToggle}
             >
@@ -251,6 +277,11 @@ function InitiativeRow({
                   {childCount > 0 && !isExpanded && (
                     <Badge size="xs" variant="light" color="gray">
                       {childCount} {subGoalLabel.toLowerCase()}{childCount === 1 ? "" : "s"}
+                    </Badge>
+                  )}
+                  {projectCount > 0 && !isExpanded && (
+                    <Badge size="xs" variant="light" color="gray">
+                      {projectCount} project{projectCount === 1 ? "" : "s"}
                     </Badge>
                   )}
                   {krCount > 0 && (
@@ -324,6 +355,116 @@ function InitiativeRow({
         <Text size="sm" c="dimmed">
           {activeProjectCount > 0 ? `${activeProjectCount} active` : "No updates"}
         </Text>
+      </Table.Td>
+    </Table.Tr>
+  );
+}
+
+const projectStatusColor: Record<string, string> = {
+  ACTIVE: "green",
+  ON_HOLD: "yellow",
+  COMPLETED: "blue",
+  CANCELLED: "gray",
+};
+
+function formatProjectStatus(status: string): string {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
+ * A project connected to the goal directly above it — same nested treatment as
+ * a sub-goal row (indent, ↳, hidden relationship text) so the hierarchy reads
+ * as one system.
+ */
+function ProjectSubRow({
+  project,
+  parentGoalTitle,
+  workspaceSlug,
+  depth,
+}: {
+  project: GoalProject;
+  parentGoalTitle: string;
+  workspaceSlug: string;
+  depth: number;
+}) {
+  const progress = Math.round(project.progress);
+
+  return (
+    <Table.Tr
+      className="cursor-pointer hover:bg-surface-hover transition-colors"
+      data-goal-depth={depth}
+    >
+      {/* Name */}
+      <Table.Td>
+        <Group gap={4} wrap="nowrap" style={{ paddingLeft: depth * 28 }}>
+          <div className="w-[22px] shrink-0" aria-hidden="true" />
+          <IconCornerDownRight
+            size={14}
+            className="text-text-muted shrink-0"
+            aria-hidden="true"
+          />
+          <VisuallyHidden>Project of {parentGoalTitle}</VisuallyHidden>
+          <Link
+            href={`/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`}
+            className="no-underline min-w-0 flex-1"
+          >
+            <Group gap="sm" wrap="nowrap">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
+                <IconFolder size={16} className="text-text-muted" />
+              </div>
+              <div className="min-w-0">
+                <Group gap={6} wrap="nowrap">
+                  <Text size="sm" fw={500} className="text-text-primary" truncate="end">
+                    {project.name}
+                  </Text>
+                  <Badge
+                    size="xs"
+                    variant="light"
+                    color={projectStatusColor[project.status] ?? "gray"}
+                  >
+                    {formatProjectStatus(project.status)}
+                  </Badge>
+                </Group>
+                {progress > 0 && (
+                  <Text size="xs" c="dimmed">
+                    {progress}% complete
+                  </Text>
+                )}
+              </div>
+            </Group>
+          </Link>
+        </Group>
+      </Table.Td>
+
+      {/* Owner */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+
+      {/* Target */}
+      <Table.Td>
+        <Text size="sm" className="text-text-secondary">
+          {formatTargetDate(project.endDate)}
+        </Text>
+      </Table.Td>
+
+      {/* Projects */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+
+      {/* Initiative Health */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+
+      {/* Active Projects */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
       </Table.Td>
     </Table.Tr>
   );
@@ -457,18 +598,30 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {visibleRows.map(({ goal, depth, children }) => (
-                <InitiativeRow
-                  key={goal.id}
-                  goal={goal}
-                  workspaceSlug={workspaceSlug ?? ""}
-                  depth={depth}
-                  childCount={children.length}
-                  isExpanded={!collapsedIds.has(goal.id)}
-                  onToggle={() => toggleCollapsed(goal.id)}
-                  goalLabel={terminology.goal}
-                />
-              ))}
+              {visibleRows.map((row) =>
+                row.kind === "goal" ? (
+                  <InitiativeRow
+                    key={row.node.goal.id}
+                    goal={row.node.goal}
+                    workspaceSlug={workspaceSlug ?? ""}
+                    depth={row.node.depth}
+                    childCount={row.node.children.length}
+                    isExpanded={!collapsedIds.has(row.node.goal.id)}
+                    onToggle={() => toggleCollapsed(row.node.goal.id)}
+                    goalLabel={terminology.goal}
+                  />
+                ) : (
+                  // A project can be connected to several goals on screen, so the
+                  // key needs the parent goal to stay unique.
+                  <ProjectSubRow
+                    key={`${row.parentGoal.id}-project-${row.project.id}`}
+                    project={row.project}
+                    parentGoalTitle={row.parentGoal.title}
+                    workspaceSlug={workspaceSlug ?? ""}
+                    depth={row.depth}
+                  />
+                ),
+              )}
             </Table.Tbody>
           </Table>
         ) : (

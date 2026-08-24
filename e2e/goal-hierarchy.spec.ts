@@ -44,15 +44,27 @@ test("project Goals tab nests a sub-goal under its parent", async ({ page }) => 
     detachedRow.getByText(`${SUB_GOAL} of Company-wide alignment (not on this project)`),
   ).toBeVisible();
 
+  // Connected projects nest under their goal with the same treatment: the
+  // parent's project sits at depth 1, the child goal's project one deeper.
+  const projectRows = page.locator("tr", { hasText: "Goal hierarchy fixture" });
+  await expect(projectRows.first()).toBeVisible();
+  await expect(
+    page.locator('tr[data-goal-depth="2"]', { hasText: "Goal hierarchy fixture" }),
+  ).toHaveCount(1);
+
   await test.info().attach("goals-tab-hierarchy", {
     body: await page.screenshot({ fullPage: false }),
     contentType: "image/png",
   });
 
-  // Collapsing the parent hides its sub-goal and surfaces the count instead.
-  await parentRow.getByLabel(`Collapse ${SUB_GOAL.toLowerCase()}s`).click();
+  // Collapsing the parent hides its sub-goal AND its connected project, and
+  // surfaces both counts instead.
+  const projectRowsBefore = await projectRows.count();
+  await parentRow.getByLabel("Collapse nested rows").click();
   await expect(childRow).toHaveCount(0);
+  await expect(projectRows).toHaveCount(projectRowsBefore - 2);
   await expect(parentRow.getByText(`1 ${SUB_GOAL.toLowerCase()}`)).toBeVisible();
+  await expect(parentRow.getByText("1 project")).toBeVisible();
 
   await test.info().attach("goals-tab-collapsed", {
     body: await page.screenshot({ fullPage: false }),
