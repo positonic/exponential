@@ -16,6 +16,11 @@ import {
   Textarea,
   SegmentedControl,
   ActionIcon,
+  Tooltip,
+  Menu,
+  Checkbox,
+  Popover,
+  Indicator,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
@@ -26,6 +31,7 @@ import {
   IconHierarchy,
   IconSparkles,
   IconX,
+  IconCheck,
   IconLayoutDashboard,
   IconLayoutDashboardFilled,
 } from "@tabler/icons-react";
@@ -58,7 +64,19 @@ import {
   periodCountdownLabel,
   periodStatus,
   statusToConfidence,
+  objectiveEffectiveConfidence,
+  effectiveStatus,
 } from "../utils/okrDashboardUtils";
+
+// Filter options mirror the objective card's status pill exactly (ok/warn/
+// bad/idle confidence buckets) so filtering never hides a card whose badge
+// contradicts the checked status.
+const objectiveStatusOptions = [
+  { value: "ok", label: "On track" },
+  { value: "warn", label: "At risk" },
+  { value: "bad", label: "Off track" },
+  { value: "idle", label: "Not started" },
+];
 
 const unitOptions = [
   { value: "percent", label: "Percentage (%)" },
@@ -161,7 +179,9 @@ export function OkrDashboard({
     new Set(),
   );
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
-  const [heroCardsVisible, setHeroCardsVisible] = useState(true);
+  const [heroCardsVisible, setHeroCardsVisible] = useState(false);
+  const [grouping, setGrouping] = useState<"none" | "domain">("none");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     goalId: "",
@@ -262,6 +282,46 @@ export function OkrDashboard({
         ),
       }));
   }, [objectives, effectivePeriod]);
+
+  // Status filter narrows the objective list (cards and timeline). The header
+  // summary and hero cards keep describing the whole period, unfiltered.
+  // Classification uses the same resolver as the card's status pill, so a
+  // card badged "On track" always survives the "On track" checkbox.
+  const filteredObjectives = useMemo(() => {
+    if (statusFilter.length === 0) return visibleObjectives;
+    return visibleObjectives.filter((o) =>
+      statusFilter.includes(
+        objectiveEffectiveConfidence(
+          o.healthOverride,
+          o.health,
+          o.keyResults.map(
+            (k) => effectiveStatus(k.statusOverride, k.status) ?? "",
+          ),
+        ),
+      ),
+    );
+  }, [visibleObjectives, statusFilter]);
+
+  // Grouped card view: [group label, objectives] pairs, preserving list order.
+  const groupedObjectives = useMemo(() => {
+    if (grouping !== "domain") return null;
+    const groups = new Map<string, ObjectiveCardObjective[]>();
+    for (const obj of filteredObjectives) {
+      const key = obj.lifeDomain?.name ?? "No life domain";
+      const list = groups.get(key) ?? [];
+      list.push(obj);
+      groups.set(key, list);
+    }
+    return Array.from(groups.entries());
+  }, [grouping, filteredObjectives]);
+
+  // O1/O2/… codes stay tied to the objective's position in the period's full
+  // list, so filtering or grouping never renumbers a card — "O3" keeps meaning
+  // the same objective while a filter is applied.
+  const objectiveCodes = useMemo(
+    () => new Map(visibleObjectives.map((o, idx) => [o.id, `O${idx + 1}`])),
+    [visibleObjectives],
+  );
 
   useEffect(() => {
     if (visibleObjectives.length > 0 && expandedObjectives.size === 0) {
@@ -518,20 +578,25 @@ export function OkrDashboard({
   const periodState = periodStatus(effectivePeriod);
   const isEnded = periodState === "ended";
   const isUpcoming = periodState === "upcoming";
-  const periodLabel = effectivePeriod.split("-")[0] ?? selectedPeriod;
+  // "Annual-2026" is a year, not a quarter — both the noun ("this year") and
+  // the ended-period label ("in 2026", never "in Annual") must reflect that.
+  const periodPrefix = effectivePeriod.split("-")[0] ?? selectedPeriod;
+  const isAnnual = periodPrefix === "Annual";
+  const periodNoun = isAnnual ? "year" : "quarter";
+  const periodLabel = isAnnual ? selectedYear : periodPrefix;
 
   const headerTitle = isEnded
     ? onlyMine
       ? `What I focused on in ${periodLabel}`
       : `What we bet on in ${periodLabel}`
     : onlyMine
-      ? "What I'm focused on this quarter"
-      : "What we're betting on this quarter";
+      ? `What I'm focused on this ${periodNoun}`
+      : `What we're betting on this ${periodNoun}`;
 
   const progressLead = isEnded
     ? onlyMine
-      ? "You finished the quarter at "
-      : "The team finished the quarter at "
+      ? `You finished the ${periodNoun} at `
+      : `The team finished the ${periodNoun} at `
     : onlyMine
       ? "You've reached "
       : "The team has reached ";
@@ -541,11 +606,40 @@ export function OkrDashboard({
     ? `${summary.atRisk} missed target`
     : `${summary.atRisk} at risk`;
   const upcomingText = onlyMine
-    ? "Your KRs for the quarter are set"
-    : "The team's KRs for the quarter are set";
+    ? `Your KRs for the ${periodNoun} are set`
+    : `The team's KRs for the ${periodNoun} are set`;
 
   // Nudge: only show if at-risk KRs exist.
   const showNudge = !nudgeDismissed && summary.atRisk > 0;
+
+  const renderObjectiveCard = (obj: ObjectiveCardObjective) => (
+    <div key={obj.id} id={`okr-obj-${obj.id}`}>
+      <ObjectiveCardV2
+        objective={obj}
+        code={objectiveCodes.get(obj.id) ?? ""}
+        period={effectivePeriod}
+        isExpanded={expandedObjectives.has(obj.id)}
+        onToggleExpand={() => toggleExpand(obj.id)}
+        onDelete={handleDeleteObjective}
+        isDeleting={deleteObjective.isPending}
+        onEditSuccess={() => {
+          void utils.okr.getByObjective.invalidate();
+          void utils.okr.getStats.invalidate();
+          void utils.okr.getCountsByYear.invalidate();
+        }}
+        onAddKeyResult={handleAddKeyResultToObjective}
+        onEditKeyResult={handleEditKeyResult}
+        onDeleteKeyResult={handleDeleteKeyResult}
+        deletingKeyResultId={
+          deleteKeyResult.isPending
+            ? (deleteKeyResult.variables?.id ?? null)
+            : null
+        }
+        onViewObjective={() => handleViewObjective(obj)}
+        onViewKeyResult={handleViewKeyResult}
+      />
+    </div>
+  );
 
   if (isLoading) {
     return (
@@ -634,33 +728,107 @@ export function OkrDashboard({
                   color="brand"
                 />
               )}
-              <Button
-                variant="default"
-                leftSection={
-                  heroCardsVisible ? (
-                    <IconLayoutDashboardFilled size={14} />
+              <Tooltip
+                label={heroCardsVisible ? "Hide overview" : "Show overview"}
+              >
+                <ActionIcon
+                  variant={heroCardsVisible ? "light" : "default"}
+                  size="lg"
+                  aria-label={
+                    heroCardsVisible ? "Hide overview" : "Show overview"
+                  }
+                  onClick={() => setHeroCardsVisible((v) => !v)}
+                >
+                  {heroCardsVisible ? (
+                    <IconLayoutDashboardFilled size={16} />
                   ) : (
-                    <IconLayoutDashboard size={14} />
-                  )
-                }
-                onClick={() => setHeroCardsVisible((v) => !v)}
-              >
-                {heroCardsVisible ? "Hide overview" : "Show overview"}
-              </Button>
-              <Button
-                variant="default"
-                leftSection={<IconHierarchy size={14} />}
-                disabled
-              >
-                Grouping
-              </Button>
-              <Button
-                variant="default"
-                leftSection={<IconFilter size={14} />}
-                disabled
-              >
-                Filter
-              </Button>
+                    <IconLayoutDashboard size={16} />
+                  )}
+                </ActionIcon>
+              </Tooltip>
+              <Menu shadow="md" width={190} position="bottom-end">
+                <Menu.Target>
+                  <Tooltip label="Group objectives">
+                    <ActionIcon
+                      variant={grouping !== "none" ? "light" : "default"}
+                      size="lg"
+                      aria-label="Group objectives"
+                    >
+                      <IconHierarchy size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Label>Group by</Menu.Label>
+                  <Menu.Item
+                    onClick={() => setGrouping("none")}
+                    rightSection={
+                      grouping === "none" ? <IconCheck size={14} /> : null
+                    }
+                  >
+                    None
+                  </Menu.Item>
+                  <Menu.Item
+                    onClick={() => setGrouping("domain")}
+                    rightSection={
+                      grouping === "domain" ? <IconCheck size={14} /> : null
+                    }
+                  >
+                    Life domain
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+              <Popover position="bottom-end" shadow="md">
+                <Tooltip label="Filter by status">
+                  <Indicator
+                    disabled={statusFilter.length === 0}
+                    color="brand"
+                    size={8}
+                    offset={3}
+                  >
+                    <Popover.Target>
+                      <ActionIcon
+                        variant={statusFilter.length > 0 ? "light" : "default"}
+                        size="lg"
+                        aria-label="Filter by status"
+                      >
+                        <IconFilter size={16} />
+                      </ActionIcon>
+                    </Popover.Target>
+                  </Indicator>
+                </Tooltip>
+                <Popover.Dropdown>
+                  <Stack gap="xs">
+                    <Text size="xs" fw={600} className="text-text-muted">
+                      Status
+                    </Text>
+                    <Checkbox.Group
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                    >
+                      <Stack gap="xs">
+                        {objectiveStatusOptions.map((o) => (
+                          <Checkbox
+                            key={o.value}
+                            value={o.value}
+                            label={o.label}
+                            size="sm"
+                          />
+                        ))}
+                      </Stack>
+                    </Checkbox.Group>
+                    {statusFilter.length > 0 && (
+                      <Button
+                        variant="subtle"
+                        size="compact-xs"
+                        onClick={() => setStatusFilter([])}
+                      >
+                        Clear filter
+                      </Button>
+                    )}
+                  </Stack>
+                </Popover.Dropdown>
+              </Popover>
               <CreateGoalModal
                 onSuccess={() => {
                   void utils.okr.getAvailableGoals.invalidate();
@@ -730,11 +898,25 @@ export function OkrDashboard({
 
         {/* Objective list */}
         {visibleObjectives.length > 0 ? (
-          isTimelineView ? (
+          filteredObjectives.length === 0 ? (
+            <div className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-8 text-center">
+              <Text className="text-text-muted">
+                No objectives match the current filter.
+              </Text>
+              <Button
+                variant="subtle"
+                size="compact-sm"
+                mt="sm"
+                onClick={() => setStatusFilter([])}
+              >
+                Clear filter
+              </Button>
+            </div>
+          ) : isTimelineView ? (
             (() => {
               const axis = computeTimelineAxis(effectivePeriod);
               const { objectives: timelineObjectives, users } =
-                buildTimelineData(visibleObjectives, effectivePeriod);
+                buildTimelineData(filteredObjectives, effectivePeriod);
               return (
                 <OkrTimeline
                   objectives={timelineObjectives}
@@ -760,37 +942,19 @@ export function OkrDashboard({
                 />
               );
             })()
-          ) : (
+          ) : groupedObjectives ? (
             <div>
-              {visibleObjectives.map((obj, idx) => (
-                <div key={obj.id} id={`okr-obj-${obj.id}`}>
-                  <ObjectiveCardV2
-                    objective={obj}
-                    code={`O${idx + 1}`}
-                    period={effectivePeriod}
-                    isExpanded={expandedObjectives.has(obj.id)}
-                    onToggleExpand={() => toggleExpand(obj.id)}
-                    onDelete={handleDeleteObjective}
-                    isDeleting={deleteObjective.isPending}
-                    onEditSuccess={() => {
-                      void utils.okr.getByObjective.invalidate();
-                      void utils.okr.getStats.invalidate();
-                      void utils.okr.getCountsByYear.invalidate();
-                    }}
-                    onAddKeyResult={handleAddKeyResultToObjective}
-                    onEditKeyResult={handleEditKeyResult}
-                    onDeleteKeyResult={handleDeleteKeyResult}
-                    deletingKeyResultId={
-                      deleteKeyResult.isPending
-                        ? (deleteKeyResult.variables?.id ?? null)
-                        : null
-                    }
-                    onViewObjective={() => handleViewObjective(obj)}
-                    onViewKeyResult={handleViewKeyResult}
-                  />
+              {groupedObjectives.map(([label, objs]) => (
+                <div key={label}>
+                  <div className="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-wider text-text-muted first:mt-0">
+                    {label}
+                  </div>
+                  {objs.map(renderObjectiveCard)}
                 </div>
               ))}
             </div>
+          ) : (
+            <div>{filteredObjectives.map(renderObjectiveCard)}</div>
           )
         ) : (
           <div className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-12 text-center">
