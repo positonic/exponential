@@ -1178,7 +1178,14 @@ export const crmContactRouter = createTRPCRouter({
       };
     }),
 
-  // Import contacts from Gmail/Calendar
+  // Import contacts from Gmail/Calendar, one bounded step per call. The
+  // client creates the batch with its first call (batchId: null), then keeps
+  // calling with the returned batchId until `completed`. Each step fetches
+  // one slice from Google and processes it synchronously inside its own
+  // request — fire-and-forget background work does not survive serverless
+  // (Vercel freezes the function after the response), which stalled large
+  // imports mid-batch. The resume cursor (phase + Google page token) lives
+  // in the batch's metadata, so a retried call picks up where it stopped.
   importContacts: protectedProcedure
     .input(
       z.object({
@@ -1190,6 +1197,8 @@ export const crmContactRouter = createTRPCRouter({
             end: z.date(),
           })
           .optional(),
+        // Null on the first call (creates the batch), set on the rest.
+        batchId: z.string().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1236,15 +1245,33 @@ export const crmContactRouter = createTRPCRouter({
       // Get user's email for filtering calendar events
       const userEmail = ctx.session.user.email ?? undefined;
 
-      // Start async import
-      const batchId = await ContactSyncService.importContacts(
-        workspaceId,
-        ctx.session.user.id,
-        source,
-        { dateRange, userEmail },
-      );
+      // Source and date range are fixed on the batch at creation; the
+      // continuation calls only need the batchId.
+      const batchId =
+        input.batchId ??
+        (await ContactSyncService.createImportBatch(
+          workspaceId,
+          ctx.session.user.id,
+          source,
+          { dateRange },
+        ));
 
-      return { batchId };
+      try {
+        return await ContactSyncService.processImportStep(
+          batchId,
+          ctx.session.user.id,
+          workspaceId,
+          userEmail,
+        );
+      } catch (error) {
+        // Batch-level violations and Google API failures surface here; the
+        // batch stays IN_PROGRESS with its cursor, so the client can retry.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "Contact import failed",
+        });
+      }
     }),
 
   // Import contacts from an uploaded CSV. Returns a batchId polled via
