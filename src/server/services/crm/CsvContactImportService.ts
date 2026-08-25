@@ -9,14 +9,18 @@ import {
 } from "~/lib/contactCsvImport";
 import { emailHashFor } from "./createCrmContact";
 
-/** Hard cap on data rows per import — keeps one batch inside a request cycle. */
+/** Hard cap on data rows per import. */
 export const CSV_IMPORT_MAX_ROWS = 5000;
+
+/**
+ * Hard cap on rows per chunk call. The client sends smaller chunks; this is
+ * the server-side bound that keeps one call comfortably inside a request
+ * cycle (each row is ~2 queries).
+ */
+export const CSV_IMPORT_MAX_CHUNK = 500;
 
 /** How many errors we keep verbatim on the batch for the user to inspect. */
 const MAX_RECORDED_ERRORS = 20;
-
-/** Batch counters are flushed to the DB every N rows (and once at the end). */
-const PROGRESS_FLUSH_EVERY = 25;
 
 export interface CsvImportDealConfig {
   /** Pipeline = a Project of type "pipeline"; the stage must belong to it. */
@@ -24,95 +28,105 @@ export interface CsvImportDealConfig {
   stageId: string;
 }
 
-export interface CsvImportParams {
+interface CsvImportContext {
   workspaceId: string;
   userId: string;
+}
+
+export interface CsvChunkParams extends CsvImportContext {
+  batchId: string;
   headers: string[];
   rows: string[][];
+  /** Index of this chunk's first row within the whole file's data rows. */
+  rowOffset: number;
   mapping: CsvColumnMapping;
   /** When set, rows with a mapped revenue value also create a Deal. */
   dealConfig?: CsvImportDealConfig | null;
 }
 
+export interface CsvChunkResult {
+  batchId: string;
+  status: string;
+  processedContacts: number;
+  newContacts: number;
+  updatedContacts: number;
+  errorCount: number;
+  /** Recorded error lines (capped at MAX_RECORDED_ERRORS across the batch). */
+  errors: string[];
+  completed: boolean;
+}
+
 /**
- * CSV → CrmContact import. Mirrors ContactSyncService's batch contract
- * (ContactImportBatch + un-awaited processing + status polling) so the UI's
- * existing `getImportStatus` polling tail works unchanged.
+ * CSV → CrmContact import, driven by the client in chunks.
+ *
+ * The original shape (one mutation, fire-and-forget processing, status
+ * polling — mirroring ContactSyncService) does not survive serverless: Vercel
+ * freezes the function once the mutation response is sent, so the background
+ * loop stalled partway through real imports. Instead the dialog now calls
+ * `crmContact.importFromCsv` once per chunk; every chunk is processed
+ * synchronously inside its own request and the response carries the batch
+ * counters, so no background execution or polling is involved.
  *
  * Writes contacts directly with `db.crmContact.create` — deliberately NOT via
  * `createCrmContact`/`crmContact.create` — so `dispatchContactTypeAutomations`
  * never runs. Bulk imports must not fire per-contact onboarding automations
  * (welcome emails, agreements); see the bulk-import note in CONTEXT.md.
  */
-export async function startCsvContactImport(
-  params: CsvImportParams,
+export async function createCsvImportBatch(
+  ctx: CsvImportContext,
+  totalRows: number,
 ): Promise<string> {
   const batch = await db.contactImportBatch.create({
     data: {
-      workspaceId: params.workspaceId,
-      createdById: params.userId,
+      workspaceId: ctx.workspaceId,
+      createdById: ctx.userId,
       source: "CSV",
-      status: "PENDING",
-      totalContacts: params.rows.length,
+      status: "IN_PROGRESS",
+      totalContacts: totalRows,
     },
   });
-
-  // Same fire-and-forget shape as ContactSyncService.importContacts — the
-  // client polls getImportStatus. (A job queue would be the production-grade
-  // home for this, as noted there.)
-  processCsvBatch(db, batch.id, params).catch((error) => {
-    console.error("CSV import batch failed:", error);
-    db.contactImportBatch
-      .update({
-        where: { id: batch.id },
-        data: {
-          status: "FAILED",
-          metadata: {
-            error: error instanceof Error ? error.message : "Unknown error",
-          },
-          completedAt: new Date(),
-        },
-      })
-      .catch(console.error);
-  });
-
   return batch.id;
 }
 
-async function processCsvBatch(
-  prisma: PrismaClient,
-  batchId: string,
-  params: CsvImportParams,
-): Promise<void> {
-  await prisma.contactImportBatch.update({
-    where: { id: batchId },
-    data: { status: "IN_PROGRESS" },
+/**
+ * Process one chunk of rows synchronously and roll its counts into the batch.
+ * Chunks arrive sequentially from one client, so plain read-modify-write on
+ * the batch row is safe. Throws (for the router to translate) when the batch
+ * doesn't exist, belongs elsewhere, or is already finished.
+ */
+export async function processCsvChunk(
+  params: CsvChunkParams,
+): Promise<CsvChunkResult> {
+  const batch = await db.contactImportBatch.findUnique({
+    where: { id: params.batchId },
   });
+  if (
+    !batch ||
+    batch.workspaceId !== params.workspaceId ||
+    batch.source !== "CSV"
+  ) {
+    throw new Error("Import batch not found");
+  }
+  if (batch.status !== "IN_PROGRESS") {
+    throw new Error("This import has already finished");
+  }
+  if (batch.processedContacts + params.rows.length > batch.totalContacts) {
+    throw new Error("Chunk exceeds the announced row count of this import");
+  }
 
-  let processed = 0;
+  const priorErrors = recordedErrorsOf(batch.metadata);
+
   let created = 0;
   let updated = 0;
   let errorCount = 0;
-  const errors: string[] = [];
+  const newErrors: string[] = [];
 
   const recordError = (rowIndex: number, message: string) => {
     errorCount++;
-    if (errors.length < MAX_RECORDED_ERRORS) {
+    if (priorErrors.length + newErrors.length < MAX_RECORDED_ERRORS) {
       // +2: 1-based and the header line, so the number matches the file.
-      errors.push(`Row ${rowIndex + 2}: ${message}`);
+      newErrors.push(`Row ${params.rowOffset + rowIndex + 2}: ${message}`);
     }
-  };
-
-  const flushProgress = async () => {
-    await prisma.contactImportBatch.update({
-      where: { id: batchId },
-      data: {
-        processedContacts: processed,
-        newContacts: created,
-        updatedContacts: updated,
-        errorCount,
-      },
-    });
   };
 
   for (let i = 0; i < params.rows.length; i++) {
@@ -121,12 +135,12 @@ async function processCsvBatch(
       if (!row.email) {
         recordError(i, "missing or invalid email");
       } else {
-        const outcome = await upsertContact(prisma, params, row);
+        const outcome = await upsertContact(db, params, row);
         if (outcome.result === "created") created++;
         else if (outcome.result === "updated") updated++;
         if (params.dealConfig && row.deal && row.deal.value > 0) {
           await createDealIfMissing(
-            prisma,
+            db,
             params,
             params.dealConfig,
             outcome.contactId,
@@ -135,33 +149,65 @@ async function processCsvBatch(
         }
       }
     } catch (error) {
-      console.error(`CSV import: row ${i + 2} failed`, error);
+      console.error(
+        `CSV import: row ${params.rowOffset + i + 2} failed`,
+        error,
+      );
       recordError(
         i,
         error instanceof Error ? error.message : "unexpected error",
       );
     }
-    processed++;
-    if (processed % PROGRESS_FLUSH_EVERY === 0) await flushProgress();
   }
 
-  await prisma.contactImportBatch.update({
-    where: { id: batchId },
+  const allErrors = [...priorErrors, ...newErrors];
+  const processedContacts = batch.processedContacts + params.rows.length;
+  const totalErrorCount = batch.errorCount + errorCount;
+  const completed = processedContacts >= batch.totalContacts;
+  const status = completed
+    ? totalErrorCount > 0
+      ? "PARTIAL_SUCCESS"
+      : "COMPLETED"
+    : "IN_PROGRESS";
+
+  const updatedBatch = await db.contactImportBatch.update({
+    where: { id: batch.id },
     data: {
-      status: errorCount > 0 ? "PARTIAL_SUCCESS" : "COMPLETED",
-      processedContacts: processed,
-      newContacts: created,
-      updatedContacts: updated,
-      errorCount,
-      metadata: errors.length > 0 ? { errors } : Prisma.JsonNull,
-      completedAt: new Date(),
+      status,
+      processedContacts,
+      newContacts: batch.newContacts + created,
+      updatedContacts: batch.updatedContacts + updated,
+      errorCount: totalErrorCount,
+      metadata: allErrors.length > 0 ? { errors: allErrors } : Prisma.JsonNull,
+      ...(completed ? { completedAt: new Date() } : {}),
     },
   });
+
+  return {
+    batchId: updatedBatch.id,
+    status: updatedBatch.status,
+    processedContacts: updatedBatch.processedContacts,
+    newContacts: updatedBatch.newContacts,
+    updatedContacts: updatedBatch.updatedContacts,
+    errorCount: updatedBatch.errorCount,
+    errors: allErrors,
+    completed,
+  };
+}
+
+function recordedErrorsOf(metadata: Prisma.JsonValue | null): string[] {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return [];
+  }
+  const errors = (metadata as { errors?: unknown }).errors;
+  return Array.isArray(errors)
+    ? errors.filter((e): e is string => typeof e === "string")
+    : [];
 }
 
 async function upsertContact(
   prisma: PrismaClient,
-  params: CsvImportParams,
+  ctx: CsvImportContext,
   row: ContactCsvRow,
 ): Promise<{ contactId: string; result: "created" | "updated" | "unchanged" }> {
   const email = row.email!;
@@ -170,7 +216,7 @@ async function upsertContact(
 
   const existing = await prisma.crmContact.findUnique({
     where: {
-      workspaceId_emailHash: { workspaceId: params.workspaceId, emailHash },
+      workspaceId_emailHash: { workspaceId: ctx.workspaceId, emailHash },
     },
   });
 
@@ -227,8 +273,8 @@ async function upsertContact(
   try {
     const contact = await prisma.crmContact.create({
       data: {
-        workspaceId: params.workspaceId,
-        createdById: params.userId,
+        workspaceId: ctx.workspaceId,
+        createdById: ctx.userId,
         firstName: row.firstName,
         lastName: row.lastName,
         email: encryptString(email),
@@ -260,7 +306,7 @@ async function upsertContact(
     ) {
       const winner = await prisma.crmContact.findUniqueOrThrow({
         where: {
-          workspaceId_emailHash: { workspaceId: params.workspaceId, emailHash },
+          workspaceId_emailHash: { workspaceId: ctx.workspaceId, emailHash },
         },
         select: { id: true },
       });
@@ -276,7 +322,7 @@ async function upsertContact(
  */
 async function createDealIfMissing(
   prisma: PrismaClient,
-  params: CsvImportParams,
+  ctx: CsvImportContext,
   dealConfig: CsvImportDealConfig,
   contactId: string,
   row: ContactCsvRow,
@@ -302,8 +348,8 @@ async function createDealIfMissing(
       value: row.deal!.value,
       currency: row.deal!.currency,
       contactId,
-      workspaceId: params.workspaceId,
-      createdById: params.userId,
+      workspaceId: ctx.workspaceId,
+      createdById: ctx.userId,
       stageOrder: (lastDeal?.stageOrder ?? -1) + 1,
     },
     include: { stage: { select: { name: true } } },
@@ -312,7 +358,7 @@ async function createDealIfMissing(
   await prisma.dealActivity.create({
     data: {
       dealId: deal.id,
-      userId: params.userId,
+      userId: ctx.userId,
       type: "CREATED",
       content: `Deal "${deal.title}" created in ${deal.stage.name} by CSV import`,
       metadata: { stageId: dealConfig.stageId, stageName: deal.stage.name },
