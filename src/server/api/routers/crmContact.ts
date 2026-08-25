@@ -4,6 +4,11 @@ import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import type { Prisma, CrmContact, PrismaClient } from "@prisma/client";
 import { ContactSyncService } from "~/server/services/ContactSyncService";
+import {
+  CSV_IMPORT_MAX_ROWS,
+  startCsvContactImport,
+} from "~/server/services/crm/CsvContactImportService";
+import { CSV_TARGET_VALUES, parseCsv } from "~/lib/contactCsvImport";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
@@ -1238,6 +1243,119 @@ export const crmContactRouter = createTRPCRouter({
         source,
         { dateRange, userEmail },
       );
+
+      return { batchId };
+    }),
+
+  // Import contacts from an uploaded CSV. Returns a batchId polled via
+  // getImportStatus, same contract as the Google import above. The heavy
+  // lifting (and the deliberate automation suppression) lives in
+  // CsvContactImportService.
+  importFromCsv: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        // Raw file text. ~2MB cap keeps us inside the platform body limit.
+        csvText: z.string().min(1).max(2_000_000),
+        // Column header → destination field, as chosen in the mapping step.
+        mapping: z.record(z.string(), z.enum(CSV_TARGET_VALUES)),
+        // Required when a column is mapped to dealValue: where the created
+        // Deals land.
+        dealConfig: z
+          .object({ pipelineId: z.string(), stageId: z.string() })
+          .nullish(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Importing writes contacts (and possibly deals) in bulk — members
+      // only, not viewers or project-scoped guests.
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          role: { in: ["owner", "admin", "member"] },
+        },
+      });
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this workspace",
+        });
+      }
+
+      let parsed;
+      try {
+        parsed = parseCsv(input.csvText);
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "Could not parse the file",
+        });
+      }
+      if (parsed.rows.length === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The file has no data rows",
+        });
+      }
+      if (parsed.rows.length > CSV_IMPORT_MAX_ROWS) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `The file has ${parsed.rows.length} rows — the maximum per import is ${CSV_IMPORT_MAX_ROWS}. Split it and import in parts.`,
+        });
+      }
+
+      const emailColumns = parsed.headers.filter(
+        (h) => input.mapping[h] === "email",
+      );
+      if (emailColumns.length !== 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Exactly one column must be mapped to Email — it is the deduplication key",
+        });
+      }
+
+      const hasDealColumn = parsed.headers.some(
+        (h) => input.mapping[h] === "dealValue",
+      );
+      if (hasDealColumn && !input.dealConfig) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A column is mapped to Revenue — choose the pipeline and stage the deals should land in",
+        });
+      }
+      if (input.dealConfig) {
+        // The stage must belong to the named pipeline, which must be a
+        // pipeline Project in this workspace (same guard as the Forms
+        // create_deal destination).
+        const stage = await ctx.db.pipelineStage.findFirst({
+          where: {
+            id: input.dealConfig.stageId,
+            projectId: input.dealConfig.pipelineId,
+            project: { workspaceId: input.workspaceId, type: "pipeline" },
+          },
+          select: { id: true },
+        });
+        if (!stage) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "The selected stage does not belong to the selected pipeline in this workspace",
+          });
+        }
+      }
+
+      const batchId = await startCsvContactImport({
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+        headers: parsed.headers,
+        rows: parsed.rows,
+        mapping: input.mapping,
+        dealConfig: hasDealColumn ? input.dealConfig : null,
+      });
 
       return { batchId };
     }),

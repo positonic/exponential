@@ -2985,9 +2985,15 @@ model CrmContact {
   // Gmail/Calendar import fields
   connectionScore Int?      @default(0) // 0-100 calculated score
   emailHash       String? // SHA-256 for deduplication; uniqueness is workspace-scoped via @@unique below
-  importSource    String? // "GMAIL", "CALENDAR", "MANUAL"
+  importSource    String? // "GMAIL", "CALENDAR", "MANUAL", "FORM", "CSV"
   googleContactId String? // Google People API ID
   lastSyncedAt    DateTime? // Last import sync time
+  // Imported columns with no dedicated field (external ids, membership info,
+  // event counts, …), keyed by the source's original column header.
+  metadata        Json?
+  // When the source system first saw this person (e.g. a CSV export's
+  // first_seen). Distinct from createdAt, which is when the row landed here.
+  firstSeenAt     DateTime?
 
   workspace                   Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   organization                CrmOrganization?                  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
