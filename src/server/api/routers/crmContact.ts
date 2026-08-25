@@ -5,10 +5,12 @@ import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import type { Prisma, CrmContact, PrismaClient } from "@prisma/client";
 import { ContactSyncService } from "~/server/services/ContactSyncService";
 import {
+  CSV_IMPORT_MAX_CHUNK,
   CSV_IMPORT_MAX_ROWS,
-  startCsvContactImport,
+  createCsvImportBatch,
+  processCsvChunk,
 } from "~/server/services/crm/CsvContactImportService";
-import { CSV_TARGET_VALUES, parseCsv } from "~/lib/contactCsvImport";
+import { CSV_TARGET_VALUES } from "~/lib/contactCsvImport";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
@@ -1247,16 +1249,32 @@ export const crmContactRouter = createTRPCRouter({
       return { batchId };
     }),
 
-  // Import contacts from an uploaded CSV. Returns a batchId polled via
-  // getImportStatus, same contract as the Google import above. The heavy
-  // lifting (and the deliberate automation suppression) lives in
+  // Import contacts from an uploaded CSV, one chunk of rows per call. The
+  // client parses the file, creates the batch with its first chunk
+  // (batchId: null), then streams the remaining chunks sequentially with the
+  // returned batchId. Each chunk is processed synchronously inside its own
+  // request — fire-and-forget background work does not survive serverless
+  // (Vercel freezes the function after the response), which is why this is
+  // not the poll-a-background-batch contract the Google import uses. The
+  // heavy lifting (and the deliberate automation suppression) lives in
   // CsvContactImportService.
   importFromCsv: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string(),
-        // Raw file text. ~2MB cap keeps us inside the platform body limit.
-        csvText: z.string().min(1).max(2_000_000),
+        // Null on the first chunk (creates the batch), set on the rest.
+        batchId: z.string().nullish(),
+        // Data-row count of the whole file; used to size the batch on the
+        // first chunk and to detect completion.
+        totalRows: z.number().int().min(1).max(CSV_IMPORT_MAX_ROWS),
+        headers: z.array(z.string().max(500)).min(1).max(200),
+        // This chunk's rows, in file order.
+        rows: z
+          .array(z.array(z.string().max(10_000)).max(200))
+          .min(1)
+          .max(CSV_IMPORT_MAX_CHUNK),
+        // Index of this chunk's first row within the file's data rows.
+        rowOffset: z.number().int().min(0),
         // Column header → destination field, as chosen in the mapping step.
         mapping: z.record(z.string(), z.enum(CSV_TARGET_VALUES)),
         // Required when a column is mapped to dealValue: where the created
@@ -1283,30 +1301,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      let parsed;
-      try {
-        parsed = parseCsv(input.csvText);
-      } catch (error) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            error instanceof Error ? error.message : "Could not parse the file",
-        });
-      }
-      if (parsed.rows.length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "The file has no data rows",
-        });
-      }
-      if (parsed.rows.length > CSV_IMPORT_MAX_ROWS) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `The file has ${parsed.rows.length} rows — the maximum per import is ${CSV_IMPORT_MAX_ROWS}. Split it and import in parts.`,
-        });
-      }
-
-      const emailColumns = parsed.headers.filter(
+      const emailColumns = input.headers.filter(
         (h) => input.mapping[h] === "email",
       );
       if (emailColumns.length !== 1) {
@@ -1317,7 +1312,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const hasDealColumn = parsed.headers.some(
+      const hasDealColumn = input.headers.some(
         (h) => input.mapping[h] === "dealValue",
       );
       if (hasDealColumn && !input.dealConfig) {
@@ -1348,16 +1343,33 @@ export const crmContactRouter = createTRPCRouter({
         }
       }
 
-      const batchId = await startCsvContactImport({
-        workspaceId: input.workspaceId,
-        userId: ctx.session.user.id,
-        headers: parsed.headers,
-        rows: parsed.rows,
-        mapping: input.mapping,
-        dealConfig: hasDealColumn ? input.dealConfig : null,
-      });
+      const batchId =
+        input.batchId ??
+        (await createCsvImportBatch(
+          { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+          input.totalRows,
+        ));
 
-      return { batchId };
+      try {
+        return await processCsvChunk({
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          batchId,
+          headers: input.headers,
+          rows: input.rows,
+          rowOffset: input.rowOffset,
+          mapping: input.mapping,
+          dealConfig: hasDealColumn ? input.dealConfig : null,
+        });
+      } catch (error) {
+        // Batch-level violations (missing, finished, over-count) surface as
+        // BAD_REQUEST; row-level failures are recorded on the batch instead.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "CSV import failed",
+        });
+      }
     }),
 
   // Get import batch status
