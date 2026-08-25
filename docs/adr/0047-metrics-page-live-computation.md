@@ -20,6 +20,18 @@ goal below is temporarily unmet on the agent side; realigning the agent onto the
 (or confirming it should stay Action-based) is a tracked follow-up. Everything else below stands:
 still live-computed, still no `SprintMetrics` persistence, still merged-PR-turnaround-only.
 
+**Amended — 2026-08-07 (all-cycles roll-up).** The page's headline is now the **all-cycles**
+roll-up — every cycle's Ticket metrics summed, with a line chart tracking each metric across
+cycles — and the single-cycle view moved below it behind the cycle dropdown. This extends the v1
+scope line below ("single workspace-wide roll-up per cycle"); it does not change the decision.
+Still live-computed, still Ticket-based, still nothing persisted to `SprintMetrics`. The new
+`getAllCyclesMetrics` is **batched** — one query for the cycles, one for all their tickets, one
+pass over the workspace's merged PRs — rather than 3N queries, because "recomputing 5–10 cycles is
+cheap" stops being true if each cycle costs its own round trips. Cycles with no tickets are
+excluded from the series, and a PR falling inside two overlapping cycle windows is counted once in
+the roll-up. The bar-list "velocity trend" widget was removed: the chart is a strictly better
+version of it. `getVelocityTrend` remains on the router, now unused by the UI.
+
 ## Context
 
 The app already has a sprint-analytics backend built for the Mastra PM agent, reached

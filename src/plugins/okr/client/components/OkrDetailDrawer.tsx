@@ -26,6 +26,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useFavorite } from "~/app/_components/shared/useFavorite";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import {
   clamp01,
   effectiveConfidence,
@@ -855,9 +856,7 @@ function LatestUpdateCard({
             <div className="flex-1" />
             <span className="text-[11px] text-text-muted">{latest.whenLabel}</span>
           </div>
-          <div className="text-sm leading-relaxed text-text-secondary">
-            {latest.body}
-          </div>
+          <MarkdownRenderer content={latest.body} variant="compact" />
         </>
       ) : (
         <div className="flex items-center gap-2 text-sm text-text-muted">
@@ -875,9 +874,7 @@ function DescriptionCard({ text }: { text?: string | null }) {
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
         Description
       </div>
-      <div className="whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">
-        {text}
-      </div>
+      <MarkdownRenderer content={text} variant="compact" />
     </div>
   );
 }
@@ -1140,8 +1137,8 @@ function ActivityFeed({
               </span>
             </div>
             {it.kind === "comment" ? (
-              <div className="mt-2 whitespace-pre-wrap rounded-lg border border-border-secondary bg-surface-primary p-3 text-sm leading-relaxed text-text-secondary">
-                {it.body}
+              <div className="mt-2 rounded-lg border border-border-secondary bg-surface-primary p-3">
+                <MarkdownRenderer content={it.body} variant="compact" />
               </div>
             ) : (
               <div className="mt-2 inline-flex items-baseline gap-2 rounded-lg border border-border-secondary bg-surface-primary px-3 py-2 tabular-nums">
@@ -1298,8 +1295,8 @@ function ObjectiveActivityFeed({
                       />
                     </div>
                   )}
-                  <div className="mt-2 whitespace-pre-wrap rounded-lg border border-border-secondary bg-surface-primary p-3 text-sm leading-relaxed text-text-secondary">
-                    {it.content}
+                  <div className="mt-2 rounded-lg border border-border-secondary bg-surface-primary p-3">
+                    <MarkdownRenderer content={it.content} variant="compact" />
                   </div>
                 </>
               )}

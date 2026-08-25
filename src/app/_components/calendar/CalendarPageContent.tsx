@@ -6,14 +6,22 @@ import { notifications } from "@mantine/notifications";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { useCalendarNavigation } from "./useCalendarNavigation";
+import { useCalendarConnectionToast } from "./useCalendarConnectionToast";
 import { CalendarHeader } from "./CalendarHeader";
 import { CalendarSidebar } from "./CalendarSidebar";
 import { CalendarDayTimeGrid } from "./CalendarDayTimeGrid";
 import { CalendarWeekTimeGrid } from "./CalendarWeekTimeGrid";
 import { GoogleCalendarConnect } from "~/app/_components/GoogleCalendarConnect";
+import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 import { MicrosoftCalendarConnect } from "~/app/_components/MicrosoftCalendarConnect";
 import { EditActionModal } from "~/app/_components/EditActionModal";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
+import {
+  markTimezonePromptDismissed,
+  TimezonePromptModal,
+  TZ_PROMPT_DISMISSED_KEY,
+} from "./TimezonePromptModal";
+import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
 
 export function CalendarPageContent() {
@@ -21,9 +29,17 @@ export function CalendarPageContent() {
   const { data: connectionStatuses, isLoading: statusLoading } =
     api.calendar.getAllConnectionStatuses.useQuery();
 
+  // ICS subscription feeds count as a calendar source too — a feed-only user
+  // must still get events fetched and the grid rendered.
+  const { data: feeds } = api.calendar.listFeeds.useQuery();
+
   const googleConnected = connectionStatuses?.google?.isConnected ?? false;
   const microsoftConnected = connectionStatuses?.microsoft?.isConnected ?? false;
-  const calendarConnected = googleConnected || microsoftConnected;
+  const hasFeeds = (feeds?.length ?? 0) > 0;
+  const calendarConnected = googleConnected || microsoftConnected || hasFeeds;
+  // Google's calendar scopes are pending verification — non-testers get the
+  // premium message instead of a connect button that would dead-end.
+  const googleGated = connectionStatuses?.google?.gated ?? false;
   const {
     view,
     selectedDate,
@@ -35,7 +51,41 @@ export function CalendarPageContent() {
     goPrevious,
   } = useCalendarNavigation();
 
-  // Fetch calendar events from all selected calendars
+  // Timezone checkpoint: a connected calendar source (OAuth landing or an
+  // existing connection) with no User.timezone prompts once per session —
+  // work-hours and scheduling interpretation depend on it.
+  const { data: tzData } = api.user.getTimezone.useQuery(undefined, {
+    enabled: calendarConnected,
+  });
+  const [tzPromptDismissed, setTzPromptDismissed] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem(TZ_PROMPT_DISMISSED_KEY) === "1",
+  );
+  // X-WR-TIMEZONE handed up from the sidebar's feed-add flow — this page owns
+  // the single prompt, so the section doesn't open a second stacked modal.
+  const [tzSuggestion, setTzSuggestion] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const tzPromptOpen =
+    calendarConnected && tzData !== undefined && tzData.timezone === null && !tzPromptDismissed;
+  const dismissTzPrompt = () => {
+    markTimezonePromptDismissed();
+    setTzPromptDismissed(true);
+  };
+
+  // Show toast for calendar_connected / calendar_error search params.
+  // Must live here (not in GoogleCalendarConnect/MicrosoftCalendarConnect)
+  // because after OAuth the calendar IS connected and those components
+  // only render in the disconnected empty state. Passing the connection
+  // state hands the disconnected case back to them, so a failed OAuth
+  // round-trip — which lands here still disconnected, with calendar_error
+  // set, and with both components mounted — shows one toast, not two.
+  useCalendarConnectionToast(calendarConnected);
+
+  // Fetch calendar events from all selected calendars. Deliberately NOT
+  // gated on having a connected source: DB-backed sources (workspace
+  // meetings, ICS feeds) exist without any OAuth connection, and for a
+  // connection-less user the query is a cheap DB read.
   const { data: events, isLoading: eventsLoading } =
     api.calendar.getEventsMultiCalendar.useQuery(
       {
@@ -44,12 +94,15 @@ export function CalendarPageContent() {
         maxResults: view === "week" ? 100 : 50,
       },
       {
-        enabled: calendarConnected,
         retry: false,
         staleTime: 5 * 60 * 1000,
         refetchOnWindowFocus: false,
       }
     );
+
+  // A user whose only calendar content is meetings still gets the grid —
+  // the connect-a-calendar empty state is for users with nothing to show.
+  const hasRenderableEvents = (events?.length ?? 0) > 0;
 
   // Fetch scheduled actions for the date range
   const { data: scheduledActionsData } =
@@ -282,6 +335,7 @@ export function CalendarPageContent() {
 
   // Handle refresh - clear server cache then refetch
   const clearCache = api.calendar.clearCache.useMutation();
+  const refreshFeeds = api.calendar.refreshMyFeeds.useMutation();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -295,9 +349,16 @@ export function CalendarPageContent() {
       if (microsoftConnected) {
         clearPromises.push(clearCache.mutateAsync({ provider: "microsoft" }));
       }
+      if (hasFeeds) {
+        // Re-sync ICS feeds inline. Rate-limited server-side (~1/min) —
+        // a TOO_MANY_REQUESTS just means the events are already fresh, so
+        // swallow it and refetch.
+        clearPromises.push(refreshFeeds.mutateAsync().catch(() => undefined));
+      }
       await Promise.all(clearPromises);
       // Invalidate client-side cache to trigger refetch
       await utils.calendar.getEventsMultiCalendar.invalidate();
+      await utils.calendar.listFeeds.invalidate();
     } finally {
       setIsRefreshing(false);
     }
@@ -342,7 +403,25 @@ export function CalendarPageContent() {
       );
     }
 
-    if (!calendarConnected) {
+    if (!calendarConnected && !hasRenderableEvents) {
+      // With Google gated, Outlook is the only calendar we can actually
+      // connect — lead with the premium message rather than a broken option.
+      if (googleGated) {
+        return (
+          <div className="flex h-full items-center justify-center">
+            <Stack align="center" gap="lg" className="max-w-lg">
+              <GooglePremiumFeature feature="calendar" variant="card" />
+              <Stack align="center" gap="xs">
+                <Text size="sm" c="dimmed">
+                  Outlook calendars are available now.
+                </Text>
+                <MicrosoftCalendarConnect isConnected={false} />
+              </Stack>
+            </Stack>
+          </div>
+        );
+      }
+
       return (
         <Paper
           p="xl"
@@ -430,10 +509,18 @@ export function CalendarPageContent() {
         isDisconnecting={disconnectCalendar.isPending}
         onRefresh={handleRefresh}
         isRefreshing={isRefreshing}
+        onScheduleMeeting={() => setScheduleOpen(true)}
+      />
+      <ScheduleMeetingModal opened={scheduleOpen} onClose={() => setScheduleOpen(false)} />
+      <TimezonePromptModal
+        opened={tzPromptOpen}
+        onClose={dismissTzPrompt}
+        suggestedTimezone={tzSuggestion}
       />
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">{renderCalendarContent()}</div>
         <CalendarSidebar
+          onTimezoneSuggestion={setTzSuggestion}
           selectedDate={selectedDate}
           onDateSelect={setDate}
         />

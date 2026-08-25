@@ -19,7 +19,7 @@ export interface ProjectProgress {
 }
 
 export interface WeeklyHighlight {
-  type: 'outcome' | 'action';
+  type: 'action';
   title: string;
   description?: string;
   projectName?: string;
@@ -49,7 +49,7 @@ export class WeeklyReviewSummaryService {
     // Get project progress
     const projectProgress = await this.getProjectProgress(userId);
     
-    // Get weekly highlights (recent outcomes and completed actions)
+    // Get weekly highlights (recently completed actions)
     const highlights = await this.getWeeklyHighlights(userId, actualWeekStart, weekEnd);
     
     // Get upcoming priorities
@@ -120,7 +120,7 @@ export class WeeklyReviewSummaryService {
   }
 
   /**
-   * Get highlights from the current week (completed outcomes and actions)
+   * Get highlights from the current week (completed actions)
    */
   private async getWeeklyHighlights(
     userId: string, 
@@ -128,35 +128,6 @@ export class WeeklyReviewSummaryService {
     weekEnd: Date
   ): Promise<WeeklyHighlight[]> {
     const highlights: WeeklyHighlight[] = [];
-
-    // Get recently completed outcomes (Note: Outcome model may not have status/completion tracking)
-    const recentOutcomes = await db.outcome.findMany({
-      where: {
-        userId: userId,
-        dueDate: {
-          gte: weekStart,
-          lte: weekEnd
-        }
-      },
-      include: {
-        projects: {
-          select: { name: true },
-          take: 1
-        }
-      },
-      orderBy: {
-        dueDate: 'desc'
-      },
-      take: 3
-    });
-
-    highlights.push(...recentOutcomes.map(outcome => ({
-      type: 'outcome' as const,
-      title: outcome.description, // Using description as title since there's no name field
-      description: undefined,
-      projectName: outcome.projects[0]?.name,
-      completedAt: outcome.dueDate
-    })));
 
     // Get recently completed high-priority actions
     const completedActions = await db.action.findMany({
@@ -290,7 +261,7 @@ export class WeeklyReviewSummaryService {
     if (highlights.length > 0) {
       message += `✨ *This Week's Highlights:*\n`;
       highlights.forEach(highlight => {
-        const emoji = highlight.type === 'outcome' ? '🎯' : '✅';
+        const emoji = '✅';
         const projectText = highlight.projectName ? ` (${highlight.projectName})` : '';
         message += `${emoji} ${highlight.title}${projectText}\n`;
       });
@@ -301,7 +272,7 @@ export class WeeklyReviewSummaryService {
     if (upcomingPriorities.length > 0) {
       message += `🎯 *Next Week's Focus:*\n`;
       upcomingPriorities.forEach(priority => {
-        const emoji = priority.type === 'outcome' ? '🎯' : '📝';
+        const emoji = '📝';
         const projectText = priority.projectName ? ` (${priority.projectName})` : '';
         message += `${emoji} ${priority.title}${projectText}\n`;
       });

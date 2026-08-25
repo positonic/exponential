@@ -9,6 +9,7 @@
  * 2. Team membership: user is in a team linked to the workspace (Team.workspaceId)
  */
 
+import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import type { WorkspaceMembership, WorkspaceRole } from "../types";
 import { WORKSPACE_ROLE_HIERARCHY } from "../types";
@@ -193,4 +194,47 @@ export async function findUserByEmailInWorkspace(
   }
 
   return { id: user.id, email: user.email, name: user.name };
+}
+
+/**
+ * Assert that the user holds one of `allowedRoles` in the workspace, throwing
+ * `FORBIDDEN` otherwise. Returns the resolved role so callers can branch further.
+ *
+ * This is the centralized replacement for the
+ * `member.role !== "owner" && member.role !== "admin"` shape that `workspace.ts`
+ * open-codes in about ten places. Reach for it whenever a workspace-level
+ * privileged action needs gating — CLAUDE.md forbids adding another inline copy.
+ *
+ * Note that team-based access resolves to `member` (see `getWorkspaceMembership`),
+ * so a user who reaches the workspace only through a team is correctly refused an
+ * owner/admin gate.
+ */
+export async function assertWorkspaceRole(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+  allowedRoles: readonly WorkspaceRole[],
+): Promise<WorkspaceRole> {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace.",
+    });
+  }
+
+  if (!allowedRoles.includes(membership.role)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `This action requires the ${formatRoleList(allowedRoles)} role.`,
+    });
+  }
+
+  return membership.role;
+}
+
+function formatRoleList(roles: readonly WorkspaceRole[]): string {
+  if (roles.length <= 1) return roles[0] ?? "owner";
+  return `${roles.slice(0, -1).join(", ")} or ${roles[roles.length - 1]}`;
 }

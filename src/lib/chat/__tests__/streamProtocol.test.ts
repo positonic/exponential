@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseChatStreamBuffer,
   classifyStreamError,
+  describeStreamError,
 } from '../streamProtocol';
 
 const toolFrame = (payload: Record<string, unknown>) =>
@@ -195,5 +196,52 @@ describe('classifyStreamError', () => {
 
   it('classifies non-Error throwables as unknown', () => {
     expect(classifyStreamError('nope')).toEqual({ kind: 'unknown', retryable: false });
+  });
+
+  it('classifies provider billing and quota refusals as model errors', () => {
+    // The exact sentence the Anthropic API returns, which used to fall through
+    // to `unknown` and render as "Something went wrong handling that request."
+    expect(
+      classifyStreamError(
+        new Error(
+          'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
+        ),
+      ),
+    ).toEqual({ kind: 'model', retryable: false });
+    expect(classifyStreamError(new Error('You exceeded your current quota'))).toEqual({
+      kind: 'model',
+      retryable: false,
+    });
+  });
+});
+
+describe('describeStreamError', () => {
+  it('returns the error message so the cause reaches the user', () => {
+    expect(describeStreamError(new Error('Your credit balance is too low'))).toBe(
+      'Your credit balance is too low',
+    );
+  });
+
+  it('keeps only the first line, dropping any stack the provider appended', () => {
+    expect(describeStreamError(new Error('Boom\n    at postToApi (index.mjs:1)'))).toBe('Boom');
+  });
+
+  it('caps a runaway message rather than filling the bubble', () => {
+    // Short words, so the masker doesn't take it for one long credential.
+    const detail = describeStreamError(new Error('very bad thing '.repeat(40)));
+    expect(detail).toHaveLength(241);
+    expect(detail?.endsWith('…')).toBe(true);
+  });
+
+  it('masks a credential the provider echoed back', () => {
+    const secret = 'ff_live_' + 'a'.repeat(40);
+    const detail = describeStreamError(new Error(`Invalid API key ${secret}`));
+    expect(detail).not.toContain(secret);
+    expect(detail).toContain('Invalid API key');
+  });
+
+  it('has nothing to add for an empty or non-Error throwable', () => {
+    expect(describeStreamError(new Error('   '))).toBeUndefined();
+    expect(describeStreamError(undefined)).toBeUndefined();
   });
 });

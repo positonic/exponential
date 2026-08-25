@@ -36,6 +36,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { ImportDialog } from './_components/ImportDialog';
+import { CsvImportDialog } from './_components/CsvImportDialog';
 import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
 import { EmptyState } from '~/app/_components/EmptyState';
 import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
@@ -229,6 +230,8 @@ export default function ContactsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
     useDisclosure(false);
+  const [csvImportDialogOpened, { open: openCsvImportDialog, close: closeCsvImportDialog }] =
+    useDisclosure(false);
   const [importDialogOpened, { open: openImportDialog, close: closeImportDialog }] =
     useDisclosure(false);
 
@@ -375,9 +378,15 @@ export default function ContactsPage() {
             <Menu.Dropdown>
               <Menu.Item
                 leftSection={<IconUpload size={14} />}
+                onClick={openCsvImportDialog}
+              >
+                Import from CSV
+              </Menu.Item>
+              <Menu.Item
+                leftSection={<IconUpload size={14} />}
                 onClick={openImportDialog}
               >
-                Import contacts from Gmail/Calendar
+                Import contacts from Google Contacts/Calendar
               </Menu.Item>
               <Menu.Item leftSection={<IconDownload size={14} />}>
                 Export to CSV
@@ -494,7 +503,7 @@ export default function ContactsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <Avatar size="sm" radius="xl">
+                        <Avatar size="sm" radius="xl" src={contact.imageUrl}>
                           {contact.firstName?.[0]?.toUpperCase() ??
                             contact.lastName?.[0]?.toUpperCase() ??
                             contact.email?.[0]?.toUpperCase() ??
@@ -588,6 +597,15 @@ export default function ContactsPage() {
         <ImportDialog
           opened={importDialogOpened}
           onClose={closeImportDialog}
+          workspaceId={workspaceId}
+        />
+      )}
+
+      {/* CSV Import Dialog */}
+      {workspaceId && (
+        <CsvImportDialog
+          opened={csvImportDialogOpened}
+          onClose={closeCsvImportDialog}
           workspaceId={workspaceId}
         />
       )}

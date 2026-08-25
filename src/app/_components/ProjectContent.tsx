@@ -6,9 +6,8 @@ import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
 import { Team } from "./Team";
-// import { Plan } from "./Plan";
-import { OutcomesTable } from "./OutcomesTable";
-import { OutcomeTimeline } from "./OutcomeTimeline";
+import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
+import { ProjectTimeline } from "./ProjectTimeline";
 import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { Button } from "@mantine/core";
 import { HTMLContent } from "./HTMLContent";
@@ -34,7 +33,6 @@ import {
   IconSettings,
   // IconClipboardList,
   IconTargetArrow,
-  IconActivity,
   IconClock,
   IconMicrophone,
   IconMessageCircle,
@@ -55,7 +53,6 @@ import {
 } from "@tabler/icons-react";
 import { format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
-import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { SmartContentRenderer } from "./SmartContentRenderer";
 import { ProjectIntegrations } from "./ProjectIntegrations";
@@ -80,9 +77,7 @@ import { useMemo } from "react";
 type TabValue =
   | "overview"
   | "tasks"
-  | "plan"
   | "goals"
-  | "outcomes"
   | "timeline"
   | "transcriptions"
   | "integrations"
@@ -94,9 +89,7 @@ type TabValue =
 const VALID_TABS: TabValue[] = [
   "overview",
   "tasks",
-  "plan",
   "goals",
-  "outcomes",
   "timeline",
   "transcriptions",
   "integrations",
@@ -199,23 +192,24 @@ export function ProjectContent({
   });
 
   // Use the resolved project ID (from getById which handles slug resolution)
-  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev..."
-  const resolvedProjectId = project?.id ?? projectId;
+  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev...".
+  // URL slugs use the compound "slug-cuid" format, so when the CUID is present
+  // we can extract it and start the dependent queries in parallel with getById
+  // instead of serializing a second network round-trip behind it.
+  const idFromSlug = /(?:^|-)(c[a-z0-9]{24,})$/.exec(projectId)?.[1];
+  const resolvedProjectId = project?.id ?? idFromSlug ?? projectId;
+  const dependentQueriesEnabled = !!project || !!idFromSlug;
   const { data: projectActions } = api.action.getProjectActions.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const goalsQuery = api.goal.getProjectGoals.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
-  );
-  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery(
-    { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const utils = api.useUtils();
 
@@ -500,22 +494,9 @@ export function ProjectContent({
               >
                 Goals
               </Tabs.Tab>
-              <Tabs.Tab
-                value="outcomes"
-                leftSection={<IconActivity size={14} />}
-              >
-                Outcomes
-              </Tabs.Tab>
               <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
-              {/* <Tabs.Tab
-                value="plan"
-                leftSection={<IconClipboardList size={14} />}
-              >
-                Plan
-              </Tabs.Tab> */}
-              
               {/* Team Weekly Planning Tabs - Only show for team projects */}
               {project.teamId && (
                 <>
@@ -529,7 +510,7 @@ export function ProjectContent({
                     value="weekly-outcomes" 
                     leftSection={<IconCalendarWeek size={14} />}
                   >
-                    Weekly Outcomes
+                    Weekly Commitments
                   </Tabs.Tab>
                 </>
               )}
@@ -563,9 +544,9 @@ export function ProjectContent({
             {/* Content Area */}
             <Tabs.Panel value="overview">
               {legacyOverview ? (
-                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} />
               ) : (
-                <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+                <ProjectOverview project={project} goals={goalsQuery.data ?? []} />
               )}
             </Tabs.Panel>
 
@@ -592,29 +573,8 @@ export function ProjectContent({
               </Stack>
             </Tabs.Panel>
 
-            {/* <Tabs.Panel value="plan">
-              <Plan projectId={projectId} />
-            </Tabs.Panel> */}
-
             <Tabs.Panel value="goals">
               <InitiativeDashboard projectId={resolvedProjectId} />
-            </Tabs.Panel>
-
-            <Tabs.Panel value="outcomes">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full bg-surface-secondary"
-              >
-                <OutcomesTable outcomes={outcomesQuery.data ?? []} />
-                <div className="mt-4">
-                  <CreateOutcomeModal projectId={resolvedProjectId}>
-                    <Button variant="filled" color="dark" leftSection="+">
-                      Add Outcome
-                    </Button>
-                  </CreateOutcomeModal>
-                </div>
-              </Paper>
             </Tabs.Panel>
 
             <Tabs.Panel value="timeline">
@@ -623,7 +583,7 @@ export function ProjectContent({
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <OutcomeTimeline projectId={resolvedProjectId} />
+                <ProjectTimeline projectId={resolvedProjectId} />
               </Paper>
             </Tabs.Panel>
 
@@ -1029,6 +989,30 @@ export function ProjectContent({
                   fullWidth
                   disabled={updateBountiesMutation.isPending}
                 />
+              </Stack>
+            </Card>
+          </Stack>
+
+          {/* Matrix room binding */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconMessageCircle size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                MATRIX ROOM
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Where this project&apos;s meeting summaries are posted. Posting is
+                  always a manual click — nothing is sent automatically.
+                </Text>
+                {workspaceId && resolvedProjectId && (
+                  <MatrixRoomBinding
+                    workspaceId={workspaceId}
+                    projectId={resolvedProjectId}
+                  />
+                )}
               </Stack>
             </Card>
           </Stack>

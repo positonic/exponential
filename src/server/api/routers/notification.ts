@@ -8,6 +8,7 @@ import {
   CHANNEL_LIST,
   DEFAULT_MATRIX,
 } from "~/server/services/notifications/emit/constants";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 
 /**
  * Which opt-in channels the user has actually connected — Push/Email are
@@ -16,7 +17,7 @@ import {
  */
 async function resolveChannelAvailability(db: PrismaClient, userId: string) {
   const matrixIntegration = await db.integration.findFirst({
-    where: { provider: "matrix", status: "ACTIVE", userId: null },
+    where: SHARED_MATRIX_INTEGRATION_WHERE,
     select: { id: true },
   });
   const [matrixMapping, zulipMapping, whatsappMapping] = await Promise.all([
@@ -45,7 +46,109 @@ async function resolveChannelAvailability(db: PrismaClient, userId: string) {
   };
 }
 
+/** Visibility window shared by list/unreadCount/markAllRead — a future scheduledFor means the notification hasn't fired yet. */
+const firedWindow = () => ({
+  OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+});
+
 export const notificationRouter = createTRPCRouter({
+  /**
+   * List the current user's Notification rows — the read side of the
+   * ADR-0045 pipeline (which until this query only ever wrote them).
+   * Newest first, cursor-paginated, optionally narrowed to one category
+   * (e.g. "mention" for the home-panel inbox).
+   */
+  list: protectedProcedure
+    .input(
+      z
+        .object({
+          category: z.enum(CATEGORY_LIST).optional(),
+          unreadOnly: z.boolean().optional(),
+          limit: z.number().int().min(1).max(50).default(20),
+          cursor: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 20;
+      const rows = await ctx.db.notification.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.category ? { category: input.category } : {}),
+          ...(input?.unreadOnly ? { readAt: null } : {}),
+          ...firedWindow(),
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(input?.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          category: true,
+          title: true,
+          message: true,
+          deeplink: true,
+          createdAt: true,
+          readAt: true,
+        },
+      });
+
+      let nextCursor: string | undefined;
+      if (rows.length > limit) {
+        rows.pop();
+        nextCursor = rows[rows.length - 1]?.id;
+      }
+      return { notifications: rows, nextCursor };
+    }),
+
+  /**
+   * Mark one Notification read. Scoped to the current user via updateMany so
+   * a foreign id is a silent no-op rather than an oracle; idempotent (an
+   * already-read row keeps its original readAt).
+   */
+  markRead: protectedProcedure
+    .input(z.object({ notificationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.notification.updateMany({
+        where: {
+          id: input.notificationId,
+          userId: ctx.session.user.id,
+          readAt: null,
+        },
+        data: { readAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  /** Mark every unread Notification read, optionally within one category. */
+  markAllRead: protectedProcedure
+    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.notification.updateMany({
+        where: {
+          userId: ctx.session.user.id,
+          readAt: null,
+          ...(input?.category ? { category: input.category } : {}),
+          ...firedWindow(),
+        },
+        data: { readAt: new Date() },
+      });
+      return { success: true, count: result.count };
+    }),
+
+  /** Unread Notification count for the badge, optionally per category. */
+  unreadCount: protectedProcedure
+    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      return ctx.db.notification.count({
+        where: {
+          userId: ctx.session.user.id,
+          readAt: null,
+          ...(input?.category ? { category: input.category } : {}),
+          ...firedWindow(),
+        },
+      });
+    }),
+
   // Get user notification preferences
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
     const preferences = await ctx.db.notificationPreference.findUnique({
@@ -82,7 +185,7 @@ export const notificationRouter = createTRPCRouter({
   // by itself; the user must choose Matrix here. (V2, ADR-0043)
   getMatrixOptIn: protectedProcedure.query(async ({ ctx }) => {
     const integration = await ctx.db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     if (!integration) return { available: false, integrationId: null };
 
@@ -99,7 +202,7 @@ export const notificationRouter = createTRPCRouter({
   // scheduler), so opt-in can be verified on the spot. Requires a Matrix mapping.
   sendMatrixTest: protectedProcedure.mutation(async ({ ctx }) => {
     const integration = await ctx.db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     const mapping = integration
       ? await ctx.db.integrationUserMapping.findFirst({

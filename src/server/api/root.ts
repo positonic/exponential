@@ -2,12 +2,13 @@ import { postRouter } from "~/server/api/routers/post";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 import { actionRouter } from "./routers/action";
 import { adminRouter } from "./routers/admin";
+import { adrRouter } from "./routers/adr";
 import { projectRouter } from "./routers/project";
+import { searchRouter } from "./routers/search";
 import { toolRouter } from "./routers/tool";
 import { videoRouter } from "~/server/api/routers/video";
 import { goalRouter } from "./routers/goal";
 import { dayRouter } from "~/server/api/routers/day";
-import { outcomeRouter } from "./routers/outcome";
 import { lifeDomainRouter } from "./routers/lifeDomain";
 import { workflowRouter } from "./routers/workflow";
 import { transcriptionRouter } from "./routers/transcription";
@@ -22,12 +23,15 @@ import { teamRouter } from "./routers/team";
 import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
+import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
 import { feedbackRouter } from "./routers/feedback";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
 import { telegramGatewayRouter } from "./routers/telegramGateway";
 import { matrixGatewayRouter } from "./routers/matrixGateway";
+import { matrixServerRouter } from "./routers/matrixServer";
+import { matrixRoomRouter } from "./routers/matrixRoom";
 import { notificationRouter } from "./routers/notification";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
@@ -87,6 +91,7 @@ import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
 import { pageCommentRouter } from "./routers/pageComment";
+import { yourWorkRouter } from "./routers/yourWork";
 /**
  * This is the primary router for your server.
  *
@@ -95,13 +100,14 @@ import { pageCommentRouter } from "./routers/pageComment";
 export const appRouter = createTRPCRouter({
   post: postRouter,
   project: projectRouter,
+  search: searchRouter,
   action: actionRouter,
   admin: adminRouter,
+  adr: adrRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,
   day: dayRouter,
-  outcome: outcomeRouter,
   lifeDomain: lifeDomainRouter,
   workflow: workflowRouter,
   transcription: transcriptionRouter,
@@ -116,12 +122,15 @@ export const appRouter = createTRPCRouter({
   slack: slackRouter,
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
+  workspaceScheduling: workspaceSchedulingRouter,
   feedback: feedbackRouter,
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
   telegramGateway: telegramGatewayRouter,
   matrixGateway: matrixGatewayRouter,
+  matrixServer: matrixServerRouter,
+  matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
   notification: notificationRouter,
   pushSubscription: pushSubscriptionRouter,
@@ -176,6 +185,7 @@ export const appRouter = createTRPCRouter({
   voice: voiceRouter,
   page: pageRouter,
   pageComment: pageCommentRouter,
+  yourWork: yourWorkRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,

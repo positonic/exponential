@@ -61,7 +61,11 @@ dev-debug.log
 node_modules/
 # Environment variables
 # Editor directories and files
-.vscode
+# settings.json is tracked on purpose — it turns format-on-save off, which this
+# repo needs (see prettier.config.js). Git cannot re-include a file whose parent
+# directory is excluded, hence `.vscode/*` rather than `.vscode`.
+.vscode/*
+!.vscode/settings.json
 *.suo
 *.ntvs*
 *.njsproj
@@ -112,3 +116,18 @@ db-backups/
 /e2e/.auth/
 /e2e/.results/
 /playwright-report/
+
+# Restated from nested .gitignore files (src-tauri/.gitignore, .beads/.gitignore).
+# Git already ignores these via the nested files, so this changes nothing for
+# git — but `vercel deploy` walks the working directory reading only the ROOT
+# .gitignore, so without these it tries to upload src-tauri/target (3.2GB of
+# Rust build output) and chokes outright on .beads/bd.sock, which is a unix
+# socket it cannot open. Keep in sync with the nested files.
+/src-tauri/target/
+/src-tauri/gen/
+.beads/*.db
+.beads/*.db?*
+.beads/bd.sock
+.beads/daemon.lock
+.beads/daemon.log
+.beads/daemon.pid

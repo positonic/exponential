@@ -14,7 +14,7 @@ The Fireflies integration connects your Fireflies.ai account to Exponential, ena
 
 ## How It Works
 
-![Fireflies to Slack workflow diagram](/docs/fireflies-workflow.jpg)
+![Fireflies to Slack workflow diagram](/doc-assets/fireflies-workflow.jpg)
 
 1. **Meeting Recorded** - Fireflies records and transcribes your meeting
 2. **Webhook Triggered** - When transcription completes, Fireflies sends a webhook to Exponential

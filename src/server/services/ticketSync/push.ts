@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient, TicketStatus, TicketType } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
 import {
   CYCLE_UNREADABLE_WARNING,
@@ -36,6 +37,28 @@ export const PENDING_EXTERNAL_PREFIX = "pending:";
 
 export function isPendingExternalId(externalId: string): boolean {
   return externalId.startsWith(PENDING_EXTERNAL_PREFIX);
+}
+
+/**
+ * A push failure that must NOT be retried, because the irreversible remote
+ * write already landed and another attempt would duplicate it.
+ *
+ * The case this exists for: `createPage` succeeds, then the bookkeeping that
+ * turns the sentinel into the real page id fails. The page is live in the
+ * customer's Notion, but the sync row still carries `pending:<ticketId>`, so a
+ * retry re-enters the creation branch and makes a SECOND page — up to
+ * MAX_ATTEMPTS of them, each one an orphan the inbound poll then re-imports as
+ * a new ticket. One orphan an operator can reconcile beats five.
+ */
+export class NonRetryablePushError extends Error {
+  /** The live Notion page left unlinked — name it so it can be reconciled. */
+  readonly orphanedExternalId: string;
+
+  constructor(message: string, orphanedExternalId: string) {
+    super(message);
+    this.name = "NonRetryablePushError";
+    this.orphanedExternalId = orphanedExternalId;
+  }
 }
 
 /**
@@ -78,6 +101,18 @@ export interface TicketPushAdapter {
   ): Promise<string | null>;
   /** Resolve a Notion workspace person id by email, or null when unmatched. */
   findPersonIdByEmail(email: string): Promise<string | null>;
+  /**
+   * Pages in the target database whose back-link property equals `ticketUrl` —
+   * the pre-create probe for a page we already created for this ticket.
+   *
+   * Returns `null` when the database has no url-typed back-link property, so
+   * the caller can distinguish "cannot check" from "checked, found nothing".
+   */
+  findPagesByBacklink(
+    databaseId: string,
+    backlinkProperty: string,
+    ticketUrl: string,
+  ): Promise<Array<{ externalId: string; url: string | null }> | null>;
   /** Create a new page (full-mirror creation); returns the new page id + url. */
   createPage(params: {
     databaseId: string;
@@ -92,6 +127,7 @@ export interface TicketPushAdapter {
 export type PushAction =
   | "pushed"
   | "created"
+  | "adopted"
   | "archived"
   | "skipped"
   | "conflict"
@@ -516,6 +552,114 @@ export async function runOutboundTicketPush(
  * Terminal tickets are not mirrored (matching the backfill exclusion); the
  * sentinel is deleted so it doesn't linger as a phantom link.
  */
+interface OrphanProbe {
+  /** A page carrying this ticket's back-link, if one exists. */
+  match: { externalId: string; url: string | null } | null;
+  /**
+   * Set when the matched page is already linked to a DIFFERENT ticket on this
+   * connection. Adopting would breach `@@unique([configId, externalId])` and
+   * fail the run with a constraint error; the caller skips with this reason
+   * instead.
+   */
+  claimedBy: string | null;
+  warnings: string[];
+}
+
+/**
+ * Did we already create a Notion page for this ticket?
+ *
+ * The back-link property every mirror-created page carries IS the identity of
+ * the source, stored in the target — the exact counterpart of
+ * `links.notionPageId` in the other direction. Reading it back answers the
+ * question outright, where a title match only guesses at it: titles are
+ * user-editable, mutate in place, and are not unique (7% of tickets across
+ * this workspace share one; auto-filed bug tickets are identical by design).
+ *
+ * What this catches is the orphan `NonRetryablePushError` documents: the page
+ * was created, then the write that turns the sentinel into a real link died.
+ * Without this probe the next drain creates a second page.
+ *
+ * A database with no url-typed back-link property can't be probed. That
+ * degrades to the old behaviour with a warning rather than failing — the
+ * back-link is optional in the create payload too.
+ */
+async function probeOwnOrphan(
+  db: PrismaClient,
+  adapter: TicketPushAdapter,
+  args: {
+    configId: string;
+    syncId: string;
+    databaseId: string;
+    backlinkProperty: string;
+    ticketUrl: string;
+  },
+): Promise<OrphanProbe> {
+  const none = { match: null, claimedBy: null };
+  const found = await adapter.findPagesByBacklink(
+    args.databaseId,
+    args.backlinkProperty,
+    args.ticketUrl,
+  );
+
+  if (found === null) {
+    return {
+      ...none,
+      warnings: [
+        `no url-typed "${args.backlinkProperty}" property in Notion — cannot tell whether a page was already created for this ticket`,
+      ],
+    };
+  }
+  if (found.length === 0) return { ...none, warnings: [] };
+
+  // Which candidates are already linked to another ticket on this connection?
+  // A ticket URL is unique per ticket, so the back-link can't point at someone
+  // else's page — but the LINK can already exist, e.g. the inbound pass
+  // adopted this page onto a different ticket after our sync record was lost.
+  // `@@unique([configId, externalId])` would turn adopting one of those into a
+  // constraint error that kills the run.
+  //
+  // Resolve claims across ALL candidates in one query, not just the first:
+  // checking only the head both skips unnecessarily (a usable page sits behind
+  // a claimed one) and lets the reconciliation message name pages that already
+  // belong to another ticket without saying so.
+  const claims = await db.ticketSync.findMany({
+    where: {
+      configId: args.configId,
+      externalId: { in: found.map((f) => f.externalId) },
+      id: { not: args.syncId },
+    },
+    select: { externalId: true, ticket: { select: { number: true } } },
+  });
+  const claimedBy = new Map(claims.map((c) => [c.externalId, c.ticket.number]));
+  const usable = found.filter((f) => !claimedBy.has(f.externalId));
+
+  if (usable.length === 0) {
+    const owners = [...new Set(claims.map((c) => `ticket ${c.ticket.number}`))];
+    return { ...none, claimedBy: owners.join(", "), warnings: [] };
+  }
+
+  const [match, ...rest] = usable;
+  if (rest.length === 0 && claimedBy.size === 0) {
+    return { match: match!, claimedBy: null, warnings: [] };
+  }
+
+  // Several pages carry this ticket's back-link: earlier orphans, or a ticket
+  // URL pasted onto more than one page. Linking one is still better than
+  // minting another, but the operator has to reconcile the rest — and needs to
+  // know which of them are already spoken for.
+  const others = [
+    ...rest.map((r) => r.externalId),
+    ...claims.map((c) => `${c.externalId} (linked to ticket ${c.ticket.number})`),
+  ];
+  return {
+    match: match!,
+    claimedBy: null,
+    warnings: [
+      `${found.length} Notion pages carry this ticket's back-link — linked ${match!.externalId}; reconcile the others: ${others.join(", ")}`,
+    ],
+  };
+}
+
 async function runOutboundCreate(
   db: PrismaClient,
   adapter: TicketPushAdapter,
@@ -549,6 +693,62 @@ async function runOutboundCreate(
     };
   }
 
+  const markerNames = resolveMarkerNames(config.propertyNames);
+  const backlinkUrl = ticketUrl(config, sync.ticket.number);
+
+  // ── Orphan probe: did an earlier attempt already create this page? ────────
+  const orphan = await probeOwnOrphan(db, adapter, {
+    configId: config.id,
+    syncId: sync.id,
+    databaseId: config.databaseId,
+    backlinkProperty: markerNames.backlink,
+    ticketUrl: backlinkUrl,
+  });
+  if (orphan.claimedBy) {
+    // Creating here would mint a duplicate page for work Notion already has;
+    // adopting would breach the link uniqueness. Neither is safe to guess at.
+    return {
+      ...base,
+      action: "skipped",
+      reason: `the Notion page created for this ticket is already linked to ${orphan.claimedBy} — resolve the duplicate link before mirroring`,
+    };
+  }
+  if (orphan.match) {
+    if (dryRun) {
+      return {
+        ...base,
+        externalId: orphan.match.externalId,
+        action: "adopted",
+        reason: ["would link the page already created for this ticket", ...orphan.warnings].join("; "),
+      };
+    }
+    // Link, with a null snapshot so the first merge treats every difference as
+    // a two-sided change and resolves by last-write-wins.
+    //
+    // `remoteCreatedAt` is deliberately NOT set. It licenses the body-repair
+    // pass to rewrite a page's content, and the back-link cannot prove we
+    // authored one: `Exponential URL` is an ordinary user-writable Notion
+    // property, so a person cross-referencing a ticket by pasting its URL
+    // produces a single match on a page we never touched. Adopting that page
+    // is reasonable — it is what the paste asked for — but rewriting its body
+    // is not, and that overwrite is irreversible. An orphan we really did
+    // create simply goes un-repaired, which costs nothing anyone will miss.
+    await db.ticketSync.update({
+      where: { id: sync.id },
+      data: {
+        externalId: orphan.match.externalId,
+        externalUrl: orphan.match.url,
+        snapshot: Prisma.DbNull,
+      },
+    });
+    return {
+      ...base,
+      externalId: orphan.match.externalId,
+      action: "adopted",
+      reason: ["linked the page already created for this ticket", ...orphan.warnings].join("; "),
+    };
+  }
+
   const schema = await adapter.getWriteSchema(config.databaseId);
   const titleProperty = findTitleProperty(schema);
 
@@ -562,7 +762,10 @@ async function runOutboundCreate(
     currentRemoteStatusRaw: null,
   });
   const properties: Record<string, unknown> = { ...scalar.properties };
-  const warnings = [...scalar.warnings];
+  // Carry the probe's warnings onto the create: "couldn't check for an
+  // existing page" is exactly the context someone needs when a duplicate
+  // turns up later.
+  const warnings = [...orphan.warnings, ...scalar.warnings];
 
   if (local.cycleName) {
     const pageId = await adapter.findCyclePageIdByName(
@@ -582,12 +785,10 @@ async function runOutboundCreate(
       );
   }
 
-  const markerNames = resolveMarkerNames(config.propertyNames);
   const source = buildSourceProperty(schema, markerNames.source);
   if (source.property) Object.assign(properties, source.property);
   if (source.warning) warnings.push(source.warning);
 
-  const backlinkUrl = ticketUrl(config, sync.ticket.number);
   const backlink = buildBacklinkProperty(schema, markerNames.backlink, backlinkUrl);
   if (backlink) Object.assign(properties, backlink);
 
@@ -609,15 +810,32 @@ async function runOutboundCreate(
   });
 
   // Rewrite the sentinel into a real link with the converged snapshot.
-  await db.ticketSync.update({
-    where: { id: sync.id },
-    data: {
+  // `remoteCreatedAt` is the ONLY trustworthy record that this page is
+  // machine-authored — the run ledger's "created" action is ambiguous across
+  // directions. Anything that rewrites page CONTENT must gate on this column.
+  //
+  // The page above is already live in the customer's Notion, so a failure here
+  // is not retryable: the sentinel would survive and the next drain would
+  // create a duplicate page. Fail terminally and name the orphan instead.
+  try {
+    await db.ticketSync.update({
+      where: { id: sync.id },
+      data: {
+        externalId,
+        externalUrl: url,
+        snapshot: local as unknown as Prisma.InputJsonValue,
+        lastSyncedAt: new Date(),
+        remoteCreatedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    throw new NonRetryablePushError(
+      `Notion page ${externalId} was created but could not be linked to ticket ${sync.ticketId}: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
       externalId,
-      externalUrl: url,
-      snapshot: local as unknown as Prisma.InputJsonValue,
-      lastSyncedAt: new Date(),
-    },
-  });
+    );
+  }
 
   return {
     ...base,

@@ -1,5 +1,6 @@
-import React from "react";
-import type { RailBlock } from "../actions/components/TimelineRail";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { RailBlock } from "~/lib/actions/railBlocks";
+import { layoutRailBlocks } from "~/lib/actions/railLayout";
 import { formatHourLabel, formatHourMinute12 } from "~/lib/actions/dates";
 import { stripHtml } from "~/lib/utils";
 
@@ -16,6 +17,36 @@ interface AgendaRailProps {
 
 export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailProps) {
   const totalHrs = END_HR - START_HR;
+  const [openOverflow, setOpenOverflow] = useState<string | null>(null);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
+
+  // Dismiss the "+N more" panel the way any popover should: click away, or
+  // press Escape. Without this it stays open over other blocks indefinitely.
+  useEffect(() => {
+    if (!openOverflow) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!overflowRef.current?.contains(e.target as Node)) setOpenOverflow(null);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenOverflow(null);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openOverflow]);
+
+  const { positioned, overflows } = useMemo(
+    () =>
+      layoutRailBlocks(blocks, {
+        rangeStart: START_HR,
+        rangeEnd: END_HR,
+        hourPx: HOUR_PX,
+      }),
+    [blocks],
+  );
   return (
     <aside className="td-rail">
       <div className="td-rail__header">
@@ -58,27 +89,69 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
             </div>
           )}
 
-          {blocks.map((b) => {
-            const clampedStart = Math.max(b.start, START_HR);
-            const clampedEnd = Math.min(b.end, END_HR);
-            if (clampedEnd <= clampedStart) return null;
+          {positioned.map(({ block: b, ...layout }) => {
             const tone = b.kind === "cal" ? "blue" : "amber";
             return (
               <div
                 key={b.id}
                 className={`td-event td-event--${tone}`}
+                data-floored={layout.isFloored ? "true" : undefined}
                 style={{
-                  top: (clampedStart - START_HR) * HOUR_PX,
-                  height: (clampedEnd - clampedStart) * HOUR_PX - 4,
+                  top: layout.top,
+                  height: layout.height,
+                  left: `${layout.leftPct}%`,
+                  width: `${layout.widthPct}%`,
                 }}
+                title={`${stripHtml(b.title)} · ${formatHourMinute12(b.start)} – ${formatHourMinute12(b.end)}`}
               >
                 <div className="td-event__title">{stripHtml(b.title)}</div>
-                <div className="td-event__meta">
-                  {formatHourMinute12(b.start)} – {formatHourMinute12(b.end)}
-                </div>
+                {layout.showMeta && (
+                  <div className="td-event__meta">
+                    {formatHourMinute12(b.start)} – {formatHourMinute12(b.end)}
+                  </div>
+                )}
               </div>
             );
           })}
+
+          {overflows.map((o) => (
+            <div
+              key={o.key}
+              ref={openOverflow === o.key ? overflowRef : undefined}
+              className="td-event-more"
+              data-open={openOverflow === o.key ? "true" : undefined}
+              style={{
+                top: o.top,
+                left: `${o.leftPct}%`,
+                width: `${o.widthPct}%`,
+              }}
+            >
+              <button
+                type="button"
+                className="td-event-more__btn"
+                aria-expanded={openOverflow === o.key}
+                onClick={() =>
+                  setOpenOverflow((cur) => (cur === o.key ? null : o.key))
+                }
+              >
+                +{o.hidden.length} more
+              </button>
+              {openOverflow === o.key && (
+                <div className="td-event-more__panel" role="list">
+                  {o.hidden.map((h) => (
+                    <div key={h.id} className="td-event-more__item" role="listitem">
+                      <div className="td-event-more__item-title">
+                        {stripHtml(h.title)}
+                      </div>
+                      <div className="td-event-more__item-time">
+                        {formatHourMinute12(h.start)} – {formatHourMinute12(h.end)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
     </aside>

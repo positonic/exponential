@@ -33,6 +33,14 @@
     {
       "path": "/api/cron/process-notifications",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/adr-sync",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-calendars",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

@@ -12,7 +12,7 @@ import {
   SimpleGrid,
   Avatar,
 } from '@mantine/core';
-import { IconPlus, IconSettings, IconUsers, IconFolder, IconTarget, IconFlag } from '@tabler/icons-react';
+import { IconPlus, IconSettings, IconUsers, IconFolder, IconTarget } from '@tabler/icons-react';
 import Link from 'next/link';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -98,12 +98,6 @@ export default function WorkspacesPage() {
                   <IconTarget size={14} className="text-text-muted" />
                   <Text size="xs" className="text-text-muted">
                     {ws._count.goals} goals
-                  </Text>
-                </Group>
-                <Group gap={4}>
-                  <IconFlag size={14} className="text-text-muted" />
-                  <Text size="xs" className="text-text-muted">
-                    {ws._count.outcomes} outcomes
                   </Text>
                 </Group>
               </Group>

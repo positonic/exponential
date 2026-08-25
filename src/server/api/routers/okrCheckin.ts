@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 // Helper function to get start of week (Monday)
 function getMondayWeekStart(date: Date): Date {
@@ -353,7 +354,8 @@ export const okrCheckinRouter = createTRPCRouter({
       // Verify user has access
       const checkin = await ctx.db.okrCheckin.findUnique({
         where: { id: input.okrCheckinId },
-        select: { teamId: true },
+        // workspaceId + team name ride along for the activity event below.
+        select: { teamId: true, workspaceId: true, team: { select: { name: true } } },
       });
 
       if (!checkin) {
@@ -390,6 +392,21 @@ export const okrCheckinRouter = createTRPCRouter({
           isSubmitted: true,
           submittedAt: new Date(),
         },
+      });
+
+      // The deliberate "I'm ready" submit moment surfaces in the workspace
+      // feed; draft saves (upsertStatusUpdate) never do. No workspaceId guard:
+      // OkrCheckin.workspaceId is non-nullable in the schema. metadata.title is
+      // the team name — check-in rows have no drawer link in V1. Fire-and-forget.
+      await recordActivity(ctx.db, {
+        workspaceId: checkin.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "okr_checkin",
+        entityId: update.id,
+        action: "checked_in",
+        metadata: { title: checkin.team.name },
+      }).catch(() => {
+        /* instrumentation failure is non-fatal */
       });
 
       return update;
@@ -536,7 +553,15 @@ export const okrCheckinRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const checkin = await ctx.db.okrCheckin.findUnique({
         where: { id: input.okrCheckinId },
-        select: { teamId: true, status: true, facilitatorId: true, startedAt: true },
+        select: {
+          teamId: true,
+          status: true,
+          facilitatorId: true,
+          startedAt: true,
+          // workspaceId + team name ride along for the activity event below.
+          workspaceId: true,
+          team: { select: { name: true } },
+        },
       });
 
       if (!checkin) {
@@ -590,6 +615,21 @@ export const okrCheckinRouter = createTRPCRouter({
           durationMinutes,
           notes: input.notes,
         },
+      });
+
+      // The facilitator closing the ritual is the team-visible milestone;
+      // startMeeting never logs. No workspaceId guard: OkrCheckin.workspaceId
+      // is non-nullable in the schema. metadata.title is the team name —
+      // check-in rows have no drawer link in V1. Fire-and-forget.
+      await recordActivity(ctx.db, {
+        workspaceId: checkin.workspaceId,
+        userId: ctx.session.user.id,
+        entityType: "okr_checkin",
+        entityId: input.okrCheckinId,
+        action: "completed",
+        metadata: { title: checkin.team.name },
+      }).catch(() => {
+        /* instrumentation failure is non-fatal */
       });
 
       return updated;

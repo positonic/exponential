@@ -29,6 +29,7 @@ import { calculateProjectHealth } from '~/app/_components/home/ProjectHealth';
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
 import { useProjectViewState, filterProjects } from './useProjectViewState';
+import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import { hasActiveFilters } from '~/types/filter';
 import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import { getAvatarColor, getInitial } from '~/utils/avatarColors';
@@ -329,6 +330,7 @@ export function WorkspaceProjectsTasksConceptD() {
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
@@ -365,6 +367,8 @@ export function WorkspaceProjectsTasksConceptD() {
     if (e.key === 'Escape') searchRef.current?.blur();
   }, []);
 
+  usePageSearchHotkey(searchRef);
+
   const utils = api.useUtils();
 
   const { data, isLoading } = api.project.getProjectsWithActions.useQuery(
@@ -389,7 +393,7 @@ export function WorkspaceProjectsTasksConceptD() {
   const filteredProjects = useMemo(() => {
     const all = data?.projects ?? [];
     const filtered = filterProjects(all, filters, '');
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
     const searchFiltered = q
       ? filtered.filter(
           (p) =>
@@ -398,7 +402,7 @@ export function WorkspaceProjectsTasksConceptD() {
         )
       : filtered;
     return sortProjects(searchFiltered);
-  }, [data?.projects, filters, searchQuery, sortProjects]);
+  }, [data?.projects, filters, deferredSearchQuery, sortProjects]);
 
   const totalActive = filteredProjects.filter((p) => p.status === 'ACTIVE').length;
   const totalOnHold = filteredProjects.filter((p) => p.status === 'ON_HOLD').length;
@@ -427,7 +431,7 @@ export function WorkspaceProjectsTasksConceptD() {
             <input
               ref={searchRef}
               type="text"
-              placeholder="Search  ⌘K"
+              placeholder="Search  ⌘F"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}

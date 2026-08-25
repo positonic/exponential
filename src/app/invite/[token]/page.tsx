@@ -21,9 +21,15 @@ import {
 } from "@tabler/icons-react";
 import { useParams, useRouter } from "next/navigation";
 import { signIn, signOut } from "next-auth/react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
+import {
+  normalizeSignInEmail,
+  SEND_FAILED_MESSAGE,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from "~/lib/signInCode";
 import Image from "next/image";
 import Link from "next/link";
 import "~/styles/auth-surface.css";
@@ -62,7 +68,33 @@ export default function InviteAcceptPage() {
     },
   });
 
-  if (isLoading) {
+  // Invite signups are auto-accepted during user creation, so the invitee
+  // returns here to an already-used invitation. That's success, not an error —
+  // send them straight into the workspace instead of dead-ending. Gated on
+  // actual membership (not isForCurrentUser): an invitee who was later
+  // removed from the workspace would only bounce off the access gate.
+  const shouldAutoRedirect =
+    !!invitation &&
+    invitation.status === "accepted" &&
+    invitation.isLoggedIn &&
+    invitation.isMember;
+  const workspaceSlug = invitation?.workspace.slug;
+  // Only a fresh invitee (brand-new account, welcome unfinished) goes through
+  // the invited welcome variant first; existing users land straight in the
+  // workspace they were just added to.
+  const redirectTarget = invitation?.viewerShouldSeeWelcome
+    ? "/welcome"
+    : workspaceSlug
+      ? `/w/${workspaceSlug}`
+      : null;
+
+  useEffect(() => {
+    if (shouldAutoRedirect && redirectTarget) {
+      router.replace(redirectTarget);
+    }
+  }, [shouldAutoRedirect, redirectTarget, router]);
+
+  if (isLoading || shouldAutoRedirect) {
     return (
       <Container size="sm" className="py-16">
         <Card className="bg-surface-secondary border-border-primary" withBorder>
@@ -98,21 +130,52 @@ export default function InviteAcceptPage() {
     );
   }
 
+  // A signed-out visitor gets the landing page (sign-in options with their
+  // email prefilled) whether the invitation is still pending or was already
+  // accepted. The accepted case is the "you've been added" email for existing
+  // users: membership is already granted, so the only job left is signing in —
+  // bouncing them to an anonymous /signin wall or an "Already Used" card is a
+  // dead end. Expiry still gates both: this page is public and shows the
+  // workspace name, inviter and member count, so a forwarded link shouldn't
+  // keep serving that forever — and removeMember expires the row on the way
+  // out, which is what stops a removed member's link from still rendering.
+  if (
+    !invitation.isLoggedIn &&
+    !invitation.isExpired &&
+    (invitation.status === "accepted" || invitation.status === "pending")
+  ) {
+    return <InviteLandingPage token={token} invitation={invitation} />;
+  }
+
   if (invitation.isExpired) {
+    // An accepted invitation's link is the "you've been added" email, not a
+    // join offer — "ask the admin for a new invitation" is the wrong advice
+    // for someone who may still be a member, so point them at the workspace.
+    const wasAdded = invitation.status === "accepted";
     return (
       <Container size="sm" className="py-16">
         <Card className="bg-surface-secondary border-border-primary" withBorder>
           <Stack gap="md" align="center" className="py-8">
             <IconClock size={48} className="text-yellow-500" />
             <Title order={2} className="text-text-primary">
-              Invitation Expired
+              {wasAdded ? "Link Expired" : "Invitation Expired"}
             </Title>
             <Text className="text-text-secondary text-center">
-              This invitation has expired. Please contact the workspace admin to
-              request a new invitation.
+              {wasAdded
+                ? `This link has expired. If you still have access to ${invitation.workspace.name}, open it below and sign in when asked.`
+                : "This invitation has expired. Please contact the workspace admin to request a new invitation."}
             </Text>
-            <Button variant="light" onClick={() => router.push("/")}>
-              Go to Home
+            <Button
+              variant="light"
+              onClick={() =>
+                router.push(
+                  wasAdded ? `/w/${invitation.workspace.slug}` : "/"
+                )
+              }
+            >
+              {wasAdded
+                ? `Open ${invitation.workspace.name}`
+                : "Go to Home"}
             </Button>
           </Stack>
         </Card>
@@ -142,10 +205,6 @@ export default function InviteAcceptPage() {
         </Card>
       </Container>
     );
-  }
-
-  if (!invitation.isLoggedIn) {
-    return <InviteLandingPage token={token} invitation={invitation} />;
   }
 
   if (!invitation.isForCurrentUser) {
@@ -267,7 +326,12 @@ function InviteLandingPage({
   token: string;
   invitation: InvitationData;
 }) {
+  const router = useRouter();
   const callbackUrl = `/invite/${token}`;
+  // The "member added" email for existing users lands here with an
+  // already-accepted invitation: membership is granted, so the page's job is
+  // just getting them signed in — the copy drops the join/accept framing.
+  const alreadyMember = invitation.status === "accepted";
   const workspaceName = invitation.workspace.name;
   const workspaceSlug = invitation.workspace.slug;
   const workspaceInitial = workspaceName.charAt(0).toUpperCase();
@@ -279,6 +343,9 @@ function InviteLandingPage({
   const [email, setEmail] = useState(invitation.email);
   const [copied, setCopied] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
+  // Set when the code email fails to send. /signin says the same thing through
+  // its ?error= param; this page owns its own copy because it never leaves.
+  const [sendError, setSendError] = useState<string | null>(null);
   const { data: providers } = api.auth.getConfiguredProviders.useQuery();
 
   const daysUntilExpiry = useMemo(() => {
@@ -301,17 +368,38 @@ function InviteLandingPage({
 
   const startSignIn = async (provider: string, targetEmail?: string) => {
     setPendingProvider(provider);
+    setSendError(null);
+    // See /signin: `router.push` resolves before the new route paints, so
+    // clearing this unconditionally re-enables the button mid navigation, and
+    // a second click would send a code that retires the first.
+    let navigating = false;
     try {
       if (provider === "postmark") {
-        await signIn("postmark", {
-          email: targetEmail ?? invitation.email,
+        // Email sign-in delivers a typed code, not a link (ADR-0056), so hand
+        // the identifier to the verify page and drive the navigation ourselves.
+        const identifier = normalizeSignInEmail(targetEmail ?? invitation.email);
+        const result = await signIn("postmark", {
+          email: identifier,
           callbackUrl,
+          redirect: false,
         });
+        // Stay put and say so rather than sending someone to a "check your
+        // email" page for a code that was never sent.
+        if (result?.error) {
+          setSendError(SEND_FAILED_MESSAGE);
+          return;
+        }
+        // Only after the send succeeded, so a failed attempt leaves nothing
+        // stale behind for the verify page to pick up.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        navigating = true;
+        router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
     } finally {
-      setPendingProvider(null);
+      if (!navigating) setPendingProvider(null);
     }
   };
 
@@ -353,19 +441,31 @@ function InviteLandingPage({
             <div className="eyebrow">
               <span className="eyebrow__dot" aria-hidden="true" />
               <span>
-                You&apos;ve been invited · expires in {daysUntilExpiry} days
+                {alreadyMember
+                  ? "You're a member · sign in to continue"
+                  : `You've been invited · expires in ${daysUntilExpiry} days`}
               </span>
             </div>
 
             <h1 className="auth-title">
-              Join{" "}
+              {alreadyMember ? "Open" : "Join"}{" "}
               <span className="auth-title__brand">{workspaceName}</span> on{" "}
               {PRODUCT_NAME}
             </h1>
             <p className="auth-sub">
-              <b>{inviterName}</b> invited you to collaborate on the{" "}
-              <b>{workspaceName}</b> workspace — where the team runs its
-              rituals, projects and OKRs together.
+              {alreadyMember ? (
+                <>
+                  <b>{inviterName}</b> added you to the <b>{workspaceName}</b>{" "}
+                  workspace — sign in below and you&apos;ll land right inside
+                  it.
+                </>
+              ) : (
+                <>
+                  <b>{inviterName}</b> invited you to collaborate on the{" "}
+                  <b>{workspaceName}</b> workspace — where the team runs its
+                  rituals, projects and OKRs together.
+                </>
+              )}
             </p>
 
             <div className="invite-card">
@@ -472,9 +572,15 @@ function InviteLandingPage({
 
             <div className="or-div">
               <span className="or-div__line" />
-              <span className="or-div__txt">or email a magic link</span>
+              <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
+
+            {sendError && (
+              <p className="auth-error" role="alert">
+                {sendError}
+              </p>
+            )}
 
             <form className="field" onSubmit={handleSubmit}>
               <label className="field__label" htmlFor="invite-confirm-email">
@@ -493,13 +599,17 @@ function InviteLandingPage({
                 type="submit"
                 disabled={isBusy}
               >
-                <span>Accept invite &amp; join {workspaceName}</span>
+                <span>
+                  {alreadyMember
+                    ? `Sign in & open ${workspaceName}`
+                    : `Accept invite & join ${workspaceName}`}
+                </span>
                 <ArrowRightGlyph />
               </button>
             </form>
 
             <p className="terms">
-              By joining, you agree to our{" "}
+              By {alreadyMember ? "signing in" : "joining"}, you agree to our{" "}
               <a href="/terms">Terms of Service</a> and{" "}
               <a href="/privacy">Privacy Policy</a>, and to share your name and
               email with members of <b>{workspaceName}</b>.

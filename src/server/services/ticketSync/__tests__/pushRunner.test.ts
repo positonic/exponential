@@ -16,6 +16,7 @@ import {
   planBackfill,
   runOutboundPushSweep,
 } from "../pushRunner";
+import { NonRetryablePushError } from "../push";
 import type { OutboundPushItem, TicketPushAdapter } from "../push";
 
 const db = mockDeep<PrismaClient>() as DeepMockProxy<PrismaClient>;
@@ -236,6 +237,38 @@ describe("runOutboundPushSweep", () => {
     );
   });
 
+  it("does not reschedule a failure whose remote write already landed", async () => {
+    db.ticketSyncPushJob.findMany.mockResolvedValue([dueJob({ attempts: 0 })] as never);
+    db.ticketSyncConfig.findUnique.mockResolvedValue(pushEnabledConfig() as never);
+    const runPush = vi
+      .fn()
+      .mockRejectedValue(
+        new NonRetryablePushError("page created but not linked", "orphan-page-id"),
+      );
+
+    const result = await runOutboundPushSweep(db, NOW, { adapterFactory, runPush });
+
+    expect(result.failed).toBe(1);
+    // FAILED on the first attempt, not PENDING — a retry would re-enter the
+    // create branch and make a second Notion page.
+    expect(db.ticketSyncPushJob.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "job1" },
+        data: expect.objectContaining({
+          status: "FAILED",
+          attempts: 1,
+          nextAttemptAt: NOW,
+        }),
+      }),
+    );
+    // The orphan is named in the run so an operator can find it.
+    const runUpdate = db.ticketSyncRun.update.mock.calls[0]![0] as {
+      data: { items: Array<{ externalId: string | null; reason?: string }> };
+    };
+    expect(runUpdate.data.items[0]?.externalId).toBe("orphan-page-id");
+    expect(runUpdate.data.items[0]?.reason).toContain("not retried");
+  });
+
   it("skips a job another drain already claimed", async () => {
     db.ticketSyncPushJob.findMany.mockResolvedValue([dueJob()] as never);
     db.ticketSyncConfig.findUnique.mockResolvedValue(pushEnabledConfig() as never);
@@ -313,6 +346,39 @@ describe("dispatchTicketCreate", () => {
 
     expect(db.ticketSync.create).not.toHaveBeenCalled();
   });
+
+  // The 2026-07 CLEAR duplication: an imported ticket whose sync record never
+  // existed looks "unsynced", so the mirror created a second Notion page for a
+  // row Notion already had. Provenance, not the sync row, settles the origin.
+  it("does not mirror a ticket that carries Notion provenance but no sync", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      links: { notionPageId: "page-from-notion" },
+      _count: { syncs: 0 },
+    } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSyncConfig.findFirst).not.toHaveBeenCalled();
+    expect(db.ticketSync.create).not.toHaveBeenCalled();
+  });
+
+  it("still mirrors a ticket whose links carry no Notion page id", async () => {
+    db.ticket.findUnique.mockResolvedValue({
+      id: "t1",
+      status: "IN_PROGRESS",
+      productId: "p1",
+      links: { github: "https://github.com/o/r/pull/1" },
+      _count: { syncs: 0 },
+    } as never);
+    db.ticketSyncConfig.findFirst.mockResolvedValue({ id: "cfg1" } as never);
+
+    await dispatchTicketCreate(db, { ticketId: "t1" });
+
+    expect(db.ticketSync.create).toHaveBeenCalled();
+  });
 });
 
 describe("planBackfill / enqueueBackfill", () => {
@@ -351,6 +417,97 @@ describe("planBackfill / enqueueBackfill", () => {
     expect(result.enqueued).toBe(2);
     expect(db.ticketSync.create).toHaveBeenCalledTimes(2);
     expect(db.ticketSyncPushJob.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("excludes Notion-born tickets from the plan and the enqueue alike", async () => {
+    const rows = [
+      { id: "t1", title: "Born here", number: 1, links: null },
+      {
+        id: "t2",
+        title: "Came from Notion",
+        number: 2,
+        links: { notionPageId: "page-1", notion: "https://notion.so/page-1" },
+      },
+      { id: "t3", title: "Also born here", number: 3, links: { github: "x" } },
+    ];
+
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue(rows as never);
+
+    const plan = await planBackfill(db, { configId: "cfg1" });
+    expect(plan.map((p) => p.ticketId)).toEqual(["t1", "t3"]);
+
+    const result = await enqueueBackfill(db, { configId: "cfg1" });
+    expect(result.enqueued).toBe(2);
+    expect(db.ticketSync.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ ticketId: "t2" }),
+      }),
+    );
+  });
+
+  it("flags same-titled Notion rows as an advisory warning, without acting on them", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      databaseId: "db1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue([
+      { id: "t1", title: "Unique thing", number: 1, links: null },
+      { id: "t2", title: "Untitled", number: 2, links: null },
+    ] as never);
+
+    const plan = await planBackfill(db, {
+      configId: "cfg1",
+      probe: {
+        findPagesByTitle: (_db, title) =>
+          Promise.resolve(
+            title === "Untitled"
+              ? [
+                  { externalId: "p-1", url: null },
+                  { externalId: "p-2", url: null },
+                ]
+              : [],
+          ),
+      },
+    });
+
+    // The warning informs the human approving the backfill; it does not remove
+    // the row from the plan. Title is not a key — acting on it is the bug.
+    expect(plan).toHaveLength(2);
+    expect(plan[0]!.warning).toBeUndefined();
+    expect(plan[0]!.titleChecked).toBe(true);
+    expect(plan[1]!.warning).toContain("2 rows with this title");
+  });
+
+  it("survives a probe that throws — the preview still renders", async () => {
+    db.ticketSyncConfig.findUnique.mockResolvedValue({
+      id: "cfg1",
+      productId: "p1",
+      databaseId: "db1",
+      pushEnabled: true,
+      integrationId: "int1",
+    } as never);
+    db.ticket.findMany.mockResolvedValue([
+      { id: "t1", title: "A", number: 1, links: null },
+    ] as never);
+
+    const plan = await planBackfill(db, {
+      configId: "cfg1",
+      probe: { findPagesByTitle: () => Promise.reject(new Error("notion down")) },
+    });
+
+    expect(plan).toHaveLength(1);
+    expect(plan[0]!.warning).toBeUndefined();
+    // The distinction that matters: unchecked, NOT checked-and-clean.
+    expect(plan[0]!.titleChecked).toBeFalsy();
   });
 
   it("refuses to backfill when push is disabled", async () => {

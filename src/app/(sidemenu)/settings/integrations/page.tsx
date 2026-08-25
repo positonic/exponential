@@ -22,7 +22,9 @@ import {
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 import { GoogleCalendarConnect } from '~/app/_components/GoogleCalendarConnect';
+import { GooglePremiumFeature } from '~/app/_components/GooglePremiumFeature';
 import { CalendarMultiSelect } from '~/app/_components/calendar/CalendarMultiSelect';
+import { CalendarFeedsSection } from '~/app/_components/calendar/CalendarFeedsSection';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { GithubRepositoriesCard } from '~/app/_components/integrations/GithubRepositoriesCard';
@@ -38,6 +40,14 @@ export default function IntegrationsSettingsPage() {
 
   // Calendar connection status
   const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+  // True while our Google calendar scopes await verification and this user
+  // isn't an allowlisted tester — offer the premium message, not a connect button.
+  const calendarGated = calendarStatus?.gated ?? false;
+  // Gated, but tokens are still stored — the user connected before the gate
+  // (or fell off the allowlist). Keep Disconnect reachable: this is the only
+  // UI path to revoke an account we otherwise hide everywhere.
+  const hasGatedLeftoverConnection =
+    calendarGated && (calendarStatus?.hasStoredConnection ?? false);
 
   // Calendar disconnect mutation
   const disconnectCalendar = api.calendar.disconnect.useMutation({
@@ -132,11 +142,15 @@ export default function IntegrationsSettingsPage() {
                 <Text size="xs" c="dimmed">
                   {calendarStatus?.isConnected
                     ? 'Your calendar is connected'
-                    : 'Connect to see your events and schedule'}
+                    : hasGatedLeftoverConnection
+                      ? 'Paused while we complete Google verification — you can still remove it'
+                      : calendarGated
+                        ? 'Available to select users during our verification process'
+                        : 'Connect to see your events and schedule'}
                 </Text>
               </div>
             </Group>
-            {calendarStatus?.isConnected ? (
+            {calendarStatus?.isConnected || hasGatedLeftoverConnection ? (
               <Button
                 variant="subtle"
                 color="red"
@@ -148,9 +162,15 @@ export default function IntegrationsSettingsPage() {
                 Disconnect
               </Button>
             ) : (
-              <GoogleCalendarConnect isConnected={false} />
+              <GoogleCalendarConnect isConnected={false} gated={calendarGated} />
             )}
           </Group>
+
+          {calendarGated && !calendarStatus?.isConnected && (
+            <div className="mt-4">
+              <GooglePremiumFeature feature="calendar" variant="alert" />
+            </div>
+          )}
 
           {calendarStatus?.isConnected && (
             <div className="mt-4 pt-4 border-t border-border-primary">
@@ -173,6 +193,23 @@ export default function IntegrationsSettingsPage() {
               />
             </div>
           )}
+        </Paper>
+
+        {/* Calendar feeds (ICS subscriptions) */}
+        <Paper p="lg" withBorder className="bg-surface-secondary">
+          <Group gap="sm" mb="md">
+            <IconCalendar size={20} className="text-text-muted" />
+            <div>
+              <Text fw={500} className="text-text-primary">
+                Calendar feeds
+              </Text>
+              <Text size="xs" c="dimmed">
+                Subscribe to published calendars by ICS address — works with
+                Outlook even without connecting an account
+              </Text>
+            </div>
+          </Group>
+          <CalendarFeedsSection />
         </Paper>
 
         {/* Fireflies */}

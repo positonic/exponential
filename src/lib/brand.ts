@@ -10,7 +10,7 @@
 const DEFAULT_PRODUCT_NAME = 'Exponential';
 const DEFAULT_PRODUCT_SHORT_NAME = 'Exponential';
 const DEFAULT_PRODUCT_TAGLINE =
-  'The coordination layer for AI-first organizations. Goals cascade into outcomes. AI handles execution. Your team stays aligned.';
+  'The coordination layer for AI-first organizations. Goals cascade into projects. AI handles execution. Your team stays aligned.';
 
 export const PRODUCT_NAME: string =
   process.env.NEXT_PUBLIC_PRODUCT_NAME ?? DEFAULT_PRODUCT_NAME;

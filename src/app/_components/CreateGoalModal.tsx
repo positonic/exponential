@@ -1,13 +1,13 @@
 "use client";
 
-import { Modal, Button, Group, TextInput, Select, Text, Textarea, MultiSelect, NumberInput, Stack, ActionIcon, Card, Badge, Accordion } from '@mantine/core';
+import { Modal, Button, Group, TextInput, Select, Text, Textarea, NumberInput, Stack, ActionIcon, Card, Badge, Accordion } from '@mantine/core';
 import { IconPlus, IconTrash, IconX } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { useState, useEffect, useMemo } from "react";
+import { buildGoalUpdatePayload } from "./goalUpdatePayload";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
 import { CreateProjectModal } from './CreateProjectModal';
-import { CreateOutcomeModal } from './CreateOutcomeModal';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
 import { useTerminology } from '~/hooks/useTerminology';
@@ -45,7 +45,6 @@ interface CreateGoalModalProps {
     status?: string;
     lifeDomainId: number | null;
     parentGoalId?: number | null;
-    outcomes?: { id: string; description: string }[];
     workspaceId?: string | null;
     driUserId?: string | null;
   };
@@ -66,9 +65,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
   const [dueDate, setDueDate] = useState<Date | null>(goal?.dueDate ?? null);
   const [lifeDomainId, setLifeDomainId] = useState<number | null>(goal?.lifeDomainId ?? null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(projectId);
-  const [selectedOutcomeIds, setSelectedOutcomeIds] = useState<string[]>(
-    goal?.outcomes?.map(o => o.id) ?? []
-  );
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     goal?.workspaceId ?? defaultWorkspaceId ?? null
   );
@@ -96,7 +92,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
     { workspaceId: workspace?.id },
     { enabled: !!workspace },
   );
-  const { data: outcomes } = api.outcome.getMyOutcomes.useQuery();
   const { data: workspaces } = api.workspace.list.useQuery();
   const { data: periods } = api.okr.getPeriods.useQuery();
   const { data: currentUser } = api.user.getCurrentUser.useQuery();
@@ -184,8 +179,14 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             isActive: true,
           } : null,
           projects: [],
-          outcomes: [],
           childGoals: [],
+          keyResults: [],
+          workspace: null,
+          driUser: null,
+          // A brand-new goal has no key results and no override, so its
+          // resolved progress is "no signal" until the refetch lands.
+          resolvedProgress: null,
+          isProgressManual: false,
           _count: { keyResults: 0 },
         };
         return old ? [...old, optimisticGoal] : [optimisticGoal];
@@ -234,15 +235,20 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
 
       utils.goal.getAllMyGoals.setData(undefined, (old) => {
         if (!old) return old;
+        // updateGoal is a partial update: an omitted field keeps its current
+        // value, an explicit null clears it. The optimistic patch must mirror
+        // that, or the row flickers to null before the refetch corrects it.
+        const patch = <T,>(next: T | undefined, current: T) =>
+          next !== undefined ? next : current;
         return old.map(g => g.id === updatedGoal.id ? {
           ...g,
-          title: updatedGoal.title,
-          description: updatedGoal.description ?? null,
-          whyThisGoal: updatedGoal.whyThisGoal ?? null,
-          notes: updatedGoal.notes ?? null,
-          dueDate: updatedGoal.dueDate ?? null,
-          period: updatedGoal.period ?? null,
-          lifeDomainId: updatedGoal.lifeDomainId ?? null,
+          title: patch(updatedGoal.title, g.title),
+          description: patch(updatedGoal.description, g.description),
+          whyThisGoal: patch(updatedGoal.whyThisGoal, g.whyThisGoal),
+          notes: patch(updatedGoal.notes, g.notes),
+          dueDate: patch(updatedGoal.dueDate, g.dueDate),
+          period: patch(updatedGoal.period, g.period),
+          lifeDomainId: patch(updatedGoal.lifeDomainId, g.lifeDomainId),
         } : g);
       });
 
@@ -292,7 +298,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
     setPeriod(defaultPeriod ?? null);
     setLifeDomainId(null);
     setSelectedProjectId(undefined);
-    setSelectedOutcomeIds([]);
     setSelectedWorkspaceId(defaultWorkspaceId ?? null);
     setDriUserId(currentUser?.id ?? null);
     // Reset key results state
@@ -411,9 +416,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
       setDueDate(goal.dueDate);
       setPeriod(goal.period ?? null);
       setLifeDomainId(goal.lifeDomainId);
-      setSelectedOutcomeIds(goal.outcomes?.map(o => o.id) ?? []);
       setSelectedWorkspaceId(goal.workspaceId ?? null);
       setDriUserId(goal.driUserId ?? null);
+      // These two were missing, so a `goal` that arrived after mount left them
+      // holding the initial render's values — and both are posted on save.
+      setStatus(goal.status ?? "active");
+      setParentGoalId(goal.parentGoalId != null ? String(goal.parentGoalId) : null);
     }
   }, [goal]);
 
@@ -513,17 +521,31 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
               status: (status as "planned" | "active" | "completed" | "archived") ?? undefined,
               lifeDomainId: lifeDomainId ?? undefined,
               projectId: selectedProjectId,
-              outcomeIds: selectedOutcomeIds.length > 0 ? selectedOutcomeIds : undefined,
               driUserId: driUserId ?? currentUser?.id,
               workspaceId: selectedWorkspaceId ?? undefined,
               parentGoalId: parentGoalId ? Number(parentGoalId) : undefined,
             };
 
             if (goal?.id) {
-              updateGoal.mutate({
-                id: goal.id,
-                ...goalData,
-              });
+              // Which keys this payload claims is the whole safety question —
+              // see buildGoalUpdatePayload. Extracted so it can be tested
+              // without mounting the modal.
+              updateGoal.mutate(
+                buildGoalUpdatePayload(goal, {
+                  title,
+                  description,
+                  whyThisGoal,
+                  notes,
+                  dueDate,
+                  period,
+                  status,
+                  lifeDomainId,
+                  selectedProjectId,
+                  driUserId,
+                  selectedWorkspaceId,
+                  parentGoalId,
+                }),
+              );
             } else {
               createGoal.mutate(goalData);
             }
@@ -621,29 +643,6 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             autosize
           />
 
-          <MultiSelect
-            label="Linked Outcomes"
-            placeholder={`Select outcomes that support this ${terminology.goal.toLowerCase()}`}
-            data={outcomes?.map(o => ({ value: o.id, label: o.description })) ?? []}
-            value={selectedOutcomeIds}
-            onChange={setSelectedOutcomeIds}
-            searchable
-            clearable
-            mt="md"
-          />
-          <CreateOutcomeModal onSuccess={(id) => setSelectedOutcomeIds(prev => [...prev, id])}>
-            <Button
-              variant="subtle"
-              size="xs"
-              leftSection={<IconPlus size={14} />}
-              mt={4}
-              className="text-text-secondary hover:text-text-primary"
-            >
-              Create outcome
-            </Button>
-          </CreateOutcomeModal>
-
-          
           <div className="mt-4">
             <Text size="sm" fw={500} mb={4}>Due date (optional)</Text>
             <UnifiedDatePicker

@@ -195,6 +195,33 @@ export class NotionService {
     return blocks;
   }
 
+  /**
+   * A block's (or page's) direct children as full block objects, in order.
+   *
+   * Deliberately returns whole blocks rather than bare ids: every caller of
+   * this is about to delete or rewrite content, and needs the block types to
+   * prove the content is machine-authored first. An ids-only variant existed
+   * and made it too easy to skip that check.
+   */
+  async listBlockChildren(blockId: string): Promise<Array<Record<string, unknown>>> {
+    return (await this.getAllBlocks(blockId)) as Array<Record<string, unknown>>;
+  }
+
+  /** Move one block to the trash (Notion has no hard delete via API). */
+  async deleteBlock(blockId: string): Promise<void> {
+    await this.client.blocks.delete({ block_id: blockId });
+  }
+
+  /** Append children to a page/block, batching under Notion's 100-per-call cap. */
+  async appendBlockChildren(blockId: string, children: unknown[]): Promise<void> {
+    for (let i = 0; i < children.length; i += 90) {
+      await this.client.blocks.children.append({
+        block_id: blockId,
+        children: children.slice(i, i + 90) as any,
+      });
+    }
+  }
+
   /** Pull the title text out of a page's property bag (the `title`-typed property). */
   static extractTitleFromProperties(properties: Record<string, any>): string {
     for (const value of Object.values(properties)) {

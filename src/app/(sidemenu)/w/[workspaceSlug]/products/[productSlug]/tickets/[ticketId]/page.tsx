@@ -8,7 +8,6 @@ import {
   Anchor,
   Avatar,
   Badge,
-  Button,
   CheckIcon,
   Combobox,
   Group,
@@ -28,8 +27,6 @@ import {
   IconBug,
   IconCalendar,
   IconCategory,
-  IconChevronDown,
-  IconChevronRight,
   IconCircleDot,
   IconClock,
   IconCopy,
@@ -55,6 +52,7 @@ import {
 import { generateLinearId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
+import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
@@ -64,8 +62,14 @@ import {
   type TicketStatus,
 } from "~/lib/ticket-statuses";
 import { TagBadge } from "~/app/_components/TagBadge";
-import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import {
+  ActivityFilterMenu,
+  useActivityFilter,
+} from "~/app/_components/shared/ActivityFilterMenu";
+import { useTicketActivity } from "~/hooks/useTicketActivity";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -241,12 +245,14 @@ export default function TicketDetailPage() {
   // Data for selectors
   const members = workspace?.members ?? [];
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
+  // Only this ticket's own product's epics are linkable — the router rejects
+  // another product's epic, so offering it would be a dead option.
   const { data: epics } = api.epic.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
   const { data: features } = api.product.feature.list.useQuery(
     { productId: ticket?.product.id ?? "" },
@@ -276,10 +282,10 @@ export default function TicketDetailPage() {
     },
   });
 
-  const [comment, setComment] = useState("");
   const [status, setStatus] = useState<TicketStatus | null>(null);
   const [titleValue, setTitleValue] = useState(ticket?.title ?? "");
-  const [activityCollapsed, setActivityCollapsed] = useState(false);
+  const activity = useTicketActivity(ticketId);
+  const [activityFilter, setActivityFilter] = useActivityFilter();
 
   useEffect(() => {
     if (ticket) {
@@ -318,19 +324,6 @@ export default function TicketDetailPage() {
       if (workspace) {
         router.push(`/w/${workspace.slug}/products/${productSlug}/tickets`);
       }
-    },
-  });
-
-  const addComment = api.product.ticket.addComment.useMutation({
-    onSuccess: async () => {
-      setComment("");
-      await utils.product.ticket.getById.invalidate({ id: ticketId });
-    },
-  });
-
-  const deleteComment = api.product.ticket.deleteComment.useMutation({
-    onSuccess: async () => {
-      await utils.product.ticket.getById.invalidate({ id: ticketId });
     },
   });
 
@@ -409,6 +402,14 @@ export default function TicketDetailPage() {
                 </Text>
               )}
               <NotionSyncBadge syncs={ticket.syncs} />
+              {workspace && (
+                <TicketNavArrows
+                  productId={ticket.product.id}
+                  number={ticket.number}
+                  workspaceSlug={workspace.slug}
+                  productSlug={productSlug}
+                />
+              )}
             </Group>
 
             <Group justify="space-between" align="flex-start">
@@ -496,79 +497,18 @@ export default function TicketDetailPage() {
             onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
           />
 
-          {/* Activity / Comments */}
+          {/* Activity - the app-wide feed + composer, same block as TicketPeek */}
           <div className="mt-4">
-            <button
-              className="flex items-center gap-1.5 mb-3"
-              onClick={() => setActivityCollapsed((v) => !v)}
+            <CollapsibleSection
+              title="Activity"
+              action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
             >
-              {activityCollapsed
-                ? <IconChevronRight size={13} className="text-text-muted" />
-                : <IconChevronDown size={13} className="text-text-muted" />}
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
-                Activity
-              </Text>
-            </button>
-
-            {!activityCollapsed && ticket.comments.length > 0 && (
-              <Stack gap="sm" mb="md">
-                {ticket.comments.map((c) => (
-                  <div key={c.id} className="border border-border-primary rounded-lg p-3">
-                    <Group justify="space-between" align="flex-start">
-                      <div className="flex-1">
-                        <Group gap="xs" mb={4}>
-                          <Avatar size="xs" radius="xl" src={c.author.image}>
-                            {(c.author.name ?? "?")[0]?.toUpperCase()}
-                          </Avatar>
-                          <Text size="xs" fw={500} className="text-text-secondary">
-                            {c.author.name}
-                          </Text>
-                          <Text size="xs" className="text-text-muted">
-                            {new Date(c.createdAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
-                          </Text>
-                        </Group>
-                        <div className="ml-6">
-                          <MarkdownRenderer content={c.content} />
-                        </div>
-                      </div>
-                      <ActionIcon variant="subtle" color="red" size="xs" onClick={() => deleteComment.mutate({ id: c.id })}>
-                        <IconTrash size={12} />
-                      </ActionIcon>
-                    </Group>
-                  </div>
-                ))}
-              </Stack>
-            )}
-
-            {!activityCollapsed && (
-              <div className="flex gap-3">
-                <Textarea
-                  placeholder="Leave a comment..."
-                  value={comment}
-                  onChange={(e) => setComment(e.currentTarget.value)}
-                  autosize
-                  minRows={1}
-                  maxRows={4}
-                  className="flex-1"
-                  styles={{
-                    input: {
-                      backgroundColor: "transparent",
-                      border: "1px solid var(--color-border-primary)",
-                      fontSize: "0.85rem",
-                    },
-                  }}
-                />
-                <Button
-                  size="xs"
-                  onClick={() => addComment.mutate({ ticketId, content: comment })}
-                  loading={addComment.isPending}
-                  disabled={!comment.trim()}
-                  className="self-end"
-                >
-                  Post
-                </Button>
-              </div>
-            )}
+              {/* Keyed on the ticket: the nav arrows swap tickets without
+                  unmounting this page, and the composer's draft state lives
+                  inside ActivityTimeline — without the key a half-typed
+                  comment would follow you to the next ticket. */}
+              <ActivityTimeline key={ticketId} activity={activity} filter={activityFilter} />
+            </CollapsibleSection>
           </div>
         </Stack>
       </div>
@@ -686,7 +626,14 @@ export default function TicketDetailPage() {
             epics={epics ?? []}
             onChange={(val) => handleFieldUpdate("epicId", val)}
             onCreate={(name) => {
-              if (workspaceId) createEpic.mutate({ workspaceId, name });
+              // Inline creation lands the epic on this ticket's own product.
+              if (workspaceId && ticket.product.id) {
+                createEpic.mutate({
+                  workspaceId,
+                  productId: ticket.product.id,
+                  name,
+                });
+              }
             }}
           />
         </PropertyRow>

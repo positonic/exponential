@@ -17,6 +17,12 @@
   box-shadow: 0 0 0 4px var(--color-brand-glow) !important;
 }
 
+/* Full-bleed row: 16px wider than its container and pulled 8px left, so the
+   hover background extends past the text. REQUIRES a container with 8px of
+   horizontal padding. Drop it in an unpadded box that also scrolls and the
+   rows overhang — and because a box with one axis set to `auto` computes the
+   other to `auto` too, you get a stray horizontal scrollbar (see the padding
+   on the results list in CommandPalette.tsx). */
 .resultRow {
   display: flex;
   align-items: center;

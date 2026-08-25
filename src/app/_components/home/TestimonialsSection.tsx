@@ -9,7 +9,7 @@ interface TestimonialsSectionProps {
 const testimonials = [
   {
     quote:
-      "We went from 47 tasks to 5 outcomes. Now our AI agents and team are working toward the same goals.",
+      "We went from 47 tasks to 5 goals. Now our AI agents and team are working toward the same things.",
     name: "Sarah Chen",
     title: "Founder",
     company: "TechStart",
@@ -25,7 +25,7 @@ const testimonials = [
   },
   {
     quote:
-      "Finally, a system designed for how AI-first orgs actually work. Outcomes over tasks. Coordination over management.",
+      "Finally, a system designed for how AI-first orgs actually work. Goals over tasks. Coordination over management.",
     name: "Alex Kim",
     title: "Product Lead",
     company: "ShipCo",

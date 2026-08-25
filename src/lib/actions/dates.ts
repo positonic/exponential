@@ -70,3 +70,17 @@ export function nextSaturday(from: Date): Date {
   const daysUntilSat = (6 - from.getDay() + 7) % 7;
   return addDays(from, daysUntilSat === 0 ? 7 : daysUntilSat);
 }
+
+/**
+ * Midnight at the start of `base`'s day, in the *viewer's* timezone.
+ *
+ * Deliberately computed on the client. `partitionActions` buckets by comparing
+ * `startOfDay` values in the viewer's zone, so a day boundary picked on the
+ * server would be the server's midnight — UTC on Vercel — and every user west
+ * of UTC would see a reschedule land on the previous day.
+ */
+export function startOfLocalDay(base: Date): Date {
+  const d = new Date(base);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}

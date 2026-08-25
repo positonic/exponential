@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   Container,
@@ -12,7 +12,11 @@ import {
   Skeleton,
   Stack,
   ActionIcon,
+  VisuallyHidden,
+  Avatar,
+  Collapse,
 } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
 import {
   IconPlus,
   IconTarget,
@@ -22,16 +26,85 @@ import {
   IconClockFilled,
   IconUsers,
   IconChartBar,
+  IconChevronDown,
+  IconChevronRight,
+  IconCornerDownRight,
+  IconFolder,
+  IconSearch,
+  IconFilter,
+  IconUser,
+  IconActivity,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { slugify } from "~/utils/slugify";
 import { GoalIcon } from "../GoalIcon";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useTerminology } from "~/hooks/useTerminology";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
+import { usePageSearchHotkey } from "~/hooks/usePageSearchHotkey";
+import { useProjectViewState } from "~/app/_components/projects/useProjectViewState";
+import { FilterBar } from "~/app/_components/filters";
+import { hasActiveFilters } from "~/types/filter";
+import type { FilterBarConfig, FilterMember, FilterState } from "~/types/filter";
 import Link from "next/link";
+import styles from "./InitiativeDashboard.module.css";
 
 type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
+
+/** URL query params the goals FilterBar owns (distinct from the OKR tab's
+ * `year`/`period` params, which live on the same page). */
+const GOAL_FILTER_KEYS = ["target", "health", "driId"] as const;
+
+/** Filter value for goals that have no OKR period set. */
+const NO_TARGET_VALUE = "none";
+
+const HEALTH_FILTER_OPTIONS = [
+  { value: "on-track", label: "On track" },
+  { value: "at-risk", label: "At risk" },
+  { value: "off-track", label: "Off track" },
+  { value: "no-update", label: "No update" },
+];
+
+/** Order OKR periods newest-year first; within a year: Annual, then Q1–Q4. */
+function comparePeriods(a: string, b: string): number {
+  const parse = (p: string) => {
+    const [kind, year] = p.split("-");
+    const rank = kind === "Annual" ? 0 : Number(kind?.replace("Q", "")) || 9;
+    return { year: Number(year) || 0, rank };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (pa.year !== pb.year) return pb.year - pa.year;
+  return pa.rank - pb.rank;
+}
+
+function filterGoalRows(
+  goals: GoalRow[],
+  filters: FilterState,
+  searchQuery: string,
+): GoalRow[] {
+  const q = searchQuery.trim().toLowerCase();
+  const target = filters.target as string[] | undefined;
+  const health = filters.health as string[] | undefined;
+  const dri = filters.driId as string[] | undefined;
+  return goals.filter((g) => {
+    if (target && target.length > 0) {
+      if (!target.includes(g.period ?? NO_TARGET_VALUE)) return false;
+    }
+    if (health && health.length > 0) {
+      if (!health.includes(g.health ?? "no-update")) return false;
+    }
+    if (dri && dri.length > 0) {
+      if (!g.driUserId || !dri.includes(g.driUserId)) return false;
+    }
+    if (q) {
+      const haystack = `${g.title} ${g.description ?? ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
 
 const healthConfig: Record<HealthStatus, { color: string; icon: typeof IconCircleCheckFilled; label: string }> = {
   "on-track": { color: "var(--mantine-color-green-6)", icon: IconCircleCheckFilled, label: "On track" },
@@ -89,66 +162,248 @@ interface GoalRow {
   dueDate: Date | null;
   parentGoalId: number | null;
   driUserId: string | null;
+  driUser?: { id: string; name: string | null; image: string | null } | null;
   icon: string | null;
   iconColor: string | null;
-  projects: { id: string; name: string; progress: number; status: string }[];
-  childGoals: { id: number; title: string; status: string; health: string | null }[];
+  projects: GoalProject[];
+  parentGoal?: { id: number; title: string } | null;
+  childGoals?: { id: number; title: string; status: string; health: string | null }[];
   _count?: { keyResults: number };
 }
 
-function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: string }) {
+interface GoalProject {
+  id: string;
+  name: string;
+  progress: number;
+  status: string;
+  endDate: Date | null;
+}
+
+/** A goal plus its place in the hierarchy of the rows currently on screen. */
+interface GoalTreeNode {
+  goal: GoalRow;
+  depth: number;
+  children: GoalTreeNode[];
+}
+
+/**
+ * Nests goals under whichever parent is also in `goals`. A goal whose parent is
+ * missing from the list (filtered out by status, or simply not on this project)
+ * stays at the root so it never disappears — it gets a "sub-goal of X" label
+ * instead. Unreachable nodes (a parent cycle) are promoted to roots too.
+ */
+function buildGoalTree(goals: GoalRow[]): GoalTreeNode[] {
+  const nodes = new Map<number, GoalTreeNode>(
+    goals.map((goal) => [goal.id, { goal, depth: 0, children: [] }]),
+  );
+  const roots: GoalTreeNode[] = [];
+
+  for (const goal of goals) {
+    const node = nodes.get(goal.id);
+    if (!node) continue;
+    const parent = goal.parentGoalId !== null ? nodes.get(goal.parentGoalId) : undefined;
+    if (parent && parent !== node) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const seen = new Set<number>();
+  const setDepth = (node: GoalTreeNode, depth: number) => {
+    if (seen.has(node.goal.id)) return;
+    seen.add(node.goal.id);
+    node.depth = depth;
+    node.children.forEach((child) => setDepth(child, depth + 1));
+  };
+  roots.forEach((root) => setDepth(root, 0));
+
+  // Any node a cycle kept out of the walk still deserves a row.
+  for (const node of nodes.values()) {
+    if (!seen.has(node.goal.id)) {
+      setDepth(node, 0);
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+/** One rendered table row: a goal in the hierarchy, or a project nested under one. */
+type VisibleRow =
+  | { kind: "goal"; node: GoalTreeNode }
+  | { kind: "project"; project: GoalProject; parentGoal: GoalRow; depth: number };
+
+/**
+ * Depth-first flatten, skipping the children of collapsed rows. `emitted`
+ * guarantees one row per goal even if a parent cycle left a node reachable from
+ * two places — a duplicate row would also collide on React's key. An expanded
+ * goal's connected projects render directly beneath it, before any sub-goal
+ * subtree, so they always read as belonging to that goal.
+ */
+function flattenGoalTree(
+  nodes: GoalTreeNode[],
+  collapsedIds: Set<number>,
+  emitted = new Set<number>(),
+): VisibleRow[] {
+  return nodes.flatMap((node): VisibleRow[] => {
+    if (emitted.has(node.goal.id)) return [];
+    emitted.add(node.goal.id);
+    if (collapsedIds.has(node.goal.id)) return [{ kind: "goal", node }];
+    return [
+      { kind: "goal", node },
+      ...node.goal.projects.map((project): VisibleRow => ({
+        kind: "project",
+        project,
+        parentGoal: node.goal,
+        depth: node.depth + 1,
+      })),
+      ...flattenGoalTree(node.children, collapsedIds, emitted),
+    ];
+  });
+}
+
+function InitiativeRow({
+  goal,
+  workspaceSlug,
+  depth,
+  childCount,
+  isExpanded,
+  onToggle,
+  goalLabel,
+}: {
+  goal: GoalRow;
+  workspaceSlug: string;
+  depth: number;
+  childCount: number;
+  isExpanded: boolean;
+  onToggle: () => void;
+  goalLabel: string;
+}) {
   const projectCount = goal.projects.length;
   const activeProjectCount = goal.projects.filter(p => p.status === "ACTIVE").length;
   const krCount = goal._count?.keyResults ?? 0;
+  const hasNestedRows = childCount > 0 || projectCount > 0;
+  const isNested = depth > 0;
+  const parentTitle = goal.parentGoal?.title ?? null;
+  // Nesting is only visible when the parent is on screen above this row; if it
+  // isn't, name the parent so the relationship still reads.
+  const detachedParentTitle = !isNested ? parentTitle : null;
+  const subGoalLabel = `Sub-${goalLabel.toLowerCase()}`;
 
   return (
     <Table.Tr
       className="cursor-pointer hover:bg-surface-hover transition-colors"
+      data-goal-depth={depth}
     >
       {/* Name */}
       <Table.Td>
-        <Link
-          href={`/w/${workspaceSlug}/goals/${goal.id}`}
-          className="no-underline"
-        >
-          <Group gap="sm" wrap="nowrap">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
-              <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={16} />
-            </div>
-            <div className="min-w-0">
-              <Group gap={6} wrap="nowrap">
-                <Text size="sm" fw={500} className="text-text-primary" truncate="end">
-                  {goal.title}
-                </Text>
-                {krCount > 0 && (
-                  <Badge
-                    size="xs"
-                    variant="light"
-                    color="brand"
-                    leftSection={<IconChartBar size={10} />}
-                  >
-                    {krCount} KR{krCount === 1 ? "" : "s"}
-                  </Badge>
+        <Group gap={4} wrap="nowrap" style={{ paddingLeft: depth * 28 }}>
+          {hasNestedRows ? (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              className="shrink-0"
+              aria-label={isExpanded ? "Collapse nested rows" : "Expand nested rows"}
+              aria-expanded={isExpanded}
+              onClick={onToggle}
+            >
+              {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+            </ActionIcon>
+          ) : (
+            <div className="w-[22px] shrink-0" aria-hidden="true" />
+          )}
+          {isNested && (
+            <IconCornerDownRight
+              size={14}
+              className="text-text-muted shrink-0"
+              aria-hidden="true"
+            />
+          )}
+          {/* The indent and the ↳ carry the nesting visually; this spells the
+              relationship out for assistive tech. It sits outside the Link so
+              it stays separate content rather than joining the link's name. */}
+          {isNested && parentTitle && (
+            <VisuallyHidden>
+              {subGoalLabel} of {parentTitle}
+            </VisuallyHidden>
+          )}
+          <Link
+            href={`/w/${workspaceSlug}/goals/${goal.id}`}
+            className="no-underline min-w-0 flex-1"
+          >
+            <Group gap="sm" wrap="nowrap">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
+                <GoalIcon icon={goal.icon} iconColor={goal.iconColor} size={16} />
+              </div>
+              <div className="min-w-0">
+                <Group gap={6} wrap="nowrap">
+                  <Text size="sm" fw={500} className="text-text-primary" truncate="end">
+                    {goal.title}
+                  </Text>
+                  {childCount > 0 && !isExpanded && (
+                    <Badge size="xs" variant="light" color="gray">
+                      {childCount} {subGoalLabel.toLowerCase()}{childCount === 1 ? "" : "s"}
+                    </Badge>
+                  )}
+                  {projectCount > 0 && !isExpanded && (
+                    <Badge size="xs" variant="light" color="gray">
+                      {projectCount} project{projectCount === 1 ? "" : "s"}
+                    </Badge>
+                  )}
+                  {krCount > 0 && (
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color="brand"
+                      leftSection={<IconChartBar size={10} />}
+                    >
+                      {krCount} KR{krCount === 1 ? "" : "s"}
+                    </Badge>
+                  )}
+                </Group>
+                {detachedParentTitle && (
+                  <Group gap={4} wrap="nowrap">
+                    <IconCornerDownRight size={12} className="text-text-muted shrink-0" aria-hidden="true" />
+                    <Text size="xs" c="dimmed" lineClamp={1}>
+                      {subGoalLabel} of {detachedParentTitle}
+                    </Text>
+                  </Group>
                 )}
-              </Group>
-              {goal.description && (
-                <Text size="xs" c="dimmed" lineClamp={1}>
-                  {goal.description}
-                </Text>
-              )}
-            </div>
-          </Group>
-        </Link>
+                {goal.description && (
+                  <Text size="xs" c="dimmed" lineClamp={1}>
+                    {goal.description}
+                  </Text>
+                )}
+              </div>
+            </Group>
+          </Link>
+        </Group>
       </Table.Td>
 
-      {/* Owner */}
+      {/* Owner (the goal's DRI) */}
       <Table.Td>
-        <Group gap={6} wrap="nowrap">
-          <IconUsers size={14} className="text-text-muted" />
-          <Text size="sm" c="dimmed">
-            {goal.driUserId ? "Assigned" : "Unassigned"}
-          </Text>
-        </Group>
+        {goal.driUser ? (
+          <Group gap={6} wrap="nowrap">
+            <Avatar
+              src={goal.driUser.image}
+              name={goal.driUser.name ?? undefined}
+              size={20}
+              radius="xl"
+            />
+            <Text size="sm" className="text-text-primary" truncate="end">
+              {goal.driUser.name ?? "Unknown"}
+            </Text>
+          </Group>
+        ) : (
+          <Group gap={6} wrap="nowrap">
+            <IconUsers size={14} className="text-text-muted" />
+            <Text size="sm" c="dimmed">
+              Unassigned
+            </Text>
+          </Group>
+        )}
       </Table.Td>
 
       {/* Target */}
@@ -187,11 +442,140 @@ function InitiativeRow({ goal, workspaceSlug }: { goal: GoalRow; workspaceSlug: 
   );
 }
 
+const projectStatusColor: Record<string, string> = {
+  ACTIVE: "green",
+  ON_HOLD: "yellow",
+  COMPLETED: "blue",
+  CANCELLED: "gray",
+};
+
+function formatProjectStatus(status: string): string {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
+ * A project connected to the goal directly above it — same nested treatment as
+ * a sub-goal row (indent, ↳, hidden relationship text) so the hierarchy reads
+ * as one system.
+ */
+function ProjectSubRow({
+  project,
+  parentGoalTitle,
+  workspaceSlug,
+  depth,
+}: {
+  project: GoalProject;
+  parentGoalTitle: string;
+  workspaceSlug: string;
+  depth: number;
+}) {
+  const progress = Math.round(project.progress);
+
+  return (
+    <Table.Tr
+      className="cursor-pointer hover:bg-surface-hover transition-colors"
+      data-goal-depth={depth}
+    >
+      {/* Name */}
+      <Table.Td>
+        <Group gap={4} wrap="nowrap" style={{ paddingLeft: depth * 28 }}>
+          <div className="w-[22px] shrink-0" aria-hidden="true" />
+          <IconCornerDownRight
+            size={14}
+            className="text-text-muted shrink-0"
+            aria-hidden="true"
+          />
+          <VisuallyHidden>Project of {parentGoalTitle}</VisuallyHidden>
+          <Link
+            href={`/w/${workspaceSlug}/projects/${slugify(project.name)}-${project.id}`}
+            className="no-underline min-w-0 flex-1"
+          >
+            <Group gap="sm" wrap="nowrap">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-surface-secondary">
+                <IconFolder size={16} className="text-text-muted" />
+              </div>
+              <div className="min-w-0">
+                <Group gap={6} wrap="nowrap">
+                  <Text size="sm" fw={500} className="text-text-primary" truncate="end">
+                    {project.name}
+                  </Text>
+                  <Badge
+                    size="xs"
+                    variant="light"
+                    color={projectStatusColor[project.status] ?? "gray"}
+                  >
+                    {formatProjectStatus(project.status)}
+                  </Badge>
+                </Group>
+                {progress > 0 && (
+                  <Text size="xs" c="dimmed">
+                    {progress}% complete
+                  </Text>
+                )}
+              </div>
+            </Group>
+          </Link>
+        </Group>
+      </Table.Td>
+
+      {/* Owner */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+
+      {/* Target */}
+      <Table.Td>
+        <Text size="sm" className="text-text-secondary">
+          {formatTargetDate(project.endDate)}
+        </Text>
+      </Table.Td>
+
+      {/* Projects */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+
+      {/* Initiative Health */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+
+      {/* Active Projects */}
+      <Table.Td>
+        <Text size="sm" c="dimmed">—</Text>
+      </Table.Td>
+    </Table.Tr>
+  );
+}
+
 export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("active");
-  const { workspaceId, workspaceSlug } = useWorkspace();
+  const [collapsedIds, setCollapsedIds] = useState<Set<number>>(() => new Set());
+  const { workspace, workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
   const pathname = usePathname();
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const {
+    filters,
+    setFilters,
+    searchQuery,
+    deferredSearchQuery,
+    setSearchQuery,
+  } = useProjectViewState(GOAL_FILTER_KEYS);
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") searchRef.current?.blur();
+    },
+    [],
+  );
+  usePageSearchHotkey(searchRef);
 
   const { data: projectGoals, isLoading: projectGoalsLoading } = api.goal.getProjectGoals.useQuery(
     { projectId: projectId ?? "" },
@@ -204,14 +588,96 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
   );
 
   const isLoading = projectId ? projectGoalsLoading : workspaceGoalsLoading;
-  const goalsSource = projectId ? (projectGoals ?? []) : (allGoals ?? []);
+  const goalsSource = useMemo(
+    () => (projectId ? (projectGoals ?? []) : (allGoals ?? [])),
+    [projectId, projectGoals, allGoals],
+  );
 
-  // Filter goals by status; in workspace mode, show only root-level goals
-  const filteredGoals = goalsSource.filter(g => {
-    if (g.status !== statusFilter) return false;
-    if (!projectId && g.parentGoalId !== null) return false;
-    return true;
-  });
+  // Filter goals by status pill, then by the FilterBar's target/health/DRI
+  // selections and the search box, then nest sub-goals under whichever parent
+  // survived. Rows are flattened depth-first so the table stays a plain table.
+  const statusGoals = useMemo(
+    () => goalsSource.filter(g => g.status === statusFilter) as unknown as GoalRow[],
+    [goalsSource, statusFilter],
+  );
+  const filteredGoals = useMemo(
+    () => filterGoalRows(statusGoals, filters, deferredSearchQuery),
+    [statusGoals, filters, deferredSearchQuery],
+  );
+  const goalTree = useMemo(() => buildGoalTree(filteredGoals), [filteredGoals]);
+  const visibleRows = useMemo(
+    () => flattenGoalTree(goalTree, collapsedIds),
+    [goalTree, collapsedIds],
+  );
+
+  // Target options come from the periods actually in use, so the filter never
+  // offers a period with zero goals behind it. Built from the unfiltered
+  // source list — options must not disappear as they're applied.
+  const goalFilterConfig: FilterBarConfig = useMemo(() => {
+    const periods = new Set<string>();
+    let hasNoTarget = false;
+    for (const g of goalsSource as unknown as GoalRow[]) {
+      if (g.period) periods.add(g.period);
+      else hasNoTarget = true;
+    }
+    const targetOptions = [...periods]
+      .sort(comparePeriods)
+      .map((p) => ({ value: p, label: p }));
+    if (hasNoTarget) {
+      targetOptions.push({ value: NO_TARGET_VALUE, label: "No target" });
+    }
+    return {
+      fields: [
+        {
+          key: "target",
+          label: "Target",
+          type: "multi-select",
+          icon: IconTarget,
+          badgeColor: "cyan",
+          options: targetOptions,
+        },
+        {
+          key: "health",
+          label: "Health",
+          type: "multi-select",
+          icon: IconActivity,
+          badgeColor: "green",
+          options: HEALTH_FILTER_OPTIONS,
+        },
+        {
+          key: "driId",
+          label: "Owner",
+          type: "user",
+          icon: IconUser,
+          badgeColor: "blue",
+        },
+      ],
+    };
+  }, [goalsSource]);
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
+  const filtersActive = hasActiveFilters(goalFilterConfig, filters);
+
+  const toggleCollapsed = (goalId: number) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(goalId)) {
+        next.delete(goalId);
+      } else {
+        next.add(goalId);
+      }
+      return next;
+    });
+  };
 
   // Register lightweight page context for the AI agent (workspace goals view only —
   // the project-scoped reuse already has project context). Counts only; the agent
@@ -243,36 +709,74 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
           </CreateGoalModal>
         </Group>
 
-        {/* Status filter tabs - pill style like Linear */}
-        <Group gap="xs">
-          <Badge
-            variant={statusFilter === "active" ? "filled" : "light"}
-            color={statusFilter === "active" ? "dark" : "gray"}
-            size="lg"
-            className="cursor-pointer"
-            onClick={() => setStatusFilter("active")}
-          >
-            Active
-          </Badge>
-          <Badge
-            variant={statusFilter === "planned" ? "filled" : "light"}
-            color={statusFilter === "planned" ? "dark" : "gray"}
-            size="lg"
-            className="cursor-pointer"
-            onClick={() => setStatusFilter("planned")}
-          >
-            Planned
-          </Badge>
-          <Badge
-            variant={statusFilter === "completed" ? "filled" : "light"}
-            color={statusFilter === "completed" ? "dark" : "gray"}
-            size="lg"
-            className="cursor-pointer"
-            onClick={() => setStatusFilter("completed")}
-          >
-            Completed
-          </Badge>
+        {/* Status pills left; search + filter (projects-page look) right */}
+        <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+          <Group gap="xs">
+            <Badge
+              variant={statusFilter === "active" ? "filled" : "light"}
+              color={statusFilter === "active" ? "dark" : "gray"}
+              size="lg"
+              className="cursor-pointer"
+              onClick={() => setStatusFilter("active")}
+            >
+              Active
+            </Badge>
+            <Badge
+              variant={statusFilter === "planned" ? "filled" : "light"}
+              color={statusFilter === "planned" ? "dark" : "gray"}
+              size="lg"
+              className="cursor-pointer"
+              onClick={() => setStatusFilter("planned")}
+            >
+              Planned
+            </Badge>
+            <Badge
+              variant={statusFilter === "completed" ? "filled" : "light"}
+              color={statusFilter === "completed" ? "dark" : "gray"}
+              size="lg"
+              className="cursor-pointer"
+              onClick={() => setStatusFilter("completed")}
+            >
+              Completed
+            </Badge>
+          </Group>
+
+          <div className={styles.actions}>
+            <div className={styles.searchWrap}>
+              <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
+              <input
+                ref={searchRef}
+                type="text"
+                placeholder="Search  ⌘F"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                className={styles.searchInput}
+              />
+            </div>
+            <button
+              className={styles.actionBtn}
+              type="button"
+              onClick={toggleFilterRow}
+              data-active={filtersActive ? "true" : "false"}
+            >
+              <IconFilter size={13} stroke={1.75} />
+              Filter
+            </button>
+          </div>
         </Group>
+
+        {/* Collapsible filter row */}
+        <Collapse in={filterRowOpen || filtersActive}>
+          <div className={styles.filterRow}>
+            <FilterBar
+              config={goalFilterConfig}
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+            />
+          </div>
+        </Collapse>
 
         {/* Table */}
         {isLoading ? (
@@ -294,15 +798,42 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {filteredGoals.map((goal) => (
-                <InitiativeRow
-                  key={goal.id}
-                  goal={goal as unknown as GoalRow}
-                  workspaceSlug={workspaceSlug ?? ""}
-                />
-              ))}
+              {visibleRows.map((row) =>
+                row.kind === "goal" ? (
+                  <InitiativeRow
+                    key={row.node.goal.id}
+                    goal={row.node.goal}
+                    workspaceSlug={workspaceSlug ?? ""}
+                    depth={row.node.depth}
+                    childCount={row.node.children.length}
+                    isExpanded={!collapsedIds.has(row.node.goal.id)}
+                    onToggle={() => toggleCollapsed(row.node.goal.id)}
+                    goalLabel={terminology.goal}
+                  />
+                ) : (
+                  // A project can be connected to several goals on screen, so the
+                  // key needs the parent goal to stay unique.
+                  <ProjectSubRow
+                    key={`${row.parentGoal.id}-project-${row.project.id}`}
+                    project={row.project}
+                    parentGoalTitle={row.parentGoal.title}
+                    workspaceSlug={workspaceSlug ?? ""}
+                    depth={row.depth}
+                  />
+                ),
+              )}
             </Table.Tbody>
           </Table>
+        ) : statusGoals.length > 0 ? (
+          <div className="py-16 text-center">
+            <IconSearch size={48} className="text-text-muted mx-auto mb-4" />
+            <Text size="lg" fw={500} className="text-text-primary">
+              No {terminology.goals.toLowerCase()} match your search or filters
+            </Text>
+            <Text size="sm" c="dimmed" mt={4}>
+              Try a different search, or clear the active filters.
+            </Text>
+          </div>
         ) : (
           <div className="py-16 text-center">
             <IconTarget size={48} className="text-text-muted mx-auto mb-4" />

@@ -166,7 +166,7 @@ export function BlogContent({ post, isLoggedIn, userId }: BlogContentProps) {
               </div>
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 shrink-0">&#10003;</span>
-                <span>Goals, outcomes, and projects linked in one system</span>
+                <span>Goals, key results, and projects linked in one system</span>
               </div>
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 shrink-0">&#10003;</span>

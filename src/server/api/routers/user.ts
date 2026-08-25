@@ -2,8 +2,19 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 export const userRouter = createTRPCRouter({
+  /**
+   * Whether this user may use the Google features whose scopes Google has not
+   * verified yet (calendar, contacts). The UI uses this to show the
+   * "premium feature" message instead of connect buttons that would dead-end
+   * on Google's unverified-app screen. Google *sign-in* is not affected.
+   */
+  isGoogleOAuthTester: protectedProcedure.query(({ ctx }) => {
+    return isGoogleOAuthTester(ctx.session.user.email);
+  }),
+
   getCurrentUser: protectedProcedure
     .query(async ({ ctx }) => {
       return {
@@ -89,7 +100,6 @@ export const userRouter = createTRPCRouter({
         user,
         projectCount,
         goalCount,
-        outcomeCount,
         projectActionCount,
         calendarAccounts,
         dailyPlanCount,
@@ -106,7 +116,6 @@ export const userRouter = createTRPCRouter({
         }),
         ctx.db.project.count({ where: { createdById: userId, type: { not: 'onboarding' } } }),
         ctx.db.goal.count({ where: { userId } }),
-        ctx.db.outcome.count({ where: { userId } }),
         ctx.db.action.count({
           where: {
             createdById: userId,
@@ -130,17 +139,25 @@ export const userRouter = createTRPCRouter({
         }),
       ]);
 
+      // Google's calendar scopes are unverified, so a non-tester's Google
+      // connection can't be used — ignore it when scoring the calendar step.
+      // Microsoft is a separate, approved OAuth app and always counts.
+      const googleCalendarAvailable = isGoogleOAuthTester(ctx.session.user.email);
+      const usableCalendarAccounts = calendarAccounts.filter(
+        (account) => googleCalendarAvailable || account.provider !== 'google',
+      );
+
       return {
         userName: user?.name ?? null,
         welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
         usageType: user?.usageType ?? null,
         userRole: user?.userRole ?? null,
+        googleCalendarAvailable,
         steps: {
           hasProject: projectCount > 0,
           hasGoal: goalCount > 0,
-          hasOutcome: outcomeCount > 0,
           hasProjectActions: projectActionCount > 0,
-          hasCalendar: calendarAccounts.length > 0,
+          hasCalendar: usableCalendarAccounts.length > 0,
           hasDailyPlan: dailyPlanCount > 0,
           hasCompletedAction: completedActionCount > 0,
         },
@@ -182,6 +199,42 @@ export const userRouter = createTRPCRouter({
       });
 
       return { success: true, name: updatedUser.name };
+    }),
+
+  getTimezone: protectedProcedure.query(async ({ ctx }) => {
+    const user = await ctx.db.user.findUnique({
+      where: { id: ctx.session.user.id },
+      select: { timezone: true },
+    });
+    return { timezone: user?.timezone ?? null };
+  }),
+
+  updateTimezone: protectedProcedure
+    .input(
+      z.object({
+        timezone: z.string().min(1).max(100),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Accept only names the Intl runtime recognizes — this is what keeps
+      // Windows zone names (e.g. "W. Europe Standard Time" from Outlook
+      // feeds) and typos out of User.timezone, which work-hours slot
+      // interpretation later depends on.
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: input.timezone });
+      } catch {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `"${input.timezone}" is not a recognized IANA timezone.`,
+        });
+      }
+
+      const updated = await ctx.db.user.update({
+        where: { id: ctx.session.user.id },
+        data: { timezone: input.timezone },
+        select: { timezone: true },
+      });
+      return { success: true, timezone: updated.timezone };
     }),
 
   /**

@@ -335,7 +335,7 @@
 }
 .connectBtn:hover { border-color: var(--color-border-strong); }
 
-/* ── Goals / Outcomes filled rows (lightweight) ───────── */
+/* ── Goals filled rows (lightweight) ───────── */
 
 .rowList { padding: 4px 0; }
 .rowItem {

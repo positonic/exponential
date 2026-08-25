@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '~/trpc/react';
 import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { streamChatResponse, type ChatStreamCoreMessage } from '~/lib/chat/streamChatResponse';
-import { classifyStreamError } from '~/lib/chat/streamProtocol';
+import { classifyStreamError, describeStreamError } from '~/lib/chat/streamProtocol';
+import { reportHandledError } from '~/lib/reportHandledError';
 import { cardFromToolCalls } from '~/lib/chat/cardFromToolCalls';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
 import { applyToolRefreshInvalidations } from '~/app/_components/agent/toolRefreshInvalidation';
@@ -258,6 +259,16 @@ export function useCanvasEngagement({
 
         setIsStreaming(false);
 
+        // A dismissal is the user's own doing, not a fault — reporting those
+        // would fill the tracker with people changing their minds.
+        if (!wasDismissed) {
+          reportHandledError(error, {
+            area: 'zoe-canvas-stream',
+            kind,
+            context: { hadContent: String(hadContent), attempt: String(attempt) },
+          });
+        }
+
         // One abort rule (ADR-0040): a dismissal mid-stream marks the turn
         // `incomplete` — the existing partial-answer + Retry treatment, visible
         // in the drawer where the thread lives on.
@@ -266,7 +277,7 @@ export function useCanvasEngagement({
         patchTrailingAi(last => ({
           agentName: severity === 'error' ? (last.agentName ?? 'Assistant') : last.agentName,
           content: severity === 'error' ? '' : last.content,
-          failure: { severity, kind, canRetry: kind !== 'auth', retryText: trimmedText },
+          failure: { severity, kind, canRetry: kind !== 'auth', retryText: trimmedText, detail: describeStreamError(error) },
         }));
       } finally {
         if (abortRef.current === abortController) abortRef.current = null;

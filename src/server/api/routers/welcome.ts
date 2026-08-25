@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 /**
  * Per-user "Getting started" setup state, persisted on `User.welcomeSetupState`.
@@ -55,8 +56,17 @@ async function saveSetupState(
   return state;
 }
 
-/** Objects created during setup land in the user's default (usually personal) workspace. */
-async function resolveWorkspaceId(
+/**
+ * Objects created during setup land in the user's PERSONAL workspace. The
+ * default workspace is used only when it is itself personal: for an invited
+ * user the default is the shared team workspace (invite auto-accept overrides
+ * it at signup), and a throwaway onboarding goal like "Get fit" must never be
+ * visible to the rest of the team.
+ *
+ * Exported for tests — this is the enforcement point for the "onboarding
+ * artifacts never land in a shared workspace" acceptance criterion.
+ */
+export async function resolveWorkspaceId(
   db: PrismaClient,
   userId: string,
 ): Promise<string | null> {
@@ -64,14 +74,96 @@ async function resolveWorkspaceId(
     where: { id: userId },
     select: { defaultWorkspaceId: true },
   });
-  if (user?.defaultWorkspaceId) return user.defaultWorkspaceId;
+  const defaultWorkspace = user?.defaultWorkspaceId
+    ? await db.workspace.findUnique({
+        where: { id: user.defaultWorkspaceId },
+        select: { id: true, type: true, ownerId: true },
+      })
+    : null;
+  // Ownership matters, not just type: a user can be invited into someone
+  // ELSE's personal workspace (addMember has no type gate), and auto-accept
+  // makes that their default — their onboarding goal must not land there.
+  if (defaultWorkspace?.type === "personal" && defaultWorkspace.ownerId === userId) {
+    return defaultWorkspace.id;
+  }
 
+  // Default is shared (team/organization) or unset — use the personal
+  // workspace the user owns (auto-created at signup).
+  const personal = await db.workspace.findFirst({
+    where: { ownerId: userId, type: "personal" },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (personal) return personal.id;
+
+  // No personal workspace exists — keep the previous resolution order.
+  if (defaultWorkspace) return defaultWorkspace.id;
   const membership = await db.workspaceUser.findFirst({
     where: { userId },
     orderBy: { joinedAt: "asc" },
     select: { workspaceId: true },
   });
   return membership?.workspaceId ?? null;
+}
+
+/** What the invited welcome variant needs to know about the joined workspace. */
+export interface InvitedContext {
+  workspaceName: string;
+  workspaceSlug: string;
+  inviterName: string | null;
+}
+
+/**
+ * Detect whether this user is a fresh invitee: their most recently accepted
+ * WorkspaceInvitation, but only when it put them into someone ELSE's
+ * workspace. A user who owns the workspace their latest invitation points at
+ * (e.g. an owner re-invited into their own workspace) is not "invited" — the
+ * welcome page must not pretend they just joined a team.
+ *
+ * Exported for tests — this decides which welcome variant a user sees.
+ */
+export async function resolveInvitedContext(
+  db: PrismaClient,
+  userId: string,
+  email: string | null | undefined,
+): Promise<InvitedContext | null> {
+  if (!email) return null;
+  const invitation = await db.workspaceInvitation.findFirst({
+    where: { email, status: "accepted" },
+    orderBy: { acceptedAt: "desc" },
+    include: {
+      workspace: {
+        select: { name: true, slug: true, type: true, ownerId: true },
+      },
+      createdBy: { select: { name: true, email: true } },
+    },
+  });
+  if (!invitation) return null;
+  if (invitation.workspace.ownerId === userId) return null;
+
+  // Only genuine CURRENT members: an invitee who was later removed must not
+  // see "You've joined {workspace}" with a CTA into a workspace whose access
+  // gate will reject them (and must not be shown its name/inviter at all).
+  const membership = await db.workspaceUser.findUnique({
+    where: {
+      userId_workspaceId: { userId, workspaceId: invitation.workspaceId },
+    },
+    select: { userId: true },
+  });
+  if (!membership) return null;
+
+  // `??` alone would let a whitespace-only stored name through and render
+  // "  invited you" — treat blank as missing.
+  const inviterName =
+    invitation.createdBy.name?.trim() ||
+    invitation.createdBy.email?.trim() ||
+    null;
+
+  return {
+    workspaceName: invitation.workspace.name,
+    workspaceSlug: invitation.workspace.slug,
+    inviterName,
+  };
 }
 
 export const welcomeRouter = createTRPCRouter({
@@ -82,7 +174,7 @@ export const welcomeRouter = createTRPCRouter({
    */
   getSetup: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
-    const [user, calendarAccountCount] = await Promise.all([
+    const [user, calendarAccountCount, invitedContext] = await Promise.all([
       ctx.db.user.findUnique({
         where: { id: userId },
         select: {
@@ -97,12 +189,21 @@ export const welcomeRouter = createTRPCRouter({
           provider: { in: ["google", "microsoft-entra-id"] },
         },
       }),
+      resolveInvitedContext(ctx.db, userId, ctx.session.user.email),
     ]);
 
     return {
       userName: user?.name ?? null,
       welcomeCompletedAt: user?.welcomeCompletedAt ?? null,
       calendarConnected: calendarAccountCount > 0,
+      // Google's calendar scopes are still awaiting verification. For users who
+      // aren't allowlisted testers the step isn't "not connected", it's not
+      // available — the Google half of the step is hidden rather than offered.
+      googleCalendarAvailable: isGoogleOAuthTester(ctx.session.user.email),
+      // Only a live signal while welcome is in progress: once completed, a
+      // return visit to /welcome must not flip an ordinary user's finished
+      // flow into the invited variant.
+      invitedContext: user?.welcomeCompletedAt ? null : invitedContext,
       state: parseSetupState(user?.welcomeSetupState),
     };
   }),
@@ -148,11 +249,10 @@ export const welcomeRouter = createTRPCRouter({
    * Step 2 — creates a real Action, due today so it shows up on the Today
    * page (and its sidebar badge) immediately.
    *
-   * TODO(outcomes-removal): the onboarding framework links Actions directly
-   * to Goals, but the Action model has no `goalId` — the current schema only
-   * supports Goal→Project→Action (and the legacy Goal→Outcome→Project chain).
-   * When the backend migration adds a direct Action↔Goal link, connect this
-   * action to `state.goalId`. Do not route through Outcomes.
+   * TODO: the onboarding framework links Actions directly to Goals, but the
+   * Action model has no `goalId` — the current schema only supports
+   * Goal→Project→Action. When the backend migration adds a direct Action↔Goal
+   * link, connect this action to `state.goalId`.
    */
   createAction: protectedProcedure
     .input(

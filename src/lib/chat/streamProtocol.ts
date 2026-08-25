@@ -15,6 +15,10 @@
  * consumes the chat stream (the Zoe drawer via ManyChat, the Zoe canvas).
  */
 
+// Pure regex helper, no server dependencies — imported rather than reimplemented
+// so client-shown error text is masked by exactly the rule the server logs use.
+import { maskTokenLike } from '~/server/utils/redactToolArgs';
+
 // One agent tool invocation, accumulated from __exp_tool__ frames.
 export interface ToolCall {
   id: string;
@@ -150,8 +154,47 @@ export function classifyStreamError(error: unknown): { kind: StreamFailureKind; 
   ) {
     return { kind: 'transport', retryable: true };
   }
+  // Provider-level refusals (billing, quota, rate limits). These arrive as a
+  // plain sentence from the model vendor — "Your credit balance is too low to
+  // access the Anthropic API" — with none of the words matched above, so they
+  // used to land in `unknown` and render as "Something went wrong", hiding the
+  // one fact that would have fixed it.
+  if (
+    text.includes('credit balance') ||
+    text.includes('quota') ||
+    text.includes('billing') ||
+    text.includes('insufficient_quota') ||
+    text.includes('rate limit')
+  ) {
+    return { kind: 'model', retryable: false };
+  }
   if (text.includes('mastra') || text.includes('agent')) {
     return { kind: 'model', retryable: false };
   }
   return { kind: 'unknown', retryable: false };
+}
+
+/**
+ * The thrown error's own words, for display beneath the calm copy.
+ *
+ * Returns undefined when there's nothing worth showing. Capped because some
+ * provider errors carry a whole stack trace, and a chat bubble is not a log
+ * viewer.
+ *
+ * Masked with the same rule the server applies before an error message reaches
+ * a log (`maskTokenLike`), because free-form provider text can echo a
+ * credential back — "Invalid API key ff_live_…". The server-mediated path goes
+ * further and shows the user nothing but a generic line
+ * (`formatUserFacingStreamError`); that stays as it is. This is for errors
+ * thrown at *this* end, where the alternative is not a safer message but no
+ * message at all.
+ */
+export function describeStreamError(error: unknown): string | undefined {
+  const raw =
+    error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  // Providers often append a stack after the sentence; the first line is the
+  // part a human reads.
+  const message = maskTokenLike(raw.split('\n')[0]?.trim() ?? '');
+  if (!message) return undefined;
+  return message.length > 240 ? `${message.slice(0, 240)}…` : message;
 }

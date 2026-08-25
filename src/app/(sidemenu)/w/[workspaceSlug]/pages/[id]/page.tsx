@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Skeleton, Text, TextInput } from '@mantine/core';
+import { ActionIcon, Skeleton, Text, TextInput, Tooltip } from '@mantine/core';
+import { useLocalStorage } from '@mantine/hooks';
+import { IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
@@ -80,6 +82,12 @@ function PageTitle({
   );
 }
 
+/** Reading-column width preference. Pages default to the same centred column
+ * the published (/p/...) render uses; "Full width" is the opt-in. Stored per
+ * browser (not on the page) so it stays a reader-side view preference rather
+ * than something one editor imposes on everyone. */
+const FULL_WIDTH_STORAGE_KEY = 'pages:full-width';
+
 function PageEditorContent({
   pageId,
   workspaceSlug,
@@ -88,6 +96,11 @@ function PageEditorContent({
   workspaceSlug: string;
 }) {
   const { data: page, isLoading, error } = api.page.get.useQuery({ id: pageId });
+  const [fullWidth, setFullWidth] = useLocalStorage({
+    key: FULL_WIDTH_STORAGE_KEY,
+    defaultValue: false,
+  });
+  const widthClass = fullWidth ? 'w-full' : 'mx-auto w-full max-w-3xl';
   const utils = api.useUtils();
   const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
 
@@ -120,7 +133,7 @@ function PageEditorContent({
 
   if (isLoading) {
     return (
-      <div className="w-full px-6 py-8">
+      <div className={`${widthClass} px-6 py-8`}>
         <Skeleton height={36} width={320} mb="xl" />
         <Skeleton height={400} />
       </div>
@@ -129,7 +142,7 @@ function PageEditorContent({
 
   if (error || !page) {
     return (
-      <div className="w-full px-6 py-8">
+      <div className={`${widthClass} px-6 py-8`}>
         <Text className="text-text-secondary">
           {error?.data?.code === 'FORBIDDEN'
             ? "You don't have access to this page."
@@ -140,12 +153,31 @@ function PageEditorContent({
   }
 
   return (
-    <div className="w-full px-6 py-8">
+    <div className={`${widthClass} px-6 py-8`}>
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
         </div>
         <div className="flex items-center gap-2">
+          <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label={fullWidth ? 'Use narrow width' : 'Use full width'}
+              aria-pressed={fullWidth}
+              // Value form, not the updater form: Mantine's setter writes to
+              // localStorage *inside* the state updater, and React replays
+              // updaters, which would persist the toggle a second time and
+              // land back on the old value.
+              onClick={() => setFullWidth(!fullWidth)}
+            >
+              {fullWidth ? (
+                <IconViewportNarrow size={18} />
+              ) : (
+                <IconViewportWide size={18} />
+              )}
+            </ActionIcon>
+          </Tooltip>
           <FavoriteButton
             entityType="page"
             entityId={`pages/${page.id}`}

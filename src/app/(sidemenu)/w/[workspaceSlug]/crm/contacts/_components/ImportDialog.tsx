@@ -11,7 +11,6 @@ import {
   Progress,
   Badge,
   Alert,
-  List,
   Divider,
   Paper,
 } from "@mantine/core";
@@ -21,11 +20,11 @@ import {
   IconMail,
   IconAlertCircle,
   IconCheck,
-  IconBrandGoogle,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { subMonths, subYears } from "date-fns";
+import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 
 interface ImportDialogProps {
   opened: boolean;
@@ -96,7 +95,7 @@ export function ImportDialog({
   // Determine initial step based on connection
   useEffect(() => {
     if (!connectionLoading && opened) {
-      if (connection && connection.hasAllScopes && connection.hasRefreshToken) {
+      if (connection?.hasAllScopes && connection.hasRefreshToken) {
         setStep("options");  // Has Google with all scopes → Go to import options
       } else {
         setStep("connect");  // No Google or missing scopes/refresh token → Show connect step
@@ -114,12 +113,6 @@ export function ImportDialog({
     });
     setBatchId(null);
     onClose();
-  };
-
-  // Handle OAuth redirect - request CRM scopes (calendar + contacts + gmail)
-  const handleConnectGoogle = () => {
-    const returnUrl = window.location.pathname;
-    window.location.href = `/api/auth/google-calendar?type=crm&returnUrl=${encodeURIComponent(returnUrl)}`;
   };
 
   // Handle import start
@@ -151,66 +144,13 @@ export function ImportDialog({
       closeOnEscape={step !== "progress"}
     >
       <Stack gap="lg">
-        {/* Connect Step */}
+        {/* Connect step: there is deliberately no connect button. Requesting
+            the contacts scope is paused while Google's OAuth verification is
+            in progress (see googleScopes.ts), so new grants cannot be
+            started — only accounts that already granted access can import,
+            and those skip straight to the options step. */}
         {step === "connect" && (
-          <>
-            {connection && (!connection.hasAllScopes || !connection.hasRefreshToken) ? (
-              <Alert icon={<IconAlertCircle />} color="yellow" mb="md">
-                <Stack gap="xs">
-                  <Text size="sm" fw={500}>
-                    Additional permissions required
-                  </Text>
-                  <Text size="sm">
-                    {!connection.hasRefreshToken
-                      ? "Your Google connection is missing the refresh token needed for importing contacts. "
-                      : "Your Google account needs additional permissions to import contacts. "}
-                    Please reconnect to grant the required access.
-                  </Text>
-                </Stack>
-              </Alert>
-            ) : (
-              <Text size="sm" c="dimmed">
-                Connect your Google account to import contacts from Gmail and
-                Google Calendar.
-              </Text>
-            )}
-
-            <Paper p="md" withBorder>
-              <Stack gap="sm">
-                <Group gap="xs">
-                  <IconBrandGoogle size={20} />
-                  <Text fw={500}>Google Account</Text>
-                </Group>
-                <Text size="sm" c="dimmed">
-                  We&apos;ll request access to:
-                </Text>
-                <List size="sm" spacing="xs">
-                  <List.Item>
-                    <strong>Google Contacts</strong> - Read your contacts
-                  </List.Item>
-                  <List.Item>
-                    <strong>Gmail</strong> - Read email metadata (read-only)
-                  </List.Item>
-                  <List.Item>
-                    <strong>Google Calendar</strong> - Read calendar events
-                  </List.Item>
-                </List>
-              </Stack>
-            </Paper>
-
-            <Alert icon={<IconAlertCircle />} color="blue">
-              Your data is encrypted and stored securely. We only access
-              information necessary for contact management.
-            </Alert>
-
-            <Button
-              leftSection={<IconBrandGoogle />}
-              onClick={handleConnectGoogle}
-              loading={connectionLoading}
-            >
-              {connection ? "Reconnect Google Account" : "Connect Google Account"}
-            </Button>
-          </>
+          <GooglePremiumFeature feature="contacts" variant="alert" />
         )}
 
         {/* Options Step */}
@@ -234,7 +174,7 @@ export function ImportDialog({
                       <IconMail size={16} />
                       <IconCalendar size={16} />
                       <Text size="sm">
-                        <strong>Gmail & Calendar</strong> - Import from both
+                        <strong>Contacts & Calendar</strong> - Import from both
                         sources (Recommended)
                       </Text>
                     </Group>
@@ -247,12 +187,12 @@ export function ImportDialog({
                     <Group gap="xs">
                       <IconMail size={16} />
                       <Text size="sm">
-                        <strong>Gmail Contacts Only</strong> - Import from
-                        Google Contacts
+                        <strong>Google Contacts Only</strong> - Import from
+                        your saved contacts
                       </Text>
                     </Group>
                   }
-                  description="Import saved contacts from your Gmail address book"
+                  description="Import saved contacts from your Google Contacts address book"
                 />
                 <Radio
                   value="CALENDAR"

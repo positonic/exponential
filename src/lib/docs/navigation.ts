@@ -24,6 +24,7 @@ import {
   IconBuildingSkyscraper,
   IconUsers,
   IconRobot,
+  IconRobotFace,
   IconKey,
   IconPlayerPlay,
   IconLayoutNavbar,
@@ -78,8 +79,8 @@ export const docsNavigation: DocNavSection[] = [
         icon: IconChecklist,
       },
       {
-        title: "Goals & Outcomes",
-        href: "/docs/features/goals-outcomes",
+        title: "Goals",
+        href: "/docs/features/goals",
         icon: IconTargetArrow,
       },
       {
@@ -181,6 +182,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "API Access",
         href: "/docs/features/api-access",
         icon: IconKey,
+      },
+      {
+        title: "External Agents",
+        href: "/docs/features/external-agents",
+        icon: IconRobotFace,
       },
       {
         title: "Settings",

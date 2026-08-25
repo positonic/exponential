@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
+import { safeSignatureEquals } from '~/server/utils/webhookSignature';
 import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
@@ -57,9 +58,9 @@ function verifySignatureWithApiKey(payload: string, signature: string, apiKey: s
     
     // Format as expected by Fireflies (with sha256= prefix)
     const expectedSignature = `sha256=${computedSignature}`;
-    
+
     // Constant-time comparison to prevent timing attacks
-    return signature === expectedSignature;
+    return safeSignatureEquals(signature, expectedSignature);
   } catch (error) {
     console.error('Error verifying signature:', error);
     return false;

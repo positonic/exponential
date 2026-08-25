@@ -227,17 +227,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           );
         });
 
-        // ---> ADDED: Optimistically update the specific project.getById data <---
-        utils.project.getById.setData({ id: newAction.projectId }, (oldProject) => {
-          if (!oldProject) return undefined; // Or handle appropriately if cache might not exist
-          return {
-            ...oldProject,
-            actions: Array.isArray(oldProject.actions)
-              ? [...oldProject.actions, typedOptimisticAction]
-              : [typedOptimisticAction],
-          };
-        });
-
         // The project tasks page subscribes to action.getProjectActions, so
         // patch it directly to make the new row appear without waiting for
         // the server roundtrip + heavy refetch.
@@ -280,7 +269,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       // createdBy, tags), so we can hydrate the cache without a refetch.
       if (data && projectId) {
         utils.action.getProjectActions.setData({ projectId }, (old) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- create response shape mirrors getProjectActions includes
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- create response is a superset of getProjectActions' slimmed includes (its `project` is the full row)
           const real = data as any;
           if (!old) return [real];
           const withoutTemp = old.filter((a) => !a.id.startsWith("temp-"));

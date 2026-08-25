@@ -2,13 +2,13 @@
  * Unit tests for checkGoogleScopes — verifies the helper aggregates scopes
  * across MULTIPLE Google accounts. The motivating bug: a user connects a
  * second, calendar-only Google account and it must NOT hide the calendar/
- * contacts/Gmail scopes already granted on their first account.
+ * contacts scopes already granted on their first account.
  *
  * `~/server/db` is mocked so this stays a pure, DB-free unit test (per
  * CLAUDE.md "Test database safety").
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.hoisted(() => {
   process.env.SKIP_ENV_VALIDATION ??= "true";
@@ -21,12 +21,16 @@ vi.mock("~/server/db", () => ({
 
 import {
   checkGoogleScopes,
+  isGoogleOAuthTester,
   GOOGLE_SCOPES,
 } from "~/lib/googleAuth";
 
 const CAL = GOOGLE_SCOPES.CALENDAR;
 const CONTACTS = GOOGLE_SCOPES.CONTACTS;
-const GMAIL = GOOGLE_SCOPES.GMAIL;
+// A third, distinct scope for split-across-accounts scenarios. Not in
+// GOOGLE_SCOPES because no feature checks for it individually — it is only
+// requested alongside CALENDAR as part of the calendar scope set.
+const CAL_LIST = "https://www.googleapis.com/auth/calendar.calendarlist.readonly";
 
 describe("checkGoogleScopes (multi-account)", () => {
   beforeEach(() => {
@@ -47,24 +51,24 @@ describe("checkGoogleScopes (multi-account)", () => {
   });
 
   it("is satisfied when a SECOND account carries the required scope", async () => {
-    // Account A is calendar-only; account B has the CRM scopes.
+    // Account A is calendar-only; account B has the contacts scopes.
     findMany.mockResolvedValue([
       { scope: CAL },
-      { scope: `${CAL} ${CONTACTS} ${GMAIL}` },
+      { scope: `${CAL} ${CAL_LIST} ${CONTACTS}` },
     ]);
-    const result = await checkGoogleScopes("u1", [GMAIL]);
+    const result = await checkGoogleScopes("u1", [CONTACTS]);
     expect(result.hasScopes).toBe(true);
-    expect(result.currentScopes).toContain(GMAIL);
+    expect(result.currentScopes).toContain(CONTACTS);
   });
 
   it("requires ALL requested scopes to live on a SINGLE account", async () => {
-    // Gmail and contacts are split across two accounts — neither alone
-    // satisfies a request for both, so it must report false.
+    // The calendar-list and contacts scopes are split across two accounts —
+    // neither alone satisfies a request for both, so it must report false.
     findMany.mockResolvedValue([
       { scope: `${CAL} ${CONTACTS}` },
-      { scope: `${CAL} ${GMAIL}` },
+      { scope: `${CAL} ${CAL_LIST}` },
     ]);
-    const both = await checkGoogleScopes("u1", [CONTACTS, GMAIL]);
+    const both = await checkGoogleScopes("u1", [CONTACTS, CAL_LIST]);
     expect(both.hasScopes).toBe(false);
     // Falls back to the broadest account's scopes for context.
     expect(both.currentScopes.length).toBeGreaterThan(0);
@@ -72,8 +76,51 @@ describe("checkGoogleScopes (multi-account)", () => {
 
   it("returns false when no account has the scope, exposing broadest scopes", async () => {
     findMany.mockResolvedValue([{ scope: CAL }, { scope: `${CAL} ${CONTACTS}` }]);
-    const result = await checkGoogleScopes("u1", [GMAIL]);
+    const result = await checkGoogleScopes("u1", [CAL_LIST]);
     expect(result.hasScopes).toBe(false);
     expect(result.currentScopes).toEqual([CAL, CONTACTS]);
+  });
+});
+
+/**
+ * The tester allowlist gating the Google features whose scopes Google has not
+ * verified yet. Fails closed: an unset/empty list locks the features for
+ * everyone, because sending a non-tester to Google's consent screen is the
+ * exact failure this gate exists to prevent.
+ */
+describe("isGoogleOAuthTester", () => {
+  const original = process.env.GOOGLE_OAUTH_TESTER_EMAILS;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.GOOGLE_OAUTH_TESTER_EMAILS;
+    else process.env.GOOGLE_OAUTH_TESTER_EMAILS = original;
+  });
+
+  it("locks the features when the allowlist is unset or empty", () => {
+    delete process.env.GOOGLE_OAUTH_TESTER_EMAILS;
+    expect(isGoogleOAuthTester("a@example.com")).toBe(false);
+
+    process.env.GOOGLE_OAUTH_TESTER_EMAILS = "";
+    expect(isGoogleOAuthTester("a@example.com")).toBe(false);
+  });
+
+  it("matches allowlisted emails case-insensitively, ignoring whitespace", () => {
+    process.env.GOOGLE_OAUTH_TESTER_EMAILS = " A@Example.com , b@example.com ";
+    expect(isGoogleOAuthTester("a@example.com")).toBe(true);
+    expect(isGoogleOAuthTester("  B@EXAMPLE.COM ")).toBe(true);
+  });
+
+  it("rejects emails that are not on the list", () => {
+    process.env.GOOGLE_OAUTH_TESTER_EMAILS = "a@example.com";
+    expect(isGoogleOAuthTester("c@example.com")).toBe(false);
+  });
+
+  it("rejects a missing email rather than matching an empty entry", () => {
+    // A trailing comma leaves an empty entry; a user with no email must not
+    // slip through it.
+    process.env.GOOGLE_OAUTH_TESTER_EMAILS = "a@example.com,";
+    expect(isGoogleOAuthTester(null)).toBe(false);
+    expect(isGoogleOAuthTester(undefined)).toBe(false);
+    expect(isGoogleOAuthTester("")).toBe(false);
   });
 });

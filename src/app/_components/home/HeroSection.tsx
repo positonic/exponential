@@ -43,7 +43,7 @@ export function HeroSection({ id }: HeroSectionProps) {
           {/* Subheadline */}
           <p className="text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-8 md:mb-10 leading-relaxed">
             {PRODUCT_NAME} is the coordination layer for AI-first organizations.
-            Goals cascade into outcomes. AI handles execution. Your team stays
+            Goals cascade into projects. AI handles execution. Your team stays
             aligned.
           </p>
 

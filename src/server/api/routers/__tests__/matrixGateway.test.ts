@@ -69,6 +69,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 
 const USER_ID = "user-1";
 const MXID = "@james:syntro.fi";
@@ -119,6 +120,29 @@ describe("matrixGateway router (mocked)", () => {
       await expect(caller.matrixGateway.getStatus()).resolves.toEqual({
         paired: true,
         mxid: MXID,
+      });
+    });
+
+    it("scopes the fallback lookup to the system row, not a workspace's Matrix server", async () => {
+      // A workspace-registered homeserver is also an Integration with userId: null,
+      // so the predicate must pin workspaceId: null or the mapping can be read
+      // against the wrong integration entirely.
+      fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+      dbMock.integrationUserMapping.findFirst.mockResolvedValue(null as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.matrixGateway.getStatus();
+
+      expect(dbMock.integrationUserMapping.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: USER_ID,
+          integration: SHARED_MATRIX_INTEGRATION_WHERE,
+        },
+      });
+      expect(SHARED_MATRIX_INTEGRATION_WHERE).toMatchObject({
+        provider: "matrix",
+        userId: null,
+        workspaceId: null,
       });
     });
 
@@ -200,7 +224,7 @@ describe("matrixGateway router (mocked)", () => {
       expect(dbMock.integrationUserMapping.deleteMany).toHaveBeenCalledWith({
         where: {
           userId: USER_ID,
-          integration: { provider: "matrix", status: "ACTIVE", userId: null },
+          integration: SHARED_MATRIX_INTEGRATION_WHERE,
         },
       });
     });

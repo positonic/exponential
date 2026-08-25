@@ -45,6 +45,19 @@
   border-bottom: 1px solid var(--td-hair);
   white-space: nowrap;
   flex-shrink: 0;
+  /* Matches the sidebar's own collapse animation, so the title slides aside
+     rather than jumping when the corner button appears. */
+  transition: padding-left 300ms ease-in-out;
+}
+
+/* Collapsed, the sidebar leaves a fixed re-open button in the window's
+   top-left corner (x 12–44). This page goes full-bleed, so its bar starts at
+   the very edge of the content column and is the one header the button lands
+   on — 20px puts the title straight under it. WorkspaceTopbar sidesteps this
+   with a flat 40px; here the extra space is only spent while the button is
+   actually there. */
+html[data-sidebar="closed"] .td-topbar {
+  padding-left: 52px;
 }
 
 .td-topbar__title {
@@ -403,6 +416,15 @@
 
 .td-task__meta-item--overdue { color: var(--td-prio-urgent); }
 
+/* "No time set" is the common case, so its marker is the quietest thing on the
+   row — icon only, dimmed, and it steps back further next to a scheduled row's
+   clock-plus-time. The state is carried by the icon's shape and its label, not
+   by this colour. */
+.td-task__meta-item--unscheduled {
+  color: var(--td-faint);
+  gap: 0;
+}
+
 .td-task__reschedule {
   position: relative;
   display: inline-flex;
@@ -549,8 +571,12 @@
   right: 0;
   height: 1px;
   background: var(--td-hair);
+  z-index: 0;
 }
 
+/* Above the blocks. Blocks are opaque now, so without this the current-time
+   marker simply vanishes behind whatever is happening at this hour — which is
+   exactly the hour you most want to locate. */
 .td-timeline__now {
   position: absolute;
   left: -6px;
@@ -558,6 +584,7 @@
   display: flex;
   align-items: center;
   pointer-events: none;
+  z-index: 3;
 }
 
 .td-timeline__now-dot {
@@ -576,13 +603,25 @@
   opacity: 0.7;
 }
 
+/* `left`/`width` come from the lane layout as inline percentages; blocks that
+   collide with nothing get the full width. */
 .td-event {
   position: absolute;
-  left: 0;
-  right: 0;
   border-radius: 6px;
   padding: 6px 9px;
   overflow: hidden;
+  z-index: 1;
+}
+
+/* A block shorter than its own contents is drawn at MIN_RAIL_BLOCK_PX, which
+   makes it taller than its duration and so liable to sit under the next one.
+   A hairline edge keeps consecutive short blocks readable as separate blocks
+   rather than one smear of colour. */
+.td-event[data-floored="true"] {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  outline: 1px solid var(--td-hair-2);
+  outline-offset: -1px;
 }
 
 .td-event__title {
@@ -600,17 +639,95 @@
   font-feature-settings: "tnum";
 }
 
+/* Opaque, not translucent. Where blocks do overlap — a lane boundary, or a
+   short block floored over its neighbour — translucent fills let the text
+   underneath bleed through, and the result read as a rendering fault rather
+   than a busy hour. Mixing into --td-surface rather than `transparent` keeps
+   the same tint while making the fill solid. */
 .td-event--amber {
-  background: var(--td-accent-12);
+  background: color-mix(in srgb, var(--td-accent) 14%, var(--td-surface));
   border-left: 2px solid var(--td-accent);
 }
 .td-event--amber .td-event__title { color: var(--td-accent); }
 
 .td-event--blue {
-  background: var(--td-event-blue-bg);
+  background: color-mix(in srgb, var(--td-event-blue-border) 14%, var(--td-surface));
   border-left: 2px solid var(--td-event-blue-border);
 }
 .td-event--blue .td-event__title { color: var(--td-event-blue-title); }
+
+/* ---- Lane overflow ("+N more") ---------------------------------------- */
+.td-event-more {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+}
+
+/* z-index on the wrapper opens a stacking context, so the panel's own z-index
+   is confined to it and cannot clear the now-line (3) on its own. Lift the
+   whole wrapper while the panel is open instead. */
+.td-event-more[data-open="true"] {
+  z-index: 5;
+}
+
+.td .td-event-more__btn {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--td-surface-2);
+  border: 1px solid var(--td-hair-2);
+  color: var(--td-muted);
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.td .td-event-more__btn:hover {
+  color: var(--td-text);
+  border-color: var(--td-accent-40);
+}
+
+.td-event-more__panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 4;
+  margin-top: 4px;
+  min-width: 190px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--td-surface);
+  border: 1px solid var(--td-hair-2);
+}
+
+.td-event-more__item {
+  padding: 5px 7px;
+  border-radius: 5px;
+}
+.td-event-more__item + .td-event-more__item { margin-top: 1px; }
+.td-event-more__item:hover { background: var(--td-surface-2); }
+
+.td-event-more__item-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--td-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td-event-more__item-time {
+  font-size: 10.5px;
+  color: var(--td-muted);
+  font-feature-settings: "tnum";
+  margin-top: 1px;
+}
 
 /* ============================================================
    Score ring (SVG)
@@ -625,3 +742,79 @@
    the redesign. (Used by the original top bar in DoPageContent
    when filter !== 'today'.)
    ============================================================ */
+
+/* ---- Overdue amnesty ----------------------------------------------------
+   Surfaces bulk-written cohorts inside the overdue section. A large overdue
+   count is usually a few batch writes, not a lot of missed commitments, and
+   "Reschedule all → Today" is the wrong move for those — it re-inflicts the
+   pile tomorrow. See ADR-0052. */
+.td-amnesty {
+  padding: 12px 24px 14px;
+  border-bottom: 1px solid var(--td-hair);
+  background: var(--td-prio-urgent-10);
+}
+
+.td-amnesty__lede {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--td-text);
+}
+
+.td-amnesty__cohort {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.td-amnesty__detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.td-amnesty__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text);
+  white-space: nowrap;
+}
+
+.td-amnesty__meta {
+  font-size: 11px;
+  color: var(--td-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td .td-amnesty__action {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--td-prio-urgent-dim);
+  color: var(--td-prio-urgent);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+.td .td-amnesty__action:hover:not(:disabled) {
+  background: var(--td-prio-urgent-10);
+}
+
+.td .td-amnesty__action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.td-amnesty__note {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  color: var(--td-muted);
+}

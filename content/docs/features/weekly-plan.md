@@ -12,7 +12,7 @@ The Weekly Plan is your opportunity to step back, reflect on the past week, and 
 - **Week reflection**: Review accomplishments and challenges
 - **Team sharing**: Share reviews with team members
 - **Slack integration**: Send summaries to team channels
-- **Outcome planning**: Set weekly outcomes
+- **Commitment planning**: Set weekly commitments
 - **Progress tracking**: Monitor goal advancement
 
 ## Weekly Plan Structure
@@ -30,7 +30,7 @@ Reflect on what happened:
 
 Set up for success:
 
-1. **Outcomes**: Define measurable results for the week
+1. **Commitments**: Define measurable results for the week
 2. **Priorities**: Identify most important actions
 3. **Projects**: Review project progress
 4. **Calendar**: Check upcoming commitments
@@ -52,7 +52,7 @@ Set up for success:
 - Start fresh for new week
 
 **Step 2: Review Past Week**
-- Check completed outcomes
+- Check completed commitments
 - Review accomplishments
 - Note challenges faced
 - Capture key learnings
@@ -69,8 +69,8 @@ Set up for success:
 - Identify goals needing attention
 - Celebrate goal achievements
 
-**Step 5: Set Weekly Outcomes**
-- Define 3-5 key outcomes
+**Step 5: Set Weekly Commitments**
+- Define 3-5 key commitments
 - Make them measurable
 - Link to goals
 - Assign to projects
@@ -104,7 +104,7 @@ When sharing is enabled:
 
 - **Visibility**: Know what teammates are focused on
 - **Alignment**: Coordinate on shared goals
-- **Accountability**: Commitment to stated outcomes
+- **Accountability**: Commitment to stated results
 - **Support**: Offer help with challenges
 
 ## Slack Integration
@@ -123,7 +123,7 @@ Send your weekly plan summary to Slack channels.
 
 - Week's accomplishments
 - Key challenges faced
-- Next week's outcomes
+- Next week's commitments
 - Help needed (if any)
 
 ### Channel Selection
@@ -133,19 +133,19 @@ Choose from available channels:
 - Team channels
 - Personal DM to self
 
-## Weekly Outcomes
+## Weekly Commitments
 
-Set measurable outcomes for the week during your review.
+Set measurable commitments for the week during your review.
 
-### Creating Weekly Outcomes
+### Creating Weekly Commitments
 
-1. In Weekly Plan, go to outcomes section
-2. Click **Add Outcome**
+1. In Weekly Plan, go to the commitments section
+2. Click **Add Weekly Commitment**
 3. Write specific, measurable result
 4. Link to supporting goal
-5. Save outcome
+5. Save
 
-### Outcome Status Tracking
+### Commitment Status Tracking
 
 Track progress throughout the week:
 
@@ -156,21 +156,14 @@ Track progress throughout the week:
 | Completed | Successfully finished |
 | Blocked | Waiting on something |
 
-### Weekly vs Daily Outcomes
-
-- **Weekly**: Larger results achievable in a week
-- **Daily**: Smaller daily focus items
-
-Set weekly outcomes during review, daily outcomes each morning.
-
 ## Integration with Other Features
 
-### Goals & Outcomes
+### Goals
 
-Review goal progress and outcome completion:
+Review goal progress:
 - Check quarterly goal alignment
-- Update monthly outcomes
-- Plan weekly outcomes
+- Update key result progress
+- Plan weekly commitments
 - Connect to daily planning
 
 ### Projects
@@ -194,7 +187,7 @@ Your week's journal entries inform the review:
 Periodically during weekly plan:
 - Check life balance
 - Identify neglected domains
-- Set balancing outcomes
+- Set balancing goals
 - Plan corrective actions
 
 ## One-on-One Board
@@ -204,7 +197,7 @@ For team settings, the Weekly Plan includes a One-on-One Board:
 ### Features
 
 - **Active Projects**: Team project overview
-- **Weekly Outcomes**: Shared team outcomes
+- **Weekly Commitments**: Shared team commitments
 - **Member Status**: Individual progress
 - **Discussion Points**: Topics for 1:1 meetings
 
@@ -240,7 +233,7 @@ For team settings, the Weekly Plan includes a One-on-One Board:
 
 ### Goal Alignment
 
-- Connect weekly outcomes to goals
+- Connect weekly commitments to goals
 - Review goal progress monthly
 - Adjust approach if not progressing
 - Celebrate goal milestones

@@ -7,7 +7,7 @@ import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag, IconUser, IconLink } from "@tabler/icons-react";
-import { Button, Title, Stack, Paper, Text, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
+import { Button, Paper, Group, ActionIcon, Tooltip, Badge, MultiSelect } from "@mantine/core";
 import { FilterBar } from "./filters";
 import { hasActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterMember } from "~/types/filter";
@@ -15,15 +15,12 @@ import { filtersToSearchParams, filtersFromSearchParams } from "~/lib/filters/ur
 import tasksStyles from "./ProjectTasks.module.css";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { notifications } from "@mantine/notifications";
 import type { SchedulingSuggestionData } from "./SchedulingSuggestion";
 import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-
-type OutcomeType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem';
 
 import type { FilterState } from "~/types/filter";
 
@@ -865,53 +862,10 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     return list;
   })();
 
-  // Use the appropriate query based on whether we have a projectId
-  const outcomes = projectId 
-    ? api.outcome.getProjectOutcomes.useQuery(
-        { projectId },
-        {
-          refetchOnWindowFocus: true,
-          staleTime: 0
-        }
-      )
-    : api.outcome.getMyOutcomes.useQuery(undefined, {
-        refetchOnWindowFocus: true,
-        staleTime: 0
-      });
-
   useEffect(() => {
     setIsAlignmentMode(defaultView === 'alignment');
     setIsKanbanMode(defaultView === 'kanban');
   }, [defaultView]);
-  // Filter outcomes for today
-  const todayOutcomes = outcomes.data?.filter((outcome: any) => {
-    if (!outcome.dueDate) return false;
-    const dueDate = new Date(outcome.dueDate);
-    const today = new Date();
-    return (
-      dueDate.getDate() === today.getDate() &&
-      dueDate.getMonth() === today.getMonth() &&
-      dueDate.getFullYear() === today.getFullYear()
-    );
-  });
-
-  // Filter outcomes for this week (excluding today)
-  const weeklyOutcomes = outcomes.data?.filter((outcome: any) => {
-    if (!outcome.dueDate) return false;
-    const dueDate = new Date(outcome.dueDate);
-    const today = new Date();
-    const endOfWeek = new Date();
-    endOfWeek.setDate(today.getDate() + (7 - today.getDay()));
-    
-    return (
-      dueDate > today &&
-      dueDate <= endOfWeek &&
-      !(dueDate.getDate() === today.getDate() &&
-        dueDate.getMonth() === today.getMonth() &&
-        dueDate.getFullYear() === today.getFullYear())
-    );
-  });
-
 
   return (
     <div className="w-full  mx-auto">
@@ -1112,87 +1066,6 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
       {isAlignmentMode && (
         <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
-          <Stack gap="md">
-          <Group>
-            <Title order={2} className="text-2xl">
-              Today&apos;s theme is ...
-            </Title>
-          </Group>
-            <Title order={2} className="text-xl bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">
-              What will make today great?
-            </Title>
-            <Stack gap="xs">
-              {todayOutcomes?.map((outcome: any) => (
-                <CreateOutcomeModal
-                  key={outcome.id}
-                  outcome={{
-                    id: outcome.id,
-                    description: outcome.description,
-                    dueDate: outcome.dueDate,
-                    type: (outcome.type || 'daily') as OutcomeType,
-                    projectId: outcome.projects[0]?.id
-                  }}
-                  projectId={projectId}
-                  trigger={
-                    <Paper p="sm" className="bg-surface-primary cursor-pointer hover:bg-surface-hover transition-colors">
-                      <Text>{outcome.description}</Text>
-                    </Paper>
-                  }
-                />
-              ))}
-              {(!todayOutcomes || todayOutcomes.length === 0) && (
-                <Text c="dimmed" size="sm" style={{ fontStyle: 'italic' }}>
-                  No outcomes set for today. Add some in your morning routine.
-                </Text>
-              )}
-            </Stack>
-          </Stack>
-          
-        </Paper>
-      )}
-
-      {isAlignmentMode && (
-        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
-          <Stack gap="md">
-            <Title order={2} className="text-xl bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent">
-              What would make this week great?
-            </Title>
-            <Stack gap="xs">
-              {weeklyOutcomes?.map((outcome: any) => (
-                <CreateOutcomeModal
-                  key={outcome.id}
-                  outcome={{
-                    id: outcome.id,
-                    description: outcome.description,
-                    dueDate: outcome.dueDate,
-                    type: (outcome.type || 'daily') as OutcomeType,
-                    projectId: outcome.projects[0]?.id
-                  }}
-                  projectId={projectId}
-                  trigger={
-                    <Paper p="sm" className="bg-surface-primary cursor-pointer hover:bg-surface-hover transition-colors">
-                      <Group justify="space-between">
-                        <Text>{outcome.description}</Text>
-                        <Text size="sm" c="dimmed">
-                          {new Date(outcome.dueDate).toLocaleDateString(undefined, { weekday: 'short' })}
-                        </Text>
-                      </Group>
-                    </Paper>
-                  }
-                />
-              ))}
-              {(!weeklyOutcomes || weeklyOutcomes.length === 0) && (
-                <Text c="dimmed" size="sm" style={{ fontStyle: 'italic' }}>
-                  No outcomes set for this week. Plan your week in your morning routine.
-                </Text>
-              )}
-            </Stack>
-          </Stack>
-         
-        </Paper>
-      )}
-      {isAlignmentMode && (
-        <Paper shadow="sm" p="md" radius="md" className="mb-8 bg-surface-secondary border border-border-primary">
            <CreateGoalModal projectId={projectId}>
               <Button 
                 variant="filled" 
@@ -1202,16 +1075,6 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
                 Add Goal
               </Button>
             </CreateGoalModal>
-            <br/>
-            <CreateOutcomeModal projectId={projectId}>
-            <Button 
-              variant="filled" 
-              color="dark"
-              leftSection="+"
-            >
-              Add Outcome
-            </Button>
-          </CreateOutcomeModal>
         </Paper>
       )}
       
@@ -1225,6 +1088,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
       ) : (
         <ActionsList
           viewName={showNotionUnassigned ? "notion-unassigned" : viewName}
+          projectId={projectId}
           actions={(filteredActions ?? []) as Action[]}
           showProject={!projectId}
           bulkActions={bulkActions}

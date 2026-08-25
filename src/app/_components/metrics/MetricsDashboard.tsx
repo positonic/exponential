@@ -9,6 +9,7 @@ import {
   Progress,
   Container,
   Select,
+  Divider,
 } from '@mantine/core';
 import {
   IconChartBar,
@@ -16,19 +17,25 @@ import {
   IconBolt,
   IconTrendingUp,
   IconGitPullRequest,
+  IconTargetArrow,
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { CycleTrendChart } from './CycleTrendChart';
 
 /**
  * Metrics page dashboard.
  *
- * Renders the selected cycle (default: the workspace's ACTIVE cycle) — velocity
- * (completed-ticket **count** as the headline, summed points alongside),
- * completion, and merged-PR turnaround — plus a workspace-wide velocity trend.
- * A cycle selector lets the user view any cycle. All numbers are computed live
- * over the cycle's Tickets; nothing is read from the dormant `SprintMetrics`
- * table. See ADR-0047 (incl. the Ticket-based amendment).
+ * Two tiers, in the order they answer questions:
+ *  1. **All cycles** (headline) — every cycle's metrics summed into one
+ *     roll-up, with a line chart tracking each metric across cycles.
+ *  2. **Cycle breakdown** — the same metrics for one cycle, chosen from a
+ *     dropdown (defaults to the ACTIVE cycle).
+ *
+ * All numbers are computed live over the cycles' Tickets — velocity is a
+ * completed-ticket **count** with summed points alongside; nothing is read from
+ * the dormant `SprintMetrics` table. See ADR-0047 (incl. the Ticket-based
+ * amendment).
  */
 export function MetricsDashboard() {
   const { workspace, workspaceId } = useWorkspace();
@@ -58,146 +65,263 @@ export function MetricsDashboard() {
     () =>
       (cycles ?? []).map((c) => ({
         value: c.id,
-        label:
-          c.status === 'ACTIVE' ? `${c.name} (active)` : c.name,
+        label: c.status === 'ACTIVE' ? `${c.name} (active)` : c.name,
       })),
     [cycles],
   );
 
   return (
-    <Container size="lg" className="w-full py-6">
-      <Stack gap="lg">
-        <Group justify="space-between" align="flex-start" wrap="nowrap">
-          <Group gap="sm">
-            <IconChartBar size={24} className="text-text-secondary" />
-            <div>
-              <Text fw={600} size="xl" className="text-text-primary">
-                Metrics
-              </Text>
-              <Text size="sm" className="text-text-secondary">
-                {workspace?.name
-                  ? `Delivery metrics for ${workspace.name}`
-                  : 'Delivery metrics'}
-              </Text>
-            </div>
-          </Group>
-
-          {cycleOptions.length > 0 && (
-            <Select
-              aria-label="Select cycle"
-              data={cycleOptions}
-              value={selectedCycleId}
-              onChange={setPicked}
-              allowDeselect={false}
-              checkIconPosition="right"
-              w={220}
-              size="sm"
-            />
-          )}
+    <Container size="xl" className="w-full py-6">
+      <Stack gap="xl">
+        <Group gap="sm">
+          <IconChartBar size={24} className="text-text-secondary" />
+          <div>
+            <Text fw={600} size="xl" className="text-text-primary">
+              Metrics
+            </Text>
+            <Text size="sm" className="text-text-secondary">
+              {workspace?.name
+                ? `Delivery metrics for ${workspace.name}`
+                : 'Delivery metrics'}
+            </Text>
+          </div>
         </Group>
 
-        {isLoading || !workspaceId ? (
-          <LoadingState />
-        ) : !data ? (
-          <EmptyState />
-        ) : (
-          <ActiveCycleMetrics data={data} cycleId={selectedCycleId ?? undefined} />
-        )}
+        <AllCyclesSection workspaceId={workspaceId} />
 
-        <VelocityTrend workspaceId={workspaceId} />
+        <Divider className="border-border-primary" />
+
+        <Stack gap="md">
+          <Group justify="space-between" align="center" wrap="nowrap">
+            <div>
+              <Text fw={600} size="lg" className="text-text-primary">
+                Cycle breakdown
+              </Text>
+              <Text size="sm" className="text-text-secondary">
+                The same metrics for a single cycle.
+              </Text>
+            </div>
+
+            {cycleOptions.length > 0 && (
+              <Select
+                aria-label="Select cycle"
+                data={cycleOptions}
+                value={selectedCycleId}
+                onChange={setPicked}
+                allowDeselect={false}
+                checkIconPosition="right"
+                w={220}
+                size="sm"
+              />
+            )}
+          </Group>
+
+          {isLoading || !workspaceId ? (
+            <LoadingState />
+          ) : !data ? (
+            <EmptyState />
+          ) : (
+            <SelectedCycleMetrics
+              data={data}
+              cycleId={selectedCycleId ?? undefined}
+            />
+          )}
+        </Stack>
       </Stack>
     </Container>
   );
 }
 
-function VelocityTrend({ workspaceId }: { workspaceId: string | null }) {
-  const { data, isLoading } = api.sprintAnalytics.getVelocityTrend.useQuery(
-    { workspaceId: workspaceId ?? '', count: 8 },
+type AllCycles = RouterOutputs['sprintAnalytics']['getAllCyclesMetrics'];
+
+/**
+ * The headline block: every cycle summed into one set of numbers, plus the
+ * per-cycle trend chart behind them.
+ */
+function AllCyclesSection({ workspaceId }: { workspaceId: string | null }) {
+  const { data, isLoading } = api.sprintAnalytics.getAllCyclesMetrics.useQuery(
+    { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId },
   );
 
   if (isLoading || !workspaceId) {
     return (
-      <Card
-        withBorder
-        radius="md"
-        className="border-border-primary bg-surface-secondary"
-      >
-        <div className="animate-pulse space-y-3">
-          <div className="h-4 w-1/4 rounded bg-surface-hover" />
-          <div className="h-24 rounded bg-surface-hover" />
-        </div>
-      </Card>
+      <Stack gap="md">
+        <LoadingState />
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <div className="animate-pulse space-y-3">
+            <div className="h-4 w-1/4 rounded bg-surface-hover" />
+            <div className="h-64 rounded bg-surface-hover" />
+          </div>
+        </Card>
+      </Stack>
     );
   }
 
-  // Trend needs at least 2 completed cycles to be meaningful.
-  if (!data || data.length < 2) {
+  if (!data || data.cycleCount === 0) {
     return (
       <Card
         withBorder
         radius="md"
         className="border-border-primary bg-surface-secondary"
       >
-        <Group gap="xs" className="mb-2">
-          <IconTrendingUp size={16} className="text-text-muted" />
-          <Text size="sm" fw={500} className="text-text-secondary">
-            Velocity trend
+        <Stack gap="xs" align="center" className="py-10 text-center">
+          <IconChartBar size={32} className="text-text-muted" />
+          <Text fw={500} className="text-text-primary">
+            No cycle data yet
           </Text>
-        </Group>
-        <Text size="sm" className="text-text-muted">
-          Not enough completed cycles yet — the trend appears once at least two
-          cycles have completed.
-        </Text>
+          <Text size="sm" className="text-text-secondary">
+            Once cycles have tickets assigned, their totals and trend appear
+            here.
+          </Text>
+        </Stack>
       </Card>
     );
   }
 
-  // Service returns most-recent-first; show oldest → newest for a trend read.
-  const cycles = [...data].reverse();
-  const maxTickets = Math.max(...cycles.map((c) => c.completedTickets), 1);
+  return (
+    <Stack gap="md">
+      <Group justify="space-between" align="flex-end" wrap="nowrap">
+        <div>
+          <Text fw={600} size="lg" className="text-text-primary">
+            All cycles
+          </Text>
+          <Text size="sm" className="text-text-secondary">
+            Totals across {data.cycleCount}{' '}
+            {data.cycleCount === 1 ? 'cycle' : 'cycles'}
+          </Text>
+        </div>
+      </Group>
 
+      <AllCyclesTotals data={data} />
+
+      <Card
+        withBorder
+        radius="md"
+        className="border-border-primary bg-surface-secondary"
+      >
+        <Stack gap="md">
+          <Group gap="xs">
+            <IconTrendingUp size={16} className="text-text-muted" />
+            <Text size="sm" fw={500} className="text-text-secondary">
+              Metrics by cycle
+            </Text>
+            <Text size="xs" className="text-text-muted">
+              (oldest → newest)
+            </Text>
+          </Group>
+
+          {data.cycles.length < 2 ? (
+            <Text size="sm" className="text-text-muted">
+              Only one cycle has data so far — the trend appears once a second
+              cycle has tickets.
+            </Text>
+          ) : (
+            <CycleTrendChart cycles={data.cycles} />
+          )}
+        </Stack>
+      </Card>
+    </Stack>
+  );
+}
+
+function AllCyclesTotals({ data }: { data: AllCycles }) {
+  const completionRate = Math.round(data.completionRate);
+  const avg = data.avgPrHours != null ? formatHours(data.avgPrHours) : null;
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <StatCard
+        icon={<IconBolt size={16} className="text-text-muted" />}
+        label="Velocity"
+        value={String(data.completedTickets)}
+        valueSuffix={data.completedTickets === 1 ? 'ticket' : 'tickets'}
+        hint={`${data.completedPoints} of ${data.totalPoints} points delivered`}
+      />
+
+      <StatCard
+        icon={<IconTargetArrow size={16} className="text-text-muted" />}
+        label="Tickets tracked"
+        value={String(data.totalTickets)}
+        valueSuffix="total"
+        hint={`${data.totalTickets - data.completedTickets} not yet completed`}
+      />
+
+      <StatCard
+        icon={<IconCircleCheck size={16} className="text-text-muted" />}
+        label="Completion"
+        value={`${completionRate}%`}
+        valueSuffix={`${data.completedTickets}/${data.totalTickets} tickets`}
+      >
+        <Progress
+          value={completionRate}
+          size="sm"
+          radius="xl"
+          color={completionRate >= 100 ? 'green' : 'indigo'}
+        />
+      </StatCard>
+
+      <StatCard
+        icon={<IconGitPullRequest size={16} className="text-text-muted" />}
+        label="PRs merged"
+        value={String(data.mergedPrCount)}
+        valueSuffix={data.mergedPrCount === 1 ? 'PR' : 'PRs'}
+        hint={
+          avg
+            ? `${avg.value}${avg.unit} avg turnaround`
+            : 'Turnaround unavailable — needs GitHub PR webhook events'
+        }
+      />
+    </div>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  valueSuffix,
+  hint,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  valueSuffix?: string;
+  hint?: string;
+  children?: React.ReactNode;
+}) {
   return (
     <Card
       withBorder
       radius="md"
       className="border-border-primary bg-surface-secondary"
     >
-      <Stack gap="md">
+      <Stack gap="xs">
         <Group gap="xs">
-          <IconTrendingUp size={16} className="text-text-muted" />
+          {icon}
           <Text size="sm" fw={500} className="text-text-secondary">
-            Velocity trend
-          </Text>
-          <Text size="xs" className="text-text-muted">
-            (last {cycles.length} completed cycles)
+            {label}
           </Text>
         </Group>
-
-        <Stack gap="sm">
-          {cycles.map((cycle) => (
-            <div key={cycle.cycleId}>
-              <Group justify="space-between" gap="xs" className="mb-1">
-                <Text size="xs" className="truncate text-text-secondary">
-                  {cycle.cycleName}
-                </Text>
-                <Text size="xs" className="text-text-muted">
-                  <span className="font-semibold text-text-primary">
-                    {cycle.completedTickets}
-                  </span>{' '}
-                  {cycle.completedTickets === 1 ? 'ticket' : 'tickets'} ·{' '}
-                  {cycle.completedPoints} pts
-                </Text>
-              </Group>
-              <Progress
-                value={(cycle.completedTickets / maxTickets) * 100}
-                size="lg"
-                radius="sm"
-                color="indigo"
-              />
-            </div>
-          ))}
-        </Stack>
+        <Group align="baseline" gap="xs">
+          <Text className="text-4xl font-bold text-accent-indigo">{value}</Text>
+          {valueSuffix && (
+            <Text size="sm" className="text-text-muted">
+              {valueSuffix}
+            </Text>
+          )}
+        </Group>
+        {hint && (
+          <Text size="xs" className="text-text-muted">
+            {hint}
+          </Text>
+        )}
+        {children}
       </Stack>
     </Card>
   );
@@ -207,7 +331,7 @@ type CycleMetrics = NonNullable<
   RouterOutputs['sprintAnalytics']['getActiveCycleMetrics']
 >;
 
-function ActiveCycleMetrics({
+function SelectedCycleMetrics({
   data,
   cycleId,
 }: {
@@ -219,8 +343,8 @@ function ActiveCycleMetrics({
   return (
     <Stack gap="md">
       <Text size="sm" className="text-text-muted">
-        Active cycle:{' '}
-        <span className="text-text-secondary font-medium">{data.cycleName}</span>
+        Cycle:{' '}
+        <span className="font-medium text-text-secondary">{data.cycleName}</span>
       </Text>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -290,7 +414,8 @@ function ActiveCycleMetrics({
 
 /** Format a duration in hours as a compact, sensible unit. */
 function formatHours(hours: number): { value: string; unit: string } {
-  if (hours < 1) return { value: String(Math.max(1, Math.round(hours * 60))), unit: 'min' };
+  if (hours < 1)
+    return { value: String(Math.max(1, Math.round(hours * 60))), unit: 'min' };
   if (hours < 48) return { value: String(Math.round(hours)), unit: 'h' };
   return { value: (hours / 24).toFixed(1), unit: 'd' };
 }

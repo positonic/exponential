@@ -2,35 +2,15 @@ import { type NextRequest, NextResponse } from "next/server";
 import { decode } from "next-auth/jwt";
 import { db } from "~/server/db";
 import { generateJWT } from "~/server/utils/jwt";
+import {
+  checkRateLimit,
+  clientIpFrom,
+  tooManyRequestsInit,
+} from "~/server/utils/rateLimit";
 
-// Simple in-memory rate limiter (best-effort on serverless)
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+// Shared-store rate limit on this token-issuing path (per IP).
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 const RATE_LIMIT_MAX = 10;
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
-  }
-
-  entry.count++;
-  return entry.count > RATE_LIMIT_MAX;
-}
-
-// Periodic cleanup
-if (typeof globalThis !== "undefined") {
-  const cleanup = () => {
-    const now = Date.now();
-    for (const [ip, entry] of rateLimitMap.entries()) {
-      if (now > entry.resetAt) rateLimitMap.delete(ip);
-    }
-  };
-  setInterval(cleanup, 5 * 60_000).unref?.();
-}
 
 function getSessionCookieName(): string {
   const useSecureCookies =
@@ -80,15 +60,18 @@ export async function POST(request: NextRequest) {
 
   try {
     // Rate limiting
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      "unknown";
+    const ip = clientIpFrom(request.headers);
 
-    if (isRateLimited(ip)) {
+    const rateCheck = await checkRateLimit({
+      name: "extension-token",
+      key: ip,
+      limit: RATE_LIMIT_MAX,
+      windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+    });
+    if (!rateCheck.success) {
       return NextResponse.json(
         { error: "Too many requests" },
-        { status: 429, headers: { ...corsHeaders, "Retry-After": "60" } },
+        tooManyRequestsInit(rateCheck, corsHeaders),
       );
     }
 

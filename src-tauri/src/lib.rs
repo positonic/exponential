@@ -85,6 +85,97 @@ fn desktop_shell_info() -> ShellInfo {
     }
 }
 
+/// The app menu: Tauri's default, extended with tab items (ADR-0053).
+///
+/// The tab shortcuts have to be declared explicitly. AppKit is supposed to
+/// inject Show Next/Previous Tab into whatever submenu is registered as
+/// `NSApp.windowsMenu`, and the preconditions all hold — tao leaves
+/// `allowsAutomaticWindowTabbing` on, and Tauri does call
+/// `set_as_windows_menu_for_nsapp` for the submenu tagged `WINDOW_SUBMENU_ID` —
+/// but on a real build the injected items never reached the keyboard. The
+/// actions dispatched are AppKit's own, so the behaviour is Safari's — cycling
+/// wraps, the overview is the real overview — rather than a reimplementation.
+///
+/// Built by *extending* `Menu::default`, never by constructing a menu from
+/// scratch. A fresh menu has no submenu carrying `WINDOW_SUBMENU_ID`, so
+/// `set_as_windows_menu_for_nsapp` never fires and macOS silently loses the
+/// window list and its tab handling. Adding a tab shortcut that way would remove
+/// the others.
+///
+/// Cross-platform on purpose, even though tabs are macOS-only: Copy Page URL is
+/// wanted everywhere the shell might run, and `CmdOrCtrl` resolves per platform.
+/// (Linux's default menu has no File submenu, so the item is macOS/Windows —
+/// acceptable for a shell that only targets macOS today.)
+fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem};
+
+    let menu = Menu::default(app)?;
+
+    // ⌘L. Safari focuses the address bar; with no address bar, copying the URL
+    // is the useful half of the gesture.
+    let copy_url = MenuItem::with_id(
+        app,
+        "copy-url",
+        "Copy Page URL",
+        true,
+        Some("CmdOrCtrl+L"),
+    )?;
+    if let Some(file) = submenu_named(&menu, "File") {
+        file.insert(&copy_url, 0)?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::menu::PredefinedMenuItem;
+
+        let new_tab = MenuItem::with_id(app, "new-tab", "New Tab", true, Some("CmdOrCtrl+T"))?;
+        let next_tab = MenuItem::with_id(app, "next-tab", "Show Next Tab", true, Some("Ctrl+Tab"))?;
+        let prev_tab = MenuItem::with_id(
+            app,
+            "prev-tab",
+            "Show Previous Tab",
+            true,
+            Some("Ctrl+Shift+Tab"),
+        )?;
+        let overview = MenuItem::with_id(
+            app,
+            "tab-overview",
+            "Show All Tabs",
+            true,
+            Some("CmdOrCtrl+Shift+Backslash"),
+        )?;
+
+        // New Tab sits above Close Window in File, where Safari puts it.
+        if let Some(file) = submenu_named(&menu, "File") {
+            file.insert(&new_tab, 0)?;
+        }
+
+        if let Some(window) = menu
+            .get(tauri::menu::WINDOW_SUBMENU_ID)
+            .and_then(|item| item.as_submenu().cloned())
+        {
+            window.append(&PredefinedMenuItem::separator(app)?)?;
+            window.append(&next_tab)?;
+            window.append(&prev_tab)?;
+            window.append(&overview)?;
+        }
+    }
+
+    Ok(menu)
+}
+
+/// The default menu gives its submenus no ids except Window and Help, so File
+/// has to be found by the label the user reads.
+fn submenu_named(
+    menu: &tauri::menu::Menu<tauri::Wry>,
+    name: &str,
+) -> Option<tauri::menu::Submenu<tauri::Wry>> {
+    menu.items().ok()?.into_iter().find_map(|item| {
+        let submenu = item.as_submenu()?;
+        (submenu.text().ok()? == name).then(|| submenu.clone())
+    })
+}
+
 pub fn run() {
     tauri::Builder::default()
         // Single-instance must be registered first (plugin's own requirement).
@@ -99,6 +190,20 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .menu(build_menu)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "copy-url" => copy_current_url(app),
+            #[cfg(target_os = "macos")]
+            "new-tab" => tabs::open(app),
+            #[cfg(target_os = "macos")]
+            "next-tab" => tabs::select_next(app),
+            #[cfg(target_os = "macos")]
+            "prev-tab" => tabs::select_previous(app),
+            #[cfg(target_os = "macos")]
+            "tab-overview" => tabs::toggle_overview(app),
+            _ => {}
+        })
         .manage(auth::LoginState::default())
         .manage(wiki::WikiRoot::default())
         .invoke_handler(tauri::generate_handler![
@@ -109,15 +214,25 @@ pub fn run() {
             wiki::wiki_list_pages,
             wiki::wiki_read_page,
             wiki::wiki_write_page,
+            wiki::wiki_delete_page,
+            wiki::wiki_rename_page,
+            wiki::wiki_page_history,
+            wiki::wiki_recent_changes,
             wiki::wiki_commit_turn,
             wiki::wiki_search,
             wiki::wiki_get_root,
+            wiki::wiki_status,
             source::wiki_fetch_url,
             source::wiki_read_external,
         ])
         .setup(|app| {
             resolve_wiki_root(app.handle());
-            build_main_window(app.handle())?;
+            let _main = build_main_window(app.handle())?;
+            #[cfg(target_os = "macos")]
+            {
+                install_tab_key_monitor(app.handle());
+                install_plus_button(app.handle(), &_main);
+            }
 
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -139,6 +254,10 @@ pub fn run() {
 /// written back to the store so the choice survives a restart — including a
 /// first run, where it pins the default rather than leaving it implicit and
 /// liable to move if the default ever changes.
+///
+/// An `EXPONENTIAL_WIKI_ROOT` override is the exception: it applies to the launch
+/// that set it and is never written back, so a throwaway test root cannot become
+/// the permanent setting. See `wiki::resolve_root_for_launch`.
 fn resolve_wiki_root(app: &tauri::AppHandle) {
     use tauri_plugin_store::StoreExt;
 
@@ -148,14 +267,16 @@ fn resolve_wiki_root(app: &tauri::AppHandle) {
         .and_then(|store| store.get(wiki::STORE_KEY))
         .and_then(|value| value.as_str().map(str::to_owned));
 
-    let root = wiki::resolve_root(stored);
+    let wiki::RootChoice { root, persist } = wiki::resolve_root_for_launch(stored);
 
-    if let Ok(store) = app.store(wiki::STORE_FILE) {
-        store.set(wiki::STORE_KEY, root.to_string_lossy().to_string());
-        // Best-effort: a wiki that works but forgets its location next launch
-        // beats refusing to start.
-        if let Err(e) = store.save() {
-            eprintln!("[wiki] could not persist the wiki root: {e}");
+    if persist {
+        if let Ok(store) = app.store(wiki::STORE_FILE) {
+            store.set(wiki::STORE_KEY, root.to_string_lossy().to_string());
+            // Best-effort: a wiki that works but forgets its location next launch
+            // beats refusing to start.
+            if let Err(e) = store.save() {
+                eprintln!("[wiki] could not persist the wiki root: {e}");
+            }
         }
     }
 
@@ -165,12 +286,247 @@ fn resolve_wiki_root(app: &tauri::AppHandle) {
         .expect("wiki root mutex poisoned") = Some(root);
 }
 
+/// Tells the page it is inside this shell.
+///
+/// The page cannot reliably work this out for itself. It used to sniff
+/// `window.__TAURI_INTERNALS__` from an inline `<head>` script, but on a remote
+/// page that global lands *after* the document's own head scripts run — so the
+/// check was made too early, found nothing, and the marking was silently
+/// skipped. IPC worked fine a moment later, which is what made the bug so
+/// quiet. An initialization script has no such race; `documentElement` may not
+/// exist yet at injection time, hence the `DOMContentLoaded` retry.
+///
+/// With the Safari-style chrome this stamps only `data-shell` — the overlay-era
+/// `data-titlebar` marking (and the 38px sidebar inset it switched on) is
+/// deliberately gone, because the page no longer sits under any chrome.
+#[cfg(target_os = "macos")]
+const TITLEBAR_MARKER_SCRIPT: &str = r#"
+(function () {
+  function mark() {
+    var root = document && document.documentElement;
+    if (!root) return false;
+    root.setAttribute('data-shell', 'tauri');
+    // Deliberately NOT stamping data-titlebar="overlay": with the Safari-style
+    // visible titlebar the page starts below the chrome, so the 38px inset that
+    // attribute switches on in sidebar.css would be pure dead space.
+    return true;
+  }
+  try {
+    if (!mark()) {
+      document.addEventListener('DOMContentLoaded', mark);
+    }
+  } catch (e) {}
+})();
+"#;
+
+/// Non-macOS shells keep their native chrome, so there is nothing to mark.
+#[cfg(not(target_os = "macos"))]
+const TITLEBAR_MARKER_SCRIPT: &str = "";
+
 /// Create the single app window pointed at the remote web app.
 ///
 /// The window is built here rather than declared in `tauri.conf.json` because the
 /// URL is build-dependent (dev server vs production) and a `WebviewUrl::External`
 /// in static config cannot express that.
-fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<tauri::WebviewWindow> {
+    build_window(app, "main")
+}
+
+/// Native macOS window tabs (ADR-0053). Tab commands are sent to whichever
+/// window is frontmost.
+///
+/// `selectNextTab:`, `selectPreviousTab:` and `toggleTabOverview:` are AppKit's
+/// own actions, so the behaviour is Safari's by construction — cycling wraps,
+/// the overview is the real overview — rather than something reimplemented and
+/// approximately right.
+#[cfg(target_os = "macos")]
+mod tabs {
+    use objc2::runtime::AnyObject;
+
+    /// Labels are `tab-<n>` to match the capability glob. Nothing reads them.
+    static NEXT_LABEL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
+    pub fn next_label() -> String {
+        let n = NEXT_LABEL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("tab-{n}")
+    }
+
+    fn ns_window(window: &tauri::WebviewWindow) -> Option<*mut AnyObject> {
+        window.ns_window().ok().map(|ptr| ptr as *mut AnyObject)
+    }
+
+    pub fn select_next(app: &tauri::AppHandle) {
+        if let Some(ns) = super::frontmost_window(app).as_ref().and_then(ns_window) {
+            unsafe {
+                let _: () = objc2::msg_send![ns, selectNextTab: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+
+    pub fn select_previous(app: &tauri::AppHandle) {
+        if let Some(ns) = super::frontmost_window(app).as_ref().and_then(ns_window) {
+            unsafe {
+                let _: () = objc2::msg_send![ns, selectPreviousTab: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+
+    pub fn toggle_overview(app: &tauri::AppHandle) {
+        if let Some(ns) = super::frontmost_window(app).as_ref().and_then(ns_window) {
+            unsafe {
+                let _: () = objc2::msg_send![ns, toggleTabOverview: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+
+    /// Open a tab in the frontmost window's tab group.
+    ///
+    /// `addTabbedWindow:` rather than trusting the shared identifier: AppKit only
+    /// auto-merges when the user's global `AppleWindowTabbingMode` is `always`,
+    /// and Apple's default is "In Full Screen Only" — so without this an ordinary
+    /// user gets a detached window and no tab at all.
+    pub fn open(app: &tauri::AppHandle) {
+        let host = super::frontmost_window(app);
+        let Ok(created) = super::build_window(app, &next_label()) else {
+            return;
+        };
+        let (Some(host_ns), Some(created_ns)) =
+            (host.as_ref().and_then(ns_window), ns_window(&created))
+        else {
+            return;
+        };
+        // NSWindowOrderingMode::Above — new tab lands after the current one.
+        unsafe {
+            let _: () = objc2::msg_send![host_ns, addTabbedWindow: created_ns, ordered: 1isize];
+        }
+        let _ = created.set_focus();
+    }
+}
+
+/// The window the user is looking at, or any window as a fallback.
+///
+/// The fallback matters at startup and in menu handlers that can fire while no
+/// window reports focus; "some window" beats a silently dead menu item.
+fn frontmost_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    let windows = app.webview_windows();
+    windows
+        .values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| windows.values().next())
+        .cloned()
+}
+
+/// Cmd/Ctrl+L. In a browser that focuses the address bar; the shell has no
+/// address bar, so it copies the frontmost tab's URL instead — the half of ⌘L
+/// people actually want here (grabbing a link to the page they're on).
+fn copy_current_url(app: &tauri::AppHandle) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    let Some(window) = frontmost_window(app) else {
+        return;
+    };
+    let Ok(url) = window.url() else {
+        return;
+    };
+    if let Err(e) = app.clipboard().write_text(url.to_string()) {
+        eprintln!("[shell] could not copy the current URL: {e}");
+    }
+}
+
+/// ⌃Tab / ⌃⇧Tab, caught the way Safari catches them: before the web view sees
+/// the key.
+///
+/// These cannot be menu key equivalents. AppKit matches a non-⌘ equivalent only
+/// after the responder chain declines the key, and WKWebView consumes Tab —
+/// which is why the menu items alone (previous build) never fired. A local
+/// NSEvent monitor runs before dispatch, so it wins regardless of what the
+/// webview would do with the key. The menu items stay for discoverability; the
+/// monitor swallowing the event just means they are never reached by keyboard.
+#[cfg(target_os = "macos")]
+fn install_tab_key_monitor(app: &tauri::AppHandle) {
+    use objc2::runtime::AnyObject;
+
+    const KEY_DOWN_MASK: u64 = 1 << 10; // NSEventMaskKeyDown
+    const SHIFT: u64 = 1 << 17; // NSEventModifierFlagShift
+    const CONTROL: u64 = 1 << 18; // NSEventModifierFlagControl
+    const OPTION: u64 = 1 << 19; // NSEventModifierFlagOption
+    const COMMAND: u64 = 1 << 20; // NSEventModifierFlagCommand
+    const TAB_KEY_CODE: u16 = 48;
+
+    let handle = app.clone();
+    let block = block2::RcBlock::new(move |event: *mut AnyObject| -> *mut AnyObject {
+        let (key_code, flags): (u16, u64) = unsafe {
+            (
+                objc2::msg_send![event, keyCode],
+                objc2::msg_send![event, modifierFlags],
+            )
+        };
+        if key_code == TAB_KEY_CODE && flags & CONTROL != 0 && flags & (COMMAND | OPTION) == 0 {
+            if flags & SHIFT != 0 {
+                tabs::select_previous(&handle);
+            } else {
+                tabs::select_next(&handle);
+            }
+            return std::ptr::null_mut(); // swallowed — the webview never tabs focus
+        }
+        event
+    });
+
+    // The monitor and its block live for the life of the app; there is no
+    // teardown moment, so leaking both is the correct lifetime.
+    unsafe {
+        let _monitor: *mut AnyObject = objc2::msg_send![
+            objc2::class!(NSEvent),
+            addLocalMonitorForEventsMatchingMask: KEY_DOWN_MASK,
+            handler: &*block
+        ];
+    }
+    std::mem::forget(block);
+}
+
+/// The `+` at the right end of the tab bar.
+///
+/// AppKit draws Safari's plus button by itself the moment any responder in the
+/// window's chain implements `newWindowForTab:` — the button *is* that check.
+/// Neither tao nor tauri implements it, so it is added to the window's own class
+/// at runtime, once; the class is tao's window subclass, so every tab gets the
+/// button from the same patch.
+#[cfg(target_os = "macos")]
+static TAB_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+#[cfg(target_os = "macos")]
+fn install_plus_button(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
+    use objc2::runtime::AnyObject;
+
+    let _ = TAB_APP_HANDLE.set(app.clone());
+
+    extern "C-unwind" fn new_window_for_tab(
+        _this: *mut AnyObject,
+        _sel: objc2::runtime::Sel,
+        _sender: *mut AnyObject,
+    ) {
+        // Runs on the main thread — AppKit action dispatch, same as a menu item.
+        if let Some(app) = TAB_APP_HANDLE.get() {
+            tabs::open(app);
+        }
+    }
+
+    let Ok(ptr) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let ns = ptr as *mut AnyObject;
+        let class: *mut objc2::runtime::AnyClass = objc2::msg_send![ns, class];
+        let imp = std::mem::transmute::<
+            extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel, *mut AnyObject),
+            objc2::runtime::Imp,
+        >(new_window_for_tab);
+        // "v@:@" — returns void, takes self, _cmd, sender.
+        objc2::ffi::class_addMethod(class, objc2::sel!(newWindowForTab:), imp, c"v@:@".as_ptr());
+    }
+}
+
+fn build_window(app: &tauri::AppHandle, label: &str) -> tauri::Result<tauri::WebviewWindow> {
     let url = app_base_url()
         .parse()
         .unwrap_or_else(|e| panic!("{BASE_URL_ENV} is not a valid URL: {e}"));
@@ -178,13 +534,17 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let opener = app.clone();
     let new_window_opener = app.clone();
 
-    let builder = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(url))
+    let builder = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External(url))
+        // Also each tab's label, via NSWindow.tab.title. URL-derived per-tab
+        // titles are the V2 ticket's next action; until then every tab reads
+        // the same, which is the known gap, not a bug.
         .title("Exponential Beta")
         .inner_size(1400.0, 900.0)
         .min_inner_size(800.0, 600.0)
         // The page is remote and takes a moment to paint; without this the window
         // opens as a white flash before the app's dark surface arrives.
         .background_color(window_background())
+        .initialization_script(TITLEBAR_MARKER_SCRIPT)
         .on_navigation(move |url| {
             if stays_in_app(url) {
                 return true;
@@ -202,15 +562,33 @@ fn build_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
             tauri::webview::NewWindowResponse::Deny
         });
 
-    // Match the Electron shell's `hiddenInset` chrome: the traffic lights float
-    // over the page instead of sitting in a separate title bar.
+    // Safari-style chrome: a standard titlebar, with the web view laid out
+    // below it — NOT the Electron-matching overlay chrome this shell used
+    // before tabs. The cool.lark spike tried overlay + native tabs on a real
+    // build, and the overlay lost at every layer (ADR-0053):
+    //
+    //   - `traffic_light_position` shrinks the titlebar container the tab bar
+    //     lives in (tao's inset hack re-runs every drawRect:), squashing the
+    //     bar and hiding the lights;
+    //   - the full-size content view puts the page under the chrome, so
+    //     scrolled content and the scrollbar showed through the titlebar row,
+    //     fixed-position modals opened under the tab bar, and the transparent
+    //     titlebar hit-tested through to the page, leaving the window
+    //     undraggable (tauri#9503);
+    //   - each had a workaround, and each workaround was another moving part.
+    //
+    // A visible titlebar dissolves all of it: AppKit lays content below the
+    // chrome, dragging/zoom/scrollbars behave natively, and the page needs no
+    // inset at all. `hidden_title` keeps the empty titlebar row from drawing a
+    // window title over its middle; tab labels are unaffected (they read
+    // NSWindow.tab.title, not the titlebar drawing).
     #[cfg(target_os = "macos")]
     let builder = builder
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
+        .hidden_title(true)
+        .tabbing_identifier("im.exponential.beta.tabs");
 
-    builder.build()?;
-    Ok(())
+    let window = builder.build()?;
+    Ok(window)
 }
 
 /// Hand a URL to the user's default browser.

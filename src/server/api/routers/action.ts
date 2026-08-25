@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -10,8 +10,8 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canEditAction, getProjectAccess, hasProjectAccess, canEditProject, buildActionAccessWhere } from "~/server/services/access";
+import { findUserByEmailInWorkspace, getWorkspaceMembership, canEditWorkspaceContent } from "~/server/services/access/resolvers/workspaceResolver";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -25,7 +25,35 @@ import {
 } from "~/server/services/projectActivity";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { partitionActions } from "~/lib/actions/partition";
+import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
+/**
+ * Guard a caller-supplied `workspaceId` on a write.
+ *
+ * `workspaceId` arrives as free-form input on `create`/`update`, so membership
+ * is never implied by having reached the mutation: without this check any
+ * authenticated user could inject rows into an arbitrary workspace's task list
+ * by guessing its CUID.
+ *
+ * Membership alone isn't sufficient either — `viewer` is a read-only role — so
+ * this asserts `canEditWorkspaceContent` (member and above). Project-only
+ * members ("guests") have no WorkspaceUser row and are refused here by design;
+ * their writes are authorised through the project path instead, which is why
+ * callers must skip this check for a workspace derived from the project.
+ */
+async function assertCanWriteToWorkspace(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+) {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!canEditWorkspaceContent(membership?.role ?? null)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You don't have permission to add actions to this workspace",
+    });
+  }
+}
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
@@ -256,7 +284,10 @@ export const actionRouter = createTRPCRouter({
       return ctx.db.action.findMany({
         where: whereClause,
         include: {
-          project: true,
+          // Every row in this query shares one project, so a full project row
+          // (description, aiInstructions, taskManagementConfig JSON) would be
+          // duplicated N times per response. Select only what rows render.
+          project: { select: { id: true, name: true, slug: true, workspaceId: true } },
           syncs: true, // Include ActionSync records to show sync status
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
@@ -436,19 +467,59 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // `input.workspaceId` is spread straight into the create below, so an
+      // unchecked value plants the action — and the `created` activity event
+      // fired for it further down — inside a workspace the caller has no
+      // relationship to, where that workspace's members then see it in their
+      // feed. The project branch above only gates the *project*.
+      //
+      // A project dictates its own workspace, so it takes precedence over any
+      // caller-supplied `workspaceId`. The old precedence ran the other way,
+      // which let a caller attach a project they can genuinely edit while
+      // naming a foreign workspace, laundering the row into that workspace.
+      // `input.workspaceId` therefore only applies when there is no project, or
+      // when the project is personal (no workspace of its own).
+      const targetWorkspaceId = projectWorkspaceId ?? input.workspaceId ?? null;
+
+      // Authorise the destination workspace whenever it came from the caller
+      // rather than from the project. Skipping the project-derived case keeps
+      // project-only members ("guests") working — `canEditProject` above is
+      // their authorisation, and a bare `input.workspaceId` check would refuse
+      // them, since a guest has no WorkspaceUser row but every client sends
+      // workspaceId alongside projectId.
+      if (targetWorkspaceId && targetWorkspaceId !== projectWorkspaceId) {
+        await assertCanWriteToWorkspace(
+          ctx.db,
+          ctx.session.user.id,
+          targetWorkspaceId,
+        );
+      }
+
+      // A linked epic must live in the action's own workspace, or its name and
+      // status leak back through the `epic` include below (PR 481). Resolved
+      // against `targetWorkspaceId` — the workspace the action will actually
+      // land in — rather than a caller-supplied id that may not be it.
+      if (input.epicId) {
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          ctx.session.user.id,
+          targetWorkspaceId,
+          { epicId: input.epicId },
+        );
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actionData: any = {
         ...input,
+        // Overrides the `workspaceId` spread from `...input`, which is exactly
+        // the field that was previously written through unchecked.
+        workspaceId: targetWorkspaceId ?? undefined,
         createdById: ctx.session.user.id,
         ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
         // External-agent principals stamp their surface (ADR-0049); the *who*
         // is createdById (the agent's shadow user), the *how* is source.
         ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
       };
-
-      if (input.projectId && !input.workspaceId && projectWorkspaceId) {
-        actionData.workspaceId = projectWorkspaceId;
-      }
 
       if (input.projectId) {
         actionData.kanbanStatus = "TODO";
@@ -517,6 +588,14 @@ export const actionRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+
+      // Same free-form `workspaceId` as `create`, and it lands in the same
+      // place — `db.action.create` below — so it needs the same guard. Without
+      // it, any authenticated user can drop a prompt action into an arbitrary
+      // workspace's task list by guessing its CUID.
+      if (input?.workspaceId) {
+        await assertCanWriteToWorkspace(ctx.db, userId, input.workspaceId);
+      }
 
       const today = startOfDay(new Date());
       const tomorrow = new Date(today);
@@ -640,23 +719,100 @@ export const actionRouter = createTRPCRouter({
         validateScheduledTimes(resolvedStart, resolvedEnd);
       }
 
-      // Sync workspaceId when projectId changes
+      // Re-targeting the action. `projectId` and `workspaceId` are both
+      // free-form input, and `canEditAction` above only proves the caller may
+      // edit the action where it currently lives — not that they may move it
+      // somewhere else. Each destination needs its own authorisation.
       if (updateData.projectId) {
-        const newProject = await ctx.db.project.findUnique({
-          where: { id: updateData.projectId },
-          select: { workspaceId: true },
-        });
+        const [targetProjectAccess, newProject] = await Promise.all([
+          getProjectAccess(ctx.db, ctx.session.user.id, updateData.projectId),
+          ctx.db.project.findUnique({
+            where: { id: updateData.projectId },
+            select: { workspaceId: true },
+          }),
+        ]);
+
+        if (!canEditProject(targetProjectAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have permission to move this action to that project",
+          });
+        }
+
+        // Sync workspaceId from the project, which wins over any caller-supplied
+        // value (same precedence as `create`). Only a personal project — one
+        // with no workspace — leaves `input.workspaceId` in play.
         if (newProject?.workspaceId) {
           updateData.workspaceId = newProject.workspaceId;
+        } else if (updateData.workspaceId) {
+          await assertCanWriteToWorkspace(
+            ctx.db,
+            ctx.session.user.id,
+            updateData.workspaceId,
+          );
         }
+      } else if (updateData.workspaceId) {
+        // Moving the action into a workspace by id alone. `null` falls through
+        // unchecked on purpose: detaching an action the caller can already edit
+        // grants no access to anything.
+        await assertCanWriteToWorkspace(
+          ctx.db,
+          ctx.session.user.id,
+          updateData.workspaceId,
+        );
+      }
+
+      // Same-workspace guard as create, resolved against the workspace the
+      // action will have *after* any projectId-driven move above.
+      if (updateData.epicId) {
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          ctx.session.user.id,
+          updateData.workspaceId ??
+            currentAction?.workspaceId ??
+            currentAction?.project?.workspaceId ??
+            null,
+          { epicId: updateData.epicId },
+        );
       }
 
       // Set completedAt timestamp when completing, clear when uncompleting
       // Clear kanbanOrder when priority is updated to restore automatic sorting
+      // A kanban column actually changing, as opposed to a full payload
+      // re-sending the current column: un-completing must only happen on a
+      // real change, or any unrelated edit that includes kanbanStatus would
+      // resurrect a completed action and clear its timestamp.
+      const kanbanChanged =
+        updateData.kanbanStatus !== undefined &&
+        updateData.kanbanStatus !== currentAction?.kanbanStatus;
       const finalUpdateData = {
         ...updateData,
-        ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
-        ...(isUncompleting && wasCompleted && { completedAt: null }),
+        // Gated on the stored timestamp, not wasCompleted, so re-completing a
+        // legacy row (kanban DONE, completedAt never written) backfills it.
+        ...(isCompleting && !currentAction?.completedAt && { completedAt: new Date() }),
+        ...((updateData.status === "ACTIVE" ||
+          (kanbanChanged && updateData.kanbanStatus !== "DONE")) &&
+          currentAction?.completedAt && { completedAt: null }),
+        // Callers that complete via kanbanStatus alone must move the coarse
+        // `status` too — list views filter on status === "ACTIVE" and would
+        // otherwise keep showing a kanban-DONE action (and vice versa). An
+        // explicit `status` in the input always wins; DELETED/DRAFT rows are
+        // left alone; the sync toward ACTIVE fires only on a real column
+        // change, while DONE/CANCELLED also repair an already-matching column.
+        ...(updateData.status === undefined &&
+          updateData.kanbanStatus !== undefined &&
+          currentAction &&
+          ["ACTIVE", "COMPLETED", "CANCELLED"].includes(currentAction.status) &&
+          (updateData.kanbanStatus === "DONE" ||
+            updateData.kanbanStatus === "CANCELLED" ||
+            kanbanChanged) && {
+            status:
+              updateData.kanbanStatus === "DONE"
+                ? ("COMPLETED" as const)
+                : updateData.kanbanStatus === "CANCELLED"
+                  ? ("CANCELLED" as const)
+                  : ("ACTIVE" as const),
+          }),
         ...(updateData.priority !== undefined && { kanbanOrder: null }),
       };
 
@@ -849,6 +1005,7 @@ export const actionRouter = createTRPCRouter({
         },
         select: {
           id: true,
+          status: true,
           kanbanStatus: true,
           completedAt: true,
           projectId: true,
@@ -873,11 +1030,44 @@ export const actionRouter = createTRPCRouter({
       const isUncompleting = input.kanbanStatus !== "DONE";
       const wasCompleted = action.kanbanStatus === "DONE";
 
-      // Prepare update data with completion timestamp
+      // Prepare update data with completion timestamp. The coarse `status`
+      // field moves in lockstep: list views (home overdue, "Assigned to you")
+      // filter on status === "ACTIVE", so a kanban DONE that left status
+      // ACTIVE would resurrect the action there on every load. DELETED/DRAFT
+      // rows are left alone — kanban moves must not resurrect them. Toward
+      // DONE/CANCELLED the sync fires even without a column change so legacy
+      // rows get repaired; toward ACTIVE only on a real column change —
+      // re-sending the current column (e.g. a same-column reorder) must not
+      // resurrect an action whose status was completed by another path.
+      const kanbanChanged = input.kanbanStatus !== action.kanbanStatus;
+      const statusForKanban =
+        input.kanbanStatus === "DONE"
+          ? ("COMPLETED" as const)
+          : input.kanbanStatus === "CANCELLED"
+            ? ("CANCELLED" as const)
+            : ("ACTIVE" as const);
+      const statusIsSyncable = ["ACTIVE", "COMPLETED", "CANCELLED"].includes(
+        action.status,
+      );
+      const shouldSyncStatus =
+        statusIsSyncable &&
+        action.status !== statusForKanban &&
+        (statusForKanban !== "ACTIVE" || kanbanChanged);
+      // completedAt is gated on the stored timestamp, not on wasCompleted:
+      // on the legacy repair path (kanbanStatus already DONE, status still
+      // ACTIVE, completedAt never written) wasCompleted is true and would
+      // leave a COMPLETED row with a null completedAt. Clearing follows the
+      // same rule as the ACTIVE sync: only on a real column change.
       const updateData = {
         kanbanStatus: input.kanbanStatus,
-        ...(isCompleting && !wasCompleted && { completedAt: new Date() }),
-        ...(isUncompleting && wasCompleted && { completedAt: null }),
+        ...(statusIsSyncable &&
+          isCompleting &&
+          !action.completedAt && { completedAt: new Date() }),
+        ...(statusIsSyncable &&
+          isUncompleting &&
+          kanbanChanged &&
+          action.completedAt && { completedAt: null }),
+        ...(shouldSyncStatus && { status: statusForKanban }),
       };
 
       // Update the kanban status
@@ -1056,6 +1246,94 @@ export const actionRouter = createTRPCRouter({
         overdue: toGroup(partition.overdue),
         today: toGroup(partition.todays),
         inbox: toGroup(partition.inbox),
+      };
+    }),
+
+  // Why is the overdue pile the size it is? `getTodaysActions` answers "what is
+  // overdue"; this answers "what kind of overdue", which is what anyone (human
+  // or agent) needs before proposing a disposition.
+  //
+  // The signal is the anchor timestamp. A human dating actions one at a time
+  // produces distinct times; a bulk write — a generated project plan, an
+  // import, a template — stamps every row with a single millisecond-identical
+  // value. So actions sharing an exact anchor are a **cohort**: almost
+  // certainly never individually due, and the right disposition is amnesty
+  // (`bulkDefer`), not another reschedule. Everything else is `loose` — real,
+  // individually-dated debt worth actually looking at.
+  getOverdueTriage: protectedProcedure
+    .input(
+      z
+        .object({
+          workspaceId: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Same ownership and scoping rules as getTodaysActions, so the triage
+      // view and the /today page always describe the same pile.
+      const actions = await ctx.db.action.findMany({
+        where: {
+          AND: [
+            {
+              OR: [
+                { createdById: userId, assignees: { none: {} } },
+                { assignees: { some: { userId } } },
+              ],
+            },
+            ...(input?.workspaceId
+              ? [
+                  {
+                    OR: [
+                      { workspaceId: input.workspaceId },
+                      { project: { workspaceId: input.workspaceId } },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+          status: "ACTIVE",
+        },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          scheduledStart: true,
+          dueDate: true,
+          projectId: true,
+          completedAt: true,
+          project: { select: { name: true } },
+        },
+      });
+
+      const today = new Date();
+      const { overdue } = partitionActions(actions, { today });
+      const triage = groupOverdueCohorts(overdue, { today });
+
+      const toRow = (a: (typeof overdue)[number]) => ({
+        id: a.id,
+        name: a.name,
+        priority: a.priority,
+        scheduledStart: a.scheduledStart,
+        dueDate: a.dueDate,
+        projectName: a.project?.name ?? null,
+        daysOverdue: daysOverdue(a, today),
+      });
+
+      return {
+        totalOverdue: triage.totalOverdue,
+        cohortCount: triage.cohortCount,
+        cohorts: triage.cohorts.map((c) => ({
+          stampedAt: c.stampedAt,
+          daysOverdue: c.daysOverdue,
+          count: c.count,
+          projectNames: c.projectNames,
+          actionIds: c.actionIds,
+          actions: c.actions.map(toRow),
+        })),
+        loose: triage.loose.map(toRow),
       };
     }),
 
@@ -1431,58 +1709,109 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions (update scheduledStart/doDate and dueDate)
+  // Bulk reschedule actions: moves the do-date (`scheduledStart`) and the
+  // deadline (`dueDate`) together onto the chosen day.
+  //
+  // `scheduledStart` is the field that decides the bucket. `partitionActions`
+  // treats an action as overdue when its `scheduledStart` is before today and
+  // only consults `dueDate` when there is no `scheduledStart` at all — schedule
+  // wins. Writing the deadline alone therefore leaves a past `scheduledStart`
+  // untouched and the action stays in the overdue pile, which turns "Reschedule
+  // all overdue" into a no-op against exactly the rows it was aimed at.
+  //
+  // What genuinely was broken is the *value*: this used to stamp the caller's
+  // wall-clock instant, so a bulk reschedule drew every action as an hour-long
+  // block seconds apart on the agenda rail. Callers now send local midnight
+  // (see `resolveQuickReschedule`) — normalised client-side, because the day
+  // boundary belongs to the viewer's timezone, not the server's.
+  //
+  // A null date clears both fields, so "No date" empties the pile rather than
+  // leaving a stale time-block behind. `bulkDefer` remains the intent-carrying
+  // path for amnesty — it also writes activity rows.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
       dueDate: z.date().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Always update scheduledStart (the "do date" - when the action is scheduled)
-      // Also update dueDate if it would be before the new scheduledStart
-      if (input.dueDate) {
-        // First: update scheduledStart for all actions
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-          },
-          data: {
-            scheduledStart: input.dueDate,
-          },
-        });
-
-        // Second: update dueDate only for actions where dueDate is before the new date (or null)
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-            OR: [
-              { dueDate: null },
-              { dueDate: { lt: input.dueDate } },
-            ],
-          },
-          data: {
-            dueDate: input.dueDate,
-          },
-        });
-      } else {
-        // Clearing the schedule: remove both dates
-        await ctx.db.action.updateMany({
-          where: {
-            id: { in: input.actionIds },
-            ...buildActionAccessWhere(ctx.session.user.id),
-          },
-          data: {
-            scheduledStart: null,
-            dueDate: null,
-          },
-        });
-      }
+      await ctx.db.action.updateMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        data: {
+          scheduledStart: input.dueDate,
+          dueDate: input.dueDate,
+        },
+      });
 
       return {
         count: input.actionIds.length,
         actionIds: input.actionIds,
+      };
+    }),
+
+  // Amnesty: un-date actions back to their project backlog.
+  //
+  // Lands on the same columns as `bulkReschedule({ dueDate: null })`, but keep
+  // both: this one records activity rows for what was cleared, and the name is
+  // what callers (and agents doing tool discovery) match on. The difference is
+  // intent, and intent is what they need to express:
+  // rescheduling says "this is still due, later"; deferring says "this was
+  // never really due — stop counting it against me". Most large overdue piles
+  // are the second case (a project plan bulk-stamped with one date), and
+  // rescheduling them just re-inflicts the pile tomorrow.
+  //
+  // Only the dates are touched. Kanban status is left alone on purpose: an
+  // action can be untimed and still be IN_PROGRESS on a board.
+  bulkDefer: protectedProcedure
+    .input(z.object({
+      actionIds: z.array(z.string()).min(1).max(200),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Snapshot before clearing so the activity rows record what was lost.
+      const toDefer = await ctx.db.action.findMany({
+        where: {
+          id: { in: input.actionIds },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        select: { id: true, projectId: true, dueDate: true, scheduledStart: true },
+      });
+
+      const result = await ctx.db.action.updateMany({
+        where: {
+          id: { in: toDefer.map((a) => a.id) },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        data: {
+          scheduledStart: null,
+          scheduledEnd: null,
+          dueDate: null,
+        },
+      });
+
+      const projectScoped = toDefer.filter((a) => a.projectId !== null);
+      if (projectScoped.length > 0) {
+        void Promise.all(
+          projectScoped.map((a) =>
+            logProjectActivity(ctx.db, {
+              projectId: a.projectId!,
+              actionId: a.id,
+              type: PROJECT_ACTIVITY_TYPES.DUE_DATE_CHANGED,
+              fromValue: (a.dueDate ?? a.scheduledStart)?.toISOString() ?? null,
+              toValue: null,
+              changedById: ctx.session.user.id,
+            }),
+          ),
+        ).catch((err: unknown) => {
+          console.error("[projectActivity] bulkDefer:", err);
+        });
+      }
+
+      return {
+        count: result.count,
+        actionIds: toDefer.map((a) => a.id),
+        message: `Deferred ${result.count} action${result.count === 1 ? '' : 's'} back to the backlog`,
       };
     }),
 
@@ -1622,21 +1951,28 @@ export const actionRouter = createTRPCRouter({
             (member: { userId: string }) => member.userId === userId,
           );
         }
-        // No project or team - allow assignment to any user
+        // No project and no team: this used to allow assigning ANY user id,
+        // and the include below returns `user.email` — the same PII leak the
+        // ticket assignee guard closes. Fall back to the action's workspace
+        // and the caller's teams, which is exactly what the picker offers.
         else {
-          canAssign = true;
+          canAssign = await canAssignToUnscopedAction(
+            ctx.db,
+            ctx.session.user.id,
+            action.workspaceId,
+            userId,
+          );
         }
 
         if (!canAssign) {
-          const user = await ctx.db.user.findUnique({
-            where: { id: userId },
-            select: { name: true, email: true },
+          // Deliberately does NOT name the rejected user. The old message
+          // looked them up and echoed `name ?? email` back, which handed the
+          // caller a stranger's identity on exactly the path where they had
+          // just been told they have no relationship to them.
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"}`,
           });
-          const userName = user?.name ?? user?.email ?? userId;
-
-          throw new Error(
-            `User ${userName} cannot be assigned to this action. They must be a member of the ${action.projectId ? "project" : "team"}.`,
-          );
         }
       }
 
@@ -1830,21 +2166,24 @@ export const actionRouter = createTRPCRouter({
               (member: { userId: string }) => member.userId === userId,
             );
           }
-          // No project or team - allow assignment to any user
+          // Same fallback as `assign`: no project and no team means the
+          // action's workspace and the caller's teams decide, not "anyone".
           else {
-            canAssign = true;
+            canAssign = await canAssignToUnscopedAction(
+              ctx.db,
+              ctx.session.user.id,
+              action.workspaceId,
+              userId,
+            );
           }
 
           if (!canAssign) {
-            const user = await ctx.db.user.findUnique({
-              where: { id: userId },
-              select: { name: true, email: true },
+            // Names the action (the caller owns it) but never the rejected
+            // user — see the matching guard in `assign`.
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"} (action "${action.name}")`,
             });
-            const userName = user?.name ?? user?.email ?? userId;
-
-            throw new Error(
-              `User ${userName} cannot be assigned to action "${action.name}". They must be a member of the ${action.projectId ? "project" : "team"}.`,
-            );
           }
         }
       }
@@ -1872,17 +2211,33 @@ export const actionRouter = createTRPCRouter({
       actionId: z.string(),
     }))
     .query(async ({ ctx, input }) => {
-      // Get the action to verify it exists and get context
-      const action = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        include: {
-          project: true,
-          team: true,
-        },
-      });
+      // Get the action to verify it exists and get context. The access probe
+      // runs alongside it — both are independent reads keyed off actionId.
+      const [action, access] = await Promise.all([
+        ctx.db.action.findUnique({
+          where: { id: input.actionId },
+          include: {
+            project: true,
+            team: true,
+          },
+        }),
+        getActionAccess(ctx.db, ctx.session.user.id, input.actionId),
+      ]);
 
-      if (!action) {
-        throw new Error("Action not found");
+      // Without this, naming any action id returned its whole assignable
+      // roster — every workspace and project member, emails included — to any
+      // logged-in caller. View access is the right bar: assignment itself is
+      // separately gated on canEditAction, and a viewer legitimately needs the
+      // roster to render existing assignees.
+      //
+      // Missing and forbidden collapse into the same NOT_FOUND deliberately:
+      // distinguishable responses would confirm which action CUIDs exist. Same
+      // rule as `getById` above and as `assignability.ts`.
+      if (!action || !access || !canViewAction(access)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Action not found or access denied",
+        });
       }
 
       // Collect assignable users from multiple sources
@@ -1923,7 +2278,13 @@ export const actionRouter = createTRPCRouter({
       // 2. Get workspace members (if action belongs to a project in a workspace).
       //    On restricted projects, only owner/admin workspace roles are eligible
       //    (they are escape-hatch project editors).
-      if (action.project?.workspaceId) {
+      //
+      //    Gated on `isProjectInsider`, NOT `canViewAction`: a public project
+      //    satisfies the view gate for any authenticated caller, and bounty
+      //    action ids for public projects are published by the unauthenticated
+      //    /api/bounties feed. Public visibility grants the project, never the
+      //    workspace roster behind it.
+      if (action.project?.workspaceId && access.isProjectInsider) {
         const workspaceUsers = await ctx.db.workspaceUser.findMany({
           where: {
             workspaceId: action.project.workspaceId,
@@ -2002,6 +2363,10 @@ export const actionRouter = createTRPCRouter({
     }))
     .query(async ({ ctx, input }) => {
       let project: { id: string; name: string; workspaceId: string | null; isRestricted: boolean } | null = null;
+      // Whether the caller reached the project by a membership path rather than
+      // by its `isPublic` flag. Only an insider inherits the workspace roster
+      // below — see the precedence comment further down.
+      let projectInsider = false;
       if (input.projectId) {
         const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
         if (!hasProjectAccess(access)) {
@@ -2010,13 +2375,43 @@ export const actionRouter = createTRPCRouter({
             message: "You don't have access to this project",
           });
         }
+        projectInsider = isProjectInsider(access);
         project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { id: true, name: true, workspaceId: true, isRestricted: true },
         });
       }
 
-      const effectiveWorkspaceId = project?.workspaceId ?? input.workspaceId ?? null;
+      // Workspace precedence, and why the two paths are gated differently:
+      // a workspace reached *through* a project the caller is an insider on is
+      // already covered by the project check above, and must NOT be re-checked
+      // — workspace guests (project-only members with no WorkspaceUser row)
+      // would fail a membership probe and lose the roster on their own
+      // projects.
+      // `isProjectInsider`, not `hasProjectAccess`: the latter is satisfied by
+      // a merely *public* project, so inheriting the workspace from it would
+      // hand the whole roster to any authenticated caller holding a public
+      // project id — the same leak this guard exists to close.
+      // A caller-supplied `workspaceId` has no such backing, so it needs an
+      // explicit check: without one, any logged-in user who knows or guesses a
+      // workspace CUID got back every member's id, name, email and avatar.
+      // Plain membership is the bar — this is a read, so viewers pass.
+      let effectiveWorkspaceId = projectInsider ? (project?.workspaceId ?? null) : null;
+      if (!effectiveWorkspaceId && input.workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+        effectiveWorkspaceId = input.workspaceId;
+      }
+
       const isRestrictedProject = project?.isRestricted ?? false;
 
       const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();

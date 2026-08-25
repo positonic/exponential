@@ -56,6 +56,11 @@ export const env = createEnv({
     // NEXT_PUBLIC_VAPID_PUBLIC_KEY. Optional: push notifications degrade
     // gracefully when unset (see WebPushService / pushSubscription router).
     VAPID_PRIVATE_KEY: z.string().optional(),
+    // Upstash Redis for shared rate limiting (src/server/utils/rateLimit.ts).
+    // Optional: without them limits fall back to per-instance in-memory
+    // windows, which do not hold across serverless scale-out.
+    UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -95,6 +100,8 @@ export const env = createEnv({
     DATABASE_ENCRYPTION_KEY: process.env.DATABASE_ENCRYPTION_KEY,
     DATABASE_ENCRYPTION_KEY_PREVIOUS: process.env.DATABASE_ENCRYPTION_KEY_PREVIOUS,
     VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+    UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,

@@ -82,7 +82,7 @@ Or type `@agentname` at the start of your message to direct it to a specific age
 
 Each agent has access to:
 - Your projects and tasks
-- Your goals and outcomes
+- Your goals and key results
 - Meeting transcripts and notes
 - Your knowledge base
 - Integration data (Fireflies, Slack, etc.)
@@ -165,7 +165,7 @@ You don't need special commands. Just talk naturally:
 
 The AI can access data in your account:
 - Projects and tasks you've created
-- Goals and outcomes you've defined
+- Goals and key results you've defined
 - Meeting transcripts (from Fireflies integration)
 - Knowledge base content
 - Your conversation history

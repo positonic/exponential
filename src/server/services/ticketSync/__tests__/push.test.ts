@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+import { Prisma } from "@prisma/client";
 import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
 
 const { createTicketMock, resolveTagsMock, attachTagsMock, recordActivityMock } =
@@ -30,7 +31,11 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
   recordActivity: recordActivityMock,
 }));
 
-import { runOutboundTicketPush, type TicketPushAdapter } from "../push";
+import {
+  runOutboundTicketPush,
+  NonRetryablePushError,
+  type TicketPushAdapter,
+} from "../push";
 import { runInboundTicketSync, type RemoteTicketRow } from "../engine";
 import type { SyncedFields } from "../merge";
 import type { NotionDbSchema } from "../outboundMapping";
@@ -154,6 +159,11 @@ function fakeAdapter(
     cyclePageId?: string | null;
     personId?: string | null;
     schema?: NotionDbSchema;
+    /**
+     * Pages the orphan probe finds carrying this ticket's back-link.
+     * `null` models a database with no url-typed back-link property.
+     */
+    pagesByBacklink?: Array<{ externalId: string; url: string | null }> | null;
   } = {},
 ): FakeAdapter {
   const updates: FakeAdapter["updates"] = [];
@@ -171,6 +181,10 @@ function fakeAdapter(
     },
     findCyclePageIdByName: () => Promise.resolve(opts.cyclePageId ?? null),
     findPersonIdByEmail: () => Promise.resolve(opts.personId ?? null),
+    findPagesByBacklink: () =>
+      Promise.resolve(
+        opts.pagesByBacklink === undefined ? [] : opts.pagesByBacklink,
+      ),
     createPage: (params) => {
       creates.push(params);
       return Promise.resolve({ externalId: "new-page-id", url: "https://notion.so/new" });
@@ -509,9 +523,33 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
         data: expect.objectContaining({
           externalId: "new-page-id",
           snapshot: expect.objectContaining({ title: "Title" }),
+          // Provenance: the ONLY signal that this page's content is
+          // machine-authored and may later be rewritten in place. Without it
+          // the body-repair pass cannot tell our pages from imported ones.
+          remoteCreatedAt: expect.any(Date),
         }),
       }),
     );
+  });
+
+  it("fails terminally when the link write dies after the page was created", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null);
+    db.ticketSync.update.mockRejectedValueOnce(new Error("connection lost"));
+
+    // The Notion page is already live; retrying would create a second one, so
+    // this must surface as non-retryable rather than as an ordinary failure.
+    const error = await runOutboundTicketPush(db, adapter, {
+      syncId: "s1",
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(NonRetryablePushError);
+    expect((error as NonRetryablePushError).orphanedExternalId).toBe("new-page-id");
+    // One page created, and the sentinel still stands — the orphan an operator
+    // has to reconcile. The point is that a retry cannot add a second.
+    expect(adapter.creates).toHaveLength(1);
   });
 
   it("does not mirror a terminal ticket and drops the sentinel", async () => {
@@ -556,6 +594,151 @@ describe("runOutboundTicketPush — full-mirror creation", () => {
     expect(item.action).toBe("created");
     expect(item.reason).toContain("would create");
     expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("runOutboundTicketPush — orphan probe (back-link)", () => {
+  beforeEach(() => {
+    // Default: no candidate page is linked to any other ticket.
+    db.ticketSync.findMany.mockResolvedValue([] as never);
+  });
+
+  it("adopts the page a previous attempt already created for this ticket", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [{ externalId: "page-9", url: "https://notion.so/page-9" }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("adopted");
+    expect(item.externalId).toBe("page-9");
+    expect(adapter.creates).toHaveLength(0);
+    const data = db.ticketSync.update.mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.externalId).toBe("page-9");
+    expect(data.externalUrl).toBe("https://notion.so/page-9");
+    // Null snapshot: the first merge treats both sides as changed and resolves
+    // by last-write-wins, exactly as the inbound adoption pass does.
+    expect(data.snapshot).toBe(Prisma.DbNull);
+    // `remoteCreatedAt` must NOT be set: it licenses the body-repair pass to
+    // rewrite the page, and `Exponential URL` is a user-writable Notion
+    // property — a person pasting a ticket URL onto their own page produces
+    // exactly this single match. Adopting is fine; overwriting is not.
+    expect(data.remoteCreatedAt).toBeUndefined();
+  });
+
+  it("refuses to adopt a page already linked to another ticket", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    // The inbound pass linked this page to a different ticket after our sync
+    // record was lost. Adopting would breach @@unique([configId, externalId])
+    // and kill the run with a constraint error.
+    db.ticketSync.findMany.mockResolvedValue([
+      { externalId: "page-9", ticket: { number: 122 } },
+    ] as never);
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [{ externalId: "page-9", url: null }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("skipped");
+    expect(item.reason).toContain("122");
+    expect(adapter.creates).toHaveLength(0);
+    expect(db.ticketSync.update).not.toHaveBeenCalled();
+  });
+
+  it("skips the claimed page and adopts the usable one behind it", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    // page-9 belongs to another ticket; page-10 is free. Checking only the
+    // head would skip the whole push despite a perfectly usable page.
+    db.ticketSync.findMany.mockResolvedValue([
+      { externalId: "page-9", ticket: { number: 122 } },
+    ] as never);
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [
+        { externalId: "page-9", url: null },
+        { externalId: "page-10", url: null },
+      ],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("adopted");
+    expect(item.externalId).toBe("page-10");
+    // The reconciliation message must say which pages are already spoken for.
+    expect(item.reason).toContain("linked to ticket 122");
+    expect(adapter.creates).toHaveLength(0);
+  });
+
+  it("creates when no page carries this ticket's back-link", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, { pagesByBacklink: [] });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("created");
+    expect(adapter.creates).toHaveLength(1);
+  });
+
+  it("links one page and names the rest when several carry the back-link", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [
+        { externalId: "page-9", url: null },
+        { externalId: "page-10", url: null },
+      ],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("adopted");
+    expect(item.externalId).toBe("page-9");
+    expect(item.reason).toContain("page-10");
+    expect(adapter.creates).toHaveLength(0);
+    const data = db.ticketSync.update.mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data.remoteCreatedAt).toBeUndefined();
+  });
+
+  it("creates with a warning when the database has no back-link property", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    // null = the probe could not run at all, which must degrade rather than fail.
+    const adapter = fakeAdapter(null, { pagesByBacklink: null });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("created");
+    expect(item.reason).toContain("cannot tell whether a page was already created");
+    expect(adapter.creates).toHaveLength(1);
+  });
+
+  it("dry run previews the adoption without linking", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ snapshot: null, externalId: "pending:t1" }) as never,
+    );
+    const adapter = fakeAdapter(null, {
+      pagesByBacklink: [{ externalId: "page-9", url: null }],
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, {
+      syncId: "s1",
+      dryRun: true,
+    });
+
+    expect(item.action).toBe("adopted");
+    expect(item.reason).toContain("would link");
     expect(db.ticketSync.update).not.toHaveBeenCalled();
   });
 });

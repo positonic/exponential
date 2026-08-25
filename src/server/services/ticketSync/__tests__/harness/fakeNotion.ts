@@ -110,6 +110,10 @@ export const DEFAULT_FAKE_SCHEMA: NotionDbSchema = {
   Label: { type: "multi_select", options: [] },
   Cycles: { type: "relation" },
   Assignee: { type: "people" },
+  // The creation markers a real backlog database carries. The back-link is
+  // what the outbound orphan probe reads, so the fake must model it.
+  Source: { type: "select", options: ["Exponential"] },
+  "Exponential URL": { type: "url" },
 };
 
 /** Property-name → page-column roles, mirroring the default config names. */
@@ -280,6 +284,33 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
 
   findPersonIdByEmail(email: string): Promise<string | null> {
     return Promise.resolve(this.peopleByEmail.get(email) ?? null);
+  }
+
+  /** Pages whose recorded back-link equals `ticketUrl`; null = no such property. */
+  findPagesByBacklink(
+    _databaseId: string,
+    backlinkProperty: string,
+    ticketUrl: string,
+  ): Promise<Array<{ externalId: string; url: string | null }> | null> {
+    if (this.schema[backlinkProperty]?.type !== "url") return Promise.resolve(null);
+    const matches = [...this.pages.values()]
+      .filter((p) => {
+        const raw = p.extra[backlinkProperty] as { url?: string } | undefined;
+        return !p.archived && raw?.url === ticketUrl;
+      })
+      .map((p) => ({ externalId: p.externalId, url: p.url }));
+    return Promise.resolve(matches);
+  }
+
+  findPagesByTitle(
+    _databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>> {
+    const wanted = title.trim().toLowerCase();
+    const matches = [...this.pages.values()]
+      .filter((p) => !p.archived && p.title.trim().toLowerCase() === wanted)
+      .map((p) => ({ externalId: p.externalId, url: p.url }));
+    return Promise.resolve(matches);
   }
 
   createPage(params: {

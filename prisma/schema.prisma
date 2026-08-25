@@ -57,10 +57,17 @@ model ConnectedAccount {
   expires_at         Int?
   token_type         String?
   scope              String?
+  // Server-side busy-time sync bookkeeping (V2 calendar sync) — mirrors the
+  // CalendarFeed fields. Attempt-stamped so the cron sweep can order fairly.
+  calendarSyncStatus        String    @default("pending") // pending | ok | error
+  calendarLastSyncedAt      DateTime?
+  calendarLastSyncAttemptAt DateTime?
+  calendarLastSyncError     String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   calendarPreference CalendarPreference?
+  calendarEvents     CalendarEvent[]
 
   @@unique([userId, provider, providerAccountId])
   @@index([userId])
@@ -125,6 +132,10 @@ model User {
   notificationChannelPreferences NotificationChannelPreference[]
   navigationPreference           NavigationPreference?
   calendarPreferences            CalendarPreference[]
+  calendarFeeds                  CalendarFeed[]
+  calendarEvents                 CalendarEvent[]
+  meetingsOrganized              Meeting[]                       @relation("MeetingOrganizer")
+  meetingAttendances             MeetingAttendee[]
   outcomes                       Outcome[]
   posts                          Post[]
   projects                       Project[]
@@ -210,12 +221,17 @@ model User {
   workspaceActivityEvents        WorkspaceActivityEvent[]
   // Inbound channel links created by this user
   channelLinksCreated            ChannelLink[]                   @relation("ChannelLinkCreatedBy")
+  matrixPostsPosted              MatrixPostLog[]                 @relation("MatrixPostLogPostedBy")
   // Per-user favourites (polymorphic pins)
   favorites                      Favorite[]
 
   // Onboarding: Attribution
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
+
+  // IANA timezone name (e.g. "Europe/Berlin"). Prompted for when the user
+  // connects a calendar source; work hours are interpreted in this zone.
+  timezone         String?
 
   // Onboarding: Work Hours
   workHoursEnabled Boolean   @default(true)
@@ -275,6 +291,9 @@ model User {
   requirementsChecked   Requirement[]         @relation("RequirementCheckedBy")
   ticketSyncConfigs     TicketSyncConfig[]    @relation("TicketSyncConfigCreatedBy")
   ticketSyncRuns        TicketSyncRun[]       @relation("TicketSyncRunTriggeredBy")
+  adrSyncConfigs        AdrSyncConfig[]       @relation("AdrSyncConfigCreatedBy")
+  adrSyncRuns           AdrSyncRun[]          @relation("AdrSyncRunTriggeredBy")
+  adrTicketLinks        AdrTicketLink[]       @relation("AdrTicketLinkCreatedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -289,9 +308,9 @@ model User {
   pendingDriveUploads         PendingDriveUpload[]
   /// True for an External agent's shadow principal (ADR-0049). Never signs in;
   /// gates the human-only procedure denylist.
-  isAgent                     Boolean                         @default(false)
-  ownedExternalAgents         ExternalAgent[]                 @relation("ExternalAgentOwner")
-  externalAgentShadow         ExternalAgent?                  @relation("ExternalAgentShadowUser")
+  isAgent                     Boolean                           @default(false)
+  ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
+  externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
 }
 
 model VerificationToken {
@@ -384,6 +403,7 @@ model Workspace {
 
   owner                   User                            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members                 WorkspaceUser[]
+  meetings                Meeting[]
   projects                Project[]
   epics                   Epic[]
   goals                   Goal[]
@@ -443,6 +463,8 @@ model Workspace {
   integrations            Integration[]
   // GitHub repo connection (ADR-0020): repos this workspace tracks
   workspaceRepositories   WorkspaceRepository[]
+  // Decision Log (ADR projection)
+  adrSyncConfigs          AdrSyncConfig[]
   // Notification override relations
   notificationOverrides   WorkspaceNotificationOverride[]
   // Slack channel config relation
@@ -506,8 +528,8 @@ model WorkspaceActivityEvent {
 // Integration-FK-bound SlackChannelConfig - this is inbound and integration-free.
 model ChannelLink {
   id          String   @id @default(cuid())
-  provider    String // "whatsapp" | "slack" | "telegram" | …
-  externalId  String // provider conversation id (e.g. WhatsApp group JID)
+  provider    String // "whatsapp" | "slack" | "telegram" | "matrix" | …
+  externalId  String // provider conversation id (e.g. WhatsApp group JID, Matrix room id)
   displayName String?
   workspaceId String
   projectId   String?
@@ -516,14 +538,64 @@ model ChannelLink {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy User?     @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Which way this link routes. ADR-0023 defined ChannelLink as inbound-only
+  // ("which workspace/project owns this conversation?"); outbound rows answer the
+  // reverse ("where does this project's content go?"). Existing WhatsApp rows keep
+  // the default, so the ADR-0023 summarization path is untouched.
+  direction String @default("inbound") // "inbound" | "outbound"
 
+  // For outbound rows, the registered server to send through. Null for inbound rows,
+  // which are attributed by the gateway that received them rather than by credential.
+  serverIntegrationId String?
+  serverIntegration   Integration? @relation("ChannelLinkServer", fields: [serverIntegrationId], references: [id], onDelete: Cascade)
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy   User?           @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  matrixPosts MatrixPostLog[]
+
+  // Kept as-is for V1. Consequence: a workspace default and a project override cannot
+  // name the same room. That is a recorded open decision on the feature, not an
+  // oversight — do not relax it without deciding it.
   @@unique([provider, externalId])
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+  @@index([projectId, direction])
+  @@index([workspaceId, direction])
+  @@index([serverIntegrationId])
+}
+
+/// One row per successful post of a meeting summary into a Matrix room.
+///
+/// A table rather than a timestamp column on TranscriptionSession, because the
+/// destination is not singular: `slackNotificationAt` is the single-destination
+/// precedent and it breaks the moment a meeting is re-tagged to a project with a
+/// different room. Rows are written only after the homeserver accepts the event, so
+/// the log never claims a post that did not happen.
+model MatrixPostLog {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  /// The binding used, when the destination came from one. Null for a one-off post to
+  /// an explicitly picked room, which deliberately persists no binding.
+  channelLinkId          String?
+  roomId                 String
+  serverIntegrationId    String
+  /// The homeserver's event id for the message that was sent.
+  eventId                String
+  postedById             String
+  postedAt               DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  channelLink          ChannelLink?         @relation(fields: [channelLinkId], references: [id], onDelete: SetNull)
+  serverIntegration    Integration          @relation("MatrixPostLogServer", fields: [serverIntegrationId], references: [id], onDelete: Cascade)
+  postedBy             User                 @relation("MatrixPostLogPostedBy", fields: [postedById], references: [id], onDelete: Cascade)
+
+  /// Answers "has this meeting already been posted here?" — the repost guard.
+  @@index([transcriptionSessionId, roomId])
+  @@index([serverIntegrationId])
+  @@index([channelLinkId])
+  @@index([postedById])
 }
 
 // Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
@@ -656,11 +728,17 @@ model List {
   displayOrder Int @default(0)
 
   workspaceId String
+  // Cycles (listType SPRINT) are scoped to a single product; null = legacy
+  // workspace-shared cycle. Overlap validation only applies within one
+  // product. On product delete the cycle reverts to workspace-shared
+  // (SetNull) so sprint history survives.
+  productId   String?
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product        Product?         @relation("ProductCycles", fields: [productId], references: [id], onDelete: SetNull)
   createdBy      User             @relation("ListsCreated", fields: [createdById], references: [id])
   actions        ActionList[]
   tickets        Ticket[]         @relation("TicketCycle")
@@ -671,6 +749,7 @@ model List {
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
+  @@index([productId])
   @@index([createdById])
   @@index([status])
 }
@@ -967,6 +1046,7 @@ model Project {
   slackConfig           SlackChannelConfig?
   channelLinks          ChannelLink[]
   transcriptionSessions TranscriptionSession[]
+  meetings              Meeting[]
   workflows             Workflow[]
   goals                 Goal[]                     @relation("GoalProjects")
   outcomes              Outcome[]                  @relation("ProjectOutcomes")
@@ -1344,6 +1424,7 @@ model TranscriptionSession {
   user              User?                             @relation(fields: [userId], references: [id])
   workspace         Workspace?                        @relation(fields: [workspaceId], references: [id])
   participants      TranscriptionSessionParticipant[]
+  matrixPosts       MatrixPostLog[]
 
   @@index([sessionId])
   @@index([workspaceId])
@@ -1413,6 +1494,11 @@ model Integration {
   // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
   workspaceRepositories   WorkspaceRepository[]
   syncConfigs             TicketSyncConfig[]
+  adrSyncConfigs          AdrSyncConfig[]
+  // Outbound routing (matrix-server rows): rooms bound through this server, and the
+  // log of what has been posted through it.
+  outboundChannelLinks    ChannelLink[]            @relation("ChannelLinkServer")
+  matrixPostLogs          MatrixPostLog[]          @relation("MatrixPostLogServer")
 
   @@index([userId])
   @@index([teamId])
@@ -1949,6 +2035,114 @@ model CalendarPreference {
   @@index([connectedAccountId])
 }
 
+/// A per-user ICS subscription URL (e.g. an Outlook published calendar).
+/// Deliberately NOT a ConnectedAccount — there is no account or token behind
+/// a feed, just a bearer-secret URL. See ADR on calendar feeds.
+model CalendarFeed {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  /// encryptToBase64() ciphertext — an ICS URL is a bearer secret. Never
+  /// store or log the plaintext.
+  urlEncrypted  String
+  /// From the feed's X-WR-TIMEZONE, informational only.
+  timezone      String?
+  /// Sidebar visibility toggle. Feeds have no CalendarPreference row.
+  isEnabled     Boolean   @default(true)
+  syncStatus    String    @default("pending") // pending | ok | error
+  lastSyncedAt  DateTime?
+  /// Stamped on every sync attempt, success or failure — the cron sweep
+  /// orders by this so permanently failing feeds can't starve healthy ones.
+  lastSyncAttemptAt DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events        CalendarEvent[]
+
+  @@index([userId])
+}
+
+/// Persisted external calendar events — the app's first event persistence
+/// layer. ICS feed rows in V1; Google/Microsoft busy-time rows in V2.
+/// `title`/`location` are stored for the owner's own rendering and must
+/// NEVER cross users: cross-user reads select only startsAt/endsAt/isAllDay/
+/// sourceType (free/busy).
+model CalendarEvent {
+  id                 String        @id @default(cuid())
+  userId             String
+  sourceType         String // "ics" | "google" | "microsoft"
+  calendarFeedId     String? // set when sourceType=ics
+  connectedAccountId String? // set when sourceType=google|microsoft
+  providerCalendarId String?
+  /// iCal UID / provider event id. Recurrence instances share it and are
+  /// disambiguated by startsAt (see the unique constraint).
+  externalId         String
+  title              String?
+  location           String?
+  startsAt           DateTime
+  endsAt             DateTime
+  isAllDay           Boolean       @default(false)
+  syncedAt           DateTime
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarFeed       CalendarFeed? @relation(fields: [calendarFeedId], references: [id], onDelete: Cascade)
+  connectedAccount   ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  /// Feed-scoped so the same event (UID + start) appearing in two of a
+  /// user's feeds keeps both rows — each feed owns its copy independently.
+  @@unique([calendarFeedId, externalId, startsAt])
+  /// Provider rows (V2): scoped per account + calendar, so a shared event
+  /// visible in two calendars keeps both busy blocks.
+  @@unique([connectedAccountId, providerCalendarId, externalId, startsAt])
+  @@index([userId, startsAt, endsAt])
+  @@index([calendarFeedId])
+  @@index([connectedAccountId])
+}
+
+/// A scheduled workspace meeting (V3 calendar scheduling) — forward-looking,
+/// distinct from the retrospective TranscriptionSession. The write path to
+/// attendees' real calendars is exclusively the iCalendar email invite
+/// (METHOD:REQUEST / METHOD:CANCEL against icalUid, monotonic sequence) —
+/// no API write-back. Reschedule = cancel + rebook (V3 non-goal).
+model Meeting {
+  id          String   @id @default(cuid())
+  workspaceId String
+  organizerId String
+  projectId   String?
+  title       String
+  /// Markdown (ADR-0017).
+  description String?
+  /// Manual free-text location or meeting link — no auto conference links.
+  location    String?
+  startsAt    DateTime
+  endsAt      DateTime
+  /// Stable across the meeting's lifetime; what external calendars key on.
+  icalUid     String   @unique
+  /// Bumped on every outbound iCalendar change (cancel included).
+  sequence    Int      @default(0)
+  status      String   @default("confirmed") // confirmed | cancelled
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organizer User              @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+  project   Project?          @relation(fields: [projectId], references: [id])
+  attendees MeetingAttendee[]
+
+  @@index([workspaceId, startsAt])
+}
+
+model MeetingAttendee {
+  id        String  @id @default(cuid())
+  meetingId String
+  userId    String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId])
+  @@index([userId])
+}
+
 model ScheduledNotification {
   id             String       @id @default(cuid())
   userId         String
@@ -1988,6 +2182,9 @@ model Notification {
   deeplink     String?
   dedupeKey    String
   scheduledFor DateTime?
+  /// In-app read state (null = unread). Set by the inbox UI; delivery
+  /// channels never touch it.
+  readAt       DateTime?
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1995,6 +2192,7 @@ model Notification {
 
   @@unique([dedupeKey, userId])
   @@index([userId])
+  @@index([userId, readAt])
   @@index([category])
   @@index([scheduledFor])
   @@index([createdAt])
@@ -2285,11 +2483,17 @@ model Epic {
 
   ownerId     String
   workspaceId String
+  // An epic belongs to one Product. Nullable only for the backfill window:
+  // rows predating this column have no product yet, and a null epic stays
+  // linkable from any product in its workspace so existing tickets keep
+  // their epic. Tighten to required once every row is assigned.
+  productId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   owner     User      @relation("EpicOwner", fields: [ownerId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
   actions   Action[]
   tickets   Ticket[]  @relation("TicketEpic")
   tags      EpicTag[]
@@ -2297,6 +2501,7 @@ model Epic {
   @@index([workspaceId])
   @@index([ownerId])
   @@index([status])
+  @@index([productId])
 }
 
 enum ActionStatus {
@@ -2711,23 +2916,35 @@ model KnowledgePage {
   @@index([createdById])
 }
 
-/// Discussion note on a Knowledge Page — the doc-level comment feed under the
-/// page body, same card + composer pattern as FeatureComment's feature-level
-/// feed. No anchored threads: page bodies carry no `comment` marks, so the
-/// model stays flat (no threadId/parentId/quotedText until a real need).
-/// Bodies are Markdown (ADR-0017).
+/// Comment on a Knowledge Page. Two flavours share the table, same shape as
+/// FeatureComment: doc-level rows (threadId null) form the flat Activity feed
+/// under the page body; anchored rows (threadId set) pin a discussion thread
+/// to a `comment` mark in `KnowledgePage.bodyDoc`, with `quotedText` as the
+/// orphan-rendering snapshot and `resolvedAt` settling a thread without
+/// deleting it. Bodies are Markdown (ADR-0017).
 model KnowledgePageComment {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   pageId      String
+  // Anchored comments (ADR-0024's model, applied to Pages): `threadId` matches
+  // a `comment` mark in `KnowledgePage.bodyDoc`. Doc-level comments — the flat
+  // Activity feed under the page — leave it null.
+  threadId    String?
+  parentId    String?
   body        String
+  quotedText  String?
+  resolvedAt  DateTime?
   createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  page      KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  createdBy User          @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
+  page      KnowledgePage          @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  parent    KnowledgePageComment?  @relation("KnowledgePageCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   KnowledgePageComment[] @relation("KnowledgePageCommentReplies")
+  createdBy User                   @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
 
   @@index([pageId])
+  @@index([threadId])
+  @@index([parentId])
   @@index([createdById])
 }
 
@@ -2768,9 +2985,15 @@ model CrmContact {
   // Gmail/Calendar import fields
   connectionScore Int?      @default(0) // 0-100 calculated score
   emailHash       String? // SHA-256 for deduplication; uniqueness is workspace-scoped via @@unique below
-  importSource    String? // "GMAIL", "CALENDAR", "MANUAL"
+  importSource    String? // "GMAIL", "CALENDAR", "MANUAL", "FORM", "CSV"
   googleContactId String? // Google People API ID
   lastSyncedAt    DateTime? // Last import sync time
+  // Imported columns with no dedicated field (external ids, membership info,
+  // event counts, …), keyed by the source's original column header.
+  metadata        Json?
+  // When the source system first saw this person (e.g. a CSV export's
+  // first_seen). Distinct from createdAt, which is when the row landed here.
+  firstSeenAt     DateTime?
 
   workspace                   Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   organization                CrmOrganization?                  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
@@ -4073,6 +4296,9 @@ model Product {
   projects          Project[]
   ticketSyncConfigs TicketSyncConfig[]
   featureDrafts     MeetingFeatureDraft[]
+  epics             Epic[]
+  repositories      WorkspaceRepository[]
+  cycles            List[]                @relation("ProductCycles")
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -4160,6 +4386,7 @@ model Feature {
   comments            FeatureComment[]
   pages               FeaturePage[]
   keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
+  adrLinks            AdrTicketLink[]
 
   @@index([productId])
   @@index([goalId])
@@ -4541,6 +4768,7 @@ model Ticket {
   depsIn    TicketDependency[] @relation("TicketDepsIn")
   tags      TicketTag[]
   syncs     TicketSync[]
+  adrLinks  AdrTicketLink[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -4865,6 +5093,9 @@ model WorkspaceRepository {
   fullName       String
   installationId String?
   addedById      String?
+  /// Optional product assignment (Decision Log): ADRs derive their product
+  /// through the repo. Null = workspace-level repo (e.g. shared architecture).
+  productId      String?
   syncStatus     String    @default("pending")
   lastSyncedAt   DateTime?
   createdAt      DateTime  @default(now())
@@ -4872,10 +5103,15 @@ model WorkspaceRepository {
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   addedBy     User?       @relation("WorkspaceRepositoryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  product     Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  adrSyncConfigs AdrSyncConfig[]
+  adrDocuments   AdrDocument[]
 
   @@unique([workspaceId, fullName])
   @@index([workspaceId])
   @@index([integrationId])
+  @@index([productId])
 }
 
 model TicketSyncConfig {
@@ -4909,19 +5145,26 @@ model TicketSyncConfig {
 }
 
 model TicketSync {
-  id           String    @id @default(cuid())
-  configId     String
-  ticketId     String
-  provider     String    @default("notion")
+  id              String    @id @default(cuid())
+  configId        String
+  ticketId        String
+  provider        String    @default("notion")
   /// Remote identity — the Notion page id.
-  externalId   String
-  externalUrl  String?
+  externalId      String
+  externalUrl     String?
   /// Field values at last successful sync (three-way merge base).
-  snapshot     Json?
-  lastSyncedAt DateTime  @default(now())
-  tombstonedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  snapshot        Json?
+  lastSyncedAt    DateTime  @default(now())
+  tombstonedAt    DateTime?
+  /// Stamped when the OUTBOUND push created this Notion page (ADR-0046 full
+  /// mirror). Null means the page is human-authored — imported or adopted —
+  /// and its CONTENT is never machine-writable. This is the only trustworthy
+  /// provenance signal: the run ledger's `action: "created"` is ambiguous
+  /// (inbound uses it for "created a ticket", outbound for "created a page")
+  /// and reading it as page provenance destroyed human content once already.
+  remoteCreatedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   config   TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
   ticket   Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -4988,6 +5231,159 @@ model TicketSyncRun {
   triggeredBy   User?            @relation("TicketSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
   revertedByRun TicketSyncRun?   @relation("TicketSyncRunRevertedBy", fields: [revertedByRunId], references: [id], onDelete: SetNull)
   revertedRuns  TicketSyncRun[]  @relation("TicketSyncRunRevertedBy")
+
+  @@index([configId, startedAt])
+  @@index([triggeredById])
+}
+
+// ── Decision Log (cross-repo ADR projection) ────────────────────────────────
+// Read-only projection of ADR markdown files from enrolled GitHub repos. Git
+// is the source of truth; every row here is derived and re-derivable, except
+// AdrTicketLink which is user-authored linkage and must survive repo
+// disconnection. Documents are only ever soft-deleted (deletedAt).
+
+enum AdrStatus {
+  PROPOSED
+  ACCEPTED
+  SUPERSEDED
+  DEPRECATED
+  UNKNOWN
+}
+
+enum AdrLinkType {
+  SUPERSEDES
+  MENTIONS
+}
+
+model AdrSyncConfig {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  repositoryId String
+  /// Workspace-unique label prefix; ADRs render as `SHORTCODE-NUMBER`
+  /// (e.g. API-0003). A label, not a key — collisions are flagged, not refused.
+  shortCode    String
+  /// Repo-relative directories searched for ADR markdown files.
+  adrPaths     String[] @default(["docs/adr"])
+  /// Null means DISCONNECTED — disconnect is a soft state change, never a row
+  /// delete, so documents, links and run history always survive (ADR-0042).
+  integrationId String?
+  enabled       Boolean  @default(true)
+  /// Git tree SHA(s) covering adrPaths at the last successful pull — the sync
+  /// short-circuit key: unchanged tree ⇒ zero file fetches for this repo.
+  lastTreeSha   String?
+  /// Default-branch head commit at the last successful pull; GitHub deep links
+  /// pin here rather than at HEAD.
+  lastCommitSha String?
+  lastSyncedAt  DateTime?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repository  WorkspaceRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  integration Integration?        @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  createdBy   User                @relation("AdrSyncConfigCreatedBy", fields: [createdById], references: [id])
+  runs        AdrSyncRun[]
+
+  @@unique([workspaceId, repositoryId])
+  @@unique([workspaceId, shortCode])
+  @@index([repositoryId])
+  @@index([integrationId])
+  @@index([createdById])
+}
+
+model AdrDocument {
+  id           String    @id @default(cuid())
+  repositoryId String
+  /// Repo-relative file path — the stable half of the natural key.
+  path         String
+  /// Sequence number parsed from the filename (`0003-...`); null when absent.
+  number       Int?
+  slug         String?
+  title        String
+  status       AdrStatus @default(UNKNOWN)
+  /// Verbatim status string from the file (drives SUPERSEDES derivation).
+  statusRaw    String?
+  decidedAt    DateTime?
+  /// Full markdown content as last synced.
+  body         String    @db.Text
+  /// Git blob SHA from the tree listing — an unchanged blob is skipped
+  /// without a content fetch.
+  contentHash  String
+  /// Blob SHA last seen for this file.
+  lastSeenSha  String
+  /// Set when the file vanished from the repo; documents are never hard-deleted.
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  repository  WorkspaceRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  linksFrom   AdrLink[]           @relation("AdrLinkFrom")
+  linksTo     AdrLink[]           @relation("AdrLinkTo")
+  ticketLinks AdrTicketLink[]
+
+  @@unique([repositoryId, path])
+  @@index([repositoryId, deletedAt])
+}
+
+model AdrLink {
+  id        String      @id @default(cuid())
+  type      AdrLinkType
+  /// SUPERSEDES points from superseder to superseded.
+  fromId    String
+  toId      String
+  /// The matched line supporting a MENTIONS edge ("detected" provenance).
+  evidence  String?
+  createdAt DateTime    @default(now())
+
+  from AdrDocument @relation("AdrLinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   AdrDocument @relation("AdrLinkTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, type])
+  @@index([toId])
+}
+
+model AdrTicketLink {
+  id          String   @id @default(cuid())
+  adrId       String
+  ticketId    String?
+  featureId   String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  adr       AdrDocument @relation(fields: [adrId], references: [id], onDelete: Cascade)
+  ticket    Ticket?     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  feature   Feature?    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy User        @relation("AdrTicketLinkCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([adrId, ticketId])
+  @@unique([adrId, featureId])
+  @@index([ticketId])
+  @@index([featureId])
+}
+
+model AdrSyncRun {
+  id         String    @id @default(cuid())
+  configId   String
+  /// manual | cron | webhook
+  trigger    String
+  /// running | success | unchanged | error
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  skipped    Int       @default(0)
+  deleted    Int       @default(0)
+  failed     Int       @default(0)
+  /// Per-file outcomes: [{ path, action, reason? }]
+  items      Json?
+  /// Who triggered the run; null for cron runs.
+  triggeredById String?
+
+  config      AdrSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  triggeredBy User?         @relation("AdrSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
 
   @@index([configId, startedAt])
   @@index([triggeredById])

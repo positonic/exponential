@@ -1,7 +1,9 @@
 # Zoe Daily Briefing — Internal Reference
 
 > **Audience:** future-you + collaborators. Not user-facing. Not linked from any public docs site.
-> **Status:** v1 (logging infrastructure). Eval loop not yet built.
+> **Status:** **Design only — not implemented.** Everything below is the intended
+> design. Only the schema exists; see [Current state](#current-state) for what is
+> actually built, and what shipped instead.
 
 ## What this is
 
@@ -78,14 +80,59 @@ Computed by the admin page at `/admin/daily-briefing` (when built).
 
 **Pick one primary metric.** Default: top-1 execution rate. Acceptance rate is the fastest signal but easiest to goodhart.
 
-## Current state (v1)
+## Current state
 
-- [x] Schema: `DailyBriefing`, `BriefingInteraction`, `NavigationPreference.showDailyBriefing`
-- [x] Opt-in toggle in `/settings`
-- [x] tRPC router `zoeBriefing` (generate, getCurrent, refresh, recordInteraction)
-- [x] `DailyBriefingCard` on `/today` (renders when filter=today AND preference enabled)
-- [x] Admin page at `/admin/daily-briefing` for metrics
-- [ ] **Not built yet:** eval harness, fixture set, prompt variant scoring
+Verified 2026-08-04. An earlier revision of this file checked five of these
+boxes; only the first was ever true. Re-verify before trusting it again.
+
+- [x] Schema: `DailyBriefing` (`prisma/schema.prisma:1897`), `BriefingInteraction`
+      (`:1920`), `NavigationPreference.showDailyBriefing` (`:1888`) — **all three
+      exist and none is read or written anywhere in `src/`.** Dead tables.
+- [ ] Opt-in toggle in `/settings` — `showDailyBriefing` appears zero times in `src/`.
+- [ ] tRPC router `zoeBriefing` — does not exist. (`src/server/api/routers/briefing.ts`
+      is the unrelated data-aggregation router; there is no `zoeBriefing.ts`.)
+- [ ] `DailyBriefingCard` on `/today` — no such component.
+- [ ] Admin page at `/admin/daily-briefing` — no such route.
+- [ ] Eval harness, fixture set, prompt variant scoring.
+
+### What shipped instead
+
+The AI card on `/today` is a different implementation from the one designed
+above: `scheduling.getSchedulingSuggestions`
+(`src/server/api/routers/scheduling.ts`), rendered by `ZoePanel`. It now writes
+to these tables, so the two paths have partly converged:
+
+- **It no longer regenerates on page load.** Each call builds a deterministic
+  `SuggestionInputSnapshot` (the overdue actions, calendar busy-intervals, and
+  already-scheduled actions the prompt reads), hashes it, and reuses today's
+  `DailyBriefing` row when the hash matches. The model is called only when the
+  input actually changed. This closes the first entry under
+  [Gotchas](#gotchas).
+- **Briefings are persisted** with `promptVersion`, `modelId`, `inputSnapshot`,
+  `outputText`, `outputStructured` and `latencyMs` — so the replayable input the
+  autoresearch loop needs now exists. `scheduling.recordBriefingInteraction`
+  writes `BriefingInteraction`, so acceptance and dismissal rates are
+  computable.
+- **It is Zoe now.** Generation was pointed at `ashAgent` — a tool-less GPT-4o
+  lean-startup persona whose instructions were overridden per call, so model,
+  prompt, and persona all disagreed with the branding on the card. It now calls
+  `zoeAgent`.
+
+Still divergent from the design above:
+
+- **`promptVersion` is `zoe-scheduling-v1`**, not `zoe-daily-vN` — this is the
+  scheduling-suggestions prompt, a different prompt from the "take on your day"
+  paragraph described here. Bump it on any change to
+  `SCHEDULING_SYSTEM_PROMPT` or `buildSchedulingPrompt`.
+- **No `zoeBriefing` router, no opt-in toggle, no admin page.** Generation is
+  still implicit rather than user-triggered — it happens on first render of a
+  day, not on a "Generate" click.
+- **`tokensIn` / `tokensOut` are unpopulated** — the Mastra generate endpoint's
+  response doesn't surface usage on this path yet, so cost metrics can't be
+  sliced.
+- **Dismissal is still React state** and dies on reload. Persisting *per
+  suggestion* needs an `actionId` on `BriefingInteraction`, i.e. a migration;
+  briefing-level interactions work today.
 
 ## Roadmap to the autoresearch loop
 

@@ -171,6 +171,7 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
   };
 
   const isConnected = connectionStatus?.isConnected ?? false;
+  const isGated = connectionStatus?.gated ?? false;
 
   const calendarScheduledActions: ScheduledAction[] =
     scheduledActions
@@ -239,13 +240,15 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
         </Stack>
       )}
 
-      {/* Not connected */}
+      {/* Not connected — or gated while Google verifies our calendar scopes */}
       {!statusLoading && !isConnected && (
         <Stack gap="sm" py="sm">
           <Text size="xs" c="dimmed" ta="center">
-            Connect your Google Calendar to see your schedule
+            {isGated
+              ? "Google Calendar is available to select users during our verification process"
+              : "Connect your Google Calendar to see your schedule"}
           </Text>
-          <GoogleCalendarConnect isConnected={false} />
+          <GoogleCalendarConnect isConnected={false} gated={isGated} />
         </Stack>
       )}
 

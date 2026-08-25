@@ -71,13 +71,14 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
     { productId: ticket?.product.id ?? "" },
     { enabled: !!ticket?.product.id },
   );
+  // Product-scoped: the router rejects another product's epic on write.
   const { data: epics } = api.epic.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
   );
   const { data: tags } = api.tag.list.useQuery(
     { workspaceId: workspaceId ?? "" },

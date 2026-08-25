@@ -1,12 +1,19 @@
 import { Prisma } from "@prisma/client";
 import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
+import { notionPageUrl } from "~/lib/notionUrl";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   attachTicketTags,
   resolveOrCreateWorkspaceTags,
 } from "../notionTicketImport";
-import { mapPoints, mapPriority, mapStatus, mapType } from "./mapping";
+import {
+  extractNotionPageId,
+  mapPoints,
+  mapPriority,
+  mapStatus,
+  mapType,
+} from "./mapping";
 import { REVERT_TOMBSTONE_KEY } from "./revert";
 import {
   findCycleIdByName,
@@ -238,12 +245,6 @@ function hasRevertTombstone(snapshot: Prisma.JsonValue | null): boolean {
   );
 }
 
-function extractNotionPageId(links: Prisma.JsonValue | null): string | null {
-  if (!links || typeof links !== "object" || Array.isArray(links)) return null;
-  const value = (links as Record<string, unknown>).notionPageId;
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
 export async function runInboundTicketSync(
   db: PrismaClient,
   adapter: TicketSyncRemoteAdapter,
@@ -317,6 +318,7 @@ export async function runInboundTicketSync(
               ticketId: ticket.id,
               provider: config.provider,
               externalId: ticket.notionPageId,
+              externalUrl: notionPageUrl(ticket.notionPageId),
               // No snapshot: the first merge treats differences as two-sided
               // changes and resolves by last-write-wins.
               snapshot: Prisma.DbNull,

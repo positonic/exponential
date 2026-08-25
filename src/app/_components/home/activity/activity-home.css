@@ -22,16 +22,23 @@
   grid-template-columns: minmax(0, 1fr) 360px;
   grid-template-areas:
     'hero hero'
-    'week week'
     'main rail';
   gap: 32px;
   align-items: start;
 }
 
 .wsa__hero   { grid-area: hero; }
-.wsa__week   { grid-area: week; }
 .wsa__main   { grid-area: main; display: flex; flex-direction: column; gap: 24px; }
 .wsa__rail   { grid-area: rail; display: flex; flex-direction: column; gap: 24px; }
+
+/* The /activity page reuses .wsa-week and .wsa-heatmap outside the home grid;
+   this wrapper stacks them above the full feed. */
+.wsa-analytics {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-bottom: 24px;
+}
 
 /* Collapse the right-rail at the medium breakpoint. */
 @media (max-width: 1240px) {
@@ -39,7 +46,6 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       'hero'
-      'week'
       'main'
       'rail';
   }
@@ -978,6 +984,17 @@
   font-weight: 500;
 }
 
+/* OKR rows deep-link to the goals-page drawer; the whole sentence is the
+   click target. Inherits the sentence styling — hover underlines the entity
+   name to reveal the affordance without restyling the row. */
+.wsa-feed__drawer-link {
+  text-decoration: none;
+  color: inherit;
+}
+.wsa-feed__drawer-link:hover .wsa-feed__entity {
+  text-decoration: underline;
+}
+
 .wsa-feed__time {
   font-size: 11.5px;
   color: var(--color-text-muted);
@@ -1036,6 +1053,7 @@
 .wsa-feed__icon[data-kind='completed']      { color: var(--activity-accent-crm); }
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
 .wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
+.wsa-feed__icon[data-kind='deleted']        { color: var(--color-text-muted); }
 .wsa-feed__icon[data-kind='channel_summary'] { color: var(--color-brand-success); }
 
 /* Milestone (completed project) — a filled gold chip instead of a tinted glyph,
@@ -1290,6 +1308,297 @@
     width: 100%;
     justify-content: space-between;
   }
+}
+
+/* --------------------------------------------------------------------------
+   DAILY TIERS — attention / cycle / today / on-track / resumption rows
+   Shared row idiom for the tiered daily cards on the Activity home.
+   -------------------------------------------------------------------------- */
+.wsa-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 6px;
+  border-radius: 7px;
+  text-align: left;
+  color: inherit;
+  text-decoration: none;
+}
+
+.wsa-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.wsa-item__icon {
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+}
+
+.wsa-item__label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wsa-item__label--unread {
+  font-weight: 600;
+}
+
+.wsa-item__sub {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  line-height: 1.3;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wsa-item__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.wsa-item__chip {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+
+.wsa-item__chip--go {
+  color: var(--activity-accent-crm);
+  background: var(--activity-accent-crm-soft);
+  border: 1px solid var(--activity-accent-crm-border);
+}
+
+.wsa-item__chip--warn {
+  color: var(--activity-accent-due);
+  background: var(--activity-accent-due-soft);
+  border: 1px solid var(--activity-accent-due-border);
+}
+
+.wsa-item__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-brand-primary);
+}
+
+/* Subsection label inside a tier card ("Mentions", "Waiting on you", …) */
+.wsa-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 14px 0 4px;
+  padding: 0 6px;
+}
+
+.wsa-sub:first-of-type { margin-top: 0; }
+
+.wsa-sub__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.wsa-sub__badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--color-brand-primary);
+  color: var(--color-text-inverse);
+  font-variant-numeric: tabular-nums;
+}
+
+.wsa-sub__action {
+  background: transparent;
+  border: 0;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.wsa-sub__action:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+/* ---- cycle card ---- */
+.wsa-cycle__top {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wsa-cycle__days {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 9px;
+  border-radius: 100px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-muted);
+  white-space: nowrap;
+}
+
+.wsa-cycle__days--over {
+  color: var(--activity-accent-due);
+  background: var(--activity-accent-due-soft);
+  border: 1px solid var(--activity-accent-due-border);
+}
+
+.wsa-cycle__goal {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+
+.wsa-cycle__track {
+  position: relative;
+  height: 6px;
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  margin: 14px 0 6px;
+  overflow: hidden;
+}
+
+.wsa-cycle__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--brand-500), var(--brand-400));
+}
+
+.wsa-cycle__timemark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--color-text-muted);
+}
+
+.wsa-cycle__pace {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 8px;
+}
+
+.wsa-cycle__pace b {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.wsa-cycle__pace--ahead b   { color: var(--activity-accent-crm); }
+.wsa-cycle__pace--behind b  { color: var(--activity-accent-okr); }
+
+/* ---- on-track health chips ---- */
+.wsa-health {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.wsa-health__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-surface-primary);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.wsa-health__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.wsa-health__dot--on-track  { background: var(--activity-accent-crm); }
+.wsa-health__dot--at-risk   { background: var(--activity-accent-okr); }
+.wsa-health__dot--off-track { background: var(--activity-accent-due); }
+
+.wsa-health__allclear {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 2px 0 0;
+}
+
+/* ---- since-yesterday digest line ---- */
+.wsa-sinceline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-surface-secondary);
+  border-radius: 12px;
+  padding: 13px 18px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.wsa-sinceline__text b {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.wsa-sinceline__link {
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.wsa-sinceline__link:hover { color: var(--color-text-primary); }
+
+/* ---- resumption strip ---- */
+.wsa-resume {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 860px) {
+  .wsa-resume { grid-template-columns: 1fr; }
 }
 
 /* --------------------------------------------------------------------------

@@ -20,7 +20,7 @@ const meetingSummaryPrompt = `
 [Meeting Date]
 
 Summary
-Concise overview of the key themes, goals, and outcomes of the meeting.
+Concise overview of the key themes, goals, and decisions of the meeting.
 
 Technical Discussion
 Key architectural or protocol decisions

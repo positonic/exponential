@@ -931,14 +931,6 @@ export const mastraRouter = createTRPCRouter({
               status: true,
             }
           },
-          outcomes: {
-            select: {
-              id: true,
-              description: true,
-              type: true,
-              dueDate: true,
-            }
-          }
         },
         orderBy: [
           { lifeDomainId: 'asc' },
@@ -961,12 +953,6 @@ export const mastraRouter = createTRPCRouter({
             id: project.id,
             name: project.name,
             status: project.status,
-          })),
-          outcomes: goal.outcomes.map(outcome => ({
-            id: outcome.id,
-            description: outcome.description,
-            type: outcome.type ?? 'daily',
-            dueDate: outcome.dueDate ? outcome.dueDate.toISOString() : null,
           })),
         })),
         total: goals.length,
@@ -1013,7 +999,6 @@ export const mastraRouter = createTRPCRouter({
               lifeDomain: true
             }
           },
-          outcomes: true,
           projectMembers: true,
         }
       });
@@ -1054,12 +1039,6 @@ export const mastraRouter = createTRPCRouter({
             title: goal.lifeDomain.title,
             description: goal.lifeDomain.description,
           } : null,
-        })),
-        outcomes: project.outcomes.map(outcome => ({
-          id: outcome.id,
-          description: outcome.description,
-          type: outcome.type ?? 'daily',
-          dueDate: outcome.dueDate?.toISOString(),
         })),
         teamMembers: project.projectMembers.map((member: any) => ({
           id: member.id,
@@ -1134,13 +1113,14 @@ export const mastraRouter = createTRPCRouter({
       name: z.string().min(1),
       description: z.string().optional(),
       priority: z.enum(PRIORITY_VALUES),
-      dueDate: z.string().optional(), // ISO string
+      dueDate: z.string().min(1).optional(), // ISO string — deadline
+      scheduledStart: z.string().min(1).optional(), // ISO string — do-date (the day the user plans to DO it; what /today keys on)
     }))
     .mutation(async ({ ctx, input }) => {
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
 
-      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, userId=${userId}`);
+      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, userId=${userId}`);
 
       // Verify user has access to this project via all access paths
       const access = await getProjectAccess(ctx.db, userId, input.projectId);
@@ -1162,7 +1142,8 @@ export const mastraRouter = createTRPCRouter({
           name: input.name,
           description: input.description,
           priority: input.priority,
-          dueDate: input.dueDate ? new Date(input.dueDate) : null,
+          dueDate: parseAgentDate(input.dueDate, "dueDate"),
+          scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart"),
           projectId: input.projectId,
           createdById: userId,
           workspaceId: mastraProject?.workspaceId ?? null,
@@ -1179,6 +1160,7 @@ export const mastraRouter = createTRPCRouter({
           status: action.status,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
           projectId: action.projectId,
         }
       };
@@ -1192,11 +1174,19 @@ export const mastraRouter = createTRPCRouter({
       // Canonical priority enum. Optional and backward-compatible: when omitted,
       // the action falls back to "Quick" (the historical hardcoded value).
       priority: z.enum(PRIORITY_VALUES).optional(),
+      // Explicit dates (ISO strings). Agents often rewrite the user's request
+      // into a clean action name, dropping the date phrase the text parser
+      // relies on — an explicit value survives that rewrite and wins over
+      // whatever the parser extracts. scheduledStart is the do-date /today
+      // keys on; dueDate is the deadline. min(1) keeps a blank string from
+      // silently clearing the text-parsed date via the precedence logic.
+      scheduledStart: z.string().min(1).optional(),
+      dueDate: z.string().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
@@ -1215,6 +1205,17 @@ export const mastraRouter = createTRPCRouter({
         }
         parsed.projectId = input.projectId;
       }
+
+      // Explicit dates win over text-parsed ones (same precedence rationale as
+      // projectId above). When neither is passed, the parsed values stand.
+      const scheduledStart =
+        input.scheduledStart !== undefined
+          ? parseAgentDate(input.scheduledStart, "scheduledStart")
+          : parsed.scheduledStart;
+      const dueDate =
+        input.dueDate !== undefined
+          ? parseAgentDate(input.dueDate, "dueDate")
+          : parsed.dueDate;
 
       // Get kanban order if project specified
       let kanbanOrder: number | null = null;
@@ -1244,8 +1245,8 @@ export const mastraRouter = createTRPCRouter({
           priority: input.priority ?? "Quick",
           status: "ACTIVE",
           createdById: userId,
-          scheduledStart: parsed.scheduledStart,
-          dueDate: parsed.dueDate,
+          scheduledStart,
+          dueDate,
           source: deriveActionSource(ctx.tokenType),
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
@@ -1265,6 +1266,7 @@ export const mastraRouter = createTRPCRouter({
           name: action.name,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
           project: action.project,
         },
         parsing: parsed.parsingMetadata,
@@ -2134,8 +2136,6 @@ export const mastraRouter = createTRPCRouter({
           pendingActionsCount: z.number(),
           overdueActionsCount: z.number(),
           calendarEventsCount: z.number(),
-          dailyOutcomesCount: z.number(),
-          weeklyOutcomesCount: z.number(),
           completedHabitsCount: z.number(),
           totalHabitsCount: z.number(),
           staleProjectIds: z.array(z.string()),
@@ -2158,8 +2158,6 @@ export const mastraRouter = createTRPCRouter({
           ? `- ${context.overdueActionsCount} action${context.overdueActionsCount !== 1 ? "s" : ""} from earlier days (no judgment - just information)`
           : null,
         `- ${context.calendarEventsCount} calendar event${context.calendarEventsCount !== 1 ? "s" : ""} today`,
-        `- ${context.dailyOutcomesCount} daily outcome${context.dailyOutcomesCount !== 1 ? "s" : ""} set for today`,
-        `- ${context.weeklyOutcomesCount} weekly outcome${context.weeklyOutcomesCount !== 1 ? "s" : ""} this week`,
         `- Habits: ${context.completedHabitsCount}/${context.totalHabitsCount} completed`,
         context.staleProjectIds.length > 0
           ? `- ${context.staleProjectIds.length} project${context.staleProjectIds.length !== 1 ? "s" : ""} haven't had recent activity`
@@ -4325,6 +4323,13 @@ export const mastraRouter = createTRPCRouter({
       priority: z.enum(PRIORITY_VALUES).optional(),
       status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional(),
       dueDate: z.string().nullable().optional(), // ISO string
+      // The "do date" and its block. Without these an agent can propose a time
+      // but never move the action to it — the /today partition keys off
+      // scheduledStart (schedule wins over dueDate), so rescheduling anything
+      // out of the overdue bucket requires writing this field.
+      scheduledStart: z.string().nullable().optional(), // ISO string
+      scheduledEnd: z.string().nullable().optional(), // ISO string
+      duration: z.number().int().positive().nullable().optional(), // minutes
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -4366,6 +4371,19 @@ export const mastraRouter = createTRPCRouter({
       if (fields.priority !== undefined) updateData.priority = fields.priority;
       if (fields.dueDate !== undefined) {
         updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
+      }
+      if (fields.scheduledStart !== undefined) {
+        updateData.scheduledStart = fields.scheduledStart
+          ? new Date(fields.scheduledStart)
+          : null;
+      }
+      if (fields.scheduledEnd !== undefined) {
+        updateData.scheduledEnd = fields.scheduledEnd
+          ? new Date(fields.scheduledEnd)
+          : null;
+      }
+      if (fields.duration !== undefined) {
+        updateData.duration = fields.duration;
       }
 
       // Handle status change
@@ -4415,6 +4433,9 @@ export const mastraRouter = createTRPCRouter({
           status: action.status,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
+          scheduledEnd: action.scheduledEnd?.toISOString(),
+          duration: action.duration,
           projectId: action.projectId,
           project: action.project,
         },
@@ -4763,10 +4784,12 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // List the cycles (SPRINT lists) an agent can reference. Cycles are
-  // workspace-scoped; pass a productId to resolve the workspace from a product
-  // the agent already knows. Pure read — unlike the plugin's cycle.list, this
-  // never auto-creates upcoming cycles. Declared as a query per ADR-0041
-  // (agent tools POST; allowMethodOverride accepts it).
+  // product-scoped (List.productId; null = legacy workspace-shared): passing a
+  // productId returns that product's cycles plus shared ones, matching the
+  // plugin's cycle.list; passing only a workspaceId returns every cycle in the
+  // workspace. Pure read — unlike the plugin's cycle.list, this never
+  // auto-creates upcoming cycles. Declared as a query per ADR-0041 (agent
+  // tools POST; allowMethodOverride accepts it).
   listCycles: protectedProcedure
     .input(
       z.object({
@@ -4787,7 +4810,13 @@ export const mastraRouter = createTRPCRouter({
       }
 
       const cycles = await ctx.db.list.findMany({
-        where: { workspaceId, listType: "SPRINT" },
+        where: {
+          workspaceId,
+          listType: "SPRINT",
+          ...(input.productId
+            ? { OR: [{ productId: input.productId }, { productId: null }] }
+            : {}),
+        },
         select: {
           id: true,
           name: true,
@@ -5050,8 +5079,6 @@ function getFallbackSuggestion(context: {
   pendingActionsCount: number;
   overdueActionsCount: number;
   calendarEventsCount: number;
-  dailyOutcomesCount: number;
-  weeklyOutcomesCount: number;
   completedHabitsCount: number;
   totalHabitsCount: number;
   staleProjectIds: string[];
@@ -5059,16 +5086,8 @@ function getFallbackSuggestion(context: {
   isSunday: boolean;
 }): string {
   // Provide contextual fallback suggestions when AI is unavailable
-  if (context.dailyOutcomesCount === 0) {
-    return "Consider setting one small intention for today - what would make it feel meaningful?";
-  }
-
   if (context.pendingActionsCount === 0 && context.calendarEventsCount === 0) {
     return "Your day looks open. This might be a good time for something restorative or a project you've been curious about.";
-  }
-
-  if (context.isMonday && context.weeklyOutcomesCount === 0) {
-    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
   }
 
   if (context.isSunday) {
@@ -5077,6 +5096,15 @@ function getFallbackSuggestion(context: {
 
   if (context.pendingActionsCount > 0) {
     return "You have some actions lined up for today. Starting with the one that feels most approachable can build nice momentum.";
+  }
+
+  // Ordered AFTER the actions branch deliberately. This used to be gated on
+  // `isMonday && weeklyOutcomesCount === 0` — "it's Monday and you haven't
+  // planned the week yet". Outcomes are gone, so that signal is too; keeping
+  // the branch above would fire on every Monday and swallow the more specific
+  // suggestions below it. A loaded Monday now gets the actions nudge instead.
+  if (context.isMonday) {
+    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
   }
 
   if (context.completedHabitsCount < context.totalHabitsCount) {

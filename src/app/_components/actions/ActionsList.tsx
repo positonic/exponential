@@ -26,13 +26,19 @@ import {
   BulkEditToolbar,
   type BulkActionDef,
 } from "./components/BulkEditToolbar";
-import type { RescheduleChoice } from "./components/ReschedulePopover";
+import {
+  rescheduleUpdateFields,
+  type RescheduleChoice,
+} from "~/lib/actions/reschedule";
 import { useActionMutations } from "./hooks/useActionMutations";
 import { useActionPartition } from "./hooks/useActionPartition";
 import { useBulkSelection } from "./hooks/useBulkSelection";
 
 interface ActionsListProps {
   viewName: string;
+  /** When the list renders a single project's actions, the project id — lets
+   * mutations optimistically patch the getProjectActions cache. */
+  projectId?: string;
   actions: Action[];
   isLoading?: boolean;
   showProject?: boolean;
@@ -58,6 +64,7 @@ interface ActionsListProps {
 
 export function ActionsList({
   viewName,
+  projectId,
   actions,
   isLoading = false,
   bulkActions,
@@ -94,7 +101,7 @@ export function ActionsList({
     },
   });
 
-  const { updateAction } = useActionMutations({ viewName });
+  const { updateAction } = useActionMutations({ viewName, projectId });
 
   // Modal state
   const [selectedAction, setSelectedAction] = useState<Action | null>(null);
@@ -179,9 +186,10 @@ export function ActionsList({
     });
   };
 
+  // Moves the do-date and the deadline together, at day granularity — see
+  // `rescheduleUpdateFields` for why scheduledStart has to move too.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    const newDate = choice.date ?? null;
-    updateAction({ id, scheduledStart: newDate, dueDate: newDate });
+    updateAction({ id, ...rescheduleUpdateFields(choice) });
   };
 
   const handleAssign = (a: Action) => {

@@ -18,45 +18,26 @@ import {
   IconLayersIntersect,
   IconPlus,
   IconTarget,
-  IconTargetArrow,
   IconTrash,
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { format, isSameDay, isToday, isTomorrow, startOfDay } from "date-fns";
 import { CreateActionModal } from "./CreateActionModal";
 import { CreateGoalModal } from "./CreateGoalModal";
-import { CreateOutcomeModal } from "./CreateOutcomeModal";
 import { ProjectCalendarCard } from "./ProjectCalendarCard";
 import { ProjectOverviewTimeline } from "./ProjectOverviewTimeline";
 import styles from "./ProjectOverviewLegacy.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
-type Outcome = RouterOutputs["outcome"]["getProjectOutcomes"][number];
 type Action = RouterOutputs["action"]["getProjectActions"][number];
 
 interface ProjectOverviewLegacyProps {
   project: Project;
   goals: Goal[];
-  outcomes: Outcome[];
 }
 
 type ShowFilter = "active" | "all" | "done";
-
-function outcomeTypeColor(type: string | null | undefined): string {
-  switch (type?.toUpperCase()) {
-    case "DAILY":
-      return "blue";
-    case "WEEKLY":
-      return "teal";
-    case "MONTHLY":
-      return "violet";
-    case "QUARTERLY":
-      return "orange";
-    default:
-      return "gray";
-  }
-}
 
 function formatDueDate(date: Date | null | undefined): string | null {
   if (!date) return null;
@@ -71,7 +52,7 @@ function isOverdue(date: Date | null | undefined): boolean {
   return new Date(date) < startOfDay(new Date());
 }
 
-export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverviewLegacyProps) {
+export function ProjectOverviewLegacy({ project, goals }: ProjectOverviewLegacyProps) {
   const [calendarSelectedDate, setCalendarSelectedDate] = useState<Date>(new Date());
   const [showFilter, setShowFilter] = useState<ShowFilter>("active");
 
@@ -105,10 +86,10 @@ export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverv
     }
   };
 
-  // Calendar helpers — event dots for goals/outcomes/project dates
+  // Calendar helpers — event dots for goals/project dates
   const getItemsForDate = (date: Date) => {
     const dateStr = date.toDateString();
-    const items: { type: "goal" | "outcome" | "project"; title: string; color: string }[] = [];
+    const items: { type: "goal" | "project"; title: string; color: string }[] = [];
     if (project.reviewDate && new Date(project.reviewDate).toDateString() === dateStr) {
       items.push({ type: "project", title: "Project End", color: "red" });
     }
@@ -118,11 +99,6 @@ export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverv
     for (const g of goals) {
       if (g.dueDate && new Date(g.dueDate).toDateString() === dateStr) {
         items.push({ type: "goal", title: g.title, color: "yellow" });
-      }
-    }
-    for (const o of outcomes) {
-      if (o.dueDate && new Date(o.dueDate).toDateString() === dateStr) {
-        items.push({ type: "outcome", title: o.description, color: "teal" });
       }
     }
     return items;
@@ -240,7 +216,6 @@ export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverv
                       dueDate: goal.dueDate,
                       period: goal.period ?? null,
                       lifeDomainId: goal.lifeDomainId,
-                      outcomes: goal.outcomes,
                     }}
                     trigger={
                       <div className={styles.rowBody}>
@@ -275,89 +250,6 @@ export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverv
           )}
         </div>
 
-        {/* Outcomes card */}
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <div className={styles.cardTitle}>
-              <IconTargetArrow size={14} className={styles.cardTitleIcon} />
-              Outcomes
-              <span className={styles.cardCount}>{outcomes.length}</span>
-            </div>
-            <div className={styles.cardHeadActions}>
-              <CreateOutcomeModal projectId={project.id}>
-                <ActionIcon variant="subtle" size="sm" aria-label="Add outcome">
-                  <IconPlus size={14} />
-                </ActionIcon>
-              </CreateOutcomeModal>
-            </div>
-          </div>
-
-          {outcomes.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>
-                <IconTargetArrow size={16} />
-              </div>
-              <div>No outcomes linked to this project yet</div>
-              <CreateOutcomeModal projectId={project.id}>
-                <button type="button" className={styles.emptyCta}>
-                  <IconPlus size={12} />
-                  Add outcome
-                </button>
-              </CreateOutcomeModal>
-            </div>
-          ) : (
-            <div className={styles.rowList}>
-              {outcomes.slice(0, 5).map((outcome) => (
-                <CreateOutcomeModal
-                  key={outcome.id}
-                  outcome={{
-                    id: outcome.id,
-                    description: outcome.description,
-                    dueDate: outcome.dueDate,
-                    type: (outcome.type ?? "daily") as
-                      | "daily"
-                      | "weekly"
-                      | "monthly"
-                      | "quarterly"
-                      | "annual"
-                      | "life"
-                      | "problem",
-                    whyThisOutcome: outcome.whyThisOutcome,
-                    projectId: project.id,
-                    goalId: outcome.goals?.[0]?.id,
-                  }}
-                  trigger={
-                    <div className={styles.rowItem}>
-                      <div className={styles.rowBody}>
-                        <div className={styles.rowTitle}>{outcome.description}</div>
-                        <div className={styles.rowSub}>
-                          {outcome.type && (
-                            <Badge
-                              variant="light"
-                              color={outcomeTypeColor(outcome.type)}
-                              size="xs"
-                            >
-                              {outcome.type}
-                            </Badge>
-                          )}
-                          {outcome.dueDate && (
-                            <span>Due {format(new Date(outcome.dueDate), "MMM d")}</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  }
-                />
-              ))}
-              {outcomes.length > 5 && (
-                <div className={styles.rowSub} style={{ padding: "8px 16px" }}>
-                  +{outcomes.length - 5} more outcomes
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
         {/* Timeline card */}
         <div className={styles.card}>
           <div className={styles.cardHead}>
@@ -374,7 +266,6 @@ export function ProjectOverviewLegacy({ project, goals, outcomes }: ProjectOverv
           <ProjectOverviewTimeline
             project={project}
             goals={goals}
-            outcomes={outcomes}
             actions={actions}
           />
         </div>

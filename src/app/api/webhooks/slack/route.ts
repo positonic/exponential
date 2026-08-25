@@ -7,6 +7,7 @@ import { appRouter } from '~/server/api/root';
 import { parseActionInput } from '~/server/services/parsing';
 import { SlackChannelResolver } from '~/server/services/SlackChannelResolver';
 import { getDecryptedKey } from '~/server/utils/credentialHelper';
+import { safeSignatureEquals } from '~/server/utils/webhookSignature';
 import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
@@ -271,10 +272,9 @@ function verifySlackSignature(payload: string, timestamp: string, signature: str
     const computedSignature = `v0=${createHmac('sha256', signingSecret)
       .update(baseString, 'utf8')
       .digest('hex')}`;
-    
-    
+
     // Constant-time comparison
-    return signature === computedSignature;
+    return safeSignatureEquals(signature, computedSignature);
   } catch (error) {
     console.error('Error verifying Slack signature:', error);
     return false;

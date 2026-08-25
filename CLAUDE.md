@@ -49,8 +49,16 @@ This project uses enhanced ESLint integration with immediate feedback and build-
 - `npm run lint` - Run ESLint only
 - `npm run lint:fix` - Auto-fix ESLint issues
 - `npm run typecheck` - Run TypeScript type checking only
-- `npm run format:write` - Format code with Prettier
-- `npm run format:check` - Check code formatting
+- `npm run format:write` - ⚠️ Format code with Prettier — **rewrites ~1350 files, see below**
+- `npm run format:check` - Check code formatting (currently fails on nearly the whole repo)
+
+**⚠️ This repo is NOT Prettier-formatted.** Nothing enforces `prettier.config.js` — it is
+absent from CI and from `.husky/pre-commit` — and ~1350 of the repo's ~1400 source files
+differ from it. Do NOT run `format:write`, and do NOT enable editor format-on-save
+(`.vscode/settings.json` turns it off): formatting a file you were only editing buries the
+real change in a ~150-line reformat and conflicts with every open branch. Match the
+surrounding style by hand instead. Formatting the repo is worth doing, but as its own PR
+with a `.git-blame-ignore-revs` entry and a CI gate — not as cleanup inside a feature PR.
 
 **MANDATORY ESLint Rules** (build will FAIL if violated):
 - Use `??` instead of `||` for nullish coalescing
@@ -114,7 +122,7 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 
 **Integration tests** (`*.integration.test.ts`) — real DB via Testcontainers:
 - tRPC router tests (`src/server/api/routers/__tests__/`)
-- Tests workspace, action, project, goal/outcome routers
+- Tests workspace, action, project, and goal routers
 - Requires **Docker** (OrbStack recommended on macOS) OR `DATABASE_URL_TEST` env var
 
 **Writing new tests:**
@@ -165,27 +173,46 @@ removed `?? process.env.DATABASE_URL` fallback path.
 
 This is the primary project board for tracking all development work. Use the `exponential` CLI to query tasks and project status.
 
+### 🚨 Agents: every `exponential` call needs the `HOME=` prefix
+
+```bash
+HOME=/Users/james/.config/agent-homes/claude exponential <command>
+```
+
+The CLI reads its credentials from `$HOME`. Without the prefix an agent authenticates
+as **James's personal account**, so every ticket, comment and status transition it
+writes is misattributed to a human who didn't do it — and `@mentions` notify the wrong
+person. A global hook blocks unprefixed calls, but it matches on the command text, so
+it also fires on greps that merely *contain* the string; reword those rather than
+dropping the prefix.
+
+Human, in your own terminal: use the bare `exponential ...` — the prefix is for agents.
+
 ### Proactive Behavior
-- **At session start**: Run `exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json` to check current tasks and priorities
+- **At session start**: Run the "current tasks" command below to check current tasks and priorities
 - **When picking up new work**: Check the project board for the latest task assignments and statuses
 - **After completing work**: Update task status if applicable
 
 ### Key CLI Commands
 ```bash
 # Check current tasks for this project
-exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
+HOME=/Users/james/.config/agent-homes/claude exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
 
 # View kanban board
-exponential actions kanban --json
+HOME=/Users/james/.config/agent-homes/claude exponential actions kanban --json
 
 # List all projects in the workspace
-exponential projects list --workspace exponential --json
+HOME=/Users/james/.config/agent-homes/claude exponential projects list --workspace exponential --json
 
-# Check auth status
-exponential auth status
+# Check auth status — also the fastest way to confirm which identity you are
+HOME=/Users/james/.config/agent-homes/claude exponential auth status
 ```
 
 The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.
+
+Two flag gotchas that cost a round-trip each: `--project` takes the **bare CUID**, not the
+slug-prefixed id from the URL; and `tickets show` takes neither `--product` nor `--workspace`,
+so filter `tickets list --json` instead of calling `show` with them.
 
 ## Architecture Overview
 
@@ -201,7 +228,7 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 ### Key Features
 - **Project Management**: Create/track projects with status, priority, progress
 - **Action Management**: Task management with flexible priority system
-- **Goal & Outcome Tracking**: Hierarchical goal-outcome-action alignment
+- **Goal & OKR Tracking**: Hierarchical goal-key-result-action alignment
 - **Daily Planning**: Journal system with reflection and planning tools
 - **AI Assistant**: Chat interface with semantic video search
 - **Video Processing**: YouTube analysis and transcription support
@@ -218,12 +245,11 @@ src/
 │   │   └── w/[workspaceSlug]/  # Workspace-scoped routes
 │   │       ├── projects/       # Projects page
 │   │       ├── goals/          # Goals page
-│   │       ├── outcomes/       # Outcomes page
 │   │       └── settings/       # Workspace settings
 │   ├── (web3)/             # Web3 integration (Silk wallet integration)
 │   ├── _components/        # Shared components
 │   │   ├── layout/         # Navigation and shell components
-│   │   └── sections/       # Content sections (journal, outcomes, etc.)
+│   │   └── sections/       # Content sections (journal, etc.)
 │   └── api/                # API routes and tRPC handlers
 ├── providers/              # React context providers
 │   └── WorkspaceProvider.tsx  # Workspace context
@@ -286,11 +312,10 @@ src/
 ### Database Schema
 Key entities include:
 - `User` - Authentication and user data
-- `Workspace` - Container for organizing projects/goals/outcomes (similar to Linear.app)
+- `Workspace` - Container for organizing projects/goals (similar to Linear.app)
 - `Project` - Main project container with status/priority
 - `Action` - Tasks linked to projects with flexible priority
 - `Goal` - Strategic goals linked to life domains
-- `Outcome` - Measurable results (daily/weekly/monthly/quarterly)
 - `Video` - Media content with transcription and AI analysis
 
 ### Workspaces
@@ -300,7 +325,7 @@ Workspaces allow users to organize their work into separate containers (e.g., on
 **Data Model:**
 - `Workspace` - Container with name, slug, type (personal/team/organization)
 - `WorkspaceUser` - Many-to-many join table with role (owner/admin/member/viewer)
-- Projects, Goals, Outcomes, Actions all have optional `workspaceId` field
+- Projects, Goals, Actions all have optional `workspaceId` field
 
 **URL Structure:**
 - All workspace-scoped pages use `/w/[workspaceSlug]/...` routes
@@ -347,7 +372,7 @@ getAll: protectedProcedure
 
 ### Component Organization
 - **Layout Components**: Navigation, sidebar, header
-- **Feature Components**: Actions, Projects, Goals, Outcomes
+- **Feature Components**: Actions, Projects, Goals
 - **Section Components**: Reusable content sections for different views
 - **UI Components**: Base [Mantine components](https://mantine.dev/getting-started/) with custom styling
 
@@ -401,7 +426,6 @@ The AI agents for this application live in a separate repository:
 ## Development Notes
 
 ### Keyboard Shortcuts
-- `Cmd+Enter` in outcome input fields adds new outcomes
 - Various modal shortcuts throughout the application
 
 ### Data Flow
@@ -507,7 +531,6 @@ For parallel feature development using git worktrees, see the comprehensive guid
 - Claude Code custom commands for worktree management
 - Step-by-step instructions for feature development
 - Best practices and common gotchas
-- Example implementation (outcomes delete feature)
 
 ## IDE Enhancement with Serena MCP
 
@@ -647,6 +670,10 @@ Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-iss
 ### Issue tracker
 
 Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+
+### Commenting and @mentions
+
+Features, tickets, actions, pages, and goals all take comments from the CLI (`exponential <entity> comment add`). Mentions are the literal markup `@[Name](userId)` — plain `@andi` notifies nobody. Use `--mention andi` to expand it, and `exponential workspaces members` to look someone up. See [`docs/agents/commenting.md`](docs/agents/commenting.md).
 
 ### Triage labels
 

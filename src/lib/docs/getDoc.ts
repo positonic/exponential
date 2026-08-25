@@ -24,6 +24,19 @@ export async function getDocContent(
   }
 
   for (const filePath of possiblePaths) {
+    // The slug comes straight from the URL and this route is public, so never
+    // read outside the docs directory. Next.js normalises `..` out of the path
+    // before it reaches here, but that is the router's behaviour rather than a
+    // guarantee this function makes, and the whole repo — dev-docs, CONTEXT.md,
+    // ADRs — sits a couple of levels up from `content/docs`.
+    //
+    // Compare structurally rather than by string prefix, so the check holds
+    // however DOCS_PATH comes to be declared — relative, or with a trailing
+    // separator, either of which would make a `startsWith` test reject every
+    // candidate and 404 the whole docs section.
+    const relativeToDocs = path.relative(path.resolve(DOCS_PATH), path.resolve(filePath));
+    if (relativeToDocs.startsWith("..") || path.isAbsolute(relativeToDocs)) continue;
+
     try {
       const fileContent = await fs.readFile(filePath, "utf-8");
       const { data, content } = matter(fileContent);

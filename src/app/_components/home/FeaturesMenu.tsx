@@ -27,12 +27,6 @@ const featureColumns: FeatureColumn[] = [
         href: "/features/goals",
       },
       {
-        icon: "🎯",
-        title: "Outcomes",
-        description: "Measurable results at any time horizon",
-        href: "/features/outcomes",
-      },
-      {
         icon: "📈",
         title: "OKRs",
         description: "Objectives & Key Results tracking",
@@ -58,7 +52,7 @@ const featureColumns: FeatureColumn[] = [
       {
         icon: "✓",
         title: "Actions",
-        description: "Tasks that connect to outcomes",
+        description: "Tasks that connect to your goals",
         href: "/features/actions",
       },
       {

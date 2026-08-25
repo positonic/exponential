@@ -13,6 +13,7 @@ import {
   enqueueBackfill,
   planBackfill,
 } from "~/server/services/ticketSync/pushRunner";
+import { rerenderCreatedPageBodies } from "~/server/services/ticketSync/bodyRepair";
 
 /**
  * ticketSync — configuration surface for the product ↔ Notion backlog sync.
@@ -211,7 +212,7 @@ export const ticketSyncRouter = createTRPCRouter({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
         },
-        select: { id: true, integrationId: true },
+        select: { id: true, integrationId: true, propertyNames: true },
       });
       if (!config) {
         throw new TRPCError({
@@ -225,8 +226,27 @@ export const ticketSyncRouter = createTRPCRouter({
           message: "Notion sync is disconnected for this product",
         });
       }
-      const items = await planBackfill(ctx.db, { configId: config.id });
-      return { count: items.length, sample: items.slice(0, 20) };
+      // Best-effort title check for the preview. It costs one Notion query per
+      // shown row and is advisory only, so a credential problem downgrades the
+      // preview rather than failing it.
+      const adapterResult = await createNotionTicketSyncAdapter(ctx.db, {
+        integrationId: config.integrationId,
+        propertyNames: config.propertyNames,
+      });
+      const items = await planBackfill(ctx.db, {
+        configId: config.id,
+        probe: adapterResult.ok ? adapterResult.adapter : undefined,
+      });
+      return {
+        count: items.length,
+        sample: items.slice(0, 20),
+        /**
+         * How many rows the advisory title check actually completed — counted
+         * from the probe's own results, not assumed from the plan size, so a
+         * mid-run Notion failure can't be read as a clean check.
+         */
+        titleChecked: items.filter((i) => i.titleChecked).length,
+      };
     }),
 
   /**
@@ -263,6 +283,63 @@ export const ticketSyncRouter = createTRPCRouter({
         });
       }
       return enqueueBackfill(ctx.db, { configId: config.id });
+    }),
+
+  /**
+   * Maintenance: re-render the page CONTENT of pages this sync created
+   * (ivory.pike). Body is written once at creation; pages created before the
+   * Markdown renderer landed show literal Markdown.
+   *
+   * This DELETES Notion blocks, so it defaults to a dry run and only ever
+   * touches pages whose `remoteCreatedAt` proves the push created them and
+   * whose content still matches what the push wrote. See bodyRepair.ts for
+   * the full guard list and the incident that motivated it.
+   */
+  rerenderCreatedBodies: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        // A page repair costs ~10-30 Notion calls; a whole product cannot fit
+        // in one serverless request. Callers loop on the returned nextCursor.
+        cursor: z.string().optional(),
+        limit: z.number().int().min(1).max(10).optional(),
+        // Opt in explicitly to writing; the default reports what it would do.
+        dryRun: z.boolean().default(true),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const config = await ctx.db.ticketSyncConfig.findUnique({
+        where: {
+          productId_provider: { productId: input.productId, provider: "notion" },
+        },
+        select: { id: true, integrationId: true, pushEnabled: true },
+      });
+      if (!config) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No Notion sync configured for this product",
+        });
+      }
+      if (!config.integrationId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Notion sync is disconnected for this product",
+        });
+      }
+      // Same stance as backfill: content repair is an outbound write.
+      if (!config.pushEnabled) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Enable push before re-rendering page bodies",
+        });
+      }
+      return rerenderCreatedPageBodies(ctx.db, {
+        configId: config.id,
+        cursor: input.cursor,
+        limit: input.limit,
+        dryRun: input.dryRun,
+      });
     }),
 
   syncNow: protectedProcedure

@@ -22,8 +22,9 @@ import {
  *     signed, httpOnly cookie set before we bounced the user to `/signin`.
  *
  * If authenticated → mint a 60s auth code bound to the userId + PKCE challenge
- * and 302 back to the caller's own allow-listed scheme (`exponential://` for iOS
- * and the Electron shell, `exponential-beta://` for the Tauri shell). If not → stash the
+ * and 302 back to the caller's own allow-listed scheme (`exponential-voice://` for
+ * the iOS/Mac app, `exponential-beta://` for the Tauri shell, `exponential://` for
+ * the Electron shell and older iOS/Mac builds). If not → stash the
  * request in a signed cookie and redirect to `/signin`, which returns here.
  *
  * This handler is its own post-login callback — there is intentionally no

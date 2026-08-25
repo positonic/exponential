@@ -10,7 +10,12 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
-import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import {
+  ActivityFilterMenu,
+  useActivityFilter,
+} from "~/app/_components/shared/ActivityFilterMenu";
+import { useFeatureActivity } from "~/hooks/useFeatureActivity";
 import { SCOPE_STATUS_OPTIONS, SCOPE_STATUS_COLORS } from "~/lib/feature-statuses";
 
 /**
@@ -34,6 +39,8 @@ export default function ScopeDetailPage() {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const activity = useFeatureActivity(featureId, { scopeId });
+  const [activityFilter, setActivityFilter] = useActivityFilter();
 
   useEffect(() => {
     if (scope) setDraft(scope.description);
@@ -165,9 +172,12 @@ export default function ScopeDetailPage() {
         )}
       </CollapsibleSection>
 
-      {/* Activity - comments on this scope only. */}
-      <CollapsibleSection title="Activity">
-        <FeatureActivitySection featureId={featureId} scopeId={scopeId} />
+      {/* Activity - this scope's own feed, same block as the feature detail. */}
+      <CollapsibleSection
+        title="Activity"
+        action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+      >
+        <ActivityTimeline activity={activity} filter={activityFilter} />
       </CollapsibleSection>
     </Stack>
   );

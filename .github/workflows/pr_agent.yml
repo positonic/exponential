@@ -16,6 +16,10 @@ jobs:
       contents: write
     name: PR Agent review
     steps:
+      - name: Record start time
+        id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: PR Agent action step
         id: pragent
         uses: qodo-ai/pr-agent@main
@@ -24,11 +28,47 @@ jobs:
           ANTHROPIC.KEY: ${{ secrets.ANTHROPIC_KEY }}
           # Repo-level behaviour is version-controlled in .pr_agent.toml.
           # Model selection is kept here so the secret/model live together.
-          config.model: "anthropic/claude-sonnet-4-6"
+          config.model: "anthropic/claude-opus-5"
           # Point the fallback at another Anthropic model so PR-Agent never
           # falls back to OpenAI (which would require an OPENAI_API_KEY).
           config.fallback_models: '["anthropic/claude-sonnet-4-6"]'
+          # Needed if the image's litellm has no registry entry for the model.
+          config.custom_model_max_tokens: "200000"
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "true"
           github_action_config.auto_improve: "true"
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
+
+      - name: Confirm a review was actually produced
+        # PR-Agent swallows provider errors. It posts "Failed to generate code
+        # suggestions for PR" as a PR comment and still exits 0, so without this
+        # the job goes green having reviewed nothing — which is worse than no
+        # reviewer at all, because the tick reads as "a reviewer looked at this".
+        # Seen for real on PR 530: the Anthropic key was out of credit, the job
+        # was green, and four failure notices sat unread on the PR.
+        #
+        # This check is not in branch protection's required set, so a red tick
+        # here reports the outage without blocking anyone's merge.
+        if: always() && steps.pragent.conclusion != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          SINCE: ${{ steps.started.outputs.at }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_NUMBER}" ]; then
+            echo "No PR number on this event; nothing to verify."
+            exit 0
+          fi
+          # Only comments from this run — otherwise one bad run would keep the
+          # check red on every later push to the same PR.
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq "[.[] | select(.created_at >= \"${SINCE}\") | .body] | .[]" \
+            > /tmp/pr_agent_comments.txt
+          if grep -qiE 'failed to (generate|review)' /tmp/pr_agent_comments.txt; then
+            echo "::error title=PR-Agent produced no review::The action ran but every model call failed, so this PR was NOT reviewed. Check the step log for the provider error — it is usually an exhausted API credit balance on the ANTHROPIC_KEY secret."
+            grep -iE 'failed to (generate|review)' /tmp/pr_agent_comments.txt | head -5
+            exit 1
+          fi
+          echo "PR-Agent posted no failure notice — the review ran."

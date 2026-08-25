@@ -1,7 +1,8 @@
 import { db } from '~/server/db';
-import { FirefliesService } from './FirefliesService';
-import { ActionExtractionService, numberScreenshotMarkers } from './ActionExtractionService';
+import { FirefliesService, type FirefliesSummary } from './FirefliesService';
+import { ActionExtractionService, filterNearDuplicateActions, mergeActionItems, numberScreenshotMarkers } from './ActionExtractionService';
 import { InternalActionProcessor } from './processors/InternalActionProcessor';
+import { type ParsedActionItem } from './processors/ActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
 import { SlackNotificationService } from './notifications/SlackNotificationService';
@@ -134,53 +135,87 @@ export class TranscriptionProcessingService {
         return result;
       }
 
-      let processedData;
+      // Notes are the authoritative source: they're human-curated, so any
+      // explicit action list in them extracts first and near-verbatim. The
+      // transcript (or Fireflies summary) then only contributes items the
+      // notes didn't already cover.
+      const notesText = transcription.notes?.trim() ?? "";
+      let notesItems: ParsedActionItem[] = [];
+      if (notesText) {
+        console.log(`[generateDraftActions] Extracting from notes (${notesText.length} chars)`);
+        notesItems = await ActionExtractionService.extractFromNotes(notesText);
+        console.log(`[generateDraftActions] Notes extraction returned ${notesItems.length} items`);
+      }
+
+      const transcriptText = transcription.transcription || "";
+      let summary: FirefliesSummary = {};
+      let transcriptItems: ParsedActionItem[] = [];
+
       if (transcription.summary) {
         try {
           console.log(`[generateDraftActions] Parsing summary JSON (first 200 chars): ${transcription.summary.slice(0, 200)}`);
-          const summary = JSON.parse(transcription.summary);
-          let actionItems = FirefliesService.parseActionItems(summary);
-          console.log(`[generateDraftActions] FirefliesService.parseActionItems returned ${actionItems.length} items`);
-          const transcriptText = transcription.transcription || "";
-
-          if (actionItems.length === 0 && transcriptText) {
-            console.log(`[generateDraftActions] No Fireflies actions, falling back to AI extraction on transcript (${transcriptText.length} chars)`);
-            const { numberedText } = numberScreenshotMarkers(transcriptText);
-            actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
-            console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
-          } else if (actionItems.length === 0) {
-            console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
-          }
-
-          processedData = {
-            summary,
-            actionItems,
-            transcriptText,
-          };
+          summary = JSON.parse(transcription.summary) as FirefliesSummary;
+          transcriptItems = FirefliesService.parseActionItems(summary);
+          console.log(`[generateDraftActions] FirefliesService.parseActionItems returned ${transcriptItems.length} items`);
         } catch (parseError) {
+          // Non-fatal: notes and/or raw transcript extraction below can still
+          // produce drafts even when the stored summary JSON is corrupt. But a
+          // corrupt stored summary is a data-integrity signal, so report it
+          // rather than letting it vanish into server logs.
           console.error("[generateDraftActions] Failed to parse transcription summary:", parseError);
-          result.errors.push("Failed to parse transcription data");
+          const { reportHandledErrorServer } = await import(
+            "~/server/utils/reportHandledErrorServer"
+          );
+          reportHandledErrorServer(parseError, {
+            area: "generateDraftActions: corrupt TranscriptionSession.summary JSON",
+            context: { transcriptionId },
+          });
         }
-      } else if (transcription.transcription) {
-        const transcriptText = transcription.transcription;
-        console.log(`[generateDraftActions] No summary, using AI extraction on transcript (${transcriptText.length} chars)`);
-        const { numberedText } = numberScreenshotMarkers(transcriptText);
-        const actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
-        console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
-        processedData = {
-          summary: {},
-          actionItems,
-          transcriptText,
-        };
-      } else {
-        console.log("[generateDraftActions] No summary and no transcription text available");
       }
 
-      if (!processedData) {
-        console.log("[generateDraftActions] No processedData, returning early");
-        result.success = true;
-        return result;
+      if (transcriptItems.length === 0 && transcriptText) {
+        console.log(`[generateDraftActions] No Fireflies actions, using AI extraction on transcript (${transcriptText.length} chars)`);
+        const { numberedText } = numberScreenshotMarkers(transcriptText);
+        // A transcript-extraction failure must degrade to notes-only drafts,
+        // not abort: the notes items already in hand are the ones the user
+        // explicitly wrote down.
+        try {
+          transcriptItems = await ActionExtractionService.extractFromTranscript(
+            screenshots.length > 0 ? numberedText : transcriptText,
+            { excludeActions: notesItems.map((item) => item.text) }
+          );
+          console.log(`[generateDraftActions] AI extraction returned ${transcriptItems.length} items`);
+        } catch (extractError) {
+          console.error("[generateDraftActions] Transcript extraction failed, continuing with notes items:", extractError);
+          const { reportHandledErrorServer } = await import(
+            "~/server/utils/reportHandledErrorServer"
+          );
+          reportHandledErrorServer(extractError, {
+            area: "generateDraftActions: transcript action extraction failed",
+            context: { transcriptionId },
+          });
+        }
+      } else if (transcriptItems.length === 0) {
+        console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
       }
+
+      // The AI transcript pass is told about notes items via excludeActions,
+      // but the Fireflies-summary path involves no LLM — filter its rewordings
+      // of notes items out before the exact-match merge.
+      if (notesItems.length > 0 && transcriptItems.length > 0) {
+        const beforeCount = transcriptItems.length;
+        transcriptItems = filterNearDuplicateActions(transcriptItems, notesItems);
+        if (transcriptItems.length < beforeCount) {
+          console.log(`[generateDraftActions] Dropped ${beforeCount - transcriptItems.length} near-duplicate(s) of notes items`);
+        }
+      }
+
+      const processedData = {
+        summary,
+        actionItems: mergeActionItems(notesItems, transcriptItems),
+        transcriptText,
+      };
+      console.log(`[generateDraftActions] Merged ${notesItems.length} notes + ${transcriptItems.length} transcript items into ${processedData.actionItems.length}`);
 
       if (!processedData.actionItems || processedData.actionItems.length === 0) {
         console.log("[generateDraftActions] processedData exists but 0 action items found");
@@ -206,13 +241,16 @@ export class TranscriptionProcessingService {
       result.errors = actionResult.errors;
       result.success = actionResult.errors.length === 0;
 
-      // Create screenshot-action associations based on AI screenshotRefs
+      // Create screenshot-action associations based on AI screenshotRefs.
+      // itemResults is index-parallel with the input actionItems (null where a
+      // create failed), so a mid-list failure can't shift the pairings.
+      const itemResults = actionResult.itemResults ?? [];
       if (screenshots.length > 0 && actionResult.createdItems.length > 0) {
         const junctionData: { actionId: string; screenshotId: string }[] = [];
 
-        for (let i = 0; i < actionResult.createdItems.length && i < processedData.actionItems.length; i++) {
+        for (let i = 0; i < itemResults.length && i < processedData.actionItems.length; i++) {
           const item = processedData.actionItems[i];
-          const created = actionResult.createdItems[i];
+          const created = itemResults[i];
           if (!item?.screenshotRefs?.length || !created) continue;
 
           for (const ref of item.screenshotRefs) {

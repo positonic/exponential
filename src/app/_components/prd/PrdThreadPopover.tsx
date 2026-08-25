@@ -21,8 +21,10 @@ import {
 } from "~/utils/avatarColors";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { collapseMentions, expandMentions } from "~/lib/content/mentionText";
 import type { FeatureCommentRow } from "~/app/_components/prd/PrdCommentsPanel";
 import type { ThreadStatus } from "~/lib/prd/thread-reconciliation";
+import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 
 interface PrdThreadPopoverProps {
   threadId: string;
@@ -37,6 +39,11 @@ interface PrdThreadPopoverProps {
   onResolve: () => void;
   onUnresolve: () => void;
   onClose: () => void;
+  /** Remove the highlight of a not-yet-posted thread. Shown as an explicit
+   *  trash affordance while the thread has no comments. */
+  onDiscard?: () => void;
+  mentionCandidates?: MentionCandidate[];
+  mentionNames?: string[];
   isSubmitting: boolean;
 }
 
@@ -72,6 +79,9 @@ export function PrdThreadPopover({
   onResolve,
   onUnresolve,
   onClose,
+  onDiscard,
+  mentionCandidates,
+  mentionNames,
   isSubmitting,
 }: PrdThreadPopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -113,14 +123,19 @@ export function PrdThreadPopover({
 
   const startEdit = (c: FeatureCommentRow) => {
     setEditingId(c.id);
-    setEditValue(c.body);
+    setEditValue(
+      mentionCandidates ? collapseMentions(c.body, mentionCandidates) : c.body,
+    );
   };
 
   const saveEdit = async () => {
     if (!editingId || !editValue.trim()) return;
     setSavingEdit(true);
     try {
-      await onEdit(editingId, editValue.trim());
+      const body = mentionCandidates
+        ? expandMentions(editValue.trim(), mentionCandidates)
+        : editValue.trim();
+      await onEdit(editingId, body);
       setEditingId(null);
     } finally {
       setSavingEdit(false);
@@ -278,18 +293,41 @@ export function PrdThreadPopover({
                   </div>
                 </div>
               ) : (
-                <MarkdownRenderer content={c.body} variant="compact" />
+                <MarkdownRenderer
+                  content={c.body}
+                  variant="compact"
+                  mentionNames={mentionNames}
+                />
               )}
             </div>
           </div>
         );
       })}
 
+      {/* A thread with no comments yet has no rows above, so give it a header
+          with an explicit way out — discarding removes the highlight. */}
+      {!hasComments && onDiscard && (
+        <div className="flex items-center justify-between px-3 pt-2">
+          <span className="text-text-muted text-xs font-medium">New comment</span>
+          <ActionIcon
+            size="sm"
+            variant="subtle"
+            color="gray"
+            title="Remove highlight"
+            aria-label="Remove highlight"
+            onClick={onDiscard}
+          >
+            <IconTrash size={15} />
+          </ActionIcon>
+        </div>
+      )}
+
       {!isResolved && (
-        <div className="border-t border-border-primary px-3 py-2">
+        <div className={hasComments ? "border-t border-border-primary px-3 py-2" : "px-3 py-2"}>
           <CommentInput
             placeholder={hasComments ? "Reply…" : "Comment…"}
             isSubmitting={isSubmitting}
+            mentionCandidates={mentionCandidates}
             onSubmit={onSubmit}
           />
         </div>

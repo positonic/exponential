@@ -12,6 +12,7 @@ import {
   IconMessageChatbot,
   IconMicrophone,
   IconBook,
+  IconBook2,
   IconRoute,
   IconBriefcase,
   IconFileText,
@@ -20,6 +21,8 @@ import {
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
+import { useLocalWikiAvailable } from "~/lib/wiki/useWikiBridge";
+import { WIKI_ROUTE } from "~/lib/wiki/wikiLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { parseNavLayout, NAV_ITEM_CONFIG } from "~/lib/navLayout";
@@ -105,6 +108,7 @@ function SectionDivider() {
 export function NavLinks(): React.ReactElement {
   const { workspaceSlug, workspaceId, userRole } = useWorkspace();
   const isGuest = userRole === 'guest';
+  const localWikiAvailable = useLocalWikiAvailable();
 
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery(
     undefined,
@@ -126,6 +130,13 @@ export function NavLinks(): React.ReactElement {
       <NavLink href="/today" icon={IconClock} count={<TodayCount />}>
         Today
       </NavLink>
+      {/* Desktop shell only, and global — the wiki belongs to the device, not
+          to a workspace. Absent in a browser, where its IPC doesn't exist. */}
+      {localWikiAvailable && (
+        <NavLink href={WIKI_ROUTE} icon={IconBook2}>
+          Local wiki
+        </NavLink>
+      )}
 
       {workspaceSlug && !isGuest && (
         <>

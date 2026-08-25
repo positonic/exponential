@@ -8,7 +8,8 @@ type ActionWithSyncs = RouterOutputs["action"]["getAll"][number];
  * Compatible with these tRPC queries (which return supersets of this shape):
  *   - action.getAll
  *   - action.getById
- *   - action.getProjectActions
+ *   - action.getProjectActions (its `project` is a slimmed
+ *     {id, name, slug, workspaceId} select rather than the full row)
  *   - action.getByTranscription
  *
  * The `createdBy`, `lists`, `epic`, `tags`, and `syncs` fields are optional

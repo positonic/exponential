@@ -2,7 +2,24 @@ import { auth } from "~/server/auth";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import type { NextRequest } from "next/server";
-import { GOOGLE_SCOPE_SETS, type GoogleScopeType } from "~/lib/googleAuth";
+import {
+  GOOGLE_SCOPE_SETS,
+  isGoogleOAuthTester,
+  type GoogleScopeType,
+} from "~/lib/googleAuth";
+import type { GooglePremiumFeatureKind } from "~/types/google";
+
+/**
+ * Which explainer a gated user sees per scope set. Exhaustive over
+ * `GOOGLE_SCOPE_SETS`, so adding a scope set is a type error here rather than
+ * a silent fallback that shows the wrong copy.
+ */
+const GATED_FEATURE_BY_SCOPE_TYPE: Record<
+  GoogleScopeType,
+  GooglePremiumFeatureKind
+> = {
+  calendar: "calendar",
+};
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -21,6 +38,14 @@ export async function GET(request: NextRequest) {
     scopeTypeParam in GOOGLE_SCOPE_SETS
       ? (scopeTypeParam as GoogleScopeType)
       : "calendar";
+
+  // Every scope set here is still awaiting Google verification, so anyone who
+  // isn't a registered test user would land on Google's "unverified app"
+  // error. Send them to the explainer page instead of into that dead end.
+  // This is the last line of defence — the UI hides the entry points too.
+  if (!isGoogleOAuthTester(session.user.email)) {
+    redirect(`/google-access?feature=${GATED_FEATURE_BY_SCOPE_TYPE[scopeType]}`);
+  }
 
   const scopes = GOOGLE_SCOPE_SETS[scopeType].join(" ");
 

@@ -13,6 +13,7 @@ import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useDayRollover } from "~/hooks/useDayRollover";
 import { formatRelativeDueAge, hourFloat } from "~/lib/actions/dates";
 import { overdueAnchor } from "~/lib/actions/partition";
+import { groupOverdueCohorts } from "~/lib/actions/triage";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
 import { EditActionModal } from "../EditActionModal";
@@ -22,12 +23,15 @@ import {
   BulkEditToolbar,
   type BulkActionDef,
 } from "../actions/components/BulkEditToolbar";
-import type { RescheduleChoice } from "../actions/components/ReschedulePopover";
+import {
+  rescheduleUpdateFields,
+  type RescheduleChoice,
+} from "~/lib/actions/reschedule";
 import { useActionMutations } from "../actions/hooks/useActionMutations";
 import { useActionPartition } from "../actions/hooks/useActionPartition";
 import { useBulkActionMutations } from "../actions/hooks/useBulkActionMutations";
 import { useBulkSelection } from "../actions/hooks/useBulkSelection";
-import type { RailBlock } from "../actions/components/TimelineRail";
+import { buildRailBlocks, type RailBlock } from "~/lib/actions/railBlocks";
 import { ScoreRing } from "./ScoreRing";
 import { AgendaRail } from "./AgendaRail";
 import { TaskRow } from "./TaskRow";
@@ -141,7 +145,12 @@ export function TodayDesktopShell({
 
   // ---- Mutations -----------------------------------------------------------
   const { updateAction } = useActionMutations({ viewName: "today" });
-  const { bulkReschedule, bulkDelete } = useBulkActionMutations({
+  const {
+    bulkReschedule,
+    bulkDelete,
+    bulkDefer,
+    isMutating: isBulkMutating,
+  } = useBulkActionMutations({
     viewName: "today",
   });
   const handleComplete = (id: string) => {
@@ -156,9 +165,10 @@ export function TodayDesktopShell({
     });
   };
 
+  // Moves the do-date and the deadline together, at day granularity — see
+  // `rescheduleUpdateFields` for why scheduledStart has to move too.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    const newDate = choice.date ?? null;
-    updateAction({ id, scheduledStart: newDate, dueDate: newDate });
+    updateAction({ id, ...rescheduleUpdateFields(choice) });
   };
 
   const handleAcceptSuggestion = (s: {
@@ -205,35 +215,14 @@ export function TodayDesktopShell({
   }, [actionIdFromUrl, filteredActions]);
 
   // ---- Rail blocks ---------------------------------------------------------
-  const railBlocks: RailBlock[] = useMemo(() => {
-    const blocks: RailBlock[] = [];
-    for (const ev of calendarEventsQuery.data ?? []) {
-      const startStr = ev.start?.dateTime ?? ev.start?.date;
-      const endStr = ev.end?.dateTime ?? ev.end?.date;
-      if (!startStr || !endStr) continue;
-      blocks.push({
-        id: ev.id,
-        title: ev.summary || "Untitled",
-        start: hourFloat(new Date(startStr)),
-        end: hourFloat(new Date(endStr)),
-        kind: "cal",
-      });
-    }
-    for (const a of partition.todays) {
-      if (!a.scheduledStart) continue;
-      const s = new Date(a.scheduledStart);
-      const durationMinutes =
-        (a as ActionData & { duration?: number | null }).duration ?? 60;
-      blocks.push({
-        id: `act-${a.id}`,
-        title: a.name,
-        start: hourFloat(s),
-        end: hourFloat(new Date(s.getTime() + durationMinutes * 60_000)),
-        kind: "task",
-      });
-    }
-    return blocks;
-  }, [calendarEventsQuery.data, partition.todays]);
+  const railBlocks: RailBlock[] = useMemo(
+    () =>
+      buildRailBlocks({
+        events: calendarEventsQuery.data,
+        actions: partition.todays,
+      }),
+    [calendarEventsQuery.data, partition.todays],
+  );
 
   // ---- Day label -----------------------------------------------------------
   const dayLabel = useMemo(() => {
@@ -253,10 +242,10 @@ export function TodayDesktopShell({
     return [...overdue, ...todays];
   }, [partition.overdue, partition.todays]);
 
-  // "Now", not the midnight `today` from useDayRollover: bulkReschedule also
-  // sets scheduledStart, and a midnight date would render the rescheduled
-  // items as 12:00 AM blocks on the agenda rail (ReschedulePopover's "Today"
-  // quick option makes the same choice).
+  // The current instant rather than the midnight `today` from useDayRollover.
+  // The time-of-day is immaterial now that this only writes `dueDate`, which
+  // every consumer compares at day granularity — and bulkReschedule no longer
+  // stamps it into scheduledStart, so it can't reach the agenda rail.
   const handleRescheduleAllOverdue = useCallback(() => {
     bulkReschedule({
       actionIds: partition.overdue.map((a) => a.id),
@@ -265,6 +254,23 @@ export function TodayDesktopShell({
       fromOverdue: true,
     });
   }, [bulkReschedule, partition.overdue]);
+
+  // Most large overdue piles are a few bulk writes, not a lot of missed
+  // commitments. Computed client-side from the same `partition.overdue` the
+  // rows below render, using the same pure function as `action.getOverdueTriage`
+  // and the agent tools — so the page, the endpoint, and Zoe cannot disagree,
+  // and it costs no extra fetch (ADR-0052).
+  const overdueTriage = useMemo(
+    () => groupOverdueCohorts(partition.overdue, { today }),
+    [partition.overdue, today],
+  );
+
+  const handleDeferCohort = useCallback(
+    (actionIds: string[]) => {
+      bulkDefer({ actionIds, fromOverdue: true });
+    },
+    [bulkDefer],
+  );
 
   // ---- Bulk selection -----------------------------------------------------
   const selection = useBulkSelection(
@@ -471,6 +477,48 @@ export function TodayDesktopShell({
                         )}
                       </div>
                     )}
+                    {overdueOpen && overdueTriage.cohorts.length > 0 && !bulkMode && (
+                      <div className="td-amnesty">
+                        <p className="td-amnesty__lede">
+                          {overdueTriage.cohortCount} of these{" "}
+                          {overdueTriage.totalOverdue} were created in one go —
+                          they were probably never really due on that date.
+                        </p>
+                        {overdueTriage.cohorts.map((cohort) => (
+                          <div
+                            key={cohort.stampedAt.toISOString()}
+                            className="td-amnesty__cohort"
+                          >
+                            <div className="td-amnesty__detail">
+                              <span className="td-amnesty__count">
+                                {cohort.count} actions
+                              </span>
+                              <span className="td-amnesty__meta">
+                                {cohort.daysOverdue === 1
+                                  ? "dated yesterday"
+                                  : `dated ${cohort.daysOverdue}d ago`}
+                                {cohort.projectNames.length > 0 &&
+                                  ` · ${cohort.projectNames.slice(0, 3).join(", ")}`}
+                                {cohort.projectNames.length > 3 &&
+                                  ` +${cohort.projectNames.length - 3} more`}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className="td-amnesty__action"
+                              disabled={isBulkMutating}
+                              onClick={() => handleDeferCohort(cohort.actionIds)}
+                            >
+                              Back to backlog
+                            </button>
+                          </div>
+                        ))}
+                        <p className="td-amnesty__note">
+                          Nothing is deleted — they stay in their projects,
+                          just without a date.
+                        </p>
+                      </div>
+                    )}
                     {overdueOpen &&
                       partition.overdue.map((a) => {
                         const anchor = overdueAnchor(a);
@@ -570,7 +618,7 @@ export function TodayDesktopShell({
 
             <AgendaRail
               dayLabel={dayLabel}
-              eventsCount={(calendarEventsQuery.data ?? []).length}
+              eventsCount={railBlocks.length}
               blocks={railBlocks}
               now={now}
             />

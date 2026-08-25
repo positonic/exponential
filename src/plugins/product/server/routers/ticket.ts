@@ -2,8 +2,13 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  assertWorkspaceScopedRefs,
+  assertAssignableUser,
+} from "~/server/services/access";
 import type { PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
@@ -17,7 +22,7 @@ import {
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
-import { parseTicketUrlId } from "~/lib/fun-ids";
+import { parseTicketUrlId, shortIdSearchWhere } from "~/lib/fun-ids";
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -158,6 +163,7 @@ export const ticketRouter = createTRPCRouter({
           syncs: {
             select: {
               provider: true,
+              externalId: true,
               externalUrl: true,
               lastSyncedAt: true,
               tombstonedAt: true,
@@ -231,6 +237,7 @@ export const ticketRouter = createTRPCRouter({
           syncs: {
             select: {
               provider: true,
+              externalId: true,
               externalUrl: true,
               lastSyncedAt: true,
               tombstonedAt: true,
@@ -257,6 +264,42 @@ export const ticketRouter = createTRPCRouter({
 
       const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
       return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
+    }),
+
+  /**
+   * The nearest existing ticket either side of `number` within a product,
+   * powering the prev/next arrows on the detail page. Numbers have gaps (tickets
+   * get deleted), so this walks to the closest lower/higher number rather than
+   * assuming ±1. Legacy tickets with `number = 0` are skipped — they have no
+   * clean URL to navigate to.
+   */
+  getAdjacent: protectedProcedure
+    .input(
+      // Positive: the `next` branch has no lower bound of its own, so a
+      // non-positive input would let it match a legacy number=0 ticket.
+      z.object({ productId: z.string(), number: z.number().int().positive() }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      const select = { number: true, title: true } as const;
+      const [prev, next] = await Promise.all([
+        ctx.db.ticket.findFirst({
+          where: {
+            productId: input.productId,
+            number: { lt: input.number, gt: 0 },
+          },
+          orderBy: { number: "desc" },
+          select,
+        }),
+        ctx.db.ticket.findFirst({
+          where: { productId: input.productId, number: { gt: input.number } },
+          orderBy: { number: "asc" },
+          select,
+        }),
+      ]);
+
+      return { prev, next };
     }),
 
   /**
@@ -345,6 +388,32 @@ export const ticketRouter = createTRPCRouter({
         input.productId,
       );
 
+      // A linked epic/feature/cycle/scope must live in the product's own
+      // workspace, or its fields leak back through this ticket's includes.
+      // The trailing product id additionally holds an epic or cycle to this
+      // product (legacy product-less rows are exempt).
+      await assertWorkspaceScopedRefs(
+        ctx.db,
+        ctx.session.user.id,
+        product.workspaceId,
+        {
+          epicId: input.epicId,
+          featureId: input.featureId,
+          cycleId: input.cycleId,
+          scopeId: input.scopeId,
+        },
+        product.id,
+      );
+
+      // Same reasoning for the assignee, whose name and email come back through
+      // `getById`'s include: only someone who could already read this ticket
+      // may be assigned it.
+      await assertAssignableUser(
+        ctx.db,
+        product.workspaceId,
+        input.assigneeId,
+      );
+
       // If templateId provided, load its body as the starting body (unless body already given)
       let body = input.body;
       if (!body && input.templateId) {
@@ -419,6 +488,27 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+      );
+
+      // Same-workspace guard as create — `rest` is spread straight into the
+      // update, so a foreign epic/feature/cycle/scope id would otherwise stick.
+      await assertWorkspaceScopedRefs(
+        ctx.db,
+        ctx.session.user.id,
+        previousTicket.product.workspaceId,
+        {
+          epicId: input.epicId,
+          featureId: input.featureId,
+          cycleId: input.cycleId,
+          scopeId: input.scopeId,
+        },
+        previousTicket.productId,
+      );
+
+      await assertAssignableUser(
+        ctx.db,
+        previousTicket.product.workspaceId,
+        input.assigneeId,
       );
 
       const { id, ...rest } = input;
@@ -540,6 +630,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           status: true,
+          productId: true,
           product: { select: { workspaceId: true } },
         },
       });
@@ -551,6 +642,38 @@ export const ticketRouter = createTRPCRouter({
       );
       for (const workspaceId of workspaceIds) {
         await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertAssignableUser(ctx.db, workspaceId, input.assigneeId);
+      }
+
+      // The same link guard as `create`/`update` — this path writes the
+      // identical foreign keys and its tickets are read back through the
+      // identical includes. The patch applies uniformly, so a reference must be
+      // valid in *every* product the selection spans: bulk-assigning one
+      // product's epic across a mixed selection is rejected outright rather
+      // than half-applied.
+      const productIds = Array.from(new Set(tickets.map((t) => t.productId)));
+      const workspaceByProduct = new Map(
+        tickets.map((t) => [t.productId, t.product.workspaceId]),
+      );
+      for (const productId of productIds) {
+        // Both collections come from the same `tickets` rows, so a miss is
+        // unreachable — but defaulting to `null` here would quietly *disable*
+        // workspace containment for that product rather than reject, so fail
+        // loudly instead.
+        const refWorkspaceId = workspaceByProduct.get(productId);
+        if (!refWorkspaceId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not resolve the workspace for a selected ticket",
+          });
+        }
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          ctx.session.user.id,
+          refWorkspaceId,
+          { epicId: input.epicId, cycleId: input.cycleId },
+          productId,
+        );
       }
 
       const data: Record<string, unknown> = Object.fromEntries(fields);
@@ -691,7 +814,9 @@ export const ticketRouter = createTRPCRouter({
             ? {
                 OR: [
                   { title: { contains: q, mode: "insensitive" as const } },
-                  { shortId: { contains: q, mode: "insensitive" as const } },
+                  // Fun shortIds match word-order-insensitively
+                  // ("toucan.prime" finds prime.toucan).
+                  ...shortIdSearchWhere(q),
                   ...(numberFromQuery !== undefined ? [{ number: numberFromQuery }] : []),
                 ],
               }
@@ -793,7 +918,7 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         ticketId: z.string(),
-        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
+        content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -826,6 +951,15 @@ export const ticketRouter = createTRPCRouter({
         /* instrumentation failure is non-fatal */
       });
 
+      // Fire-and-forget: notify mentioned workspace members via the pipeline
+      // (same path as feature comments).
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: input.ticketId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
       return comment;
     }),
 
@@ -842,6 +976,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           authorId: true,
+          content: true,
           ticket: {
             select: { product: { select: { workspaceId: true } } },
           },
@@ -861,11 +996,23 @@ export const ticketRouter = createTRPCRouter({
           message: "You can only edit your own comments",
         });
       }
-      return ctx.db.ticketComment.update({
+      const updated = await ctx.db.ticketComment.update({
         where: { id: input.id },
         data: { content: input.content },
         include: { author: { select: { id: true, name: true, image: true } } },
       });
+
+      // Fire-and-forget: notify mentions added by the edit. Passing the old
+      // body means already-notified users aren't pinged again.
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: updated.ticketId,
+        commentId: updated.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+        previousContent: comment.content,
+      });
+
+      return updated;
     }),
 
   deleteComment: protectedProcedure

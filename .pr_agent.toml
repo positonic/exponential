@@ -5,8 +5,13 @@
 [config]
 # Keep both the primary and fallback on Anthropic so PR-Agent never tries to
 # initialise an OpenAI client (which would require OPENAI_API_KEY).
-model = "anthropic/claude-sonnet-4-6"
+model = "anthropic/claude-opus-5"
 fallback_models = ["anthropic/claude-sonnet-4-6"]
+# Declared so PR-Agent can budget the diff even when the bundled litellm build
+# predates this model and has no registry entry for it (without this, an
+# unregistered model errors during token counting). This is only the ceiling —
+# the effective diff budget is PR-Agent's own max_model_tokens, 32k by default.
+custom_model_max_tokens = 200000
 # Markdown rendering of the model's suggestions.
 publish_output = true
 
@@ -15,10 +20,52 @@ publish_output = true
 require_score_review = false
 require_tests_review = true
 require_security_review = true
-num_max_findings = 4
+# Raised from 4: Opus 5 follows caps and severity filters literally, so a tight
+# limit discards findings it would otherwise surface.
+num_max_findings = 8
 # Don't re-post the whole review on every push; update the existing comment.
 persistent_comment = true
 final_update_message = false
+# Repo-specific rules the reviewer can't infer from the diff. Mirrors CLAUDE.md —
+# keep the two in sync when a rule changes.
+extra_instructions = """
+Flag violations of this repo's house rules, with the rule named:
+
+Styling — no hardcoded colors anywhere (hex literals, rgb()/rgba(), Tailwind
+arbitrary-value color classes, or inline style color values). Colors come from
+design tokens: semantic Tailwind classes (bg-background-primary, text-text-primary,
+border-border-primary) or CSS variables declared in src/styles/globals.css. A
+pre-commit hook rejects these, so catching them in review saves a round-trip.
+
+TypeScript / ESLint (these fail the build) — prefer `??` over `||` for defaulting;
+no `any`; every promise awaited or explicitly handled; no `await` on non-promises;
+type-only imports use `import type`; no unused variables or imports.
+
+Access control — permission logic belongs in the centralized service at
+src/server/services/access/. Flag any new inline permission check in a router or
+component that duplicates what requireActionAccess / requireWorkspaceMembership /
+buildActionAccessWhere already do. Flag list/bulk queries that filter by
+createdById alone where an access-scoped where-clause is required. Note that
+workspace membership does not imply edit rights — viewers and guests pass
+membership checks, so mutations that must exclude them need an explicit role check.
+
+Database — `prisma db push` is forbidden in any form (it has caused data loss here);
+schema changes require a migration file under prisma/migrations. Flag edits to
+schema.prisma that arrive without one. Do not suggest removing the safety guards,
+marker-table check, or row-count threshold in src/test/test-db.ts.
+
+Content — authored prose renders through MarkdownRenderer and is accepted through
+MarkdownInput / CommentInput. Flag direct react-markdown imports,
+dangerouslySetInnerHTML, a bare Textarea used for prose, or a new Tiptap editor.
+
+Workspace scoping — data is workspace-scoped. Flag new queries or mutations over
+Project / Goal / Outcome / Action that ignore workspaceId and could leak rows
+across workspaces.
+
+Tests — integration tests (*.integration.test.ts, real DB via testcontainers) are
+deliberately rare. Prefer mocked Prisma with createMockCaller. Flag a new
+integration test that doesn't genuinely need real DB behaviour.
+"""
 
 [pr_description]
 # Auto-generate a structured description + walkthrough.
@@ -30,3 +77,13 @@ generate_ai_title = false
 # Improvement suggestions ("/improve"). Keep the volume sane.
 num_code_suggestions = 4
 commitable_code_suggestions = false
+# Suggestions must themselves be committable here — a suggestion containing a hex
+# color or `||` defaulting would be rejected by the pre-commit hook or the build.
+extra_instructions = """
+Never suggest code that would fail this repo's own gates: no hardcoded colors (use
+semantic Tailwind classes or CSS variables), no `||` where `??` is meant, no `any`,
+no unhandled promises, no `import` of types without `import type`.
+Prefer Next.js `Link` over `useRouter().push()` for navigation, and Server
+Components over Client Components unless interactivity requires otherwise.
+Skip cosmetic suggestions — Prettier already formats this repo.
+"""

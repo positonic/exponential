@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Collapse, Skeleton } from '@mantine/core';
-import { useDisclosure, useHotkeys } from '@mantine/hooks';
+import { useDisclosure } from '@mantine/hooks';
 import {
   IconTable,
   IconLayoutList,
@@ -37,6 +37,7 @@ import { CreateProjectModal } from '~/app/_components/CreateProjectModal';
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
 import { useProjectViewState, filterProjects } from './useProjectViewState';
+import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import { hasActiveFilters } from '~/types/filter';
 import type { FilterBarConfig, FilterMember } from '~/types/filter';
 import styles from './WorkspaceProjectsTimelineConceptD.module.css';
@@ -222,6 +223,7 @@ export function WorkspaceProjectsTimelineConceptD() {
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
@@ -253,7 +255,9 @@ export function WorkspaceProjectsTimelineConceptD() {
     return 'table';
   }, [pathname]);
 
-  useHotkeys([['mod+k', () => searchRef.current?.focus()]]);
+  // Not mod+k — that opens the global CommandPalette, and binding both here
+  // meant one keypress focused this box *and* opened the palette over it.
+  usePageSearchHotkey(searchRef);
 
   const utils = api.useUtils();
   const queryInput = useMemo(
@@ -302,9 +306,9 @@ export function WorkspaceProjectsTimelineConceptD() {
   );
 
   const filteredProjects = useMemo(() => {
-    const filtered = filterProjects(timelineProjects, filters, searchQuery);
+    const filtered = filterProjects(timelineProjects, filters, deferredSearchQuery);
     return sortProjects(filtered);
-  }, [timelineProjects, filters, searchQuery, sortProjects]);
+  }, [timelineProjects, filters, deferredSearchQuery, sortProjects]);
 
   const today = startOfDay(new Date());
 
@@ -424,7 +428,7 @@ export function WorkspaceProjectsTimelineConceptD() {
             <input
               ref={searchRef}
               type="text"
-              placeholder="Search  ⌘K"
+              placeholder="Search  ⌘F"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && searchRef.current?.blur()}

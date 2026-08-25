@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "remote-app",
   "description": "IPC surface granted to the Exponential web app loaded from its own origin. A remote page gets no usable Tauri bridge without this: `remote.urls` opts the origin in, and every command it may call must be granted below by name. Both apex and www are listed because exponential.im 301s to www — the webview's effective origin is the redirect target.",
-  "windows": ["main"],
+  "windows": ["main", "tab-*"],
   "remote": {
     "urls": [
       "https://exponential.im/*",
@@ -13,6 +13,8 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-focus",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "opener:default",
     "opener:allow-open-url",
     "allow-desktop-shell-info",
@@ -22,9 +24,14 @@
     "allow-wiki-list-pages",
     "allow-wiki-read-page",
     "allow-wiki-write-page",
+    "allow-wiki-delete-page",
+    "allow-wiki-rename-page",
+    "allow-wiki-page-history",
+    "allow-wiki-recent-changes",
     "allow-wiki-commit-turn",
     "allow-wiki-search",
     "allow-wiki-get-root",
+    "allow-wiki-status",
     "allow-wiki-fetch-url",
     "allow-wiki-read-external"
   ]

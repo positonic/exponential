@@ -57,7 +57,6 @@ export const portfolioReviewRouter = createTRPCRouter({
           select: {
             projects: true,
             goals: true,
-            outcomes: true,
           },
         },
       },

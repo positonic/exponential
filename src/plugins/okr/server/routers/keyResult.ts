@@ -2,13 +2,17 @@ import { z } from "zod";
 import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getWorkspaceMembership,
+  canEditWorkspaceContent,
+} from "~/server/services/access/resolvers/workspaceResolver";
 import {
   getProjectAccess,
   canEditProject,
 } from "~/server/services/access/resolvers/projectResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
 import { resolveGoalProgress } from "~/server/services/goalProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
@@ -54,6 +58,50 @@ async function getTicketProgressByFeature(
     progress.set(row.featureId, entry);
   }
   return progress;
+}
+
+/**
+ * May this user WRITE this key result?
+ *
+ * `create`/`update`/`checkIn`/`delete` used to require ownership, which meant a
+ * teammate (or a service account driving an agent) could link work to a key
+ * result but never move its value — the exact shape that blocks agent-driven
+ * check-ins. So membership counts, but only membership that carries edit
+ * rights: `viewer` is read-only and `guest` is synthesized for project-only
+ * access, and `getWorkspaceMembership` alone would let both write. That is what
+ * `canEditWorkspaceContent` exists to decide (see its docstring).
+ *
+ * The row's own owner always qualifies, regardless of workspace role.
+ * Pass the already-fetched record so callers needing the full row don't query
+ * twice.
+ */
+async function canWriteKeyResult(
+  db: PrismaClient,
+  userId: string,
+  keyResult: { userId: string; workspaceId: string | null } | null,
+): Promise<boolean> {
+  if (!keyResult) return false;
+  if (keyResult.userId === userId) return true;
+  if (!keyResult.workspaceId) return false;
+  const membership = await getWorkspaceMembership(db, userId, keyResult.workspaceId);
+  return canEditWorkspaceContent(membership?.role ?? null);
+}
+
+/**
+ * May this user attach or move key results on this objective? Same rule as
+ * above: owner or DRI outright — both are explicit designations on the row —
+ * otherwise a workspace role that carries edit rights, never bare membership.
+ */
+async function canWriteGoalKeyResults(
+  db: PrismaClient,
+  userId: string,
+  goal: { userId: string; driUserId: string | null; workspaceId: string | null } | null,
+): Promise<boolean> {
+  if (!goal) return false;
+  if (goal.userId === userId || goal.driUserId === userId) return true;
+  if (!goal.workspaceId) return false;
+  const membership = await getWorkspaceMembership(db, userId, goal.workspaceId);
+  return canEditWorkspaceContent(membership?.role ?? null);
 }
 
 // Input validation schemas
@@ -152,14 +200,41 @@ export const keyResultRouter = createTRPCRouter({
           status: z
             .enum(["not-started", "on-track", "at-risk", "off-track", "achieved"])
             .optional(),
+          /** Narrow a workspace-scoped list back to the caller's own KRs. */
+          onlyMine: z.boolean().optional(),
         })
         .optional()
     )
     .query(async ({ ctx, input }) => {
+      // Workspace-scoped means workspace-wide, mirroring getByObjective: validate
+      // membership, then return every member's KRs. Scoping by userId as well
+      // would hand a member an empty list for a colleague's key results.
+      // Without a workspaceId this stays the caller's personal list.
+      // Bind it once: the local narrows on its own, which keeps the where
+      // clause free of non-null assertions on an optional input.
+      const workspaceId = input?.workspaceId;
+      if (workspaceId) {
+        const membership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          workspaceId,
+        );
+        if (!membership) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to this workspace",
+          });
+        }
+      }
+
       return ctx.db.keyResult.findMany({
         where: {
-          userId: ctx.session.user.id,
-          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...(workspaceId
+            ? {
+                workspaceId,
+                ...(input?.onlyMine ? { userId: ctx.session.user.id } : {}),
+              }
+            : { userId: ctx.session.user.id }),
           ...(input?.goalId ? { goalId: input.goalId } : {}),
           ...(input?.period ? { period: input.period } : {}),
           ...(input?.status ? { status: input.status } : {}),
@@ -403,11 +478,15 @@ export const keyResultRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      // Owner OR workspace member. `getAll`/`getByObjective` are workspace-wide,
+      // so an owner-only detail read would 404 on rows those lists just returned.
+      // The membership test runs after the fetch, through the centralized
+      // resolver, so team-derived workspace access is honored — an inline
+      // `members.some` sees only direct WorkspaceUser rows and would 404 a team
+      // member on the very key result the list handed them. linkProject records
+      // having been bitten by exactly that.
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.id,
-          userId: ctx.session.user.id,
-        },
+        where: { id: input.id },
         include: {
           goal: {
             include: {
@@ -461,7 +540,18 @@ export const keyResultRouter = createTRPCRouter({
         },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        !(
+          keyResult.userId === ctx.session.user.id ||
+          (keyResult.workspaceId &&
+            (await getWorkspaceMembership(
+              ctx.db,
+              ctx.session.user.id,
+              keyResult.workspaceId,
+            )))
+        )
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
@@ -526,24 +616,37 @@ export const keyResultRouter = createTRPCRouter({
   create: protectedProcedure
     .input(createKeyResultInput)
     .mutation(async ({ ctx, input }) => {
-      // Verify goal belongs to user
-      const goal = await ctx.db.goal.findFirst({
-        where: {
-          id: input.goalId,
-          userId: ctx.session.user.id,
-        },
+      // Owner, DRI or workspace member may add a key result to an objective.
+      const goal = await ctx.db.goal.findUnique({
+        where: { id: input.goalId },
+        select: { id: true, userId: true, driUserId: true, workspaceId: true },
       });
 
-      if (!goal) {
+      if (!(await canWriteGoalKeyResults(ctx.db, ctx.session.user.id, goal))) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Goal not found or access denied",
         });
       }
 
-      return ctx.db.keyResult.create({
+      // A key result's workspace is not the caller's to choose: it decides who
+      // can see and write the row, and letting it diverge from the objective's
+      // would strand the two behind different access checks. It is inherited,
+      // and an explicit value that disagrees is refused rather than ignored.
+      if (
+        input.workspaceId !== undefined &&
+        input.workspaceId !== goal!.workspaceId
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A key result must belong to its objective's workspace",
+        });
+      }
+
+      const keyResult = await ctx.db.keyResult.create({
         data: {
           ...input,
+          workspaceId: goal!.workspaceId,
           driUserId: input.driUserId ?? ctx.session.user.id,
           userId: ctx.session.user.id,
         },
@@ -551,6 +654,23 @@ export const keyResultRouter = createTRPCRouter({
           goal: true,
         },
       });
+
+      // Surface workspace-scoped KR creation in the activity feed. Personal
+      // key results are silent by design. Fire-and-forget: never throws.
+      if (keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: keyResult.id,
+          action: "created",
+          metadata: { title: keyResult.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return keyResult;
     }),
 
   // Update a key result
@@ -559,35 +679,46 @@ export const keyResultRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { id, ...updateData } = input;
 
-      // Verify ownership
-      const existing = await ctx.db.keyResult.findFirst({
-        where: { id, userId: ctx.session.user.id },
-      });
+      // Owner OR workspace member (mirrors linkProject).
+      const existing = await ctx.db.keyResult.findFirst({ where: { id } });
 
-      if (!existing) {
+      if (!(await canWriteKeyResult(ctx.db, ctx.session.user.id, existing))) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
         });
       }
 
-      // If reassigning to a different objective, verify the user owns the target goal
-      if (updateData.goalId != null && updateData.goalId !== existing.goalId) {
-        const targetGoal = await ctx.db.goal.findFirst({
-          where: { id: updateData.goalId, userId: ctx.session.user.id },
+      // Reassigning to a different objective requires access to the target too.
+      let movedWorkspaceId: string | null | undefined;
+      if (updateData.goalId != null && updateData.goalId !== existing!.goalId) {
+        const targetGoal = await ctx.db.goal.findUnique({
+          where: { id: updateData.goalId },
+          select: { id: true, userId: true, driUserId: true, workspaceId: true },
         });
 
-        if (!targetGoal) {
+        if (!(await canWriteGoalKeyResults(ctx.db, ctx.session.user.id, targetGoal))) {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Objective not found",
           });
         }
+
+        // A key result follows its objective's workspace — the same invariant
+        // `create` enforces. Retargeting without moving it would leave the row
+        // readable and writable by the ORIGINAL workspace's members while it
+        // hangs off another workspace's objective.
+        movedWorkspaceId = targetGoal!.workspaceId;
       }
 
       return ctx.db.keyResult.update({
         where: { id },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(movedWorkspaceId !== undefined
+            ? { workspaceId: movedWorkspaceId }
+            : {}),
+        },
         include: {
           goal: true,
         },
@@ -598,14 +729,16 @@ export const keyResultRouter = createTRPCRouter({
   checkIn: protectedProcedure
     .input(checkInInput)
     .mutation(async ({ ctx, input }) => {
+      // Owner OR workspace member (mirrors linkProject) — a check-in is the
+      // routine team/agent write on a KR, so it must not be owner-only.
       const keyResult = await ctx.db.keyResult.findFirst({
-        where: {
-          id: input.keyResultId,
-          userId: ctx.session.user.id,
-        },
+        where: { id: input.keyResultId },
       });
 
-      if (!keyResult) {
+      if (
+        !keyResult ||
+        !(await canWriteKeyResult(ctx.db, ctx.session.user.id, keyResult))
+      ) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
@@ -655,6 +788,24 @@ export const keyResultRouter = createTRPCRouter({
         (err: unknown) => { console.error("[goal-health] recompute after KR check-in:", err); },
       );
 
+      // Surface the check-in in the workspace activity feed. Only the human
+      // act is logged — never the health recompute it triggers. Personal
+      // (non-workspace) key results are silent by design. The event's
+      // entityId is the check-in row; metadata carries the KR title and id
+      // so the feed can label the row and deep-link to the KR drawer.
+      if (checkIn && keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: checkIn.id,
+          action: "checked_in",
+          metadata: { title: keyResult.title, keyResultId: keyResult.id },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       return checkIn;
     }),
 
@@ -662,11 +813,12 @@ export const keyResultRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      // Owner OR workspace member (mirrors linkProject).
       const existing = await ctx.db.keyResult.findFirst({
-        where: { id: input.id, userId: ctx.session.user.id },
+        where: { id: input.id },
       });
 
-      if (!existing) {
+      if (!(await canWriteKeyResult(ctx.db, ctx.session.user.id, existing))) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Key result not found",
@@ -674,6 +826,23 @@ export const keyResultRouter = createTRPCRouter({
       }
 
       await ctx.db.keyResult.delete({ where: { id: input.id } });
+
+      // The `existing` row fetched for the access check carries the title the
+      // feed needs after the delete. Personal KRs are silent by design.
+      // Fire-and-forget: never throws.
+      if (existing?.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: existing.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: existing.id,
+          action: "deleted",
+          metadata: { title: existing.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
       return { success: true };
     }),
 
@@ -1407,7 +1576,7 @@ export const keyResultRouter = createTRPCRouter({
       // workspace. Shared-workspace OKRs are commentable by members.
       const goal = await ctx.db.goal.findUnique({
         where: { id: input.goalId },
-        select: { id: true, userId: true, workspaceId: true },
+        select: { id: true, userId: true, workspaceId: true, title: true },
       });
 
       if (!goal) {
@@ -1442,6 +1611,23 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
       });
+
+      // Second, direct write path for objective comments — same event shape as
+      // goalService.createGoalComment (kept inline because this procedure's
+      // access check deliberately differs from verifyGoalAccess). Personal
+      // objectives are silent. Fire-and-forget.
+      if (goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: { title: goal.title, goalId: input.goalId },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return comment;
     }),
@@ -1548,6 +1734,22 @@ export const keyResultRouter = createTRPCRouter({
           },
         },
       });
+
+      // Surface the comment in the workspace feed. metadata.keyResultId is the
+      // drawer target (entityId is the comment row). Personal KRs are silent.
+      // Fire-and-forget.
+      if (keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result_comment",
+          entityId: comment.id,
+          action: "created",
+          metadata: { title: keyResult.title, keyResultId: keyResult.id },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
 
       return comment;
     }),
@@ -1682,7 +1884,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.goal.update({
+      const updated = await ctx.db.goal.update({
         where: { id: input.goalId },
         data: {
           healthOverride: input.status,
@@ -1690,6 +1892,24 @@ export const keyResultRouter = createTRPCRouter({
           healthOverrideById: input.status ? ctx.session.user.id : null,
         },
       });
+
+      // A manual status set is a deliberate human judgement, so it surfaces
+      // in the workspace feed; clearing back to Auto is housekeeping and logs
+      // nothing. Personal objectives are silent. Fire-and-forget.
+      if (input.status !== null && goal.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: goal.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "goal",
+          entityId: String(goal.id),
+          action: "status_changed",
+          metadata: { title: goal.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Set or clear a key result's manual status override. Writes ONLY the
@@ -1716,7 +1936,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.keyResult.update({
+      const updated = await ctx.db.keyResult.update({
         where: { id: input.keyResultId },
         data: {
           statusOverride: input.status,
@@ -1724,6 +1944,23 @@ export const keyResultRouter = createTRPCRouter({
           statusOverrideById: input.status ? ctx.session.user.id : null,
         },
       });
+
+      // Same rule as the objective override above: manual sets surface,
+      // clearing to Auto logs nothing, personal KRs are silent.
+      if (input.status !== null && keyResult.workspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: keyResult.workspaceId,
+          userId: ctx.session.user.id,
+          entityType: "key_result",
+          entityId: keyResult.id,
+          action: "status_changed",
+          metadata: { title: keyResult.title },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return updated;
     }),
 
   // Delete own comment from a key result

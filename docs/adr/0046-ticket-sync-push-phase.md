@@ -115,3 +115,31 @@ existing design that constrain it:
 - Implementation lives in Exponential tickets #263 (`witty.crown` — toggle + outbound property push)
   and #264 (`peppy.raven` — creation full mirror, backfill, outbound archive), both under feature
   `cmrjitzhj0001l80463eyb6gd`. This ADR does not introduce new tickets.
+
+## Amendment (2026-08-06): page-content provenance
+
+The Consequences section above predicted the failure class — "a wrong write reaches the customer's
+live Notion workspace with no revert story" — and it happened. A maintenance pass that re-renders
+page bodies decided which pages it had authored by scanning the run ledger for
+`items[].action === "created"`. Inbound runs write that same token meaning "created a *ticket* from
+this page", so every page ever imported from Notion was classified as machine-authored and had its
+content deleted. Content that had never been copied into Exponential existed nowhere afterwards.
+
+**Decision.** Page-content provenance is a stamped fact, not an inference:
+`TicketSync.remoteCreatedAt` is set at the instant the outbound path creates a page, and it is the
+only thing permitted to authorise a content rewrite. A null value means the page is human-authored
+and its content is never touched.
+
+**Rejected: keep inferring from the run ledger, scoped by `direction`.** This works — `revert.ts`
+already does exactly that and was correct throughout — but it leaves the ambiguous token in place as
+a trap for the next consumer, and it cannot answer the question for a page whose creating run has
+been pruned. A column costs one nullable field and removes the class of bug.
+
+Because the rewrite is destructive and irreversible, correct provenance alone was judged
+insufficient. Content rewrites additionally require a non-empty replacement, a `last_edited_by` that
+is our own bot, and content still matching the shape the writer produced; writes are ordered
+append-then-delete so an interrupted repair duplicates content rather than erasing it, and are
+dry-run unless the caller opts out. Any one of those would have prevented the incident.
+
+Supersedes nothing; it narrows the "body is copied once at creation" stance above by naming who may
+rewrite that copy afterwards, and why the answer is a column rather than the ledger.

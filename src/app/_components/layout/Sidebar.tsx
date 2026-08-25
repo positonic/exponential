@@ -41,7 +41,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         className={`
-          fixed top-[calc(0.5rem+env(safe-area-inset-top))] left-3 z-[100] p-1.5 rounded-md
+          sb-toggle fixed left-3 z-[100] p-1.5 rounded-md
           hover:bg-surface-hover transition-all duration-200
           ${isMenuOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
         `}

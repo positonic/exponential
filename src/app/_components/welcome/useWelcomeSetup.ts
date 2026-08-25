@@ -59,8 +59,12 @@ export function useWelcomeSetup() {
   const router = useRouter();
 
   const { data, isLoading } = api.welcome.getSetup.useQuery();
+  const { data: defaultWorkspace } = api.workspace.getDefault.useQuery();
   const state = data?.state ?? null;
   const calendarConnected = data?.calendarConnected ?? false;
+  // False while Google is verifying our calendar scopes and this user isn't an
+  // allowlisted tester — the Google half of the calendar step is unavailable.
+  const googleCalendarAvailable = data?.googleCalendarAvailable ?? false;
 
   const applyState = useCallback(
     (nextState: WelcomeSetupState) => {
@@ -171,6 +175,13 @@ export function useWelcomeSetup() {
             return;
           }
           const provider = answer.value === "outlook" ? "outlook" : "google";
+          // Belt and braces: AskBlock disables the Google chip while our
+          // calendar scopes await verification, so this only fires if the
+          // answer arrives another way. Explain rather than dead-end.
+          if (provider === "google" && !googleCalendarAvailable) {
+            router.push("/google-access?feature=calendar");
+            return;
+          }
           try {
             localStorage.setItem(CAL_PROVIDER_STASH, provider);
           } catch {
@@ -185,7 +196,7 @@ export function useWelcomeSetup() {
         }
       }
     },
-    [createGoal, createAction, planDay, setCalendar],
+    [createGoal, createAction, planDay, setCalendar, googleCalendarAvailable, router],
   );
 
   // Back from the calendar OAuth flow: the ConnectedAccount now exists, so
@@ -219,6 +230,41 @@ export function useWelcomeSetup() {
     router.push("/today");
   }, [router]);
 
+  /**
+   * Mark welcome complete (best-effort, guarded against double fire) and
+   * leave for `path`. Shared by the explore exit and the invited variant's
+   * "Take me to {workspace}" CTA.
+   */
+  const completeAndNavigate = useCallback(
+    async (path: string) => {
+      if (!data?.welcomeCompletedAt && !completedRef.current) {
+        completedRef.current = true;
+        try {
+          await completeWelcome.mutateAsync();
+        } catch {
+          // onError resets completedRef so a later attempt can retry; still
+          // leave — no destination below gates on welcome completion.
+        }
+      }
+      router.push(path);
+    },
+    [data, completeWelcome, router],
+  );
+
+  /**
+   * "I'll explore on my own" — a real exit, not a chat reply. Marks welcome
+   * complete (so /home stops bouncing back here for the 24h new-user window)
+   * and lands the user on their default workspace home.
+   */
+  const exploreOnOwn = useCallback(async () => {
+    // Fallback is /today, NOT /home: /home bounces incomplete-welcome users
+    // back here during the 24h new-user window, which would turn a failed
+    // completeWelcome + unresolved workspace query into a loop.
+    await completeAndNavigate(
+      defaultWorkspace?.slug ? `/w/${defaultWorkspace.slug}/home` : "/today",
+    );
+  }, [completeAndNavigate, defaultWorkspace]);
+
   const isAnswerPending =
     createGoal.isPending ||
     createAction.isPending ||
@@ -231,6 +277,9 @@ export function useWelcomeSetup() {
     firstName: data?.userName?.trim().split(/\s+/)[0] ?? null,
     state,
     calendarConnected,
+    googleCalendarAvailable,
+    /** Non-null while an invitee who hasn't finished welcome should see the invited variant. */
+    invitedContext: data?.invitedContext ?? null,
     isStepDone,
     nextStep,
     doneCount,
@@ -238,6 +287,8 @@ export function useWelcomeSetup() {
     answerStep,
     isAnswerPending,
     goToToday,
+    completeAndNavigate,
+    exploreOnOwn,
   };
 }
 

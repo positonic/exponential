@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useHotkeys } from '@mantine/hooks';
+import { useHotkeys, useDebouncedValue } from '@mantine/hooks';
 import {
   Modal,
   TextInput,
@@ -11,6 +11,7 @@ import {
   UnstyledButton,
   Skeleton,
   Text,
+  Checkbox,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -30,14 +31,27 @@ import {
   IconBook2,
   IconCalendarEvent,
   IconUsers,
+  IconTicket,
+  IconBolt,
+  IconBulb,
+  IconTrophy,
+  IconUser,
+  IconBuilding,
+  IconNotebook,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
-import { stripHtml } from '~/lib/utils';
+import type { RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useAgentModal } from '~/providers/AgentModalProvider';
+import { reportHandledError } from '~/lib/reportHandledError';
+import { useWikiBridge } from '~/lib/wiki/useWikiBridge';
+import { pageTitle, wikiHref, WIKI_ROUTE } from '~/lib/wiki/wikiLinks';
 import styles from '../home/WorkspaceHomeConceptD.module.css';
 
 type Mode = 'all' | 'projects' | 'tasks' | 'goals' | 'ai';
+
+type SearchResult = RouterOutputs['search']['global']['results'][number];
+type SearchType = SearchResult['type'];
 
 const MODES: { id: Mode; label: string; icon: React.ElementType }[] = [
   { id: 'all', label: 'All', icon: IconSparkles },
@@ -53,6 +67,8 @@ const PAGES = [
   { label: 'Tasks', path: 'projects-tasks', icon: IconSquareRoundedCheck },
   { label: 'Goals', path: 'goals', icon: IconTarget },
 ];
+
+const PAGE_LABELS = new Set(PAGES.map((p) => p.label.toLowerCase()));
 
 // Workspace-scoped sections surfaced when searching by workspace name.
 const WORKSPACE_SECTIONS: {
@@ -72,6 +88,49 @@ const WORKSPACE_SECTIONS: {
   { label: 'Calendar', icon: IconCalendar, href: () => `/calendar` },
 ];
 
+// How each entity type from search.global is presented, in the order the
+// sections appear. One of the router's types is deliberately absent:
+// `workspace`, because a matching workspace already surfaces below with all of
+// its sub-pages. Epics are listed but an epic still awaiting a product returns
+// a null url and is dropped by the filter below, same as any other routeless
+// row.
+const RESULT_SECTIONS: { type: SearchType; label: string; icon: React.ElementType }[] = [
+  { type: 'project', label: 'Projects', icon: IconStack2 },
+  { type: 'action', label: 'Tasks', icon: IconSquareRoundedCheck },
+  { type: 'ticket', label: 'Tickets', icon: IconTicket },
+  { type: 'epic', label: 'Epics', icon: IconBolt },
+  { type: 'goal', label: 'Goals', icon: IconTarget },
+  { type: 'keyResult', label: 'Key results', icon: IconTrophy },
+  { type: 'feature', label: 'Features', icon: IconBulb },
+  { type: 'product', label: 'Products', icon: IconLayoutGrid },
+  { type: 'page', label: 'Pages', icon: IconBook2 },
+  { type: 'meeting', label: 'Meetings', icon: IconCalendarEvent },
+  { type: 'contact', label: 'Contacts', icon: IconUser },
+  { type: 'organization', label: 'Organizations', icon: IconBuilding },
+];
+
+// Which entity types each filter chip keeps. `all` keeps everything.
+const MODE_TYPES: Record<Exclude<Mode, 'ai'>, SearchType[] | null> = {
+  all: null,
+  tasks: ['action', 'ticket', 'epic'],
+  projects: ['project', 'product'],
+  goals: ['goal', 'keyResult'],
+};
+
+// Each search fans out to one `contains` query per entity type, and none of
+// those columns are trigram-indexed, so a query that matches nothing scans
+// every table. One character matches almost everything and tells you almost
+// nothing, so it isn't worth the round trip — navigation still filters from
+// the first keystroke.
+const MIN_SEARCH_LENGTH = 2;
+
+// Local wiki pages shown per search, matching the server search's per-type
+// limit so one source can't crowd out the other.
+const WIKI_RESULT_LIMIT = 5;
+
+/** One local wiki page, ready to render as a palette row. */
+type WikiRow = { path: string; title: string; line?: string };
+
 const SUGGESTED = [
   { icon: IconFlag, label: 'Run weekly plan', sub: 'Keystone ritual · 45 min' },
   { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe' },
@@ -79,15 +138,42 @@ const SUGGESTED = [
   { icon: IconCalendar, label: 'Plan my day', sub: 'Ask Zoe' },
 ] as const;
 
+type PaletteRow = {
+  key: string;
+  label: string;
+  sub: string;
+  icon: React.ElementType;
+  href: string;
+  /** Navigation rows are tinted; entity results stay muted. */
+  accent: boolean;
+  /** Position in the flat result list, for keyboard highlighting. */
+  index: number;
+};
+
 export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<Mode>('all');
+  // Widens the search past the workspace you are in. Deliberately not reset
+  // when the palette closes: which workspaces you want to search is a standing
+  // preference, unlike the query and the filter chips.
+  const [allWorkspaces, setAllWorkspaces] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Set on mousedown over the scope checkbox and consumed by its change
+  // handler, so that handler can tell a click from a keypress. `:focus-visible`
+  // looks like the obvious test and isn't: a checkbox reached by Tab does not
+  // reliably match it at the moment the change fires.
+  const scopeTogglePointerRef = useRef(false);
   const router = useRouter();
   const { workspaceId, workspaceSlug } = useWorkspace();
   const { openModal } = useAgentModal();
+
+  // The local wiki is a folder on this machine reached over the desktop
+  // shell's IPC. Null in a browser and in the Electron shell, which is what
+  // keeps every wiki row below out of those builds entirely.
+  const { bridge: wikiBridge } = useWikiBridge();
 
   const open = useCallback(() => setIsOpen(true), []);
   const close = useCallback(() => setIsOpen(false), []);
@@ -104,26 +190,28 @@ export function CommandPalette() {
     }
   }, [isOpen]);
 
-  const showProjects = mode === 'all' || mode === 'projects';
-  const showTasks = mode === 'all' || mode === 'tasks';
-  const showGoals = mode === 'all' || mode === 'goals';
+  const trimmedQuery = query.trim();
+  const q = trimmedQuery.toLowerCase();
+  const [debouncedQuery] = useDebouncedValue(trimmedQuery, 180);
 
-  const { data: projectsData, isLoading: projectsLoading } = api.project.getAll.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId && isOpen && showProjects },
+  // One server-side search covering every entity type the app knows about,
+  // each block carrying the same access rules as that entity's own list
+  // endpoint. Omitting the workspace searches every workspace you can reach —
+  // the router treats `workspaceId` as a narrowing filter, not as the thing
+  // that grants access, so dropping it widens the results without widening
+  // what you are allowed to see.
+  const searchWorkspaceId = allWorkspaces ? undefined : workspaceId ?? undefined;
+
+  const { data: searchData, isFetching: searchFetching } = api.search.global.useQuery(
+    { query: debouncedQuery, workspaceId: searchWorkspaceId, limit: 5 },
+    {
+      enabled: isOpen && mode !== 'ai' && debouncedQuery.length >= MIN_SEARCH_LENGTH,
+      // Keep the previous matches on screen while the next query is in flight,
+      // instead of blanking the list on every keystroke.
+      placeholderData: (previous) => previous,
+      staleTime: 30_000,
+    },
   );
-
-  const { data: actionsData, isLoading: actionsLoading } = api.action.getAll.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId && isOpen && showTasks },
-  );
-
-  const { data: goalsData, isLoading: goalsLoading } = api.goal.getAllMyGoals.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !!workspaceId && isOpen && showGoals },
-  );
-
-  const q = query.toLowerCase();
 
   // All workspaces the user can navigate to (for workspace-name search).
   const { data: workspacesData } = api.workspace.list.useQuery(undefined, {
@@ -150,103 +238,275 @@ export function CommandPalette() {
     return map;
   }, [workspacesData, pluginResults]);
 
-  const filteredWorkspaceNav = useMemo(() => {
-    if (!q) return [];
-    const results: { label: string; href: string; icon: React.ElementType }[] = [];
+  // Workspace sections split by where they belong in the list: the workspace
+  // you are in sits with the other navigation at the top, every other
+  // workspace goes below the results as somewhere to switch to.
+  const { currentWorkspaceNav, otherWorkspaceNav } = useMemo(() => {
+    const current: { label: string; href: string; icon: React.ElementType }[] = [];
+    const other: { label: string; href: string; icon: React.ElementType }[] = [];
+    if (!q) return { currentWorkspaceNav: current, otherWorkspaceNav: other };
+
     for (const w of workspacesData ?? []) {
       const productEnabled = productEnabledByWorkspaceId.get(w.id) ?? false;
+      const workspaceMatches = w.name.toLowerCase().includes(q);
+      const isCurrent = w.id === workspaceId;
       for (const section of WORKSPACE_SECTIONS) {
         if (section.requiresProduct && !productEnabled) continue;
-        const label = `${w.name} - ${section.label}`;
-        if (!label.toLowerCase().includes(q)) continue;
-        results.push({ label, href: section.href(w.slug), icon: section.icon });
+        if (isCurrent) {
+          // Inside your own workspace you navigate by section name. Matching
+          // its name too would list all nine sections above the results you
+          // actually searched for — and you are already in it.
+          if (PAGE_LABELS.has(section.label.toLowerCase())) continue;
+          if (!section.label.toLowerCase().includes(q)) continue;
+          current.push({ label: section.label, href: section.href(w.slug), icon: section.icon });
+        } else {
+          // Other workspaces are reached by name: "syntrofi" lists that
+          // workspace's sections. Matching on section name here turned a
+          // search for "projects" into one row per workspace you belong to.
+          if (!workspaceMatches) continue;
+          other.push({
+            label: `${w.name} - ${section.label}`,
+            href: section.href(w.slug),
+            icon: section.icon,
+          });
+        }
       }
     }
-    return results.slice(0, 12);
-  }, [q, workspacesData, productEnabledByWorkspaceId]);
+    return { currentWorkspaceNav: current, otherWorkspaceNav: other.slice(0, 10) };
+  }, [q, workspacesData, productEnabledByWorkspaceId, workspaceId]);
 
-  const filteredProjects = useMemo(
-    () =>
-      showProjects
-        ? (projectsData ?? []).filter((p) => !q || p.name.toLowerCase().includes(q)).slice(0, 4)
-        : [],
-    [showProjects, projectsData, q],
-  );
-
-  const filteredActions = useMemo(
-    () =>
-      showTasks
-        ? (actionsData ?? [])
-            .filter((a) => q && stripHtml(a.name).toLowerCase().includes(q))
-            .slice(0, 4)
-        : [],
-    [showTasks, actionsData, q],
-  );
-
-  const filteredGoals = useMemo(
-    () =>
-      showGoals
-        ? (goalsData ?? []).filter((g) => q && g.title.toLowerCase().includes(q)).slice(0, 3)
-        : [],
-    [showGoals, goalsData, q],
-  );
+  // Everywhere the palette can navigate to by name, before filtering. The
+  // wiki is not workspace-scoped — it lives at /wiki, one folder per machine
+  // — so it is listed independently of whether we are inside a workspace.
+  const navPages = useMemo(() => {
+    const rows = workspaceSlug
+      ? PAGES.map((p) => ({
+          key: `page-${p.path}`,
+          label: p.label,
+          icon: p.icon,
+          href: `/w/${workspaceSlug}/${p.path}`,
+        }))
+      : [];
+    if (wikiBridge) {
+      rows.push({ key: 'local-wiki', label: 'Local wiki', icon: IconBook2, href: WIKI_ROUTE });
+    }
+    return rows;
+  }, [workspaceSlug, wikiBridge]);
 
   const filteredPages = useMemo(
-    () => (workspaceSlug ? PAGES.filter((p) => !q || p.label.toLowerCase().includes(q)) : []),
-    [workspaceSlug, q],
+    () => navPages.filter((p) => !q || p.label.toLowerCase().includes(q)),
+    [navPages, q],
   );
+
+  /**
+   * Local wiki pages matching the query.
+   *
+   * **This deliberately does not go through `api.search.global`.** The wiki is
+   * device-local by construction: it is a folder of markdown on this machine
+   * that never leaves it, and that promise is the feature. Sending the query
+   * — let alone page contents — to the server to be searched there would break
+   * it. So the hits come from the shell's own grep over the files, and are
+   * merged into the palette's results here in the browser instead.
+   */
+  const [wikiRows, setWikiRows] = useState<WikiRow[]>([]);
+
+  useEffect(() => {
+    if (!wikiBridge || !isOpen || mode !== 'all' || debouncedQuery.length < MIN_SEARCH_LENGTH) {
+      setWikiRows([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const hits = (await wikiBridge.search(debouncedQuery)).slice(0, WIKI_RESULT_LIMIT);
+        // Title each hit by its own `# Heading` rather than its filename —
+        // "Ada Lovelace" reads better than "ada" in a list you scan. It costs
+        // one local read per hit, which is why it only runs for the handful
+        // that are about to be shown.
+        const rows = await Promise.all(
+          hits.map(async (hit): Promise<WikiRow> => {
+            let title = pageTitle(hit.path);
+            try {
+              title = pageTitle(hit.path, await wikiBridge.readPage(hit.path));
+            } catch {
+              // One unreadable page shouldn't cost the others their titles.
+            }
+            return { path: hit.path, title, line: hit.lines[0] };
+          }),
+        );
+        if (!cancelled) setWikiRows(rows);
+      } catch (e) {
+        if (cancelled) return;
+        setWikiRows([]);
+        // No query and no path in the report: this reporter files a Bug Ticket
+        // on the server, and wiki text is exactly what must not go there.
+        reportHandledError(e, { area: 'command-palette-wiki-search' });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [wikiBridge, isOpen, mode, debouncedQuery]);
+
+  // Results carry the query they were fetched for. While the next search is in
+  // flight we keep the previous ones only if the typed query extends them —
+  // narrowing "fix" to "fixt" holds its results, starting a new word drops
+  // them rather than showing matches for something you are no longer typing.
+  // Scope is checked the same way and for the same reason: flipping the
+  // checkbox changes the query key but not the query string, so without this
+  // `placeholderData` would hold the old scope's results on screen — the list
+  // contradicting the box you just ticked until the wider search lands.
+  const shownResults = useMemo(() => {
+    if (!searchData) return [];
+    if ((searchData.workspaceId ?? undefined) !== searchWorkspaceId) return [];
+    return trimmedQuery.toLowerCase().startsWith(searchData.query.toLowerCase())
+      ? searchData.results
+      : [];
+  }, [searchData, trimmedQuery, searchWorkspaceId]);
+
+  const resultsByType = useMemo(() => {
+    const allowed = mode === 'ai' ? null : MODE_TYPES[mode];
+    const byType = new Map<SearchType, SearchResult[]>();
+    for (const result of shownResults) {
+      // Every row in the palette navigates somewhere; entities without a
+      // detail route are dropped rather than rendered as dead ends.
+      if (!result.url) continue;
+      if (allowed && !allowed.includes(result.type)) continue;
+      const bucket = byType.get(result.type);
+      if (bucket) bucket.push(result);
+      else byType.set(result.type, [result]);
+    }
+    // Searching everywhere still puts the workspace you are standing in first
+    // within each section — it is the one you are most likely to have meant,
+    // and the server returns no ranking of its own. Sort is stable, so the
+    // order inside each of the two halves is left as the server sent it.
+    if (allWorkspaces && workspaceId) {
+      for (const bucket of byType.values()) {
+        bucket.sort(
+          (a, b) =>
+            (a.workspace?.id === workspaceId ? 0 : 1) -
+            (b.workspace?.id === workspaceId ? 0 : 1),
+        );
+      }
+    }
+    return byType;
+  }, [shownResults, mode, allWorkspaces, workspaceId]);
+
+  // Sections in render order, each row carrying its position in the flat list
+  // so keyboard highlighting and rendering cannot drift apart.
+  const resultSections = useMemo(() => {
+    const sections: { key: string; heading: string; rows: PaletteRow[] }[] = [];
+    let index = 0;
+    const row = (r: Omit<PaletteRow, 'index'>): PaletteRow => ({ ...r, index: index++ });
+
+    const navRows: PaletteRow[] = [
+      ...filteredPages.map((p) =>
+        row({
+          key: p.key,
+          label: p.label,
+          sub: 'Navigate',
+          icon: p.icon,
+          href: p.href,
+          accent: true,
+        }),
+      ),
+      ...currentWorkspaceNav.map((w, i) =>
+        row({
+          key: `workspace-nav-${i}`,
+          label: w.label,
+          sub: 'Navigate',
+          icon: w.icon,
+          href: w.href,
+          accent: true,
+        }),
+      ),
+    ];
+    if (navRows.length > 0) {
+      sections.push({ key: 'navigate', heading: 'Navigate', rows: navRows });
+    }
+
+    for (const section of RESULT_SECTIONS) {
+      const items = resultsByType.get(section.type) ?? [];
+      if (items.length === 0) continue;
+      sections.push({
+        key: section.type,
+        heading: section.label,
+        rows: items.map((item) =>
+          row({
+            key: `${section.type}-${item.id}`,
+            label: item.title,
+            // On routes with no workspace context (/calendar, a recording)
+            // the search spans workspaces, so name the one each result lives
+            // in — otherwise two same-named meetings are indistinguishable.
+            sub:
+              item.workspace && item.workspace.id !== workspaceId
+                ? item.workspace.name
+                : item.subtitle ?? section.label,
+            icon: section.icon,
+            href: item.url ?? '',
+            accent: false,
+          }),
+        ),
+      });
+    }
+
+    // Local wiki pages sit after the server's results rather than among them:
+    // they come from a different place entirely, and saying so is the point.
+    if (wikiRows.length > 0) {
+      sections.push({
+        key: 'local-wiki',
+        heading: 'Local wiki',
+        rows: wikiRows.map((page) =>
+          row({
+            key: `wiki-${page.path}`,
+            label: page.title,
+            // The matching line when there is one, else the path — enough to
+            // tell people/ada.md from characters/ada.md at a glance.
+            sub: page.line ?? page.path,
+            icon: IconNotebook,
+            href: wikiHref(page.path),
+            accent: false,
+          }),
+        ),
+      });
+    }
+
+    // Other workspaces go last: matching one by name lists all of its
+    // sections, which would otherwise bury the results you searched for.
+    if (otherWorkspaceNav.length > 0) {
+      sections.push({
+        key: 'other-workspaces',
+        heading: 'Other workspaces',
+        rows: otherWorkspaceNav.map((w, i) =>
+          row({
+            key: `other-workspace-${i}`,
+            label: w.label,
+            sub: 'Workspace',
+            icon: w.icon,
+            href: w.href,
+            accent: true,
+          }),
+        ),
+      });
+    }
+
+    return sections;
+  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, wikiRows, workspaceId]);
 
   const allResults = useMemo(
-    () => [
-      ...filteredPages.map((p) => ({
-        type: 'page' as const,
-        label: p.label,
-        sub: 'Navigate',
-        icon: p.icon,
-        href: `/w/${workspaceSlug}/${p.path}`,
-      })),
-      ...filteredWorkspaceNav.map((w) => ({
-        type: 'workspace-nav' as const,
-        label: w.label,
-        sub: 'Workspace',
-        icon: w.icon,
-        href: w.href,
-      })),
-      ...filteredProjects.map((p) => ({
-        type: 'project' as const,
-        label: p.name,
-        sub: p.progress > 0 ? `${Math.round(p.progress)}% done` : 'Project',
-        icon: IconStack2,
-        href: `/w/${workspaceSlug}/projects/${p.slug}`,
-      })),
-      ...filteredActions.map((a) => ({
-        type: 'task' as const,
-        label: stripHtml(a.name),
-        sub: 'Task',
-        icon: IconSquareRoundedCheck,
-        href: `/w/${workspaceSlug}/projects-tasks`,
-      })),
-      ...filteredGoals.map((g) => ({
-        type: 'goal' as const,
-        label: g.title,
-        sub: 'Goal',
-        icon: IconTarget,
-        href: `/w/${workspaceSlug}/goals/${g.id}`,
-      })),
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filteredPages, filteredWorkspaceNav, filteredProjects, filteredActions, filteredGoals, workspaceSlug],
+    () => resultSections.flatMap((section) => section.rows),
+    [resultSections],
   );
 
-  const showNoResults =
-    q.length > 0 &&
-    filteredProjects.length === 0 &&
-    filteredActions.length === 0 &&
-    filteredGoals.length === 0 &&
-    filteredWorkspaceNav.length === 0 &&
-    filteredPages.length === 0;
+  // True from the first searchable keystroke until results for that exact
+  // query land, so a slow search never flashes "No matches" — and a query too
+  // short to search never flashes a skeleton for a request that won't be made.
+  const isSearching =
+    q.length >= MIN_SEARCH_LENGTH && (debouncedQuery !== trimmedQuery || searchFetching);
 
-  const isLoading = (showProjects && projectsLoading) || (showTasks && actionsLoading) || (showGoals && goalsLoading);
+  const showSkeleton = isSearching && allResults.length === 0;
+  const showNoResults =
+    q.length >= MIN_SEARCH_LENGTH && !isSearching && allResults.length === 0;
 
   const navigate = useCallback(
     (path: string) => {
@@ -284,9 +544,58 @@ export function CommandPalette() {
     [highlightedIndex, allResults, q, close, navigate, handleAskZoe],
   );
 
+  // Switching filter chips or search scope rebuilds the list, so a held index
+  // would point at an unrelated row.
   useEffect(() => {
     setHighlightedIndex(null);
-  }, [query]);
+  }, [query, mode, allWorkspaces]);
+
+  // The results area scrolls, and twelve sections overflow it easily — without
+  // this, arrowing past the fold moves the selection somewhere you can't see
+  // and Enter navigates to a row you never read.
+  useEffect(() => {
+    if (highlightedIndex === null) return;
+    listRef.current
+      ?.querySelector(`[data-palette-index="${highlightedIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIndex]);
+
+  const renderRow = (row: PaletteRow) => {
+    const Icon = row.icon;
+    return (
+      <UnstyledButton
+        key={row.key}
+        className={styles.resultRow}
+        data-palette-index={row.index}
+        data-highlighted={highlightedIndex === row.index ? 'true' : 'false'}
+        onClick={() => navigate(row.href)}
+      >
+        <Icon
+          size={14}
+          stroke={1.75}
+          style={{
+            color: row.accent ? 'var(--brand-400)' : 'var(--color-text-muted)',
+            flexShrink: 0,
+          }}
+        />
+        <Text
+          size="sm"
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: 'var(--color-text-primary)',
+          }}
+        >
+          {row.label}
+        </Text>
+        <Text size="xs" style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>
+          {row.sub}
+        </Text>
+      </UnstyledButton>
+    );
+  };
 
   return (
     <Modal
@@ -366,10 +675,67 @@ export function CommandPalette() {
             </UnstyledButton>
           );
         })}
+
+        {/* Only worth offering to people who have somewhere else to search.
+            The span carries the mousedown so clicks on the label count too. */}
+        {(workspacesData?.length ?? 0) > 1 && (
+          <span
+            style={{ marginLeft: 'auto', display: 'inline-flex' }}
+            onMouseDown={() => {
+              scopeTogglePointerRef.current = true;
+            }}
+          >
+          <Checkbox
+            size="xs"
+            label="All workspaces"
+            checked={allWorkspaces}
+            onKeyDown={() => {
+              // Keyboard always wins over a stale pointer flag left by a
+              // mousedown that never became a toggle.
+              scopeTogglePointerRef.current = false;
+            }}
+            onChange={(e) => {
+              setAllWorkspaces(e.currentTarget.checked);
+              // Clicking the box takes focus out of the input, which is where
+              // the arrow keys and Enter are handled — hand it straight back.
+              // Someone who tabbed here meant to be here, though, and yanking
+              // focus away would cost them a re-tab before every toggle.
+              if (scopeTogglePointerRef.current) inputRef.current?.focus();
+              scopeTogglePointerRef.current = false;
+            }}
+            styles={{
+              input: { cursor: 'pointer' },
+              label: {
+                paddingLeft: 6,
+                fontSize: 12,
+                cursor: 'pointer',
+                color: allWorkspaces
+                  ? 'var(--brand-400)'
+                  : 'var(--color-text-secondary)',
+              },
+            }}
+          />
+          </span>
+        )}
       </Group>
 
-      <div style={{ marginTop: 20 }}>
-        {isLoading ? (
+      {/* `.resultRow` is full-bleed — it is 16px wider than its container and
+          pulled 8px left — so it needs a container with 8px of side padding to
+          sit in. Without it the rows overhang, and since a box with one axis
+          set to `auto` computes the other to `auto` too, the vertical scroll
+          brought a horizontal scrollbar with it. The negative margin cancels
+          the padding, leaving every row exactly where it was. */}
+      <div
+        ref={listRef}
+        style={{
+          marginTop: 20,
+          maxHeight: '52vh',
+          overflowY: 'auto',
+          paddingInline: 8,
+          marginInline: -8,
+        }}
+      >
+        {showSkeleton ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} height={36} mb={4} radius="sm" />
           ))
@@ -395,10 +761,10 @@ export function CommandPalette() {
                   const Icon = page.icon;
                   return (
                     <UnstyledButton
-                      key={page.path}
+                      key={page.key}
                       className={styles.resultRow}
                       data-highlighted={highlightedIndex === i ? 'true' : 'false'}
-                      onClick={() => navigate(`/w/${workspaceSlug}/${page.path}`)}
+                      onClick={() => navigate(page.href)}
                     >
                       <Icon
                         size={14}
@@ -447,44 +813,28 @@ export function CommandPalette() {
             })}
           </>
         ) : (
-          allResults.map((result, i) => {
-            const Icon = result.icon;
-            return (
-              <UnstyledButton
-                key={`${result.type}-${i}`}
-                className={styles.resultRow}
-                data-highlighted={highlightedIndex === i ? 'true' : 'false'}
-                onClick={() => navigate(result.href)}
+          <>
+            {resultSections.map((section, i) => (
+              <div key={section.key} style={{ marginTop: i === 0 ? 0 : 14 }}>
+                <div className={styles.colHeading}>{section.heading}</div>
+                {section.rows.map(renderRow)}
+              </div>
+            ))}
+            {/* Below the minimum the search hasn't run, so say so rather than
+                leaving an empty panel that reads as "nothing found". */}
+            {q.length < MIN_SEARCH_LENGTH && (
+              <Text
+                size="xs"
+                style={{
+                  color: 'var(--color-text-muted)',
+                  padding: resultSections.length > 0 ? '14px 0 0' : '24px 0',
+                  textAlign: resultSections.length > 0 ? 'left' : 'center',
+                }}
               >
-                <Icon
-                  size={14}
-                  stroke={1.75}
-                  style={{
-                    color:
-                      result.type === 'page' || result.type === 'workspace-nav'
-                        ? 'var(--brand-400)'
-                        : 'var(--color-text-muted)',
-                    flexShrink: 0,
-                  }}
-                />
-                <Text
-                  size="sm"
-                  style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: 'var(--color-text-primary)',
-                  }}
-                >
-                  {result.label}
-                </Text>
-                <Text size="xs" style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>
-                  {result.sub}
-                </Text>
-              </UnstyledButton>
-            );
-          })
+                Keep typing to search…
+              </Text>
+            )}
+          </>
         )}
       </div>
     </Modal>

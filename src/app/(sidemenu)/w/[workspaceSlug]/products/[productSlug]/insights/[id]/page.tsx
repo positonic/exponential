@@ -24,8 +24,6 @@ import {
   IconArrowLeft,
   IconCalendar,
   IconCategory,
-  IconChevronDown,
-  IconChevronRight,
   IconCircleDot,
   IconCopy,
   IconDots,
@@ -44,7 +42,6 @@ import {
   IconWorldOff,
 } from "@tabler/icons-react";
 import { modals } from "@mantine/modals";
-import { useSession } from "next-auth/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import {
@@ -54,7 +51,13 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { InsightDocument } from "~/app/_components/product/InsightDocument";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import { CommentInput } from "~/app/_components/shared/CommentInput";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import {
+  ActivityFilterMenu,
+  useActivityFilter,
+} from "~/app/_components/shared/ActivityFilterMenu";
+import { useInsightActivity } from "~/hooks/useInsightActivity";
 import {
   INSIGHT_TYPES,
   TYPE_MAP,
@@ -73,43 +76,12 @@ const SENTIMENT_OPTIONS = [
   { value: "negative", label: "Negative" },
 ];
 
-const statusLabel = (v: unknown): string =>
-  STATUS_OPTIONS.find((s) => s.value === v)?.label ??
-  (typeof v === "string" ? v : "?");
-
-/**
- * Human copy for a WorkspaceActivityEvent row on this insight's timeline.
- * Events carry their specifics in `metadata` (`change` discriminates the
- * "updated" events); unknown events render as null and are skipped.
- */
-function describeEvent(action: string, metadata: unknown): string | null {
-  const meta = (metadata ?? {}) as Record<string, unknown>;
-  if (action === "status_changed") {
-    return `changed status from ${statusLabel(meta.from)} to ${statusLabel(meta.to)}`;
-  }
-  switch (meta.change) {
-    case "published":
-      return "published this to the feedback board";
-    case "unpublished":
-      return "removed this from the feedback board";
-    case "marked_duplicate":
-      return `marked this as a duplicate of "${typeof meta.canonicalTitle === "string" ? meta.canonicalTitle : "another insight"}"`;
-    case "duplicate_added":
-      return `marked "${typeof meta.duplicateTitle === "string" ? meta.duplicateTitle : "another insight"}" as a duplicate of this`;
-    case "unmarked_duplicate":
-      return "removed the duplicate mark";
-    default:
-      return null;
-  }
-}
-
 export default function InsightDetailPage() {
   const params = useParams();
   const router = useRouter();
   const productSlug = params.productSlug as string;
   const insightId = params.id as string;
   const { workspace } = useWorkspace();
-  const { data: session } = useSession();
   const utils = api.useUtils();
 
   const { data: insight, isLoading } = api.product.insight.getById.useQuery(
@@ -125,7 +97,6 @@ export default function InsightDetailPage() {
   const [parkReason, setParkReason] = useState("");
   const [dupModalOpen, setDupModalOpen] = useState(false);
   const [dupTargetId, setDupTargetId] = useState<string | null>(null);
-  const [activityCollapsed, setActivityCollapsed] = useState(false);
 
   useEffect(() => {
     if (insight) {
@@ -142,37 +113,38 @@ export default function InsightDetailPage() {
     }
   };
 
-  const updateInsight = api.product.insight.update.useMutation({
-    onSuccess: invalidate,
-  });
-  const deleteInsight = api.product.insight.delete.useMutation();
-  const parkInsight = api.product.insight.park.useMutation({ onSuccess: invalidate });
-  const unparkInsight = api.product.insight.unpark.useMutation({ onSuccess: invalidate });
-  const publishInsight = api.product.insight.publish.useMutation({ onSuccess: invalidate });
-  const unpublishInsight = api.product.insight.unpublish.useMutation({ onSuccess: invalidate });
-  const setFeatures = api.product.insight.setFeatures.useMutation({
-    onSuccess: invalidate,
-  });
-
+  // Mutations that record a WorkspaceActivityEvent also refresh the timeline.
   const invalidateActivity = async () => {
     await invalidate();
     await utils.product.insight.listEvents.invalidate({ id: insightId });
   };
+
+  const updateInsight = api.product.insight.update.useMutation({
+    onSuccess: invalidateActivity,
+  });
+  const deleteInsight = api.product.insight.delete.useMutation();
+  const parkInsight = api.product.insight.park.useMutation({ onSuccess: invalidate });
+  const unparkInsight = api.product.insight.unpark.useMutation({ onSuccess: invalidate });
+  const publishInsight = api.product.insight.publish.useMutation({
+    onSuccess: invalidateActivity,
+  });
+  const unpublishInsight = api.product.insight.unpublish.useMutation({
+    onSuccess: invalidateActivity,
+  });
+  const setFeatures = api.product.insight.setFeatures.useMutation({
+    onSuccess: invalidate,
+  });
   const markDuplicate = api.product.insight.markDuplicate.useMutation({
     onSuccess: invalidateActivity,
   });
   const unmarkDuplicate = api.product.insight.unmarkDuplicate.useMutation({
     onSuccess: invalidateActivity,
   });
-  const addComment = api.product.insight.addComment.useMutation({ onSuccess: invalidate });
-  const deleteComment = api.product.insight.deleteComment.useMutation({
-    onSuccess: invalidate,
-  });
 
-  const { data: events } = api.product.insight.listEvents.useQuery(
-    { id: insightId },
-    { enabled: !!insightId },
-  );
+  // Unified timeline (comments + audit events) via the app-wide activity
+  // paradigm - same code path as tickets/features/scopes.
+  const activity = useInsightActivity(insightId);
+  const [activityFilter, setActivityFilter] = useActivityFilter();
 
   const { data: features } = api.product.feature.list.useQuery(
     { productId: insight?.product.id ?? "" },
@@ -203,22 +175,6 @@ export default function InsightDetailPage() {
   const typeDef = TYPE_MAP[insight.type];
   const TypeIcon = typeDef?.icon ?? IconTarget;
   const isParked = insight.parkedAt != null;
-
-  // Unified activity feed: comments + system events, oldest first.
-  const commentItems = insight.comments.map((c) => ({
-    kind: "comment" as const,
-    createdAt: new Date(c.createdAt),
-    comment: c,
-  }));
-  const eventItems = (events ?? []).flatMap((e) => {
-    const text = describeEvent(e.action, e.metadata);
-    return text
-      ? [{ kind: "event" as const, createdAt: new Date(e.createdAt), event: e, text }]
-      : [];
-  });
-  const feed = [...commentItems, ...eventItems].sort(
-    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
-  );
 
   const saveTitle = () => {
     const next = title.trim();
@@ -443,89 +399,20 @@ export default function InsightDetailPage() {
             </div>
           )}
 
-          {/* Activity - comments merged with system events (status changes,
-              publish/unpublish, duplicate marks) by time. */}
-          <div>
-            <button
-              className="flex items-center gap-1.5 mb-3"
-              onClick={() => setActivityCollapsed((v) => !v)}
-            >
-              {activityCollapsed ? (
-                <IconChevronRight size={13} className="text-text-muted" />
-              ) : (
-                <IconChevronDown size={13} className="text-text-muted" />
-              )}
-              <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wider">
-                Activity
-              </Text>
-            </button>
-
-            {!activityCollapsed && feed.length > 0 && (
-              <Stack gap="sm" mb="md">
-                {feed.map((item) =>
-                  item.kind === "comment" ? (
-                    <div
-                      key={`c-${item.comment.id}`}
-                      className="border border-border-primary rounded-lg p-3"
-                    >
-                      <Group justify="space-between" align="flex-start">
-                        <div className="flex-1">
-                          <Group gap="xs" mb={4}>
-                            <Avatar size="xs" radius="xl" src={item.comment.author.image}>
-                              {(item.comment.author.name ?? "?")[0]?.toUpperCase()}
-                            </Avatar>
-                            <Text size="xs" fw={500} className="text-text-secondary">
-                              {item.comment.author.name}
-                            </Text>
-                            <Text size="xs" className="text-text-muted">
-                              {new Date(item.comment.createdAt).toLocaleDateString()}
-                            </Text>
-                          </Group>
-                          <div className="ml-6">
-                            <MarkdownRenderer content={item.comment.content} />
-                          </div>
-                        </div>
-                        {/* Server restricts deletes to the author - only
-                            offer the button where it can succeed. */}
-                        {item.comment.author.id === session?.user?.id && (
-                          <ActionIcon
-                            variant="subtle"
-                            color="red"
-                            size="xs"
-                            onClick={() => deleteComment.mutate({ id: item.comment.id })}
-                          >
-                            <IconTrash size={12} />
-                          </ActionIcon>
-                        )}
-                      </Group>
-                    </div>
-                  ) : (
-                    <Group key={`e-${item.event.id}`} gap="xs" wrap="nowrap" className="px-1">
-                      <Avatar size={16} radius="xl" src={item.event.user?.image}>
-                        {(item.event.user?.name ?? "?")[0]?.toUpperCase()}
-                      </Avatar>
-                      <Text size="xs" className="text-text-muted min-w-0" lineClamp={2}>
-                        <Text span size="xs" fw={500} className="text-text-secondary">
-                          {item.event.user?.name ?? "Someone"}
-                        </Text>{" "}
-                        {item.text} · {new Date(item.event.createdAt).toLocaleDateString()}
-                      </Text>
-                    </Group>
-                  ),
-                )}
-              </Stack>
-            )}
-
-            {!activityCollapsed && (
-              <CommentInput
-                placeholder="Leave a comment..."
-                isSubmitting={addComment.isPending}
-                onSubmit={async (content) => {
-                  await addComment.mutateAsync({ insightId: insight.id, content });
-                }}
-              />
-            )}
-          </div>
+          {/* Activity - the app-wide feed + composer, same block as the
+              ticket detail page */}
+          <CollapsibleSection
+            title="Activity"
+            action={
+              <ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />
+            }
+          >
+            {/* Keyed on the insight: navigating between insights re-renders
+                this page without unmounting it, and the composer's draft
+                state lives inside ActivityTimeline — without the key a
+                half-typed comment would follow you to the next insight. */}
+            <ActivityTimeline key={insight.id} activity={activity} filter={activityFilter} />
+          </CollapsibleSection>
         </Stack>
       </div>
 

@@ -21,6 +21,7 @@ export type IconKind =
   | "commented"
   | "milestone"
   | "tracked"
+  | "deleted"
   | "channel_summary"
   | "fallback";
 
@@ -85,6 +86,37 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "commented",
   },
 
+  // Features (product plugin). Every feature event carries the feature name in
+  // metadata so {entityRef} renders the name, not a CUID slice.
+  [key("feature", "created")]: {
+    template: "{actor} created feature {entityRef}",
+    iconKind: "created",
+  },
+  [key("feature", "updated")]: {
+    template: "{actor} updated feature {entityRef}",
+    iconKind: "updated",
+  },
+  [key("feature", "status_changed")]: {
+    template: "{actor} changed status on feature {entityRef}",
+    iconKind: "status_changed",
+  },
+
+  // Feature scopes. A scope has no name of its own (only a version like "V1"),
+  // so scope events carry the PARENT feature's name in metadata and the
+  // templates read "…scope on/to feature {entityRef}".
+  [key("feature_scope", "created")]: {
+    template: "{actor} added a scope to feature {entityRef}",
+    iconKind: "created",
+  },
+  [key("feature_scope", "updated")]: {
+    template: "{actor} updated a scope on feature {entityRef}",
+    iconKind: "updated",
+  },
+  [key("feature_scope", "status_changed")]: {
+    template: "{actor} changed a scope status on feature {entityRef}",
+    iconKind: "status_changed",
+  },
+
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
   [key("project", "created")]: {
@@ -96,9 +128,71 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "milestone",
   },
 
-  // Goals — completing a strategic goal is a milestone.
+  // Objectives — stored entityType stays the schema-flavoured "goal"; rendered
+  // copy says "objective" per the glossary. Completing one is a milestone.
+  [key("goal", "created")]: {
+    template: "{actor} created objective {entityRef}",
+    iconKind: "created",
+  },
+  [key("goal", "status_changed")]: {
+    template: "{actor} changed status on objective {entityRef}",
+    iconKind: "status_changed",
+  },
   [key("goal", "completed")]: {
-    template: "{actor} completed goal {entityRef}",
+    template: "{actor} completed objective {entityRef}",
+    iconKind: "milestone",
+  },
+  [key("goal", "deleted")]: {
+    template: "{actor} deleted objective {entityRef}",
+    iconKind: "deleted",
+  },
+
+  // Objective updates (health-bearing check-ins) are distinct from comments;
+  // {entityRef} is the parent objective's title.
+  [key("goal_update", "created")]: {
+    template: "{actor} posted an update on objective {entityRef}",
+    iconKind: "created",
+  },
+  [key("goal_comment", "created")]: {
+    template: "{actor} commented on objective {entityRef}",
+    iconKind: "commented",
+  },
+
+  // Key results — rendered copy says "key result" per the glossary even
+  // though the stored entityType stays schema-flavoured. A check-in reuses the
+  // "tracked" icon kind (clock) so progress logging reads distinctly from
+  // creation/edits.
+  [key("key_result", "created")]: {
+    template: "{actor} created key result {entityRef}",
+    iconKind: "created",
+  },
+  [key("key_result", "checked_in")]: {
+    template: "{actor} checked in on key result {entityRef}",
+    iconKind: "tracked",
+  },
+  [key("key_result", "status_changed")]: {
+    template: "{actor} changed status on key result {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("key_result", "deleted")]: {
+    template: "{actor} deleted key result {entityRef}",
+    iconKind: "deleted",
+  },
+  [key("key_result_comment", "created")]: {
+    template: "{actor} commented on key result {entityRef}",
+    iconKind: "commented",
+  },
+
+  // Weekly team OKR check-in ritual — {entityRef} is the TEAM name, not an
+  // objective. A member submitting their status update reads like progress
+  // logging (tracked); the facilitator closing the meeting is the team-visible
+  // milestone. Draft saves and meeting start never log.
+  [key("okr_checkin", "checked_in")]: {
+    template: "{actor} submitted their OKR check-in for {entityRef}",
+    iconKind: "tracked",
+  },
+  [key("okr_checkin", "completed")]: {
+    template: "{actor} completed the OKR check-in for {entityRef}",
     iconKind: "milestone",
   },
 

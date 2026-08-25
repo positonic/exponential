@@ -2,7 +2,7 @@ import { PRODUCT_NAME } from "~/lib/brand";
 
 /**
  * Copy + step model for the "Getting started" welcome page.
- * The framework taught here is exactly Goals → Actions → Today (no Outcomes).
+ * The framework taught here is exactly Goals → Actions → Today.
  */
 export type StepId = "goal" | "action" | "plan" | "cal";
 
@@ -68,7 +68,7 @@ export const ACTION_SUGGESTIONS: Record<number, string[]> = {
     "Do a 10-minute inbox sweep",
   ],
   [-1]: [
-    "Break the outcome into 3 steps",
+    "Break the goal into 3 steps",
     "Book 30 min to scope it",
     "Write down the first blocker",
   ],
@@ -124,7 +124,7 @@ export const COPY = {
     sub: "As you complete setup, this diagram lights up — watch the left sidebar too.",
   },
   exploreReply:
-    "Totally fine. I'll keep your setup progress up top — flip to the Checklist view whenever you're ready, or just ask me anything down here.",
+    "Totally fine — dropping you into your workspace to look around. I'm always in the corner if you need a hand.",
   freeTextFallback:
     "Let's get you set up first — it only takes a minute, then Zoe can help with anything. Want to continue?",
   railSub: {
@@ -139,10 +139,24 @@ export const COPY = {
   },
   calChips: {
     google: "Google Calendar",
+    /** Shown while our Google calendar scopes are awaiting verification. */
+    googleComingSoon: "Google Calendar (coming soon)",
     outlook: "Outlook",
     skip: "Skip for now",
   },
   goToToday: "Go to Today",
+  /** Invited variant — shown instead of chat/checklist when the user joined via an invitation. */
+  invited: {
+    title: (workspaceName: string) => `You've joined ${workspaceName}`,
+    subtitleWithInviter: (inviterName: string) =>
+      `${inviterName} invited you — you're in.`,
+    subtitle: "You're in.",
+    calTitle: "Connect your calendar",
+    calDesc: "Optional — meetings and the team's work in one place",
+    calConnected: "Connected",
+    calSkipped: "Skipped",
+    cta: (workspaceName: string) => `Take me to ${workspaceName}`,
+  },
 };
 
 /** Framework diagram cells: Goals → Actions → Today. */

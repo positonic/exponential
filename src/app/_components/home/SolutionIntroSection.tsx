@@ -42,13 +42,13 @@ export function SolutionIntroSection({ id }: SolutionIntroSectionProps) {
                 <span className="text-accent-periwinkle text-2xl md:hidden my-4">↓</span>
               </div>
 
-              {/* Outcomes + Arrow */}
+              {/* Projects + Arrow */}
               <div className="flex flex-col md:flex-row items-center">
                 <div className="flex flex-col items-center">
                   <div className="w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-gradient-cta-end/20 border-2 border-gradient-cta-end/40 flex items-center justify-center mb-3 shadow-lg shadow-gradient-cta-end/20">
                     <span className="text-3xl md:text-4xl">📊</span>
                   </div>
-                  <span className="font-semibold text-text-primary">Outcomes</span>
+                  <span className="font-semibold text-text-primary">Projects</span>
                 </div>
                 <IconArrowRight
                   className="text-accent-periwinkle hidden md:block shrink-0 mx-4 md:mx-6"

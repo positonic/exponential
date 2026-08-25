@@ -405,6 +405,15 @@ export default function ContactDetailPage() {
   }, [allContacts, contactId]);
 
   // Build activity items from the merged interaction + meeting timeline
+  // Extra columns kept from a CSV import, keyed by the file's original headers.
+  const importedData = useMemo(() => {
+    const meta = contact?.metadata;
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return [];
+    return Object.entries(meta).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    );
+  }, [contact?.metadata]);
+
   const activityItems = useMemo(() => {
     if (!contact) return [];
     const items: Array<{
@@ -558,7 +567,7 @@ export default function ContactDetailPage() {
 
       {/* Contact Header */}
       <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-6 py-4">
-        <Avatar size="lg" radius="xl">
+        <Avatar size="lg" radius="xl" src={contact.imageUrl}>
           {getInitialFromName(contact.firstName ?? contact.lastName)}
         </Avatar>
         <div className="flex-1">
@@ -1341,6 +1350,35 @@ export default function ContactDetailPage() {
                   </Anchor>
                 </Stack>
               </CollapsibleSection>
+
+              {/* Imported data: extra columns from a CSV import, keyed by the
+                  source file's original headers. */}
+              {(importedData.length > 0 || contact.firstSeenAt) && (
+                <CollapsibleSection title="Imported Data" defaultOpen={false}>
+                  <Stack gap="sm">
+                    {contact.firstSeenAt && (
+                      <div className="flex items-start justify-between gap-2">
+                        <Text size="sm" className="text-text-muted shrink-0">
+                          First seen
+                        </Text>
+                        <Text size="sm" className="text-text-primary text-right break-all">
+                          {new Date(contact.firstSeenAt).toLocaleDateString()}
+                        </Text>
+                      </div>
+                    )}
+                    {importedData.map(([key, value]) => (
+                      <div key={key} className="flex items-start justify-between gap-2">
+                        <Text size="sm" className="text-text-muted shrink-0">
+                          {key}
+                        </Text>
+                        <Text size="sm" className="text-text-primary text-right break-all">
+                          {value}
+                        </Text>
+                      </div>
+                    ))}
+                  </Stack>
+                </CollapsibleSection>
+              )}
 
               {/* Lists Section */}
               <CollapsibleSection title="Lists" defaultOpen={false}>

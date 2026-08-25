@@ -15,10 +15,6 @@ export interface Terminology {
   whyThisGoal: string;
   whatIsYourGoal: string;
 
-  // Weekly outcomes
-  weeklyOutcome: string;
-  weeklyOutcomes: string;
-
   // OKR-specific (only for team/org)
   keyResult: string;
   keyResults: string;
@@ -29,8 +25,6 @@ export interface Terminology {
   showOkrFeatures: boolean;
   showKeyResults: boolean;
 
-  // Outcome types to show for this workspace type
-  visibleOutcomeTypes: Array<'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem'>;
 }
 
 const personalTerminology: Terminology = {
@@ -46,10 +40,6 @@ const personalTerminology: Terminology = {
   whyThisGoal: 'Why this goal?',
   whatIsYourGoal: "What's your goal?",
 
-  // Weekly outcomes become "Weekly Focus"
-  weeklyOutcome: 'Weekly Focus',
-  weeklyOutcomes: 'Weekly Focus',
-
   // OKR terminology hidden for personal
   keyResult: '',
   keyResults: '',
@@ -60,8 +50,6 @@ const personalTerminology: Terminology = {
   showOkrFeatures: false,
   showKeyResults: false,
 
-  // Simpler outcome types for personal users
-  visibleOutcomeTypes: ['daily', 'weekly', 'monthly'],
 };
 
 const teamTerminology: Terminology = {
@@ -77,10 +65,6 @@ const teamTerminology: Terminology = {
   whyThisGoal: 'Why this objective?',
   whatIsYourGoal: "What's your objective?",
 
-  // Standard outcome terminology
-  weeklyOutcome: 'Weekly Outcome',
-  weeklyOutcomes: 'Weekly Outcomes',
-
   // Full OKR terminology
   keyResult: 'Key Result',
   keyResults: 'Key Results',
@@ -91,8 +75,6 @@ const teamTerminology: Terminology = {
   showOkrFeatures: true,
   showKeyResults: true,
 
-  // Full outcome types for teams
-  visibleOutcomeTypes: ['daily', 'weekly', 'monthly', 'quarterly', 'annual'],
 };
 
 /**

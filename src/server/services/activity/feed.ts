@@ -58,6 +58,13 @@ export interface ActivityFeedEvent {
   source: string;
   /** Channel-summary detail; `null` unless `entityType === "channel_summary"`. */
   channel: ChannelSummaryRef | null;
+  /**
+   * OKR drawer deep-link target for the goals page, e.g. `objective:42` or
+   * `keyResult:cuid` (the `drawer` query-param format parsed by
+   * `parseDrawerParam`). Computed server-side because the client never sees
+   * raw `metadata`. `null` for non-OKR rows.
+   */
+  drawerParam: string | null;
 }
 
 export interface ActivityFeedPage {
@@ -109,17 +116,74 @@ function readMetaString(metadata: unknown, key: string): string | null {
   return null;
 }
 
+/** Read a string-or-number id field off a Json metadata blob, or null. */
+function readMetaId(metadata: unknown, key: string): string | null {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === "string" && value.length > 0) return value;
+    if (typeof value === "number") return String(value);
+  }
+  return null;
+}
+
+/**
+ * Compute the OKR drawer target for a feed row. Objective rows carry the goal
+ * id in `entityId`; child rows (updates, comments, check-ins) point at their
+ * parent via `metadata.goalId` / `metadata.keyResultId` because their
+ * `entityId` is the child row itself. Non-OKR rows get `null`.
+ */
+function deriveDrawerParam(row: FeedRow): string | null {
+  // A deleted row's target is gone by definition — linking it would be a
+  // guaranteed-dead click. (Other rows may still go stale after a later
+  // delete; those fail gracefully in the drawer.)
+  if (row.action === "deleted") return null;
+  switch (row.entityType) {
+    case "goal":
+      return `objective:${row.entityId}`;
+    case "goal_update":
+    case "goal_comment": {
+      const goalId = readMetaId(row.metadata, "goalId");
+      return goalId ? `objective:${goalId}` : null;
+    }
+    case "key_result": {
+      // Check-in events use the check-in row as entityId and carry the KR id
+      // in metadata; create/delete events use the KR id as entityId directly.
+      const keyResultId =
+        readMetaId(row.metadata, "keyResultId") ?? row.entityId;
+      return `keyResult:${keyResultId}`;
+    }
+    case "key_result_comment": {
+      const keyResultId = readMetaId(row.metadata, "keyResultId");
+      return keyResultId ? `keyResult:${keyResultId}` : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Entity types recorded for audit purposes but never shown on feed surfaces.
+ * Notion ticket-sync runs are operational noise at feed altitude — the synced
+ * tickets themselves already surface as regular ticket events.
+ */
+const HIDDEN_ENTITY_TYPES = ["ticket_sync_run"] as const;
+
 /**
  * Translate a `source` filter into a Prisma `where` fragment. `undefined`/`all`
- * → no constraint; `internal` → everything except channel summaries; any other
- * value is treated as a provider → that provider's `channel_summary` rows.
+ * → only the hidden-type exclusion; `internal` → everything except channel
+ * summaries (and hidden types); any other value is treated as a provider →
+ * that provider's `channel_summary` rows.
  */
 function sourceWhere(
   source?: string,
 ): Prisma.WorkspaceActivityEventWhereInput {
-  if (!source || source === "all") return {};
+  if (!source || source === "all") {
+    return { entityType: { notIn: [...HIDDEN_ENTITY_TYPES] } };
+  }
   if (source === "internal") {
-    return { entityType: { not: "channel_summary" } };
+    return {
+      entityType: { notIn: ["channel_summary", ...HIDDEN_ENTITY_TYPES] },
+    };
   }
   return {
     entityType: "channel_summary",
@@ -192,6 +256,7 @@ async function toFeedEvents(
       workspace: row.workspace ?? null,
       source,
       channel,
+      drawerParam: deriveDrawerParam(row),
     };
   });
 }

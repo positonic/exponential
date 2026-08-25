@@ -231,6 +231,7 @@ export async function loadFeatureWithAccess(
     where: { id: featureId },
     select: {
       id: true,
+      name: true,
       productId: true,
       product: { select: { workspaceId: true } },
     },
@@ -254,7 +255,11 @@ async function loadScopeWithAccess(
       featureId: true,
       status: true,
       feature: {
-        select: { productId: true, product: { select: { workspaceId: true } } },
+        select: {
+          name: true,
+          productId: true,
+          product: { select: { workspaceId: true } },
+        },
       },
     },
   });
@@ -315,6 +320,18 @@ export const featureRouter = createTRPCRouter({
           goal: { select: { id: true, title: true, period: true } },
           area: { select: { id: true, name: true, displayOrder: true } },
           tags: { include: { tag: true } },
+          // Lean Key result edges (ADR-0050) so a per-Feature "which numbers
+          // does this move" column can be built from one list call instead of
+          // N `getById`s. Deliberately id+title+period only - the full KR with
+          // its progress values is {@link getById}'s job.
+          keyResultLinks: {
+            orderBy: { assignedAt: "asc" },
+            select: {
+              keyResult: {
+                select: { id: true, title: true, period: true, goalId: true },
+              },
+            },
+          },
           _count: {
             select: { scopes: true, requirements: true, tickets: true },
           },
@@ -427,7 +444,43 @@ export const featureRouter = createTRPCRouter({
             },
           },
           tags: { include: { tag: true } },
-          _count: { select: { tickets: true } },
+          // The Feature→Key result execution edges (ADR-0050), readable from
+          // this side too. `goal` above is the coarser Objective alignment and
+          // answers a different question: which Objective this Feature serves,
+          // versus which specific numbers it is meant to move. The two can
+          // legitimately disagree, so neither substitutes for the other.
+          //
+          // No workspace filter on the join, matching `okr.getById`'s mirror
+          // include: a link row cannot cross workspaces in the first place.
+          // Both write paths - `okr.linkFeature` and `okr.updateLinkedFeatures`
+          // - reject a feature whose product is in a different workspace than
+          // the key result, and both rejections are covered by tests. Filtering
+          // here would duplicate that guard and mask, rather than surface, any
+          // future breach of the invariant.
+          keyResultLinks: {
+            orderBy: { assignedAt: "asc" },
+            select: {
+              assignedAt: true,
+              keyResult: {
+                select: {
+                  id: true,
+                  title: true,
+                  period: true,
+                  status: true,
+                  currentValue: true,
+                  targetValue: true,
+                  unit: true,
+                  unitLabel: true,
+                  goalId: true,
+                  goal: { select: { id: true, title: true } },
+                },
+              },
+            },
+          },
+          // `comments` is a count, not the list: the UI loads the thread lazily
+          // via `featureComment.list`, and API callers need to know a discussion
+          // exists before paying for it.
+          _count: { select: { tickets: true, comments: true } },
         },
       });
       if (!feature) {
@@ -501,6 +554,7 @@ export const featureRouter = createTRPCRouter({
         entityType: "feature",
         entityId: created.id,
         action: "created",
+        metadata: { name: created.name },
       });
       return created;
     }),
@@ -642,7 +696,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "status_changed",
-            metadata: { from: prev?.status ?? "", to: rest.status! },
+            metadata: {
+              from: prev?.status ?? "",
+              to: rest.status!,
+              name: rest.name ?? feature.name,
+            },
           });
           return;
         }
@@ -657,7 +715,7 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "updated",
-            metadata: { fieldsChanged },
+            metadata: { fieldsChanged, name: rest.name ?? feature.name },
           });
         }
       };
@@ -763,6 +821,7 @@ export const featureRouter = createTRPCRouter({
         where: { id: { in: uniqueIds } },
         select: {
           id: true,
+          name: true,
           status: true,
           productId: true,
           product: { select: { workspaceId: true } },
@@ -848,7 +907,12 @@ export const featureRouter = createTRPCRouter({
                 entityType: "feature",
                 entityId: f.id,
                 action: "status_changed",
-                metadata: { from: f.status, to: input.status!, bulk: true },
+                metadata: {
+                  from: f.status,
+                  to: input.status!,
+                  bulk: true,
+                  name: f.name,
+                },
               });
             }
             if (fieldsChanged.length === 0) return Promise.resolve(true);
@@ -858,7 +922,7 @@ export const featureRouter = createTRPCRouter({
               entityType: "feature",
               entityId: f.id,
               action: "updated",
-              metadata: { fieldsChanged, bulk: true },
+              metadata: { fieldsChanged, bulk: true, name: f.name },
             });
           }),
       );
@@ -1185,7 +1249,11 @@ export const featureRouter = createTRPCRouter({
         entityType: "feature_scope",
         entityId: scope.id,
         action: "created",
-        metadata: { featureId: input.featureId, version: input.version },
+        metadata: {
+          featureId: input.featureId,
+          version: input.version,
+          name: parentFeature.name,
+        },
       });
       return scope;
     }),
@@ -1228,7 +1296,12 @@ export const featureRouter = createTRPCRouter({
           entityType: "feature_scope",
           entityId: scope.id,
           action: "status_changed",
-          metadata: { from: scope.status, to: input.status! },
+          metadata: {
+            from: scope.status,
+            to: input.status!,
+            featureId: scope.featureId,
+            name: scope.feature.name,
+          },
         });
       } else {
         // displayOrder is drag-reorder noise, not timeline material.
@@ -1242,7 +1315,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature_scope",
             entityId: scope.id,
             action: "updated",
-            metadata: { fieldsChanged },
+            metadata: {
+              fieldsChanged,
+              featureId: scope.featureId,
+              name: scope.feature.name,
+            },
           });
         }
       }

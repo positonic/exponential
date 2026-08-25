@@ -40,7 +40,7 @@ export default function PrivacyPolicy() {
           <h3 className="text-xl font-semibold mb-3">Content You Create</h3>
           <ul className="list-disc pl-5 text-text-secondary space-y-2">
             <li><strong>Projects:</strong> Project names, descriptions, statuses, and priority levels you create.</li>
-            <li><strong>Goals and Outcomes:</strong> Strategic goals and measurable outcomes you define.</li>
+            <li><strong>Goals and Key Results:</strong> Strategic goals and the measurable key results you define.</li>
             <li><strong>Actions:</strong> Tasks and action items you create and track.</li>
             <li><strong>Journal Entries:</strong> Daily reflections and planning notes you write.</li>
             <li><strong>Workspace Data:</strong> Workspace names, settings, and organizational structure.</li>
@@ -224,6 +224,39 @@ export default function PrivacyPolicy() {
           </ol>
         </div>
 
+        {/* AI/ML disclosure — required by the Google Workspace API User Data
+            and Developer Policy (Limited Use requirements for AI/ML). */}
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">AI Features and Google User Data</h3>
+          <p className="text-text-secondary mb-3">
+            Some {PRODUCT_NAME} features use large language models to generate content you request,
+            such as daily briefings, meeting preparation, and assistant chat responses. When you use
+            these features, relevant Google user data (for example, calendar event details) may be
+            processed transiently by our AI service providers, OpenAI and Anthropic, through their
+            commercial APIs. Under the terms of those APIs, and our configuration of them, this data
+            is not used to train or improve their models.
+          </p>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li>
+              We do not use Google user data — raw, aggregated, anonymized, or derived — to create,
+              train, or improve any machine learning or artificial intelligence models, whether our
+              own or a third party&apos;s.
+            </li>
+            <li>
+              We do not transfer or sell Google user data to third-party AI tools, data brokers, or
+              advertising platforms, and we do not allow any third party to use it for model training.
+            </li>
+            <li>
+              AI processing happens only when you actively use an AI feature, and only with the data
+              needed to fulfil your request.
+            </li>
+          </ul>
+          <p className="text-text-secondary mt-3">
+            The use of raw or derived user data received from Workspace APIs will adhere to the
+            Google User Data Policy, including the Limited Use requirements.
+          </p>
+        </div>
+
         <p className="text-text-secondary mt-4 pt-4 border-t border-border-primary">
           Our use of Google user data adheres to the{' '}
           <a
@@ -280,7 +313,7 @@ export default function PrivacyPolicy() {
         <div className="mb-4">
           <h3 className="text-xl font-semibold mb-3">Service Delivery</h3>
           <ul className="list-disc pl-5 text-text-secondary space-y-2">
-            <li>Display your projects, goals, outcomes, and actions in the application</li>
+            <li>Display your projects, goals, key results, and actions in the application</li>
             <li>Sync and display your calendar events from connected integrations</li>
             <li>Store and retrieve your journal entries and daily planning notes</li>
             <li>Manage your workspaces and organizational structure</li>

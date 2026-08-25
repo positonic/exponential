@@ -116,6 +116,11 @@ export function ZoeCanvas({ messages, isStreaming, onDismiss, onRetry }: ZoeCanv
                   )}
                 </div>
               )}
+              {/* The thrown error's own words — same treatment as the drawer,
+                  so a specific cause isn't only visible on one surface. */}
+              {message.failure?.detail && (
+                <div className={classes.failureDetail}>{message.failure.detail}</div>
+              )}
               {message.card?.kind === 'draft-actions' && (
                 <DraftActionsReviewCard transcriptionId={message.card.transcriptionId} />
               )}

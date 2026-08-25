@@ -1,4 +1,5 @@
 import type { NotionDbSchema } from "./outboundMapping";
+import { markdownToNotionBlocks } from "./markdownBlocks";
 
 /**
  * ticketSync/outboundCreate — pure builders for the outbound full-mirror
@@ -12,6 +13,14 @@ import type { NotionDbSchema } from "./outboundMapping";
  */
 
 export const SOURCE_MARKER_VALUE = "Exponential";
+
+/**
+ * Leading text of the callout every sync-created page opens with. Exported so
+ * the body-repair pass can recognise its own handiwork before deleting
+ * anything — keep the two in lockstep by referencing this constant, never a
+ * duplicated string literal.
+ */
+export const SYNC_CALLOUT_PREFIX = "Synced from Exponential";
 
 /** Property names for the two creation markers (overridable per sync config). */
 export interface CreateMarkerNames {
@@ -74,18 +83,12 @@ export function buildBacklinkProperty(
   return null;
 }
 
-function chunk(text: string, size: number): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
-  return out;
-}
-
 /**
  * Render the ticket body (Markdown) as Notion blocks, led by a callout linking
- * back to the Exponential ticket. Intentionally simple — paragraph-per-block,
- * chunked to Notion's ~2000-char rich-text limit. The body is copied ONCE at
- * creation (ADR-0046: each side then owns its copy); rich Markdown ↔ block
- * round-tripping is explicitly out of scope.
+ * back to the Exponential ticket. The body is copied ONCE at creation
+ * (ADR-0046: each side then owns its copy); ongoing Markdown ↔ block
+ * round-tripping is explicitly out of scope. Rendering itself is real —
+ * headings, code fences, lists, inline annotations — via markdownBlocks.ts.
  */
 export function buildBodyBlocks(
   body: string | null,
@@ -101,7 +104,7 @@ export function buildBodyBlocks(
           {
             type: "text",
             text: {
-              content: "Synced from Exponential — edits here may be overwritten. ",
+              content: `${SYNC_CALLOUT_PREFIX} — edits here may be overwritten. `,
             },
           },
           {
@@ -114,17 +117,10 @@ export function buildBodyBlocks(
   ];
 
   if (body) {
-    for (const para of body.split(/\n{2,}/)) {
-      const text = para.trim();
-      if (!text) continue;
-      for (const piece of chunk(text, 1900)) {
-        blocks.push({
-          object: "block",
-          type: "paragraph",
-          paragraph: { rich_text: [{ type: "text", text: { content: piece } }] },
-        });
-      }
-    }
+    // Ticket bodies are Markdown (ADR-0017) — render real Notion blocks
+    // (ivory.pike). markdownToNotionBlocks never throws; malformed input
+    // degrades to plain paragraphs.
+    blocks.push(...markdownToNotionBlocks(body));
   }
 
   return blocks;
