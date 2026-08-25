@@ -305,14 +305,14 @@ export default function ContactsPage() {
   const {
     data,
     isLoading,
+    isFetching,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
   } = api.crmContact.getAll.useInfiniteQuery(
     {
       workspaceId: workspaceId!,
-      includeOrganization: true,
-      includeInteractions: true,
+      // The table reads no organization/interaction fields — don't join them.
       search: debouncedSearch.trim() || undefined,
       profileTypes: profileTypeFilter?.length ? profileTypeFilter : undefined,
       organizationIds: organizationFilter?.length ? organizationFilter : undefined,
@@ -405,7 +405,10 @@ export default function ContactsPage() {
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        // !isFetching (not just isFetchingNextPage): with keepPreviousData a
+        // filter change leaves the old hasNextPage visible while the new first
+        // page loads — fetching "next" then would cancel that in-flight fetch.
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetching) {
           void fetchNextPage();
         }
       },
@@ -413,7 +416,14 @@ export default function ContactsPage() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, contacts.length]);
+  }, [hasNextPage, isFetching, fetchNextPage, contacts.length]);
+
+  // A selection made under one search/filter/sort doesn't carry meaning under
+  // another — and the all-selected checkbox compares sizes, so a stale set
+  // could misreport. Reset when the query inputs change.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [debouncedSearch, filters, sortState]);
 
   const toggleSelectAll = () => {
     if (contacts.length === 0) return;
@@ -782,7 +792,12 @@ export default function ContactsPage() {
             {isFetchingNextPage ? (
               <Loader size="sm" />
             ) : hasNextPage ? (
-              <Button variant="subtle" size="xs" onClick={() => void fetchNextPage()}>
+              <Button
+                variant="subtle"
+                size="xs"
+                disabled={isFetching}
+                onClick={() => void fetchNextPage()}
+              >
                 Load more
               </Button>
             ) : (
