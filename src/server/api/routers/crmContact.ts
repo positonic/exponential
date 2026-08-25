@@ -212,6 +212,12 @@ export const crmContactRouter = createTRPCRouter({
         search: z.string().optional(),
         tags: z.array(z.string()).optional(),
         organizationId: z.string().optional(),
+        organizationIds: z.array(z.string()).optional(),
+        profileTypes: z.array(z.string()).optional(),
+        sortBy: z
+          .enum(["lastInteractionAt", "name", "createdAt", "connectionScore"])
+          .optional(),
+        sortDir: z.enum(["asc", "desc"]).optional(),
         limit: z.number().min(1).max(100).optional(),
         cursor: z.string().optional(),
       }),
@@ -224,6 +230,10 @@ export const crmContactRouter = createTRPCRouter({
         search,
         tags,
         organizationId,
+        organizationIds,
+        profileTypes,
+        sortBy,
+        sortDir,
         limit = 50,
         cursor,
       } = input;
@@ -243,51 +253,100 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const contacts = await ctx.db.crmContact.findMany({
-        where: {
-          workspaceId,
-          ...(search
-            ? {
+      // Tokenize so "ada lovelace" matches first + last name across columns;
+      // a single contains against either column would return nothing.
+      // Note: email is encrypted and cannot be searched.
+      const searchTokens = search?.split(/\s+/).filter(Boolean) ?? [];
+      const where = {
+        workspaceId,
+        ...(searchTokens.length > 0
+          ? {
+              AND: searchTokens.map((token) => ({
                 OR: [
-                  { firstName: { contains: search, mode: "insensitive" } },
-                  { lastName: { contains: search, mode: "insensitive" } },
-                  // Note: email is encrypted and cannot be searched
+                  { firstName: { contains: token, mode: "insensitive" as const } },
+                  { lastName: { contains: token, mode: "insensitive" as const } },
                 ],
-              }
-            : {}),
-          ...(tags && tags.length > 0 ? { tags: { hasSome: tags } } : {}),
-          ...(organizationId ? { organizationId } : {}),
-        },
-        include: {
-          organization: includeOrganization ?? false,
-          interactions: includeInteractions
-            ? {
-                orderBy: { createdAt: "desc" },
-                take: 5,
-              }
-            : false,
-          createdBy: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
+              })),
+            }
+          : {}),
+        ...(tags && tags.length > 0 ? { tags: { hasSome: tags } } : {}),
+        ...(organizationId ? { organizationId } : {}),
+        ...(organizationIds && organizationIds.length > 0
+          ? { organizationId: { in: organizationIds } }
+          : {}),
+        ...(profileTypes && profileTypes.length > 0
+          ? { profileType: { in: profileTypes } }
+          : {}),
+      };
+
+      const dir = sortDir ?? "desc";
+      // The trailing `id` keeps the order total — cursor pagination over a
+      // non-unique sort key would otherwise skip or repeat rows at page joins.
+      const orderBy =
+        sortBy === "name"
+          ? [
+              { firstName: { sort: dir, nulls: "last" as const } },
+              { lastName: { sort: dir, nulls: "last" as const } },
+              { id: "asc" as const },
+            ]
+          : sortBy === "createdAt"
+            ? [{ createdAt: dir }, { id: "asc" as const }]
+            : sortBy === "connectionScore"
+              ? [
+                  { connectionScore: { sort: dir, nulls: "last" as const } },
+                  { id: "asc" as const },
+                ]
+              : [
+                  { lastInteractionAt: { sort: dir, nulls: "last" as const } },
+                  { createdAt: "desc" as const },
+                  { id: "asc" as const },
+                ];
+
+      const [contacts, totalCount] = await Promise.all([
+        ctx.db.crmContact.findMany({
+          where,
+          include: {
+            organization: includeOrganization ?? false,
+            interactions: includeInteractions
+              ? {
+                  orderBy: { createdAt: "desc" },
+                  take: 5,
+                }
+              : false,
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+              },
+            },
+            // Latest uploaded image doubles as the contact's avatar.
+            screenshots: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { screenshot: { select: { url: true } } },
             },
           },
-          // Latest uploaded image doubles as the contact's avatar.
-          screenshots: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: { screenshot: { select: { url: true } } },
-          },
-        },
-        orderBy: [
-          { lastInteractionAt: { sort: "desc", nulls: "last" } },
-          { createdAt: "desc" },
-        ],
-        take: limit + 1,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
+          orderBy,
+          take: limit + 1,
+          // Prisma cursors are inclusive: the popped peek row below is the next
+          // page's first row. Adding `skip: 1` here would drop that contact at
+          // every page boundary.
+          ...(cursor ? { cursor: { id: cursor } } : {}),
+        }),
+        // Only the first page's count is read by callers; skip the extra
+        // (search: ILIKE full-scan) query on cursor pages.
+        cursor ? undefined : ctx.db.crmContact.count({ where }),
+      ]);
+
+      // Trim the peek row before decrypting — popping after the map would
+      // leave the extra row in the returned page.
+      let nextCursor: string | undefined;
+      if (contacts.length > limit) {
+        const nextItem = contacts.pop();
+        nextCursor = nextItem?.id;
+      }
 
       // Decrypt PII fields before returning
       const decrypted = contacts.map((c) => {
@@ -311,15 +370,10 @@ export const crmContactRouter = createTRPCRouter({
         }
       });
 
-      let nextCursor: string | undefined;
-      if (contacts.length > limit) {
-        const nextItem = contacts.pop();
-        nextCursor = nextItem?.id;
-      }
-
       return {
         contacts: decrypted,
         nextCursor,
+        totalCount,
       };
     }),
 

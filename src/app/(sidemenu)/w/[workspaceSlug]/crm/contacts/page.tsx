@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Text,
   TextInput,
@@ -14,8 +14,10 @@ import {
   Select,
   Checkbox,
   ActionIcon,
+  Collapse,
+  Loader,
 } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import {
   IconPlus,
   IconChevronDown,
@@ -29,7 +31,15 @@ import {
   IconTrash,
   IconUpload,
   IconUsers,
+  IconSearch,
+  IconLetterCase,
+  IconChartBar,
+  IconMail,
+  IconCalendarPlus,
+  IconBriefcase,
+  IconBuilding,
 } from '@tabler/icons-react';
+import { keepPreviousData } from '@tanstack/react-query';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
@@ -40,6 +50,13 @@ import { CsvImportDialog } from './_components/CsvImportDialog';
 import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
 import { EmptyState } from '~/app/_components/EmptyState';
 import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
+import { FilterBar } from '~/app/_components/filters';
+import { ProjectSortMenu, type SortFieldDef } from '~/app/_components/toolbar';
+import { useProjectViewState } from '~/app/_components/projects/useProjectViewState';
+import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
+import { hasActiveFilters } from '~/types/filter';
+import type { FilterBarConfig } from '~/types/filter';
+import styles from './Contacts.module.css';
 
 // Helper function to get relative time
 function getRelativeTime(date: Date | null): string {
@@ -58,6 +75,35 @@ function getRelativeTime(date: Date | null): string {
   if (diffDays < 365) return `about ${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
   return `about ${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? 's' : ''} ago`;
 }
+
+const PROFILE_TYPE_OPTIONS = [
+  { value: 'Channel Partner', label: 'Channel Partner' },
+  { value: 'Advisor', label: 'Advisor' },
+  { value: 'Developer', label: 'Developer' },
+  { value: 'Designer', label: 'Designer' },
+  { value: 'Founder', label: 'Founder' },
+  { value: 'Product Manager', label: 'Product Manager' },
+  { value: 'Investor', label: 'Investor' },
+  { value: 'Marketing', label: 'Marketing' },
+  { value: 'Sales', label: 'Sales' },
+  { value: 'Other', label: 'Other' },
+];
+
+/** URL query params the contacts FilterBar owns. */
+const CONTACT_FILTER_KEYS = ['profileType', 'organizationId'] as const;
+
+/** Sort keys match `crmContact.getAll`'s `sortBy` enum — sorting is server-side
+ * so it orders the whole workspace's contacts, not just the loaded pages. */
+const CONTACT_SORT_FIELDS: SortFieldDef[] = [
+  { key: 'name', label: 'Name', icon: IconLetterCase },
+  { key: 'connectionScore', label: 'Connection score', icon: IconChartBar },
+  { key: 'lastInteractionAt', label: 'Last interaction', icon: IconMail },
+  { key: 'createdAt', label: 'Created', icon: IconCalendarPlus },
+];
+
+const CONTACT_SORT_KEYS = new Set(CONTACT_SORT_FIELDS.map((f) => f.key));
+
+const PAGE_SIZE = 50;
 
 
 function ContactForm({
@@ -180,18 +226,7 @@ function ContactForm({
         <Select
           label="Profile Type"
           placeholder="Select type"
-          data={[
-            { value: 'Channel Partner', label: 'Channel Partner' },
-            { value: 'Advisor', label: 'Advisor' },
-            { value: 'Developer', label: 'Developer' },
-            { value: 'Designer', label: 'Designer' },
-            { value: 'Founder', label: 'Founder' },
-            { value: 'Product Manager', label: 'Product Manager' },
-            { value: 'Investor', label: 'Investor' },
-            { value: 'Marketing', label: 'Marketing' },
-            { value: 'Sales', label: 'Sales' },
-            { value: 'Other', label: 'Other' },
-          ]}
+          data={PROFILE_TYPE_OPTIONS}
           value={formData.profileType}
           onChange={(value) => setFormData({ ...formData, profileType: value ?? '' })}
           clearable
@@ -235,14 +270,104 @@ export default function ContactsPage() {
   const [importDialogOpened, { open: openImportDialog, close: closeImportDialog }] =
     useDisclosure(false);
 
-  const { data, isLoading } = api.crmContact.getAll.useQuery(
+  const searchRef = useRef<HTMLInputElement>(null);
+  const {
+    filters,
+    setFilters,
+    searchQuery,
+    setSearchQuery,
+    sortState,
+    setSortField,
+    clearSort,
+  } = useProjectViewState(CONTACT_FILTER_KEYS);
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Escape') searchRef.current?.blur();
+    },
+    [],
+  );
+  usePageSearchHotkey(searchRef);
+
+  // Search and filters run server-side (the list is paginated, so client-side
+  // filtering would only see loaded pages). Debounce so we don't fire a
+  // request per keystroke.
+  const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
+
+  const profileTypeFilter = filters.profileType as string[] | undefined;
+  const organizationFilter = filters.organizationId as string[] | undefined;
+  const sortBy =
+    sortState && CONTACT_SORT_KEYS.has(sortState.field)
+      ? (sortState.field as 'name' | 'connectionScore' | 'lastInteractionAt' | 'createdAt')
+      : undefined;
+
+  const {
+    data,
+    isLoading,
+    isFetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = api.crmContact.getAll.useInfiniteQuery(
     {
       workspaceId: workspaceId!,
-      includeOrganization: true,
-      includeInteractions: true,
+      // The table reads no organization/interaction fields — don't join them.
+      search: debouncedSearch.trim() || undefined,
+      profileTypes: profileTypeFilter?.length ? profileTypeFilter : undefined,
+      organizationIds: organizationFilter?.length ? organizationFilter : undefined,
+      sortBy,
+      sortDir: sortBy ? sortState?.direction : undefined,
+      limit: PAGE_SIZE,
     },
+    {
+      enabled: !!workspaceId,
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+      placeholderData: keepPreviousData,
+    }
+  );
+
+  // Overall workspace total, independent of the active search/filters.
+  const { data: stats } = api.crmContact.getStats.useQuery(
+    { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
   );
+
+  const { data: organizationsData } = api.crmOrganization.getAll.useQuery(
+    { workspaceId: workspaceId!, limit: 100 },
+    { enabled: !!workspaceId }
+  );
+
+  const filterConfig: FilterBarConfig = useMemo(
+    () => ({
+      fields: [
+        {
+          key: 'profileType',
+          label: 'Profile type',
+          type: 'multi-select',
+          icon: IconBriefcase,
+          badgeColor: 'grape',
+          options: PROFILE_TYPE_OPTIONS,
+        },
+        {
+          key: 'organizationId',
+          label: 'Organization',
+          type: 'multi-select',
+          icon: IconBuilding,
+          badgeColor: 'cyan',
+          options:
+            organizationsData?.organizations.map((org) => ({
+              value: org.id,
+              label: org.name,
+            })) ?? [],
+        },
+      ],
+    }),
+    [organizationsData?.organizations],
+  );
+
+  const filtersActive = hasActiveFilters(filterConfig, filters);
+  const searchActive = debouncedSearch.trim().length > 0;
 
   const utils = api.useUtils();
 
@@ -265,12 +390,47 @@ export default function ContactsPage() {
     },
   });
 
+  const contacts = useMemo(
+    () => data?.pages.flatMap((page) => page.contacts) ?? [],
+    [data],
+  );
+  // Count of contacts matching the active search/filters (all pages, not just
+  // the loaded ones); getStats.totalContacts is the unfiltered workspace total.
+  const matchingCount = data?.pages[0]?.totalCount;
+
+  // Load the next page when the sentinel row below the table scrolls into view.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // !isFetching (not just isFetchingNextPage): with keepPreviousData a
+        // filter change leaves the old hasNextPage visible while the new first
+        // page loads — fetching "next" then would cancel that in-flight fetch.
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetching) {
+          void fetchNextPage();
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetching, fetchNextPage, contacts.length]);
+
+  // A selection made under one search/filter/sort doesn't carry meaning under
+  // another — and the all-selected checkbox compares sizes, so a stale set
+  // could misreport. Reset when the query inputs change.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [debouncedSearch, filters, sortState]);
+
   const toggleSelectAll = () => {
-    if (!data?.contacts) return;
-    if (selectedIds.size === data.contacts.length) {
+    if (contacts.length === 0) return;
+    if (selectedIds.size === contacts.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(data.contacts.map((c) => c.id)));
+      setSelectedIds(new Set(contacts.map((c) => c.id)));
     }
   };
 
@@ -302,9 +462,16 @@ export default function ContactsPage() {
   }
 
   const basePath = `/w/${workspace.slug}/crm`;
-  const contacts = data?.contacts ?? [];
   const allSelected = contacts.length > 0 && selectedIds.size === contacts.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < contacts.length;
+
+  const totalContacts = stats?.totalContacts;
+  const countText =
+    matchingCount === undefined
+      ? null
+      : (searchActive || filtersActive) && totalContacts !== undefined
+        ? `${matchingCount.toLocaleString()} of ${totalContacts.toLocaleString()} contacts`
+        : `${matchingCount.toLocaleString()} contact${matchingCount === 1 ? '' : 's'}`;
 
   return (
     <div className="flex flex-col h-full -m-6">
@@ -404,17 +571,65 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-4 py-2">
-        <button className="flex items-center gap-2 text-text-muted hover:text-text-primary transition-colors">
-          <IconArrowsSort size={16} />
-          <Text size="sm">Sorted by Last email interaction</Text>
-        </button>
-        <button className="flex items-center gap-2 text-text-muted hover:text-text-primary transition-colors">
-          <IconFilter size={16} />
-          <Text size="sm">Filter</Text>
-        </button>
+      {/* Toolbar: total on the left; search / filter / sort (projects-page look) right */}
+      <div className="flex items-center justify-between gap-4 border-b border-border-primary bg-background-primary px-4 py-2">
+        <Text size="sm" className="text-text-muted">
+          {countText ?? ' '}
+        </Text>
+
+        <div className={styles.actions}>
+          <div className={styles.searchWrap}>
+            <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
+            <input
+              ref={searchRef}
+              type="text"
+              placeholder="Search  ⌘F"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className={styles.searchInput}
+            />
+          </div>
+
+          <button
+            className={styles.actionBtn}
+            type="button"
+            onClick={toggleFilterRow}
+            data-active={filtersActive ? 'true' : 'false'}
+          >
+            <IconFilter size={13} stroke={1.75} />
+            Filter
+          </button>
+
+          <ProjectSortMenu
+            sortState={sortState}
+            onSortChange={setSortField}
+            onClearSort={clearSort}
+            fields={CONTACT_SORT_FIELDS}
+            trigger={
+              <button
+                type="button"
+                className={styles.actionBtn}
+                data-active={sortState ? 'true' : 'false'}
+              >
+                <IconArrowsSort size={13} stroke={1.75} />
+                Sort
+              </button>
+            }
+          />
+        </div>
       </div>
+
+      {/* Collapsible filter row */}
+      <Collapse in={filterRowOpen || filtersActive}>
+        <div className={`${styles.filterRow} border-b border-border-primary`}>
+          <FilterBar
+            config={filterConfig}
+            filters={filters}
+            onFiltersChange={setFilters}
+          />
+        </div>
+      </Collapse>
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -430,6 +645,7 @@ export default function ContactsPage() {
             ))}
           </div>
         ) : contacts.length > 0 ? (
+          <>
           <table className="w-full">
             <thead className="border-b border-border-primary bg-background-primary sticky top-0">
               <tr>
@@ -569,6 +785,34 @@ export default function ContactsPage() {
               })}
             </tbody>
           </table>
+          {/* Sentinel: fetches the next page as it approaches the viewport.
+              The button is a fallback for environments where the observer
+              doesn't fire; clicking is never required in a normal browser. */}
+          <div ref={sentinelRef} className="flex items-center justify-center py-4">
+            {isFetchingNextPage ? (
+              <Loader size="sm" />
+            ) : hasNextPage ? (
+              <Button
+                variant="subtle"
+                size="xs"
+                disabled={isFetching}
+                onClick={() => void fetchNextPage()}
+              >
+                Load more
+              </Button>
+            ) : (
+              <Text size="xs" className="text-text-muted">
+                {countText}
+              </Text>
+            )}
+          </div>
+          </>
+        ) : searchActive || filtersActive ? (
+          <div className="flex items-center justify-center py-16">
+            <Text size="sm" className="text-text-muted">
+              No contacts match your search.
+            </Text>
+          </div>
         ) : (
           <EmptyState
             icon={IconUsers}

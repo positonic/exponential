@@ -56,7 +56,14 @@ const ENUM_FIELDS: Record<string, Record<string, number>> = {
   status: STATUS_ORDER,
 };
 
-const DESC_DEFAULT_FIELDS = new Set(["createdAt", "startDate", "endDate"]);
+const DESC_DEFAULT_FIELDS = new Set([
+  "createdAt",
+  "startDate",
+  "endDate",
+  // Contacts list: newest interaction / strongest connection first.
+  "lastInteractionAt",
+  "connectionScore",
+]);
 
 function toDate(val: unknown): Date | null {
   if (val instanceof Date) return val;
