@@ -107,10 +107,29 @@ export async function processCsvChunk(
   ) {
     throw new Error("Import batch not found");
   }
+  // processedContacts counts rows consumed so far, i.e. the next expected
+  // rowOffset. A chunk at an earlier offset is a resend of one we already
+  // applied (the client retried after losing our response) — return the
+  // current state instead of double-counting its rows.
+  if (params.rowOffset + params.rows.length <= batch.processedContacts) {
+    return {
+      batchId: batch.id,
+      status: batch.status,
+      processedContacts: batch.processedContacts,
+      newContacts: batch.newContacts,
+      updatedContacts: batch.updatedContacts,
+      errorCount: batch.errorCount,
+      errors: recordedErrorsOf(batch.metadata),
+      completed: batch.processedContacts >= batch.totalContacts,
+    };
+  }
   if (batch.status !== "IN_PROGRESS") {
     throw new Error("This import has already finished");
   }
-  if (batch.processedContacts + params.rows.length > batch.totalContacts) {
+  if (params.rowOffset !== batch.processedContacts) {
+    throw new Error("Chunks must be sent in order without gaps");
+  }
+  if (params.rowOffset + params.rows.length > batch.totalContacts) {
     throw new Error("Chunk exceeds the announced row count of this import");
   }
 
