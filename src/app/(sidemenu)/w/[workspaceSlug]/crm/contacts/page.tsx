@@ -36,6 +36,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { ImportDialog } from './_components/ImportDialog';
+import { CsvImportDialog } from './_components/CsvImportDialog';
 import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
 import { EmptyState } from '~/app/_components/EmptyState';
 import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
@@ -229,6 +230,8 @@ export default function ContactsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
     useDisclosure(false);
+  const [csvImportDialogOpened, { open: openCsvImportDialog, close: closeCsvImportDialog }] =
+    useDisclosure(false);
   const [importDialogOpened, { open: openImportDialog, close: closeImportDialog }] =
     useDisclosure(false);
 
@@ -373,6 +376,12 @@ export default function ContactsPage() {
               </button>
             </Menu.Target>
             <Menu.Dropdown>
+              <Menu.Item
+                leftSection={<IconUpload size={14} />}
+                onClick={openCsvImportDialog}
+              >
+                Import from CSV
+              </Menu.Item>
               <Menu.Item
                 leftSection={<IconUpload size={14} />}
                 onClick={openImportDialog}
@@ -588,6 +597,15 @@ export default function ContactsPage() {
         <ImportDialog
           opened={importDialogOpened}
           onClose={closeImportDialog}
+          workspaceId={workspaceId}
+        />
+      )}
+
+      {/* CSV Import Dialog */}
+      {workspaceId && (
+        <CsvImportDialog
+          opened={csvImportDialogOpened}
+          onClose={closeCsvImportDialog}
           workspaceId={workspaceId}
         />
       )}
