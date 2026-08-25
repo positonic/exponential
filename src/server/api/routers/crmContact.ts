@@ -253,15 +253,20 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
+      // Tokenize so "ada lovelace" matches first + last name across columns;
+      // a single contains against either column would return nothing.
+      // Note: email is encrypted and cannot be searched.
+      const searchTokens = search?.split(/\s+/).filter(Boolean) ?? [];
       const where = {
         workspaceId,
-        ...(search
+        ...(searchTokens.length > 0
           ? {
-              OR: [
-                { firstName: { contains: search, mode: "insensitive" as const } },
-                { lastName: { contains: search, mode: "insensitive" as const } },
-                // Note: email is encrypted and cannot be searched
-              ],
+              AND: searchTokens.map((token) => ({
+                OR: [
+                  { firstName: { contains: token, mode: "insensitive" as const } },
+                  { lastName: { contains: token, mode: "insensitive" as const } },
+                ],
+              })),
             }
           : {}),
         ...(tags && tags.length > 0 ? { tags: { hasSome: tags } } : {}),
@@ -325,9 +330,14 @@ export const crmContactRouter = createTRPCRouter({
           },
           orderBy,
           take: limit + 1,
-          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          // Prisma cursors are inclusive: the popped peek row below is the next
+          // page's first row. Adding `skip: 1` here would drop that contact at
+          // every page boundary.
+          ...(cursor ? { cursor: { id: cursor } } : {}),
         }),
-        ctx.db.crmContact.count({ where }),
+        // Only the first page's count is read by callers; skip the extra
+        // (search: ILIKE full-scan) query on cursor pages.
+        cursor ? undefined : ctx.db.crmContact.count({ where }),
       ]);
 
       // Trim the peek row before decrypting — popping after the map would
