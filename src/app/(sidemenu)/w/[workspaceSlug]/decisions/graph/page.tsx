@@ -65,7 +65,7 @@ export default function DecisionsGraphPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-120px)] flex-col px-4 pt-4 lg:px-6">
+    <div className="flex h-[calc(100dvh-120px)] flex-col overflow-hidden px-4 pt-4 lg:px-6">
       <Group justify="space-between" align="center" mb="sm" wrap="wrap">
         <Group gap="md" wrap="nowrap">
           <Anchor
