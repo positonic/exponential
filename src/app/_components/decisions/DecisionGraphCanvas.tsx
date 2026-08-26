@@ -157,7 +157,7 @@ export function DecisionGraphCanvas({ repos, nodes, edges, onNodeClick }: Props)
   };
 
   return (
-    <div className="h-[70vh] w-full rounded-lg border border-border-primary">
+    <div className="h-full w-full rounded-lg border border-border-primary">
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}

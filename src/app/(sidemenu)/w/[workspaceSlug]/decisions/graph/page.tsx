@@ -40,28 +40,50 @@ export default function DecisionsGraphPage() {
     );
   }
 
-  return (
-    <Container size="xl" className="py-8">
-      <Anchor
-        component={Link}
-        href={`/w/${workspace.slug}/decisions`}
-        size="sm"
-        className="text-text-secondary"
-      >
-        <Group gap={4} wrap="nowrap">
-          <IconArrowLeft size={14} />
-          All decisions
-        </Group>
-      </Anchor>
-
-      <Title order={2} mt="md" mb={4}>
-        Decision graph
-      </Title>
-      <Group justify="space-between" align="center" mb="lg" wrap="wrap">
-        <Text size="sm" className="text-text-secondary">
-          The decision network across enrolled repos. Click a decision to open
-          it.
+  if (!graph || graph.nodes.length === 0) {
+    return (
+      <Container size="xl" className="py-8">
+        <Anchor
+          component={Link}
+          href={`/w/${workspace.slug}/decisions`}
+          size="sm"
+          className="text-text-secondary"
+        >
+          <Group gap={4} wrap="nowrap">
+            <IconArrowLeft size={14} />
+            All decisions
+          </Group>
+        </Anchor>
+        <Title order={2} mt="md" mb={4}>
+          Decision graph
+        </Title>
+        <Text className="text-text-secondary">
+          No decisions synced yet — nothing to draw.
         </Text>
+      </Container>
+    );
+  }
+
+  return (
+    <div className="flex h-[calc(100dvh-120px)] flex-col overflow-hidden px-4 pt-4 lg:px-6">
+      <Group justify="space-between" align="center" mb="sm" wrap="wrap">
+        <Group gap="md" wrap="nowrap">
+          <Anchor
+            component={Link}
+            href={`/w/${workspace.slug}/decisions`}
+            size="sm"
+            className="text-text-secondary"
+          >
+            <Group gap={4} wrap="nowrap">
+              <IconArrowLeft size={14} />
+              All decisions
+            </Group>
+          </Anchor>
+          <Title order={3}>Decision graph</Title>
+          <Text size="sm" className="text-text-secondary" visibleFrom="md">
+            Click a decision to open it.
+          </Text>
+        </Group>
         <Group gap="lg">
           <Group gap={6} wrap="nowrap">
             <span
@@ -84,11 +106,7 @@ export default function DecisionsGraphPage() {
         </Group>
       </Group>
 
-      {!graph || graph.nodes.length === 0 ? (
-        <Text className="text-text-secondary">
-          No decisions synced yet — nothing to draw.
-        </Text>
-      ) : (
+      <div className="min-h-0 flex-1 pb-4">
         <DecisionGraphCanvas
           repos={graph.repos}
           nodes={graph.nodes}
@@ -97,7 +115,7 @@ export default function DecisionsGraphPage() {
             router.push(`/w/${workspace.slug}/decisions/${adrId}`)
           }
         />
-      )}
-    </Container>
+      </div>
+    </div>
   );
 }
