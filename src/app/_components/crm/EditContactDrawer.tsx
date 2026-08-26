@@ -368,13 +368,33 @@ export function EditContactDrawer({
       onClose={onClose}
       position="right"
       size={wide ? 720 : 540}
+      // The compound Drawer.Root API does not inherit theme.components.Drawer
+      // defaultProps, so without these the shell falls back to Mantine's
+      // neutral-gray dark surface while the inputs use the app's navy tokens.
+      // Mirror the theme's Drawer styles here; they reach every sub-component
+      // via context (styles on Drawer.Content only cover the content selector).
+      styles={{
+        header: {
+          backgroundColor: 'var(--color-bg-elevated)',
+          borderBottom: '1px solid var(--color-border-primary)',
+        },
+        body: { backgroundColor: 'var(--color-bg-elevated)' },
+        close: { color: 'var(--color-text-secondary)' },
+        overlay: { backgroundColor: 'var(--color-bg-overlay)' },
+      }}
     >
       <Drawer.Overlay />
       {/* Flex column must go through `styles.content` — a plain `style` prop is
           also spread onto the fixed inner wrapper, flipping the drawer's flex
           axis so it renders bottom-left instead of docked right. */}
       <Drawer.Content
-        styles={{ content: { display: 'flex', flexDirection: 'column' } }}
+        styles={{
+          content: {
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: 'var(--color-bg-elevated)',
+          },
+        }}
       >
         <Drawer.Header>
           <div className="flex w-full items-center gap-3">
