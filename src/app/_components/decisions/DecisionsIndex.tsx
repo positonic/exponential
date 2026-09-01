@@ -23,9 +23,12 @@ import { api } from "~/trpc/react";
  * (/w/[slug]/products/[productSlug]/decisions). Read-only by design — git is
  * the source of truth and no write path to ADR content exists.
  *
- * With `lockedProductId` the index is pre-filtered to that product's repos
- * PLUS workspace-level (null-product) ADRs, which render with a
- * "workspace-wide" marker; the product filter control is hidden.
+ * With `defaultProductId` (the product lens) the product filter starts on that
+ * product, and while a real product is selected the results ALSO include
+ * workspace-level (null-product) ADRs, which render with a "workspace-wide"
+ * marker — a workspace-global decision applies to every product until proven
+ * otherwise. The filter stays fully editable, so the lens can be widened to
+ * the whole workspace or pointed at another product.
  */
 
 const STATUS_COLOR: Record<string, string> = {
@@ -63,20 +66,30 @@ function StatusChip({ status, statusRaw }: { status: string; statusRaw: string |
 interface DecisionsIndexProps {
   workspaceId: string;
   workspaceSlug: string;
-  /** Pre-filter to this product's repos + workspace-wide ADRs. */
-  lockedProductId?: string;
+  /**
+   * Start the product filter on this product (the product Decisions lens).
+   * While a real product is selected, workspace-wide ADRs are included too.
+   */
+  defaultProductId?: string;
 }
 
 export function DecisionsIndex({
   workspaceId,
   workspaceSlug,
-  lockedProductId,
+  defaultProductId,
 }: DecisionsIndexProps) {
   const [repoFilter, setRepoFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [productFilter, setProductFilter] = useState<string | null>(null);
+  const [productFilter, setProductFilter] = useState<string | null>(
+    defaultProductId ?? null,
+  );
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebouncedValue(search, 250);
+
+  // Only the product lens folds workspace-wide ADRs into a product selection;
+  // the workspace page keeps its product filter exact.
+  const includeWorkspaceWide =
+    !!defaultProductId && !!productFilter && productFilter !== "workspace";
 
   const {
     data: adrs,
@@ -88,8 +101,8 @@ export function DecisionsIndex({
       repositoryIds: repoFilter.length > 0 ? repoFilter : undefined,
       statuses:
         statusFilter.length > 0 ? (statusFilter as AdrStatusValue[]) : undefined,
-      productId: lockedProductId ?? productFilter ?? undefined,
-      includeWorkspaceWide: lockedProductId ? true : undefined,
+      productId: productFilter ?? undefined,
+      includeWorkspaceWide: includeWorkspaceWide || undefined,
       search: debouncedSearch.trim() || undefined,
     },
     { enabled: !!workspaceId },
@@ -101,7 +114,7 @@ export function DecisionsIndex({
   );
   const { data: products } = api.product.product.list.useQuery(
     { workspaceId },
-    { enabled: !!workspaceId && !lockedProductId },
+    { enabled: !!workspaceId },
   );
 
   const repoOptions = useMemo(
@@ -120,10 +133,13 @@ export function DecisionsIndex({
     [products],
   );
 
+  // "Filtered" relative to the page's default view — the product lens's
+  // starting product doesn't count, so its true-empty state still shows the
+  // enrolment CTA rather than "no match".
   const hasFilters =
     repoFilter.length > 0 ||
     statusFilter.length > 0 ||
-    productFilter !== null ||
+    productFilter !== (defaultProductId ?? null) ||
     debouncedSearch.trim().length > 0;
 
   return (
@@ -159,18 +175,16 @@ export function DecisionsIndex({
           clearable
           aria-label="Filter by status"
         />
-        {!lockedProductId ? (
-          <Select
-            size="sm"
-            w={220}
-            data={productOptions}
-            value={productFilter}
-            onChange={setProductFilter}
-            placeholder="All products"
-            clearable
-            aria-label="Filter by product"
-          />
-        ) : null}
+        <Select
+          size="sm"
+          w={220}
+          data={productOptions}
+          value={productFilter}
+          onChange={setProductFilter}
+          placeholder="All products"
+          clearable
+          aria-label="Filter by product"
+        />
       </Group>
 
       {adrsLoading ? (
