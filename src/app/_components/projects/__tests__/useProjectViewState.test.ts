@@ -307,15 +307,38 @@ describe("computeProjectFilterCounts", () => {
   it("counts each field with the other filters applied (facet semantics)", () => {
     const counts = computeProjectFilterCounts(
       projects,
+      { priority: ["HIGH"] },
+      "",
+    );
+
+    // Priority options are counted without the priority filter itself...
+    expect(counts.priority).toEqual({ HIGH: 2, LOW: 1 });
+    // ...while the other fields are counted under it.
+    expect(counts.status).toEqual({ ACTIVE: 1, COMPLETED: 1 });
+    expect(counts.driId).toEqual({ u1: 1 });
+  });
+
+  it("counts the other fields under an active status filter", () => {
+    const counts = computeProjectFilterCounts(
+      projects,
       { status: ["ACTIVE"] },
       "",
     );
 
-    // Status options are counted without the status filter itself...
-    expect(counts.status).toEqual({ ACTIVE: 2, COMPLETED: 1 });
-    // ...while the other fields are counted under it.
     expect(counts.priority).toEqual({ HIGH: 1, LOW: 1 });
     expect(counts.driId).toEqual({ u1: 1, u2: 1 });
+  });
+
+  it("omits status counts under an active status filter until server totals arrive", () => {
+    // The fetched list excludes the filtered-out statuses, so a client count
+    // would report them as a confident 0 — no counts beats wrong counts.
+    const counts = computeProjectFilterCounts(
+      projects.filter((p) => p.status === "ACTIVE"),
+      { status: ["ACTIVE"] },
+      "",
+    );
+
+    expect(counts.status).toBeUndefined();
   });
 
   it("applies the search text to every field's counts", () => {

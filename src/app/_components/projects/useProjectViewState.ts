@@ -459,11 +459,22 @@ export function computeProjectFilterCounts<
   };
   const without = (field: string) =>
     filterProjects(projects, { ...filters, [field]: undefined }, searchQuery);
-  return {
-    status: statusTotals ?? countBy(without("status"), (p) => p.status),
+  const counts: Record<string, Record<string, number>> = {
     priority: countBy(without("priority"), (p) => p.priority),
     driId: countBy(without("driId"), (p) => p.driId),
   };
+  const statusFilterActive =
+    Array.isArray(filters.status) && filters.status.length > 0;
+  if (statusTotals) {
+    counts.status = statusTotals;
+  } else if (!statusFilterActive) {
+    // Without server totals we can only count what was fetched. Under an
+    // active status filter the fetch excludes the other statuses, so a client
+    // count would show them as a confident "0" — omit the status counts
+    // (picker shows no numbers) until the totals arrive instead of lying.
+    counts.status = countBy(without("status"), (p) => p.status);
+  }
+  return counts;
 }
 
 export function filterProjects<
