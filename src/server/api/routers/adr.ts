@@ -260,11 +260,34 @@ export const adrRouter = createTRPCRouter({
    * (clustered by repo client-side) and every derived edge. Read-only.
    */
   graph: humanOnlyProcedure
-    .input(z.object({ workspaceId: z.string() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        /** Filter to one product's repos; "workspace" = repos with no product. */
+        productId: z.string().optional(),
+        /**
+         * With a real productId: ALSO include workspace-level (null-product)
+         * repos — the product graph shows their decisions alongside.
+         */
+        includeWorkspaceWide: z.boolean().optional(),
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .query(async ({ ctx, input }) => {
       const configs = await ctx.db.adrSyncConfig.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: {
+          workspaceId: input.workspaceId,
+          ...(input.productId
+            ? {
+                repository:
+                  input.productId === "workspace"
+                    ? { productId: null }
+                    : input.includeWorkspaceWide
+                      ? { OR: [{ productId: input.productId }, { productId: null }] }
+                      : { productId: input.productId },
+              }
+            : {}),
+        },
         select: {
           repositoryId: true,
           shortCode: true,

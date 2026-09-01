@@ -3,18 +3,28 @@
 import { Anchor, Container, Group, Skeleton, Text, Title } from "@mantine/core";
 import { IconArrowLeft } from "@tabler/icons-react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { api } from "~/trpc/react";
 import { DecisionGraphView } from "~/app/_components/decisions/DecisionGraphView";
 
 /**
- * Decision network graph across every enrolled repo in the workspace. The
- * graph body itself (legend, canvas, node-click navigation) is shared with
- * the product graph lens — see DecisionGraphView.
+ * Product decision graph lens: the workspace decision network scoped to this
+ * product's repos PLUS workspace-level (null-product) repos — the same scope
+ * as the product Decisions index. Graph body shared via DecisionGraphView.
  */
-export default function DecisionsGraphPage() {
+export default function ProductDecisionsGraphPage() {
+  const params = useParams();
+  const productSlug = params?.productSlug as string;
   const { workspace, workspaceId, isLoading } = useWorkspace();
 
-  if (isLoading) {
+  const { data: product, isLoading: productLoading } =
+    api.product.product.getBySlug.useQuery(
+      { workspaceId: workspaceId ?? "", slug: productSlug },
+      { enabled: !!workspaceId && !!productSlug },
+    );
+
+  if (isLoading || productLoading) {
     return (
       <Container size="xl" className="py-8">
         <Skeleton height={40} width={240} mb="lg" />
@@ -23,10 +33,10 @@ export default function DecisionsGraphPage() {
     );
   }
 
-  if (!workspace || !workspaceId) {
+  if (!workspace || !workspaceId || !product) {
     return (
       <Container size="xl" className="py-8">
-        <Text className="text-text-secondary">Workspace not found</Text>
+        <Text className="text-text-secondary">Product not found</Text>
       </Container>
     );
   }
@@ -35,7 +45,7 @@ export default function DecisionsGraphPage() {
     <Container size="xl" className="py-8">
       <Anchor
         component={Link}
-        href={`/w/${workspace.slug}/decisions`}
+        href={`/w/${workspace.slug}/products/${productSlug}/decisions`}
         size="sm"
         className="text-text-secondary"
       >
@@ -51,7 +61,9 @@ export default function DecisionsGraphPage() {
       <DecisionGraphView
         workspaceId={workspaceId}
         workspaceSlug={workspace.slug}
-        description="The decision network across enrolled repos. Click a decision to open it."
+        productId={product.id}
+        includeWorkspaceWide
+        description={`The decision network across ${product.name}'s repositories, plus workspace-wide decisions. Click a decision to open it.`}
       />
     </Container>
   );
