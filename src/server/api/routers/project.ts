@@ -92,6 +92,7 @@ export const projectRouter = createTRPCRouter({
       }).optional(),
       workspaceId: z.string().optional(),
       goalId: z.number().optional(),
+      status: z.array(z.string()).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
@@ -123,6 +124,9 @@ export const projectRouter = createTRPCRouter({
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
           // Filter by goal if provided
           ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          ...(input?.status && input.status.length > 0
+            ? { status: { in: input.status } }
+            : {}),
           ...accessWhere,
         },
         orderBy: {
@@ -190,6 +194,38 @@ export const projectRouter = createTRPCRouter({
       });
 
       return sortedProjects;
+    }),
+
+  /**
+   * Per-status project totals for the filter UI. Kept separate from getAll so
+   * the list can be fetched status-filtered while the status picker still
+   * shows honest counts for the statuses currently hidden.
+   */
+  getStatusCounts: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const isGuest = input?.workspaceId
+        ? await isWorkspaceGuest(ctx.db, userId, input.workspaceId)
+        : false;
+      const accessWhere = isGuest
+        ? { projectMembers: { some: { userId } } }
+        : buildProjectAccessWhere(userId);
+
+      const groups = await ctx.db.project.groupBy({
+        by: ["status"],
+        where: {
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...accessWhere,
+        },
+        _count: { _all: true },
+      });
+
+      return Object.fromEntries(
+        groups.map((g) => [g.status, g._count._all]),
+      ) as Record<string, number>;
     }),
 
   create: protectedProcedure
@@ -639,6 +675,7 @@ export const projectRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
       includeCompleted: z.boolean().default(false),
       goalId: z.number().optional(),
+      status: z.array(z.string()).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -648,6 +685,9 @@ export const projectRouter = createTRPCRouter({
         where: {
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           ...(input.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          ...(input.status && input.status.length > 0
+            ? { status: { in: input.status } }
+            : {}),
           ...buildProjectAccessWhere(userId),
         },
         include: {

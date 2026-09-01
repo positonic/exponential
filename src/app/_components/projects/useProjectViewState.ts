@@ -16,9 +16,44 @@ import type {
   SortDirection,
 } from "~/app/_components/toolbar/useProjectSort";
 
-const PROJECT_FILTER_KEYS = ["status", "priority", "driId"] as const;
+export const PROJECT_FILTER_KEYS = ["status", "priority", "driId"] as const;
+
+/**
+ * Product default for the project views: hide finished work. Applied only on
+ * a first visit — before the user has ever touched the filters — and never
+ * re-applied once they have set or explicitly cleared their own.
+ */
+export const PROJECT_DEFAULT_VIEW_STATE = "status=ACTIVE,ON_HOLD";
+
 const QUERY_PARAM = "q";
 const SORT_PARAM = "sort";
+
+const PERSIST_STORAGE_PREFIX = "exponential.viewFilters";
+
+/**
+ * One saved filter/sort state per workspace per page family, so the three
+ * project views (/projects, /projects-tasks, /timeline) share a single entry
+ * while the goals page keeps its own.
+ */
+function persistStorageKey(pathname: string, scope: string): string {
+  const match = /^\/w\/([^/]+)/.exec(pathname);
+  return `${PERSIST_STORAGE_PREFIX}.${match?.[1] ?? "global"}.${scope}`;
+}
+
+/** The filter + sort params only — `?q=` is transient and never persisted. */
+function persistableSubset(
+  params: URLSearchParams,
+  filterKeys: readonly string[],
+): string {
+  const out = new URLSearchParams();
+  for (const key of filterKeys) {
+    const v = params.get(key);
+    if (v) out.set(key, v);
+  }
+  const s = params.get(SORT_PARAM);
+  if (s) out.set(SORT_PARAM, s);
+  return out.toString();
+}
 
 /**
  * How long to wait after the last keystroke before writing `?q=` to the URL.
@@ -113,9 +148,21 @@ export interface ProjectViewState {
  * URL-mirrored view state (filters, debounced `?q=`, sort) for a filterable
  * list page. `filterKeys` names the query params the page's FilterBar owns;
  * the project views use the default, the goals view passes its own keys.
+ *
+ * Pass `persistScope` to remember the filter/sort state in localStorage and
+ * re-apply it when the user returns to the bare URL. A URL that already
+ * carries any filter or sort param always wins over the saved state, so deep
+ * links stay shareable and honest.
+ *
+ * `defaultViewState` (same `k=v&sort=…` encoding as the persisted value) is
+ * applied on a bare URL only when the user has never saved anything — an
+ * explicit "clear filters" is remembered as an empty entry and suppresses the
+ * default from then on.
  */
 export function useProjectViewState(
   filterKeys: readonly string[] = PROJECT_FILTER_KEYS,
+  persistScope?: string,
+  defaultViewState?: string,
 ): ProjectViewState {
   const router = useRouter();
   const pathname = usePathname();
@@ -159,17 +206,38 @@ export function useProjectViewState(
     return out.toString();
   }, [paramsString, searchQuery, filterKeys]);
 
+  const storageKey = persistScope
+    ? persistStorageKey(pathname, persistScope)
+    : null;
+
   const updateParams = useCallback(
-    (mutator: (params: URLSearchParams) => void) => {
+    (mutator: (params: URLSearchParams) => void, persist = true) => {
       const params = new URLSearchParams(paramsString);
       mutator(params);
+      // Persist only on filter/sort interactions (`persist` is false for the
+      // debounced `?q=` writes), never on the restore itself — so a deep link
+      // someone shared doesn't overwrite the user's saved default unless they
+      // actually touch the filters. An empty subset is stored as an empty
+      // entry rather than removed: "I cleared my filters" must stay
+      // distinguishable from "I've never touched them", or the product default
+      // would resurrect the filters on the next visit.
+      if (storageKey && persist) {
+        try {
+          window.localStorage.setItem(
+            storageKey,
+            persistableSubset(params, filterKeys),
+          );
+        } catch {
+          // Storage unavailable (private mode, quota) — the URL still works.
+        }
+      }
       const query = params.toString();
       const url = query ? `${pathname}?${query}` : pathname;
       startTransition(() => {
         router.replace(url, { scroll: false });
       });
     },
-    [router, pathname, paramsString],
+    [router, pathname, paramsString, storageKey, filterKeys],
   );
 
   // A debounced write fires from a timer, so it must not capture a stale
@@ -186,6 +254,57 @@ export function useProjectViewState(
     lastWrittenQueryRef.current = urlSearchQuery;
     setSearchQueryState(urlSearchQuery);
   }, [urlSearchQuery]);
+
+  // Re-apply the saved filter/sort state when landing on a bare URL. Restoring
+  // by router.replace (rather than seeding state from localStorage during
+  // render) keeps the URL the single source of truth and avoids an SSR
+  // hydration mismatch; the cost is one unfiltered paint before the replace
+  // lands. Runs once per mount: a user who then clears the filters must see
+  // them stay cleared, not snap back.
+  const restoreAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!storageKey || restoreAttemptedRef.current) return;
+    restoreAttemptedRef.current = true;
+
+    const params = new URLSearchParams(paramsString);
+    const urlHasViewState =
+      filterKeys.some((key) => params.has(key)) || params.has(SORT_PARAM);
+    if (urlHasViewState) return;
+
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(storageKey);
+    } catch {
+      return;
+    }
+    // null = never saved → fall back to the product default. "" = the user
+    // explicitly cleared their filters → honour that, apply nothing.
+    if (saved === null) saved = defaultViewState ?? null;
+    if (!saved) return;
+
+    const savedParams = new URLSearchParams(saved);
+    let adopted = false;
+    for (const key of filterKeys) {
+      const v = savedParams.get(key);
+      if (v) {
+        params.set(key, v);
+        adopted = true;
+      }
+    }
+    const savedSort = savedParams.get(SORT_PARAM);
+    if (savedSort) {
+      params.set(SORT_PARAM, savedSort);
+      adopted = true;
+    }
+    if (!adopted) return;
+
+    const query = params.toString();
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    });
+  }, [storageKey, paramsString, filterKeys, pathname, router, defaultViewState]);
 
   // Never let a queued write land after unmount — it would navigate a page the
   // user has already left. Tradeoff, deliberate: a query typed in the last
@@ -231,7 +350,7 @@ export function useProjectViewState(
       updateParamsRef.current((params) => {
         if (trimmed) params.set(QUERY_PARAM, next);
         else params.delete(QUERY_PARAM);
-      });
+      }, false);
     }, SEARCH_URL_DEBOUNCE_MS);
   }, []);
 
@@ -309,6 +428,41 @@ export function useProjectViewState(
     clearSort,
     sortProjects,
     viewParamsQueryString,
+  };
+}
+
+/**
+ * Facet counts for the filter value pickers: each field is counted with every
+ * *other* active filter (and the search text) applied, so the number next to
+ * an option answers "how many rows would I see if I picked this?".
+ *
+ * `statusTotals` (from `project.getStatusCounts`) overrides the status counts:
+ * the list itself is fetched status-filtered, so hidden statuses can't be
+ * counted from it. Those server totals ignore the other client-side filters —
+ * an accepted approximation.
+ */
+export function computeProjectFilterCounts<
+  T extends { status: string; priority: string; driId?: string | null },
+>(
+  projects: T[],
+  filters: FilterState,
+  searchQuery: string,
+  statusTotals?: Record<string, number>,
+): Record<string, Record<string, number>> {
+  const countBy = (items: T[], pick: (p: T) => string | null | undefined) => {
+    const out: Record<string, number> = {};
+    for (const item of items) {
+      const key = pick(item);
+      if (key) out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+  };
+  const without = (field: string) =>
+    filterProjects(projects, { ...filters, [field]: undefined }, searchQuery);
+  return {
+    status: statusTotals ?? countBy(without("status"), (p) => p.status),
+    priority: countBy(without("priority"), (p) => p.priority),
+    driId: countBy(without("driId"), (p) => p.driId),
   };
 }
 

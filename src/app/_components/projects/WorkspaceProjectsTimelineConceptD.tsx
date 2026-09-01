@@ -36,7 +36,14 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CreateProjectModal } from '~/app/_components/CreateProjectModal';
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
-import { useProjectViewState, filterProjects } from './useProjectViewState';
+import {
+  useProjectViewState,
+  filterProjects,
+  computeProjectFilterCounts,
+  PROJECT_FILTER_KEYS,
+  PROJECT_DEFAULT_VIEW_STATE,
+} from './useProjectViewState';
+import { useSaveProjectsViewTab, saveProjectsViewTab } from './projectsViewTab';
 import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import { hasActiveFilters } from '~/types/filter';
 import type { FilterBarConfig, FilterMember } from '~/types/filter';
@@ -230,7 +237,8 @@ export function WorkspaceProjectsTimelineConceptD() {
     clearSort,
     sortProjects,
     viewParamsQueryString,
-  } = useProjectViewState();
+  } = useProjectViewState(PROJECT_FILTER_KEYS, 'projects', PROJECT_DEFAULT_VIEW_STATE);
+  useSaveProjectsViewTab('timeline');
   const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
   const [zoom, setZoom] = useState<TimelineZoom>('quarter');
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -260,9 +268,17 @@ export function WorkspaceProjectsTimelineConceptD() {
   usePageSearchHotkey(searchRef);
 
   const utils = api.useUtils();
+  const statusFilter = filters.status as string[] | undefined;
+  // Also the cache key for the optimistic date updates below — keep every
+  // getAll call in this component on this exact object.
   const queryInput = useMemo(
-    () => (workspaceId ? { workspaceId } : {}),
-    [workspaceId],
+    () => ({
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(statusFilter && statusFilter.length > 0
+        ? { status: [...statusFilter].sort() }
+        : {}),
+    }),
+    [workspaceId, statusFilter],
   );
 
   const updateDates = api.project.updateDates.useMutation({
@@ -285,6 +301,7 @@ export function WorkspaceProjectsTimelineConceptD() {
   });
 
   const { data: rawProjects, isLoading } = api.project.getAll.useQuery(queryInput, {
+    placeholderData: (prev) => prev,
     select: (data): TimelineProject[] =>
       data?.map((p) => ({
         id: p.id,
@@ -309,6 +326,27 @@ export function WorkspaceProjectsTimelineConceptD() {
     const filtered = filterProjects(timelineProjects, filters, deferredSearchQuery);
     return sortProjects(filtered);
   }, [timelineProjects, filters, deferredSearchQuery, sortProjects]);
+
+  const { data: statusCounts } = api.project.getStatusCounts.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId },
+  );
+
+  const optionCounts = useMemo(
+    () =>
+      computeProjectFilterCounts(
+        timelineProjects,
+        filters,
+        deferredSearchQuery,
+        statusCounts,
+      ),
+    [timelineProjects, filters, deferredSearchQuery, statusCounts],
+  );
+
+  const clearFiltersAndSearch = useCallback(() => {
+    setFilters({});
+    setSearchQuery('');
+  }, [setFilters, setSearchQuery]);
 
   const today = startOfDay(new Date());
 
@@ -415,6 +453,7 @@ export function WorkspaceProjectsTimelineConceptD() {
               href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
               className={styles.viewTab}
               data-active={activeTab === value ? 'true' : 'false'}
+              onClick={() => saveProjectsViewTab(pathname, value)}
             >
               <Icon size={13} stroke={1.75} />
               {label}
@@ -479,6 +518,7 @@ export function WorkspaceProjectsTimelineConceptD() {
             filters={filters}
             onFiltersChange={setFilters}
             members={workspaceMembers}
+            optionCounts={optionCounts}
           />
         </div>
       </Collapse>
@@ -568,7 +608,14 @@ export function WorkspaceProjectsTimelineConceptD() {
               {filteredProjects.length === 0 ? (
                 <div style={{ display: 'flex' }}>
                   <div className={styles.labelCell} style={{ width: LABEL_WIDTH, height: ROW_HEIGHT }}>
-                    <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No projects found</span>
+                    <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+                      {searchQuery || filtersActive ? 'No projects match your filters.' : 'No projects found'}
+                    </span>
+                    {(searchQuery || filtersActive) && (
+                      <button type="button" className={styles.actionBtn} onClick={clearFiltersAndSearch}>
+                        Clear filters
+                      </button>
+                    )}
                   </div>
                   <div style={{ flex: 1 }} />
                 </div>

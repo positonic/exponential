@@ -28,7 +28,14 @@ import { HTMLContent } from '~/app/_components/HTMLContent';
 import { calculateProjectHealth } from '~/app/_components/home/ProjectHealth';
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
-import { useProjectViewState, filterProjects } from './useProjectViewState';
+import {
+  useProjectViewState,
+  filterProjects,
+  computeProjectFilterCounts,
+  PROJECT_FILTER_KEYS,
+  PROJECT_DEFAULT_VIEW_STATE,
+} from './useProjectViewState';
+import { useSaveProjectsViewTab, saveProjectsViewTab } from './projectsViewTab';
 import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import { hasActiveFilters } from '~/types/filter';
 import type { FilterBarConfig, FilterMember } from '~/types/filter';
@@ -337,7 +344,8 @@ export function WorkspaceProjectsTasksConceptD() {
     clearSort,
     sortProjects,
     viewParamsQueryString,
-  } = useProjectViewState();
+  } = useProjectViewState(PROJECT_FILTER_KEYS, 'projects', PROJECT_DEFAULT_VIEW_STATE);
+  useSaveProjectsViewTab('projects-tasks');
   const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -371,8 +379,26 @@ export function WorkspaceProjectsTasksConceptD() {
 
   const utils = api.useUtils();
 
+  const statusFilter = filters.status as string[] | undefined;
+  const statusQueryInput = useMemo(
+    () =>
+      statusFilter && statusFilter.length > 0
+        ? [...statusFilter].sort()
+        : undefined,
+    [statusFilter],
+  );
+
   const { data, isLoading } = api.project.getProjectsWithActions.useQuery(
-    { workspaceId: workspaceId ?? undefined, includeCompleted },
+    {
+      workspaceId: workspaceId ?? undefined,
+      includeCompleted,
+      status: statusQueryInput,
+    },
+    { enabled: !!workspaceId, placeholderData: (prev) => prev },
+  );
+
+  const { data: statusCounts } = api.project.getStatusCounts.useQuery(
+    { workspaceId: workspaceId ?? undefined },
     { enabled: !!workspaceId },
   );
 
@@ -407,6 +433,22 @@ export function WorkspaceProjectsTasksConceptD() {
   const totalActive = filteredProjects.filter((p) => p.status === 'ACTIVE').length;
   const totalOnHold = filteredProjects.filter((p) => p.status === 'ON_HOLD').length;
 
+  const optionCounts = useMemo(
+    () =>
+      computeProjectFilterCounts(
+        data?.projects ?? [],
+        filters,
+        deferredSearchQuery,
+        statusCounts,
+      ),
+    [data?.projects, filters, deferredSearchQuery, statusCounts],
+  );
+
+  const clearFiltersAndSearch = useCallback(() => {
+    setFilters({});
+    setSearchQuery('');
+  }, [setFilters, setSearchQuery]);
+
   return (
     <div className={styles.page}>
       {/* Top bar */}
@@ -418,6 +460,7 @@ export function WorkspaceProjectsTasksConceptD() {
               href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
               className={styles.viewTab}
               data-active={activeTab === value ? 'true' : 'false'}
+              onClick={() => saveProjectsViewTab(pathname, value)}
             >
               <Icon size={13} stroke={1.75} />
               {label}
@@ -489,6 +532,7 @@ export function WorkspaceProjectsTasksConceptD() {
             filters={filters}
             onFiltersChange={setFilters}
             members={workspaceMembers}
+            optionCounts={optionCounts}
           />
         </div>
       </Collapse>
@@ -536,7 +580,20 @@ export function WorkspaceProjectsTasksConceptD() {
                 ? (
                     <tr>
                       <td colSpan={6} className={styles.empty}>
-                        {searchQuery ? 'No matches.' : 'No projects yet.'}
+                        {searchQuery || filtersActive ? (
+                          <span className="inline-flex items-center gap-3">
+                            No projects match your filters.
+                            <button
+                              type="button"
+                              className={styles.actionBtn}
+                              onClick={clearFiltersAndSearch}
+                            >
+                              Clear filters
+                            </button>
+                          </span>
+                        ) : (
+                          'No projects yet.'
+                        )}
                       </td>
                     </tr>
                   )
