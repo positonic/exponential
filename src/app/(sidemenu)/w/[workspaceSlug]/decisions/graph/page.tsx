@@ -1,15 +1,13 @@
 "use client";
 
-import { Anchor, Container, Group, Skeleton, Text, Title } from "@mantine/core";
-import { IconArrowLeft } from "@tabler/icons-react";
-import Link from "next/link";
+import { Container, Skeleton, Text } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DecisionGraphView } from "~/app/_components/decisions/DecisionGraphView";
 
 /**
- * Decision network graph across every enrolled repo in the workspace. The
- * graph body itself (legend, canvas, node-click navigation) is shared with
- * the product graph lens — see DecisionGraphView.
+ * Full-screen decision network graph across every enrolled repo in the
+ * workspace. The graph itself (header row, legend, canvas, node-click
+ * navigation) is shared with the product graph lens — see DecisionGraphView.
  */
 export default function DecisionsGraphPage() {
   const { workspace, workspaceId, isLoading } = useWorkspace();
@@ -32,27 +30,10 @@ export default function DecisionsGraphPage() {
   }
 
   return (
-    <Container size="xl" className="py-8">
-      <Anchor
-        component={Link}
-        href={`/w/${workspace.slug}/decisions`}
-        size="sm"
-        className="text-text-secondary"
-      >
-        <Group gap={4} wrap="nowrap">
-          <IconArrowLeft size={14} />
-          All decisions
-        </Group>
-      </Anchor>
-
-      <Title order={2} mt="md" mb={4}>
-        Decision graph
-      </Title>
-      <DecisionGraphView
-        workspaceId={workspaceId}
-        workspaceSlug={workspace.slug}
-        description="The decision network across enrolled repos. Click a decision to open it."
-      />
-    </Container>
+    <DecisionGraphView
+      workspaceId={workspaceId}
+      workspaceSlug={workspace.slug}
+      backHref={`/w/${workspace.slug}/decisions`}
+    />
   );
 }
