@@ -64,7 +64,11 @@ export default function ProductDecisionsPage() {
           Graph
         </Button>
       </Group>
+      {/* Keyed by product: the App Router reuses this page component across
+          product param changes, and the filter state seeded from
+          defaultProductId must reset with the product. */}
       <DecisionsIndex
+        key={product.id}
         workspaceId={workspaceId}
         workspaceSlug={workspace.slug}
         defaultProductId={product.id}
