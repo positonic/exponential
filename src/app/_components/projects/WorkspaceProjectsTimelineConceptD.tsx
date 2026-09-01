@@ -348,6 +348,13 @@ export function WorkspaceProjectsTimelineConceptD() {
     setSearchQuery('');
   }, [setFilters, setSearchQuery]);
 
+  // The status default is auto-applied, so filtersActive alone can't tell a
+  // filtered-out list from a workspace with no projects at all — a new
+  // workspace must still greet with the plain empty message, not a Clear button.
+  const workspaceIsEmpty =
+    statusCounts !== undefined &&
+    Object.values(statusCounts).every((n) => n === 0);
+
   const today = startOfDay(new Date());
 
   const { rangeStart, rangeEnd } = useMemo(() => {
@@ -609,9 +616,9 @@ export function WorkspaceProjectsTimelineConceptD() {
                 <div style={{ display: 'flex' }}>
                   <div className={styles.labelCell} style={{ width: LABEL_WIDTH, height: ROW_HEIGHT }}>
                     <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-                      {searchQuery || filtersActive ? 'No projects match your filters.' : 'No projects found'}
+                      {(searchQuery || filtersActive) && !workspaceIsEmpty ? 'No projects match your filters.' : 'No projects found'}
                     </span>
-                    {(searchQuery || filtersActive) && (
+                    {(searchQuery || filtersActive) && !workspaceIsEmpty && (
                       <button type="button" className={styles.actionBtn} onClick={clearFiltersAndSearch}>
                         Clear filters
                       </button>

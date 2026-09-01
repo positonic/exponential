@@ -585,6 +585,13 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
     setSearchQuery('');
   }, [setFilters, setSearchQuery]);
 
+  // The status default is auto-applied, so filtersActive alone can't tell a
+  // filtered-out list from a workspace with no projects at all — a new
+  // workspace must still greet with "No projects yet.", not a Clear button.
+  const workspaceIsEmpty =
+    statusCounts !== undefined &&
+    Object.values(statusCounts).every((n) => n === 0);
+
   return (
     <div className={styles.page}>
       {isGuest && workspace && (
@@ -720,7 +727,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
                 ? (
                     <tr>
                       <td colSpan={7} className={styles.empty}>
-                        {searchQuery || filtersActive ? (
+                        {(searchQuery || filtersActive) && !workspaceIsEmpty ? (
                           <span className="inline-flex items-center gap-3">
                             No projects match your filters.
                             <button
