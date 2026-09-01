@@ -6,8 +6,10 @@ import {
   assertWorkspaceScopedRefs,
   assertAssignableUser,
 } from "~/server/services/access";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
@@ -23,6 +25,8 @@ import {
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
 import { parseTicketUrlId, shortIdSearchWhere } from "~/lib/fun-ids";
+
+const prosemirrorDoc = z.record(z.string(), z.unknown());
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -60,6 +64,7 @@ async function loadTicketWithAccess(
       // compute fieldsChanged / status transition without a second query.
       title: true,
       body: true,
+      docVersion: true,
       type: true,
       status: true,
       priority: true,
@@ -467,6 +472,12 @@ export const ticketRouter = createTRPCRouter({
         id: z.string(),
         title: boundedText("Title", 300, { min: 1 }).optional(),
         body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        // Rich-body save (ADR-0024, as Feature.update). `bodyDoc` is the
+        // canonical document; `body` rides along as its derived Markdown
+        // projection (the client serialises it — no server-side DOM at save
+        // time). `baseVersion` is the optimistic-concurrency check.
+        bodyDoc: prosemirrorDoc.optional(),
+        baseVersion: z.number().int().min(0).optional(),
         type: ticketTypeEnum.optional(),
         status: ticketStatusEnum.optional(),
         priority: z.number().int().min(0).max(4).nullable().optional(),
@@ -511,7 +522,7 @@ export const ticketRouter = createTRPCRouter({
         input.assigneeId,
       );
 
-      const { id, ...rest } = input;
+      const { id, bodyDoc, baseVersion, ...rest } = input;
       const data: Record<string, unknown> = { ...rest };
 
       // Auto-track completedAt when transitioning to a completed status
@@ -521,10 +532,88 @@ export const ticketRouter = createTRPCRouter({
         data.completedAt = null;
       }
 
-      const updatedTicket = await ctx.db.ticket.update({
-        where: { id },
-        data,
-      });
+      // Markdown-only body write (CLI/SDK/agents): derive the canonical
+      // `bodyDoc` from the Markdown server-side (ADR-0024 — leaving the doc
+      // stale would make the edit invisible in the rich editor and get
+      // clobbered by its next save). Bumping `docVersion` turns any open
+      // editor tab's next autosave into a CONFLICT instead of a silent
+      // overwrite. Skipped when the Markdown is unchanged (agents retry-write
+      // a lot) so no-op writes don't hand open tabs spurious conflicts, and
+      // skipped while `bodyDoc` is still null — the editor migrates lazily
+      // from `body` on first open, so there is no doc to go stale.
+      const syncDoc =
+        bodyDoc === undefined &&
+        rest.body !== undefined &&
+        rest.body !== previousTicket.body;
+      if (syncDoc) {
+        const current = await ctx.db.ticket.findUnique({
+          where: { id },
+          select: { bodyDoc: true },
+        });
+        if (current?.bodyDoc != null) {
+          try {
+            data.bodyDoc = markdownToDocServer(rest.body);
+            data.docVersion = { increment: 1 };
+          } catch (err) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to derive the ticket document from the Markdown body",
+              cause: err,
+            });
+          }
+        }
+      }
+
+      let updatedTicket;
+      if (bodyDoc !== undefined) {
+        // Rich-body save: optimistic-concurrency guard + version bump.
+        if (baseVersion === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "baseVersion is required when saving the ticket body",
+          });
+        }
+        const decision = checkStaleWrite({
+          storedVersion: previousTicket.docVersion,
+          baseVersion,
+        });
+        if (!decision.accept) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              decision.reason === "stale"
+                ? "This ticket was updated in another tab or by another member. Reload to get the latest version."
+                : "Stale document version - reload and try again.",
+          });
+        }
+        // Atomic compare-and-set: the WHERE on docVersion closes the
+        // read→write race so two concurrent saves can't both bump from the
+        // same base.
+        const res = await ctx.db.ticket.updateMany({
+          where: { id, docVersion: baseVersion },
+          data: {
+            ...data,
+            bodyDoc: bodyDoc as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          },
+        });
+        if (res.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This ticket was updated concurrently. Reload to get the latest version.",
+          });
+        }
+        updatedTicket = await ctx.db.ticket.findUnique({ where: { id } });
+        if (!updatedTicket) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+      } else {
+        updatedTicket = await ctx.db.ticket.update({
+          where: { id },
+          data,
+        });
+      }
 
       // T7: workspace activity feed instrumentation.
       //  - status moved → fire `status_changed`
@@ -595,6 +684,32 @@ export const ticketRouter = createTRPCRouter({
       }
 
       return updatedTicket;
+    }),
+
+  /**
+   * One-time lazy migration of a legacy Markdown-only ticket body into the
+   * canonical `bodyDoc` (ADR-0024, as feature.initDescriptionDoc). The client
+   * converts Markdown → ProseMirror JSON (the codec needs the editor schema)
+   * and posts the result here on first open. Idempotent and write-once: if
+   * `bodyDoc` is already set, the existing document wins. `body` and
+   * `docVersion` stay untouched.
+   */
+  initBodyDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const existing = await ctx.db.ticket.findUnique({
+        where: { id: input.id },
+        select: { bodyDoc: true },
+      });
+      if (existing?.bodyDoc != null) {
+        return { migrated: false };
+      }
+      await ctx.db.ticket.update({
+        where: { id: input.id },
+        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+      });
+      return { migrated: true };
     }),
 
   /**
@@ -919,6 +1034,11 @@ export const ticketRouter = createTRPCRouter({
       z.object({
         ticketId: z.string(),
         content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+        // Anchored comment (ADR-0024): `threadId` matches a `comment` mark in
+        // `Ticket.bodyDoc`; `quotedText` snapshots the highlighted text so an
+        // orphaned thread still renders. Both absent = plain feed comment.
+        threadId: z.string().min(1).optional(),
+        quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -932,6 +1052,8 @@ export const ticketRouter = createTRPCRouter({
           ticketId: input.ticketId,
           authorId: ctx.session.user.id,
           content: input.content,
+          threadId: input.threadId,
+          quotedText: input.quotedText,
         },
         include: { author: { select: { id: true, name: true, image: true } } },
       });
@@ -1042,7 +1164,71 @@ export const ticketRouter = createTRPCRouter({
           message: "You can only delete your own comments",
         });
       }
+      // Replies cascade via the parentId self-relation FK.
       await ctx.db.ticketComment.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  /** Threaded reply on an anchored comment (mirrors featureComment.reply). */
+  replyComment: protectedProcedure
+    .input(
+      z.object({
+        parentId: z.string(),
+        content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parent = await ctx.db.ticketComment.findUnique({
+        where: { id: input.parentId },
+        select: { ticketId: true, threadId: true, parentId: true },
+      });
+      if (!parent) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, parent.ticketId);
+
+      const comment = await ctx.db.ticketComment.create({
+        data: {
+          ticketId: parent.ticketId,
+          authorId: ctx.session.user.id,
+          content: input.content,
+          threadId: parent.threadId,
+          // Keep threads one level deep: a reply to a reply still hangs off the root.
+          parentId: parent.parentId ?? input.parentId,
+        },
+        include: { author: { select: { id: true, name: true, image: true } } },
+      });
+
+      // Fire-and-forget: notify mentioned workspace members.
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: parent.ticketId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
+      return comment;
+    }),
+
+  resolveCommentThread: protectedProcedure
+    .input(z.object({ ticketId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await ctx.db.ticketComment.updateMany({
+        where: { ticketId: input.ticketId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  unresolveCommentThread: protectedProcedure
+    .input(z.object({ ticketId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await ctx.db.ticketComment.updateMany({
+        where: { ticketId: input.ticketId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: null },
+      });
       return { success: true };
     }),
 

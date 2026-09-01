@@ -4727,7 +4727,15 @@ model Ticket {
   number    Int          @default(0)
   shortId   String?
   title     String
-  body      String?
+  // Ticket body (the ADR-0024 storage model, as Feature.description/-Doc):
+  // `bodyDoc` is the canonical ProseMirror document the editor reads/writes;
+  // `body` is the derived Markdown projection for off-island readers (CLI,
+  // agents, Notion sync, card previews). `bodyDoc` stays null until the ticket
+  // is first opened in the rich editor (lazy migration). `docVersion` powers
+  // the optimistic-concurrency stale-write guard.
+  body       String?
+  bodyDoc    Json?
+  docVersion Int          @default(0)
   type      TicketType   @default(FEATURE)
   status    TicketStatus @default(BACKLOG)
   priority  Int?
@@ -4823,14 +4831,27 @@ model TicketComment {
   ticketId  String
   authorId  String
   content   String   @db.Text
+  // Anchored-comment threading (ADR-0024, as FeatureComment): `threadId`
+  // matches a `comment` mark in `Ticket.bodyDoc` (null = plain activity-feed
+  // comment), `parentId` hangs replies off a thread root, `quotedText`
+  // snapshots the highlighted text so an orphaned thread still renders, and
+  // `resolvedAt` closes the thread.
+  threadId   String?
+  parentId   String?
+  quotedText String?
+  resolvedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author User   @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  ticket  Ticket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author  User            @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  parent  TicketComment?  @relation("TicketCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies TicketComment[] @relation("TicketCommentReplies")
 
   @@index([ticketId])
   @@index([authorId])
+  @@index([threadId])
+  @@index([parentId])
 }
 
 model Retrospective {

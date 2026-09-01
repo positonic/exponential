@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import type { JSONContent } from "@tiptap/core";
 import {
   ActionIcon,
   Anchor,
@@ -483,10 +484,14 @@ export default function TicketDetailPage() {
             </Group>
           )}
 
-          {/* Body */}
+          {/* Body — keyed on the ticket: the nav arrows swap tickets without
+              unmounting this page, and the editor loads its content once. */}
           <TicketBodyEditor
+            key={ticketId}
             ticketId={ticketId}
-            initialContent={ticket.body ?? null}
+            bodyDoc={(ticket.bodyDoc as JSONContent | null) ?? null}
+            body={ticket.body ?? null}
+            docVersion={ticket.docVersion}
           />
 
           {/* Linked Actions */}
