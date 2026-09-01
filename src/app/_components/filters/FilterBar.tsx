@@ -20,6 +20,8 @@ interface FilterBarProps {
     filtersActive: boolean;
   }) => React.ReactNode;
   onCopyMemberLink?: (memberId: string) => void;
+  /** Per-field result counts shown next to each option: fieldKey → value → n */
+  optionCounts?: Record<string, Record<string, number>>;
 }
 
 export function FilterBar({
@@ -29,6 +31,7 @@ export function FilterBar({
   members,
   renderTrigger,
   onCopyMemberLink,
+  optionCounts,
 }: FilterBarProps) {
   const [opened, setOpened] = useState(false);
   const [activeField, setActiveField] = useState<FilterField | null>(null);
@@ -117,6 +120,7 @@ export function FilterBar({
                 onFiltersChange={onFiltersChange}
                 members={members}
                 onCopyMemberLink={onCopyMemberLink}
+                counts={optionCounts?.[activeField.key]}
               />
             </>
           ) : (

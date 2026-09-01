@@ -566,7 +566,7 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
     searchQuery,
     deferredSearchQuery,
     setSearchQuery,
-  } = useProjectViewState(GOAL_FILTER_KEYS);
+  } = useProjectViewState(GOAL_FILTER_KEYS, "goals");
   const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
 
   const handleSearchKeyDown = useCallback(

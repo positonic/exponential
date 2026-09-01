@@ -47,7 +47,14 @@ import {
 } from '~/app/_components/home/ProjectHealth';
 import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
-import { useProjectViewState, filterProjects } from './useProjectViewState';
+import {
+  useProjectViewState,
+  filterProjects,
+  computeProjectFilterCounts,
+  PROJECT_FILTER_KEYS,
+  PROJECT_DEFAULT_VIEW_STATE,
+} from './useProjectViewState';
+import { useProjectsViewTabRedirect, saveProjectsViewTab } from './projectsViewTab';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
 import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import { hasActiveFilters } from '~/types/filter';
@@ -463,7 +470,8 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
     clearSort,
     sortProjects,
     viewParamsQueryString,
-  } = useProjectViewState();
+  } = useProjectViewState(PROJECT_FILTER_KEYS, 'projects', PROJECT_DEFAULT_VIEW_STATE);
+  useProjectsViewTabRedirect();
   const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
   const [notionModalOpened, { open: openNotionModal, close: closeNotionModal }] = useDisclosure(false);
 
@@ -482,8 +490,33 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
 
   usePageSearchHotkey(searchRef);
 
+  // Server-side narrowing: with the default filter hiding finished work, the
+  // (actions-heavy) payload only contains what the view will show. The client
+  // still applies filterProjects, so the list stays instant while a changed
+  // status filter refetches behind `placeholderData`.
+  const statusFilter = filters.status as string[] | undefined;
+  const statusQueryInput = useMemo(
+    () =>
+      statusFilter && statusFilter.length > 0
+        ? [...statusFilter].sort()
+        : undefined,
+    [statusFilter],
+  );
+
   const { data: projectsData, isLoading } = api.project.getAll.useQuery(
-    { workspaceId: effectiveWorkspaceId, include: { actions: true } },
+    {
+      workspaceId: effectiveWorkspaceId,
+      include: { actions: true },
+      status: statusQueryInput,
+    },
+    {
+      enabled: showAllWorkspaces || !!workspaceId,
+      placeholderData: (prev) => prev,
+    },
+  );
+
+  const { data: statusCounts } = api.project.getStatusCounts.useQuery(
+    { workspaceId: effectiveWorkspaceId },
     { enabled: showAllWorkspaces || !!workspaceId },
   );
 
@@ -536,6 +569,29 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
 
   const filtersActive = hasActiveFilters(PROJECT_FILTER_CONFIG, filters);
 
+  const optionCounts = useMemo(
+    () =>
+      computeProjectFilterCounts(
+        projectsData ?? [],
+        filters,
+        deferredSearchQuery,
+        statusCounts,
+      ),
+    [projectsData, filters, deferredSearchQuery, statusCounts],
+  );
+
+  const clearFiltersAndSearch = useCallback(() => {
+    setFilters({});
+    setSearchQuery('');
+  }, [setFilters, setSearchQuery]);
+
+  // The status default is auto-applied, so filtersActive alone can't tell a
+  // filtered-out list from a workspace with no projects at all — a new
+  // workspace must still greet with "No projects yet.", not a Clear button.
+  const workspaceIsEmpty =
+    statusCounts !== undefined &&
+    Object.values(statusCounts).every((n) => n === 0);
+
   return (
     <div className={styles.page}>
       {isGuest && workspace && (
@@ -554,6 +610,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
               href={`${linkPrefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
               className={styles.viewTab}
               data-active={activeTab === value ? 'true' : 'false'}
+              onClick={() => saveProjectsViewTab(pathname, value)}
             >
               <Icon size={13} stroke={1.75} />
               {label}
@@ -636,6 +693,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
             filters={filters}
             onFiltersChange={setFilters}
             members={workspaceMembers}
+            optionCounts={optionCounts}
           />
         </div>
       </Collapse>
@@ -669,9 +727,20 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
                 ? (
                     <tr>
                       <td colSpan={7} className={styles.empty}>
-                        {searchQuery || filtersActive
-                          ? 'No projects match your search.'
-                          : 'No projects yet.'}
+                        {(searchQuery || filtersActive) && !workspaceIsEmpty ? (
+                          <span className="inline-flex items-center gap-3">
+                            No projects match your filters.
+                            <button
+                              type="button"
+                              className={styles.actionBtn}
+                              onClick={clearFiltersAndSearch}
+                            >
+                              Clear filters
+                            </button>
+                          </span>
+                        ) : (
+                          'No projects yet.'
+                        )}
                       </td>
                     </tr>
                   )
