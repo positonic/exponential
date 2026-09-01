@@ -38,13 +38,24 @@ export function saveProjectsViewTab(
 
 /**
  * For the non-canonical views (tasks, timeline): being on the view makes it
- * the last-used tab.
+ * the last-used tab. Two guards, both load-bearing:
+ *
+ * - Only save while the pathname is actually this view's. The effect re-runs
+ *   on pathname changes, and if the outgoing view re-renders with the next
+ *   route's pathname before unmounting it would overwrite the "table" value a
+ *   tab click just saved — bouncing the user straight back.
+ * - Skip when the URL carries query params: a deep link someone composed is a
+ *   one-off visit, same rule the redirect hook applies.
  */
 export function useSaveProjectsViewTab(tab: ProjectsViewTab): void {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const hasParams = searchParams.toString().length > 0;
   useEffect(() => {
+    if (hasParams) return;
+    if (!pathname.endsWith(TAB_PATHS[tab])) return;
     saveProjectsViewTab(pathname, tab);
-  }, [pathname, tab]);
+  }, [pathname, tab, hasParams]);
 }
 
 /**
@@ -52,6 +63,13 @@ export function useSaveProjectsViewTab(tab: ProjectsViewTab): void {
  * the remembered tab. The tab links save their destination on click, so
  * deliberately clicking "Projects" from another view lands here with the
  * memory already set to "table" — no bounce-back loop.
+ *
+ * Ordering constraint: call this AFTER useProjectViewState in the component.
+ * On a bare mount both hooks may issue a router.replace (the filter restore
+ * adds `?status=…`; this one changes the path). startTransition runs its
+ * callback synchronously, so the replaces are dispatched in hook-call order
+ * and the router applies the last one — this hook's, sending the user to the
+ * remembered view, whose own mount then restores the filters.
  */
 export function useProjectsViewTabRedirect(): void {
   const router = useRouter();
