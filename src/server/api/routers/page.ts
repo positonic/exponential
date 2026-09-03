@@ -375,8 +375,10 @@ export const pageRouter = createTRPCRouter({
           projectId: true,
           isPublic: true,
           updatedAt: true,
+          createdAt: true,
           bodyDoc: true,
           project: { select: { id: true, name: true } },
+          createdBy: { select: { id: true, name: true, image: true } },
         },
       });
 
