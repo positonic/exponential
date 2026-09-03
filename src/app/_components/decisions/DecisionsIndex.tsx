@@ -522,7 +522,11 @@ export function DecisionsIndex({
             >
               All <span className="dec-seg__n">{adrs?.length ?? 0}</span>
             </button>
-            {STATUS_ORDER.filter((s) => (counts.get(s) ?? 0) > 0).map((s) => (
+            {/* Zero-count statuses hide, except the active one — a filter
+                that is still applied must stay visible and clearable. */}
+            {STATUS_ORDER.filter(
+              (s) => (counts.get(s) ?? 0) > 0 || statusFilter === s,
+            ).map((s) => (
               <button
                 key={s}
                 type="button"
