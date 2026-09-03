@@ -130,6 +130,9 @@ export const adrRouter = createTRPCRouter({
           // doc name what replaced it. The index shows it as "Superseded by".
           linksTo: {
             where: { type: "SUPERSEDES", from: { deletedAt: null } },
+            // Deterministic pick when several decisions claim to supersede
+            // this one: the earliest-recorded edge wins.
+            orderBy: { createdAt: "asc" },
             select: {
               from: { select: { id: true, repositoryId: true, number: true } },
             },
