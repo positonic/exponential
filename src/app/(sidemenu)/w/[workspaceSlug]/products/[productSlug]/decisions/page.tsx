@@ -1,19 +1,17 @@
 "use client";
 
-import { Button, Container, Group, Skeleton, Text, Title } from "@mantine/core";
-import { IconAffiliate } from "@tabler/icons-react";
-import Link from "next/link";
+import { Container, Skeleton, Text } from "@mantine/core";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { DecisionsIndex } from "~/app/_components/decisions/DecisionsIndex";
 
 /**
- * Product Decisions lens: the workspace Decision Log with its product filter
+ * Product Decisions lens: the workspace Decision Log with its product scope
  * pre-set to this product, PLUS workspace-level (null-product) ADRs rendered
- * with a "workspace-wide" marker — a workspace-global decision applies to
- * every product until proven otherwise. All the workspace page's filters
- * (and the graph view) are available here too.
+ * with a "Workspace-wide" marker — a workspace-global decision applies to
+ * every product until proven otherwise. The scope chip stays editable and
+ * the product graph is one click away.
  */
 export default function ProductDecisionsPage() {
   const params = useParams();
@@ -44,35 +42,21 @@ export default function ProductDecisionsPage() {
   }
 
   return (
-    <Container size="xl" className="py-8">
-      <Group justify="space-between" mb="lg">
-        <div>
-          <Title order={2}>Decisions</Title>
-          <Text size="sm" className="text-text-secondary">
-            Architectural decisions from {product.name}&apos;s repositories,
-            plus workspace-wide decisions. Read-only — git is the source of
-            truth.
-          </Text>
-        </div>
-        <Button
-          component={Link}
-          href={`/w/${workspace.slug}/products/${productSlug}/decisions/graph`}
-          variant="light"
-          size="sm"
-          leftSection={<IconAffiliate size={16} />}
-        >
-          Graph
-        </Button>
-      </Group>
-      {/* Keyed by product: the App Router reuses this page component across
-          product param changes, and the filter state seeded from
-          defaultProductId must reset with the product. */}
-      <DecisionsIndex
-        key={product.id}
-        workspaceId={workspaceId}
-        workspaceSlug={workspace.slug}
-        defaultProductId={product.id}
-      />
-    </Container>
+    // Keyed by product: the App Router reuses this page component across
+    // product param changes, and the scope state seeded from
+    // defaultProductId must reset with the product.
+    <DecisionsIndex
+      key={product.id}
+      workspaceId={workspaceId}
+      workspaceSlug={workspace.slug}
+      defaultProductId={product.id}
+      graphHref={`/w/${workspace.slug}/products/${productSlug}/decisions/graph`}
+      description={
+        <>
+          Architectural decisions across {product.name}&apos;s repositories.
+          Read-only — <code>git</code> is the source of truth.
+        </>
+      }
+    />
   );
 }

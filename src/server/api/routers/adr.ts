@@ -126,23 +126,43 @@ export const adrRouter = createTRPCRouter({
             },
           },
           _count: { select: { ticketLinks: true } },
+          // SUPERSEDES points superseder → superseded, so the edges INTO this
+          // doc name what replaced it. The index shows it as "Superseded by".
+          linksTo: {
+            where: { type: "SUPERSEDES", from: { deletedAt: null } },
+            // Deterministic pick when several decisions claim to supersede
+            // this one: the earliest-recorded edge wins.
+            orderBy: { createdAt: "asc" },
+            select: {
+              from: { select: { id: true, repositoryId: true, number: true } },
+            },
+          },
         },
         orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { path: "asc" }],
       });
 
-      return documents.map((doc) => {
+      const labelOf = (repositoryId: string, number: number | null) =>
+        number !== null
+          ? `${shortCodeByRepo.get(repositoryId) ?? "ADR"}-${String(number).padStart(4, "0")}`
+          : null;
+
+      return documents.map(({ linksTo, ...doc }) => {
         const shortCode = shortCodeByRepo.get(doc.repositoryId) ?? null;
         const labelKey =
           doc.number !== null ? `${shortCode ?? "ADR"}-${doc.number}` : null;
+        const superseder = linksTo[0]?.from;
         return {
           ...doc,
           shortCode,
-          label:
-            doc.number !== null
-              ? `${shortCode ?? "ADR"}-${String(doc.number).padStart(4, "0")}`
-              : null,
+          label: labelOf(doc.repositoryId, doc.number),
           isDuplicateLabel:
             labelKey !== null && (labelCounts.get(labelKey) ?? 0) > 1,
+          supersededBy: superseder
+            ? {
+                id: superseder.id,
+                label: labelOf(superseder.repositoryId, superseder.number),
+              }
+            : null,
         };
       });
     }),
