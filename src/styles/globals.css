@@ -2324,3 +2324,43 @@ body {
   background-color: transparent;
   color: var(--color-text-secondary);
 }
+/* ==========================================================================
+   Decisions surface (/w/[slug]/decisions and the product Decisions lens) -
+   scoped design tokens. Consumed by
+   src/app/_components/decisions/decisions-index.css, which uses only var().
+   Design handoff rule: surfaces hold ONE hue and one chroma ladder (blue
+   variant - hue 262, chroma 0.022-0.040), blue is reserved for interaction,
+   and the status accents share ~0.105-0.12 chroma so no status shouts louder
+   than another. The values are authored in oklch() deliberately - carry them
+   across as-is rather than approximating with hex.
+   Light scheme inherits the global light tokens and only fills the gaps.
+   ========================================================================== */
+.dec-surface {
+  --color-surface-raised: var(--color-surface-secondary);
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+[data-mantine-color-scheme="dark"] .dec-surface {
+  --color-bg-primary: oklch(0.168 0.022 262);
+  --color-bg-secondary: oklch(0.202 0.024 262);
+  --color-bg-elevated: oklch(0.232 0.026 262);
+  --color-bg-hover: oklch(0.262 0.030 262);
+  --color-surface-muted: oklch(0.234 0.026 262);
+  --color-surface-raised: oklch(0.268 0.030 262);
+  --color-border-primary: oklch(0.300 0.030 262);
+  --color-border-subtle: oklch(0.248 0.026 262);
+  --color-border-strong: oklch(0.395 0.040 262);
+  --color-text-primary: oklch(0.960 0.010 262);
+  --color-text-secondary: oklch(0.750 0.026 262);
+  --color-text-muted: oklch(0.615 0.030 262);
+  --color-text-faint: oklch(0.490 0.030 262);
+  --brand-400: oklch(0.760 0.130 255);
+  --brand-500: oklch(0.640 0.150 255);
+  --brand-600: oklch(0.565 0.150 255);
+  /* status hues pulled toward the blue family: teal instead of grass green */
+  --accent-crm: oklch(0.780 0.105 178);
+  --accent-okr: oklch(0.800 0.110 88);
+  --accent-due: oklch(0.715 0.120 20);
+}
