@@ -471,10 +471,11 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
                     </Menu.Target>
                     <Menu.Dropdown>
                       <Menu.Item
+                        component={Link}
+                        href={`/w/${workspaceSlug}/pages/${page.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         leftSection={<IconExternalLink size={14} />}
-                        onClick={() =>
-                          window.open(`/w/${workspaceSlug}/pages/${page.id}`, '_blank', 'noopener')
-                        }
                       >
                         Open in new tab
                       </Menu.Item>
