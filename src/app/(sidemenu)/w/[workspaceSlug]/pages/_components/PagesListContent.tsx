@@ -111,7 +111,12 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
   // per row. Page favourites key on the workspace-relative path.
   const favorites = api.favorite.list.useQuery({ workspaceId });
   const favoritedPaths = useMemo(
-    () => new Set((favorites.data ?? []).map((f) => f.entityId)),
+    () =>
+      new Set(
+        (favorites.data ?? [])
+          .filter((f) => f.entityType === 'page')
+          .map((f) => f.entityId),
+      ),
     [favorites.data],
   );
 
