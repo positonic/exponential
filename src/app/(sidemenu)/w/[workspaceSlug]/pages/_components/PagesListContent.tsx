@@ -262,7 +262,7 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
       return true;
     });
     return matches
-      .map((p) => ({ ...p, depth: 0, hasChildren: false }))
+      .map((p) => ({ ...p, depth: 0 }))
       .sort((a, b) => compareRows(a, b, sort));
   }, [pages, tab, query, filters, filtersActive, sort]);
 
