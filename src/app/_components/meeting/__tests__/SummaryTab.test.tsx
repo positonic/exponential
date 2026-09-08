@@ -136,10 +136,11 @@ describe("SummaryTab edit flow", () => {
 
 describe("SummaryTab freeform summary rendering", () => {
   test("renders markdown in a freeform summary instead of the raw markup", () => {
+    const freeform = "Agreed to **ship** next week.\n\n- item one\n- item two";
     render(
       <SummaryTab
-        vm={{ ...vmWith(null), plainSummary: "Agreed to **ship** next week.\n\n- item one\n- item two" }}
-        rawSummary="Agreed to **ship** next week.\n\n- item one\n- item two"
+        vm={{ ...vmWith(null), plainSummary: freeform }}
+        rawSummary={freeform}
         generatedStamp={null}
         actions={[]}
         isActionsLoading={false}
