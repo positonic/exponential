@@ -14,9 +14,6 @@ import type { MeetingViewModel } from "~/lib/meeting-view-model";
 vi.mock("~/app/_components/actions/ActionsList", () => ({
   ActionsList: () => null,
 }));
-vi.mock("~/app/_components/SmartContentRenderer", () => ({
-  SmartContentRenderer: () => null,
-}));
 vi.mock("~/app/_components/FirefliesSummaryRenderer", () => ({
   FirefliesSummaryDisplay: () => null,
 }));
@@ -134,5 +131,31 @@ describe("SummaryTab edit flow", () => {
     fireEvent.click(screen.getByText("Save"));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("Edited notes."));
+  });
+});
+
+describe("SummaryTab freeform summary rendering", () => {
+  test("renders markdown in a freeform summary instead of the raw markup", () => {
+    render(
+      <SummaryTab
+        vm={{ ...vmWith(null), plainSummary: "Agreed to **ship** next week.\n\n- item one\n- item two" }}
+        rawSummary="Agreed to **ship** next week.\n\n- item one\n- item two"
+        generatedStamp={null}
+        actions={[]}
+        isActionsLoading={false}
+        hasTranscript={false}
+        isCreatingActions={false}
+        isIdeatingFeatures={false}
+        isGeneratingSummary={false}
+        onSaveSummary={vi.fn()}
+        onCreateActions={vi.fn()}
+        onIdeateFeatures={vi.fn()}
+        onRegenerate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("ship").tagName).toBe("STRONG");
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.queryByText(/\*\*ship\*\*/)).toBeNull();
   });
 });
