@@ -311,6 +311,16 @@ model User {
   isAgent                     Boolean                           @default(false)
   ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
   externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
+  // Ceremonies (ADR-0059)
+  ownedCeremonies             Ceremony[]                        @relation("CeremonyOwner")
+  createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
+  ceremonyParticipations      CeremonyParticipant[]
+  // Decisions (ADR-0060)
+  ownedDecisions              Decision[]                        @relation("DecisionOwner")
+  createdDecisions            Decision[]                        @relation("DecisionCreatedBy")
+  confirmedDecisions          Decision[]                        @relation("DecisionConfirmedBy")
+  decisionDeciderEntries      DecisionDecider[]
+  decisionLinksCreated        DecisionLink[]                    @relation("DecisionLinkCreatedBy")
 }
 
 model VerificationToken {
@@ -383,6 +393,9 @@ model Workspace {
   logoUrl        String?
   type           String   @default("personal") // "personal" | "team" | "organization"
   homeLayout     String   @default("command") // "command" | "activity"
+  /// Workspace-wide sequence for Decision labels (`D-0042`); advanced inside
+  /// the create transaction (ADR-0060), like `Product.ticketCounter`.
+  decisionCounter Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   ownerId        String
@@ -488,6 +501,11 @@ model Workspace {
   weeklyNarratives WorkspaceWeeklyNarrative[]
   // Inbound channel links routed to this workspace (ADR-0023)
   channelLinks     ChannelLink[]
+  // Ceremonies (ADR-0059)
+  ceremonies          Ceremony[]
+  ceremonyOccurrences CeremonyOccurrence[]
+  // Decisions (ADR-0060)
+  decisions           Decision[]
 
   @@index([slug])
   @@index([ownerId])
@@ -1061,6 +1079,10 @@ model Project {
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
   deals                 Deal[]
+  // Ceremonies scoped to this project (ADR-0059)
+  ceremonies            Ceremony[]
+  // Decisions scoped to this project (ADR-0060)
+  decisions             Decision[]
 
   @@index([name])
   @@index([status])
@@ -1186,6 +1208,7 @@ model Goal {
   recommendations   WheelOfLifeRecommendation[]
   progressSnapshots GoalProgressSnapshot[]
   features          Feature[]                   @relation("FeatureGoal")
+  decisions         Decision[] // Decisions scoped to this objective (ADR-0060)
 
   @@index([lifeDomainId])
   @@index([userId])
@@ -1318,6 +1341,7 @@ model Team {
   memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
   weeklyReviewSharing     WeeklyReviewSharing[]
   okrCheckins             OkrCheckin[]
+  ceremonies              Ceremony[]
 
   @@index([slug])
   @@index([isOrganization])
@@ -1401,6 +1425,10 @@ model TranscriptionSession {
   sourceIntegrationId String?
   workspaceId         String?
 
+  /// The ceremony occurrence this recording captured (ADR-0059); set by
+  /// calendar recurrence id, title alias, or by hand.
+  occurrenceId        String?
+
   // Embedding status tracking for knowledge base
   embeddingStatus String?   @default("none") // none|pending|processing|completed|failed
   embeddingError  String?
@@ -1425,6 +1453,8 @@ model TranscriptionSession {
   workspace         Workspace?                        @relation(fields: [workspaceId], references: [id])
   participants      TranscriptionSessionParticipant[]
   matrixPosts       MatrixPostLog[]
+  occurrence        CeremonyOccurrence?               @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+  decisions         Decision[]
 
   @@index([sessionId])
   @@index([workspaceId])
@@ -1433,6 +1463,7 @@ model TranscriptionSession {
   @@index([sourceIntegrationId])
   @@index([embeddingStatus])
   @@index([firefliesId])
+  @@index([occurrenceId])
 }
 
 model Screenshot {
@@ -2128,6 +2159,8 @@ model Meeting {
   organizer User              @relation("MeetingOrganizer", fields: [organizerId], references: [id])
   project   Project?          @relation(fields: [projectId], references: [id])
   attendees MeetingAttendee[]
+  /// The ceremony occurrence this booking was made for (ADR-0059).
+  occurrence CeremonyOccurrence?
 
   @@index([workspaceId, startsAt])
 }
@@ -2141,6 +2174,147 @@ model MeetingAttendee {
 
   @@unique([meetingId, userId])
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Ceremonies (ADR-0059). A Ceremony is the *definition* of a recurring team
+// meeting (standup, planning, retro, ...); a CeremonyOccurrence is one instance
+// on a date and is the bridge between the Scheduled `Meeting` and the recorded
+// `TranscriptionSession`. Neither meeting model is renamed or merged.
+// `OkrCheckin` and `Retrospective` are deliberately untouched.
+// ---------------------------------------------------------------------------
+
+enum CeremonyKind {
+  STANDUP
+  PLANNING
+  REVIEW
+  RETROSPECTIVE
+  PRIORITISATION
+  ALL_HANDS
+  ONE_ON_ONE
+  CUSTOM
+}
+
+enum CeremonyOccurrenceStatus {
+  PLANNED
+  AGENDA_CIRCULATED
+  IN_PROGRESS
+  CAPTURED
+  FOLLOWED_THROUGH
+  SKIPPED
+}
+
+model Ceremony {
+  id              String       @id @default(cuid())
+  workspaceId     String
+  productId       String?
+  teamId          String?
+  projectId       String?
+  name            String
+  /// Unique per workspace; the upsert key for `importDefinitions`.
+  slug            String
+  /// Title patterns for auto-attaching recorded meetings and calendar events.
+  aliases         String[]     @default([])
+  /// Drives the default agenda template and (V3) the per-person questions.
+  kind            CeremonyKind @default(CUSTOM)
+  /// Markdown (ADR-0017).
+  purpose         String?      @db.Text
+  /// Markdown (ADR-0017). What this ceremony is explicitly not for.
+  notFor          String?      @db.Text
+  /// Markdown (ADR-0017). Required inputs.
+  inputs          String?      @db.Text
+  /// Markdown (ADR-0017). Expected outputs.
+  outputs         String?      @db.Text
+  /// RFC 5545 RRULE string, evaluated in `timezone`.
+  cadenceRule     String
+  /// IANA zone the cadence rule is evaluated in.
+  timezone        String
+  /// Date the cadence rule is anchored to; past occurrences expand from here
+  /// so backfill has targets.
+  startsOn        DateTime     @db.Date
+  durationMinutes Int          @default(30)
+  /// Hours before `scheduledStart` at which the agenda is generated and circulated.
+  leadTimeHours   Int          @default(24)
+  ownerId         String
+  /// Ordered sections `{ key, type, title, minutes, config }`.
+  agendaTemplate  Json         @default("[]")
+  /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
+  matrixRoomId    String?
+  isActive        Boolean      @default(true)
+  createdById     String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product      Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  team         Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  project      Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  owner        User                  @relation("CeremonyOwner", fields: [ownerId], references: [id])
+  createdBy    User                  @relation("CeremonyCreatedBy", fields: [createdById], references: [id])
+  participants CeremonyParticipant[]
+  occurrences  CeremonyOccurrence[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, isActive])
+  @@index([productId])
+  @@index([teamId])
+  @@index([projectId])
+  @@index([ownerId])
+}
+
+/// Explicit participants (mirrors `MeetingAttendee`). `Ceremony.teamId` set
+/// additionally means "everyone on the team".
+model CeremonyParticipant {
+  id         String   @id @default(cuid())
+  ceremonyId String
+  userId     String
+  ceremony   Ceremony @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ceremonyId, userId])
+  @@index([userId])
+}
+
+model CeremonyOccurrence {
+  id                   String                   @id @default(cuid())
+  ceremonyId           String
+  /// Denormalised from the ceremony for indexes and access checks.
+  workspaceId          String
+  scheduledStart       DateTime
+  scheduledEnd         DateTime
+  status               CeremonyOccurrenceStatus @default(PLANNED)
+  skipReason           String?
+  /// The ceremony definition as it was when this occurrence was created;
+  /// later edits to the ceremony never rewrite history.
+  definitionSnapshot   Json
+  /// Agenda snapshot (V2): sections with items
+  /// `{ id, sectionKey, title, refType, refId, goalId?, keyResultId?,
+  ///    carriedFromOccurrenceId?, addedByUserId?, resolvedAt?, order }`.
+  agenda               Json?
+  agendaGeneratedAt    DateTime?
+  agendaCirculatedAt   DateTime?
+  /// The Scheduled meeting (calendar booking) for this occurrence, if one was
+  /// created by the scheduling flow. Recorded meetings link the other way
+  /// (`TranscriptionSession.occurrenceId`).
+  scheduledMeetingId   String?                  @unique
+  /// Self-link for carry-over of unresolved agenda items.
+  previousOccurrenceId String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  ceremony           Ceremony               @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  workspace          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scheduledMeeting   Meeting?               @relation(fields: [scheduledMeetingId], references: [id], onDelete: SetNull)
+  previousOccurrence CeremonyOccurrence?    @relation("CeremonyOccurrenceCarryOver", fields: [previousOccurrenceId], references: [id], onDelete: SetNull)
+  nextOccurrences    CeremonyOccurrence[]   @relation("CeremonyOccurrenceCarryOver")
+  /// Recorded meetings that captured this occurrence.
+  recordedMeetings   TranscriptionSession[]
+  /// Decisions logged as outputs of this occurrence (ADR-0060).
+  decisions          Decision[]
+
+  @@unique([ceremonyId, scheduledStart])
+  @@index([workspaceId, scheduledStart])
+  @@index([status])
 }
 
 model ScheduledNotification {
@@ -3323,6 +3497,7 @@ model KeyResult {
   comments  KeyResultComment[] // Discussion comments on this key result
   projects  KeyResultProject[] // Projects linked to this key result
   features  KeyResultFeature[] // Features linked to this key result (ADR-0050)
+  decisions Decision[] // Decisions scoped to this key result (ADR-0060)
 
   @@index([goalId])
   @@index([userId])
@@ -4299,6 +4474,8 @@ model Product {
   epics             Epic[]
   repositories      WorkspaceRepository[]
   cycles            List[]                @relation("ProductCycles")
+  ceremonies        Ceremony[]
+  decisions         Decision[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -4387,6 +4564,7 @@ model Feature {
   pages               FeaturePage[]
   keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
   adrLinks            AdrTicketLink[]
+  decisionLinks       DecisionLink[]
 
   @@index([productId])
   @@index([goalId])
@@ -4769,6 +4947,7 @@ model Ticket {
   tags      TicketTag[]
   syncs     TicketSync[]
   adrLinks  AdrTicketLink[]
+  decisionLinks DecisionLink[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -5321,6 +5500,8 @@ model AdrDocument {
   linksFrom   AdrLink[]           @relation("AdrLinkFrom")
   linksTo     AdrLink[]           @relation("AdrLinkTo")
   ticketLinks AdrTicketLink[]
+  /// Decisions formalised as this ADR (ADR-0060); the link lives on Decision.
+  decisions   Decision[]
 
   @@unique([repositoryId, path])
   @@index([repositoryId, deletedAt])
@@ -5358,6 +5539,130 @@ model AdrTicketLink {
 
   @@unique([adrId, ticketId])
   @@unique([adrId, featureId])
+  @@index([ticketId])
+  @@index([featureId])
+}
+
+// ---------------------------------------------------------------------------
+// Decisions (ADR-0060). Workspace-owned, writable decision records that sit
+// beside git-projected ADRs (`AdrDocument`, untouched and read-only) in one
+// Decision Log. An "open question" is a Decision in OPEN status; a draft is a
+// Decision the extractor proposed and nobody has confirmed yet.
+// ---------------------------------------------------------------------------
+
+enum DecisionStatus {
+  OPEN
+  PROPOSED
+  ACCEPTED
+  SUPERSEDED
+  DEPRECATED
+}
+
+enum DecisionReviewState {
+  DRAFT
+  CONFIRMED
+  REJECTED
+}
+
+enum DecisionSource {
+  MEETING
+  MANUAL
+  AGENT
+}
+
+model Decision {
+  id                     String              @id @default(cuid())
+  workspaceId            String
+  /// From `Workspace.decisionCounter`; rendered as `D-` + zero-padded number,
+  /// never stored as a label.
+  number                 Int
+  statement              String
+  /// Markdown (ADR-0017) with ADR headings (context, alternatives, consequences).
+  body                   String?             @db.Text
+  status                 DecisionStatus      @default(PROPOSED)
+  /// Drafts are invisible everywhere except the source meeting's draft views.
+  reviewState            DecisionReviewState @default(CONFIRMED)
+  source                 DecisionSource      @default(MANUAL)
+  decidedAt              DateTime?
+  ownerId                String?
+  createdById            String
+  confirmedById          String?
+  confirmedAt            DateTime?
+  /// The recorded meeting this decision came from (provenance).
+  transcriptionSessionId String?
+  /// The ceremony occurrence this decision is an output of (ADR-0059).
+  occurrenceId           String?
+  productId              String?
+  projectId              String?
+  goalId                 Int?
+  keyResultId            String?
+  /// The decision that replaced this one (status SUPERSEDED).
+  supersededById         String?
+  /// "Formalised as" — the ADR this decision became through a pull request.
+  adrDocumentId          String?
+  /// URL of the open "Draft ADR" pull request until the sync links the document.
+  pendingAdrPrUrl        String?
+  /// Quoted transcript turns `{ turnIndex, speaker, startTime, text }[]` (ADR-0032).
+  evidence               Json                @default("[]")
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner                User?                 @relation("DecisionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy            User                  @relation("DecisionCreatedBy", fields: [createdById], references: [id])
+  confirmedBy          User?                 @relation("DecisionConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  transcriptionSession TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id], onDelete: SetNull)
+  occurrence           CeremonyOccurrence?   @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+  product              Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  project              Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  goal                 Goal?                 @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  keyResult            KeyResult?            @relation(fields: [keyResultId], references: [id], onDelete: SetNull)
+  supersededBy         Decision?             @relation("DecisionSupersedes", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes           Decision[]            @relation("DecisionSupersedes")
+  adrDocument          AdrDocument?          @relation(fields: [adrDocumentId], references: [id], onDelete: SetNull)
+  deciders             DecisionDecider[]
+  links                DecisionLink[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status])
+  @@index([transcriptionSessionId])
+  @@index([occurrenceId])
+  @@index([projectId])
+  @@index([productId])
+  @@index([reviewState])
+}
+
+/// Who made the decision. A decider may be an external meeting participant
+/// with no User, hence the optional `userId` and the name/email pair.
+model DecisionDecider {
+  id         String   @id @default(cuid())
+  decisionId String
+  userId     String?
+  name       String
+  email      String?
+  decision   Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([decisionId, email])
+  @@index([userId])
+}
+
+/// "Implemented by" links to tickets and features (mirrors `AdrTicketLink`).
+model DecisionLink {
+  id          String   @id @default(cuid())
+  decisionId  String
+  ticketId    String?
+  featureId   String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  decision  Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  feature   Feature? @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("DecisionLinkCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([decisionId, ticketId])
+  @@unique([decisionId, featureId])
   @@index([ticketId])
   @@index([featureId])
 }
