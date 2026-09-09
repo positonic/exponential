@@ -42,6 +42,13 @@ export const FIXTURE = {
   childGoalTitle: "Ship the goal hierarchy affordance",
   offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
   detachedChildGoalTitle: "Sub-goal whose parent is off-project",
+  // Ceremonies (ADR-0059) and Decisions (ADR-0060): one Daily Standup, one
+  // occurrence, a recorded meeting attached to it, one confirmed decision.
+  ceremonySlug: "daily-standup",
+  ceremonyName: "Daily Standup",
+  meetingSessionId: "dev-fixture-daily-standup-2026-09-08",
+  meetingTitle: "Daily Standup",
+  decisionStatement: "Park prioritisation debates for the prioritisation ceremony",
 } as const;
 
 export interface SeededFixture {
@@ -68,6 +75,15 @@ export interface SeededFixture {
   projectGoalsUrl: string;
   /** Goals on that project: a parent, its sub-goal, and a detached sub-goal. */
   goalIds: { parent: number; child: number; offProjectParent: number; detachedChild: number };
+  /** The seeded Daily Standup ceremony and its one occurrence. */
+  ceremonyId: string;
+  occurrenceId: string;
+  /** App-relative URL of the recorded meeting attached to that occurrence. */
+  meetingUrl: string;
+  /** The confirmed decision logged against that meeting (label `D-0001`). */
+  decisionId: string;
+  /** App-relative URL of the workspace Decision Log. */
+  decisionsUrl: string;
 }
 
 interface TicketSpec {
@@ -391,8 +407,169 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     create: { keyResultId: keyResult.id, featureId: feature.id },
   });
 
+  // Ceremonies (ADR-0059): one Daily Standup definition, one occurrence that
+  // has already been captured, and a recorded meeting attached to it - the
+  // data behind the "Part of" rail row on /recording/[id] and the ceremony
+  // filter on the meetings list. The ceremony cascades with the workspace;
+  // the meeting (TranscriptionSession.workspace is SetNull) is re-homed on
+  // every seed the same way the OKR rows above are.
+  const ceremony = await db.ceremony.upsert({
+    where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.ceremonySlug } },
+    update: { ownerId: user.id, isActive: true },
+    create: {
+      workspaceId: workspace.id,
+      slug: FIXTURE.ceremonySlug,
+      name: FIXTURE.ceremonyName,
+      aliases: ["Daily Standup", "Standup"],
+      kind: "STANDUP",
+      purpose: "Surface blockers and align on today's priorities in fifteen minutes.",
+      notFor: "Prioritisation debates - park them for the prioritisation ceremony.",
+      inputs: "Yesterday's completed Actions and anything flagged as blocked.",
+      outputs: "Blockers assigned an owner; parking-lot items carried to the next occurrence.",
+      cadenceRule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+      timezone: "Europe/Berlin",
+      startsOn: new Date("2026-09-01T00:00:00.000Z"),
+      durationMinutes: 15,
+      leadTimeHours: 12,
+      ownerId: user.id,
+      createdById: user.id,
+      agendaTemplate: [
+        { key: "blockers", type: "blockers", title: "Blockers", minutes: 5, config: {} },
+        { key: "carried", type: "carried_over", title: "Carried over", minutes: 5, config: {} },
+        { key: "free", type: "free_text", title: "Anything else", minutes: 5, config: {} },
+      ],
+    },
+  });
+
+  await db.ceremonyParticipant.upsert({
+    where: { ceremonyId_userId: { ceremonyId: ceremony.id, userId: user.id } },
+    update: {},
+    create: { ceremonyId: ceremony.id, userId: user.id },
+  });
+
+  // 09:00 Europe/Berlin on Monday 8 September 2026 (CEST, UTC+2).
+  const occurrenceStart = new Date("2026-09-08T07:00:00.000Z");
+  const occurrenceEnd = new Date(occurrenceStart.getTime() + ceremony.durationMinutes * 60_000);
+  const occurrence = await db.ceremonyOccurrence.upsert({
+    where: {
+      ceremonyId_scheduledStart: { ceremonyId: ceremony.id, scheduledStart: occurrenceStart },
+    },
+    update: { workspaceId: workspace.id, status: "CAPTURED" },
+    create: {
+      ceremonyId: ceremony.id,
+      workspaceId: workspace.id,
+      scheduledStart: occurrenceStart,
+      scheduledEnd: occurrenceEnd,
+      status: "CAPTURED",
+      definitionSnapshot: {
+        name: ceremony.name,
+        slug: ceremony.slug,
+        kind: ceremony.kind,
+        cadenceRule: ceremony.cadenceRule,
+        timezone: ceremony.timezone,
+        durationMinutes: ceremony.durationMinutes,
+        agendaTemplate: ceremony.agendaTemplate,
+      },
+    },
+  });
+
+  // Plain `Name: text` lines - the labelled-turns parser (ADR-0032) turns each
+  // into one Transcript turn, so the decision's evidence `turnIndex` below
+  // resolves to a real turn on the recording page.
+  const transcriptTurns = [
+    "Dev Fixture: Morning. Blockers first - anything stuck?",
+    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear.",
+    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances?",
+    "Pat Reviewer: That is a prioritisation call, not a standup one. Let's park it for the prioritisation ceremony.",
+    "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
+    "Pat Reviewer: Noted. I'll take the accordion review today.",
+  ];
+  const meeting = await db.transcriptionSession.upsert({
+    where: { sessionId: FIXTURE.meetingSessionId },
+    update: { workspaceId: workspace.id, occurrenceId: occurrence.id, userId: user.id },
+    create: {
+      sessionId: FIXTURE.meetingSessionId,
+      title: FIXTURE.meetingTitle,
+      meetingDate: occurrenceStart,
+      userId: user.id,
+      workspaceId: workspace.id,
+      occurrenceId: occurrence.id,
+      transcription: transcriptTurns.join("\n"),
+      summary:
+        "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.",
+      processedAt: occurrenceStart,
+      durationSeconds: 9 * 60,
+      participantCount: 2,
+    },
+  });
+
+  // Decisions (ADR-0060): one confirmed decision logged from that meeting with
+  // two quoted transcript turns as evidence. The label comes from the
+  // workspace sequence, advanced inside the create transaction the way the
+  // decision service will (like Product.ticketCounter), so the fixture shows
+  // `D-0001`. Matched on statement so a re-seed re-attaches rather than
+  // duplicates; the row cascades with the workspace.
+  const existingDecision = await db.decision.findFirst({
+    where: { workspaceId: workspace.id, statement: FIXTURE.decisionStatement },
+  });
+  const decision = existingDecision
+    ? await db.decision.update({
+        where: { id: existingDecision.id },
+        data: { transcriptionSessionId: meeting.id, occurrenceId: occurrence.id, productId: product.id },
+      })
+    : await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: FIXTURE.decisionStatement,
+            body: [
+              "## Context",
+              "Standups were drifting into prioritisation debates.",
+              "",
+              "## Decision",
+              "Prioritisation topics raised in a standup are parked and taken to the prioritisation ceremony.",
+              "",
+              "## Consequences",
+              "Standups stay inside fifteen minutes; the parking lot carries the topic forward.",
+            ].join("\n"),
+            status: "ACCEPTED",
+            reviewState: "CONFIRMED",
+            source: "MEETING",
+            decidedAt: occurrenceStart,
+            ownerId: user.id,
+            createdById: user.id,
+            confirmedById: user.id,
+            confirmedAt: occurrenceStart,
+            transcriptionSessionId: meeting.id,
+            occurrenceId: occurrence.id,
+            productId: product.id,
+            evidence: [
+              { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+              { turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[4]!.replace(/^Dev Fixture: /, "") },
+            ],
+            deciders: {
+              create: [
+                { userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail },
+                { name: "Pat Reviewer", email: "pat.reviewer@exponential.test" },
+              ],
+            },
+          },
+        });
+      });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    ceremonyId: ceremony.id,
+    occurrenceId: occurrence.id,
+    meetingUrl: `/recording/${meeting.id}`,
+    decisionId: decision.id,
+    decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,
