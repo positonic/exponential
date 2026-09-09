@@ -1,5 +1,4 @@
 import type { RouterOutputs } from "~/trpc/react";
-import { generateLinearId } from "~/lib/fun-ids";
 import type { TicketStatus } from "~/lib/ticket-statuses";
 
 export type ProductOverviewData =
@@ -48,16 +47,8 @@ export const OPEN_PULSE_STATUSES: TicketStatus[] = [
   "QA",
 ];
 
-/** "CLR-241"-style display id, honouring the product's fun-id setting. */
-export function ticketDisplayId(
-  product: { name: string; funTicketIds: boolean },
-  ticket: { shortId: string | null; number: number },
-): string {
-  if (product.funTicketIds && ticket.shortId) return ticket.shortId;
-  return ticket.number > 0
-    ? generateLinearId(product.name, ticket.number)
-    : "—";
-}
+/** "CLR-241"-style display id — lives in `~/lib/fun-ids` so server code (the Daily summary) shares the rule. */
+export { ticketDisplayId } from "~/lib/fun-ids";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

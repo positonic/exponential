@@ -4,17 +4,13 @@ import Link from "next/link";
 import { IconPlus, IconRefresh } from "@tabler/icons-react";
 import { Button } from "@mantine/core";
 import { STATUS_LABELS } from "~/lib/ticket-statuses";
+import { computeCyclePacing } from "~/plugins/product/server/cycleRollup";
 import {
   statusCss,
   ticketDisplayId,
   type OverviewProduct,
   type ProductOverviewData,
 } from "./overviewShared";
-
-const DAY = 24 * 60 * 60 * 1000;
-
-const clamp = (n: number, lo: number, hi: number) =>
-  Math.max(lo, Math.min(hi, n));
 
 interface CycleHeroProps {
   cycle: ProductOverviewData["cycle"];
@@ -79,32 +75,12 @@ export function CycleHero({ cycle, product, basePath }: CycleHeroProps) {
     );
   }
 
-  const now = Date.now();
-  const end = cycle.endDate ? new Date(cycle.endDate).getTime() : null;
-  const start = cycle.startDate ? new Date(cycle.startDate).getTime() : null;
-
-  const daysLeft = end !== null ? Math.ceil((end - now) / DAY) : null;
-  const over = daysLeft !== null && daysLeft < 0;
-
-  const donePct = clamp((cycle.completed / cycle.committed) * 100, 0, 100);
-  const progPct = clamp(
-    ((cycle.completed + cycle.inProgress) / cycle.committed) * 100,
-    0,
-    100,
+  // Pacing math is shared with the Daily summary (computeCyclePacing) so the
+  // hero and the morning message agree by construction.
+  const { daysLeft, over, donePct, progPct, timePct, pace } = computeCyclePacing(
+    cycle,
+    Date.now(),
   );
-  const timePct =
-    start !== null && end !== null && end > start
-      ? clamp(((now - start) / (end - start)) * 100, 0, 100)
-      : null;
-
-  const pace =
-    timePct === null
-      ? null
-      : donePct >= timePct + 15
-        ? "ahead"
-        : donePct + 1 >= timePct
-          ? "ontrack"
-          : "behind";
   const paceLabel =
     pace === "ahead" ? "Ahead" : pace === "behind" ? "Behind pace" : "On pace";
 

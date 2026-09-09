@@ -7,11 +7,8 @@ import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
-import {
-  COMPLETED_TICKET_STATUSES,
-  STATUS_ORDER,
-} from "~/lib/ticket-statuses";
 import { currentCycleWhere, currentCycleOrder } from "../currentCycle";
+import { computeCycleRollup } from "../cycleRollup";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -349,77 +346,11 @@ export const productRouter = createTRPCRouter({
       ]);
 
       // ---- current cycle rollup (scoped to this product's tickets) ----
-      let cycle: {
-        id: string;
-        name: string;
-        status: string;
-        startDate: Date | null;
-        endDate: Date | null;
-        usesPoints: boolean;
-        committed: number;
-        completed: number;
-        inProgress: number;
-        statusCounts: { status: string; count: number }[];
-        myTickets: {
-          id: string;
-          shortId: string | null;
-          number: number;
-          title: string;
-          status: string;
-        }[];
-      } | null = null;
-
-      if (currentCycle) {
-        const completedSet = new Set<string>(COMPLETED_TICKET_STATUSES);
-        const usesPoints = cycleTickets.some((t) => (t.points ?? 0) > 0);
-        const weight = (t: { points: number | null }) =>
-          usesPoints ? (t.points ?? 0) : 1;
-
-        const committed = cycleTickets.reduce((s, t) => s + weight(t), 0);
-        const completed = cycleTickets
-          .filter((t) => completedSet.has(t.status))
-          .reduce((s, t) => s + weight(t), 0);
-        const inProgress = cycleTickets
-          .filter((t) => t.status === "IN_PROGRESS")
-          .reduce((s, t) => s + weight(t), 0);
-
-        const cycleStatusCounts = new Map<string, number>();
-        for (const t of cycleTickets) {
-          cycleStatusCounts.set(
-            t.status,
-            (cycleStatusCounts.get(t.status) ?? 0) + 1,
-          );
-        }
-
-        const statusRank = (s: string) => STATUS_ORDER[s] ?? 99;
-        const myTickets = cycleTickets
-          .filter((t) => t.assigneeId === userId)
-          .sort((a, b) => statusRank(a.status) - statusRank(b.status))
-          .slice(0, 4)
-          .map(({ id, shortId, number, title, status }) => ({
-            id,
-            shortId,
-            number,
-            title,
-            status,
-          }));
-
-        cycle = {
-          id: currentCycle.id,
-          name: currentCycle.name,
-          status: currentCycle.status,
-          startDate: currentCycle.startDate,
-          endDate: currentCycle.endDate,
-          usesPoints,
-          committed,
-          completed,
-          inProgress,
-          statusCounts: Array.from(cycleStatusCounts.entries())
-            .map(([status, count]) => ({ status, count }))
-            .sort((a, b) => statusRank(a.status) - statusRank(b.status)),
-          myTickets,
-        };
-      }
+      // Shared with the Daily summary (cycleRollup.ts) so the hero and the
+      // morning message can never disagree; the response shape is unchanged.
+      const cycle = currentCycle
+        ? computeCycleRollup(currentCycle, cycleTickets, { userId })
+        : null;
 
       // ---- needs-attention groups (top items + full counts) ----
       const pickGroup = (status: (typeof attentionStatuses)[number]) => {
