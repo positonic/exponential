@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import { generateScheduledSummaries } from "~/server/services/notifications/emit/summaries";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import type { CalendarReader } from "~/server/services/notifications/emit/dailySummary";
 
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
   emitNotification: vi.fn().mockResolvedValue(undefined),
@@ -37,7 +38,9 @@ describe("generateScheduledSummaries", () => {
   it("emits a daily summary at the configured local time (within the fire window)", async () => {
     db.notificationPreference.findMany.mockResolvedValue([pref()] as never);
 
-    const result = await generateScheduledSummaries(db, new Date("2026-07-23T09:05:00.000Z"));
+    const result = await generateScheduledSummaries(db, new Date("2026-07-23T09:05:00.000Z"), {
+      readCalendar: noEvents,
+    });
 
     expect(emitNotification).toHaveBeenCalledTimes(1);
     expect(emitNotification).toHaveBeenCalledWith(
@@ -75,7 +78,9 @@ describe("generateScheduledSummaries", () => {
       pref({ timezone: "America/New_York" }),
     ] as never);
 
-    await generateScheduledSummaries(db, new Date("2026-07-23T13:05:00.000Z"));
+    await generateScheduledSummaries(db, new Date("2026-07-23T13:05:00.000Z"), {
+      readCalendar: noEvents,
+    });
 
     expect(emitNotification).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -134,11 +139,14 @@ function berlinAction(overrides: Record<string, unknown>) {
   };
 }
 
-async function emittedDailySubject() {
+/** Fixture calendar reader — unit tests must never reach Google/Microsoft. */
+const noEvents: CalendarReader = async () => [];
+
+async function emittedDailySubject(readCalendar: CalendarReader = noEvents) {
   db.notificationPreference.findMany.mockResolvedValue([
     pref({ timezone: "Europe/Berlin" }),
   ] as never);
-  await generateScheduledSummaries(db, BERLIN_NOW);
+  await generateScheduledSummaries(db, BERLIN_NOW, { readCalendar });
   expect(emitNotification).toHaveBeenCalledTimes(1);
   const call = vi.mocked(emitNotification).mock.calls[0]![0];
   if (call.category !== "summary") throw new Error("expected a summary emit");
@@ -214,5 +222,32 @@ describe("generateScheduledSummaries — daily summary digest", () => {
     expect(subject.message).toContain("Nothing scheduled or due today\n0 overdue → https://app.test/today");
     expect(subject.message).toContain("No active cycle");
     expect(subject.message).toContain("Nothing committed to you");
+  });
+
+  it("reads the calendar once for [yesterday, tomorrow) local and splits events by local day", async () => {
+    db.action.findMany.mockResolvedValue([] as never);
+    const readCalendar = vi.fn<CalendarReader>().mockResolvedValue([
+      { summary: "CLEAR daily standup", start: { dateTime: "2026-09-08T07:00:00.000Z" }, end: { dateTime: "2026-09-08T07:15:00.000Z" } },
+      { summary: "Coffee with Ira", start: { dateTime: "2026-09-08T12:00:00.000Z" }, end: { dateTime: "2026-09-08T12:30:00.000Z" } },
+      { summary: "Offsite", start: { date: "2026-09-09" }, end: { date: "2026-09-10" } },
+      // 22:30 UTC on the 8th is 00:30 on the 9th in Berlin — today, not yesterday.
+      { summary: "Late night", start: { dateTime: "2026-09-08T22:30:00.000Z" }, end: { dateTime: "2026-09-08T23:00:00.000Z" } },
+      { summary: "Pipeline sync", start: { dateTime: "2026-09-09T08:00:00.000Z" }, end: { dateTime: "2026-09-09T09:00:00.000Z" } },
+    ]);
+
+    const subject = await emittedDailySubject(readCalendar);
+
+    expect(readCalendar).toHaveBeenCalledTimes(1);
+    expect(readCalendar).toHaveBeenCalledWith(
+      "u1",
+      new Date("2026-09-07T22:00:00.000Z"),
+      new Date("2026-09-09T22:00:00.000Z"),
+    );
+    expect(subject.message).toContain(
+      "⏪ Yesterday\n1. 09:00 CLEAR daily standup\n2. 14:00 Coffee with Ira\n\n📅 Today's meetings\n1. Offsite\n2. 00:30 Late night\n3. 10:00 Pipeline sync\n",
+    );
+    expect(subject.markdown).toContain(
+      "**📅 Today's meetings**\n1. Offsite\n2. 00:30 Late night\n3. 10:00 Pipeline sync\n",
+    );
   });
 });

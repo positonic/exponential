@@ -6,6 +6,7 @@ import { emitNotification } from "./emitNotification";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import {
   DAILY_SUMMARY_TITLE,
+  type BuildDailySummaryOptions,
   buildDailySummary,
   renderDailySummaryMarkdown,
   renderDailySummaryPlainText,
@@ -54,8 +55,9 @@ async function buildDailyDigest(
   userId: string,
   now: Date,
   tz: string,
+  options: BuildDailySummaryOptions,
 ): Promise<RenderedDigest | null> {
-  const digest = await buildDailySummary(db, userId, now, tz);
+  const digest = await buildDailySummary(db, userId, now, tz, options);
   if (!digest) return null;
   return {
     title: DAILY_SUMMARY_TITLE,
@@ -136,10 +138,15 @@ async function emitSummary(
  * digests at their configured local time (weekly also on their configured day),
  * through the pipeline so they honour the Summary row of the matrix. Deduped per
  * user+period. Replaces the dead scheduler's `scheduleRecurringNotifications`.
+ *
+ * `options.readCalendar` is the injectable calendar reader behind the daily
+ * digest's Yesterday / Today's meetings sections — tests pass a fixture reader;
+ * production defaults to the multi-calendar merge.
  */
 export async function generateScheduledSummaries(
   db: PrismaClient,
   now: Date = new Date(),
+  options: BuildDailySummaryOptions = {},
 ): Promise<{ emitted: number }> {
   const prefs = await db.notificationPreference.findMany({
     where: {
@@ -164,7 +171,7 @@ export async function generateScheduledSummaries(
 
     if (pref.dailySummary && isWithinFireWindow(now, tz, time)) {
       const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
-      const digest = await buildDailyDigest(db, pref.userId, now, tz);
+      const digest = await buildDailyDigest(db, pref.userId, now, tz, options);
       if (digest) {
         await emitSummary(db, pref.userId, "daily", digest, periodKey);
         emitted++;

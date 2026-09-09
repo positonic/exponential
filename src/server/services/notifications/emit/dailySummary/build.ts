@@ -2,7 +2,22 @@ import type { PrismaClient } from "@prisma/client";
 import { toZonedTime } from "date-fns-tz";
 import { partitionActions } from "~/lib/actions/partition";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import {
+  eventsOnLocalDay,
+  summaryWindow,
+  type CalendarReader,
+} from "./calendar";
 import type { DailySummaryActionItem, DailySummaryDigest } from "./types";
+
+export interface BuildDailySummaryOptions {
+  /**
+   * Calendar reader for the yesterday/today sections. Defaults to the
+   * multi-calendar merge the `/calendar` page uses (Google + Microsoft + ICS +
+   * Scheduled meetings); tests inject a fixture reader so no unit test ever
+   * reaches an external provider.
+   */
+  readCalendar?: CalendarReader;
+}
 
 /**
  * Same base-URL resolution as the email and Matrix channels, so every link in
@@ -19,6 +34,16 @@ export function firstNameOf(name: string | null | undefined): string {
   const first = name?.trim().split(/\s+/)[0];
   return first && first.length > 0 ? first : "there";
 }
+
+/**
+ * Production calendar reader. Imported lazily so the builder (and everything
+ * that imports it, including the cron seam under test) does not load the
+ * Google/Microsoft clients and the shared Prisma singleton at module load.
+ */
+const defaultCalendarReader: CalendarReader = async (userId, timeMin, timeMax) => {
+  const { getEventsMultiCalendar } = await import("~/server/services");
+  return getEventsMultiCalendar(userId, timeMin.toISOString(), timeMax.toISOString());
+};
 
 /**
  * Today's actions for the digest: exactly the `todays` bucket of the shared
@@ -84,6 +109,7 @@ export async function buildDailySummary(
   userId: string,
   now: Date,
   tz: string,
+  options: BuildDailySummaryOptions = {},
 ): Promise<DailySummaryDigest | null> {
   const user = await db.user.findUnique({
     where: { id: userId },
@@ -93,18 +119,28 @@ export async function buildDailySummary(
 
   const baseUrl = summaryBaseUrl();
   const localNow = toZonedTime(now, tz);
+  const window = summaryWindow(now, tz);
+  const readCalendar = options.readCalendar ?? defaultCalendarReader;
 
-  const { todaysActions, overdueCount } = await loadTodaysActions(
-    db,
-    userId,
-    localNow,
-    tz,
-  );
+  // One calendar read covering yesterday and today — each external provider
+  // is queried at most once per user per build (shared Google quota).
+  const [events, { todaysActions, overdueCount }] = await Promise.all([
+    readCalendar(userId, window.yesterdayStart, window.tomorrowStart),
+    loadTodaysActions(db, userId, localNow, tz),
+  ]);
+
+  const yesterdayEvents = eventsOnLocalDay(events, window.yesterdayKey, tz);
+  const todayEvents = eventsOnLocalDay(events, window.todayKey, tz);
 
   return {
     firstName: firstNameOf(user.name),
-    yesterday: [],
-    todayMeetings: [],
+    yesterday: yesterdayEvents.map((e) => ({
+      startLocal: e.startLocal,
+      title: e.title,
+      recordingUrl: null,
+      source: "calendar" as const,
+    })),
+    todayMeetings: todayEvents.map((e) => ({ startLocal: e.startLocal, title: e.title })),
     todaysActions,
     overdueCount,
     todayUrl: `${baseUrl}/today`,
