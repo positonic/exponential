@@ -163,6 +163,8 @@ describe("generateScheduledSummaries — daily summary digest", () => {
       defaultWorkspaceId: null,
     } as never);
     db.transcriptionSession.findMany.mockResolvedValue([] as never);
+    db.workspace.findUnique.mockResolvedValue({ id: "ws1", slug: "acme" } as never);
+    db.product.findMany.mockResolvedValue([] as never);
   });
 
   afterEach(() => {
@@ -293,5 +295,84 @@ describe("generateScheduledSummaries — daily summary digest", () => {
     db.action.findMany.mockResolvedValue([] as never);
     await emittedDailySubject();
     expect(db.transcriptionSession.findMany).not.toHaveBeenCalled();
+  });
+
+  describe("current cycle", () => {
+    const cycle = {
+      id: "cy1",
+      name: "Cycle 15",
+      status: "ACTIVE",
+      startDate: new Date("2026-09-02T22:00:00.000Z"), // 3 Sep 00:00 Berlin
+      endDate: new Date("2026-09-16T22:00:00.000Z"), // 17 Sep 00:00 Berlin
+    };
+    const tk = (over: Record<string, unknown>) => ({
+      id: "t", shortId: null, number: 0, title: "t", status: "COMMITTED", points: null,
+      assigneeId: "u2", updatedAt: new Date("2026-09-01T00:00:00.000Z"), ...over,
+    });
+
+    beforeEach(() => {
+      db.user.findUnique.mockResolvedValue({
+        id: "u1", name: "Ada Lovelace", email: "ada@acme.test", defaultWorkspaceId: "ws1",
+      } as never);
+      db.action.findMany.mockResolvedValue([] as never);
+      db.product.findMany.mockResolvedValue([
+        { id: "p1", name: "CLEAR", slug: "clear", funTicketIds: true },
+      ] as never);
+    });
+
+    it("renders the condensed hero from the shared rollup with the user's in-flight tickets", async () => {
+      db.list.findFirst.mockResolvedValue(cycle as never);
+      db.ticket.findMany.mockResolvedValue([
+        tk({ id: "t1", shortId: "red.ridge", number: 532, title: "x.com signals - poc", status: "IN_PROGRESS", points: 2, assigneeId: "u1" }),
+        tk({ id: "t2", shortId: "blue.bay", number: 100, title: "Fix login", status: "BLOCKED", points: 1, assigneeId: "u1" }),
+        tk({ id: "t3", shortId: "done.deal", number: 101, title: "Shipped", status: "DONE", points: 3, assigneeId: "u1" }),
+        tk({ id: "t4", shortId: "not.mine", number: 102, title: "Someone else's", status: "IN_PROGRESS", points: 4 }),
+      ] as never);
+
+      const subject = await emittedDailySubject();
+
+      // Products where the user holds tickets, in the summary workspace only.
+      expect(db.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { workspaceId: "ws1", tickets: { some: { assigneeId: "u1" } } },
+          orderBy: { name: "asc" },
+        }),
+      );
+      // The cycle hero: points, 3 Sep–16 Sep window, 7 days left, 50% elapsed → 3/10 done = behind.
+      expect(subject.message).toContain(
+        "🔄 Current cycle — Cycle 15 · 3 Sep – 17 Sep · 8 days left\n3 / 10 pts done · 46% elapsed · Behind pace\n   https://app.test/w/acme/products/clear/cycles/cy1\nYour in-flight tickets:\n• red.ridge x.com signals - poc — In progress\n   https://app.test/w/acme/products/clear/tickets/t1\n• blue.bay Fix login — Blocked\n   https://app.test/w/acme/products/clear/tickets/t2\n",
+      );
+      expect(subject.markdown).toContain(
+        "**🔄 Current cycle** — [Cycle 15](https://app.test/w/acme/products/clear/cycles/cy1) · 3 Sep – 17 Sep · 8 days left\n3 / 10 pts done · 46% elapsed · Behind pace\nYour in-flight tickets:\n- [red.ridge x.com signals - poc](https://app.test/w/acme/products/clear/tickets/t1) — In progress\n- [blue.bay Fix login](https://app.test/w/acme/products/clear/tickets/t2) — Blocked\n",
+      );
+      expect(subject.message).not.toContain("Someone else's");
+      expect(subject.message).not.toContain("Shipped");
+    });
+
+    it("uses ticket units and Linear-style ids when the product has no fun ids", async () => {
+      db.product.findMany.mockResolvedValue([
+        { id: "p1", name: "Clear Pipeline", slug: "clear", funTicketIds: false },
+      ] as never);
+      db.list.findFirst.mockResolvedValue(cycle as never);
+      db.ticket.findMany.mockResolvedValue([
+        tk({ id: "t1", number: 7, title: "Thunderdome", status: "QA", assigneeId: "u1" }),
+        tk({ id: "t2", number: 8, title: "Other", status: "DEPLOYED" }),
+      ] as never);
+
+      const subject = await emittedDailySubject();
+
+      expect(subject.message).toContain("1 / 2 tickets done");
+      expect(subject.message).toContain("• CP-7 Thunderdome — QA");
+    });
+
+    it("renders the empty state when no product has a current cycle", async () => {
+      db.list.findFirst.mockResolvedValue(null as never);
+
+      const subject = await emittedDailySubject();
+
+      expect(db.list.findFirst).toHaveBeenCalledTimes(2); // own cycle, then legacy shared fallback
+      expect(db.ticket.findMany).not.toHaveBeenCalled();
+      expect(subject.message).toContain("🔄 Current cycle\nNo active cycle\n");
+    });
   });
 });
