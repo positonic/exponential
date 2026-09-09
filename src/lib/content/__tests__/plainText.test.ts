@@ -55,6 +55,17 @@ describe("toPlainText", () => {
     it("treats markdown-looking text inside HTML as literal", () => {
       expect(toPlainText("<p>use **bold** here</p>")).toBe("use **bold** here");
     });
+
+    it("leaves numeric entities outside the Unicode range as typed", () => {
+      // String.fromCodePoint would throw on these — and this runs in render.
+      // (Built from parts: to the pre-commit colour check a literal
+      // eight-digit entity looks like a hex colour.)
+      const entity = (n: string) => `&${"#"}${n};`;
+      const input = `<p>${entity("1114112")} ${entity("xFFFFFFFF")} ${entity("99999999")} ok</p>`;
+      expect(toPlainText(input)).toBe(
+        `${entity("1114112")} ${entity("xFFFFFFFF")} ${entity("99999999")} ok`,
+      );
+    });
   });
 
   describe("markdown", () => {
@@ -114,6 +125,14 @@ describe("toPlainText", () => {
     it("unescapes escaped punctuation", () => {
       expect(toPlainText("Price is \\*not\\* final \\[draft\\]")).toBe(
         "Price is *not* final [draft]",
+      );
+    });
+
+    it("keeps private-use characters that were in the content", () => {
+      // Icon fonts and pasted data use the PUA; the escape sentinels must not
+      // collide with (or eat) them.
+      expect(toPlainText("logo \uE000\uE011\uE0FF here \\*x\\*")).toBe(
+        "logo \uE000\uE011\uE0FF here *x*",
       );
     });
 

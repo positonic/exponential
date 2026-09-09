@@ -29,13 +29,24 @@ const NAMED_ENTITIES: Record<string, string> = {
   apos: "'",
 };
 
-/** Decode the entities the legacy editors and Markdown escapes produce. */
+const MAX_CODE_POINT = 0x10ffff;
+
+/**
+ * Decode the entities the legacy editors and Markdown escapes produce. A
+ * numeric entity outside the Unicode range (`&#1114112;`) is left as typed:
+ * `String.fromCodePoint` would throw, and this runs during render.
+ */
 function decodeEntities(text: string): string {
   return text.replace(
     /&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi,
     (match, decimal: string | undefined, hex: string | undefined, name: string | undefined) => {
-      if (decimal) return String.fromCodePoint(Number(decimal));
-      if (hex) return String.fromCodePoint(parseInt(hex, 16));
+      if (decimal !== undefined || hex !== undefined) {
+        const codePoint =
+          decimal !== undefined ? Number(decimal) : parseInt(hex!, 16);
+        return codePoint <= MAX_CODE_POINT
+          ? String.fromCodePoint(codePoint)
+          : match;
+      }
       const named = name ? NAMED_ENTITIES[name.toLowerCase()] : undefined;
       return named ?? match;
     },
@@ -57,7 +68,18 @@ function htmlToText(html: string): string {
 
 /** Punctuation Markdown lets you backslash-escape (CommonMark §2.4). */
 const ESCAPABLE = "\\`*_{}[]()#+-.!>~|";
-const SENTINEL_BASE = 0xe000; // private-use plane: never in real content
+/**
+ * One sentinel per escapable character, drawn from the Unicode noncharacters
+ * U+FDD0–U+FDEF: code points reserved for exactly this kind of
+ * process-internal use, which never occur in interchanged text (unlike the
+ * private-use area, which some fonts and pasted content do use). The restore
+ * pattern covers only the sentinels actually assigned.
+ */
+const SENTINEL_BASE = 0xfdd0;
+const SENTINEL_PATTERN = new RegExp(
+  `[${String.fromCharCode(SENTINEL_BASE)}-${String.fromCharCode(SENTINEL_BASE + ESCAPABLE.length - 1)}]`,
+  "g",
+);
 
 /** Markdown → text: every construct reduced to what it wraps. */
 function markdownToText(markdown: string): string {
@@ -90,7 +112,7 @@ function markdownToText(markdown: string): string {
       // arithmetic ("2 * 3") survive untouched.
       .replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/gs, "$1")
       .replace(/(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)/gs, "$1")
-      .replace(/[\uE000-\uE0FF]/g, (ch) =>
+      .replace(SENTINEL_PATTERN, (ch) =>
         ESCAPABLE.charAt(ch.charCodeAt(0) - SENTINEL_BASE),
       ),
   );
