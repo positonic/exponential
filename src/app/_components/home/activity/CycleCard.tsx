@@ -6,6 +6,7 @@ import { IconRepeat, IconTicket } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { STATUS_LABELS } from '~/lib/ticket-statuses';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import {
   statusCss,
   ticketDisplayId,
@@ -84,7 +85,11 @@ function SingleCycle({ cycle }: { cycle: CycleData }) {
         )}
       </div>
 
-      {cycle.cycleGoal && <p className="wsa-cycle__goal">{cycle.cycleGoal}</p>}
+      {cycle.cycleGoal && (
+        <div className="wsa-cycle__goal">
+          <MarkdownRenderer content={cycle.cycleGoal} variant="compact" />
+        </div>
+      )}
 
       {cycle.committed > 0 && (
         <>
