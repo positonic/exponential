@@ -26,6 +26,13 @@ import type {
 
 /** In-flight = started but not finished: the cycle block's "your tickets" list. */
 const IN_FLIGHT_STATUSES = new Set(["IN_PROGRESS", "BLOCKED", "QA"]);
+/**
+ * Up next = committed to the cycle but not started (the complement of
+ * in-flight, so the two lists never overlap). Cycle tickets still in the
+ * refinement statuses appear in neither list — only as a one-line count.
+ */
+const UP_NEXT_STATUS = "COMMITTED";
+const UNREFINED_STATUSES = new Set(["BACKLOG", "NEEDS_REFINEMENT", "READY_TO_PLAN"]);
 
 export interface BuildDailySummaryOptions {
   /**
@@ -263,8 +270,11 @@ async function loadCycleBlocks(
         .filter((t) => IN_FLIGHT_STATUSES.has(t.status))
         .sort((a, b) => statusRank(a.status) - statusRank(b.status))
         .map((t) => ({ label: label(t), status: t.status, url: ticketUrl(t) })),
-      upNext: [],
-      unrefinedCount: 0,
+      upNext: mine
+        .filter((t) => t.status === UP_NEXT_STATUS)
+        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+        .map((t) => ({ label: label(t), url: ticketUrl(t) })),
+      unrefinedCount: mine.filter((t) => UNREFINED_STATUSES.has(t.status)).length,
     });
   }
   return blocks;

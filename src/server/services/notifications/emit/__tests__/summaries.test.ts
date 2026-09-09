@@ -365,6 +365,33 @@ describe("generateScheduledSummaries — daily summary digest", () => {
       expect(subject.message).toContain("• CP-7 Thunderdome — QA");
     });
 
+    it("lists the user's COMMITTED cycle tickets under Up next (latest touched first) with an unrefined count", async () => {
+      db.list.findFirst.mockResolvedValue(cycle as never);
+      db.ticket.findMany.mockResolvedValue([
+        tk({ id: "t1", shortId: "old.oak", number: 1, title: "Define delivery playbook", status: "COMMITTED", assigneeId: "u1", updatedAt: new Date("2026-09-01T00:00:00.000Z") }),
+        tk({ id: "t2", shortId: "new.nest", number: 2, title: "Specify a pipeline testing thunderdome", status: "COMMITTED", assigneeId: "u1", updatedAt: new Date("2026-09-08T00:00:00.000Z") }),
+        tk({ id: "t3", shortId: "raw.reef", number: 3, title: "Raw idea", status: "BACKLOG", assigneeId: "u1" }),
+        tk({ id: "t4", shortId: "fuzzy.fen", number: 4, title: "Needs shaping", status: "NEEDS_REFINEMENT", assigneeId: "u1" }),
+        tk({ id: "t5", shortId: "prep.pine", number: 5, title: "Ready", status: "READY_TO_PLAN", assigneeId: "u1" }),
+        tk({ id: "t6", shortId: "busy.bee", number: 6, title: "In flight", status: "IN_PROGRESS", assigneeId: "u1" }),
+        tk({ id: "t7", shortId: "not.mine", number: 7, title: "Theirs", status: "COMMITTED" }),
+      ] as never);
+
+      const subject = await emittedDailySubject();
+
+      expect(subject.message).toContain(
+        "⏭ Up next\n1. new.nest Specify a pipeline testing thunderdome\n   https://app.test/w/acme/products/clear/tickets/t2\n2. old.oak Define delivery playbook\n   https://app.test/w/acme/products/clear/tickets/t1\n3 of your cycle tickets still need refinement\n",
+      );
+      expect(subject.markdown).toContain(
+        "**⏭ Up next**\n1. [new.nest Specify a pipeline testing thunderdome](https://app.test/w/acme/products/clear/tickets/t2)\n2. [old.oak Define delivery playbook](https://app.test/w/acme/products/clear/tickets/t1)\n3 of your cycle tickets still need refinement\n",
+      );
+      // Refinement-stage and in-flight tickets never appear under Up next; the count excludes in-flight.
+      for (const absent of ["Raw idea", "Needs shaping", "Ready", "Theirs"]) {
+        expect(subject.message).not.toContain(absent);
+      }
+      expect(subject.message).toContain("• busy.bee In flight — In progress");
+    });
+
     it("renders the empty state when no product has a current cycle", async () => {
       db.list.findFirst.mockResolvedValue(null as never);
 
