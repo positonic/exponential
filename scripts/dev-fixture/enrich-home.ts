@@ -179,8 +179,10 @@ async function main() {
   }
 
   // ---- a Markdown project description for the active-projects rail ----
-  await db.project.update({
-    where: { slug: FIXTURE.projectSlug },
+  // updateMany, scoped to the workspace: a no-op rather than P2025 if the
+  // seed's project is missing, like the rest of this script.
+  await db.project.updateMany({
+    where: { slug: FIXTURE.projectSlug, workspaceId: workspace.id },
     data: {
       status: "ACTIVE",
       description:
