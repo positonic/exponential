@@ -1484,11 +1484,20 @@
 }
 
 /* The goal renders through MarkdownRenderer (compact); its blocks take the
-   card's type rather than the renderer's defaults. */
-.wsa-cycle__goal > :is(p, ul, ol) {
+   card's type rather than the renderer's defaults. Descendant selectors, not
+   child ones: the legacy-HTML read path wraps its blocks in a div. */
+.wsa-cycle__goal :is(p, ul, ol) {
   font-size: inherit;
   line-height: inherit;
   color: inherit;
+}
+
+.wsa-cycle__goal :is(p, ul, ol):first-child {
+  margin-top: 0;
+}
+
+.wsa-cycle__goal :is(p, ul, ol):last-child {
+  margin-bottom: 0;
 }
 
 .wsa-cycle__track {
