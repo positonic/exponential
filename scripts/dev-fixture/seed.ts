@@ -80,8 +80,10 @@ export interface SeededFixture {
   occurrenceId: string;
   /** App-relative URL of the recorded meeting attached to that occurrence. */
   meetingUrl: string;
-  /** The confirmed decision logged against that meeting (label `D-0001`). */
+  /** The confirmed decision logged against that meeting. */
   decisionId: string;
+  /** Its rendered label (`D-0001` on a fresh workspace). */
+  decisionLabel: string;
   /** App-relative URL of the workspace Decision Log. */
   decisionsUrl: string;
 }
@@ -484,9 +486,22 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
     "Pat Reviewer: Noted. I'll take the accordion review today.",
   ];
+  const meetingSummary =
+    "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.";
   const meeting = await db.transcriptionSession.upsert({
     where: { sessionId: FIXTURE.meetingSessionId },
-    update: { workspaceId: workspace.id, occurrenceId: occurrence.id, userId: user.id },
+    // The update branch refreshes the content too: the decision's evidence
+    // `turnIndex` values are computed against `transcriptTurns` as written
+    // here, so a stale transcript would deep-link to the wrong turn.
+    update: {
+      workspaceId: workspace.id,
+      occurrenceId: occurrence.id,
+      userId: user.id,
+      title: FIXTURE.meetingTitle,
+      meetingDate: occurrenceStart,
+      transcription: transcriptTurns.join("\n"),
+      summary: meetingSummary,
+    },
     create: {
       sessionId: FIXTURE.meetingSessionId,
       title: FIXTURE.meetingTitle,
@@ -495,8 +510,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       workspaceId: workspace.id,
       occurrenceId: occurrence.id,
       transcription: transcriptTurns.join("\n"),
-      summary:
-        "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.",
+      summary: meetingSummary,
       processedAt: occurrenceStart,
       durationSeconds: 9 * 60,
       participantCount: 2,
@@ -512,10 +526,38 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   const existingDecision = await db.decision.findFirst({
     where: { workspaceId: workspace.id, statement: FIXTURE.decisionStatement },
   });
+  // Every state-carrying field is re-asserted on re-seed so a decision that
+  // was edited in a dev session converges back on the declared fixture.
+  const decisionState = {
+    body: [
+      "## Context",
+      "Standups were drifting into prioritisation debates.",
+      "",
+      "## Decision",
+      "Prioritisation topics raised in a standup are parked and taken to the prioritisation ceremony.",
+      "",
+      "## Consequences",
+      "Standups stay inside fifteen minutes; the parking lot carries the topic forward.",
+    ].join("\n"),
+    status: "ACCEPTED",
+    reviewState: "CONFIRMED",
+    source: "MEETING",
+    decidedAt: occurrenceStart,
+    ownerId: user.id,
+    confirmedById: user.id,
+    confirmedAt: occurrenceStart,
+    transcriptionSessionId: meeting.id,
+    occurrenceId: occurrence.id,
+    productId: product.id,
+    evidence: [
+      { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+      { turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[4]!.replace(/^Dev Fixture: /, "") },
+    ],
+  } as const;
   const decision = existingDecision
     ? await db.decision.update({
         where: { id: existingDecision.id },
-        data: { transcriptionSessionId: meeting.id, occurrenceId: occurrence.id, productId: product.id },
+        data: decisionState,
       })
     : await db.$transaction(async (tx) => {
         const counter = await tx.workspace.update({
@@ -525,34 +567,11 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
         });
         return tx.decision.create({
           data: {
+            ...decisionState,
             workspaceId: workspace.id,
             number: counter.decisionCounter,
             statement: FIXTURE.decisionStatement,
-            body: [
-              "## Context",
-              "Standups were drifting into prioritisation debates.",
-              "",
-              "## Decision",
-              "Prioritisation topics raised in a standup are parked and taken to the prioritisation ceremony.",
-              "",
-              "## Consequences",
-              "Standups stay inside fifteen minutes; the parking lot carries the topic forward.",
-            ].join("\n"),
-            status: "ACCEPTED",
-            reviewState: "CONFIRMED",
-            source: "MEETING",
-            decidedAt: occurrenceStart,
-            ownerId: user.id,
             createdById: user.id,
-            confirmedById: user.id,
-            confirmedAt: occurrenceStart,
-            transcriptionSessionId: meeting.id,
-            occurrenceId: occurrence.id,
-            productId: product.id,
-            evidence: [
-              { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
-              { turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[4]!.replace(/^Dev Fixture: /, "") },
-            ],
             deciders: {
               create: [
                 { userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail },
@@ -569,6 +588,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     occurrenceId: occurrence.id,
     meetingUrl: `/recording/${meeting.id}`,
     decisionId: decision.id,
+    decisionLabel: `D-${String(decision.number).padStart(4, "0")}`,
     decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
