@@ -635,6 +635,14 @@ export const transcriptionRouter = createTRPCRouter({
               taskManagementConfig: true,
             },
           },
+          // The ceremony occurrence this recording captured (ADR-0059).
+          occurrence: {
+            select: {
+              id: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true } },
+            },
+          },
         },
       });
 
