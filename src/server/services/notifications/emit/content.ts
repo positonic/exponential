@@ -94,7 +94,10 @@ export async function buildContent(
     }
     case NOTIFICATION_CATEGORIES.SUMMARY: {
       // The cron pre-rendered the digest; a summary is personal, not
-      // workspace-scoped, so no per-workspace email override applies.
+      // workspace-scoped, so no per-workspace email override applies. The
+      // markdown variant (ADR-0059) rides in metadata so it is persisted on
+      // the Notification row and survives a cron retry (`contentFromRow`).
+      const { markdown } = input.subject;
       return {
         category: NOTIFICATION_CATEGORIES.SUMMARY,
         title: input.subject.title,
@@ -102,6 +105,7 @@ export async function buildContent(
         metadata: {
           kind: input.subject.kind,
           periodKey: input.subject.periodKey,
+          ...(markdown ? { markdown } : {}),
         },
         workspaceId: "",
         dedupeKey: `summary:${input.subject.kind}:${input.subject.periodKey}`,

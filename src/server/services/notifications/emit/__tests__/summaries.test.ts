@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mockDeep, mockReset } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
@@ -109,5 +109,110 @@ describe("generateScheduledSummaries", () => {
     await generateScheduledSummaries(db, new Date("2026-07-23T09:05:00.000Z"));
 
     expect(emitNotification).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Daily summary digest (ADR-0059): built from the user's data, rendered as
+// plain text (`message`) and markdown (`markdown`) for a Europe/Berlin day.
+// ---------------------------------------------------------------------------
+
+/** Fixture instant: 2026-09-09 07:05 UTC = 09:05 in Berlin (CEST), inside the 09:00 fire window. */
+const BERLIN_NOW = new Date("2026-09-09T07:05:00.000Z");
+
+function berlinAction(overrides: Record<string, unknown>) {
+  return {
+    id: "a",
+    name: "Action",
+    status: "ACTIVE",
+    priority: "Quick",
+    scheduledStart: null,
+    dueDate: null,
+    projectId: null,
+    completedAt: null,
+    ...overrides,
+  };
+}
+
+async function emittedDailySubject() {
+  db.notificationPreference.findMany.mockResolvedValue([
+    pref({ timezone: "Europe/Berlin" }),
+  ] as never);
+  await generateScheduledSummaries(db, BERLIN_NOW);
+  expect(emitNotification).toHaveBeenCalledTimes(1);
+  const call = vi.mocked(emitNotification).mock.calls[0]![0];
+  if (call.category !== "summary") throw new Error("expected a summary emit");
+  return call.subject;
+}
+
+describe("generateScheduledSummaries — daily summary digest", () => {
+  beforeEach(() => {
+    process.env.NEXTAUTH_URL = "https://app.test";
+    db.user.findUnique.mockResolvedValue({
+      id: "u1",
+      name: "Ada Lovelace",
+      email: "ada@acme.test",
+      defaultWorkspaceId: null,
+    } as never);
+  });
+
+  afterEach(() => {
+    delete process.env.NEXTAUTH_URL;
+  });
+
+  it("lists exactly the partitionActions `todays` bucket, evaluated in the user's local day, with an overdue count", async () => {
+    db.action.findMany.mockResolvedValue([
+      // Scheduled today with no due date — the "Pay Malte" shape.
+      berlinAction({ id: "a1", name: "Pay Malte", scheduledStart: new Date("2026-09-09T06:00:00.000Z") }),
+      // 22:30 UTC on the 8th is 00:30 on the 9th in Berlin: today, not overdue.
+      berlinAction({ id: "a2", name: "Midnight in Berlin", scheduledStart: new Date("2026-09-08T22:30:00.000Z") }),
+      // Due yesterday, never scheduled → overdue (counted, not listed).
+      berlinAction({ id: "a3", name: "Old bill", dueDate: new Date("2026-09-08T10:00:00.000Z") }),
+      // Scheduled tomorrow → neither.
+      berlinAction({ id: "a4", name: "Tomorrow", scheduledStart: new Date("2026-09-10T08:00:00.000Z") }),
+    ] as never);
+
+    const subject = await emittedDailySubject();
+
+    expect(subject.kind).toBe("daily");
+    expect(subject.title).toBe("☀️ Daily summary");
+    expect(subject.message).toContain("☀️ Good morning Ada! 👋");
+    expect(subject.message).toContain("✅ Today's actions\n• Pay Malte\n• Midnight in Berlin\n1 overdue → https://app.test/today");
+    expect(subject.message).not.toContain("Old bill");
+    expect(subject.message).not.toContain("Tomorrow");
+
+    expect(subject.markdown).toContain("**✅ Today's actions**\n- Pay Malte\n- Midnight in Berlin\n1 overdue → [/today](https://app.test/today)");
+    // The plain-text message never carries markdown syntax.
+    expect(subject.message).not.toMatch(/\*\*|\]\(/);
+  });
+
+  it("queries the same ownership set as action.getTodaysActions, cross-workspace", async () => {
+    db.action.findMany.mockResolvedValue([] as never);
+
+    await emittedDailySubject();
+
+    expect(db.action.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { createdById: "u1", assignees: { none: {} } },
+            { assignees: { some: { userId: "u1" } } },
+          ],
+          status: "ACTIVE",
+        },
+      }),
+    );
+  });
+
+  it("falls back to 'there' when the user has no name and renders the empty states", async () => {
+    db.user.findUnique.mockResolvedValue({ id: "u1", name: null, email: "x@y.z", defaultWorkspaceId: null } as never);
+    db.action.findMany.mockResolvedValue([] as never);
+
+    const subject = await emittedDailySubject();
+
+    expect(subject.message).toContain("☀️ Good morning there! 👋");
+    expect(subject.message).toContain("Nothing scheduled or due today\n0 overdue → https://app.test/today");
+    expect(subject.message).toContain("No active cycle");
+    expect(subject.message).toContain("Nothing committed to you");
   });
 });

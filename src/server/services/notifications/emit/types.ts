@@ -78,7 +78,14 @@ export interface SummarySubject {
   userId: string;
   kind: "daily" | "weekly";
   title: string;
+  /** Plain-text rendering with bare URLs — what every channel gets by default. */
   message: string;
+  /**
+   * Optional markdown rendering of the same digest (ADR-0059). Persisted as
+   * `metadata.markdown`; channels that render markdown (Matrix) prefer it,
+   * every other channel ignores it and sends `message`.
+   */
+  markdown?: string;
   /** Period id for dedup — e.g. "2026-07-23" (daily) or "2026-W30" (weekly). */
   periodKey: string;
 }

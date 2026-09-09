@@ -1,9 +1,15 @@
 import type { PrismaClient } from "@prisma/client";
-import { startOfDay, setHours, setMinutes, addDays, format, getDay } from "date-fns";
+import { startOfDay, setHours, setMinutes, format, getDay } from "date-fns";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { NotificationTemplates } from "~/server/services/notifications/NotificationTemplates";
 import { emitNotification } from "./emitNotification";
 import { NOTIFICATION_CATEGORIES } from "./constants";
+import {
+  DAILY_SUMMARY_TITLE,
+  buildDailySummary,
+  renderDailySummaryMarkdown,
+  renderDailySummaryPlainText,
+} from "./dailySummary";
 
 const DEFAULT_TIME = "09:00";
 /**
@@ -13,8 +19,15 @@ const DEFAULT_TIME = "09:00";
  */
 const FIRE_WINDOW_MS = 60 * 60 * 1000;
 
-const TERMINAL_STATUSES = ["COMPLETED", "DONE", "CANCELLED"];
 const DONE_STATUSES = ["COMPLETED", "DONE"];
+
+/** A rendered digest ready to emit: plain text in `message`, optional rich variant. */
+interface RenderedDigest {
+  title: string;
+  message: string;
+  /** Markdown rendering for channels that render it (Matrix) — see ADR-0059. */
+  markdown?: string;
+}
 
 /** True when `now` is within the fire window after today's local `timeStr` in `tz`. */
 function isWithinFireWindow(now: Date, tz: string, timeStr: string): boolean {
@@ -31,59 +44,24 @@ function isWithinFireWindow(now: Date, tz: string, timeStr: string): boolean {
   return diff >= 0 && diff < FIRE_WINDOW_MS;
 }
 
-/** Build the rendered daily digest for a user, or null if the user is gone. */
+/**
+ * Build and render the Daily summary for a user (ADR-0059): one structured
+ * digest, rendered as plain text for `message` and as markdown for the Matrix
+ * channel. Null if the user is gone.
+ */
 async function buildDailyDigest(
   db: PrismaClient,
   userId: string,
   now: Date,
   tz: string,
-): Promise<{ title: string; message: string } | null> {
-  const dayStartLocal = startOfDay(toZonedTime(now, tz));
-  const todayStartUtc = fromZonedTime(dayStartLocal, tz);
-  const tomorrowStartUtc = fromZonedTime(addDays(dayStartLocal, 1), tz);
-
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true },
-  });
-  if (!user) return null;
-
-  const tasks = await db.action.findMany({
-    where: {
-      createdById: userId,
-      dueDate: { gte: todayStartUtc, lt: tomorrowStartUtc },
-    },
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      priority: true,
-      status: true,
-      dueDate: true,
-    },
-    orderBy: { priority: "desc" },
-  });
-
-  const completedTasks = tasks.filter((t) => DONE_STATUSES.includes(t.status)).length;
-  const pendingTasks = tasks.filter((t) => !TERMINAL_STATUSES.includes(t.status)).length;
-  const overdueCount = await db.action.count({
-    where: {
-      createdById: userId,
-      status: { notIn: TERMINAL_STATUSES },
-      dueDate: { lt: todayStartUtc },
-    },
-  });
-
-  return NotificationTemplates.dailySummary({
-    user,
-    tasks,
-    stats: {
-      todayCount: tasks.length,
-      pendingTasks,
-      completedTasks,
-      overdueCount,
-    },
-  });
+): Promise<RenderedDigest | null> {
+  const digest = await buildDailySummary(db, userId, now, tz);
+  if (!digest) return null;
+  return {
+    title: DAILY_SUMMARY_TITLE,
+    message: renderDailySummaryPlainText(digest),
+    markdown: renderDailySummaryMarkdown(digest),
+  };
 }
 
 /** True when today (local) is the user's weekly day and we're in the fire window. */
@@ -103,7 +81,7 @@ function isWeeklyDue(
 async function buildWeeklyDigest(
   db: PrismaClient,
   userId: string,
-): Promise<{ title: string; message: string } | null> {
+): Promise<RenderedDigest | null> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true },
@@ -135,13 +113,20 @@ async function emitSummary(
   db: PrismaClient,
   userId: string,
   kind: "daily" | "weekly",
-  digest: { title: string; message: string },
+  digest: RenderedDigest,
   periodKey: string,
 ): Promise<void> {
   await emitNotification({
     category: NOTIFICATION_CATEGORIES.SUMMARY,
     actorUserId: null,
-    subject: { userId, kind, title: digest.title, message: digest.message, periodKey },
+    subject: {
+      userId,
+      kind,
+      title: digest.title,
+      message: digest.message,
+      ...(digest.markdown ? { markdown: digest.markdown } : {}),
+      periodKey,
+    },
     db,
   });
 }
