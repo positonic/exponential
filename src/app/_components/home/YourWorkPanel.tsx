@@ -17,6 +17,7 @@ import { NOTIFICATION_CATEGORIES } from '~/server/services/notifications/emit/co
 import { ActivityFeed } from './activity/ActivityFeed';
 import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
+import { toPlainText } from '~/lib/content/plainText';
 
 type ActionRow = RouterOutputs['action']['getAll'][number];
 
@@ -219,7 +220,8 @@ export function YourWorkPanel() {
                       stroke={1.75}
                       style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
                     />
-                    <span className={styles.rowLabel}>{action.name}</span>
+                    {/* Legacy HTML / Markdown name inside an anchor row: text only. */}
+                    <span className={styles.rowLabel}>{toPlainText(action.name)}</span>
                     {action.project && (
                       <span className={styles.rowMeta}>{action.project.name}</span>
                     )}
@@ -294,6 +296,8 @@ export function YourWorkPanel() {
             )}
           </div>
           {mentions.map((mention) => {
+            // Markdown comment excerpt on a one-line anchor row: text only.
+            const preview = toPlainText(mention.message);
             const row = (
               <>
                 <IconAt
@@ -303,7 +307,7 @@ export function YourWorkPanel() {
                 />
                 <span className={`${styles.rowLabel} ${styles.rowLabelUnread}`}>
                   {mention.title}
-                  {mention.message ? ` — ${mention.message}` : ''}
+                  {preview ? ` — ${preview}` : ''}
                 </span>
                 <span className={styles.unreadDot} aria-label="Unread" />
                 <span className={styles.rowMeta}>

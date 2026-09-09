@@ -1483,6 +1483,14 @@
   margin: 8px 0 0;
 }
 
+/* The goal renders through MarkdownRenderer (compact); its blocks take the
+   card's type rather than the renderer's defaults. */
+.wsa-cycle__goal > :is(p, ul, ol) {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
 .wsa-cycle__track {
   position: relative;
   height: 6px;

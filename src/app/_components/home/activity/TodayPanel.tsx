@@ -14,6 +14,7 @@ import {
   statusCss,
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
+import { toPlainText } from '~/lib/content/plainText';
 
 const MAX_ROWS = 6;
 
@@ -115,8 +116,10 @@ export function TodayPanel() {
               <span className="wsa-item__icon">
                 <IconSquareRoundedCheck size={14} stroke={1.75} />
               </span>
+              {/* Action names are stored as legacy HTML or Markdown; this
+                  row is itself an anchor and one line, so it shows the text. */}
               <span className="wsa-item__label">
-                {action.name}
+                {toPlainText(action.name)}
                 {action.project && (
                   <span className="wsa-item__sub">{action.project.name}</span>
                 )}

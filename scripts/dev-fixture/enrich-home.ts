@@ -4,7 +4,10 @@
  * a QA ticket "waiting on you", overdue/today actions, unread mention
  * notifications, a DRI key result with no check-ins (stale-check-in nudge),
  * recent knowledge pages, and other-user activity events for the
- * "since yesterday" digest.
+ * "since yesterday" digest. Prose fields deliberately carry markup — a legacy
+ * Tiptap HTML action name, Markdown in an action name, a mention excerpt, the
+ * cycle goal and a project description — so a row that prints raw markup is
+ * visible at a glance.
  *
  * Idempotent like seed.ts: stable slugs/dedupe keys, upsert-or-find
  * throughout. Run after `npm run dev:seed-fixture`:
@@ -20,6 +23,12 @@ loadDevEnvOrThrow();
 const db = new PrismaClient();
 
 const DAY = 24 * 60 * 60 * 1000;
+
+const CYCLE_GOAL =
+  "Ship the **tiered daily home** and make it feel [effortless](https://exponential.im).";
+
+const LEGACY_HTML_ACTION_NAME =
+  '<a target="_blank" rel="noopener noreferrer" class="text-blue-500 underline cursor-pointer" href="https://github.com/positonic/exponential/pull/623">https://github.com/positonic/exponential/pull/623</a>';
 
 async function main() {
   const user = await db.user.findUniqueOrThrow({
@@ -50,6 +59,7 @@ async function main() {
       status: "ACTIVE",
       startDate: new Date(now.getTime() - 5 * DAY),
       endDate: new Date(now.getTime() + 9 * DAY),
+      cycleGoal: CYCLE_GOAL,
     },
     create: {
       workspaceId: workspace.id,
@@ -59,7 +69,7 @@ async function main() {
       status: "ACTIVE",
       startDate: new Date(now.getTime() - 5 * DAY),
       endDate: new Date(now.getTime() + 9 * DAY),
-      cycleGoal: "Ship the tiered daily home and make it feel effortless.",
+      cycleGoal: CYCLE_GOAL,
       createdById: user.id,
     },
   });
@@ -87,10 +97,14 @@ async function main() {
     });
   }
 
-  // ---- actions: one overdue, one due today ----
+  // ---- actions: overdue, due today, and two whose names carry markup ----
   for (const [name, offsetDays] of [
     ["Chase the overdue fixture invoice", -2],
     ["Review today's fixture standup notes", 0],
+    // Exactly what the rich action input stores for a pasted URL.
+    [LEGACY_HTML_ACTION_NAME, 1],
+    // What an agent or the CLI stores when it writes Markdown into a name.
+    ["Fix the **flaky** fixture test ([issue 42](https://github.com/positonic/exponential/issues/42))", -1],
   ] as const) {
     const existing = await db.action.findFirst({
       where: { name, workspaceId: workspace.id },
@@ -126,6 +140,11 @@ async function main() {
       "Grace mentioned you on ticket FIX-2",
       "@Dev the accordion fix looks ready for QA",
     ],
+    [
+      "fixture-mention-3",
+      "Linus mentioned you on ticket FIX-4",
+      "@Dev see **both** cases in [the PR](https://github.com/positonic/exponential/pull/623)",
+    ],
   ] as const) {
     await db.notification.upsert({
       where: { dedupeKey_userId: { dedupeKey: key, userId: user.id } },
@@ -158,6 +177,16 @@ async function main() {
       });
     }
   }
+
+  // ---- a Markdown project description for the active-projects rail ----
+  await db.project.update({
+    where: { slug: FIXTURE.projectSlug },
+    data: {
+      status: "ACTIVE",
+      description:
+        "Wire the **linked work** accordion into [the OKR view](https://exponential.im).\n\n- Then the peek drawer",
+    },
+  });
 
   // ---- recent pages ----
   for (const title of ["Cycle 12 retro notes", "Home page design scratchpad"]) {
