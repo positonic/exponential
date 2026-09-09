@@ -45,6 +45,28 @@ describe("toPlainText", () => {
       expect(toPlainText("<p>un<em>do</em> it</p>")).toBe("undo it");
     });
 
+    it("treats a break tag with attributes as a break", () => {
+      expect(
+        toPlainText('<p>one<br class="ProseMirror-trailingBreak">two</p>'),
+      ).toBe("one two");
+    });
+
+    it("drops script and style bodies with their tags", () => {
+      expect(
+        toPlainText(
+          "<p>Plan</p><style>.x{color:red}</style><script>alert(1)</script><p>B</p>",
+        ),
+      ).toBe("Plan B");
+    });
+
+    it("reduces mixed text and inline HTML through the HTML path", () => {
+      // The detector matches a known tag anywhere in the string, not only
+      // at the start.
+      expect(
+        toPlainText('Review PR <a href="https://x.com/1">https://x.com/1</a>'),
+      ).toBe("Review PR https://x.com/1");
+    });
+
     it("decodes named and numeric entities", () => {
       expect(toPlainText("<p>Tom &amp; Jerry&nbsp;&#8212; it&#39;s &quot;on&quot;</p>")).toBe(
         "Tom & Jerry — it's \"on\"",
@@ -54,6 +76,13 @@ describe("toPlainText", () => {
 
     it("treats markdown-looking text inside HTML as literal", () => {
       expect(toPlainText("<p>use **bold** here</p>")).toBe("use **bold** here");
+    });
+
+    it("leaves surrogate numeric entities as typed", () => {
+      const entity = (n: string) => `&${"#"}${n};`;
+      expect(toPlainText(`<p>${entity("xD800")} ${entity("55296")} ok</p>`)).toBe(
+        `${entity("xD800")} ${entity("55296")} ok`,
+      );
     });
 
     it("leaves numeric entities outside the Unicode range as typed", () => {
@@ -125,6 +154,10 @@ describe("toPlainText", () => {
     it("unescapes escaped punctuation", () => {
       expect(toPlainText("Price is \\*not\\* final \\[draft\\]")).toBe(
         "Price is *not* final [draft]",
+      );
+      // The whole CommonMark set, not just the syntax characters.
+      expect(toPlainText("Costs \\$5 \\& ratio \\: 2 \\\"quoted\\\" \\@me")).toBe(
+        'Costs $5 & ratio : 2 "quoted" @me',
       );
     });
 

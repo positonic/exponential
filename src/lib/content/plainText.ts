@@ -43,7 +43,9 @@ function decodeEntities(text: string): string {
       if (decimal !== undefined || hex !== undefined) {
         const codePoint =
           decimal !== undefined ? Number(decimal) : parseInt(hex!, 16);
-        return codePoint <= MAX_CODE_POINT
+        // A lone surrogate would make a malformed string, not a character.
+        const isSurrogate = codePoint >= 0xd800 && codePoint <= 0xdfff;
+        return codePoint <= MAX_CODE_POINT && !isSurrogate
           ? String.fromCodePoint(codePoint)
           : match;
       }
@@ -55,25 +57,32 @@ function decodeEntities(text: string): string {
 
 /**
  * Legacy HTML → text. Block boundaries and line breaks become spaces so
- * `<p>a</p><p>b</p>` reads "a b"; inline tags vanish so `un<em>do</em>`
- * stays one word.
+ * `<p>a</p><p>b</p>` reads "a b" (Tiptap's `<br class="ProseMirror-…">`
+ * included); inline tags vanish so `un<em>do</em>` stays one word. Script
+ * and style bodies are source, not prose, and go with their tags.
  */
 function htmlToText(html: string): string {
   return decodeEntities(
     html
-      .replace(/<br\s*\/?>|<\/(?:p|div|li|h[1-6]|tr|blockquote|pre)>/gi, " ")
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
+      .replace(/<br\b[^>]*>|<\/(?:p|div|li|h[1-6]|tr|blockquote|pre)>/gi, " ")
       .replace(/<[^>]*>/g, ""),
   );
 }
 
-/** Punctuation Markdown lets you backslash-escape (CommonMark §2.4). */
-const ESCAPABLE = "\\`*_{}[]()#+-.!>~|";
+/**
+ * The characters Markdown lets you backslash-escape: every ASCII punctuation
+ * character (CommonMark §2.4), so `\\$5` reads "$5" here as it does in
+ * MarkdownRenderer.
+ */
+const ESCAPABLE = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 /**
  * One sentinel per escapable character, drawn from the Unicode noncharacters
  * U+FDD0–U+FDEF: code points reserved for exactly this kind of
  * process-internal use, which never occur in interchanged text (unlike the
- * private-use area, which some fonts and pasted content do use). The restore
- * pattern covers only the sentinels actually assigned.
+ * private-use area, which some fonts and pasted content do use). There are
+ * 32 of them, one for each ASCII punctuation character; the restore pattern
+ * covers only the sentinels assigned.
  */
 const SENTINEL_BASE = 0xfdd0;
 const SENTINEL_PATTERN = new RegExp(
@@ -88,7 +97,7 @@ function markdownToText(markdown: string): string {
       // Escaped punctuation is literal: park it out of the way of the syntax
       // rules below (`\\*not\\*` is not emphasis) and restore it at the end.
       .replace(
-        /\\([\\`*_{}[\]()#+\-.!>~|])/g,
+        /\\([!-/:-@[-`{-~])/g,
         (_, ch: string) =>
           String.fromCharCode(SENTINEL_BASE + ESCAPABLE.indexOf(ch)),
       )
