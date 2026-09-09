@@ -13,7 +13,7 @@ _Avoid_: Self-hosted, BYOC, customer cloud, or air-gapped as synonyms — those 
 ### Meetings
 
 **Meeting**:
-A recorded conversation captured as a transcript, summary, and participant list. Stored in `TranscriptionSession` in the schema; the user-facing word is always "meeting", never "transcription" or "session". Strictly distinct from a **Scheduled meeting** (a future calendar booking) — a Meeting is a thing that *happened*. Known wart: the Prisma model named `Meeting` stores Scheduled meetings, not this concept (decision 2026-08-16: renaming the model was considered and rejected as churn; unifying the two entities into one lifecycle is deferred to its own design session).
+A recorded conversation captured as a transcript, summary, and participant list. Stored in `TranscriptionSession` in the schema; the user-facing word is always "meeting", never "transcription" or "session". Strictly distinct from a **Scheduled meeting** (a future calendar booking) — a Meeting is a thing that *happened*. Known wart: the Prisma model named `Meeting` stores Scheduled meetings, not this concept (decision 2026-08-16: renaming the model was considered and rejected as churn; unifying the two entities into one lifecycle was deferred to its own design session — that session produced [ADR-0059](docs/adr/0059-ceremony-definition-with-occurrences.md): the **Occurrence** bridges the two by composition, and neither model is renamed).
 _Avoid_: Transcription, session, call.
 
 **Scheduled meeting**:
@@ -24,16 +24,28 @@ _Avoid_: Meeting (reserved for the recorded conversation), event (reserved for `
 The outer bound on suggested Scheduled-meeting times — 07:00–20:00 judged on *each attendee's own wall clock*. The fallback constraint when an attendee's **work hours** don't apply: "include times outside working hours" relaxes suggestions from work hours to the scheduling window, never to 24/7. Hardcoded (decision 2026-08-16: per-user/workspace configurability deferred until requested; work hours themselves are already per-user in Settings → Profile).
 _Avoid_: Business hours (that's work hours), daytime.
 
+**Ceremony**:
+A named recurring team meeting *defined once* per workspace — standup, cycle planning, review & demo, retrospective, product prioritisation, all-hands — with an owner, a cadence rule, a participant set, a purpose and a "not for" list, an agenda template of typed sections, required inputs, expected outputs and title aliases (for matching calendar and Fireflies titles). Workspace-owned with an *optional* product, team or project scope (the `Retrospective` precedent; never product-parented). Managed at Settings → Ceremonies. The definition; what happens on a given date is an **Occurrence**. See [ADR-0059](docs/adr/0059-ceremony-definition-with-occurrences.md).
+_Avoid_: Ritual (historical alias, below), meeting series, recurring meeting, meeting template.
+
+**Occurrence**:
+One instance of a **Ceremony** on a date, generated from its cadence rule for a rolling window and unique per ceremony and scheduled start. Lifecycle: planned → agenda circulated → in progress → captured → followed through, with a side exit to *skipped* (with reason). It snapshots the ceremony definition it was created under, stores its generated **Agenda**, links to at most one **Scheduled meeting** and to the recorded **Meetings** that captured it, and collects the outputs: **Decisions**, **Actions**, key-result check-ins and a parking lot that carries into the next occurrence. The Occurrence is the record that bridges the two meeting models; neither is renamed or merged.
+_Avoid_: Instance, session, event (reserved for `CalendarEvent`), meeting (an occurrence may be captured by zero, one or several recorded Meetings).
+
+**Agenda**:
+The pre-meeting artefact of an **Occurrence**: the ceremony's typed sections, each bound to a deterministic query over workspace data (blockers, carried-over items, open **Decisions**, key results without a recent check-in, cycle progress, retro actions) plus hand-written items. The LLM only narrates query results — an agenda item with no underlying record is never produced (ADR-0007's rule, extended). Stored as a snapshot on the occurrence, re-runnable, circulated through the notification dispatch ("agenda ready") and to the ceremony's Matrix room.
+_Avoid_: Brief (the dormant `PreMeetingBrief` is superseded by this), talking points, prep.
+
 **Ritual**:
-A recurring team meeting on a stable cadence with a stable participant set — standup, retro, weekly sync, planning, all-hands. Detected by calendar recurrence rule (future work) or a user mark on a meeting series.
-_Avoid_: Internal, sync, standup (as a category — standup is one *kind* of ritual).
+The previous name for **Ceremony**. Decision 2026-09-09 (ADR-0059): a Ritual is a Ceremony, and a recorded Meeting is one Occurrence's capture — the old rule "a Ritual is a kind of Meeting, not a separate entity" is superseded. Use "ceremony" in new code and copy.
+_Avoid_: Internal, sync, standup (as a category — standup is one *kind* of ceremony).
 
 **1:1**:
 A meeting with exactly two participants — typically manager/report or peer check-ins. Derivable from participant count.
 _Avoid_: One-on-one, 121.
 
 **Meeting type**:
-The bucket a meeting falls into for navigation. Current values surfaced in UI: `all`, `one_on_one`, `ritual`. Mutually exclusive when assigned. Not yet stored — see "Flagged ambiguities" below.
+The bucket a meeting falls into for navigation. Resolved 2026-09-09 (ADR-0059) without a stored column: a **1:1** is derived from participant count, and a meeting is a *ceremony meeting* when it has an **Occurrence** (filter the Meetings list by ceremony). `customer` / `internal` remain unassigned tabs with honest empty states until a tagging mechanism exists.
 
 **Action**:
 A task extracted from a meeting by Zoe and persisted in the `Action` table. The canonical word everywhere — schema, tRPC routers, CLI, UI. Never "task" in user-facing copy, despite Beads/Task-Master using "task" for their own concepts.
@@ -59,13 +71,38 @@ _Avoid_: Meeting permissions, sharing.
 A Project with `isRestricted: true` (default off, set via the "Restricted project" switch). Its content — Meetings included — is visible only to the project creator, explicit project members, and workspace **owners/admins** (the admin escape hatch). Restriction is an **explicit allowlist**: members of the owning *team* do **not** count (decision 2026-06-12 — joining a team must never silently grant access to its restricted projects; add teammates as project members instead). An *unrestricted* project and everything in it is visible to every workspace member regardless of role (viewer included) or team. This is the canonical mechanism for "admins may see it, plain members may not".
 _Avoid_: Private project (use "restricted"), team project (team ownership ≠ restriction).
 
+### Decisions
+
+**Decision**:
+A recorded choice, owned by the workspace and writable, stored as `Decision`. Statement, Markdown body with ADR headings (context, alternatives considered, consequences), deciders, an accountable owner, decided-at, a **source** (`MEETING | MANUAL | AGENT`), provenance (the **Meeting** and **Occurrence** it came from plus **evidence** — quoted **Transcript turns** with speaker and timestamp, deep-linked), scope (optional product, project, objective or key result) and links (supersedes another Decision, formalised as an **ADR**, implemented by tickets or features). Labelled from a workspace sequence (`D-0042`). Lifecycle: `OPEN` → `PROPOSED` → `ACCEPTED` → `SUPERSEDED | DEPRECATED` — the last four are the ADR status vocabulary, so the **Decision Log** needs one status column. Created by hand (meeting summary tab, Decision Log), by **Zoe** through the same service seam, or **extracted** from a meeting as a draft. Strictly distinct from an **ADR**: an ADR is the rare, git-owned, read-only subset of decisions that clear the ADR bar; most decisions never become one. See [ADR-0060](docs/adr/0060-decisions-beside-adrs-one-log.md).
+_Avoid_: ADR (for anything not in git), agreement, resolution, outcome.
+
+**Open question**:
+A **Decision** in `OPEN` status — raised (usually in a meeting) but not yet answered. Not a separate entity: one lifecycle covers the arc from question to answer, so a ceremony **Agenda**'s "decisions pending" section is one query (open and proposed Decisions in scope, oldest first, with the number of Occurrences each has been carried across). Closed by moving the same row to `ACCEPTED`, never by creating a second row.
+_Avoid_: Question (too generic), issue, parking lot (that is the per-occurrence carry-over list, which may *contain* open questions).
+
+**Draft decision**:
+A Decision the extractor proposed that no person has confirmed yet. Extraction is deterministic (ADR-0007 extended to Decisions): human-curated notes first, transcript second, structured output that must cite supporting Transcript turns; a candidate with no evidence is discarded. Drafts render in the meeting summary tab's Decisions block and as a review card in the Zoe drawer (confirm / edit / reject) and **never** appear in the Decision Log or in any count until confirmed. The extractor is given the meeting's open and proposed Decisions so a resolved question becomes a status change, not a duplicate.
+_Avoid_: Suggested decision, AI decision, auto-decision.
+
+**ADR**:
+An architecture decision record: a markdown file in an enrolled git repository (`docs/adr/`), projected read-only into `AdrDocument` by the hourly sync and labelled `SHORTCODE-NUMBER` (e.g. `API-0003`). Git is the source of truth; Exponential never writes ADR content. The **Decision Log** lists ADRs and **Decisions** together under a **Source** facet (Code / Meeting / Manual). A Decision may be *formalised as* an ADR through a pull request ("Draft ADR"), after which the two link; the database is never the primary record of an ADR.
+_Avoid_: Decision (reserved for the Exponential-owned entity), design doc.
+
+**Decision Log**:
+The workspace index at `/w/[slug]/decisions` (and the per-product lens) over *both* sources — git-projected **ADRs** and Exponential-owned **Decisions** — with a Source facet, one shared status vocabulary, repository / product / status filters and search. Meeting decisions group by ceremony or project; ADRs by repository. Meeting-linked Decisions are visible only through **Meeting visibility** (they quote the transcript); ADRs are workspace-member-visible.
+_Avoid_: ADR viewer (that was v1; it is now half the log), decisions page.
+
 ## Relationships
 
 - A **Meeting** has zero or more **Participants** (`TranscriptionSessionParticipant`).
 - A **Meeting** has zero or more **Speakers** (derived from transcript). The Participant and Speaker sets overlap but are not identical.
 - A **Meeting** belongs to at most one **Project** and at most one **Workspace**. A **project-linked Meeting always inherits the project's Workspace** — a meeting with a Project but no Workspace is an incoherent state. Workspace-less ("personal") Meetings are legal **only** when there is also no Project. `createManualTranscription` enforces this server-side (derives `workspaceId` from the project when not supplied), since **Participants require a Workspace** (`TranscriptionSessionParticipant.workspaceId` is non-null).
 - A **Meeting** produces zero or more **Actions** (extracted by Zoe). An Action extracted from a Meeting **lives where the Meeting lives** — it inherits the Meeting's Project and Workspace at extraction, and **follows the Meeting on reassignment**: moving a Meeting to a new Project (and thus Workspace) re-homes its Actions' `projectId` *and* `workspaceId`. An Action from a Meeting never sits in a different Workspace than its Meeting.
-- A **Ritual** is a *kind of* **Meeting** — not a separate entity.
+- A **Ceremony** has zero or more **Occurrences**; an **Occurrence** belongs to exactly one Ceremony and snapshots the definition it was created under.
+- An **Occurrence** links to at most one **Scheduled meeting** and to zero or more recorded **Meetings**; a recorded Meeting belongs to at most one Occurrence (`TranscriptionSession.occurrenceId`, set by calendar recurrence id, title alias, or by hand).
+- An **Occurrence** collects outputs — **Decisions**, **Actions**, key-result check-ins, parking-lot items — and carries its unresolved items into the next Occurrence of the same Ceremony.
+- A **Ritual** *is* a **Ceremony** (historical alias). The old rule "a Ritual is a kind of Meeting" is superseded by ADR-0059.
 
 ### Activity
 
@@ -634,8 +671,8 @@ _Avoid_: Vector store, embeddings table (use "Knowledge index" / `KnowledgeChunk
 
 ## Flagged ambiguities
 
-- **"Meeting type" is not yet stored.** The Meetings v2 redesign surfaces `All / 1:1s / Rituals` tabs, but no `meetingType` column exists on `TranscriptionSession`. v1 ships with: All = full list, 1:1s = derived live from `participantCount = 2`, Rituals = empty state until a recurrence classifier exists. When Rituals gets real, the resolution will be either calendar recurrence data or a `meetingType` enum field with mutually exclusive values `one_on_one | ritual | other`.
-- **"Decision" and "Open question" are not domain concepts (yet).** The Meetings v2 mockup shows chips and counts ("9 decisions logged", "4 open questions"). These are presentation-only at this stage — no schema, no extractor, no queries. Treat the chips as visual decoration until a deliberate decision to promote them.
+- **"Meeting type" is not yet stored — resolved without a column.** The Meetings v2 redesign surfaced `All / 1:1s / Rituals` tabs with no `meetingType` column on `TranscriptionSession`; the Rituals tab was dropped for having nothing to show. Resolved 2026-09-09 by [ADR-0059](docs/adr/0059-ceremony-definition-with-occurrences.md): a **1:1** stays derived from `participantCount = 2`, and a meeting is a *ceremony meeting* when it has an **Occurrence** — the Meetings list filters by **Ceremony** instead of a stored type. `customer` / `internal` remain empty-state tabs until a tagging mechanism exists.
+- **"Decision" and "Open question" are not domain concepts (yet) — resolved by promotion.** The Meetings v2 mockup's "9 decisions logged / 4 open questions" chips were presentation-only. Resolved 2026-09-09 by [ADR-0060](docs/adr/0060-decisions-beside-adrs-one-log.md): **Decision** is a workspace-owned entity beside git-projected **ADRs** in one **Decision Log**, and an **Open question** is a Decision in `OPEN` status. The chips become real counts once Decisions V1 ships; until then they stay decoration.
 
 - **"Outcome" is deprecated — resolved by removal.** `model Outcome` sat *beside* the Objective(**Goal**)/**Key result** vocabulary rather than inside it, with no glossary entry and unresolved semantics ("most akin to a milestone", while goals-of-goals was already served by `Goal.parentGoalId`). Rather than write a canonical definition, the concept was **removed from the product**: the `outcome` tRPC router, `outcomeService`, the `/outcomes` routes, every Outcome component, and all Outcome-derived signal (project/goal includes, search, scheduling deadlines, weekly-review highlights, onboarding's `hasOutcome`, the agent `get_project_context` payload) are gone. Measurable progress on a Goal is a **Key result**; forward-looking team planning is a **Weekly commitment**. `model Outcome` and its `Goal`/`Project`/`User`/`Workspace` relations **remain in `prisma/schema.prisma` deliberately** — the rows are retained pending a data decision, and no migration drops them. Do not build on the table; do not reintroduce the word into user-facing copy.
 
