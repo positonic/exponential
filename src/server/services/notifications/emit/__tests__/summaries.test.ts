@@ -223,8 +223,120 @@ describe("generateScheduledSummaries — daily summary digest", () => {
 
     expect(subject.message).toContain("☀️ Good morning there! 👋");
     expect(subject.message).toContain("Nothing scheduled or due today\n0 overdue → https://app.test/today");
+    expect(subject.message).toContain("No meetings yesterday");
+    expect(subject.message).toContain("No meetings today");
     expect(subject.message).toContain("No active cycle");
     expect(subject.message).toContain("Nothing committed to you");
+    // No default workspace → no workspace-scoped reads at all.
+    expect(db.workspace.findUnique).not.toHaveBeenCalled();
+    expect(db.product.findMany).not.toHaveBeenCalled();
+  });
+
+  it("renders the exact plain-text and markdown digest for a full Europe/Berlin fixture day", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "u1", name: "Ada Lovelace", email: "ada@acme.test", defaultWorkspaceId: "ws1",
+    } as never);
+    db.action.findMany.mockResolvedValue([
+      berlinAction({ id: "a1", name: "Pay Malte", scheduledStart: new Date("2026-09-09T06:00:00.000Z") }),
+      berlinAction({ id: "a2", name: "Old bill", dueDate: new Date("2026-09-08T10:00:00.000Z") }),
+    ] as never);
+    db.transcriptionSession.findMany.mockResolvedValue([
+      { id: "rec-standup", title: "CLEAR daily standup", meetingDate: new Date("2026-09-08T07:02:00.000Z") },
+      { id: "rec-sync", title: "Pipeline sync", meetingDate: new Date("2026-09-08T14:30:00.000Z") },
+    ] as never);
+    db.product.findMany.mockResolvedValue([
+      { id: "p1", name: "CLEAR", slug: "clear", funTicketIds: true },
+    ] as never);
+    db.list.findFirst.mockResolvedValue({
+      id: "cy1", name: "Cycle 15", status: "ACTIVE",
+      startDate: new Date("2026-09-02T22:00:00.000Z"), endDate: new Date("2026-09-16T22:00:00.000Z"),
+    } as never);
+    const tk = (over: Record<string, unknown>) => ({
+      id: "t", shortId: null, number: 0, title: "t", status: "COMMITTED", points: null,
+      assigneeId: "u2", updatedAt: new Date("2026-09-01T00:00:00.000Z"), ...over,
+    });
+    db.ticket.findMany.mockResolvedValue([
+      tk({ id: "t1", shortId: "red.ridge", number: 532, title: "x.com signals - poc", status: "IN_PROGRESS", points: 2, assigneeId: "u1" }),
+      tk({ id: "t2", shortId: "new.nest", number: 154, title: "Specify a pipeline testing thunderdome", status: "COMMITTED", assigneeId: "u1" }),
+      tk({ id: "t3", shortId: "raw.reef", number: 3, title: "Raw idea", status: "BACKLOG", assigneeId: "u1" }),
+      tk({ id: "t4", shortId: "done.deal", number: 4, title: "Shipped", status: "DONE", points: 3 }),
+      tk({ id: "t5", shortId: "busy.bee", number: 5, title: "Theirs", status: "IN_PROGRESS", points: 5 }),
+    ] as never);
+    const readCalendar: CalendarReader = async () => [
+      { summary: "CLEAR daily standup", start: { dateTime: "2026-09-08T07:00:00.000Z" }, end: { dateTime: "2026-09-08T07:15:00.000Z" } },
+      { summary: "Coffee with Ira", start: { dateTime: "2026-09-08T12:00:00.000Z" }, end: { dateTime: "2026-09-08T12:30:00.000Z" } },
+      { summary: "Offsite", start: { date: "2026-09-09" }, end: { date: "2026-09-10" } },
+      { summary: "Pipeline sync", start: { dateTime: "2026-09-09T08:00:00.000Z" }, end: { dateTime: "2026-09-09T09:00:00.000Z" } },
+    ];
+
+    const subject = await emittedDailySubject(readCalendar);
+
+    expect(subject.title).toBe("☀️ Daily summary");
+    expect(subject.message).toBe(
+      [
+        "☀️ Good morning Ada! 👋",
+        "",
+        "⏪ Yesterday",
+        "1. 09:00 CLEAR daily standup — recording",
+        "   https://app.test/recording/rec-standup",
+        "2. 14:00 Coffee with Ira",
+        "3. 16:30 Pipeline sync (recorded) — recording",
+        "   https://app.test/recording/rec-sync",
+        "",
+        "📅 Today's meetings",
+        "1. Offsite",
+        "2. 10:00 Pipeline sync",
+        "",
+        "✅ Today's actions",
+        "• Pay Malte",
+        "1 overdue → https://app.test/today",
+        "",
+        "🔄 Current cycle — Cycle 15 · 3 Sep – 17 Sep · 8 days left",
+        "3 / 10 pts done · 46% elapsed · Behind pace",
+        "   https://app.test/w/acme/products/clear/cycles/cy1",
+        "Your in-flight tickets:",
+        "• red.ridge x.com signals - poc — In progress",
+        "   https://app.test/w/acme/products/clear/tickets/t1",
+        "",
+        "⏭ Up next",
+        "1. new.nest Specify a pipeline testing thunderdome",
+        "   https://app.test/w/acme/products/clear/tickets/t2",
+        "1 of your cycle tickets still needs refinement",
+        "",
+        "💪 Have a productive day!",
+      ].join("\n"),
+    );
+    expect(subject.markdown).toBe(
+      [
+        "☀️ Good morning Ada! 👋",
+        "",
+        "**⏪ Yesterday**",
+        "1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec-standup)",
+        "2. 14:00 Coffee with Ira",
+        "3. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec-sync)",
+        "",
+        "**📅 Today's meetings**",
+        "1. Offsite",
+        "2. 10:00 Pipeline sync",
+        "",
+        "**✅ Today's actions**",
+        "- Pay Malte",
+        "1 overdue → [/today](https://app.test/today)",
+        "",
+        "**🔄 Current cycle** — [Cycle 15](https://app.test/w/acme/products/clear/cycles/cy1) · 3 Sep – 17 Sep · 8 days left",
+        "3 / 10 pts done · 46% elapsed · Behind pace",
+        "Your in-flight tickets:",
+        "- [red.ridge x.com signals - poc](https://app.test/w/acme/products/clear/tickets/t1) — In progress",
+        "",
+        "**⏭ Up next**",
+        "1. [new.nest Specify a pipeline testing thunderdome](https://app.test/w/acme/products/clear/tickets/t2)",
+        "1 of your cycle tickets still needs refinement",
+        "",
+        "💪 Have a productive day!",
+      ].join("\n"),
+    );
+    // Dedup key input is untouched: one summary per user per local day.
+    expect(subject.periodKey).toBe("2026-09-09");
   });
 
   it("reads the calendar once for [yesterday, tomorrow) local and splits events by local day", async () => {

@@ -1,0 +1,113 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderDailySummaryPlainText > matches the full and empty snapshots (plain text) 1`] = `
+"☀️ Good morning James! 👋
+
+⏪ Yesterday
+1. 09:00 CLEAR daily standup — recording
+   https://app.test/recording/rec1
+2. 14:00 Coffee with Ira
+3. Offsite
+4. 16:30 Pipeline sync (recorded) — recording
+   https://app.test/recording/rec2
+
+📅 Today's meetings
+1. 09:00 CLEAR daily standup
+2. Public holiday
+
+✅ Today's actions
+• Gather medical bills
+• Pay Malte
+32 overdue → https://app.test/today
+
+🔄 Current cycle — Cycle 15 · 3 Sep – 16 Sep · 7 days left
+0 / 2 pts done · 51% elapsed · Behind pace
+   https://app.test/w/acme/products/clear/cycles/cy1
+Your in-flight tickets:
+• C-532 x.com signals - poc — In progress
+   https://app.test/w/acme/products/clear/tickets/t532
+
+⏭ Up next
+1. C-154 Specify a pipeline testing thunderdome
+   https://app.test/w/acme/products/clear/tickets/t154
+2. C-470 Define delivery playbook
+   https://app.test/w/acme/products/clear/tickets/t470
+2 of your cycle tickets still need refinement
+
+💪 Have a productive day!"
+`;
+
+exports[`renderDailySummaryPlainText > matches the full and empty snapshots (plain text) 2`] = `
+"☀️ Good morning there! 👋
+
+⏪ Yesterday
+No meetings yesterday
+
+📅 Today's meetings
+No meetings today
+
+✅ Today's actions
+Nothing scheduled or due today
+0 overdue → https://app.test/today
+
+🔄 Current cycle
+No active cycle
+
+⏭ Up next
+Nothing committed to you
+
+💪 Have a productive day!"
+`;
+
+exports[`renderer snapshots (markdown) > matches the full and empty snapshots 1`] = `
+"☀️ Good morning James! 👋
+
+**⏪ Yesterday**
+1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec1)
+2. 14:00 Coffee with Ira
+3. Offsite
+4. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec2)
+
+**📅 Today's meetings**
+1. 09:00 CLEAR daily standup
+2. Public holiday
+
+**✅ Today's actions**
+- Gather medical bills
+- Pay Malte
+32 overdue → [/today](https://app.test/today)
+
+**🔄 Current cycle** — [Cycle 15](https://app.test/w/acme/products/clear/cycles/cy1) · 3 Sep – 16 Sep · 7 days left
+0 / 2 pts done · 51% elapsed · Behind pace
+Your in-flight tickets:
+- [C-532 x.com signals - poc](https://app.test/w/acme/products/clear/tickets/t532) — In progress
+
+**⏭ Up next**
+1. [C-154 Specify a pipeline testing thunderdome](https://app.test/w/acme/products/clear/tickets/t154)
+2. [C-470 Define delivery playbook](https://app.test/w/acme/products/clear/tickets/t470)
+2 of your cycle tickets still need refinement
+
+💪 Have a productive day!"
+`;
+
+exports[`renderer snapshots (markdown) > matches the full and empty snapshots 2`] = `
+"☀️ Good morning there! 👋
+
+**⏪ Yesterday**
+No meetings yesterday
+
+**📅 Today's meetings**
+No meetings today
+
+**✅ Today's actions**
+Nothing scheduled or due today
+0 overdue → [/today](https://app.test/today)
+
+**🔄 Current cycle**
+No active cycle
+
+**⏭ Up next**
+Nothing committed to you
+
+💪 Have a productive day!"
+`;

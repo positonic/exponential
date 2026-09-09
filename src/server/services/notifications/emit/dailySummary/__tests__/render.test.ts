@@ -164,4 +164,16 @@ describe("renderDailySummaryPlainText", () => {
     expect(text).toContain("1 of your cycle tickets still needs refinement");
     expect(text).toContain(DAILY_SUMMARY_EMPTY.inFlight);
   });
+
+  it("matches the full and empty snapshots (plain text)", () => {
+    expect(renderDailySummaryPlainText(fullDigest)).toMatchSnapshot();
+    expect(renderDailySummaryPlainText(emptyDigest)).toMatchSnapshot();
+  });
+});
+
+describe("renderer snapshots (markdown)", () => {
+  it("matches the full and empty snapshots", () => {
+    expect(renderDailySummaryMarkdown(fullDigest)).toMatchSnapshot();
+    expect(renderDailySummaryMarkdown(emptyDigest)).toMatchSnapshot();
+  });
 });
