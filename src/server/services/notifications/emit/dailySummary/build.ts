@@ -52,7 +52,7 @@ export interface BuildDailySummaryOptions {
  * the live environment.
  */
 export function summaryBaseUrl(): string {
-  const configured = process.env.NEXTAUTH_URL?.trim();
+  const configured = process.env.NEXTAUTH_URL?.trim().replace(/\/+$/, "");
   return configured && configured.length > 0 ? configured : getPublicBaseUrlFromEnv();
 }
 

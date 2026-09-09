@@ -446,6 +446,15 @@ describe("generateScheduledSummaries — daily summary digest", () => {
     );
   });
 
+  it("strips a trailing slash from NEXTAUTH_URL so links never carry //", async () => {
+    process.env.NEXTAUTH_URL = "https://app.test/";
+    db.action.findMany.mockResolvedValue([] as never);
+
+    const subject = await emittedDailySubject();
+
+    expect(subject.message).toContain("0 overdue → https://app.test/today");
+  });
+
   it("treats a blank NEXTAUTH_URL as unset", async () => {
     process.env.NEXTAUTH_URL = "  ";
     process.env.NEXT_PUBLIC_APP_URL = "https://public.test";
