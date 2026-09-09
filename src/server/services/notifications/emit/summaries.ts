@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { startOfDay, setHours, setMinutes, format, getDay } from "date-fns";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { NotificationTemplates } from "~/server/services/notifications/NotificationTemplates";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { emitNotification } from "./emitNotification";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import {
@@ -169,22 +170,40 @@ export async function generateScheduledSummaries(
     const tz = pref.timezone ?? "UTC";
     const time = pref.dailySummaryTime ?? DEFAULT_TIME;
 
-    if (pref.dailySummary && isWithinFireWindow(now, tz, time)) {
-      const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
-      const digest = await buildDailyDigest(db, pref.userId, now, tz, options);
-      if (digest) {
-        await emitSummary(db, pref.userId, "daily", digest, periodKey);
-        emitted++;
+    // One user's failing build must not cost every later user their digest:
+    // report it and move on. Dedup means the user simply gets it on the next
+    // tick inside the fire window if the cause was transient.
+    const attempt = async (kind: "daily" | "weekly", run: () => Promise<void>) => {
+      try {
+        await run();
+      } catch (error) {
+        reportHandledErrorServer(error, {
+          area: "scheduled-summaries",
+          context: { userId: pref.userId, kind, tz },
+        });
       }
+    };
+
+    if (pref.dailySummary && isWithinFireWindow(now, tz, time)) {
+      await attempt("daily", async () => {
+        const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
+        const digest = await buildDailyDigest(db, pref.userId, now, tz, options);
+        if (digest) {
+          await emitSummary(db, pref.userId, "daily", digest, periodKey);
+          emitted++;
+        }
+      });
     }
 
     if (pref.weeklySummary && isWeeklyDue(now, tz, pref.weeklyDayOfWeek ?? 1, time)) {
-      const periodKey = format(toZonedTime(now, tz), "RRRR-'W'II");
-      const digest = await buildWeeklyDigest(db, pref.userId);
-      if (digest) {
-        await emitSummary(db, pref.userId, "weekly", digest, periodKey);
-        emitted++;
-      }
+      await attempt("weekly", async () => {
+        const periodKey = format(toZonedTime(now, tz), "RRRR-'W'II");
+        const digest = await buildWeeklyDigest(db, pref.userId);
+        if (digest) {
+          await emitSummary(db, pref.userId, "weekly", digest, periodKey);
+          emitted++;
+        }
+      });
     }
   }
 

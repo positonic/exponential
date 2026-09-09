@@ -10,6 +10,7 @@ import {
   computeCycleRollup,
 } from "~/plugins/product/server/cycleRollup";
 import { buildTranscriptionAccessWhere } from "~/server/services/access";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import {
   eventsOnLocalDay,
   summaryWindow,
@@ -51,7 +52,8 @@ export interface BuildDailySummaryOptions {
  * the live environment.
  */
 export function summaryBaseUrl(): string {
-  return process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
+  const configured = process.env.NEXTAUTH_URL?.trim();
+  return configured && configured.length > 0 ? configured : getPublicBaseUrlFromEnv();
 }
 
 /** First whitespace-separated token of the user's name, else "there". */
@@ -202,8 +204,11 @@ async function loadCycleBlocks(
     `${baseUrl}/w/${scope.workspaceSlug}/products/${slug}`;
   const statusRank = (s: string) => STATUS_ORDER[s] ?? 99;
 
-  const blocks: DailySummaryCycle[] = [];
-  for (const product of products) {
+  // The products are independent, so their cycle + ticket reads run together;
+  // product-name order is preserved by Promise.all.
+  const loadBlock = async (
+    product: (typeof products)[number],
+  ): Promise<DailySummaryCycle | null> => {
     const own = await db.list.findFirst({
       where: {
         AND: [
@@ -226,7 +231,7 @@ async function loadCycleBlocks(
         orderBy: currentCycleOrder,
         select: cycleSelect,
       }));
-    if (!cycle) continue;
+    if (!cycle) return null;
 
     // One ticket query per product: the whole cycle for the rollup, the
     // user's rows filtered from it for the in-flight list.
@@ -252,7 +257,7 @@ async function loadCycleBlocks(
     const ticketUrl = (t: { id: string }) =>
       `${productBase(product.slug)}/tickets/${t.id}`;
 
-    blocks.push({
+    return {
       productName: product.name,
       name: cycle.name,
       range:
@@ -275,9 +280,11 @@ async function loadCycleBlocks(
         .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
         .map((t) => ({ label: label(t), url: ticketUrl(t) })),
       unrefinedCount: mine.filter((t) => UNREFINED_STATUSES.has(t.status)).length,
-    });
-  }
-  return blocks;
+    };
+  };
+
+  const blocks = await Promise.all(products.map(loadBlock));
+  return blocks.filter((b): b is DailySummaryCycle => b !== null);
 }
 
 /**
@@ -317,9 +324,23 @@ export async function buildDailySummary(
   const readCalendar = options.readCalendar ?? defaultCalendarReader;
 
   // One calendar read covering yesterday and today — each external provider
-  // is queried at most once per user per build (shared Google quota).
+  // is queried at most once per user per build (shared Google quota). A
+  // failing reader (expired token, provider outage) degrades the two meeting
+  // sections to their empty states rather than costing the user the whole
+  // digest; the failure is still reported so it can be found.
+  const readCalendarSafely = readCalendar(
+    userId,
+    window.yesterdayStart,
+    window.tomorrowStart,
+  ).catch((error: unknown) => {
+    reportHandledErrorServer(error, {
+      area: "daily-summary-calendar",
+      context: { userId, tz },
+    });
+    return [];
+  });
   const [events, recordings, { todaysActions, overdueCount }, cycles] = await Promise.all([
-    readCalendar(userId, window.yesterdayStart, window.tomorrowStart),
+    readCalendarSafely,
     loadYesterdayRecordings(db, userId, scope?.workspaceId ?? null, window),
     loadTodaysActions(db, userId, localNow, tz),
     scope ? loadCycleBlocks(db, userId, scope, now, tz, baseUrl) : Promise.resolve([]),

@@ -5,9 +5,14 @@ import type { PrismaClient } from "@prisma/client";
 import { generateScheduledSummaries } from "~/server/services/notifications/emit/summaries";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import type { CalendarReader } from "~/server/services/notifications/emit/dailySummary";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
   emitNotification: vi.fn().mockResolvedValue(undefined),
+}));
+// The server error reporter pulls in the Prisma singleton at module load.
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({
+  reportHandledErrorServer: vi.fn(),
 }));
 
 const db = mockDeep<PrismaClient>();
@@ -401,6 +406,55 @@ describe("generateScheduledSummaries — daily summary digest", () => {
     expect(subject.markdown).toContain(
       "**⏪ Yesterday**\n1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec-standup)\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec-sync)\n",
     );
+  });
+
+  it("degrades the meeting sections to their empty states when the calendar read fails, and reports it", async () => {
+    db.action.findMany.mockResolvedValue([] as never);
+    const failing: CalendarReader = async () => {
+      throw new Error("Google token expired");
+    };
+
+    const subject = await emittedDailySubject(failing);
+
+    expect(subject.message).toContain("⏪ Yesterday\nNo meetings yesterday\n\n📅 Today's meetings\nNo meetings today\n");
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Google token expired" }),
+      expect.objectContaining({ area: "daily-summary-calendar", context: { userId: "u1", tz: "Europe/Berlin" } }),
+    );
+  });
+
+  it("reports one user's failing build and still emits the next user's digest", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([
+      pref({ userId: "u-broken", timezone: "Europe/Berlin" }),
+      pref({ userId: "u1", timezone: "Europe/Berlin" }),
+    ] as never);
+    db.user.findUnique
+      .mockRejectedValueOnce(new Error("db down"))
+      .mockResolvedValueOnce({ id: "u1", name: "Ada", email: "a@b.c", defaultWorkspaceId: null } as never);
+    db.action.findMany.mockResolvedValue([] as never);
+
+    const result = await generateScheduledSummaries(db, BERLIN_NOW, { readCalendar: noEvents });
+
+    expect(result.emitted).toBe(1);
+    expect(emitNotification).toHaveBeenCalledTimes(1);
+    expect(emitNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: expect.objectContaining({ userId: "u1", kind: "daily" }) }),
+    );
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "db down" }),
+      expect.objectContaining({ area: "scheduled-summaries", context: { userId: "u-broken", kind: "daily", tz: "Europe/Berlin" } }),
+    );
+  });
+
+  it("treats a blank NEXTAUTH_URL as unset", async () => {
+    process.env.NEXTAUTH_URL = "  ";
+    process.env.NEXT_PUBLIC_APP_URL = "https://public.test";
+    db.action.findMany.mockResolvedValue([] as never);
+
+    const subject = await emittedDailySubject();
+
+    expect(subject.message).toContain("0 overdue → https://public.test/today");
+    delete process.env.NEXT_PUBLIC_APP_URL;
   });
 
   it("skips the recordings query when the user has no default workspace", async () => {
