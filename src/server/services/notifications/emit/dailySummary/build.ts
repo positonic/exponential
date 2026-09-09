@@ -1,13 +1,20 @@
 import type { PrismaClient } from "@prisma/client";
-import { toZonedTime } from "date-fns-tz";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { partitionActions } from "~/lib/actions/partition";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { buildTranscriptionAccessWhere } from "~/server/services/access";
 import {
   eventsOnLocalDay,
   summaryWindow,
   type CalendarReader,
+  type SummaryWindow,
 } from "./calendar";
-import type { DailySummaryActionItem, DailySummaryDigest } from "./types";
+import { matchRecordingsToEvents } from "./matcher";
+import type {
+  DailySummaryActionItem,
+  DailySummaryDigest,
+  DailySummaryYesterdayItem,
+} from "./types";
 
 export interface BuildDailySummaryOptions {
   /**
@@ -99,6 +106,40 @@ async function loadTodaysActions(
   };
 }
 
+interface YesterdayRecording {
+  id: string;
+  title: string | null;
+  meetingDate: Date;
+}
+
+/**
+ * Recorded Meetings from yesterday in the summary workspace that the user can
+ * see (`buildTranscriptionAccessWhere` — the same set every Meetings surface
+ * shows). None when the user has no default workspace.
+ */
+async function loadYesterdayRecordings(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string | null,
+  window: SummaryWindow,
+): Promise<YesterdayRecording[]> {
+  if (!workspaceId) return [];
+  const rows = await db.transcriptionSession.findMany({
+    where: {
+      AND: [
+        buildTranscriptionAccessWhere(userId),
+        { workspaceId },
+        { meetingDate: { gte: window.yesterdayStart, lt: window.todayStart } },
+      ],
+    },
+    select: { id: true, title: true, meetingDate: true },
+    orderBy: { meetingDate: "asc" },
+  });
+  return rows.flatMap((r) =>
+    r.meetingDate ? [{ id: r.id, title: r.title, meetingDate: r.meetingDate }] : [],
+  );
+}
+
 /**
  * Build a user's Daily summary digest for the local day containing `now` in
  * `tz` (the notification-preference timezone that also decides when the
@@ -124,22 +165,40 @@ export async function buildDailySummary(
 
   // One calendar read covering yesterday and today — each external provider
   // is queried at most once per user per build (shared Google quota).
-  const [events, { todaysActions, overdueCount }] = await Promise.all([
+  const [events, recordings, { todaysActions, overdueCount }] = await Promise.all([
     readCalendar(userId, window.yesterdayStart, window.tomorrowStart),
+    loadYesterdayRecordings(db, userId, user.defaultWorkspaceId, window),
     loadTodaysActions(db, userId, localNow, tz),
   ]);
 
   const yesterdayEvents = eventsOnLocalDay(events, window.yesterdayKey, tz);
   const todayEvents = eventsOnLocalDay(events, window.todayKey, tz);
 
+  // Attach recordings to the events they overlap; whatever no event claims is
+  // appended after the calendar rows as a "recorded" line of its own.
+  const recordingUrl = (id: string) => `${baseUrl}/recording/${id}`;
+  const { byEvent, unmatched } = matchRecordingsToEvents(yesterdayEvents, recordings);
+  const yesterday: DailySummaryYesterdayItem[] = [
+    ...yesterdayEvents.map((e) => {
+      const rec = byEvent.get(e);
+      return {
+        startLocal: e.startLocal,
+        title: e.title,
+        recordingUrl: rec ? recordingUrl(rec.id) : null,
+        source: "calendar" as const,
+      };
+    }),
+    ...unmatched.map((r) => ({
+      startLocal: formatInTimeZone(r.meetingDate, tz, "HH:mm"),
+      title: r.title?.trim() ? r.title.trim() : "Untitled meeting",
+      recordingUrl: recordingUrl(r.id),
+      source: "recording" as const,
+    })),
+  ];
+
   return {
     firstName: firstNameOf(user.name),
-    yesterday: yesterdayEvents.map((e) => ({
-      startLocal: e.startLocal,
-      title: e.title,
-      recordingUrl: null,
-      source: "calendar" as const,
-    })),
+    yesterday,
     todayMeetings: todayEvents.map((e) => ({ startLocal: e.startLocal, title: e.title })),
     todaysActions,
     overdueCount,

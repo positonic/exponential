@@ -162,6 +162,7 @@ describe("generateScheduledSummaries — daily summary digest", () => {
       email: "ada@acme.test",
       defaultWorkspaceId: null,
     } as never);
+    db.transcriptionSession.findMany.mockResolvedValue([] as never);
   });
 
   afterEach(() => {
@@ -249,5 +250,48 @@ describe("generateScheduledSummaries — daily summary digest", () => {
     expect(subject.markdown).toContain(
       "**📅 Today's meetings**\n1. Offsite\n2. 00:30 Late night\n3. 10:00 Pipeline sync\n",
     );
+  });
+
+  it("attaches yesterday's recorded Meetings to their events and appends unmatched ones as recorded", async () => {
+    db.user.findUnique.mockResolvedValue({
+      id: "u1", name: "Ada Lovelace", email: "ada@acme.test", defaultWorkspaceId: "ws1",
+    } as never);
+    db.action.findMany.mockResolvedValue([] as never);
+    db.transcriptionSession.findMany.mockResolvedValue([
+      { id: "rec-standup", title: "CLEAR daily standup", meetingDate: new Date("2026-09-08T07:02:00.000Z") },
+      { id: "rec-sync", title: "Pipeline sync", meetingDate: new Date("2026-09-08T14:30:00.000Z") },
+      { id: "rec-nodate", title: "Undated", meetingDate: null },
+    ] as never);
+    const readCalendar: CalendarReader = async () => [
+      { summary: "CLEAR daily standup", start: { dateTime: "2026-09-08T07:00:00.000Z" }, end: { dateTime: "2026-09-08T07:15:00.000Z" } },
+      { summary: "Coffee with Ira", start: { dateTime: "2026-09-08T12:00:00.000Z" }, end: { dateTime: "2026-09-08T12:30:00.000Z" } },
+    ];
+
+    const subject = await emittedDailySubject(readCalendar);
+
+    // Scoped to the summary workspace and yesterday's local window, through the shared access where.
+    expect(db.transcriptionSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            expect.objectContaining({ OR: expect.any(Array) }),
+            { workspaceId: "ws1" },
+            { meetingDate: { gte: new Date("2026-09-07T22:00:00.000Z"), lt: new Date("2026-09-08T22:00:00.000Z") } },
+          ],
+        },
+      }),
+    );
+    expect(subject.message).toContain(
+      "⏪ Yesterday\n1. 09:00 CLEAR daily standup — recording\n   https://app.test/recording/rec-standup\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — recording\n   https://app.test/recording/rec-sync\n",
+    );
+    expect(subject.markdown).toContain(
+      "**⏪ Yesterday**\n1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec-standup)\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec-sync)\n",
+    );
+  });
+
+  it("skips the recordings query when the user has no default workspace", async () => {
+    db.action.findMany.mockResolvedValue([] as never);
+    await emittedDailySubject();
+    expect(db.transcriptionSession.findMany).not.toHaveBeenCalled();
   });
 });
