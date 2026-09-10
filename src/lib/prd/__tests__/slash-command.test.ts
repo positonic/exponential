@@ -48,6 +48,21 @@ describe("filterSlashCommands", () => {
     expect(titles("hEaDiNg")).toEqual(["Heading 1"]);
   });
 
+  it("ranks prefix matches above substring ones", () => {
+    // "/task" should land on Task list, not on whichever block merely
+    // contains the word — Enter takes the first item.
+    expect(titles("task")).toEqual(["Task list"]);
+    expect(titles("te")).toEqual(["Text"]);
+  });
+
+  it("matches prefixes only for a single character", () => {
+    // `/` is live inside prose (the suggestion plugin fires after any space)
+    // and Enter runs the selected item, so a stray "/1" mid-sentence must not
+    // put "Heading 1" under the Enter key.
+    expect(titles("1")).toEqual([]);
+    expect(titles("t")).toEqual(["Text", "Task list"]);
+  });
+
   it("returns nothing for a query that matches no block", () => {
     // The list renders a "No matches" row rather than unmounting, so an empty
     // result is a state the menu shows, not an error.

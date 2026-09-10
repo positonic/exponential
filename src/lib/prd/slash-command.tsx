@@ -10,6 +10,7 @@ import { Extension, type Editor, type Range } from "@tiptap/core";
 import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
 import { ReactRenderer } from "@tiptap/react";
 import { Paper, Text, UnstyledButton } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconH1,
   IconH2,
@@ -137,8 +138,16 @@ const COMMANDS: SlashCommandItem[] = [
  * an uploader — without one the command would have nowhere to put the bytes.
  *
  * The range is deleted up front so the `/image` text doesn't sit in the doc
- * while the file dialog is open; the insert lands at whatever the selection
- * is when the upload returns.
+ * while the file dialog is open. Everything after that is a long await — an OS
+ * dialog, then a base64 upload of up to 5MB — and the document stays fully
+ * editable throughout, so the insert has to be careful about *where* it lands:
+ *
+ *  - after the caret's top-level block, never at the caret. `image` is a block
+ *    node, and inserting one at an inline position splits whatever the user is
+ *    now typing in — a paragraph, or worse, a code block — in half.
+ *  - not at all if the editor is gone. The upload succeeded and the blob is
+ *    stored either way, so say so rather than dropping it silently.
+ *  - without stealing focus, which by now may be in another editor entirely.
  */
 function imageCommand(upload: UploadImage): SlashCommandItem {
   return {
@@ -150,9 +159,23 @@ function imageCommand(upload: UploadImage): SlashCommandItem {
       void (async () => {
         const file = await pickImageFile();
         if (!file) return;
-        const url = await uploadImageFile(file, upload);
+        const url = await uploadImageFile(file, upload, {
+          reportWrongType: true,
+        });
         if (!url) return;
-        editor.chain().focus().setImage({ src: url }).run();
+        if (editor.isDestroyed) {
+          notifications.show({
+            title: "Image not inserted",
+            message: "The page was closed before the upload finished.",
+            color: "yellow",
+          });
+          return;
+        }
+        const { $from } = editor.state.selection;
+        // depth 0 is the doc, so depth 1 is the top-level block the caret sits
+        // in (or under). `after` is the position just past it.
+        const at = $from.depth > 0 ? $from.after(1) : editor.state.doc.content.size;
+        editor.chain().insertContentAt(at, { type: "image", attrs: { src: url } }).run();
       })();
     },
   };
@@ -165,6 +188,14 @@ function imageCommand(upload: UploadImage): SlashCommandItem {
  * and "div" should reach "Divider" — a prefix match makes you know the first
  * word of a block's name before you can find it. Case-insensitive both ways.
  *
+ * Two things temper it, because `/` is live inside prose (the suggestion
+ * plugin fires after any space) and Enter runs whatever is selected:
+ *
+ *  - a single character matches prefixes only, so a stray "/1" mid-sentence
+ *    can't put "Heading 1" under the Enter key;
+ *  - prefix matches sort above substring ones, so "/task" selects "Task list"
+ *    rather than whichever block merely contains the word.
+ *
  * Exported for its unit test; the extension is the only production caller.
  */
 export function filterSlashCommands(
@@ -173,7 +204,17 @@ export function filterSlashCommands(
 ): SlashCommandItem[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return items;
-  return items.filter((item) => item.title.toLowerCase().includes(needle));
+
+  const prefixed = items.filter((item) =>
+    item.title.toLowerCase().startsWith(needle),
+  );
+  if (needle.length < 2) return prefixed;
+
+  const contained = items.filter(
+    (item) =>
+      !prefixed.includes(item) && item.title.toLowerCase().includes(needle),
+  );
+  return [...prefixed, ...contained];
 }
 
 interface SlashCommandListProps {

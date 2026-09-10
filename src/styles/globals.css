@@ -2172,7 +2172,11 @@ body {
 /* Underline, strike and highlight (the bubble menu's three extra marks).
    Preflight leaves `u`/`s` decorations alone, but `mark`'s UA yellow is
    unreadable in dark mode and ignores the theme — so it gets a token-derived
-   wash instead, the same treatment the comment highlight gets above. */
+   wash instead.
+
+   Same amber token as the comment highlight above, but at highlighter
+   strength rather than that wash's 22%: the two must not read alike, since
+   one is a formatting choice and the other means "there is a thread here". */
 .prd-document u {
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -2183,7 +2187,7 @@ body {
 .prd-document mark {
   background-color: color-mix(
     in srgb,
-    var(--color-brand-warning) 28%,
+    var(--color-brand-warning) 55%,
     transparent
   );
   color: inherit;

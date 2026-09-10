@@ -196,14 +196,25 @@ export function RichDocEditor({
     if (!uploadImage) return null;
     const insertImage = (view: EditorView, file: File, pos?: number): boolean => {
       if (!file.type.startsWith("image/")) return false;
-      void uploadImageFile(file, uploadImage).then((url) => {
-        if (!url) return;
-        const { state } = view;
-        const node = state.schema.nodes.image?.create({ src: url });
-        if (!node) return;
-        const at = pos ?? state.selection.from;
-        view.dispatch(state.tr.insert(at, node));
-      });
+      void uploadImageFile(file, uploadImage)
+        .then((url) => {
+          if (!url || view.isDestroyed) return;
+          const { state } = view;
+          const node = state.schema.nodes.image?.create({ src: url });
+          if (!node) return;
+          // A drop carries the position it was dropped at, which the document
+          // may have outgrown while the upload was in flight (an undo, a
+          // deleted block); an out-of-range insert throws.
+          const at = Math.min(pos ?? state.selection.from, state.doc.content.size);
+          view.dispatch(state.tr.insert(at, node));
+        })
+        .catch(() => {
+          notifications.show({
+            title: "Image not inserted",
+            message: "The upload finished but the image could not be placed.",
+            color: "red",
+          });
+        });
       return true;
     };
     const firstImage = (list?: FileList | null): File | null => {

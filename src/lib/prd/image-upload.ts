@@ -21,8 +21,21 @@ export type UploadImage = (base64Data: string) => Promise<{ url: string }>;
 export async function uploadImageFile(
   file: File,
   upload: UploadImage,
+  options: { reportWrongType?: boolean } = {},
 ): Promise<string | null> {
-  if (!file.type.startsWith("image/")) return null;
+  if (!file.type.startsWith("image/")) {
+    // Paste and drop fall through to the editor's default handling here, so
+    // they stay quiet. A file picked from the `/image` dialog has nowhere else
+    // to go, and silence there reads as the command doing nothing.
+    if (options.reportWrongType) {
+      notifications.show({
+        title: "Not an image",
+        message: "Pick a PNG, JPEG, GIF, WebP or SVG file.",
+        color: "red",
+      });
+    }
+    return null;
+  }
 
   if (file.size > MAX_IMAGE_BYTES) {
     notifications.show({
@@ -66,10 +79,10 @@ function readBase64(file: File): Promise<string | null> {
  * Open the OS file picker for a single image and resolve the chosen file.
  * Used by the `/image` block, which has no file input of its own.
  *
- * Resolves null when the dialog is dismissed — note that "cancel" fires no
- * event in most browsers, so the promise simply never settles in that case
- * and the input is left to be garbage-collected. Callers treat a
- * never-resolving pick as "nothing happened", which is what the user meant.
+ * Resolves null when the dialog is dismissed. Current browsers fire a `cancel`
+ * event for that; older ones fire nothing at all, in which case the promise
+ * never settles and the input is left to be garbage-collected — which callers
+ * treat as "nothing happened", the same outcome.
  */
 export function pickImageFile(): Promise<File | null> {
   return new Promise((resolve) => {
@@ -79,6 +92,7 @@ export function pickImageFile(): Promise<File | null> {
     input.addEventListener("change", () => {
       resolve(input.files?.[0] ?? null);
     });
+    input.addEventListener("cancel", () => resolve(null));
     input.click();
   });
 }

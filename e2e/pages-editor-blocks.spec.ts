@@ -148,6 +148,16 @@ test("the block-type dropdown names the current block and changes it", async ({
   ).toHaveAttribute("aria-current", "true");
   await page.getByRole("menuitem", { name: "Quote" }).click();
   await expect(body.locator("blockquote")).toContainText("Some prose");
+
+  // A paragraph inside a blockquote makes both active; the dropdown has to
+  // name the wrapper, or choosing Quote would unwrap the quote it claimed
+  // wasn't there.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await expect(trigger).toHaveText(/Quote/);
+  await trigger.click();
+  await page.getByRole("menuitem", { name: "Quote" }).click();
+  await expect(body.locator("blockquote")).toHaveCount(1);
 });
 
 /** The smallest valid PNG: 1x1, transparent. */
@@ -180,6 +190,34 @@ test("/image uploads the picked file and inserts it", async ({ page }) => {
   await expect(body.locator("img")).toHaveCount(1, { timeout: 30_000 });
   // The "/image" text is gone — the range is deleted before the dialog opens.
   await expect(body).not.toContainText("/image");
+});
+
+test("/image lands after the block being typed in, not through it", async ({
+  page,
+}) => {
+  await createScratchPage(page, `Scratch image race ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  await page.keyboard.type("/image");
+  await expect(page.getByText("Upload an image")).toBeVisible();
+  await expect(page.getByText("Bullet list", { exact: true })).toBeHidden();
+
+  const chooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Enter");
+  const picked = await chooser;
+
+  // Carry on writing before the upload starts, as a user would. `image` is a
+  // block node, so an insert at the caret would split this paragraph in two.
+  await page.keyboard.type("still writing");
+  await picked.setFiles({
+    name: "tiny.png",
+    mimeType: "image/png",
+    buffer: TINY_PNG,
+  });
+
+  await expect(body.locator("img")).toHaveCount(1, { timeout: 30_000 });
+  await expect(body.locator("p").first()).toHaveText("still writing");
 });
 
 test("/divider inserts a rule that survives a reload as ---", async ({ page }) => {
