@@ -389,7 +389,17 @@ export const crmContactRouter = createTRPCRouter({
       const { workspaceId, contactId } = input;
 
       // ROW_NUMBER over the same total ordering `getAll` uses by default, so the
-      // arrows walk the list in the order the contacts page shows. A keyset
+      // arrows walk the list in the order the contacts page shows. The ranking
+      // mirrors that default branch exactly -- same WHERE (an unfiltered
+      // `getAll` scopes on workspaceId alone; CrmContact has no soft-delete or
+      // archived column) and the same `id ASC` final tie-breaker, which is what
+      // keeps contacts sharing a null `lastInteractionAt` in a stable, total
+      // order. Change one and you must change the other.
+      //
+      // Deliberately ignores any sort or filter the user applied to the list:
+      // the counter reads "in All People", and these arrows walk that whole
+      // set. Reflecting the active view would mean threading its filters
+      // through here. A keyset
       // predicate would need to special-case the NULLS LAST column, and without
       // a matching composite index it would still seq-scan, so ranking the
       // workspace once is both simpler and no slower.

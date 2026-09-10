@@ -71,13 +71,16 @@ function RemoteSearchSelect({
   }
 
   // The label Mantine will echo back through onSearchChange for the current
-  // selection.
-  const selectedLabel =
-    (value &&
-      (data.find((o) => o.value === value)?.label ??
-        (pickedOption?.value === value ? pickedOption.label : null) ??
-        (fallbackOption?.value === value ? fallbackOption.label : null))) ||
-    null;
+  // selection: whichever of the three sources currently supplies its option.
+  function labelFor(id: string): string | null {
+    return (
+      data.find((o) => o.value === id)?.label ??
+      (pickedOption?.value === id ? pickedOption.label : null) ??
+      (fallbackOption?.value === id ? fallbackOption.label : null)
+    );
+  }
+
+  const selectedLabel = value ? labelFor(value) : null;
 
   function handleSearchChange(next: string) {
     // On close, Mantine re-seeds the search input with the selected option's
