@@ -23,6 +23,7 @@ import {
   CEREMONY_KIND_LABELS,
   CeremonyEditorModal,
 } from "~/app/_components/ceremonies/CeremonyEditorModal";
+import { CeremonyAdminTools } from "~/app/_components/ceremonies/CeremonyAdminTools";
 import type { CeremonyTemplate } from "~/server/services/ceremonies/templates";
 
 /**
@@ -33,6 +34,7 @@ import type { CeremonyTemplate } from "~/server/services/ceremonies/templates";
 export default function CeremoniesSettingsPage() {
   const { workspace, workspaceId, userRole, isLoading } = useWorkspace();
   const canEdit = userRole === "owner" || userRole === "admin" || userRole === "member";
+  const isOwnerOrAdmin = userRole === "owner" || userRole === "admin";
 
   const { data: ceremonies, isLoading: listLoading } = api.ceremony.list.useQuery(
     { workspaceId: workspaceId ?? "", includeInactive: true },
@@ -169,6 +171,8 @@ export default function CeremoniesSettingsPage() {
             </Table>
           )}
         </Paper>
+
+        {isOwnerOrAdmin && <CeremonyAdminTools workspaceId={workspaceId} />}
       </Stack>
 
       <CeremonyEditorModal

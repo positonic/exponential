@@ -11,6 +11,7 @@ import {
 import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
+import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -78,6 +79,21 @@ const ceremonyFieldsSchema = z.object({
   agendaTemplate: z.array(agendaSectionSchema).default([]),
   matrixRoomId: z.string().nullish(),
 });
+
+/**
+ * One definition in an import file: the template shape plus the
+ * workspace-specific bits a file can carry by name only (no ids, no secrets).
+ */
+const importDefinitionSchema = ceremonyFieldsSchema
+  .omit({ ownerId: true, participantUserIds: true, productId: true, teamId: true, projectId: true, timezone: true, startsOn: true })
+  .extend({
+    slug: z.string().min(1).max(60),
+    timezone: z.string().min(1).max(64).optional(),
+    startsOn: z.coerce.date().optional(),
+    /** Resolved against workspace members by exact name or email; the importer otherwise. */
+    ownerName: z.string().optional(),
+    participantNames: z.array(z.string()).default([]),
+  });
 
 const ceremonySummarySelect = {
   id: true,
@@ -328,6 +344,113 @@ export const ceremonyRouter = createTRPCRouter({
         occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
       }
       return { ceremony, occurrencesCreated };
+    }),
+
+  /**
+   * Upsert ceremony definitions from a JSON array (the template shape, keyed
+   * by slug). Owner / participants are resolved by member name or email;
+   * unresolved names fall back to the importer and are reported. Owner or
+   * admin only — the same gate the ADR router uses for config mutations.
+   */
+  importDefinitions: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        definitions: z.array(importDefinitionSchema).min(1).max(50),
+        /** Default zone for definitions that carry none. */
+        timezone: z.string().min(1).max(64).optional(),
+        /** Default anchor for definitions that carry none. */
+        startsOn: z.coerce.date().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const members = await ctx.db.workspaceUser.findMany({
+        where: { workspaceId: input.workspaceId },
+        select: { user: { select: { id: true, name: true, email: true } } },
+      });
+      const byKey = new Map<string, string>();
+      for (const m of members) {
+        if (m.user.name) byKey.set(m.user.name.trim().toLowerCase(), m.user.id);
+        if (m.user.email) byKey.set(m.user.email.trim().toLowerCase(), m.user.id);
+      }
+      const resolve = (name: string | undefined) => (name ? byKey.get(name.trim().toLowerCase()) ?? null : null);
+
+      const results: Array<{ slug: string; action: "created" | "updated"; occurrencesCreated: number; unresolved: string[] }> = [];
+      for (const def of input.definitions) {
+        const timezone = def.timezone ?? input.timezone;
+        const startsOn = def.startsOn ?? input.startsOn;
+        if (!timezone || !startsOn) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `"${def.slug}" needs a timezone and a startsOn (in the definition or as import defaults)` });
+        }
+        assertValidCadence(def.cadenceRule, timezone);
+        const slug = slugify(def.slug);
+        const unresolved: string[] = [];
+        const ownerId = resolve(def.ownerName);
+        if (def.ownerName && !ownerId) unresolved.push(def.ownerName);
+        const participantIds = new Set<string>();
+        for (const name of def.participantNames) {
+          const id = resolve(name);
+          if (id) participantIds.add(id);
+          else unresolved.push(name);
+        }
+        const { ownerName: _o, participantNames: _p, slug: _s, timezone: _t, startsOn: _d, agendaTemplate, ...fields } = def;
+        const data = {
+          ...fields,
+          timezone,
+          startsOn,
+          ownerId: ownerId ?? userId,
+          agendaTemplate: agendaTemplate as Prisma.InputJsonValue,
+        };
+        const existing = await ctx.db.ceremony.findUnique({
+          where: { workspaceId_slug: { workspaceId: input.workspaceId, slug } },
+          select: { id: true },
+        });
+        const ceremony = existing
+          ? await ctx.db.ceremony.update({
+              where: { id: existing.id },
+              data: {
+                ...data,
+                participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) },
+              },
+            })
+          : await ctx.db.ceremony.create({
+              data: {
+                ...data,
+                slug,
+                workspaceId: input.workspaceId,
+                createdById: userId,
+                participants: { create: Array.from(participantIds).map((id) => ({ userId: id })) },
+              },
+            });
+        const occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
+        results.push({ slug, action: existing ? "updated" : "created", occurrencesCreated, unresolved });
+      }
+      return results;
+    }),
+
+  /**
+   * Attach the workspace's unattached recordings to occurrences by alias.
+   * Always run with `dryRun: true` first: the report is the review step.
+   * Owner or admin only. Active ceremonies are expanded from their anchor
+   * date first so historical occurrences exist to attach to.
+   */
+  backfillAttachments: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), dryRun: z.boolean().default(true) }))
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const ceremonies = await ctx.db.ceremony.findMany({ where: { workspaceId: input.workspaceId, isActive: true } });
+      let occurrencesCreated = 0;
+      for (const ceremony of ceremonies) occurrencesCreated += await ensureOccurrences(ctx.db, ceremony);
+      const rows = await backfillWorkspaceAttachments(ctx.db, input.workspaceId, { dryRun: input.dryRun });
+      return {
+        dryRun: input.dryRun,
+        occurrencesCreated,
+        scanned: rows.length,
+        matched: rows.filter((r) => r.occurrenceId).length,
+        rows,
+      };
     }),
 
   /** Link a recorded meeting to the occurrence it captured (or unlink with null). */

@@ -41,7 +41,40 @@ export interface OccurrenceMatch {
   alias?: string;
 }
 
-const SLACK_MS = 30 * 60_000;
+/** Live ingestion slack either side of the window (30 minutes). */
+export const DEFAULT_SLACK_MS = 30 * 60_000;
+/**
+ * Backfill slack: historical imports are often dated only to the day (a
+ * Fireflies date at local midnight) or not at all, so backfill widens the
+ * window to a day either side and lets nearest-start decide. Backfill is
+ * dry-run first and human-reviewed, which is what makes the wide window
+ * acceptable there and not on the live path.
+ */
+export const BACKFILL_SLACK_MS = 24 * 60 * 60_000;
+
+export interface MatchOptions {
+  slackMs?: number;
+}
+
+/**
+ * The date a backfill anchors a meeting on: its meeting date; else a `dd/mm`
+ * in the title ("Planning Meeting 20/08 - Cycle 14") with the import's year;
+ * else the import date. Live ingestion never guesses — it uses the meeting
+ * date or nothing.
+ */
+export function backfillAnchorDate(meeting: { title: string | null; meetingDate: Date | null; createdAt: Date }): Date {
+  if (meeting.meetingDate) return meeting.meetingDate;
+  const m = meeting.title ? /(?:^|\D)(\d{1,2})\/(\d{1,2})(?:\D|$)/.exec(meeting.title) : null;
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      const guess = new Date(Date.UTC(meeting.createdAt.getUTCFullYear(), month - 1, day, 12, 0, 0));
+      if (!Number.isNaN(guess.getTime())) return guess;
+    }
+  }
+  return meeting.createdAt;
+}
 
 /** True when every token of `alias` appears in the title's tokens. */
 export function aliasMatches(titleTokens: ReadonlySet<string>, alias: string): boolean {
@@ -52,7 +85,9 @@ export function aliasMatches(titleTokens: ReadonlySet<string>, alias: string): b
 export function matchOccurrence(
   meeting: MatchableMeeting,
   candidates: readonly OccurrenceCandidate[],
+  opts: MatchOptions = {},
 ): OccurrenceMatch | null {
+  const slackMs = opts.slackMs ?? DEFAULT_SLACK_MS;
   if (meeting.calendarExternalId) {
     const byCalendar = candidates.find(
       (c) => c.scheduledMeetingIcalUid && c.scheduledMeetingIcalUid === meeting.calendarExternalId,
@@ -68,8 +103,8 @@ export function matchOccurrence(
   let best: { candidate: OccurrenceCandidate; alias: string; distance: number } | null = null;
   for (const candidate of candidates) {
     const start = candidate.scheduledStart.getTime();
-    const windowStart = at - SLACK_MS;
-    const windowEnd = at + candidate.durationMinutes * 60_000 + SLACK_MS;
+    const windowStart = at - slackMs;
+    const windowEnd = at + candidate.durationMinutes * 60_000 + slackMs;
     if (start < windowStart || start > windowEnd) continue;
     const alias = candidate.aliases.find((a) => aliasMatches(titleTokens, a));
     if (!alias) continue;

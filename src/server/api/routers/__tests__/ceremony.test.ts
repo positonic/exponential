@@ -271,4 +271,68 @@ describe("ceremony router", () => {
       });
     });
   });
+
+  describe("importDefinitions / backfillAttachments gate at owner/admin", () => {
+    const definition = {
+      slug: "daily-standup",
+      name: "Daily Standup",
+      kind: "STANDUP" as const,
+      cadenceRule: cadence.cadenceRule,
+      ownerName: "Andi",
+      participantNames: ["Zed"],
+    };
+
+    it("denies a plain member on both", async () => {
+      withWorkspaceRole(db, "member");
+      const c = caller(db);
+      await expect(
+        c.ceremony.importDefinitions({ workspaceId: WORKSPACE_ID, definitions: [definition], timezone: "Europe/Berlin", startsOn: new Date("2026-06-01") }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(c.ceremony.backfillAttachments({ workspaceId: WORKSPACE_ID, dryRun: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremony.create).not.toHaveBeenCalled();
+      expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    });
+
+    it("upserts by slug, resolves names against members and reports unresolved ones", async () => {
+      withWorkspaceRole(db, "admin");
+      db.workspaceUser.findMany.mockResolvedValue([{ user: { id: "u-andi", name: "Andi", email: "andi@x.test" } }] as never);
+      db.ceremony.findUnique.mockResolvedValue(null);
+      db.ceremony.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "cer-1", workspaceId: WORKSPACE_ID, ...args.data, durationMinutes: 30, leadTimeHours: 24, agendaTemplate: [] })) as never);
+      db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 5 });
+
+      const res = await caller(db).ceremony.importDefinitions({
+        workspaceId: WORKSPACE_ID,
+        definitions: [definition],
+        timezone: "Europe/Berlin",
+        startsOn: new Date("2026-06-01"),
+      });
+
+      expect(res).toEqual([{ slug: "daily-standup", action: "created", occurrencesCreated: 5, unresolved: ["Zed"] }]);
+      const data = db.ceremony.create.mock.calls[0]![0].data;
+      expect(data.ownerId).toBe("u-andi");
+      expect(data.timezone).toBe("Europe/Berlin");
+      expect(data.participants).toEqual({ create: [] });
+    });
+
+    it("dry-run backfill reports matches without writing", async () => {
+      withWorkspaceRole(db, "owner");
+      db.ceremony.findMany.mockResolvedValue([]);
+      db.transcriptionSession.findMany.mockResolvedValue([
+        { id: "m-1", title: "Daily Standup", meetingDate: null, createdAt: new Date("2026-09-08T10:00:00Z"), workspaceId: WORKSPACE_ID, userId: USER_ID },
+      ] as never);
+      db.ceremonyOccurrence.findMany.mockResolvedValue([
+        { id: "occ-1", workspaceId: WORKSPACE_ID, scheduledStart: new Date("2026-09-08T07:30:00Z"), ceremony: { aliases: ["Daily Standup"], durationMinutes: 15 }, scheduledMeeting: null },
+      ] as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({ scheduledStart: new Date("2026-09-08T07:30:00Z"), ceremony: { name: "Daily Standup" } } as never);
+
+      const res = await caller(db).ceremony.backfillAttachments({ workspaceId: WORKSPACE_ID, dryRun: true });
+
+      expect(res.dryRun).toBe(true);
+      expect(res.matched).toBe(1);
+      expect(res.rows[0]).toMatchObject({ meetingId: "m-1", occurrenceId: "occ-1", ceremonyName: "Daily Standup" });
+      expect(res.rows[0]!.reason).toContain("anchored on title date or import date");
+      expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -9,7 +9,13 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
-import { matchOccurrence, type OccurrenceCandidate, type OccurrenceMatch } from "./matchOccurrence";
+import {
+  BACKFILL_SLACK_MS,
+  backfillAnchorDate,
+  matchOccurrence,
+  type OccurrenceCandidate,
+  type OccurrenceMatch,
+} from "./matchOccurrence";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -24,6 +30,8 @@ export interface AttachableMeeting {
 
 /** How far either side of the meeting date candidate occurrences are loaded. */
 const CANDIDATE_WINDOW_MS = 36 * 60 * 60_000;
+/** Backfill loads a wider band to cover its ±24h match slack plus duration. */
+const BACKFILL_CANDIDATE_WINDOW_MS = 3 * 24 * 60 * 60_000;
 
 /**
  * Candidate occurrences for a meeting: the meeting's workspace when it has
@@ -36,9 +44,11 @@ const CANDIDATE_WINDOW_MS = 36 * 60 * 60_000;
 export async function loadOccurrenceCandidates(
   db: Db,
   meeting: AttachableMeeting,
+  opts: { windowMs?: number } = {},
 ): Promise<Array<OccurrenceCandidate & { workspaceId: string }>> {
   if (!meeting.meetingDate && !meeting.calendarExternalId) return [];
   if (!meeting.workspaceId && !meeting.userId) return [];
+  const windowMs = opts.windowMs ?? CANDIDATE_WINDOW_MS;
 
   const rows = await db.ceremonyOccurrence.findMany({
     where: {
@@ -49,8 +59,8 @@ export async function loadOccurrenceCandidates(
       ...(meeting.meetingDate
         ? {
             scheduledStart: {
-              gte: new Date(meeting.meetingDate.getTime() - CANDIDATE_WINDOW_MS),
-              lte: new Date(meeting.meetingDate.getTime() + CANDIDATE_WINDOW_MS),
+              gte: new Date(meeting.meetingDate.getTime() - windowMs),
+              lte: new Date(meeting.meetingDate.getTime() + windowMs),
             },
           }
         : {}),
@@ -114,6 +124,88 @@ export async function attachMeetingToOccurrence(
     });
     return { meetingId: meeting.id, match: null };
   }
+}
+
+export interface BackfillRow {
+  meetingId: string;
+  title: string | null;
+  anchorDate: Date;
+  occurrenceId: string | null;
+  ceremonyName: string | null;
+  scheduledStart: Date | null;
+  reason: string;
+}
+
+/**
+ * Backfill for one workspace (ADR-0059): every unattached, unarchived
+ * recorded meeting is matched with the backfill anchor and the wide window,
+ * and reported; rows are written only when `dryRun` is false. Occurrences
+ * for the window are assumed to exist (the caller expands active ceremonies
+ * from their `startsOn` first).
+ */
+export async function backfillWorkspaceAttachments(
+  db: Db,
+  workspaceId: string,
+  opts: { dryRun: boolean; limit?: number },
+): Promise<BackfillRow[]> {
+  const meetings = await db.transcriptionSession.findMany({
+    where: {
+      OR: [{ workspaceId }, { project: { workspaceId } }],
+      occurrenceId: null,
+      archivedAt: null,
+      title: { not: null },
+    },
+    orderBy: { createdAt: "asc" },
+    take: opts.limit ?? 500,
+    select: { id: true, title: true, meetingDate: true, createdAt: true, workspaceId: true, userId: true },
+  });
+
+  const ceremonyNames = new Map<string, { name: string; scheduledStart: Date }>();
+  const rows: BackfillRow[] = [];
+  for (const meeting of meetings) {
+    const anchorDate = backfillAnchorDate(meeting);
+    const probe = { ...meeting, workspaceId, meetingDate: anchorDate };
+    const candidates = await loadOccurrenceCandidates(db, probe, { windowMs: BACKFILL_CANDIDATE_WINDOW_MS });
+    const match = matchOccurrence(probe, candidates, { slackMs: BACKFILL_SLACK_MS });
+    if (!match) {
+      rows.push({
+        meetingId: meeting.id,
+        title: meeting.title,
+        anchorDate,
+        occurrenceId: null,
+        ceremonyName: null,
+        scheduledStart: null,
+        reason: candidates.length === 0 ? "no occurrences near the anchor date" : "no alias matched the title",
+      });
+      continue;
+    }
+    const winner = candidates.find((c) => c.id === match.occurrenceId)!;
+    let named = ceremonyNames.get(winner.id);
+    if (!named) {
+      const occ = await db.ceremonyOccurrence.findUnique({
+        where: { id: winner.id },
+        select: { scheduledStart: true, ceremony: { select: { name: true } } },
+      });
+      named = { name: occ?.ceremony.name ?? "?", scheduledStart: occ?.scheduledStart ?? winner.scheduledStart };
+      ceremonyNames.set(winner.id, named);
+    }
+    if (!opts.dryRun) {
+      await db.transcriptionSession.update({
+        where: { id: meeting.id },
+        data: { occurrenceId: match.occurrenceId, ...(meeting.workspaceId ? {} : { workspaceId }) },
+      });
+    }
+    rows.push({
+      meetingId: meeting.id,
+      title: meeting.title,
+      anchorDate,
+      occurrenceId: match.occurrenceId,
+      ceremonyName: named.name,
+      scheduledStart: named.scheduledStart,
+      reason: match.reason === "calendar" ? "calendar recurrence id" : `alias "${match.alias}"${meeting.meetingDate ? "" : " (anchored on title date or import date)"}`,
+    });
+  }
+  return rows;
 }
 
 export interface CatchUpResult {

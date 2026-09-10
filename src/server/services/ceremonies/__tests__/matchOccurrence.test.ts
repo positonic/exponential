@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aliasMatches, matchOccurrence, type OccurrenceCandidate } from "../matchOccurrence";
+import { BACKFILL_SLACK_MS, aliasMatches, backfillAnchorDate, matchOccurrence, type OccurrenceCandidate } from "../matchOccurrence";
 import { normaliseTitleTokens, tokenizeTitle } from "~/lib/meetings/titleTokens";
 
 const standupMon: OccurrenceCandidate = {
@@ -67,5 +67,22 @@ describe("matchOccurrence", () => {
     expect(matchOccurrence({ title: "Daily Standup", meetingDate: null }, all)).toBeNull();
     expect(matchOccurrence({ title: null, meetingDate: new Date("2026-09-07T07:00:00.000Z") }, all)).toBeNull();
     expect(matchOccurrence({ title: "Daily Standup", meetingDate: new Date("2026-09-07T07:00:00.000Z") }, [])).toBeNull();
+  });
+});
+
+describe("backfill anchoring", () => {
+  it("prefers the meeting date, then a dd/mm in the title with the import year, then the import date", () => {
+    const createdAt = new Date("2026-08-24T09:00:00.000Z");
+    expect(backfillAnchorDate({ title: "Planning Meeting 20/08 - Cycle 14", meetingDate: new Date("2026-08-21T00:00:00Z"), createdAt }).toISOString()).toBe("2026-08-21T00:00:00.000Z");
+    expect(backfillAnchorDate({ title: "Planning Meeting 20/08 - Cycle 14", meetingDate: null, createdAt }).toISOString()).toBe("2026-08-20T12:00:00.000Z");
+    expect(backfillAnchorDate({ title: "Daily Standup", meetingDate: null, createdAt })).toBe(createdAt);
+    expect(backfillAnchorDate({ title: "Budget 99/99 review", meetingDate: null, createdAt })).toBe(createdAt);
+  });
+
+  it("the wide backfill slack lets a day-only date find the nearest tick", () => {
+    // Fireflies date at Berlin midnight (22:00Z the day before); the 09:00 tick is 9 h away.
+    const meeting = { title: "Daily Standup", meetingDate: new Date("2026-09-06T22:00:00.000Z") };
+    expect(matchOccurrence(meeting, [standupMon, standupTue])).toBeNull();
+    expect(matchOccurrence(meeting, [standupMon, standupTue], { slackMs: BACKFILL_SLACK_MS })?.occurrenceId).toBe("occ-mon");
   });
 });
