@@ -26,15 +26,20 @@ async function createScratchPage(
   const titleInput = page.getByLabel("Page title");
   await expect(titleInput).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
   await titleInput.fill(title);
-  // Wait for the rename round-trip: the menu reads the title from the cached
-  // `page.get` entry, which the mutation patches on success.
   await Promise.all([
     page.waitForResponse(
       (r) => r.url().includes("/api/trpc/") && r.url().includes("page.update"),
     ),
     titleInput.blur(),
   ]);
-  await expect(titleInput).toHaveValue(title);
+  // Reload rather than trusting the response: the menu reads the title from
+  // the cached `page.get` entry, which the mutation patches in `onSuccess` —
+  // after the response lands, by an amount that grows under load. A reload
+  // makes the server the source of the title the test then asserts on.
+  await page.reload();
+  await expect(page.getByLabel("Page title")).toHaveValue(title, {
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
   return { title, url: page.url() };
 }
 
