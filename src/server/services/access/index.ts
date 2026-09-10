@@ -99,6 +99,16 @@ export {
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
 export {
+  getDecisionAccess,
+  canViewDecision,
+  canEditDecision,
+  buildDecisionAccessWhere,
+} from "./resolvers/decisionResolver";
+export type {
+  DecisionAccessInfo,
+  DecisionAccessSubject,
+} from "./resolvers/decisionResolver";
+export {
   getKnowledgePageAccess,
   canViewKnowledgePage,
   canEditKnowledgePage,

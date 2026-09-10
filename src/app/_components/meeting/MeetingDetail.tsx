@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { notifications } from "@mantine/notifications";
-import { IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
+import { IconGavel, IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
 import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
 import { PostToMatrixButton } from "~/app/_components/matrix/PostToMatrixButton";
@@ -16,6 +17,9 @@ import {
 } from "./ParticipantPicker";
 import { buildMeetingViewModel } from "~/lib/meeting-view-model";
 import type { MeetingSession } from "~/lib/meeting-view-model";
+import { turnToEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
+import type { TranscriptTurn } from "~/lib/transcript";
+import { LogDecisionModal } from "~/app/_components/decisions/LogDecisionModal";
 import type { MeetingProjectOption } from "./MeetingProjectPicker";
 import type { MeetingOccurrenceOption } from "./MeetingOccurrencePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -80,9 +84,56 @@ export function MeetingDetail({
   onRegenerateSummary,
   onArchive,
 }: MeetingDetailProps) {
-  const [tab, setTab] = useState<Tab>("summary");
+  // `?tab=transcript` opens straight onto the transcript — decision evidence
+  // deep-links there with a `#turn-<n>` anchor (ADR-0060).
+  const searchParams = useSearchParams();
+  const initialTab: Tab = searchParams?.get("tab") === "transcript" ? "transcript" : "summary";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const vm = useMemo(() => buildMeetingViewModel(session), [session]);
+
+  // Decisions logged from this meeting (confirmed for viewers, drafts for
+  // editors) feed the summary tab's Decisions / Open questions block.
+  const { data: meetingDecisions } = api.decision.listForMeeting.useQuery(
+    { transcriptionSessionId: session.id },
+    { enabled: Boolean(session.id) },
+  );
+  const vm = useMemo(
+    () => buildMeetingViewModel(session, meetingDecisions?.decisions ?? []),
+    [session, meetingDecisions],
+  );
+  const canLogDecision = meetingDecisions?.canLogDecision ?? false;
+
+  // Evidence capture: transcript turns marked "Use as evidence" collect here
+  // until the modal logs them with the decision.
+  const [evidence, setEvidence] = useState<DecisionEvidenceTurn[]>([]);
+  const [logDecisionOpen, setLogDecisionOpen] = useState(false);
+  const evidenceTurnIndices = useMemo(
+    () => new Set(evidence.map((e) => e.turnIndex)),
+    [evidence],
+  );
+  const toggleEvidence = useCallback((turn: TranscriptTurn, turnIndex: number) => {
+    setEvidence((prev) =>
+      prev.some((e) => e.turnIndex === turnIndex)
+        ? prev.filter((e) => e.turnIndex !== turnIndex)
+        : [...prev, turnToEvidence(turn, turnIndex)],
+    );
+  }, []);
+  const removeEvidence = useCallback((turnIndex: number) => {
+    setEvidence((prev) => prev.filter((e) => e.turnIndex !== turnIndex));
+  }, []);
+  const decisionMeeting = useMemo(
+    () => ({
+      id: session.id,
+      meetingDate: session.meetingDate ? new Date(session.meetingDate) : null,
+      participants: session.participants.map((p) => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        userId: p.userId,
+      })),
+    }),
+    [session.id, session.meetingDate, session.participants],
+  );
 
   const utils = api.useUtils();
   // Identity keys already on the meeting so the picker hides existing people.
@@ -293,16 +344,42 @@ export function MeetingDetail({
                 onCreateActions={onCreateActions}
                 onIdeateFeatures={onIdeateFeatures}
                 onRegenerate={onRegenerateSummary}
+                canLogDecision={canLogDecision}
+                onLogDecision={() => setLogDecisionOpen(true)}
               />
             )}
             {tab === "transcript" && (
-              <TranscriptView
-                variant="full"
-                transcription={session.transcription}
-                sentencesJson={session.sentencesJson}
-                chapters={vm.chapters}
-                participants={vm.participants}
-              />
+              <>
+                <TranscriptView
+                  variant="full"
+                  transcription={session.transcription}
+                  sentencesJson={session.sentencesJson}
+                  chapters={vm.chapters}
+                  participants={vm.participants}
+                  evidenceTurnIndices={evidenceTurnIndices}
+                  onToggleEvidence={canLogDecision ? toggleEvidence : undefined}
+                />
+                {evidence.length > 0 && (
+                  <div className="mp-evtray" role="status">
+                    <IconGavel size={14} />
+                    <span>
+                      <b>{evidence.length}</b> {evidence.length === 1 ? "turn" : "turns"} marked as
+                      evidence
+                    </span>
+                    <span className="mp-evtray__spacer" />
+                    <button className="mp-chipbtn" type="button" onClick={() => setEvidence([])}>
+                      Clear
+                    </button>
+                    <button
+                      className="mp-btn mp-btn--primary"
+                      type="button"
+                      onClick={() => setLogDecisionOpen(true)}
+                    >
+                      <IconGavel size={13} /> Log a decision
+                    </button>
+                  </div>
+                )}
+              </>
             )}
             {tab === "screenshots" && (
               <ScreenshotsTab
@@ -351,6 +428,19 @@ export function MeetingDetail({
           />
         </div>
       </div>
+
+      {session.workspaceId ? (
+        <LogDecisionModal
+          opened={logDecisionOpen}
+          onClose={() => setLogDecisionOpen(false)}
+          workspaceId={session.workspaceId}
+          workspaceSlug={workspaceSlug}
+          meeting={decisionMeeting}
+          evidence={evidence}
+          onRemoveEvidence={removeEvidence}
+          onCreated={() => setEvidence([])}
+        />
+      ) : null}
 
       <ParticipantPicker
         opened={pickerOpen}

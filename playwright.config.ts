@@ -11,7 +11,10 @@ import { defineConfig, devices } from "@playwright/test";
  * Dev-only by construction: global-setup runs the same guards as the fixture
  * scripts (refuses NODE_ENV=production and non-local databases).
  */
-const PORT = 3100;
+// Override with E2E_PORT when another checkout already holds 3100 (parallel
+// worktrees): with reuseExistingServer the suite would otherwise run against
+// that checkout's server instead of this one.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./e2e",

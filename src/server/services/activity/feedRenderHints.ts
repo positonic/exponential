@@ -276,6 +276,38 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "status_changed",
   },
 
+  // Decisions (ADR-0060). The label + statement ride in metadata.title so
+  // {entityRef} reads "D-0042 Park prioritisation debates…", never a CUID.
+  // Status transitions are separate actions so the feed reads as a lifecycle.
+  [key("decision", "created")]: {
+    template: "{actor} logged decision {entityRef}",
+    iconKind: "created",
+  },
+  [key("decision", "updated")]: {
+    template: "{actor} updated decision {entityRef}",
+    iconKind: "updated",
+  },
+  [key("decision", "status_changed")]: {
+    template: "{actor} changed status on decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "accepted")]: {
+    template: "{actor} accepted decision {entityRef}",
+    iconKind: "completed",
+  },
+  [key("decision", "superseded")]: {
+    template: "{actor} superseded decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "deprecated")]: {
+    template: "{actor} deprecated decision {entityRef}",
+    iconKind: "deleted",
+  },
+  [key("decision", "confirmed")]: {
+    template: "{actor} confirmed decision {entityRef}",
+    iconKind: "completed",
+  },
+
   // Channel activity summaries (ADR-0023). The feed renders these rows with a
   // bespoke layout (provider icon + channel name as the actor, summary as the
   // body) rather than this template, but the hint still drives the icon kind

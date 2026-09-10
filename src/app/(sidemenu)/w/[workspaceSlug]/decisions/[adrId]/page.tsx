@@ -48,6 +48,12 @@ export default function DecisionDetailPage() {
     { workspaceId: workspaceId ?? "", adrId },
     { enabled: !!workspaceId && !!adrId },
   );
+  // Decisions formalised as this ADR (ADR-0060). Read through the decision
+  // router so the meeting resolver, not this page, decides what is shown.
+  const { data: decidedIn } = api.decision.listForAdr.useQuery(
+    { workspaceId: workspaceId ?? "", adrDocumentId: adrId },
+    { enabled: !!workspaceId && !!adrId },
+  );
 
   if (isLoading || (workspace && adrLoading)) {
     return (
@@ -184,6 +190,31 @@ export default function DecisionDetailPage() {
                 {link.to.label ?? link.to.title}
               </Anchor>{" "}
               — {link.to.title}
+            </Text>
+          ))}
+        </Stack>
+      ) : null}
+
+      {decidedIn && decidedIn.length > 0 ? (
+        <Stack gap={4} mb="md" mt="md">
+          {decidedIn.map((d) => (
+            <Text key={d.id} size="sm" className="text-text-secondary">
+              Decided in{" "}
+              <Anchor
+                component={Link}
+                href={`/w/${workspace.slug}/decisions/d/${d.id}`}
+                size="sm"
+              >
+                {d.label}
+              </Anchor>{" "}
+              — {d.statement}
+              {d.transcriptionSession
+                ? ` (${d.transcriptionSession.title ?? "meeting"}${
+                    d.decidedAt ? `, ${new Date(d.decidedAt).toLocaleDateString()}` : ""
+                  })`
+                : d.decidedAt
+                  ? ` (${new Date(d.decidedAt).toLocaleDateString()})`
+                  : ""}
             </Text>
           ))}
         </Stack>

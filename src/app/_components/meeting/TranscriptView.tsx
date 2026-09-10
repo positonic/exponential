@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge, Group, Stack, Text } from "@mantine/core";
-import { IconCheck, IconCopy, IconSearch, IconUsers } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconQuote, IconSearch, IconUsers } from "@tabler/icons-react";
 import { MpAvatar } from "./MpAvatar";
 import { getInitial } from "~/utils/avatarColors";
 import { parseTranscript, turnsToReadableText } from "~/lib/transcript";
 import type { TranscriptTurn } from "~/lib/transcript";
 import type { MeetingChapter, MeetingParticipant } from "~/lib/meeting-view-model";
+import { transcriptTurnAnchor } from "~/lib/decision-evidence";
 
 interface TranscriptViewProps {
   transcription: string | null;
@@ -20,6 +21,10 @@ interface TranscriptViewProps {
   variant?: "full" | "preview";
   /** Number of turns shown in the `preview` variant before "+N more". */
   previewCount?: number;
+  /** Canonical indices of turns already marked as decision evidence (ADR-0060). */
+  evidenceTurnIndices?: ReadonlySet<number>;
+  /** Present when the viewer may log decisions: shows "Use as evidence" per turn. */
+  onToggleEvidence?: (turn: TranscriptTurn, turnIndex: number) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -90,10 +95,24 @@ export function TranscriptView({
   participants = [],
   variant = "full",
   previewCount = 3,
+  evidenceTurnIndices,
+  onToggleEvidence,
 }: TranscriptViewProps) {
   const [query, setQuery] = useState("");
   const [onlyMe, setOnlyMe] = useState(false);
   const { copied, copy } = useCopyToClipboard();
+  // A decision's evidence deep-links here as `#turn-<n>`: scroll it into view
+  // and flash it once the turns have rendered.
+  const [targetTurn, setTargetTurn] = useState<number | null>(null);
+  useEffect(() => {
+    if (variant !== "full" || typeof window === "undefined") return;
+    const match = /^#turn-(\d+)$/.exec(window.location.hash);
+    if (!match) return;
+    const index = Number(match[1]);
+    setTargetTurn(index);
+    const el = document.getElementById(transcriptTurnAnchor(index));
+    el?.scrollIntoView({ block: "center" });
+  }, [variant]);
 
   // Normalize via the canonical parser (ADR-0032): flavor and timestamps are
   // resolved in the parser, so this component is purely presentational.
@@ -190,11 +209,15 @@ export function TranscriptView({
     );
   }
 
-  const filtered = turns.filter((t) => {
-    if (onlyMe && t.flavor !== "me") return false;
-    if (query && !t.text.toLowerCase().includes(query.toLowerCase())) return false;
-    return true;
-  });
+  // Keep the canonical index on every row: evidence anchors and the
+  // "Use as evidence" payload refer to the unfiltered transcript.
+  const filtered = turns
+    .map((turn, index) => ({ turn, index }))
+    .filter(({ turn: t }) => {
+      if (onlyMe && t.flavor !== "me") return false;
+      if (query && !t.text.toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    });
 
   // interleave chapter markers by start time (only when not filtering, and only
   // for timestamped transcripts — plain-text pastes have no times or chapters)
@@ -227,7 +250,7 @@ export function TranscriptView({
       {filtered.length === 0 ? (
         <div className="mp-empty">No matching transcript lines.</div>
       ) : (
-        filtered.map((turn, i) => {
+        filtered.map(({ turn, index }) => {
           const chapterMarkers: React.ReactNode[] = [];
           if (showChapters && turn.startTime !== null) {
             while (
@@ -248,10 +271,18 @@ export function TranscriptView({
 
           const name = turn.speaker ?? "";
           const flavor = turn.flavor ?? "them";
+          const isEvidence = evidenceTurnIndices?.has(index) ?? false;
+          const turnClass = [
+            "mp-turn",
+            isEvidence ? "mp-turn--evidence" : "",
+            targetTurn === index ? "mp-turn--target" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           return (
-            <div key={`row-${i}`}>
+            <div key={`row-${index}`} id={transcriptTurnAnchor(index)}>
               {chapterMarkers}
-              <div className="mp-turn">
+              <div className={turnClass}>
                 <div className="mp-turn__gutter">
                   {turn.startTime !== null && (
                     <span className="mp-turn__time">{formatTime(turn.startTime)}</span>
@@ -269,6 +300,22 @@ export function TranscriptView({
                     <div className={`mp-turn__name mp-turn__name--${flavor}`}>{name}</div>
                   )}
                   <p className="mp-turn__text">{withHighlight(turn.text, query)}</p>
+                  {onToggleEvidence && (
+                    <button
+                      type="button"
+                      className={`mp-turn__evidence ${isEvidence ? "on" : ""}`}
+                      onClick={() => onToggleEvidence(turn, index)}
+                      aria-pressed={isEvidence}
+                      title={
+                        isEvidence
+                          ? "Remove this turn from the decision's evidence"
+                          : "Quote this turn as evidence for a decision"
+                      }
+                    >
+                      {isEvidence ? <IconCheck size={11} /> : <IconQuote size={11} />}
+                      {isEvidence ? "Evidence" : "Use as evidence"}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
