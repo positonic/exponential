@@ -27,6 +27,7 @@ import {
   updateDecision,
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
 import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
 
@@ -178,7 +179,13 @@ function quoteMatchesTurn(quote: string, turnText: string): boolean {
   const q = normalize(quote);
   const t = normalize(turnText);
   if (q.length === 0) return false;
-  return t.includes(q) || q.includes(t);
+  if (t.includes(q)) return true;
+  // The reverse direction lets a quote spanning several turns cite the first
+  // of them, but a very short turn ("yeah", "no") appears inside almost any
+  // sentence — matching on that would attach a real but unsupporting turn as
+  // evidence. Require enough of the turn to be meaningful.
+  const MIN_REVERSE_MATCH_CHARS = 12;
+  return t.length >= MIN_REVERSE_MATCH_CHARS && q.includes(t);
 }
 
 async function ensureMeetingEditable(
@@ -379,6 +386,24 @@ export const decisionRouter = createTRPCRouter({
           console.warn(
             `[decision.create] dropped ${checked.dropped} evidence turn(s) that do not match the transcript`,
             { transcriptionSessionId: input.transcriptionSessionId, source: input.source },
+          );
+        }
+        // Every quote rejected is not routine: the caller cited a transcript
+        // and none of it was there, which is what a fabricated citation looks
+        // like. Surface it instead of letting the decision quietly lose its
+        // evidence (a partial drop stays a log line).
+        if (checked.kept.length === 0) {
+          reportHandledErrorServer(
+            new Error("Every evidence turn failed transcript verification"),
+            {
+              area: "decision.create.evidence",
+              context: {
+                transcriptionSessionId: input.transcriptionSessionId,
+                source: input.source ?? "MANUAL",
+                provided: String(input.evidence.length),
+                transcriptTurns: String(turns.length),
+              },
+            },
           );
         }
         evidence = checked.kept.length > 0 ? checked.kept : undefined;

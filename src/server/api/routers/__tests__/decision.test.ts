@@ -50,6 +50,9 @@ vi.mock("next-auth/providers/notion", () => ({ default: vi.fn() }));
 vi.mock("next-auth/providers/postmark", () => ({ default: vi.fn() }));
 vi.mock("next-auth/providers/microsoft-entra-id", () => ({ default: vi.fn() }));
 
+const reportHandledErrorServer = vi.hoisted(() => vi.fn());
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
+
 vi.mock("~/server/auth", () => ({
   auth: () => null,
   handlers: {},
@@ -464,6 +467,73 @@ describe("decision router", () => {
       expect(data.evidence).toEqual([
         { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: "Let's park it." },
       ]);
+    });
+
+    it("will not let a trivially short turn stand as evidence for a longer quote, and reports the wholesale rejection", async () => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      reportHandledErrorServer.mockClear();
+      // Turn 0 is a bare acknowledgement; it appears inside almost any
+      // sentence, so reverse containment must not accept it.
+      db.transcriptionSession.findUnique.mockResolvedValue({
+        id: MEETING_ID,
+        userId: "someone-else",
+        projectId: null,
+        workspaceId: WORKSPACE_ID,
+        occurrenceId: null,
+        meetingDate: new Date("2026-09-08T07:00:00.000Z"),
+        participants: [{ userId: USER_ID, name: "Dev Fixture", email: "dev@example.test" }],
+        transcription: "Dev Fixture: Yeah.",
+        sentencesJson: null,
+      } as never);
+      db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Ship the drawer", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Ship the drawer",
+        status: "ACCEPTED",
+        transcriptionSessionId: MEETING_ID,
+        evidence: [{ turnIndex: 0, speaker: "Dev Fixture", text: "yeah we should ship the drawer before the hover affordances" }],
+      });
+
+      // The decision still lands — a bad quote must not lose it — but with no
+      // evidence, and the fabricated citation is reported rather than logged.
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.evidence).toEqual([]);
+      expect(reportHandledErrorServer).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ area: "decision.create.evidence" }),
+      );
+    });
+
+    it("still accepts a quote that spans turns and cites a substantial one", async () => {
+      withWorkspaceRole(db, "member");
+      withMeeting(db);
+      withTransaction(db);
+      reportHandledErrorServer.mockClear();
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Park it", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Park it",
+        status: "ACCEPTED",
+        transcriptionSessionId: MEETING_ID,
+        // Wider than turn 3, but turn 3's words are really in it.
+        evidence: [{ turnIndex: 3, speaker: "Pat Reviewer", text: "Let's park it. We can revisit next cycle." }],
+      });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.evidence).toEqual([
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: "Let's park it." },
+      ]);
+      expect(reportHandledErrorServer).not.toHaveBeenCalled();
     });
 
     it("refuses evidence with no meeting to resolve it against", async () => {
