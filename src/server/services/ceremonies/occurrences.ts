@@ -33,10 +33,13 @@ export function snapshotCeremony(ceremony: Ceremony): Prisma.InputJsonObject {
 }
 
 /**
- * Ensure occurrences exist for the rolling window (default 14 days from
- * `now`), plus the single next tick when the window is empty so a monthly
- * ceremony always has its upcoming occurrence. Returns the number of rows
- * actually inserted (duplicates are skipped by the unique constraint).
+ * Ensure occurrences exist from the ceremony's anchor date through the
+ * rolling window (14 days ahead of `now`), plus the single next tick when
+ * that yields nothing so a monthly ceremony always has its upcoming
+ * occurrence. Expanding from `startsOn` rather than from `now` is what gives
+ * backfill its targets: a recording from last week can only attach to an
+ * occurrence that exists. Idempotent — duplicates are skipped by the
+ * `(ceremonyId, scheduledStart)` unique. Returns the number of rows inserted.
  */
 export async function ensureOccurrences(
   db: Db,
@@ -45,7 +48,7 @@ export async function ensureOccurrences(
 ): Promise<number> {
   const now = opts.now ?? new Date();
   const window = occurrenceWindow(now);
-  const start = opts.windowStart ?? window.start;
+  const start = opts.windowStart ?? ceremony.startsOn;
   const end = opts.windowEnd ?? window.end;
 
   let slots = expandOccurrences(ceremony, start, end);
@@ -67,4 +70,31 @@ export async function ensureOccurrences(
     skipDuplicates: true,
   });
   return result.count;
+}
+
+export interface OccurrenceSweepResult {
+  ceremonies: number;
+  created: number;
+  errors: Array<{ ceremonyId: string; message: string }>;
+}
+
+/**
+ * Hourly sweep (`/api/cron/ceremony-occurrences`): expand every active
+ * ceremony through the rolling window. One bad rule never stops the sweep;
+ * its error is reported in the summary.
+ */
+export async function expandActiveCeremonies(db: Db, now = new Date()): Promise<OccurrenceSweepResult> {
+  const ceremonies = await db.ceremony.findMany({ where: { isActive: true } });
+  const result: OccurrenceSweepResult = { ceremonies: ceremonies.length, created: 0, errors: [] };
+  for (const ceremony of ceremonies) {
+    try {
+      result.created += await ensureOccurrences(db, ceremony, { now });
+    } catch (err) {
+      result.errors.push({
+        ceremonyId: ceremony.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return result;
 }
