@@ -13,10 +13,12 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
+import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { canEditTranscription, getTranscriptionAccess } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   DecisionExtractionService,
+  extractNotesDecisionItems,
   filterNearDuplicateDecisions,
   findSupportingTurns,
   normalizeDecisionStatement,
@@ -87,6 +89,25 @@ export function resolveDeciders(
   return out;
 }
 
+/**
+ * The curated text of a stored summary: the Fireflies-shaped JSON's themed
+ * breakdown, bullets and overview joined as one document, or the plain
+ * string as-is. The summary prompts ask for "Decision:" / "Agreed:"
+ * callouts and a "Key Decisions" section, which is exactly what the
+ * deterministic notes parser reads.
+ */
+export function summaryDecisionText(summary: string | null | undefined): string {
+  if (!summary?.trim()) return "";
+  const parsed = parseFirefliesSummary(summary);
+  if (!parsed) return summary;
+  const parts = [
+    parsed.detailed_breakdown ?? "",
+    (parsed.shorthand_bullet ?? []).map((line) => (/^\s*[-*•]/.test(line) ? line : `- ${line}`)).join("\n"),
+    parsed.overview ?? "",
+  ];
+  return parts.filter((part) => part.trim().length > 0).join("\n\n");
+}
+
 /** The draft's Markdown body, with the ADR headings the detail page renders. */
 export function candidateBody(candidate: DecisionCandidate): string | null {
   const sections: string[] = [];
@@ -124,6 +145,7 @@ export async function generateDraftDecisions(
         transcription: true,
         sentencesJson: true,
         notes: true,
+        summary: true,
         participants: { select: { userId: true, name: true, email: true, speakerLabel: true } },
       },
     });
@@ -146,8 +168,8 @@ export async function generateDraftDecisions(
     const workspaceId = meeting.workspaceId;
 
     const meetingRows = await db.decision.findMany({
-      where: { transcriptionSessionId: meeting.id, reviewState: { in: ["DRAFT", "CONFIRMED"] } },
-      select: { id: true, reviewState: true },
+      where: { transcriptionSessionId: meeting.id },
+      select: { id: true, reviewState: true, statement: true },
     });
     const existingDraftCount = meetingRows.filter((r) => r.reviewState === "DRAFT").length;
     if (existingDraftCount > 0) {
@@ -157,7 +179,7 @@ export async function generateDraftDecisions(
       result.draftCount = existingDraftCount;
       return result;
     }
-    if (meetingRows.length > 0) {
+    if (meetingRows.some((r) => r.reviewState === "CONFIRMED")) {
       console.log(`[generateDraftDecisions] ${meeting.id} already has confirmed decisions`);
       result.success = true;
       result.alreadyPublished = true;
@@ -185,7 +207,11 @@ export async function generateDraftDecisions(
       orderBy: { number: "desc" },
       take: 200,
     });
-    const existingStatements = workspaceDecisions.map((d) => d.statement);
+    // A draft someone rejected from this meeting is not proposed again.
+    const rejectedStatements = meetingRows
+      .filter((r) => r.reviewState === "REJECTED")
+      .map((r) => r.statement);
+    const existingStatements = [...workspaceDecisions.map((d) => d.statement), ...rejectedStatements];
     const openDecisions: OpenDecisionRef[] = workspaceDecisions
       .filter((d): d is typeof d & { status: "OPEN" | "PROPOSED" } => d.status === "OPEN" || d.status === "PROPOSED")
       .map((d) => ({
@@ -195,22 +221,35 @@ export async function generateDraftDecisions(
         status: d.status,
       }));
 
-    // Notes first: human-curated, near-verbatim. Each notes candidate must
-    // still be backed by a transcript turn, found deterministically; a
-    // candidate nothing in the transcript supports is discarded.
-    let notesCandidates: DecisionCandidate[] = [];
-    if (notesText) {
-      const raw = await DecisionExtractionService.extractFromNotes(notesText, { existingStatements });
-      for (const candidate of filterNearDuplicateDecisions(raw, existingStatements)) {
+    // Notes first: human-curated, near-verbatim. Then the stored summary's
+    // explicit decision callouts (deterministic, no model — the summary is
+    // itself model output, so only its "Decision:" / "Key Decisions" markup
+    // is trusted). Each curated candidate must still be backed by a
+    // transcript turn, found deterministically; a candidate nothing in the
+    // transcript supports is discarded.
+    const notesCandidates: DecisionCandidate[] = [];
+    const backWithEvidence = (raw: DecisionCandidate[], label: string) => {
+      const already = [...existingStatements, ...notesCandidates.map((c) => c.statement)];
+      for (const candidate of filterNearDuplicateDecisions(raw, already)) {
+        if (notesCandidates.length >= 15) break;
         const evidence = findSupportingTurns(candidate.statement, turns);
         if (evidence.length === 0) {
           result.discardedWithoutEvidence++;
-          console.log(`[generateDraftDecisions] Notes candidate without supporting turn discarded: "${candidate.statement}"`);
+          console.log(`[generateDraftDecisions] ${label} candidate without supporting turn discarded: "${candidate.statement}"`);
           continue;
         }
         notesCandidates.push({ ...candidate, evidence });
       }
-      notesCandidates = notesCandidates.slice(0, 15);
+    };
+    if (notesText) {
+      backWithEvidence(
+        await DecisionExtractionService.extractFromNotes(notesText, { existingStatements }),
+        "Notes",
+      );
+    }
+    const summaryText = summaryDecisionText(meeting.summary);
+    if (summaryText) {
+      backWithEvidence(extractNotesDecisionItems(summaryText), "Summary");
     }
 
     // Transcript second: told what notes and the log already hold.

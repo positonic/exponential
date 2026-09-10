@@ -75,6 +75,11 @@ vi.mock("~/server/db", () => {
   return { db: proxy };
 });
 
+const { generateDraftDecisionsMock } = vi.hoisted(() => ({ generateDraftDecisionsMock: vi.fn() }));
+vi.mock("~/server/services/TranscriptionProcessingService", () => ({
+  TranscriptionProcessingService: { generateDraftDecisions: generateDraftDecisionsMock },
+}));
+
 import { createMockCaller } from "~/test/trpc-helpers";
 
 const USER_ID = "user-1";
@@ -132,6 +137,41 @@ describe("decision router", () => {
     db = getDbMock();
     mockReset(db);
     db.workspaceActivityEvent.create.mockResolvedValue({} as never);
+  });
+
+  describe("extractDrafts (V2)", () => {
+    const ok = {
+      success: true,
+      alreadyPublished: false,
+      alreadyDrafted: false,
+      draftCount: 2,
+      draftsCreated: 2,
+      discardedWithoutEvidence: 1,
+      errors: [],
+    };
+
+    it("delegates to the service with the caller's id and returns its result", async () => {
+      generateDraftDecisionsMock.mockResolvedValue(ok);
+      const result = await caller(db).decision.extractDrafts({ transcriptionSessionId: MEETING_ID });
+      expect(generateDraftDecisionsMock).toHaveBeenCalledWith(MEETING_ID, USER_ID);
+      expect(result).toEqual(ok);
+    });
+
+    it("maps a service access refusal to FORBIDDEN and other failures to BAD_REQUEST", async () => {
+      generateDraftDecisionsMock.mockResolvedValue({
+        ...ok,
+        success: false,
+        errors: ["You do not have edit access to this meeting"],
+      });
+      await expect(
+        caller(db).decision.extractDrafts({ transcriptionSessionId: MEETING_ID }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      generateDraftDecisionsMock.mockResolvedValue({ ...ok, success: false, errors: ["Meeting not found"] });
+      await expect(
+        caller(db).decision.extractDrafts({ transcriptionSessionId: MEETING_ID }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Meeting not found" });
+    });
   });
 
   describe("membership gating", () => {

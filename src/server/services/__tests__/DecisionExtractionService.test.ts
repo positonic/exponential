@@ -229,6 +229,11 @@ describe("extractNotesDecisionItems", () => {
     expect(items.every((i) => i.origin === "notes" && i.evidence.length === 0)).toBe(true);
   });
 
+  it("strips bold callout markup in both **Decision:** and **Decision**: shapes", () => {
+    const notes = "## Key Decisions\n- **Decision:** ship it\n- **Agreed**: weekly demos\n- Decided: use Postgres";
+    expect(extractNotesDecisionItems(notes).map((i) => i.statement)).toEqual(["ship it", "weekly demos", "use Postgres"]);
+  });
+
   it("without a heading, takes Decision:/Agreed: callouts only", () => {
     const notes = ["- Decision: use Postgres", "- Pat to send the doc", "Agreed: weekly demos"].join("\n");
     expect(extractNotesDecisionItems(notes).map((i) => i.statement)).toEqual(["use Postgres", "weekly demos"]);

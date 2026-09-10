@@ -29,7 +29,12 @@ vi.mock("~/server/services/access", () => ({
   canEditTranscription: () => accessMock.canEdit,
 }));
 
-import { generateDraftDecisions, resolveDeciders, candidateBody } from "../generateDraftDecisions";
+import {
+  generateDraftDecisions,
+  resolveDeciders,
+  candidateBody,
+  summaryDecisionText,
+} from "../generateDraftDecisions";
 import type { DecisionCandidate } from "~/server/services/DecisionExtractionService";
 
 const TRANSCRIPT = [
@@ -56,6 +61,7 @@ const MEETING = {
   transcription: TRANSCRIPT,
   sentencesJson: null,
   notes: null as string | null,
+  summary: null as string | null,
   participants: PARTICIPANTS,
 };
 
@@ -223,6 +229,46 @@ describe("generateDraftDecisions", () => {
     expect(notesEvidence.length).toBeGreaterThan(0);
   });
 
+  it("excludes statements rejected from this meeting so a re-run does not propose them again", async () => {
+    db.decision.findMany
+      .mockResolvedValueOnce([{ id: "d-rej", reviewState: "REJECTED", statement: "Pat reviews the accordion PR today" }] as never)
+      .mockResolvedValueOnce([] as never);
+    extractFromTranscript.mockResolvedValue([
+      candidate({ statement: "Pat reviews the accordion PR today", evidence: [{ turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: "…" }] }),
+      candidate({ statement: "Blockers come first in every standup", evidence: [{ turnIndex: 0, speaker: "Dev Fixture", startTime: null, text: "…" }] }),
+    ]);
+
+    const result = await generateDraftDecisions(db, "m1", "u-dev");
+
+    expect(result.alreadyPublished).toBe(false);
+    expect(extractFromTranscript.mock.calls[0]![1].existingStatements).toContain("Pat reviews the accordion PR today");
+    expect(db.decision.create.mock.calls.map((c) => c[0].data.statement)).toEqual(["Blockers come first in every standup"]);
+  });
+
+  it("reads Decision:/Key Decisions callouts from the stored summary without a model call", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      ...MEETING,
+      summary: JSON.stringify({
+        overview: "Short standup.",
+        detailed_breakdown: "## Key Decisions\n- **Decision:** Prioritisation debates get parked for the prioritisation ceremony\n- Decision: Migrate billing to Kubernetes",
+        keywords: [],
+      }),
+    } as never);
+    extractFromTranscript.mockResolvedValue([]);
+
+    const result = await generateDraftDecisions(db, "m1", "u-dev");
+
+    expect(extractFromNotes).not.toHaveBeenCalled();
+    // The Kubernetes callout has no supporting turn; the parked-debates one does.
+    expect(result.discardedWithoutEvidence).toBe(1);
+    expect(db.decision.create.mock.calls.map((c) => c[0].data.statement)).toEqual([
+      "Prioritisation debates get parked for the prioritisation ceremony",
+    ]);
+    expect(extractFromTranscript.mock.calls[0]![1].existingStatements).toContain(
+      "Prioritisation debates get parked for the prioritisation ceremony",
+    );
+  });
+
   it("stores a resolution draft pointing at the open decision it resolves", async () => {
     extractFromTranscript.mockResolvedValue([candidate({ resolvesDecisionId: "d-open" })]);
 
@@ -262,5 +308,17 @@ describe("candidateBody", () => {
       "## Context\nwhy\n\n## Alternatives considered\nwhat else",
     );
     expect(candidateBody(candidate({ rationale: undefined }))).toBeNull();
+  });
+});
+
+
+describe("summaryDecisionText", () => {
+  it("joins a Fireflies-shaped summary's breakdown, bullets and overview; passes plain text through", () => {
+    const text = summaryDecisionText(
+      JSON.stringify({ overview: "Over.", shorthand_bullet: ["Agreed: weekly demos", "- kept"], detailed_breakdown: "## Theme\n- x", keywords: [] }),
+    );
+    expect(text).toBe("## Theme\n- x\n\n- Agreed: weekly demos\n- kept\n\nOver.");
+    expect(summaryDecisionText("Plain summary. Decision: ship it")).toBe("Plain summary. Decision: ship it");
+    expect(summaryDecisionText(null)).toBe("");
   });
 });

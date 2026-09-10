@@ -157,7 +157,9 @@ export function filterNearDuplicateDecisions<T extends { statement: string }>(
  */
 export function extractNotesDecisionItems(notesText: string): DecisionCandidate[] {
   const listItemPattern = /^(?:\d+[.)]|[-*•+])\s+(.+)$/;
-  const calloutPrefix = /^(?:\*\*)?(?:decision|decided|agreed)(?:\*\*)?\s*:\s*/i;
+  // "Decision: x", "**Decision:** x" and "**Decision**: x" — the callout
+  // shapes the summary prompts and hand-written notes produce.
+  const calloutPrefix = /^(?:\*\*)?(?:decision|decided|agreed)(?::\*\*|\*\*:|:)\s*/i;
   const lineIndent = (rawLine: string): number => /^\s*/.exec(rawLine)?.[0]?.length ?? 0;
   const lines = notesText.split(/\r?\n/);
   const headingIndex = lines.findIndex((line) =>
