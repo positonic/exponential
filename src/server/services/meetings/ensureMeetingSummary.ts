@@ -10,6 +10,8 @@ import {
   extractReadableTranscript,
   MAX_SUMMARY_TRANSCRIPT_CHARS,
 } from "~/server/services/meetings/extractReadableTranscript";
+import { isPostSummaryDecisionExtractionEnabled } from "~/server/services/decisions/postSummaryExtraction";
+import { generateDraftDecisions } from "~/server/services/decisions/generateDraftDecisions";
 
 /**
  * The one place a meeting transcript becomes a persisted summary.
@@ -159,6 +161,24 @@ export async function summarizeMeetingRow(
       actorUserId: meeting.userId ?? null,
       subject: { sessionId: meeting.id },
     });
+  }
+
+  // Opt-in (Decisions V2, ADR-0060): once the first summary lands, extract
+  // draft decisions for the meeting owner to review. Same null → value
+  // transition as the event and the notification, so it never re-runs on a
+  // re-summarize; the service itself short-circuits on existing drafts.
+  // Awaited rather than void'd so it survives a serverless response ending;
+  // a failure here never fails the summary.
+  if (meeting.workspaceId && meeting.userId && isPostSummaryDecisionExtractionEnabled(meeting.workspaceId)) {
+    try {
+      await generateDraftDecisions(db, meeting.id, meeting.userId, { trigger: "post_summary" });
+    } catch (error) {
+      console.error(
+        "[ensureMeetingSummary] post-summary decision extraction failed",
+        meeting.id,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   return { status: "created", summary: summaryJson, eventEmitted };

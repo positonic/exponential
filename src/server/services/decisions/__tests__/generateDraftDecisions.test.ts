@@ -9,12 +9,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-const { extractFromTranscript, extractFromNotes, recordActivityMock, accessMock } = vi.hoisted(() => ({
+const { extractFromTranscript, extractFromNotes, recordActivityMock, emitNotificationMock, accessMock } = vi.hoisted(() => ({
   extractFromTranscript: vi.fn(),
   extractFromNotes: vi.fn(),
   recordActivityMock: vi.fn(async () => true),
+  emitNotificationMock: vi.fn(async () => undefined),
   accessMock: { canEdit: true },
 }));
+vi.mock("~/server/services/notifications/emit/emitNotification", () => ({ emitNotification: emitNotificationMock }));
 
 vi.mock("~/server/services/DecisionExtractionService", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/server/services/DecisionExtractionService")>();
@@ -86,6 +88,7 @@ describe("generateDraftDecisions", () => {
     extractFromTranscript.mockReset();
     extractFromNotes.mockReset();
     recordActivityMock.mockClear();
+    emitNotificationMock.mockClear();
     accessMock.canEdit = true;
     counter = 0;
 
@@ -148,6 +151,26 @@ describe("generateDraftDecisions", () => {
       db,
       expect.objectContaining({ entityType: "meeting", entityId: "m1", action: "updated", workspaceId: "w1" }),
     );
+    // Manual trigger: the requester is the actor, so they are not told about their own drafts.
+    expect(emitNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "meeting_ready",
+        actorUserId: "u-dev",
+        subject: { sessionId: "m1", draftDecisionCount: 1 },
+      }),
+    );
+  });
+
+  it("post-summary trigger: notifies the owner (no actor) and never notifies when nothing was drafted", async () => {
+    extractFromTranscript.mockResolvedValue([candidate()]);
+    await generateDraftDecisions(db, "m1", "u-dev", { trigger: "post_summary" });
+    expect(emitNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: null }));
+
+    emitNotificationMock.mockClear();
+    extractFromTranscript.mockResolvedValue([]);
+    db.decision.findMany.mockResolvedValue([] as never);
+    await generateDraftDecisions(db, "m1", "u-dev", { trigger: "post_summary" });
+    expect(emitNotificationMock).not.toHaveBeenCalled();
   });
 
   it("passes the transcript turns and the workspace's confirmed statements and open decisions to the extractor", async () => {

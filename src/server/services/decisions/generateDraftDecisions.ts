@@ -26,6 +26,18 @@ import {
   type OpenDecisionRef,
 } from "~/server/services/DecisionExtractionService";
 import { createDraftDecision, type DecisionDeciderInput } from "./decisionService";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+
+export interface GenerateDraftDecisionsOptions {
+  /**
+   * Who asked. `manual` is a person on the meeting page or in the drawer
+   * (they see the drafts at once, so they are the notification's actor and
+   * are not told); `post_summary` is the opt-in hook after a summary lands
+   * (nobody is looking, so the owner is notified).
+   */
+  trigger?: "manual" | "post_summary";
+}
 
 export interface DraftDecisionsResult {
   success: boolean;
@@ -120,7 +132,9 @@ export async function generateDraftDecisions(
   db: PrismaClient,
   transcriptionSessionId: string,
   userId: string,
+  options: GenerateDraftDecisionsOptions = {},
 ): Promise<DraftDecisionsResult> {
+  const trigger = options.trigger ?? "manual";
   const result: DraftDecisionsResult = {
     success: false,
     alreadyPublished: false,
@@ -313,6 +327,16 @@ export async function generateDraftDecisions(
           kind: "decisions_extracted",
           draftDecisionCount: result.draftsCreated,
         },
+      });
+      // Tell the meeting owner there are drafts to review (the meeting-ready
+      // category's draft variant, ADR-0045). Awaited: the extraction has
+      // already spent seconds on the model, and a void'd promise does not
+      // survive a Vercel response ending. `emitNotification` never throws.
+      await emitNotification({
+        db,
+        category: NOTIFICATION_CATEGORIES.MEETING_READY,
+        actorUserId: trigger === "manual" ? userId : null,
+        subject: { sessionId: meeting.id, draftDecisionCount: result.draftsCreated },
       });
     }
     return result;

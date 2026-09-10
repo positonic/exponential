@@ -470,3 +470,49 @@ describe("emitNotification — Meeting notes ready", () => {
     expect(db.notification.create).not.toHaveBeenCalled();
   });
 });
+
+describe("emitNotification — Draft decisions ready (meeting_ready variant, ADR-0060 V2)", () => {
+  beforeEach(() => {
+    // Recipient is the meeting owner; content resolves title + workspace.
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      userId: "owner1",
+      title: "Daily Standup",
+      workspace: WORKSPACE,
+    } as never);
+  });
+
+  it("notifies the meeting owner with the draft count under its own dedupe key", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: null,
+      subject: { sessionId: "m1", draftDecisionCount: 3 },
+      db,
+    });
+
+    expect(db.transcriptionSessionParticipant.findMany).not.toHaveBeenCalled();
+    expect(db.notification.create).toHaveBeenCalledTimes(1);
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "owner1",
+          category: "meeting_ready",
+          title: "3 draft decisions to review",
+          message: "Daily Standup",
+          deeplink: "/recording/m1",
+          dedupeKey: "meeting_ready:decisions:m1:owner1",
+          metadata: expect.objectContaining({ draftDecisionCount: 3 }),
+        }),
+      }),
+    );
+  });
+
+  it("does not tell the owner about drafts they just extracted themselves", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: "owner1",
+      subject: { sessionId: "m1", draftDecisionCount: 1 },
+      db,
+    });
+    expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});

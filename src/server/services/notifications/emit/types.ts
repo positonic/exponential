@@ -31,6 +31,13 @@ export interface MeetingParticipantAddedSubject {
  */
 export interface MeetingReadySubject {
   sessionId: string;
+  /**
+   * Draft-decisions variant (ADR-0060 V2): set when extraction produced
+   * drafts for the meeting. Recipient is the meeting owner (who reviews
+   * them), the content names the count, and the dedupe key is its own so
+   * it never collides with the notes-ready emit.
+   */
+  draftDecisionCount?: number;
 }
 
 /**

@@ -168,10 +168,14 @@ export async function buildContent(
       if (!session?.workspace) return null;
 
       const meetingTitle = session.title ?? "a meeting";
+      const draftDecisionCount = input.subject.draftDecisionCount;
+      const isDraftVariant = draftDecisionCount !== undefined;
 
       return {
         category: NOTIFICATION_CATEGORIES.MEETING_READY,
-        title: "Meeting notes are ready",
+        title: isDraftVariant
+          ? `${draftDecisionCount} draft ${draftDecisionCount === 1 ? "decision" : "decisions"} to review`
+          : "Meeting notes are ready",
         message: meetingTitle,
         deeplink: `/recording/${sessionId}`,
         metadata: {
@@ -180,9 +184,12 @@ export async function buildContent(
           workspaceId: session.workspace.id,
           workspaceSlug: session.workspace.slug,
           workspaceName: session.workspace.name,
+          ...(isDraftVariant ? { draftDecisionCount } : {}),
         },
         workspaceId: session.workspace.id,
-        dedupeKey: `meeting_ready:${sessionId}:${recipientId}`,
+        dedupeKey: isDraftVariant
+          ? `meeting_ready:decisions:${sessionId}:${recipientId}`
+          : `meeting_ready:${sessionId}:${recipientId}`,
       };
     }
     case NOTIFICATION_CATEGORIES.MENTION:

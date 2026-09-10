@@ -14,6 +14,7 @@ import { assignMeetingPlacement } from './meetings/assignMeetingPlacement';
 import {
   generateDraftDecisions as generateDraftDecisionsForMeeting,
   type DraftDecisionsResult,
+  type GenerateDraftDecisionsOptions,
 } from './decisions/generateDraftDecisions';
 
 export interface ProcessTranscriptionResult {
@@ -297,9 +298,10 @@ export class TranscriptionProcessingService {
    */
   static async generateDraftDecisions(
     transcriptionId: string,
-    userId: string
+    userId: string,
+    options: GenerateDraftDecisionsOptions = {}
   ): Promise<DraftDecisionsResult> {
-    return generateDraftDecisionsForMeeting(db, transcriptionId, userId);
+    return generateDraftDecisionsForMeeting(db, transcriptionId, userId, options);
   }
 
   /**
