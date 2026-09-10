@@ -467,7 +467,7 @@ function KrLine({
 
         {/* Discussion / edit / delete actions — sibling of the row, overlaid on
             the spacer column so the rest of the row stays clickable. */}
-        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center justify-end gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center justify-end gap-1 opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
           {onView && (
             <Tooltip label="Discussion">
               <ActionIcon
@@ -707,7 +707,7 @@ export function ObjectiveCardV2({
 
         {/* Edit/delete/discuss actions — sibling of the row button, overlaid on
             the spacer column so the rest of the row stays clickable. */}
-        <div className="absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <div className="pointer-events-none absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
           {onViewObjective && (
             <Tooltip label="Discussion">
               <ActionIcon
