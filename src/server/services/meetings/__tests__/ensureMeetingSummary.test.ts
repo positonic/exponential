@@ -67,29 +67,29 @@ describe("summarizeMeetingRow — post-summary decision extraction hook", () => 
 
   it("extracts for the owner after the first summary lands when the workspace is opted in", async () => {
     process.env.DECISION_EXTRACTION_WORKSPACES = "w1";
-    const result = await summarizeMeetingRow(db, MEETING);
+    const result = await summarizeMeetingRow(db, MEETING, { extractDecisions: true });
     expect(result.status).toBe("created");
     expect(generateDraftDecisionsMock).toHaveBeenCalledWith(db, "m1", "owner1", { trigger: "post_summary" });
   });
 
   it("does nothing when the workspace is not opted in", async () => {
     delete process.env.DECISION_EXTRACTION_WORKSPACES;
-    await summarizeMeetingRow(db, MEETING);
+    await summarizeMeetingRow(db, MEETING, { extractDecisions: true });
     expect(generateDraftDecisionsMock).not.toHaveBeenCalled();
   });
 
   it("does not re-run when the summary was already there or a concurrent writer won", async () => {
     process.env.DECISION_EXTRACTION_WORKSPACES = "*";
-    await summarizeMeetingRow(db, { ...MEETING, summary: "{}" });
+    await summarizeMeetingRow(db, { ...MEETING, summary: "{}" }, { extractDecisions: true });
     db.transcriptionSession.updateMany.mockResolvedValue({ count: 0 } as never);
-    await summarizeMeetingRow(db, MEETING);
+    await summarizeMeetingRow(db, MEETING, { extractDecisions: true });
     expect(generateDraftDecisionsMock).not.toHaveBeenCalled();
   });
 
   it("never fails the summary when extraction throws", async () => {
     process.env.DECISION_EXTRACTION_WORKSPACES = "*";
     generateDraftDecisionsMock.mockRejectedValue(new Error("model down"));
-    const result = await summarizeMeetingRow(db, MEETING);
+    const result = await summarizeMeetingRow(db, MEETING, { extractDecisions: true });
     expect(result.status).toBe("created");
   });
 });

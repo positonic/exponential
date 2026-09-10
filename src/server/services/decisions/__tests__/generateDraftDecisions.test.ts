@@ -16,6 +16,9 @@ const { extractFromTranscript, extractFromNotes, recordActivityMock, emitNotific
   emitNotificationMock: vi.fn(async () => undefined),
   accessMock: { canEdit: true },
 }));
+// Imports the Prisma singleton at module load, which the unit environment's
+// client-side env guard rejects.
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: vi.fn() }));
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({ emitNotification: emitNotificationMock }));
 
 vi.mock("~/server/services/DecisionExtractionService", async (importOriginal) => {
@@ -29,6 +32,9 @@ vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity: re
 vi.mock("~/server/services/access", () => ({
   getTranscriptionAccess: vi.fn(async () => ({})),
   canEditTranscription: () => accessMock.canEdit,
+  // The dedupe/open-decision corpus is read through the resolver's clause so
+  // it can never include decisions the acting user may not see.
+  buildDecisionAccessWhere: (userId: string, workspaceId: string) => ({ workspaceId, __accessFor: userId }),
 }));
 
 import {
@@ -78,6 +84,11 @@ function candidate(overrides: Partial<DecisionCandidate> = {}): DecisionCandidat
   };
 }
 
+/** `extractFromTranscript` returns a run object, not a bare array. */
+function transcriptRun(candidates: unknown[], over: Record<string, number> = {}) {
+  return { candidates, chunksTotal: 1, chunksFailed: 0, chunksSkipped: 0, ...over };
+}
+
 describe("generateDraftDecisions", () => {
   let db: DeepMockProxy<PrismaClient>;
   let counter: number;
@@ -117,7 +128,7 @@ describe("generateDraftDecisions", () => {
   });
 
   it("writes DRAFT rows with source MEETING, evidence, resolved deciders and the meeting's date", async () => {
-    extractFromTranscript.mockResolvedValue([candidate()]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([candidate()]));
 
     const result = await generateDraftDecisions(db, "m1", "u-dev");
 
@@ -162,12 +173,12 @@ describe("generateDraftDecisions", () => {
   });
 
   it("post-summary trigger: notifies the owner (no actor) and never notifies when nothing was drafted", async () => {
-    extractFromTranscript.mockResolvedValue([candidate()]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([candidate()]));
     await generateDraftDecisions(db, "m1", "u-dev", { trigger: "post_summary" });
     expect(emitNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: null }));
 
     emitNotificationMock.mockClear();
-    extractFromTranscript.mockResolvedValue([]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([]));
     db.decision.findMany.mockResolvedValue([] as never);
     await generateDraftDecisions(db, "m1", "u-dev", { trigger: "post_summary" });
     expect(emitNotificationMock).not.toHaveBeenCalled();
@@ -180,7 +191,7 @@ describe("generateDraftDecisions", () => {
         { id: "d-open", number: 7, statement: "Should the peek drawer ship first?", status: "OPEN" },
         { id: "d-acc", number: 5, statement: "Standups stay inside fifteen minutes", status: "ACCEPTED" },
       ] as never);
-    extractFromTranscript.mockResolvedValue([]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([]));
 
     await generateDraftDecisions(db, "m1", "u-dev");
 
@@ -228,11 +239,11 @@ describe("generateDraftDecisions", () => {
       candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", rationale: undefined }),
       candidate({ statement: "Migrate billing to Kubernetes", evidence: [], origin: "notes", rationale: undefined }),
     ]);
-    extractFromTranscript.mockResolvedValue([
+    extractFromTranscript.mockResolvedValue(transcriptRun([
       // A rewording of the notes decision — dropped by the near-duplicate filter.
       candidate({ statement: "Prioritisation debates get parked for the prioritisation ceremony" }),
       candidate({ statement: "Pat reviews the accordion PR today", evidence: [{ turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: "…" }] }),
-    ]);
+    ]));
 
     const result = await generateDraftDecisions(db, "m1", "u-dev");
 
@@ -256,10 +267,10 @@ describe("generateDraftDecisions", () => {
     db.decision.findMany
       .mockResolvedValueOnce([{ id: "d-rej", reviewState: "REJECTED", statement: "Pat reviews the accordion PR today" }] as never)
       .mockResolvedValueOnce([] as never);
-    extractFromTranscript.mockResolvedValue([
+    extractFromTranscript.mockResolvedValue(transcriptRun([
       candidate({ statement: "Pat reviews the accordion PR today", evidence: [{ turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: "…" }] }),
       candidate({ statement: "Blockers come first in every standup", evidence: [{ turnIndex: 0, speaker: "Dev Fixture", startTime: null, text: "…" }] }),
-    ]);
+    ]));
 
     const result = await generateDraftDecisions(db, "m1", "u-dev");
 
@@ -277,7 +288,7 @@ describe("generateDraftDecisions", () => {
         keywords: [],
       }),
     } as never);
-    extractFromTranscript.mockResolvedValue([]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([]));
 
     const result = await generateDraftDecisions(db, "m1", "u-dev");
 
@@ -293,7 +304,7 @@ describe("generateDraftDecisions", () => {
   });
 
   it("stores a resolution draft pointing at the open decision it resolves", async () => {
-    extractFromTranscript.mockResolvedValue([candidate({ resolvesDecisionId: "d-open" })]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([candidate({ resolvesDecisionId: "d-open" })]));
 
     await generateDraftDecisions(db, "m1", "u-dev");
 
@@ -301,6 +312,89 @@ describe("generateDraftDecisions", () => {
       reviewState: "DRAFT",
       supersededById: "d-open",
     });
+  });
+
+  it("scopes the dedupe and open-decision corpus through the access resolver", async () => {
+    extractFromTranscript.mockResolvedValue(transcriptRun([]));
+    await generateDraftDecisions(db, "m1", "u-dev");
+    // Both corpus reads carry the resolver's clause: an unscoped read would
+    // ship decisions the caller cannot see to the model, and surface a
+    // restricted statement in the review card via `resolvesDecisionId`.
+    const corpusCalls = db.decision.findMany.mock.calls.filter(
+      (c) => Array.isArray((c[0]?.where as { AND?: unknown[] } | undefined)?.AND),
+    );
+    expect(corpusCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of corpusCalls) {
+      const and = (call[0]!.where as { AND: Array<Record<string, unknown>> }).AND;
+      expect(and[0]).toMatchObject({ __accessFor: "u-dev" });
+    }
+    // Open questions are read unbounded; only the confirmed set is capped,
+    // so an old open question can never fall out of the resolvable set.
+    const unbounded = corpusCalls.filter((c) => c[0]!.take === undefined);
+    expect(unbounded).toHaveLength(1);
+  });
+
+  it("keeps notes candidates without transcript evidence when the meeting has no transcript", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      ...MEETING,
+      transcription: null,
+      sentencesJson: null,
+      notes: "## Decisions\n- Prioritisation debates are parked for the prioritisation ceremony",
+    } as never);
+    extractFromNotes.mockResolvedValue([candidate({ origin: "notes", evidence: [] })]);
+
+    const result = await generateDraftDecisions(db, "m1", "u-dev");
+
+    // `findSupportingTurns` over zero turns can only return nothing, so
+    // requiring evidence here discarded every candidate after paying for the
+    // model call. A curated notes list is the evidence when there is no
+    // transcript to cite.
+    expect(result).toMatchObject({ success: true, draftsCreated: 1, discardedWithoutEvidence: 0 });
+    expect(extractFromTranscript).not.toHaveBeenCalled();
+  });
+
+  it("gives the transcript pass only the budget the notes pass left", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      ...MEETING,
+      notes: "## Decisions\n- Park prioritisation debates for the prioritisation ceremony",
+    } as never);
+    extractFromNotes.mockResolvedValue([
+      candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", rationale: undefined }),
+    ]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([]));
+
+    await generateDraftDecisions(db, "m1", "u-dev");
+
+    // One shared budget across both passes. They used to cap at 15 each, so
+    // one meeting could mint 30 drafts and burn 30 labels from the workspace
+    // sequence whatever the reviewer then decided.
+    const options = extractFromTranscript.mock.calls[0]![1] as { maxDecisions: number };
+    expect(options.maxDecisions).toBe(14);
+  });
+
+  it("opens the transaction before writing any draft, so a killed run leaves none behind", async () => {
+    extractFromTranscript.mockResolvedValue(transcriptRun([candidate(), candidate({ statement: "Second thing" })]));
+    await generateDraftDecisions(db, "m1", "u-dev");
+
+    // The short-circuit treats any existing draft as "this meeting is done",
+    // so a partial set would make every retry report a truncated run as
+    // complete. The outer transaction must therefore open first.
+    expect(db.decision.create).toHaveBeenCalledTimes(2);
+    const firstTransaction = db.$transaction.mock.invocationCallOrder[0]!;
+    const firstCreate = db.decision.create.mock.invocationCallOrder[0]!;
+    expect(firstTransaction).toBeLessThan(firstCreate);
+  });
+
+  it("reports a wholly-failed transcript pass instead of calling it an empty meeting", async () => {
+    extractFromTranscript.mockResolvedValue(transcriptRun([], { chunksFailed: 3, chunksTotal: 3 }));
+    const result = await generateDraftDecisions(db, "m1", "u-dev");
+    expect(result.errors.join(" ")).toMatch(/failed to extract/i);
+  });
+
+  it("says so when the transcript was longer than one extraction pass covers", async () => {
+    extractFromTranscript.mockResolvedValue(transcriptRun([candidate()], { chunksTotal: 9, chunksSkipped: 3 }));
+    const result = await generateDraftDecisions(db, "m1", "u-dev");
+    expect(result.errors.join(" ")).toMatch(/3 of 9 sections were not read/);
   });
 
   it("is a no-op success for a meeting with neither transcript nor notes", async () => {

@@ -790,6 +790,35 @@ describe("decision router", () => {
       );
     });
 
+    it("editing an unconfirmed draft writes no activity event", async () => {
+      withWorkspaceRole(db, "member");
+      const draft = {
+        id: "draft-1",
+        workspaceId: WORKSPACE_ID,
+        number: 9,
+        statement: "Headcount is cut in Q4",
+        status: "ACCEPTED",
+        reviewState: "DRAFT",
+        transcriptionSession: { id: "m-1", userId: USER_ID, projectId: null, workspaceId: WORKSPACE_ID },
+        projectId: null,
+      };
+      db.decision.findFirst.mockResolvedValue(draft as never);
+      db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
+      db.decision.update.mockResolvedValue({ ...draft, supersededBy: null, supersedes: [] } as never);
+
+      await caller(db).decision.update({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "draft-1",
+        statement: "Headcount is reviewed in Q4",
+      });
+
+      // `createDraftDecision` deliberately writes no event, because the feed
+      // is filtered on workspaceId alone with no per-entity resolver. Editing
+      // a draft before rejecting it must not leak the statement either.
+      expect(db.decision.update).toHaveBeenCalled();
+      expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+    });
+
     it("listForAdr filters through the resolver and by the ADR", async () => {
       withWorkspaceRole(db, "viewer");
       db.decision.findMany.mockResolvedValue([] as never);
@@ -889,6 +918,19 @@ describe("decision router", () => {
           }),
         }),
       );
+    });
+
+    it("refuses to confirm a rejected draft", async () => {
+      db.decision.findFirst
+        .mockResolvedValueOnce({ ...DRAFT, reviewState: "REJECTED" } as never)
+        .mockResolvedValueOnce({ ...DRAFT, reviewState: "REJECTED" } as never);
+
+      await expect(
+        caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" }),
+      ).rejects.toThrow(/rejected draft cannot be confirmed/i);
+      // Rejection is how a reviewer refuses a hallucinated draft and how the
+      // extractor knows not to propose it again; confirming past it undoes both.
+      expect(db.decision.update).not.toHaveBeenCalled();
     });
 
     it("refuses a resolution draft whose target is gone, leaving the draft untouched", async () => {

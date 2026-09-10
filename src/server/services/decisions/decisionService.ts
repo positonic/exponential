@@ -22,6 +22,9 @@ import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { formatDecisionLabel } from "~/lib/decision-label";
 import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
+// Imported from the resolver module rather than the access barrel: the
+// barrel pulls in the Prisma singleton at module load.
+import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -588,18 +591,25 @@ export async function updateDecision(
     },
     include: decisionDetailInclude,
   });
-  await recordActivity(db, {
-    workspaceId: decision.workspaceId,
-    userId: input.userId,
-    entityType: "decision",
-    entityId: decision.id,
-    action: "updated",
-    metadata: {
-      title: activityTitle(decision),
-      label: formatDecisionLabel(decision.number),
-      fields: Object.keys(patch),
-    },
-  });
+  // Only confirmed decisions reach the feed. `createDraftDecision` writes no
+  // event for exactly this reason — the feed is filtered on workspaceId with
+  // no per-entity resolver, so an event here would show an unreviewed (and
+  // possibly hallucinated) statement from a restricted meeting to the whole
+  // workspace, which is what editing a draft before rejecting it does.
+  if (decision.reviewState === "CONFIRMED") {
+    await recordActivity(db, {
+      workspaceId: decision.workspaceId,
+      userId: input.userId,
+      entityType: "decision",
+      entityId: decision.id,
+      action: "updated",
+      metadata: {
+        title: activityTitle(decision),
+        label: formatDecisionLabel(decision.number),
+        fields: Object.keys(patch),
+      },
+    });
+  }
   return decision;
 }
 
@@ -736,9 +746,20 @@ async function applyDraftResolution(
       decidedAt: true,
       transcriptionSessionId: true,
       evidence: true,
+      // Resolver columns: the caller was authorized against the DRAFT, which
+      // for a meeting-linked draft only proves they can edit that meeting.
+      // The target is a different decision, possibly from a meeting they
+      // cannot open (ADR-0060 decision 5), and this path both rewrites it and
+      // returns its full detail — evidence quotes included.
+      projectId: true,
+      workspaceId: true,
+      reviewState: true,
+      transcriptionSession: { select: { id: true, userId: true, projectId: true, workspaceId: true } },
     },
   });
-  if (!target) {
+  // NOT_FOUND either way, so a target the caller may not see is
+  // indistinguishable from one that has been deleted.
+  if (!target || !canEditDecision(await getDecisionAccess(db, userId, target))) {
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "The decision this draft resolves is no longer available — reject the draft or log it by hand",
@@ -823,6 +844,15 @@ export async function confirmDraft(
     return db.decision.findUniqueOrThrow({
       where: { id: current.id },
       include: decisionDetailInclude,
+    });
+  }
+  // Rejection is how a reviewer refuses a hallucinated draft, and how the
+  // extractor knows not to propose it again. Confirming past it would undo
+  // that — and on a resolution draft it would silently rewrite the target.
+  if (current.reviewState === "REJECTED") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A rejected draft cannot be confirmed — extract again or log the decision by hand",
     });
   }
   if (current.supersededById) {

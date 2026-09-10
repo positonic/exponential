@@ -68,6 +68,44 @@ export interface ExtractDecisionsOptions {
 
 export const DEFAULT_MAX_DECISIONS = 15;
 const MAX_CHARS_PER_CHUNK = 6000;
+/**
+ * Hard cap on model calls per transcript. Chunking is one call per 6 000
+ * characters with no natural bound, and every caller runs inside a
+ * serverless function with a fixed deadline, so a long recording could
+ * otherwise spend the whole budget. A truncated pass is reported through
+ * `chunksSkipped` rather than passed off as "this meeting had no decisions".
+ */
+export const MAX_TRANSCRIPT_CHUNKS = 6;
+/** The same bound for notes, which are far shorter in practice. */
+export const MAX_NOTES_CHUNKS = 4;
+
+/**
+ * Split prose on paragraph boundaries, falling back to a hard cut for a
+ * single paragraph longer than the budget. Used for notes; transcripts have
+ * their own turn-aware {@link chunkTurns}.
+ */
+export function chunkText(text: string, maxChars: number = MAX_CHARS_PER_CHUNK): string[] {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed.length > 0 ? [trimmed] : [];
+  const chunks: string[] = [];
+  let current = "";
+  for (const paragraph of trimmed.split(/\n{2,}/)) {
+    let block = paragraph;
+    while (block.length > maxChars) {
+      if (current) { chunks.push(current); current = ""; }
+      chunks.push(block.slice(0, maxChars));
+      block = block.slice(maxChars);
+    }
+    if (current.length + block.length + 2 > maxChars && current.length > 0) {
+      chunks.push(current);
+      current = block;
+    } else {
+      current = current ? `${current}\n\n${block}` : block;
+    }
+  }
+  if (current.trim().length > 0) chunks.push(current);
+  return chunks;
+}
 
 const transcriptExtractionSchema = z.object({
   decisions: z.array(
@@ -377,6 +415,20 @@ function cleanNames(names: string[] | undefined): string[] {
   return out;
 }
 
+/**
+ * A transcript pass, with enough of the run's shape for the caller to tell
+ * "this meeting had no decisions" apart from "every model call failed".
+ */
+export interface TranscriptExtractionRun {
+  candidates: DecisionCandidate[];
+  /** Chunks the transcript produced, before {@link MAX_TRANSCRIPT_CHUNKS}. */
+  chunksTotal: number;
+  /** Chunks whose model call or parse failed; their candidates are lost. */
+  chunksFailed: number;
+  /** Chunks never attempted because the cap was reached. */
+  chunksSkipped: number;
+}
+
 export class DecisionExtractionService {
   /**
    * Extract decision candidates from parsed transcript turns. Every candidate
@@ -387,13 +439,14 @@ export class DecisionExtractionService {
   static async extractFromTranscript(
     turns: TranscriptTurn[],
     options: ExtractDecisionsOptions = {},
-  ): Promise<DecisionCandidate[]> {
-    if (turns.length === 0) return [];
+  ): Promise<TranscriptExtractionRun> {
+    const empty: TranscriptExtractionRun = { candidates: [], chunksTotal: 0, chunksFailed: 0, chunksSkipped: 0 };
+    if (turns.length === 0) return empty;
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       console.log("[DecisionExtraction] No OPENAI_API_KEY, transcript extraction skipped");
-      return [];
+      return empty;
     }
 
     const maxDecisions = options.maxDecisions ?? DEFAULT_MAX_DECISIONS;
@@ -405,9 +458,12 @@ export class DecisionExtractionService {
     const openIds = new Set(openDecisions.map((d) => d.id));
     const dedupe = new Set<string>(existingStatements.map(normalizeDecisionStatement));
     const resolvedIds = new Set<string>();
-    const chunks = chunkTurns(turns);
+    const allChunks = chunkTurns(turns);
+    const chunks = allChunks.slice(0, MAX_TRANSCRIPT_CHUNKS);
+    const chunksSkipped = allChunks.length - chunks.length;
+    let chunksFailed = 0;
     console.log(
-      `[DecisionExtraction] model=${modelName}, turns=${turns.length}, chunks=${chunks.length}, existing=${existingStatements.length}, open=${openDecisions.length}`,
+      `[DecisionExtraction] model=${modelName}, turns=${turns.length}, chunks=${chunks.length}/${allChunks.length}, existing=${existingStatements.length}, open=${openDecisions.length}`,
     );
 
     const results: DecisionCandidate[] = [];
@@ -426,6 +482,7 @@ export class DecisionExtractionService {
         parsed = transcriptExtractionSchema.parse(parseJsonFromModelOutput(rawContent));
         console.log(`[DecisionExtraction] Chunk ${i + 1}/${chunks.length}: ${parsed.decisions.length} candidate(s)`);
       } catch (chunkErr) {
+        chunksFailed += 1;
         console.log(
           `[DecisionExtraction] Chunk ${i + 1}/${chunks.length} failed: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`,
         );
@@ -470,12 +527,14 @@ export class DecisionExtractionService {
           resolvesDecisionId,
           origin: "transcript",
         });
-        if (results.length >= maxDecisions) return results;
+        if (results.length >= maxDecisions) {
+          return { candidates: results, chunksTotal: allChunks.length, chunksFailed, chunksSkipped };
+        }
       }
     }
 
     console.log(`[DecisionExtraction] Transcript extraction found ${results.length} candidate(s)`);
-    return results;
+    return { candidates: results, chunksTotal: allChunks.length, chunksFailed, chunksSkipped };
   }
 
   /**
@@ -512,34 +571,49 @@ export class DecisionExtractionService {
     const modelName = options.modelName ?? process.env.LLM_MODEL ?? "gpt-4o";
     const model = new ChatOpenAI({ modelName, temperature: 0 });
 
-    let parsed: z.infer<typeof notesExtractionSchema> | null = null;
-    try {
-      const response = await model.invoke([
-        new SystemMessage(buildNotesDecisionSystemPrompt()),
-        new HumanMessage(buildNotesDecisionPrompt(notesText.slice(0, MAX_CHARS_PER_CHUNK * 2))),
-      ]);
-      const rawContent = typeof response.content === "string" ? response.content : "";
-      parsed = notesExtractionSchema.parse(parseJsonFromModelOutput(rawContent));
-    } catch (err) {
-      console.log(`[DecisionExtraction] Notes extraction failed: ${err instanceof Error ? err.message : String(err)}`);
-      return deterministic();
+    // Notes are chunked, not truncated. A single `slice()` dropped everything
+    // past ~12 KB, so a long note with its "Key Decisions" list at the bottom
+    // yielded nothing from the model — while the deterministic fallback read
+    // the whole document, making the result depend on whether a key was set.
+    const chunks = chunkText(notesText, MAX_CHARS_PER_CHUNK).slice(0, MAX_NOTES_CHUNKS);
+    const results: DecisionCandidate[] = [];
+    let anyChunkParsed = false;
+
+    for (const chunk of chunks) {
+      if (results.length >= maxDecisions) break;
+      let parsed: z.infer<typeof notesExtractionSchema> | null = null;
+      try {
+        const response = await model.invoke([
+          new SystemMessage(buildNotesDecisionSystemPrompt()),
+          new HumanMessage(buildNotesDecisionPrompt(chunk)),
+        ]);
+        const rawContent = typeof response.content === "string" ? response.content : "";
+        parsed = notesExtractionSchema.parse(parseJsonFromModelOutput(rawContent));
+        anyChunkParsed = true;
+      } catch (err) {
+        console.log(`[DecisionExtraction] Notes extraction failed: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+
+      for (const candidate of parsed.decisions) {
+        const statement = candidate.statement.replace(/\s+/g, " ").trim();
+        const key = normalizeDecisionStatement(statement);
+        if (!key || dedupe.has(key)) continue;
+        dedupe.add(key);
+        results.push({
+          statement,
+          rationale: candidate.rationale?.trim() ? candidate.rationale.trim() : undefined,
+          deciderNames: cleanNames(candidate.deciderNames),
+          evidence: [],
+          origin: "notes",
+        });
+        if (results.length >= maxDecisions) break;
+      }
     }
 
-    const results: DecisionCandidate[] = [];
-    for (const candidate of parsed.decisions) {
-      const statement = candidate.statement.replace(/\s+/g, " ").trim();
-      const key = normalizeDecisionStatement(statement);
-      if (!key || dedupe.has(key)) continue;
-      dedupe.add(key);
-      results.push({
-        statement,
-        rationale: candidate.rationale?.trim() ? candidate.rationale.trim() : undefined,
-        deciderNames: cleanNames(candidate.deciderNames),
-        evidence: [],
-        origin: "notes",
-      });
-      if (results.length >= maxDecisions) break;
-    }
+    // Every chunk failed: fall back rather than report an empty document.
+    if (!anyChunkParsed) return deterministic();
+
     console.log(`[DecisionExtraction] Notes extraction found ${results.length} candidate(s)`);
     return results;
   }

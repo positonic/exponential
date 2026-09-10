@@ -21,8 +21,10 @@ import {
   buildDecisionChunkPrompt,
   buildDecisionSystemPrompt,
   buildNotesDecisionSystemPrompt,
+  chunkText,
   chunkTurns,
   extractNotesDecisionItems,
+  MAX_TRANSCRIPT_CHUNKS,
   filterNearDuplicateDecisions,
   findSupportingTurns,
   normalizeDecisionStatement,
@@ -70,7 +72,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       ],
     });
 
-    const result = await DecisionExtractionService.extractFromTranscript(TURNS);
+    const { candidates: result } = await DecisionExtractionService.extractFromTranscript(TURNS);
 
     expect(result).toHaveLength(1);
     const candidate = result[0]!;
@@ -96,7 +98,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       ],
     });
 
-    const result = await DecisionExtractionService.extractFromTranscript(TURNS);
+    const { candidates: result } = await DecisionExtractionService.extractFromTranscript(TURNS);
 
     expect(result.map((c) => c.statement)).toEqual(["Real decision"]);
     // The out-of-range index is dropped, the real one kept.
@@ -112,7 +114,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       ],
     });
 
-    const result = await DecisionExtractionService.extractFromTranscript(TURNS, {
+    const { candidates: result } = await DecisionExtractionService.extractFromTranscript(TURNS, {
       existingStatements: ["Park prioritisation debates"],
     });
 
@@ -128,7 +130,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       ],
     });
 
-    const result = await DecisionExtractionService.extractFromTranscript(TURNS, {
+    const { candidates: result } = await DecisionExtractionService.extractFromTranscript(TURNS, {
       openDecisions: [
         { id: "open-1", label: "D-0002", statement: "Should the peek drawer ship before hover?", status: "OPEN" },
       ],
@@ -150,7 +152,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       content: JSON.stringify({ decisions: [{ statement: "From a later chunk", evidenceTurnIndices: [39] }] }),
     });
 
-    const result = await DecisionExtractionService.extractFromTranscript(many);
+    const { candidates: result } = await DecisionExtractionService.extractFromTranscript(many);
 
     expect(invokeMock).toHaveBeenCalledTimes(chunkCount);
     // Chunk 1 failed and contributed nothing; the last chunk's candidate (whose
@@ -161,9 +163,81 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
 
   it("returns nothing without an API key and never calls the model", async () => {
     delete process.env.OPENAI_API_KEY;
-    const result = await DecisionExtractionService.extractFromTranscript(TURNS);
+    const { candidates: result } = await DecisionExtractionService.extractFromTranscript(TURNS);
     expect(result).toEqual([]);
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("caps the number of model calls and says how much of the transcript it skipped", async () => {
+    // Long enough to produce more chunks than the cap allows.
+    const many = Array.from({ length: 400 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
+    const total = chunkTurns(many).length;
+    expect(total).toBeGreaterThan(MAX_TRANSCRIPT_CHUNKS);
+    invokeMock.mockResolvedValue({ content: JSON.stringify({ decisions: [] }) });
+
+    const run = await DecisionExtractionService.extractFromTranscript(many);
+
+    // Every caller runs inside a serverless function with a fixed deadline,
+    // so one recording cannot be allowed to spend the whole budget.
+    expect(invokeMock).toHaveBeenCalledTimes(MAX_TRANSCRIPT_CHUNKS);
+    expect(run.chunksTotal).toBe(total);
+    expect(run.chunksSkipped).toBe(total - MAX_TRANSCRIPT_CHUNKS);
+  });
+
+  it("counts failed chunks so a total outage is not reported as an empty meeting", async () => {
+    invokeMock.mockRejectedValue(new Error("429 rate limited"));
+    const run = await DecisionExtractionService.extractFromTranscript(TURNS);
+    expect(run.candidates).toEqual([]);
+    expect(run.chunksFailed).toBeGreaterThan(0);
+  });
+});
+
+describe("extractFromNotes", () => {
+  const originalKey = process.env.OPENAI_API_KEY;
+  beforeEach(() => {
+    invokeMock.mockReset();
+    process.env.OPENAI_API_KEY = "test-key";
+  });
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  });
+
+  it("chunks long notes instead of truncating, so a decision in the tail is still found", async () => {
+    // Longer than the old single `slice(0, MAX_CHARS_PER_CHUNK * 2)`, with the
+    // only decision at the very bottom.
+    const filler = Array.from({ length: 40 }, (_, i) => `Paragraph ${i}. ${"words ".repeat(60)}`).join("\n\n");
+    const notes = `${filler}\n\n## Key Decisions\n- Billing moves to Kubernetes in Q4`;
+    expect(notes.length).toBeGreaterThan(12_000);
+
+    invokeMock.mockResolvedValue({ content: JSON.stringify({ decisions: [] }) });
+    invokeMock.mockResolvedValueOnce({ content: JSON.stringify({ decisions: [] }) });
+    invokeMock.mockResolvedValueOnce({
+      content: JSON.stringify({ decisions: [{ statement: "Billing moves to Kubernetes in Q4" }] }),
+    });
+
+    const result = await DecisionExtractionService.extractFromNotes(notes);
+
+    expect(invokeMock.mock.calls.length).toBeGreaterThan(1);
+    expect(result.map((c) => c.statement)).toContain("Billing moves to Kubernetes in Q4");
+  });
+
+  it("falls back to the deterministic parser when every chunk fails", async () => {
+    invokeMock.mockRejectedValue(new Error("boom"));
+    const result = await DecisionExtractionService.extractFromNotes(
+      "## Decisions\n- Park prioritisation debates for the ceremony",
+    );
+    expect(result.map((c) => c.statement)).toEqual(["Park prioritisation debates for the ceremony"]);
+  });
+});
+
+describe("chunkText", () => {
+  it("splits on paragraph boundaries and hard-cuts an oversized paragraph", () => {
+    const chunks = chunkText("a\n\nb", 10);
+    expect(chunks).toEqual(["a\n\nb"]);
+    const long = chunkText("x".repeat(25), 10);
+    expect(long.every((c) => c.length <= 10)).toBe(true);
+    expect(long.join("")).toBe("x".repeat(25));
   });
 });
 

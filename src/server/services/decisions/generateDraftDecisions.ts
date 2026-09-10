@@ -14,9 +14,10 @@
 import type { PrismaClient } from "@prisma/client";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
-import { canEditTranscription, getTranscriptionAccess } from "~/server/services/access";
+import { buildDecisionAccessWhere, canEditTranscription, getTranscriptionAccess } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
+  DEFAULT_MAX_DECISIONS,
   DecisionExtractionService,
   extractNotesDecisionItems,
   filterNearDuplicateDecisions,
@@ -28,6 +29,7 @@ import {
 import { createDraftDecision, type DecisionDeciderInput } from "./decisionService";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 export interface GenerateDraftDecisionsOptions {
   /**
@@ -215,18 +217,36 @@ export async function generateDraftDecisions(
     // first, bounded) — a decision restated in a later meeting is not a new
     // decision. The open/proposed subset is also what the extractor may
     // resolve rather than duplicate.
-    const workspaceDecisions = await db.decision.findMany({
-      where: { workspaceId, reviewState: "CONFIRMED" },
-      select: { id: true, number: true, statement: true, status: true },
-      orderBy: { number: "desc" },
-      take: 200,
-    });
+    // Scoped to what the acting user may actually read. These statements go
+    // into the model prompt and a matched row's statement is rendered back in
+    // the review card, so an unscoped read would both ship a restricted
+    // corpus to OpenAI and surface it to someone without access.
+    const accessWhere = buildDecisionAccessWhere(userId, workspaceId);
+    // Open questions are queried separately and unbounded: there are few by
+    // definition, and a `take: 200` ordered by number silently hid an older
+    // one from BOTH the resolvable set and the dedupe set — so every meeting
+    // that touched it minted a fresh duplicate, the exact outcome ADR-0060
+    // decision 4 exists to prevent.
+    const [openRows, recentConfirmed] = await Promise.all([
+      db.decision.findMany({
+        where: { AND: [accessWhere, { reviewState: "CONFIRMED" }, { status: { in: ["OPEN", "PROPOSED"] } }] },
+        select: { id: true, number: true, statement: true, status: true },
+        orderBy: { number: "desc" },
+      }),
+      db.decision.findMany({
+        where: { AND: [accessWhere, { reviewState: "CONFIRMED" }, { status: { notIn: ["OPEN", "PROPOSED"] } }] },
+        select: { id: true, number: true, statement: true, status: true },
+        orderBy: { number: "desc" },
+        take: 200,
+      }),
+    ]);
+    const workspaceDecisions = [...openRows, ...recentConfirmed];
     // A draft someone rejected from this meeting is not proposed again.
     const rejectedStatements = meetingRows
       .filter((r) => r.reviewState === "REJECTED")
       .map((r) => r.statement);
     const existingStatements = [...workspaceDecisions.map((d) => d.statement), ...rejectedStatements];
-    const openDecisions: OpenDecisionRef[] = workspaceDecisions
+    const openDecisions: OpenDecisionRef[] = openRows
       .filter((d): d is typeof d & { status: "OPEN" | "PROPOSED" } => d.status === "OPEN" || d.status === "PROPOSED")
       .map((d) => ({
         id: d.id,
@@ -243,9 +263,21 @@ export async function generateDraftDecisions(
     // transcript supports is discarded.
     const notesCandidates: DecisionCandidate[] = [];
     const backWithEvidence = (raw: DecisionCandidate[], label: string) => {
-      const already = [...existingStatements, ...notesCandidates.map((c) => c.statement)];
-      for (const candidate of filterNearDuplicateDecisions(raw, already)) {
-        if (notesCandidates.length >= 15) break;
+      for (const candidate of raw) {
+        if (notesCandidates.length >= DEFAULT_MAX_DECISIONS) break;
+        // Recomputed per candidate: snapshotting the comparison set before
+        // the loop let two rewordings from the SAME source both through.
+        const already = [...existingStatements, ...notesCandidates.map((c) => c.statement)];
+        if (filterNearDuplicateDecisions([candidate], already).length === 0) continue;
+        // A meeting with notes but no transcript is explicitly allowed
+        // through above. `findSupportingTurns` over zero turns can only
+        // return nothing, so requiring evidence there discarded 100% of
+        // candidates after paying for the model call. A human-curated notes
+        // list is itself the evidence when there is no transcript to cite.
+        if (turns.length === 0) {
+          notesCandidates.push({ ...candidate, evidence: [] });
+          continue;
+        }
         const evidence = findSupportingTurns(candidate.statement, turns);
         if (evidence.length === 0) {
           result.discardedWithoutEvidence++;
@@ -268,17 +300,41 @@ export async function generateDraftDecisions(
 
     // Transcript second: told what notes and the log already hold.
     let transcriptCandidates: DecisionCandidate[] = [];
-    if (turns.length > 0) {
+    // One budget across both passes: the notes pass and the transcript pass
+    // each used to cap at 15 independently, so a single meeting could mint 30
+    // drafts and burn 30 labels from the workspace sequence.
+    const remainingBudget = Math.max(0, DEFAULT_MAX_DECISIONS - notesCandidates.length);
+    if (turns.length > 0 && remainingBudget > 0) {
       const alreadyCaptured = [...existingStatements, ...notesCandidates.map((c) => c.statement)];
       try {
-        const raw = await DecisionExtractionService.extractFromTranscript(turns, {
+        const run = await DecisionExtractionService.extractFromTranscript(turns, {
           existingStatements: alreadyCaptured,
           openDecisions,
+          maxDecisions: remainingBudget,
         });
-        transcriptCandidates = filterNearDuplicateDecisions(raw, alreadyCaptured);
+        transcriptCandidates = filterNearDuplicateDecisions(run.candidates, alreadyCaptured);
+        if (run.chunksSkipped > 0) {
+          result.errors.push(
+            `The transcript was longer than one extraction pass covers; ${run.chunksSkipped} of ${run.chunksTotal} sections were not read.`,
+          );
+        }
+        // Every chunk failing looks exactly like "no decisions here" to the
+        // caller unless we say otherwise.
+        if (run.chunksFailed > 0 && run.candidates.length === 0) {
+          const message = `All ${run.chunksFailed} transcript section(s) failed to extract`;
+          result.errors.push(message);
+          reportHandledErrorServer(new Error(message), {
+            area: "generateDraftDecisions: transcript decision extraction failed",
+            context: { transcriptionSessionId: meeting.id, chunksFailed: String(run.chunksFailed) },
+          });
+        }
       } catch (error) {
         console.error("[generateDraftDecisions] transcript extraction failed, continuing with notes:", error);
         result.errors.push(error instanceof Error ? error.message : "Transcript extraction failed");
+        reportHandledErrorServer(error, {
+          area: "generateDraftDecisions: transcript decision extraction failed",
+          context: { transcriptionSessionId: meeting.id },
+        });
       }
     }
 
@@ -292,23 +348,31 @@ export async function generateDraftDecisions(
       candidates.push(candidate);
     }
 
-    for (const candidate of candidates) {
-      const draft = await createDraftDecision(db, {
-        workspaceId,
-        createdById: userId,
-        transcriptionSessionId: meeting.id,
-        statement: candidate.statement,
-        body: candidateBody(candidate),
-        status: "ACCEPTED",
-        decidedAt: meeting.meetingDate ?? null,
-        occurrenceId: meeting.occurrenceId,
-        projectId: meeting.projectId,
-        deciders: resolveDeciders(candidate.deciderNames, meeting.participants),
-        evidence: candidate.evidence,
-        resolvesDecisionId: candidate.resolvesDecisionId ?? null,
+    // All or nothing. The short-circuit above treats ANY existing draft as
+    // "this meeting is done", so a run killed part-way through a per-candidate
+    // loop left a partial set that every retry reported as complete — with no
+    // way back short of rejecting them all.
+    if (candidates.length > 0) {
+      await db.$transaction(async (tx) => {
+        for (const candidate of candidates) {
+          const draft = await createDraftDecision(tx as unknown as PrismaClient, {
+            workspaceId,
+            createdById: userId,
+            transcriptionSessionId: meeting.id,
+            statement: candidate.statement,
+            body: candidateBody(candidate),
+            status: "ACCEPTED",
+            decidedAt: meeting.meetingDate ?? null,
+            occurrenceId: meeting.occurrenceId,
+            projectId: meeting.projectId,
+            deciders: resolveDeciders(candidate.deciderNames, meeting.participants),
+            evidence: candidate.evidence,
+            resolvesDecisionId: candidate.resolvesDecisionId ?? null,
+          });
+          console.log(`[generateDraftDecisions] Draft ${draft.number} "${draft.statement}" (${candidate.origin})`);
+          result.draftsCreated++;
+        }
       });
-      console.log(`[generateDraftDecisions] Draft ${draft.number} "${draft.statement}" (${candidate.origin})`);
-      result.draftsCreated++;
     }
     result.draftCount = result.draftsCreated;
     result.success = true;
@@ -343,6 +407,10 @@ export async function generateDraftDecisions(
   } catch (error) {
     console.error("[generateDraftDecisions] failed:", error);
     result.errors.push(error instanceof Error ? error.message : "Unknown error");
+    reportHandledErrorServer(error, {
+      area: "generateDraftDecisions: draft decision extraction failed",
+      context: { transcriptionSessionId },
+    });
     return result;
   }
 }
