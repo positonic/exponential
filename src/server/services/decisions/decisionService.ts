@@ -462,8 +462,11 @@ export async function updateDecision(
 ) {
   const { patch } = input;
   await assertScopeInWorkspace(db, input.workspaceId, patch);
+  // Defence in depth (house rule: data is workspace-scoped): the row is
+  // addressed by id AND workspace, so a caller that skipped the scoped
+  // pre-load cannot reach across workspaces.
   const decision = await db.decision.update({
-    where: { id: input.decisionId },
+    where: { id: input.decisionId, workspaceId: input.workspaceId },
     data: {
       ...(patch.statement !== undefined ? { statement: patch.statement.trim() } : {}),
       ...(patch.body !== undefined ? { body: patch.body?.trim() ? patch.body : null } : {}),
@@ -494,6 +497,7 @@ export async function updateDecision(
 
 export interface SetStatusInput {
   decisionId: string;
+  workspaceId: string;
   userId: string;
   status: DecisionStatus;
   /** Required for SUPERSEDED: the confirmed decision in the same workspace that replaces this one. */
@@ -509,8 +513,8 @@ export interface SetStatusInput {
  * reads as a lifecycle; OPEN and PROPOSED are a plain status change.
  */
 export async function setStatus(db: PrismaClient, input: SetStatusInput) {
-  const current = await db.decision.findUnique({
-    where: { id: input.decisionId },
+  const current = await db.decision.findFirst({
+    where: { id: input.decisionId, workspaceId: input.workspaceId },
     select: transitionSelect,
   });
   if (!current) {
@@ -552,7 +556,7 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
   }
 
   const decision = await db.decision.update({
-    where: { id: current.id },
+    where: { id: current.id, workspaceId: input.workspaceId },
     data: {
       status: input.status,
       supersededById,
@@ -596,10 +600,10 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
  */
 export async function confirmDraft(
   db: PrismaClient,
-  input: { decisionId: string; userId: string },
+  input: { decisionId: string; workspaceId: string; userId: string },
 ) {
-  const current = await db.decision.findUnique({
-    where: { id: input.decisionId },
+  const current = await db.decision.findFirst({
+    where: { id: input.decisionId, workspaceId: input.workspaceId },
     select: transitionSelect,
   });
   if (!current) {
@@ -639,10 +643,10 @@ export async function confirmDraft(
 /** Reject a draft. A confirmed decision is never rejected — deprecate it. */
 export async function rejectDraft(
   db: PrismaClient,
-  input: { decisionId: string; userId: string },
+  input: { decisionId: string; workspaceId: string; userId: string },
 ) {
-  const current = await db.decision.findUnique({
-    where: { id: input.decisionId },
+  const current = await db.decision.findFirst({
+    where: { id: input.decisionId, workspaceId: input.workspaceId },
     select: { id: true, reviewState: true },
   });
   if (!current) {
@@ -666,9 +670,9 @@ export async function rejectDraft(
  * deleted (ADR-0060): they are deprecated or superseded so the log keeps
  * its history.
  */
-export async function deleteDraft(db: PrismaClient, input: { decisionId: string }) {
-  const current = await db.decision.findUnique({
-    where: { id: input.decisionId },
+export async function deleteDraft(db: PrismaClient, input: { decisionId: string; workspaceId: string }) {
+  const current = await db.decision.findFirst({
+    where: { id: input.decisionId, workspaceId: input.workspaceId },
     select: { id: true, reviewState: true },
   });
   if (!current) {
@@ -680,7 +684,7 @@ export async function deleteDraft(db: PrismaClient, input: { decisionId: string 
       message: "Confirmed decisions are never deleted — deprecate or supersede instead",
     });
   }
-  await db.decision.delete({ where: { id: current.id } });
+  await db.decision.delete({ where: { id: current.id, workspaceId: input.workspaceId } });
   return { id: current.id };
 }
 
@@ -723,8 +727,8 @@ export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
 }
 
 /** Remove one implemented-by link. */
-export async function unlinkEntity(db: PrismaClient, input: { linkId: string }) {
-  await db.decisionLink.delete({ where: { id: input.linkId } });
+export async function unlinkEntity(db: PrismaClient, input: { linkId: string; workspaceId: string }) {
+  await db.decisionLink.delete({ where: { id: input.linkId, decision: { workspaceId: input.workspaceId } } });
   return { deleted: true };
 }
 

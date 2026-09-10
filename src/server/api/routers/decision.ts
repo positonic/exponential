@@ -390,7 +390,7 @@ export const decisionRouter = createTRPCRouter({
       }
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, link.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      return unlinkEntity(ctx.db, { linkId: link.id });
+      return unlinkEntity(ctx.db, { linkId: link.id, workspaceId: input.workspaceId });
     }),
 
   /**
@@ -420,6 +420,7 @@ export const decisionRouter = createTRPCRouter({
       }
       const decision = await setStatus(ctx.db, {
         decisionId: subject.id,
+        workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
         status: input.status,
         supersededById: input.supersededById ?? null,
@@ -436,6 +437,7 @@ export const decisionRouter = createTRPCRouter({
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
       const decision = await confirmDraft(ctx.db, {
         decisionId: subject.id,
+        workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
@@ -448,7 +450,7 @@ export const decisionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      return rejectDraft(ctx.db, { decisionId: subject.id, userId: ctx.session.user.id });
+      return rejectDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId, userId: ctx.session.user.id });
     }),
 
   /**
@@ -461,6 +463,6 @@ export const decisionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      return deleteDraft(ctx.db, { decisionId: subject.id });
+      return deleteDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId });
     }),
 });

@@ -23,6 +23,7 @@ import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { WORKSPACE_PERMISSION_MAP, hasMinimumWorkspaceRole } from "~/server/services/access/types";
 import { LogDecisionModal } from "./LogDecisionModal";
 import {
   decisionToLogRow,
@@ -530,7 +531,8 @@ export function DecisionsIndex({
   // read the log but the create mutation gates at workspace edit, so the
   // button hides for them rather than failing on click.
   const { userRole } = useWorkspace();
-  const canCreate = userRole !== null && userRole !== "viewer" && userRole !== "guest";
+  const canCreate =
+    userRole !== null && hasMinimumWorkspaceRole(userRole, WORKSPACE_PERMISSION_MAP.edit);
   const [newDecisionOpen, setNewDecisionOpen] = useState(false);
 
   const query = search.trim();

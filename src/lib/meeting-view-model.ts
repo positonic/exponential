@@ -67,6 +67,13 @@ export interface MeetingDecisionInput {
   evidenceCount: number;
 }
 
+export interface MeetingOccurrenceRef {
+  id: string;
+  ceremonyId: string;
+  ceremonyName: string;
+  scheduledStart: Date;
+}
+
 export interface MeetingViewModel {
   /** Fireflies meeting_type, capitalised; null → no type pill shown. */
   meetingType: string | null;
@@ -85,6 +92,8 @@ export interface MeetingViewModel {
   decisions: MeetingDecision[];
   /** The OPEN subset — open questions raised in this meeting. */
   questions: MeetingDecision[];
+  /** The ceremony occurrence this meeting captured (ADR-0059), or null. */
+  occurrence: MeetingOccurrenceRef | null;
   hasVideo: boolean;
   captureCount: number;
   /** Number of canonical transcript turns; 0 for an empty/absent transcript
@@ -273,6 +282,14 @@ export function buildMeetingViewModel(
     keyMoments: [],
     decisions: allDecisions.filter((d) => d.status !== "OPEN"),
     questions: allDecisions.filter((d) => d.status === "OPEN"),
+    occurrence: session.occurrence
+      ? {
+          id: session.occurrence.id,
+          ceremonyId: session.occurrence.ceremony.id,
+          ceremonyName: session.occurrence.ceremony.name,
+          scheduledStart: new Date(session.occurrence.scheduledStart),
+        }
+      : null,
     hasVideo: Boolean(session.videoUrl),
     captureCount: session.screenshots.length,
     transcriptCount: countTranscriptTurns(session.transcription, session.sentencesJson),

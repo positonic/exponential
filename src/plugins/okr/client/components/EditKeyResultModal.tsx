@@ -14,9 +14,13 @@ import {
   MultiSelect,
 } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { useState, useEffect, useMemo } from "react";
-import { api } from "~/trpc/react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { reportHandledError } from "~/lib/reportHandledError";
 import { KeyResultGuidanceIcon } from "./KeyResultGuidance";
 
 // Unit options for key results
@@ -55,7 +59,28 @@ interface KeyResultData {
   userId?: string;
   driUserId?: string | null;
   goalId?: number;
+  /**
+   * Linked work the caller already holds (the OKR card's row carries it).
+   * Seeds the pickers on open so they don't sit empty until `okr.getById`
+   * returns; the fresh fetch still wins once it lands.
+   */
+  projects?: Array<{ project: { id: string } }>;
+  features?: Array<{ feature: { id: string } }>;
 }
+
+type ObjectiveList = RouterOutputs["okr"]["getByObjective"];
+type CachedKeyResult = ObjectiveList[number]["keyResults"][number];
+
+const linkedProjectIdsOf = (
+  links: Array<{ project: { id: string } }> | undefined,
+): string[] => links?.map((link) => link.project.id) ?? [];
+
+const linkedFeatureIdsOf = (
+  links: Array<{ feature: { id: string } }> | undefined,
+): string[] => links?.map((link) => link.feature.id) ?? [];
+
+const sameIdSet = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((id) => b.includes(id));
 
 type EditKeyResultModalProps = {
   opened: boolean;
@@ -113,6 +138,7 @@ export function EditKeyResultModal({
   const [objectiveId, setObjectiveId] = useState<string | null>(null);
 
   const utils = api.useUtils();
+  const queryClient = useQueryClient();
   const { workspace } = useWorkspace();
   const { data: currentUser } = api.user.getCurrentUser.useQuery();
 
@@ -189,20 +215,35 @@ export function EditKeyResultModal({
           : null
       );
 
-      // Populate selected projects from freshKeyResult if available
-      const linkedProjectIds =
-        (freshKeyResult as { projects?: Array<{ project: { id: string } }> })
-          ?.projects?.map((p) => p.project.id) ?? [];
-      setSelectedProjectIds(linkedProjectIds);
-
-      // Populate selected features from freshKeyResult if available
-      const linkedFeatureIds =
-        (freshKeyResult as { features?: Array<{ feature: { id: string } }> })
-          ?.features?.map((f) => f.feature.id) ?? [];
-      setSelectedFeatureIds(linkedFeatureIds);
+      // Linked work: the fresh fetch when it has landed, else whatever the
+      // caller passed in, so the pickers are right from the first paint.
+      setSelectedProjectIds(linkedProjectIdsOf(currentKeyResult.projects));
+      setSelectedFeatureIds(linkedFeatureIdsOf(currentKeyResult.features));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKeyResult, currentUser?.id, freshKeyResult, isCreate, opened]);
+
+  // Lets the optimistic paint show the new DRI's avatar/name straight away.
+  const driUserById = useMemo(() => {
+    const byId = new Map<string, CachedKeyResult["driUser"]>();
+    for (const member of workspace?.members ?? []) {
+      byId.set(member.user.id, {
+        id: member.user.id,
+        name: member.user.name,
+        email: member.user.email,
+        image: member.user.image,
+      });
+    }
+    if (currentUser) {
+      byId.set(currentUser.id, {
+        id: currentUser.id,
+        name: currentUser.name ?? null,
+        email: currentUser.email ?? null,
+        image: currentUser.image ?? null,
+      });
+    }
+    return byId;
+  }, [currentUser, workspace?.members]);
 
   const driOptions = useMemo(() => {
     const members = workspace?.members ?? [];
@@ -237,51 +278,140 @@ export function EditKeyResultModal({
     }
   }, [driOptions, driUserId]);
 
-  // Update mutation
-  const updateKeyResult = api.okr.update.useMutation({
-    onSuccess: async () => {
-      await utils.okr.getByObjective.invalidate();
-      await utils.okr.getStats.invalidate();
-      await utils.okr.getAll.invalidate();
-      await utils.okr.getById.invalidate();
-    },
-  });
+  /**
+   * Every OKR query a save can affect, invalidated ONCE after all of the
+   * save's mutations have settled. Callers' `onSuccess` handlers must not
+   * repeat these: react-query's invalidate aborts an in-flight refetch and
+   * re-issues it, so overlapping invalidations from three mutation callbacks
+   * plus the caller used to put six copies of `getByObjective` — the page's
+   * heaviest query — into a single request.
+   */
+  const refreshOkrQueries = () =>
+    Promise.all([
+      utils.okr.getByObjective.invalidate(),
+      utils.okr.getCountsByYear.invalidate(),
+      utils.okr.getStats.invalidate(),
+      utils.okr.getAll.invalidate(),
+      utils.okr.getById.invalidate(),
+    ]);
 
-  // Create mutation
-  const createKeyResult = api.okr.create.useMutation({
-    onSuccess: async () => {
-      await utils.okr.getByObjective.invalidate();
-      await utils.okr.getStats.invalidate();
-      await utils.okr.getAll.invalidate();
-    },
-  });
+  /**
+   * Apply `patch` to this key result in every cached `getByObjective` page
+   * (all period / scope variants share the key prefix). This is what makes
+   * the card reflect a save the instant the modal closes; the refetch that
+   * follows the mutations replaces it with the server's version, or reverts
+   * it if a mutation failed.
+   */
+  const patchCachedKeyResult = (
+    krId: string,
+    patch: (kr: CachedKeyResult) => CachedKeyResult,
+  ) => {
+    queryClient.setQueriesData<ObjectiveList>(
+      { queryKey: getQueryKey(api.okr.getByObjective) },
+      (old) =>
+        old?.map((goal) => ({
+          ...goal,
+          keyResults: goal.keyResults.map((kr) =>
+            kr.id === krId ? patch(kr) : kr,
+          ),
+        })),
+    );
+  };
 
-  // Update linked projects mutation
-  const updateLinkedProjects = api.okr.updateLinkedProjects.useMutation({
-    onSuccess: async () => {
-      await utils.okr.getByObjective.invalidate();
-      await utils.okr.getById.invalidate();
-    },
-  });
-
-  // Update linked features mutation (ADR-0050)
-  const updateLinkedFeatures = api.okr.updateLinkedFeatures.useMutation({
-    onSuccess: async () => {
-      await utils.okr.getByObjective.invalidate();
-      await utils.okr.getById.invalidate();
-    },
-  });
+  // The mutations themselves stay dumb: handleSubmit sequences them and
+  // owns the single refresh afterwards.
+  const updateKeyResult = api.okr.update.useMutation();
+  const createKeyResult = api.okr.create.useMutation();
+  const updateLinkedProjects = api.okr.updateLinkedProjects.useMutation();
+  // ADR-0050: Features are the second execution edge.
+  const updateLinkedFeatures = api.okr.updateLinkedFeatures.useMutation();
 
   // Delete mutation
   const deleteKeyResult = api.okr.delete.useMutation({
     onSuccess: async () => {
-      await utils.okr.getByObjective.invalidate();
-      await utils.okr.getStats.invalidate();
-      await utils.okr.getAll.invalidate();
+      await refreshOkrQueries();
       onSuccess?.();
       onClose();
     },
   });
+
+  /**
+   * The saved form as the card will show it once the server agrees. Mirrors
+   * `okr.update`'s semantics field for field (an empty description or a
+   * missing confidence is "leave as is", not "clear") so the optimistic
+   * paint and the refetched truth never disagree. Links the picker added
+   * are synthesised from the option lists; links that already existed are
+   * kept as-is so a feature's ticket progress survives the round trip.
+   */
+  const buildOptimisticKeyResult = (kr: CachedKeyResult): CachedKeyResult => {
+    const nextDriUserId = driUserId ?? currentUser?.id ?? kr.driUserId;
+    const nextDriUser =
+      nextDriUserId === kr.driUserId
+        ? kr.driUser
+        : (driUserById.get(nextDriUserId ?? "") ?? kr.driUser);
+
+    return {
+      ...kr,
+      title,
+      description: description || kr.description,
+      targetValue,
+      currentValue,
+      startValue,
+      unit,
+      unitLabel: unit === "custom" ? unitLabel : kr.unitLabel,
+      status,
+      confidence: confidence ?? kr.confidence,
+      driUserId: nextDriUserId,
+      driUser: nextDriUser,
+      projects: selectedProjectIds.flatMap((projectId) => {
+        const existing = kr.projects.find(
+          (link) => link.project.id === projectId,
+        );
+        if (existing) return [existing];
+        const project = availableProjects.find((p) => p.id === projectId);
+        if (!project) return [];
+        return [
+          {
+            id: `optimistic-${kr.id}-${projectId}`,
+            keyResultId: kr.id,
+            projectId,
+            assignedAt: new Date(),
+            project: {
+              id: project.id,
+              name: project.name,
+              status: project.status,
+              slug: project.slug,
+              type: project.type,
+            },
+          },
+        ];
+      }),
+      features: selectedFeatureIds.flatMap((featureId) => {
+        const existing = kr.features.find(
+          (link) => link.feature.id === featureId,
+        );
+        if (existing) return [existing];
+        const feature = availableFeatures.find((f) => f.id === featureId);
+        if (!feature) return [];
+        return [
+          {
+            id: `optimistic-${kr.id}-${featureId}`,
+            keyResultId: kr.id,
+            featureId,
+            assignedAt: new Date(),
+            feature: {
+              id: feature.id,
+              name: feature.name,
+              status: feature.status,
+              product: feature.product,
+              // Unknown until the refetch; null renders no chip, never "0/0".
+              ticketProgress: null,
+            },
+          },
+        ];
+      }),
+    };
+  };
 
   const handleSubmit = async () => {
     if (!title) return;
@@ -317,48 +447,105 @@ export function EditKeyResultModal({
           });
         }
 
+        await refreshOkrQueries();
         onSuccess?.();
         onClose();
         return;
       }
 
       if (!currentKeyResult) return;
+      const keyResultId = currentKeyResult.id;
+      const nextGoalId = objectiveId ? Number(objectiveId) : undefined;
+      const movesObjective =
+        nextGoalId != null && nextGoalId !== currentKeyResult.goalId;
 
-      // Fire the mutations without blocking on their query invalidations,
-      // so the modal can close immediately. The onSuccess handlers refresh
-      // data in the background.
-      updateKeyResult.mutate({
-        id: currentKeyResult.id,
-        title,
-        description: description || undefined,
-        targetValue,
-        currentValue,
-        startValue,
-        unit,
-        unitLabel: unit === "custom" ? unitLabel : undefined,
-        status,
-        confidence: confidence ?? undefined,
-        driUserId: driUserId ?? currentUser?.id,
-        goalId: objectiveId ? Number(objectiveId) : undefined,
-      });
+      // Paint the edit into the cached cards before the request leaves.
+      // A key result moving to another objective is left to the refetch:
+      // that changes which card owns it, not just what the row says.
+      if (!movesObjective) {
+        patchCachedKeyResult(keyResultId, buildOptimisticKeyResult);
+      }
 
-      // Save linked projects
-      updateLinkedProjects.mutate({
-        keyResultId: currentKeyResult.id,
-        projectIds: selectedProjectIds,
-      });
+      // Only rewrite the link tables when the user actually changed them.
+      // The baseline is the links we know about (fresh fetch, or the
+      // card's own rows); with no baseline at all — an id-only stub opened
+      // before okr.getById returned — an untouched, empty picker must not
+      // be mistaken for "unlink everything".
+      const knownProjectIds = linkedProjectIdsOf(currentKeyResult.projects);
+      const knownFeatureIds = linkedFeatureIdsOf(currentKeyResult.features);
+      const projectsChanged =
+        currentKeyResult.projects !== undefined &&
+        !sameIdSet(knownProjectIds, selectedProjectIds);
+      const featuresChanged =
+        currentKeyResult.features !== undefined &&
+        !sameIdSet(knownFeatureIds, selectedFeatureIds);
 
-      // Save linked features
-      updateLinkedFeatures.mutate({
-        keyResultId: currentKeyResult.id,
-        featureIds: selectedFeatureIds,
-      });
-
-      onSuccess?.();
+      // Close now; the mutations and the refresh run behind the modal.
       onClose();
+
+      const results = await Promise.allSettled([
+        updateKeyResult.mutateAsync({
+          id: keyResultId,
+          title,
+          description: description || undefined,
+          targetValue,
+          currentValue,
+          startValue,
+          unit,
+          unitLabel: unit === "custom" ? unitLabel : undefined,
+          status,
+          confidence: confidence ?? undefined,
+          driUserId: driUserId ?? currentUser?.id,
+          goalId: nextGoalId,
+        }),
+        ...(projectsChanged
+          ? [
+              updateLinkedProjects.mutateAsync({
+                keyResultId,
+                projectIds: selectedProjectIds,
+              }),
+            ]
+          : []),
+        ...(featuresChanged
+          ? [
+              updateLinkedFeatures.mutateAsync({
+                keyResultId,
+                featureIds: selectedFeatureIds,
+              }),
+            ]
+          : []),
+      ]);
+
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+      for (const result of rejected) {
+        reportHandledError(result.reason, {
+          area: "okr-edit-key-result",
+          context: { keyResultId },
+        });
+      }
+      if (rejected.length > 0) {
+        // The modal is already closed, so this is the only signal the user
+        // gets that the card is about to revert.
+        notifications.show({
+          title: "Key result not saved",
+          message:
+            rejected[0]?.reason instanceof Error
+              ? rejected[0].reason.message
+              : "The server refused part of the change. Reopen it to try again.",
+          color: "red",
+        });
+      }
+
+      // One refetch: confirms the optimistic paint, or reverts it if a
+      // mutation was refused.
+      await refreshOkrQueries();
+      onSuccess?.();
     } catch (error) {
-      // Error is handled by mutation hooks
       console.error("Failed to save key result:", error);
+      reportHandledError(error, { area: "okr-save-key-result" });
     }
   };
 

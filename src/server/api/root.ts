@@ -4,6 +4,7 @@ import { actionRouter } from "./routers/action";
 import { adminRouter } from "./routers/admin";
 import { adrRouter } from "./routers/adr";
 import { decisionRouter } from "./routers/decision";
+import { ceremonyRouter } from "./routers/ceremony";
 import { projectRouter } from "./routers/project";
 import { searchRouter } from "./routers/search";
 import { toolRouter } from "./routers/tool";
@@ -106,6 +107,7 @@ export const appRouter = createTRPCRouter({
   admin: adminRouter,
   adr: adrRouter,
   decision: decisionRouter,
+  ceremony: ceremonyRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,

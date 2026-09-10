@@ -21,6 +21,7 @@ import { turnToEvidence, type DecisionEvidenceTurn } from "~/lib/decision-eviden
 import type { TranscriptTurn } from "~/lib/transcript";
 import { LogDecisionModal } from "~/app/_components/decisions/LogDecisionModal";
 import type { MeetingProjectOption } from "./MeetingProjectPicker";
+import type { MeetingOccurrenceOption } from "./MeetingOccurrencePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
@@ -180,6 +181,49 @@ export function MeetingDetail({
   function handleRemoveParticipant(id: string) {
     removeParticipant.mutate({ id });
   }
+
+  // "Part of" (ADR-0059): occurrences of the meeting's workspace within a
+  // week either side of the meeting date are the candidates; linking is a
+  // meeting edit, so the row is read-only without a workspace.
+  const occurrenceWindow = useMemo(() => {
+    const day = 86_400_000;
+    const anchor = session.meetingDate ? new Date(session.meetingDate) : new Date(session.createdAt);
+    return { from: new Date(anchor.getTime() - 7 * day), to: new Date(anchor.getTime() + 7 * day) };
+  }, [session.meetingDate, session.createdAt]);
+  const { data: occurrenceRows = [] } = api.ceremony.listOccurrences.useQuery(
+    { workspaceId: session.workspaceId ?? "", from: occurrenceWindow.from, to: occurrenceWindow.to },
+    { enabled: Boolean(session.workspaceId) },
+  );
+  const occurrenceOptions = useMemo<MeetingOccurrenceOption[]>(
+    () =>
+      occurrenceRows.map((o) => ({
+        id: o.id,
+        ceremonyId: o.ceremonyId,
+        ceremonyName: o.ceremony.name,
+        scheduledStart: new Date(o.scheduledStart),
+      })),
+    [occurrenceRows],
+  );
+  const attachOccurrence = api.ceremony.attachMeeting.useMutation({
+    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onError: (error) =>
+      notifications.show({ title: "Couldn't link ceremony", message: error.message, color: "red" }),
+  });
+  const detachOccurrence = api.ceremony.detachMeeting.useMutation({
+    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onError: (error) =>
+      notifications.show({ title: "Couldn't unlink ceremony", message: error.message, color: "red" }),
+  });
+  const onOccurrenceChange = session.workspaceId
+    ? (occurrenceId: string | null) => {
+        if (occurrenceId) attachOccurrence.mutate({ meetingId: session.id, occurrenceId });
+        else detachOccurrence.mutate({ meetingId: session.id });
+      }
+    : undefined;
+  const occurrenceHref =
+    vm.occurrence && session.workspace?.slug
+      ? `/w/${session.workspace.slug}/ceremonies/${vm.occurrence.ceremonyId}`
+      : null;
 
   const meetingDateObj = session.meetingDate ? new Date(session.meetingDate) : null;
   const displayDate = meetingDateObj ?? new Date(session.createdAt);
@@ -366,6 +410,10 @@ export function MeetingDetail({
             assignableProjects={assignableProjects}
             onProjectChange={onProjectChange}
             workspaceName={session.workspace?.name ?? null}
+            occurrence={vm.occurrence}
+            occurrenceHref={occurrenceHref}
+            occurrenceOptions={occurrenceOptions}
+            onOccurrenceChange={onOccurrenceChange}
             onShare={handleShare}
             onExportTranscript={handleExportTranscript}
             canExport={Boolean(session.transcription)}

@@ -22,7 +22,9 @@ export type ActivityAction =
   | "accepted"
   | "superseded"
   | "deprecated"
-  | "confirmed";
+  | "confirmed"
+  /** A recorded meeting was linked to a ceremony occurrence (ADR-0059). */
+  | "captured";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -51,7 +53,8 @@ export type ActivityEntityType =
   | "time_entry"
   | "channel_summary"
   | "ticket_sync_run"
-  | "decision";
+  | "decision"
+  | "ceremony_occurrence";
 
 export interface RecordActivityInput {
   workspaceId: string;

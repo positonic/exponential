@@ -24,6 +24,7 @@ import {
   IconPencil,
   IconUserPlus,
   IconPlug,
+  IconCalendarRepeat,
   IconFolder,
   IconUsers,
   IconRocket,
@@ -92,6 +93,7 @@ type SectionId =
   | 'features'
   | 'integrations'
   | 'plugins'
+  | 'ceremonies'
   | 'danger';
 
 export default function WorkspaceSettingsPage() {
@@ -602,6 +604,7 @@ export default function WorkspaceSettingsPage() {
         { id: 'features', label: 'Features', icon: IconRocket, badge: `${featureOn}/${featureTotal}` },
         { id: 'integrations', label: 'Integrations', icon: IconPalette },
         { id: 'plugins', label: 'Plugins', icon: IconPlug },
+        { id: 'ceremonies', label: 'Ceremonies', icon: IconCalendarRepeat },
       ],
     },
     ...(userRole === 'owner'
@@ -1499,6 +1502,22 @@ export default function WorkspaceSettingsPage() {
               icon={IconPlug}
               title="Manage plugins"
               description="Toggle OKRs, CRM, notifications, and other plugins for this workspace."
+            />
+          </SettingsSection>
+        )}
+
+        {section === 'ceremonies' && (
+          <SettingsSection
+            icon={IconCalendarRepeat}
+            title="Ceremonies"
+            description="The workspace's operating rhythm: standups, planning, reviews, retros and the meetings that capture them."
+            flush
+          >
+            <SettingsRowLink
+              href={`/w/${workspace.slug}/settings/ceremonies`}
+              icon={IconCalendarRepeat}
+              title="Manage ceremonies"
+              description="Define recurring meetings from templates, set cadence, owner and participants, and link recordings to occurrences."
             />
           </SettingsSection>
         )}
