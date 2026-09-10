@@ -209,7 +209,10 @@ function PageEditorContent({
           <PageActionsMenu
             pageId={page.id}
             pageTitle={page.title}
+            workspaceId={page.workspaceId}
             workspaceSlug={workspaceSlug}
+            projectId={page.projectId}
+            includeInSearch={page.includeInSearch}
             canEdit={page.canEdit}
             getDoc={() => editorHandleRef.current?.editor?.getJSON() ?? null}
           />

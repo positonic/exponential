@@ -136,6 +136,42 @@ test("Print hides the app chrome and lets the column run full width", async ({
   await page.emulateMedia({ media: "screen" });
 });
 
+test("Move to project lists only projects the user can edit", async ({ page }) => {
+  await createScratchPage(page, `Scratch move ${Date.now()}`);
+
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Move to project…" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Project").click();
+  // "No project" is always offered; the rest are the fixture's own projects.
+  await expect(page.getByRole("option", { name: "No project" })).toBeVisible();
+  await expect(
+    page.getByRole("option", { name: "Fixture Linked Project" }),
+  ).toBeVisible();
+});
+
+test("Include in search toggles and survives a reload", async ({ page }) => {
+  await createScratchPage(page, `Scratch search ${Date.now()}`);
+
+  await page.getByLabel("Page actions").click();
+  const toggle = page.getByLabel("Include in search");
+  // Pages are indexed by default.
+  await expect(toggle).toBeChecked();
+
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/api/trpc/") && r.url().includes("page.update"),
+    ),
+    page.getByRole("menuitem", { name: "Include in search" }).click(),
+  ]);
+  await expect(toggle).not.toBeChecked();
+
+  await page.reload();
+  await page.getByLabel("Page actions").click();
+  await expect(page.getByLabel("Include in search")).not.toBeChecked();
+});
+
 test("Delete states the impact and requires the title to be typed", async ({
   page,
 }) => {

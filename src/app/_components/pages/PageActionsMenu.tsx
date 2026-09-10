@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ActionIcon, Menu } from "@mantine/core";
+import { ActionIcon, Menu, Switch } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
   IconCopy,
   IconDots,
   IconDownload,
   IconExternalLink,
+  IconFolderShare,
   IconPrinter,
   IconLink,
   IconMarkdown,
@@ -21,11 +22,16 @@ import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { slugifyPageTitle } from "~/lib/pages/public-url";
 import { docToMarkdown } from "~/lib/prd/codec";
 import { PageDeleteDialog } from "./PageDeleteDialog";
+import { PageMoveDialog } from "./PageMoveDialog";
 
 interface PageActionsMenuProps {
   pageId: string;
   pageTitle: string;
+  workspaceId: string;
   workspaceSlug: string;
+  /** Current placement; null means the page sits at workspace level. */
+  projectId: string | null;
+  includeInSearch: boolean;
   canEdit: boolean;
   /** The *live* editor document, read at click time. Export goes through the
    * open editor rather than the server so it carries edits the debounced
@@ -44,13 +50,17 @@ interface PageActionsMenuProps {
 export function PageActionsMenu({
   pageId,
   pageTitle,
+  workspaceId,
   workspaceSlug,
+  projectId,
+  includeInSearch,
   canEdit,
   getDoc,
 }: PageActionsMenuProps) {
   const router = useRouter();
   const utils = api.useUtils();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const onError = (error: { message: string }, title: string) =>
     notifications.show({ color: "red", title, message: error.message });
@@ -115,6 +125,20 @@ export function PageActionsMenu({
     onError: (e) => onError(e, "Could not duplicate page"),
   });
 
+  // Whether the page's body feeds workspace search (ADR-0033). Patch the
+  // cached page rather than invalidating it: a refetch would swap
+  // bodyDoc/docVersion under the open editor.
+  const setIncludeInSearch = api.page.update.useMutation({
+    onSuccess: (_data, vars) => {
+      const next = vars.includeInSearch;
+      if (next === undefined) return;
+      utils.page.get.setData({ id: pageId }, (old) =>
+        old ? { ...old, includeInSearch: next } : old,
+      );
+    },
+    onError: (e) => onError(e, "Could not update search inclusion"),
+  });
+
   return (
     <>
       <Menu position="bottom-end" shadow="md" width={240}>
@@ -165,6 +189,35 @@ export function PageActionsMenu({
             <>
               <Menu.Divider />
               <Menu.Item
+                leftSection={<IconFolderShare size={14} />}
+                onClick={() => setMoveOpen(true)}
+              >
+                Move to project…
+              </Menu.Item>
+              {/* The switch is the control; the row is its label, so the menu
+                  stays open while you flip it. */}
+              <Menu.Item
+                closeMenuOnClick={false}
+                onClick={() =>
+                  setIncludeInSearch.mutate({
+                    id: pageId,
+                    includeInSearch: !includeInSearch,
+                  })
+                }
+                rightSection={
+                  <Switch
+                    size="xs"
+                    checked={includeInSearch}
+                    aria-label="Include in search"
+                    readOnly
+                    tabIndex={-1}
+                  />
+                }
+              >
+                Include in search
+              </Menu.Item>
+              <Menu.Divider />
+              <Menu.Item
                 leftSection={<IconCopy size={14} />}
                 disabled={duplicate.isPending}
                 onClick={() => duplicate.mutate({ id: pageId })}
@@ -194,6 +247,14 @@ export function PageActionsMenu({
           ) : null}
         </Menu.Dropdown>
       </Menu>
+
+      <PageMoveDialog
+        pageId={pageId}
+        workspaceId={workspaceId}
+        projectId={projectId}
+        opened={moveOpen}
+        onClose={() => setMoveOpen(false)}
+      />
 
       <PageDeleteDialog
         pageId={pageId}
