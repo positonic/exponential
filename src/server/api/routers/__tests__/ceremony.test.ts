@@ -211,14 +211,16 @@ describe("ceremony router", () => {
     it("returns a linked recording the caller cannot view as an existence-only stub", async () => {
       withWorkspaceRole(db, "member");
       db.ceremony.findFirst.mockResolvedValue({ id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", participants: [] } as never);
-      db.ceremonyOccurrence.findMany.mockResolvedValue([
-        {
-          id: "occ-1",
-          scheduledStart: new Date("2026-09-07T07:00:00Z"),
-          status: "CAPTURED",
-          recordedMeetings: [{ id: "m-visible" }, { id: "m-hidden" }],
-        },
-      ] as never);
+      db.ceremonyOccurrence.findMany
+        .mockResolvedValueOnce([] as never) // upcoming
+        .mockResolvedValueOnce([
+          {
+            id: "occ-1",
+            scheduledStart: new Date("2026-09-07T07:00:00Z"),
+            status: "CAPTURED",
+            recordedMeetings: [{ id: "m-visible" }, { id: "m-hidden" }],
+          },
+        ] as never); // past
       db.transcriptionSession.findMany.mockResolvedValue([
         { id: "m-visible", title: "Standup", meetingDate: new Date(), processedAt: null },
       ] as never);
@@ -229,6 +231,8 @@ describe("ceremony router", () => {
         expect.objectContaining({ id: "m-visible", exists: true, title: "Standup" }),
         { id: "m-hidden", exists: true, title: null, meetingDate: null, processedAt: null },
       ]);
+      // Past and upcoming are fetched separately so neither can crowd out the other.
+      expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledTimes(2);
       // The visibility filter came from the transcription resolver.
       const where = db.transcriptionSession.findMany.mock.calls[0]![0]!.where!;
       expect(where).toHaveProperty("OR");
@@ -347,21 +351,41 @@ describe("ceremony router", () => {
     it("re-import keeps the owner and participants unless the file resolves them", async () => {
       withWorkspaceRole(db, "admin");
       db.workspaceUser.findMany.mockResolvedValue([] as never);
-      db.ceremony.findUnique.mockResolvedValue({ id: "cer-1" } as never);
-      db.ceremony.update.mockResolvedValue({ id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", startsOn: new Date("2026-06-01"), cadenceRule: cadence.cadenceRule, timezone: "Europe/Berlin", durationMinutes: 15 } as never);
+      const existingRow = { id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", slug: "daily-standup", kind: "STANDUP", aliases: ["Daily Standup", "Standup"], startsOn: new Date("2026-06-01"), cadenceRule: cadence.cadenceRule, timezone: "Europe/Berlin", durationMinutes: 15, leadTimeHours: 12, agendaTemplate: [{ key: "blockers", type: "blockers", title: "Blockers" }] };
+      db.ceremony.findUnique.mockResolvedValue(existingRow as never);
+      db.ceremony.update.mockResolvedValue(existingRow as never);
       db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 0 });
 
+      // A partial file: slug + name only, plus an owner that does not resolve.
       const res = await caller(db).ceremony.importDefinitions({
         workspaceId: WORKSPACE_ID,
-        definitions: [{ ...definition, ownerName: "Nobody", participantNames: undefined }],
-        timezone: "Europe/Berlin",
-        startsOn: new Date("2026-06-01"),
+        definitions: [{ slug: "daily-standup", name: "Daily Standup (renamed)", ownerName: "Nobody" }],
       });
 
       expect(res[0]).toMatchObject({ action: "updated", unresolved: ["Nobody"] });
       const data = db.ceremony.update.mock.calls[0]![0].data as Record<string, unknown>;
-      expect(data).not.toHaveProperty("ownerId");
-      expect(data).not.toHaveProperty("participants");
+      expect(data.name).toBe("Daily Standup (renamed)");
+      // Nothing the file did not mention is touched: no Zod defaults leak in.
+      for (const key of ["ownerId", "participants", "aliases", "kind", "agendaTemplate", "durationMinutes", "leadTimeHours"]) {
+        expect(data).not.toHaveProperty(key);
+      }
+      // Timezone and anchor come from the existing row when the file has none.
+      expect(data.timezone).toBe("Europe/Berlin");
+      expect(db.ceremony.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses a partial definition for a ceremony that does not exist yet", async () => {
+      withWorkspaceRole(db, "admin");
+      db.workspaceUser.findMany.mockResolvedValue([] as never);
+      db.ceremony.findUnique.mockResolvedValue(null);
+      await expect(
+        caller(db).ceremony.importDefinitions({
+          workspaceId: WORKSPACE_ID,
+          definitions: [{ slug: "brand-new", name: "Brand new" }],
+          timezone: "Europe/Berlin",
+          startsOn: new Date("2026-06-01"),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
       expect(db.ceremony.create).not.toHaveBeenCalled();
     });
 

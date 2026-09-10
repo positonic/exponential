@@ -148,6 +148,9 @@ describe("attachUnlinkedMeetings", () => {
     const result = await attachUnlinkedMeetings(db, { now: new Date("2026-09-09T12:00:00.000Z"), lookbackDays: 7 });
 
     expect(result).toEqual({ scanned: 2, attached: 1 });
+    // One occurrence load for the workspace, not one per row.
+    expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledTimes(1);
+    expect(recordActivity).toHaveBeenCalledWith(db, expect.objectContaining({ action: "captured", metadata: expect.objectContaining({ via: "catch-up" }) }));
     const where = db.transcriptionSession.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ occurrenceId: null, archivedAt: null, workspaceId: { not: null }, title: { not: null } });
     expect((where.meetingDate as { gte: Date }).gte.toISOString()).toBe("2026-09-02T12:00:00.000Z");

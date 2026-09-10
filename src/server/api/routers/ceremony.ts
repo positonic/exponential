@@ -31,12 +31,14 @@ import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/s
  *   as `{ id, exists: true }` only.
  */
 
-const slugify = (value: string) =>
-  value
+const slugify = (value: string) => {
+  const slug = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "ceremony";
+    .slice(0, 60);
+  return slug.length > 0 ? slug : "ceremony";
+};
 
 /** Validates the RRULE body by building the engine; surfaces a 400 on garbage. */
 function assertValidCadence(cadenceRule: string, timezone: string) {
@@ -84,9 +86,13 @@ const ceremonyFieldsSchema = z.object({
 /**
  * One definition in an import file: the template shape plus the
  * workspace-specific bits a file can carry by name only (no ids, no secrets).
+ * Every field except `slug` is optional so a partial file updates only what
+ * it carries — Zod defaults must not turn a re-import into a reset. A new
+ * ceremony still needs `name` and `cadenceRule` (checked at import time).
  */
 const importDefinitionSchema = ceremonyFieldsSchema
-  .omit({ ownerId: true, participantUserIds: true, productId: true, teamId: true, projectId: true, timezone: true, startsOn: true })
+  .omit({ ownerId: true, participantUserIds: true, productId: true, teamId: true, projectId: true, timezone: true, startsOn: true, slug: true })
+  .partial()
   .extend({
     slug: z.string().min(1).max(60),
     timezone: z.string().min(1).max(64).optional(),
@@ -166,22 +172,36 @@ export const ceremonyRouter = createTRPCRouter({
       });
       if (!ceremony) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
 
-      const occurrences = await ctx.db.ceremonyOccurrence.findMany({
-        where: { ceremonyId: ceremony.id },
-        orderBy: { scheduledStart: "desc" },
-        take: 50,
-        select: {
-          id: true,
-          scheduledStart: true,
-          scheduledEnd: true,
-          status: true,
-          skipReason: true,
-          agendaGeneratedAt: true,
-          agendaCirculatedAt: true,
-          scheduledMeetingId: true,
-          recordedMeetings: { select: { id: true } },
-        },
-      });
+      // A bounded set on each side of now, so a frequent ceremony's pre-created
+      // future rows can never crowd out the past ones that carry recordings.
+      const now = new Date();
+      const occurrenceSelect = {
+        id: true,
+        scheduledStart: true,
+        scheduledEnd: true,
+        status: true,
+        skipReason: true,
+        agendaGeneratedAt: true,
+        agendaCirculatedAt: true,
+        scheduledMeetingId: true,
+        recordedMeetings: { select: { id: true } },
+      } satisfies Prisma.CeremonyOccurrenceSelect;
+      const [upcoming, past] = await Promise.all([
+        ctx.db.ceremonyOccurrence.findMany({
+          where: { ceremonyId: ceremony.id, scheduledStart: { gte: now } },
+          orderBy: { scheduledStart: "asc" },
+          take: 30,
+          select: occurrenceSelect,
+        }),
+        ctx.db.ceremonyOccurrence.findMany({
+          where: { ceremonyId: ceremony.id, scheduledStart: { lt: now } },
+          orderBy: { scheduledStart: "desc" },
+          take: 50,
+          select: occurrenceSelect,
+        }),
+      ]);
+      // Newest first overall: upcoming (furthest first) then past (most recent first).
+      const occurrences = [...upcoming.reverse(), ...past];
 
       // Meeting visibility (ADR-0014): resolve which linked recordings the
       // caller may see; the rest are returned as existence-only stubs.
@@ -387,13 +407,20 @@ export const ceremonyRouter = createTRPCRouter({
 
       const results: Array<{ slug: string; action: "created" | "updated"; occurrencesCreated: number; unresolved: string[] }> = [];
       for (const def of input.definitions) {
-        const timezone = def.timezone ?? input.timezone;
-        const startsOn = def.startsOn ?? input.startsOn;
+        const slug = slugify(def.slug);
+        const existing = await ctx.db.ceremony.findUnique({
+          where: { workspaceId_slug: { workspaceId: input.workspaceId, slug } },
+        });
+        const timezone = def.timezone ?? existing?.timezone ?? input.timezone;
+        const startsOn = def.startsOn ?? existing?.startsOn ?? input.startsOn;
         if (!timezone || !startsOn) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `"${def.slug}" needs a timezone and a startsOn (in the definition or as import defaults)` });
         }
-        assertValidCadence(def.cadenceRule, timezone);
-        const slug = slugify(def.slug);
+        if (!existing && (!def.name || !def.cadenceRule)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `"${def.slug}" is new and needs at least a name and a cadenceRule` });
+        }
+        const cadenceRule = def.cadenceRule ?? existing?.cadenceRule;
+        if (cadenceRule) assertValidCadence(cadenceRule, timezone);
         const unresolved: string[] = [];
         const ownerId = resolve(def.ownerName);
         if (def.ownerName && !ownerId) unresolved.push(def.ownerName);
@@ -404,24 +431,18 @@ export const ceremonyRouter = createTRPCRouter({
           else unresolved.push(name);
         }
         const { ownerName: _o, participantNames: _p, slug: _s, timezone: _t, startsOn: _d, agendaTemplate, ...fields } = def;
-        const data = {
-          ...fields,
-          timezone,
-          startsOn,
-          agendaTemplate: agendaTemplate as Prisma.InputJsonValue,
-        };
-        const existing = await ctx.db.ceremony.findUnique({
-          where: { workspaceId_slug: { workspaceId: input.workspaceId, slug } },
-          select: { id: true },
-        });
-        // Re-imports never silently reassign an owner or wipe participants: the
-        // owner changes only when the name resolved, the participant set only
-        // when the file carries one.
+        // Only the keys the file carries reach the update; a re-import never
+        // resets aliases, kind, agenda, duration, lead time, owner or
+        // participants it did not mention.
+        const present = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
         const ceremony = existing
           ? await ctx.db.ceremony.update({
               where: { id: existing.id },
               data: {
-                ...data,
+                ...present,
+                timezone,
+                startsOn,
+                ...(agendaTemplate ? { agendaTemplate: agendaTemplate as Prisma.InputJsonValue } : {}),
                 ...(ownerId ? { ownerId } : {}),
                 ...(participantIds
                   ? { participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) } }
@@ -430,11 +451,16 @@ export const ceremonyRouter = createTRPCRouter({
             })
           : await ctx.db.ceremony.create({
               data: {
-                ...data,
+                ...present,
+                name: def.name!,
+                cadenceRule: def.cadenceRule!,
                 slug,
+                timezone,
+                startsOn,
                 workspaceId: input.workspaceId,
                 ownerId: ownerId ?? userId,
                 createdById: userId,
+                agendaTemplate: (agendaTemplate ?? []) as Prisma.InputJsonValue,
                 participants: { create: Array.from(participantIds ?? []).map((id) => ({ userId: id })) },
               },
             });

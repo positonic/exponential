@@ -310,9 +310,73 @@ export async function attachUnlinkedMeetings(
     select: { id: true, title: true, meetingDate: true, workspaceId: true, userId: true },
   });
   let attached = 0;
+  if (rows.length === 0) return { scanned: 0, attached };
+
+  // One occurrence load per workspace spanning every meeting date in it,
+  // matched in memory (the backfill's batching), then a write per match.
+  const byWorkspace = new Map<string, typeof rows>();
   for (const row of rows) {
-    const outcome = await attachMeetingToOccurrence(db, row);
-    if (outcome.match) attached += 1;
+    const list = byWorkspace.get(row.workspaceId!) ?? [];
+    list.push(row);
+    byWorkspace.set(row.workspaceId!, list);
+  }
+  for (const [wsId, wsRows] of byWorkspace) {
+    const times = wsRows.map((r) => r.meetingDate!.getTime());
+    const occurrenceRows = await db.ceremonyOccurrence.findMany({
+      where: {
+        workspaceId: wsId,
+        ceremony: { isActive: true },
+        scheduledStart: {
+          gte: new Date(Math.min(...times) - CANDIDATE_WINDOW_MS),
+          lte: new Date(Math.max(...times) + CANDIDATE_WINDOW_MS),
+        },
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        scheduledStart: true,
+        ceremony: { select: { name: true, timezone: true, aliases: true, durationMinutes: true } },
+        scheduledMeeting: { select: { icalUid: true } },
+      },
+    });
+    const all = occurrenceRows.map((r) => ({
+      id: r.id,
+      workspaceId: r.workspaceId,
+      scheduledStart: r.scheduledStart,
+      durationMinutes: r.ceremony.durationMinutes,
+      aliases: r.ceremony.aliases,
+      ceremonyName: r.ceremony.name,
+      timezone: r.ceremony.timezone,
+      scheduledMeetingIcalUid: r.scheduledMeeting?.icalUid ?? null,
+    }));
+    for (const row of wsRows) {
+      try {
+        const at = row.meetingDate!.getTime();
+        const candidates = all.filter(
+          (c) => c.scheduledStart.getTime() >= at - CANDIDATE_WINDOW_MS && c.scheduledStart.getTime() <= at + CANDIDATE_WINDOW_MS,
+        );
+        const match = matchOccurrence(row, candidates);
+        if (!match) continue;
+        const winner = candidates.find((c) => c.id === match.occurrenceId)!;
+        await db.transcriptionSession.update({ where: { id: row.id }, data: { occurrenceId: match.occurrenceId } });
+        if (isRootClient(db)) {
+          await recordOccurrenceCaptured(db, {
+            workspaceId: wsId,
+            occurrenceId: winner.id,
+            ceremonyName: winner.ceremonyName,
+            scheduledStart: winner.scheduledStart,
+            timezone: winner.timezone,
+            meetingId: row.id,
+            meetingTitle: row.title,
+            actorUserId: row.userId,
+            via: "catch-up",
+          });
+        }
+        attached += 1;
+      } catch (error) {
+        reportHandledErrorServer(error, { area: "ceremonies.autoAttach.catchUp", context: { meetingId: row.id } });
+      }
+    }
   }
   return { scanned: rows.length, attached };
 }
