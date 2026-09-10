@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import type { Prisma, CrmContact, PrismaClient } from "@prisma/client";
@@ -383,23 +384,23 @@ export const crmContactRouter = createTRPCRouter({
   // arrows (and the "N of M" counter) to the first page of contacts.
   getNeighbors: protectedProcedure
     .input(z.object({ workspaceId: z.string(), contactId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
       const { workspaceId, contactId } = input;
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: { workspaceId, userId: ctx.session.user.id },
-      });
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
-
       // ROW_NUMBER over the same total ordering `getAll` uses by default, so the
       // arrows walk the list in the order the contacts page shows. A keyset
-      // predicate would need to special-case the NULLS LAST column; ranking the
-      // workspace once is simpler and reads off the workspaceId index.
+      // predicate would need to special-case the NULLS LAST column, and without
+      // a matching composite index it would still seq-scan, so ranking the
+      // workspace once is both simpler and no slower.
+      //
+      // Cost is linear in workspace size: measured ~5ms of DB work at 1k
+      // contacts and ~60-75ms at 50k (seq scan + an external merge sort). The
+      // CTE is materialized once, so the four references below read a temp
+      // result rather than re-scanning. Acceptable for a detail-page load at
+      // today's sizes; if a workspace grows past ~50k contacts, add a composite
+      // index on (workspaceId, lastInteractionAt DESC NULLS LAST, createdAt
+      // DESC, id) to turn the scan+sort into an index scan.
       const rows = await ctx.db.$queryRaw<
         Array<{
           prevId: string | null;

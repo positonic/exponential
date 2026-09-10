@@ -70,6 +70,23 @@ function RemoteSearchSelect({
     onChange(next);
   }
 
+  // The label Mantine will echo back through onSearchChange for the current
+  // selection.
+  const selectedLabel =
+    (value &&
+      (data.find((o) => o.value === value)?.label ??
+        (pickedOption?.value === value ? pickedOption.label : null) ??
+        (fallbackOption?.value === value ? fallbackOption.label : null))) ||
+    null;
+
+  function handleSearchChange(next: string) {
+    // On close, Mantine re-seeds the search input with the selected option's
+    // label. Forwarding that echo as a search term would re-query for the row
+    // already selected, so reopening the dropdown would offer only that one
+    // contact until the user cleared the box. Treat it as no search at all.
+    onSearchChange(next === selectedLabel ? "" : next);
+  }
+
   return (
     <Select
       label={label}
@@ -77,7 +94,7 @@ function RemoteSearchSelect({
       data={data}
       value={value}
       onChange={handleChange}
-      onSearchChange={onSearchChange}
+      onSearchChange={handleSearchChange}
       filter={({ options }) => options}
       nothingFoundMessage={isFetching ? "Searching..." : "No matches"}
       rightSection={isFetching ? <Loader size="xs" /> : undefined}
