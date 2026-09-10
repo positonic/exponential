@@ -121,3 +121,45 @@ test("Decision Log: Source facet separates meeting decisions from manual ones", 
   await expect(manualRow).toBeVisible();
   await attachScreenshot(page, "decision-log-source-facet");
 });
+
+test("Review extracted draft decisions: confirm publishes to the log, reject keeps it out", async ({ page }) => {
+  const { confirm, reject } = fixture.draftDecisionStatements;
+  await page.goto(fixture.meetingUrl);
+  await expect(page.getByRole("heading", { name: "Daily Standup" }).first()).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  // Both seeded drafts sit in the review block; neither is a logged decision yet.
+  const drafts = page.getByTestId("draft-decisions");
+  await expect(drafts).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  const confirmCard = page.getByTestId("draft-decision").filter({ hasText: confirm });
+  const rejectCard = page.getByTestId("draft-decision").filter({ hasText: reject });
+  await expect(confirmCard).toBeVisible();
+  await expect(rejectCard).toBeVisible();
+  await expect(page.locator(".mp-dec__item", { hasText: confirm })).toHaveCount(0);
+  // With drafts pending, the extract button yields to the review block.
+  await expect(page.getByRole("button", { name: "Extract decisions" })).toHaveCount(0);
+  await attachScreenshot(page, "meeting-draft-decisions");
+
+  // Reject: the card goes, nothing is logged.
+  await rejectCard.getByRole("button", { name: "Reject" }).click();
+  await expect(rejectCard).toHaveCount(0);
+  await expect(page.locator(".mp-dec__item", { hasText: reject })).toHaveCount(0);
+
+  // Confirm: the toast names the label and the draft becomes a listed decision.
+  await confirmCard.getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByText(/D-\d{4} logged/)).toBeVisible();
+  await expect(drafts).toHaveCount(0);
+  const item = page.locator(".mp-dec__item", { hasText: confirm });
+  await expect(item).toBeVisible();
+  await expect(item).toContainText("1 transcript turn quoted");
+  // Drafts reviewed: the extract entry point returns.
+  await expect(page.getByRole("button", { name: "Extract decisions" })).toBeVisible();
+
+  // It now lists in the Decision Log under Source = Meeting.
+  await page.goto(fixture.decisionsUrl);
+  const decisionRows = page.locator('a.dec-row[data-kind="decision"]');
+  await expect(decisionRows.filter({ hasText: confirm })).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(decisionRows.filter({ hasText: reject })).toHaveCount(0);
+  await attachScreenshot(page, "decision-log-after-confirm");
+});

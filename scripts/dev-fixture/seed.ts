@@ -49,6 +49,10 @@ export const FIXTURE = {
   meetingSessionId: "dev-fixture-daily-standup-2026-09-08",
   meetingTitle: "Daily Standup",
   decisionStatement: "Park prioritisation debates for the prioritisation ceremony",
+  draftDecisionStatements: {
+    confirm: "Pat takes the accordion review today",
+    reject: "The accordion PR is otherwise clear",
+  },
 } as const;
 
 export interface SeededFixture {
@@ -86,6 +90,12 @@ export interface SeededFixture {
   decisionLabel: string;
   /** App-relative URL of the workspace Decision Log. */
   decisionsUrl: string;
+  /**
+   * Two extracted draft decisions on the same meeting (Decisions V2), one to
+   * confirm and one to reject in the e2e spec. Re-seeding puts both back to
+   * DRAFT so the spec is re-runnable.
+   */
+  draftDecisionStatements: { confirm: string; reject: string };
 }
 
 interface TicketSpec {
@@ -585,6 +595,68 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
         });
       });
 
+  // Draft decisions (Decisions V2): what the extractor would have produced
+  // from this transcript, persisted as `reviewState: DRAFT` rows so the review
+  // surfaces have something to confirm and reject without a model call.
+  // Re-asserted back to DRAFT on every seed, so a spec that confirmed or
+  // rejected one last run finds it pending again.
+  const draftSpecs = [
+    {
+      statement: FIXTURE.draftDecisionStatements.confirm,
+      evidence: [
+        { turnIndex: 5, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[5]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.reject,
+      evidence: [
+        { turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[1]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }],
+    },
+  ] as const;
+  for (const spec of draftSpecs) {
+    const draftState = {
+      body: "## Context\nExtracted from the standup transcript.",
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      source: "MEETING",
+      decidedAt: occurrenceStart,
+      confirmedById: null,
+      confirmedAt: null,
+      supersededById: null,
+      transcriptionSessionId: meeting.id,
+      occurrenceId: occurrence.id,
+      productId: product.id,
+      evidence: spec.evidence,
+    } as const;
+    const existingDraft = await db.decision.findFirst({
+      where: { workspaceId: workspace.id, statement: spec.statement },
+    });
+    if (existingDraft) {
+      await db.decision.update({ where: { id: existingDraft.id }, data: draftState });
+    } else {
+      await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...draftState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: spec.statement,
+            createdById: user.id,
+            deciders: { create: spec.deciders.map((d) => ({ ...d })) },
+          },
+        });
+      });
+    }
+  }
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
     ceremonyId: ceremony.id,
@@ -593,6 +665,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     decisionId: decision.id,
     decisionLabel: `D-${String(decision.number).padStart(4, "0")}`,
     decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
+    draftDecisionStatements: FIXTURE.draftDecisionStatements,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,

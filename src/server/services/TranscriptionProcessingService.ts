@@ -11,6 +11,10 @@ import {
   hasProjectAccess as userHasProjectAccess,
 } from './access';
 import { assignMeetingPlacement } from './meetings/assignMeetingPlacement';
+import {
+  generateDraftDecisions as generateDraftDecisionsForMeeting,
+  type DraftDecisionsResult,
+} from './decisions/generateDraftDecisions';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -283,6 +287,19 @@ export class TranscriptionProcessingService {
       );
       return result;
     }
+  }
+
+  /**
+   * Extract draft Decisions from a meeting (ADR-0060). Same shape as
+   * `generateDraftActions`: drafts only, a person confirms. The body lives in
+   * `decisions/generateDraftDecisions` so it can run against an injected
+   * Prisma client in tests.
+   */
+  static async generateDraftDecisions(
+    transcriptionId: string,
+    userId: string
+  ): Promise<DraftDecisionsResult> {
+    return generateDraftDecisionsForMeeting(db, transcriptionId, userId);
   }
 
   /**

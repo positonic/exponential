@@ -20,6 +20,7 @@ import type { MeetingSession } from "~/lib/meeting-view-model";
 import { turnToEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 import type { TranscriptTurn } from "~/lib/transcript";
 import { LogDecisionModal } from "~/app/_components/decisions/LogDecisionModal";
+import { DraftDecisionReviewList } from "~/app/_components/decisions/DraftDecisionReviewList";
 import type { MeetingProjectOption } from "./MeetingProjectPicker";
 import type { MeetingOccurrenceOption } from "./MeetingOccurrencePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -47,6 +48,9 @@ interface MeetingDetailProps {
   onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
   onRegenerateSummary: () => void;
+  /** Extract draft decisions from the notes and transcript (ADR-0060, V2). */
+  onExtractDecisions: () => void;
+  isExtractingDecisions: boolean;
   onArchive: () => void;
 }
 
@@ -82,6 +86,8 @@ export function MeetingDetail({
   onCreateActions,
   onIdeateFeatures,
   onRegenerateSummary,
+  onExtractDecisions,
+  isExtractingDecisions,
   onArchive,
 }: MeetingDetailProps) {
   // `?tab=transcript` opens straight onto the transcript — decision evidence
@@ -346,6 +352,17 @@ export function MeetingDetail({
                 onRegenerate={onRegenerateSummary}
                 canLogDecision={canLogDecision}
                 onLogDecision={() => setLogDecisionOpen(true)}
+                onExtractDecisions={onExtractDecisions}
+                isExtractingDecisions={isExtractingDecisions}
+                draftsPanel={
+                  session.workspaceId ? (
+                    <DraftDecisionReviewList
+                      transcriptionSessionId={session.id}
+                      workspaceId={session.workspaceId}
+                      drafts={vm.drafts}
+                    />
+                  ) : null
+                }
               />
             )}
             {tab === "transcript" && (

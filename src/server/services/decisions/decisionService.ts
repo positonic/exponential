@@ -92,6 +92,9 @@ export const decisionDetailInclude = {
   keyResult: { select: { id: true, title: true } },
   supersededBy: { select: { id: true, number: true, statement: true, status: true } },
   supersedes: {
+    // A resolution draft points at its target through `supersededById`
+    // until confirm; it is not a superseded decision and must not list here.
+    where: { reviewState: "CONFIRMED" },
     select: { id: true, number: true, statement: true, status: true },
     orderBy: { number: "asc" },
   },
@@ -429,7 +432,15 @@ export async function listForMeeting(
       transcriptionSessionId,
       reviewState: opts.includeDrafts ? { in: ["CONFIRMED", "DRAFT"] } : "CONFIRMED",
     },
-    select: { ...decisionListSelect, reviewState: true },
+    select: {
+      ...decisionListSelect,
+      reviewState: true,
+      body: true,
+      // A draft that resolves an open decision points at it through
+      // `supersededById` until confirm applies the status change (V2), so
+      // the review surfaces name the target.
+      supersededBy: { select: { id: true, number: true, statement: true, status: true } },
+    },
     orderBy: [{ number: "asc" }],
   });
   return rows.map((row) => ({
@@ -437,9 +448,88 @@ export async function listForMeeting(
     label: formatDecisionLabel(row.number),
     evidenceCount: Array.isArray(row.evidence) ? row.evidence.length : 0,
     supersededBy: row.supersededBy
-      ? { id: row.supersededBy.id, label: formatDecisionLabel(row.supersededBy.number) }
+      ? {
+          id: row.supersededBy.id,
+          label: formatDecisionLabel(row.supersededBy.number),
+          statement: row.supersededBy.statement,
+          status: row.supersededBy.status,
+        }
       : null,
   }));
+}
+
+export interface CreateDraftDecisionInput {
+  workspaceId: string;
+  createdById: string;
+  transcriptionSessionId: string;
+  statement: string;
+  body?: string | null;
+  status?: DecisionStatus;
+  decidedAt?: Date | null;
+  occurrenceId?: string | null;
+  projectId?: string | null;
+  deciders?: DecisionDeciderInput[];
+  evidence?: DecisionEvidenceTurn[];
+  /**
+   * An OPEN/PROPOSED decision this draft resolves. Stored on `supersededById`
+   * while the row is a draft; `confirmDraft` then applies the status change
+   * to that decision instead of publishing a new one.
+   */
+  resolvesDecisionId?: string | null;
+}
+
+/**
+ * Persist one extracted draft (V2 extraction). Drafts take a label from the
+ * same workspace sequence as confirmed decisions so a confirmed draft keeps
+ * the number it was reviewed under; `reviewState: DRAFT` keeps it out of the
+ * log and every count until a person confirms (ADR-0060). No per-row
+ * activity event: a draft is invisible to everyone but the meeting's
+ * editors, so the feed would leak it — the extraction run records one
+ * meeting-level event instead.
+ */
+export async function createDraftDecision(db: PrismaClient, input: CreateDraftDecisionInput) {
+  const deciders = normaliseDeciders(input.deciders ?? []);
+  const evidence = (input.evidence ?? []).map((turn) => ({
+    turnIndex: turn.turnIndex,
+    speaker: turn.speaker ?? null,
+    startTime: turn.startTime ?? null,
+    text: turn.text,
+  }));
+  return db.$transaction(async (tx) => {
+    const counter = await tx.workspace.update({
+      where: { id: input.workspaceId },
+      data: { decisionCounter: { increment: 1 } },
+      select: { decisionCounter: true },
+    });
+    return tx.decision.create({
+      data: {
+        workspaceId: input.workspaceId,
+        number: counter.decisionCounter,
+        statement: input.statement.trim(),
+        body: input.body?.trim() ? input.body : null,
+        status: input.status ?? "ACCEPTED",
+        reviewState: "DRAFT",
+        source: "MEETING",
+        decidedAt: input.decidedAt ?? null,
+        createdById: input.createdById,
+        transcriptionSessionId: input.transcriptionSessionId,
+        occurrenceId: input.occurrenceId ?? null,
+        projectId: input.projectId ?? null,
+        supersededById: input.resolvesDecisionId ?? null,
+        evidence: evidence as unknown as Prisma.InputJsonValue,
+        deciders: deciders.length
+          ? {
+              create: deciders.map((d) => ({
+                userId: d.userId ?? null,
+                name: d.name,
+                email: d.email ?? null,
+              })),
+            }
+          : undefined,
+      },
+      select: { id: true, number: true, statement: true, supersededById: true },
+    });
+  });
 }
 
 /** Columns a status or draft transition needs before it decides anything. */

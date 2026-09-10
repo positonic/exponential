@@ -163,6 +163,52 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     generateDraftsMutation.mutate({ transcriptionId: session.id });
   }
 
+  // Decisions (ADR-0060): the same deterministic-then-review shape. Drafts
+  // land in the summary tab's Decisions block, where they are confirmed or
+  // rejected; nothing reaches the Decision Log until then.
+  const extractDecisionsMutation = api.decision.extractDrafts.useMutation({
+    onSuccess: (result) => {
+      if (!session) return;
+      void utils.decision.listForMeeting.invalidate({ transcriptionSessionId: session.id });
+      if (result.alreadyPublished) {
+        notifications.show({
+          title: "Decisions already logged",
+          message: "This meeting already has confirmed decisions.",
+          color: "orange",
+        });
+        return;
+      }
+      if (result.draftCount === 0) {
+        notifications.show({
+          title: "No decisions found",
+          message:
+            result.discardedWithoutEvidence > 0
+              ? "Candidates were found but none could be backed by a transcript turn."
+              : "No decisions were detected in this meeting.",
+          color: "gray",
+        });
+        return;
+      }
+      notifications.show({
+        title: result.alreadyDrafted ? "Drafts ready for review" : "Draft decisions extracted",
+        message: `${result.draftCount} draft ${result.draftCount === 1 ? "decision" : "decisions"} to review in the Decisions block.`,
+        color: "blue",
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message.length > 0 ? error.message : "Failed to extract decisions",
+        color: "red",
+      });
+    },
+  });
+
+  function handleExtractDecisions() {
+    if (!session) return;
+    extractDecisionsMutation.mutate({ transcriptionSessionId: session.id });
+  }
+
   // Same deterministic-then-review shape as Create Actions, one level up the
   // altitude ladder: an Action is a task, a Feature is a product capability.
   // Nothing is written to the feature registry until the card's accept step.
@@ -312,6 +358,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       onCreateActions={handleCreateActions}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
+      onExtractDecisions={handleExtractDecisions}
+      isExtractingDecisions={extractDecisionsMutation.isPending}
       onArchive={handleArchive}
     />
   );

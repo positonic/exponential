@@ -27,6 +27,7 @@ import {
   updateDecision,
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
+import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 
 /**
  * Decisions router (ADR-0060) — the writable half of the Decision Log.
@@ -233,6 +234,31 @@ export const decisionRouter = createTRPCRouter({
         canLogDecision: canEdit && meeting.workspaceId !== null,
         workspaceId: meeting.workspaceId,
       };
+    }),
+
+  /**
+   * Extract draft decisions from a meeting's notes and transcript (V2).
+   * Drafts only — a person confirms or rejects each one from the summary
+   * tab or the Zoe drawer card. Idempotent per meeting: existing drafts are
+   * returned, and a meeting that already has confirmed decisions reports
+   * `alreadyPublished`. Edit access to the meeting is checked inside the
+   * service through the transcription resolver.
+   */
+  extractDrafts: protectedProcedure
+    .input(z.object({ transcriptionSessionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.generateDraftDecisions(
+        input.transcriptionSessionId,
+        ctx.session.user.id,
+      );
+      if (!result.success) {
+        const message = result.errors.join(", ");
+        throw new TRPCError({
+          code: result.errors.some((e) => e.includes("access")) ? "FORBIDDEN" : "BAD_REQUEST",
+          message: message.length > 0 ? message : "Failed to extract draft decisions",
+        });
+      }
+      return result;
     }),
 
   /**
