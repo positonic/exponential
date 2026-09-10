@@ -13,7 +13,6 @@ import {
   Loader,
   Box,
   ThemeIcon,
-  MultiSelect,
   ActionIcon,
   Tooltip,
 } from '@mantine/core';
@@ -21,6 +20,7 @@ import { IconUsers, IconPlus, IconTrash, IconBolt } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { ContactMultiSelect } from '~/app/_components/crm/CrmEntitySelect';
 
 function runStatusColor(status: string): string {
   switch (status) {
@@ -45,11 +45,6 @@ export default function CrmListDetailPage() {
 
   const membersQuery = api.collection.members.useQuery(
     { workspaceId: workspaceId ?? '', collectionId },
-    { enabled: !!workspaceId },
-  );
-
-  const contactsQuery = api.crmContact.getAll.useQuery(
-    { workspaceId: workspaceId ?? '', limit: 100 },
     { enabled: !!workspaceId },
   );
 
@@ -93,17 +88,7 @@ export default function CrmListDetailPage() {
   if (wsLoading || !workspaceId) return <Loader />;
 
   const members = membersQuery.data ?? [];
-  const memberIds = new Set(members.map((m) => m.memberId));
-  const contacts = contactsQuery.data?.contacts ?? [];
-  const options = contacts
-    .filter((c) => !memberIds.has(c.id))
-    .map((c) => ({
-      value: c.id,
-      label:
-        [c.firstName, c.lastName].filter(Boolean).join(' ').trim() ||
-        'Unnamed contact',
-    }));
-
+  const memberIdList = members.map((m) => m.memberId);
   const automations = automationsQuery.data ?? [];
   const runs = runsQuery.data ?? [];
 
@@ -187,15 +172,12 @@ export default function CrmListDetailPage() {
 
       <Card withBorder padding="md">
         <Group align="flex-end" gap="sm">
-          <MultiSelect
-            label="Add contacts"
-            placeholder="Search contacts…"
-            data={options}
+          <ContactMultiSelect
+            workspaceId={workspaceId}
             value={toAdd}
             onChange={setToAdd}
-            searchable
+            excludeIds={memberIdList}
             style={{ flex: 1 }}
-            nothingFoundMessage="No matching contacts"
           />
           <Button
             leftSection={<IconPlus size={16} />}

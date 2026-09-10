@@ -377,6 +377,64 @@ export const crmContactRouter = createTRPCRouter({
       };
     }),
 
+  // Neighbours of a contact in the workspace-wide "All People" ordering, for the
+  // prev/next arrows on the detail page. Resolved server-side: the detail page
+  // used to page `getAll` and walk the result, which silently confined the
+  // arrows (and the "N of M" counter) to the first page of contacts.
+  getNeighbors: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), contactId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { workspaceId, contactId } = input;
+
+      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
+        where: { workspaceId, userId: ctx.session.user.id },
+      });
+      if (!workspaceAccess) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have access to this workspace",
+        });
+      }
+
+      // ROW_NUMBER over the same total ordering `getAll` uses by default, so the
+      // arrows walk the list in the order the contacts page shows. A keyset
+      // predicate would need to special-case the NULLS LAST column; ranking the
+      // workspace once is simpler and reads off the workspaceId index.
+      const rows = await ctx.db.$queryRaw<
+        Array<{
+          prevId: string | null;
+          nextId: string | null;
+          position: bigint | null;
+          total: bigint;
+        }>
+      >`
+        WITH ordered AS (
+          SELECT
+            id,
+            ROW_NUMBER() OVER (
+              ORDER BY "lastInteractionAt" DESC NULLS LAST, "createdAt" DESC, id ASC
+            ) AS rn
+          FROM "CrmContact"
+          WHERE "workspaceId" = ${workspaceId}
+        ),
+        target AS (SELECT rn FROM ordered WHERE id = ${contactId})
+        SELECT
+          (SELECT id FROM ordered WHERE rn = (SELECT rn FROM target) - 1) AS "prevId",
+          (SELECT id FROM ordered WHERE rn = (SELECT rn FROM target) + 1) AS "nextId",
+          (SELECT rn FROM target) AS "position",
+          (SELECT COUNT(*) FROM ordered) AS "total"
+      `;
+
+      const row = rows[0];
+      return {
+        prevId: row?.prevId ?? null,
+        nextId: row?.nextId ?? null,
+        // 1-based rank of this contact; null when it isn't in the workspace.
+        position: row?.position != null ? Number(row.position) : null,
+        total: Number(row?.total ?? 0),
+      };
+    }),
+
   // Get a single contact by ID
   getById: protectedProcedure
     .input(
