@@ -28,6 +28,9 @@ import {
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
+import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
 
 /**
  * Decisions router (ADR-0060) — the writable half of the Decision Log.
@@ -117,6 +120,75 @@ async function ensureDecisionAccess(
  * logging one requires edit access to that meeting (the same bar as
  * confirming draft Actions from it).
  */
+/**
+ * Keep only evidence turns that resolve to a real turn of the meeting's
+ * transcript, and stamp each with that turn's own speaker and timestamp.
+ *
+ * Evidence is rendered to a reader as a verbatim transcript quote with a turn
+ * index they can click through to, which is the whole reason it is worth
+ * having. `source: AGENT` writes arrive from a model that can invent both the
+ * index and the words, so the claim has to be checked here rather than
+ * trusted — the extraction pipeline already discards candidates whose indices
+ * do not resolve, and this closes the same hole on the API.
+ *
+ * Unresolvable turns are dropped, not fatal: a decision worth logging should
+ * not be lost because one quote was wrong.
+ */
+function validateEvidenceAgainstTranscript(
+  evidence: Array<{ turnIndex: number; speaker?: string | null; startTime?: number | null; text: string }>,
+  turns: TranscriptTurn[],
+): { kept: DecisionEvidenceTurn[]; dropped: number } {
+  const kept: DecisionEvidenceTurn[] = [];
+  let dropped = 0;
+  const seen = new Set<number>();
+  for (const turn of evidence) {
+    const actual = turns[turn.turnIndex];
+    if (!actual || seen.has(turn.turnIndex)) {
+      dropped += 1;
+      continue;
+    }
+    // The words must be the transcript's, not the model's recollection of
+    // them. Compared loosely (case, punctuation and whitespace) so a quote
+    // that is genuinely from this turn survives normalisation differences.
+    if (!quoteMatchesTurn(turn.text, actual.text)) {
+      dropped += 1;
+      continue;
+    }
+    seen.add(turn.turnIndex);
+    kept.push({
+      turnIndex: turn.turnIndex,
+      // Attribution comes from the transcript, never from the caller.
+      speaker: actual.speaker,
+      startTime: actual.startTime,
+      text: actual.text,
+    });
+  }
+  return { kept, dropped };
+}
+
+/** Loose containment: normalised quote must appear in the normalised turn. */
+function quoteMatchesTurn(quote: string, turnText: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      // Apostrophes vanish rather than splitting a word, so "Let's" and
+      // "lets" compare equal; other punctuation becomes a boundary.
+      .replace(/['\u2018\u2019]/g, "")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const q = normalize(quote);
+  const t = normalize(turnText);
+  if (q.length === 0) return false;
+  if (t.includes(q)) return true;
+  // The reverse direction lets a quote spanning several turns cite the first
+  // of them, but a very short turn ("yeah", "no") appears inside almost any
+  // sentence — matching on that would attach a real but unsupporting turn as
+  // evidence. Require enough of the turn to be meaningful.
+  const MIN_REVERSE_MATCH_CHARS = 12;
+  return t.length >= MIN_REVERSE_MATCH_CHARS && q.includes(t);
+}
+
 async function ensureMeetingEditable(
   db: PrismaClient,
   userId: string,
@@ -157,6 +229,10 @@ export const decisionRouter = createTRPCRouter({
         includeWorkspaceWide: z.boolean().optional(),
         projectId: z.string().optional(),
         search: z.string().max(200).optional(),
+        /** One decision by its workspace sequence number — `D-0003` → 3. */
+        number: z.number().int().min(1).optional(),
+        /** Bound the page. Unset returns the resolver-visible set uncapped. */
+        limit: z.number().int().min(1).max(500).optional(),
       }),
     )
     .use(requireWorkspaceMembership("view"))
@@ -171,6 +247,8 @@ export const decisionRouter = createTRPCRouter({
           includeWorkspaceWide: input.includeWorkspaceWide,
           projectId: input.projectId,
           search: input.search,
+          number: input.number,
+          limit: input.limit,
         },
       );
     }),
@@ -304,14 +382,61 @@ export const decisionRouter = createTRPCRouter({
           message: "A new decision cannot start as superseded or deprecated",
         });
       }
+      let evidence: DecisionEvidenceTurn[] | undefined;
+      if (input.evidence?.length) {
+        if (!input.transcriptionSessionId) {
+          // Nothing to resolve the indices against, so nothing can be
+          // verified. Reject rather than store an uncheckable quote.
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Evidence turns need a transcriptionSessionId — they are quotes from that meeting's transcript",
+          });
+        }
+        const session = await ctx.db.transcriptionSession.findUnique({
+          where: { id: input.transcriptionSessionId },
+          select: {
+            transcription: true,
+            sentencesJson: true,
+            participants: { select: { name: true, speakerLabel: true, isHost: true } },
+          },
+        });
+        const turns = session
+          ? parseTranscript({
+              transcription: session.transcription,
+              sentencesJson: session.sentencesJson,
+              participants: session.participants,
+            })
+          : [];
+        const checked = validateEvidenceAgainstTranscript(input.evidence, turns);
+        if (checked.dropped > 0) {
+          console.warn(
+            `[decision.create] dropped ${checked.dropped} evidence turn(s) that do not match the transcript`,
+            { transcriptionSessionId: input.transcriptionSessionId, source: input.source },
+          );
+        }
+        // Every quote rejected is not routine: the caller cited a transcript
+        // and none of it was there, which is what a fabricated citation looks
+        // like. Surface it instead of letting the decision quietly lose its
+        // evidence (a partial drop stays a log line).
+        if (checked.kept.length === 0) {
+          reportHandledErrorServer(
+            new Error("Every evidence turn failed transcript verification"),
+            {
+              area: "decision.create.evidence",
+              context: {
+                transcriptionSessionId: input.transcriptionSessionId,
+                source: input.source ?? "MANUAL",
+                provided: String(input.evidence.length),
+                transcriptTurns: String(turns.length),
+              },
+            },
+          );
+        }
+        evidence = checked.kept.length > 0 ? checked.kept : undefined;
+      }
       const decision = await createDecision(ctx.db, {
         ...input,
-        evidence: input.evidence?.map((turn) => ({
-          turnIndex: turn.turnIndex,
-          speaker: turn.speaker ?? null,
-          startTime: turn.startTime ?? null,
-          text: turn.text,
-        })),
+        evidence,
         createdById: ctx.session.user.id,
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };

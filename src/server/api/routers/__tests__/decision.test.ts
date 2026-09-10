@@ -50,6 +50,9 @@ vi.mock("next-auth/providers/notion", () => ({ default: vi.fn() }));
 vi.mock("next-auth/providers/postmark", () => ({ default: vi.fn() }));
 vi.mock("next-auth/providers/microsoft-entra-id", () => ({ default: vi.fn() }));
 
+const reportHandledErrorServer = vi.hoisted(() => vi.fn());
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
+
 vi.mock("~/server/auth", () => ({
   auth: () => null,
   handlers: {},
@@ -102,6 +105,14 @@ function withWorkspaceRole(db: DeepMockProxy<PrismaClient>, role: string | null)
 }
 
 /** A project-less meeting in the workspace, owned by someone else. */
+/** Turn indices 0-3; turn 3 is "Let's park it." by Pat Reviewer. */
+const MEETING_TRANSCRIPT = [
+  "Dev Fixture: Morning. Blockers first?",
+  "Pat Reviewer: The accordion PR is waiting on a review.",
+  "Dev Fixture: Should the peek drawer ship before the hover affordances?",
+  "Pat Reviewer: Let's park it.",
+].join("\n");
+
 function withMeeting(
   db: DeepMockProxy<PrismaClient>,
   overrides: Partial<{ userId: string; workspaceId: string; projectId: string | null }> = {},
@@ -117,6 +128,10 @@ function withMeeting(
       { userId: USER_ID, name: "Dev Fixture", email: "dev@example.test" },
       { userId: null, name: "Pat Reviewer", email: "pat@example.test" },
     ],
+    // Evidence turns are checked against the real transcript, so the fixture
+    // needs one. Turn 3 is the quote the create tests cite.
+    transcription: MEETING_TRANSCRIPT,
+    sentencesJson: null,
     ...overrides,
   } as never);
   // Attendance lookup used by getTranscriptionAccess: not a participant by
@@ -237,6 +252,31 @@ describe("decision router", () => {
       expect(accessWhere.reviewState).toBe("CONFIRMED");
       expect(accessWhere.OR).toHaveLength(3);
       expect(where.AND).toContainEqual({ status: { in: ["OPEN"] } });
+    });
+  });
+
+  describe("list by number and limit", () => {
+    it("resolves a D-label to one row server-side and bounds the page", async () => {
+      withWorkspaceRole(db, "member");
+      db.decision.findMany.mockResolvedValue([] as never);
+
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID, number: 3, limit: 25 });
+
+      const args = db.decision.findMany.mock.calls[0]![0]!;
+      const and = (args.where as { AND: Array<Record<string, unknown>> }).AND;
+      expect(and).toContainEqual({ number: 3 });
+      // Without a bound this pulled every decision in the workspace — with
+      // its evidence JSON — to find one number.
+      expect(args.take).toBe(25);
+    });
+
+    it("stays uncapped when no limit is given, so the Decision Log is unchanged", async () => {
+      withWorkspaceRole(db, "member");
+      db.decision.findMany.mockResolvedValue([] as never);
+
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID });
+
+      expect(db.decision.findMany.mock.calls[0]![0]!.take).toBeUndefined();
     });
   });
 
@@ -412,6 +452,140 @@ describe("decision router", () => {
           { userId: null, name: "Pat Reviewer", email: "pat@example.test" },
         ],
       });
+    });
+
+    it("drops evidence turns that do not resolve to a real transcript turn", async () => {
+      withWorkspaceRole(db, "member");
+      withMeeting(db);
+      withTransaction(db);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Park it", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Park it",
+        source: "AGENT",
+        transcriptionSessionId: MEETING_ID,
+        evidence: [
+          { turnIndex: 3, speaker: "Pat Reviewer", text: "Let's park it." },
+          // Out of range for this transcript.
+          { turnIndex: 99, speaker: "Pat Reviewer", text: "We agreed to ship on Friday." },
+          // In range, but the words are not in that turn — a fabricated quote.
+          { turnIndex: 1, speaker: "Pat Reviewer", text: "Headcount is cut by 20% in Q4." },
+        ],
+      });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      // Evidence is rendered to a reader as a verbatim quote with a
+      // click-through index, so an unverifiable one must not be stored.
+      expect(data.evidence).toEqual([
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: "Let's park it." },
+      ]);
+    });
+
+    it("takes speaker and text from the transcript, not from the caller", async () => {
+      withWorkspaceRole(db, "member");
+      withMeeting(db);
+      withTransaction(db);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Park it", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Park it",
+        source: "AGENT",
+        transcriptionSessionId: MEETING_ID,
+        // Right turn, misattributed and loosely quoted.
+        evidence: [{ turnIndex: 3, speaker: "Someone Else", text: "lets park it" }],
+      });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.evidence).toEqual([
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: "Let's park it." },
+      ]);
+    });
+
+    it("will not let a trivially short turn stand as evidence for a longer quote, and reports the wholesale rejection", async () => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      reportHandledErrorServer.mockClear();
+      // Turn 0 is a bare acknowledgement; it appears inside almost any
+      // sentence, so reverse containment must not accept it.
+      db.transcriptionSession.findUnique.mockResolvedValue({
+        id: MEETING_ID,
+        userId: "someone-else",
+        projectId: null,
+        workspaceId: WORKSPACE_ID,
+        occurrenceId: null,
+        meetingDate: new Date("2026-09-08T07:00:00.000Z"),
+        participants: [{ userId: USER_ID, name: "Dev Fixture", email: "dev@example.test" }],
+        transcription: "Dev Fixture: Yeah.",
+        sentencesJson: null,
+      } as never);
+      db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Ship the drawer", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Ship the drawer",
+        status: "ACCEPTED",
+        transcriptionSessionId: MEETING_ID,
+        evidence: [{ turnIndex: 0, speaker: "Dev Fixture", text: "yeah we should ship the drawer before the hover affordances" }],
+      });
+
+      // The decision still lands — a bad quote must not lose it — but with no
+      // evidence, and the fabricated citation is reported rather than logged.
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.evidence).toEqual([]);
+      expect(reportHandledErrorServer).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ area: "decision.create.evidence" }),
+      );
+    });
+
+    it("still accepts a quote that spans turns and cites a substantial one", async () => {
+      withWorkspaceRole(db, "member");
+      withMeeting(db);
+      withTransaction(db);
+      reportHandledErrorServer.mockClear();
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Park it", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Park it",
+        status: "ACCEPTED",
+        transcriptionSessionId: MEETING_ID,
+        // Wider than turn 3, but turn 3's words are really in it.
+        evidence: [{ turnIndex: 3, speaker: "Pat Reviewer", text: "Let's park it. We can revisit next cycle." }],
+      });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.evidence).toEqual([
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: "Let's park it." },
+      ]);
+      expect(reportHandledErrorServer).not.toHaveBeenCalled();
+    });
+
+    it("refuses evidence with no meeting to resolve it against", async () => {
+      withWorkspaceRole(db, "member");
+      await expect(
+        caller(db).decision.create({
+          workspaceId: WORKSPACE_ID,
+          statement: "Park it",
+          evidence: [{ turnIndex: 3, speaker: "Pat", text: "Let's park it." }],
+        }),
+      ).rejects.toThrow(/need a transcriptionSessionId/i);
+      expect(db.$transaction).not.toHaveBeenCalled();
     });
 
     it("meeting-linked: a workspace viewer who may see the meeting still cannot log from it", async () => {

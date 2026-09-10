@@ -63,6 +63,7 @@ interface FormState {
   projectId: string | null;
   agendaTemplate: AgendaSectionTemplate[];
   isActive: boolean;
+  matrixRoomId: string | null;
 }
 
 /** Empty prose is stored as null, never as "". */
@@ -99,6 +100,7 @@ function emptyForm(): FormState {
     projectId: null,
     agendaTemplate: [],
     isActive: true,
+    matrixRoomId: null,
   };
 }
 
@@ -158,6 +160,7 @@ function fromCeremony(c: CeremonyDetail): FormState {
     projectId: c.projectId,
     agendaTemplate: readAgendaTemplate(c.agendaTemplate),
     isActive: c.isActive,
+    matrixRoomId: c.matrixRoomId,
   };
 }
 
@@ -196,12 +199,30 @@ export function CeremonyEditorModal({
   const { data: products = [] } = api.product.product.list.useQuery({ workspaceId }, { enabled: opened });
   const { data: projects = [] } = api.project.getAll.useQuery({ workspaceId }, { enabled: opened });
   const { data: teams = [] } = api.team.list.useQuery(undefined, { enabled: opened });
-
   const [form, setForm] = useState<FormState>(emptyForm);
+  // Matrix destination (ADR-0059): the workspace's registered servers and the
+  // rooms their bots have joined, the same source the summary picker uses.
+  const { data: matrixServers = [] } = api.matrixServer.list.useQuery({ workspaceId }, { enabled: opened });
+  // Which server's rooms to browse. A ceremony stores only the room id (the
+  // poster resolves the server), so this is a browse aid — but a workspace
+  // with two servers must still be able to reach the second one's rooms.
+  const [browseServerId, setBrowseServerId] = useState<string | null>(null);
+  const activeServerId = browseServerId ?? matrixServers[0]?.id ?? null;
+  const { data: matrixRooms } = api.matrixServer.rooms.useQuery(
+    { workspaceId, serverId: activeServerId ?? "" },
+    { enabled: opened && Boolean(activeServerId), retry: false },
+  );
+  const matrixRoomOptions = useMemo(() => {
+    const joined = (matrixRooms?.joined ?? []).map((r) => ({ value: r.roomId, label: r.name }));
+    const current = form.matrixRoomId;
+    return current && !joined.some((o) => o.value === current) ? [...joined, { value: current, label: current }] : joined;
+  }, [matrixRooms, form.matrixRoomId]);
+
   const [seededFor, setSeededFor] = useState<string | null>(null);
   useEffect(() => {
     if (!opened) {
       setSeededFor(null);
+      setBrowseServerId(null);
       return;
     }
     const seedKey = ceremonyId ? `edit:${ceremonyId}` : `new:${template?.slug ?? "blank"}`;
@@ -289,6 +310,7 @@ export function CeremonyEditorModal({
       teamId: form.teamId,
       projectId: form.projectId,
       agendaTemplate: form.agendaTemplate,
+      matrixRoomId: form.matrixRoomId,
     };
     if (ceremonyId) update.mutate({ ...payload, id: ceremonyId, isActive: form.isActive });
     else create.mutate(payload);
@@ -432,6 +454,40 @@ export function CeremonyEditorModal({
               searchable
             />
           </Group>
+
+          {matrixServers.length > 1 && (
+            <Select
+              label="Matrix server"
+              description="Which server's rooms to choose from."
+              data={matrixServers.map((server) => ({ value: server.id, label: server.name }))}
+              value={activeServerId}
+              onChange={(v) => {
+                setBrowseServerId(v);
+                // A room id belongs to one server; switching servers invalidates the pick.
+                set("matrixRoomId", null);
+              }}
+              allowDeselect={false}
+              searchable
+              data-testid="ceremony-matrix-server"
+            />
+          )}
+
+          <Select
+            label="Matrix room"
+            description={
+              matrixServers.length === 0
+                ? "Register a Matrix server under Settings → Integrations to post agendas to a room."
+                : "Agendas are posted here when circulated (the bot must have joined the room)."
+            }
+            data={matrixRoomOptions}
+            value={form.matrixRoomId}
+            onChange={(v) => set("matrixRoomId", v)}
+            placeholder={matrixServers.length === 0 ? "No Matrix server" : "Optional"}
+            disabled={matrixServers.length === 0}
+            clearable
+            searchable
+            data-testid="ceremony-matrix-room"
+          />
 
           <Stack gap={6}>
             <Text size="sm" fw={500}>

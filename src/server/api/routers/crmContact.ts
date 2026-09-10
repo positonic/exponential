@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import type { Prisma, CrmContact, PrismaClient } from "@prisma/client";
@@ -214,6 +215,14 @@ export const crmContactRouter = createTRPCRouter({
         organizationId: z.string().optional(),
         organizationIds: z.array(z.string()).optional(),
         profileTypes: z.array(z.string()).optional(),
+        /**
+         * Hide contacts already on this Collection. Passed as a collection id
+         * rather than an id list so the wire format stays small no matter how
+         * many members the list has. Exclusion has to happen in the WHERE:
+         * filtering the returned page client-side means a list whose members
+         * dominate the first page leaves almost nothing selectable.
+         */
+        excludeCollectionId: z.string().optional(),
         sortBy: z
           .enum(["lastInteractionAt", "name", "createdAt", "connectionScore"])
           .optional(),
@@ -232,6 +241,7 @@ export const crmContactRouter = createTRPCRouter({
         organizationId,
         organizationIds,
         profileTypes,
+        excludeCollectionId,
         sortBy,
         sortDir,
         limit = 50,
@@ -256,6 +266,18 @@ export const crmContactRouter = createTRPCRouter({
       // Tokenize so "ada lovelace" matches first + last name across columns;
       // a single contains against either column would return nothing.
       // Note: email is encrypted and cannot be searched.
+      // CollectionMember.memberId has no FK to CrmContact (member types are a
+      // convention, not a relation), so there is no relation filter to use --
+      // read the ids and exclude them directly.
+      const excludedIds = excludeCollectionId
+        ? (
+            await ctx.db.collectionMember.findMany({
+              where: { collectionId: excludeCollectionId },
+              select: { memberId: true },
+            })
+          ).map((m) => m.memberId)
+        : [];
+
       const searchTokens = search?.split(/\s+/).filter(Boolean) ?? [];
       const where = {
         workspaceId,
@@ -277,6 +299,7 @@ export const crmContactRouter = createTRPCRouter({
         ...(profileTypes && profileTypes.length > 0
           ? { profileType: { in: profileTypes } }
           : {}),
+        ...(excludedIds.length > 0 ? { id: { notIn: excludedIds } } : {}),
       };
 
       const dir = sortDir ?? "desc";
@@ -374,6 +397,74 @@ export const crmContactRouter = createTRPCRouter({
         contacts: decrypted,
         nextCursor,
         totalCount,
+      };
+    }),
+
+  // Neighbours of a contact in the workspace-wide "All People" ordering, for the
+  // prev/next arrows on the detail page. Resolved server-side: the detail page
+  // used to page `getAll` and walk the result, which silently confined the
+  // arrows (and the "N of M" counter) to the first page of contacts.
+  getNeighbors: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), contactId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const { workspaceId, contactId } = input;
+
+      // ROW_NUMBER over the same total ordering `getAll` uses by default, so the
+      // arrows walk the list in the order the contacts page shows. The ranking
+      // mirrors that default branch exactly -- same WHERE (an unfiltered
+      // `getAll` scopes on workspaceId alone; CrmContact has no soft-delete or
+      // archived column) and the same `id ASC` final tie-breaker, which is what
+      // keeps contacts sharing a null `lastInteractionAt` in a stable, total
+      // order. Change one and you must change the other.
+      //
+      // Deliberately ignores any sort or filter the user applied to the list:
+      // the counter reads "in All People", and these arrows walk that whole
+      // set. Reflecting the active view would mean threading its filters
+      // through here. A keyset
+      // predicate would need to special-case the NULLS LAST column, and without
+      // a matching composite index it would still seq-scan, so ranking the
+      // workspace once is both simpler and no slower.
+      //
+      // Cost is linear in workspace size: measured ~5ms of DB work at 1k
+      // contacts and ~60-75ms at 50k (seq scan + an external merge sort). The
+      // CTE is materialized once, so the four references below read a temp
+      // result rather than re-scanning. Acceptable for a detail-page load at
+      // today's sizes; if a workspace grows past ~50k contacts, add a composite
+      // index on (workspaceId, lastInteractionAt DESC NULLS LAST, createdAt
+      // DESC, id) to turn the scan+sort into an index scan.
+      const rows = await ctx.db.$queryRaw<
+        Array<{
+          prevId: string | null;
+          nextId: string | null;
+          position: bigint | null;
+          total: bigint;
+        }>
+      >`
+        WITH ordered AS (
+          SELECT
+            id,
+            ROW_NUMBER() OVER (
+              ORDER BY "lastInteractionAt" DESC NULLS LAST, "createdAt" DESC, id ASC
+            ) AS rn
+          FROM "CrmContact"
+          WHERE "workspaceId" = ${workspaceId}
+        ),
+        target AS (SELECT rn FROM ordered WHERE id = ${contactId})
+        SELECT
+          (SELECT id FROM ordered WHERE rn = (SELECT rn FROM target) - 1) AS "prevId",
+          (SELECT id FROM ordered WHERE rn = (SELECT rn FROM target) + 1) AS "nextId",
+          (SELECT rn FROM target) AS "position",
+          (SELECT COUNT(*) FROM ordered) AS "total"
+      `;
+
+      const row = rows[0];
+      return {
+        prevId: row?.prevId ?? null,
+        nextId: row?.nextId ?? null,
+        // 1-based rank of this contact; null when it isn't in the workspace.
+        position: row?.position != null ? Number(row.position) : null,
+        total: Number(row?.total ?? 0),
       };
     }),
 

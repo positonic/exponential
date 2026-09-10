@@ -123,6 +123,15 @@ const TICKETS: TicketSpec[] = [
 ];
 
 /** Weekdays at 09:00 in the fixture zone; the seeded occurrence sits on this tick. */
+const FIXTURE_AGENDA_TEMPLATE = [
+  { key: "blockers", type: "blockers", title: "Blockers", minutes: 5, config: {} },
+  { key: "carried", type: "carried_over", title: "Carried over", minutes: 5, config: {} },
+  { key: "free", type: "free_text", title: "Anything else", minutes: 5, config: {} },
+  // V2: the OKR review section gives the generated agenda a query with
+  // fixture data behind it (the seeded key result has no check-ins).
+  { key: "okr", type: "okr_review", title: "Key results at risk", minutes: 5, config: { days: 7 } },
+];
+
 const FIXTURE_CADENCE_RULE = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0";
 
 export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
@@ -435,7 +444,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // every seed the same way the OKR rows above are.
   const ceremony = await db.ceremony.upsert({
     where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.ceremonySlug } },
-    update: { ownerId: user.id, isActive: true, cadenceRule: FIXTURE_CADENCE_RULE },
+    update: { ownerId: user.id, isActive: true, cadenceRule: FIXTURE_CADENCE_RULE, agendaTemplate: FIXTURE_AGENDA_TEMPLATE },
     create: {
       workspaceId: workspace.id,
       slug: FIXTURE.ceremonySlug,
@@ -453,11 +462,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       leadTimeHours: 12,
       ownerId: user.id,
       createdById: user.id,
-      agendaTemplate: [
-        { key: "blockers", type: "blockers", title: "Blockers", minutes: 5, config: {} },
-        { key: "carried", type: "carried_over", title: "Carried over", minutes: 5, config: {} },
-        { key: "free", type: "free_text", title: "Anything else", minutes: 5, config: {} },
-      ],
+      agendaTemplate: FIXTURE_AGENDA_TEMPLATE,
     },
   });
 

@@ -31,7 +31,8 @@ export interface TimelineAxis {
   weekLabels: string[];
   monthStarts: number[];
   monthLabels: string[];
-  todayFrac: number;
+  /** null when today falls outside the axis — the marker is then hidden. */
+  todayFrac: number | null;
 }
 
 function getISOWeek(d: Date): number {
@@ -45,6 +46,53 @@ function getISOWeek(d: Date): number {
 }
 
 /**
+ * Produce the axis config the gantt component needs for an arbitrary date
+ * range. When the range crosses a year boundary each January is labelled with
+ * its year so the columns stay readable.
+ */
+export function computeTimelineAxisForRange(
+  start: Date,
+  end: Date,
+  now: Date = new Date(),
+): TimelineAxis | null {
+  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+  const totalMs = end.getTime() - start.getTime();
+  if (totalMs <= 0) return null;
+
+  const weekCount = Math.max(1, Math.ceil(totalMs / msPerWeek));
+  const multiYear = start.getFullYear() !== end.getFullYear();
+
+  const weekLabels: string[] = [];
+  const monthStarts: number[] = [];
+  const monthLabels: string[] = [];
+
+  let lastMonth = -1;
+  for (let i = 0; i < weekCount; i++) {
+    const wkStart = new Date(start.getTime() + i * msPerWeek);
+    weekLabels.push(`W${getISOWeek(wkStart)}`);
+    if (wkStart.getMonth() !== lastMonth) {
+      lastMonth = wkStart.getMonth();
+      monthStarts.push(i);
+      const month = wkStart.toLocaleString("en-US", { month: "short" });
+      monthLabels.push(
+        multiYear && (lastMonth === 0 || i === 0)
+          ? `${month} ${wkStart.getFullYear()}`
+          : month,
+      );
+    }
+  }
+
+  // Clamping this would pin TODAY to an edge on an axis that is entirely in
+  // the past or future, reading as "today is the start of this quarter".
+  const inRange = now >= start && now <= end;
+  const todayFrac = inRange
+    ? clamp01((now.getTime() - start.getTime()) / totalMs)
+    : null;
+
+  return { weekCount, weekLabels, monthStarts, monthLabels, todayFrac };
+}
+
+/**
  * Given a period like "Q2-2026" or "Annual-2026", produce the axis config
  * the gantt component needs.
  */
@@ -54,33 +102,7 @@ export function computeTimelineAxis(
 ): TimelineAxis | null {
   const range = periodDateRange(period);
   if (!range) return null;
-
-  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const totalMs = range.end.getTime() - range.start.getTime();
-  if (totalMs <= 0) return null;
-
-  const weekCount = Math.max(1, Math.ceil(totalMs / msPerWeek));
-
-  const weekLabels: string[] = [];
-  const monthStarts: number[] = [];
-  const monthLabels: string[] = [];
-
-  let lastMonth = -1;
-  for (let i = 0; i < weekCount; i++) {
-    const wkStart = new Date(range.start.getTime() + i * msPerWeek);
-    weekLabels.push(`W${getISOWeek(wkStart)}`);
-    if (wkStart.getMonth() !== lastMonth) {
-      lastMonth = wkStart.getMonth();
-      monthStarts.push(i);
-      monthLabels.push(wkStart.toLocaleString("en-US", { month: "short" }));
-    }
-  }
-
-  const todayFrac = clamp01(
-    (now.getTime() - range.start.getTime()) / totalMs,
-  );
-
-  return { weekCount, weekLabels, monthStarts, monthLabels, todayFrac };
+  return computeTimelineAxisForRange(range.start, range.end, now);
 }
 
 function formatKrCurrent(kr: ObjectiveCardKeyResult): string {
