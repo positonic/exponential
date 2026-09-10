@@ -13,8 +13,11 @@ import { useGoalsViewParams, type GoalsTab } from "./useGoalsViewParams";
  * there is no separate "My Goals" tab and Timeline is not a period.
  */
 export function GoalsWorkspaceTabs() {
-  const { tab, onlyMine, view, setTab, setOnlyMine, setView } =
+  const { tab, onlyMine, view, isRewritingLegacyUrl, setTab, setOnlyMine, setView } =
     useGoalsViewParams();
+
+  // One render at most, and only for a retired URL — see the hook's note.
+  if (isRewritingLegacyUrl) return null;
 
   return (
     <Tabs

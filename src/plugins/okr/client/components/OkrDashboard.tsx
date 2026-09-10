@@ -44,7 +44,10 @@ import {
 } from "../utils/okrTimelineData";
 import { extractYearsFromPeriods } from "../utils/periodUtils";
 import { useOkrSearchParams } from "../hooks/useOkrSearchParams";
-import type { GoalsView } from "~/app/_components/goals/useGoalsViewParams";
+import {
+  parseGoalsViewParams,
+  type GoalsView,
+} from "~/app/_components/goals/useGoalsViewParams";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
@@ -155,8 +158,9 @@ export function OkrDashboard({
 
   // Gate URL-driven drawer opening to the OKRs tab so a `drawer=` param on
   // the Goals tab never opens an OKR drawer from a panel the user can't see.
-  const activeTab = searchParams.get("tab") ?? "goals";
-  const isActivePanel = activeTab === "okrs";
+  // Parsed, not read raw: a retired `tab=my-goals` deep link resolves to the
+  // OKRs tab, and its `drawer=` must still open.
+  const isActivePanel = parseGoalsViewParams(searchParams).tab === "okrs";
 
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
     useDisclosure(false);

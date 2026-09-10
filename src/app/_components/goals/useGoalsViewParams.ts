@@ -104,6 +104,13 @@ export function useGoalsViewParams() {
     tab: parsed.tab,
     onlyMine: parsed.onlyMine,
     view: parsed.view,
+    /**
+     * A retired URL is still being rewritten. Callers should hold off
+     * mounting children until it clears: the panels below run their own
+     * `router.replace` effects (filter restore, debounced `?q=`), and the
+     * rewrite flushing last would discard whatever they just wrote.
+     */
+    isRewritingLegacyUrl: parsed.isLegacy,
     setTab,
     setOnlyMine,
     setView,

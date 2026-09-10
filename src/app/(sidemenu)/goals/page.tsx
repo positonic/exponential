@@ -1,32 +1,8 @@
 "use client";
 
 import { Suspense } from "react";
-import { Skeleton, Container, Stack, Text } from "@mantine/core";
-import { GoalsWorkspaceTabs } from "~/app/_components/goals/GoalsWorkspaceTabs";
-import { useWorkspace } from "~/providers/WorkspaceProvider";
-
-function GoalsPageContent() {
-  const { workspace, isLoading } = useWorkspace();
-
-  if (isLoading) {
-    return (
-      <Container size="xl" className="py-8">
-        <Skeleton height={40} width={200} mb="lg" />
-        <Skeleton height={300} />
-      </Container>
-    );
-  }
-
-  if (!workspace) {
-    return (
-      <Container size="xl" className="py-8">
-        <Text className="text-text-secondary">Workspace not found</Text>
-      </Container>
-    );
-  }
-
-  return <GoalsWorkspaceTabs />;
-}
+import { Container, Skeleton, Stack } from "@mantine/core";
+import { GoalsPageBody } from "~/app/_components/goals/GoalsPageBody";
 
 export default function GoalsPage() {
   return (
@@ -42,7 +18,7 @@ export default function GoalsPage() {
           </Container>
         }
       >
-        <GoalsPageContent />
+        <GoalsPageBody />
       </Suspense>
     </main>
   );
