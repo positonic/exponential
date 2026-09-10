@@ -510,3 +510,31 @@
     padding: 0 8px;
   }
 }
+
+/* ---- Decisions beside ADRs (ADR-0060) ---- */
+/* OPEN = a question not yet answered: hollow, in the OKR accent so it reads as pending. */
+.dot--open {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent-okr);
+}
+.dec-status--open {
+  color: var(--accent-okr);
+}
+.dec-meta__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-muted);
+}
+/* decision groups (ceremony / project) share the repo header, in the UI font */
+.dec-group__name--plain {
+  font-family: inherit;
+  font-size: 12.5px;
+}
+.dec-group__kind {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}

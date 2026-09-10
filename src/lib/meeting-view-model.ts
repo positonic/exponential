@@ -36,6 +36,37 @@ export interface MeetingChapter {
   endTime: number;
 }
 
+export type MeetingDecisionStatus =
+  | "OPEN"
+  | "PROPOSED"
+  | "ACCEPTED"
+  | "SUPERSEDED"
+  | "DEPRECATED";
+
+/** One Decision logged from this meeting, as the summary tab renders it (ADR-0060). */
+export interface MeetingDecision {
+  id: string;
+  /** `D-0042` — rendered from the workspace sequence, never stored. */
+  label: string;
+  statement: string;
+  status: MeetingDecisionStatus;
+  decidedAt: Date | string | null;
+  /** Number of quoted transcript turns backing it. */
+  evidenceCount: number;
+  /** Detail page; null when the meeting has no workspace slug to route under. */
+  href: string | null;
+}
+
+/** The row shape `decision.listForMeeting` returns, minus what the tab ignores. */
+export interface MeetingDecisionInput {
+  id: string;
+  label: string;
+  statement: string;
+  status: MeetingDecisionStatus;
+  decidedAt: Date | string | null;
+  evidenceCount: number;
+}
+
 export interface MeetingViewModel {
   /** Fireflies meeting_type, capitalised; null → no type pill shown. */
   meetingType: string | null;
@@ -46,11 +77,14 @@ export interface MeetingViewModel {
   durationLabel: string | null;
   participants: MeetingParticipant[];
   chapters: MeetingChapter[];
-  /** Derived AI sections we have no source for yet → empty until extraction
+  /** Derived AI section we have no source for yet → empty until extraction
    *  lands. Kept on the model so the UI shape is stable. */
   keyMoments: never[];
-  decisions: never[];
-  questions: never[];
+  /** Decisions logged from this meeting that have been answered (every
+   *  status except OPEN). An open question is a Decision in OPEN status. */
+  decisions: MeetingDecision[];
+  /** The OPEN subset — open questions raised in this meeting. */
+  questions: MeetingDecision[];
   hasVideo: boolean;
   captureCount: number;
   /** Number of canonical transcript turns; 0 for an empty/absent transcript
@@ -171,12 +205,18 @@ export function assignParticipantFlavors<
  * Map a `TranscriptionSession` (+ parsed Fireflies summary/analytics) into the
  * view model the meeting-detail UI consumes. Derives meeting type, summary
  * (rich Fireflies object or plain text), duration, participants with talk-time,
- * and transcript chapters. Sections we have no source for yet (key moments,
- * decisions, open questions) are returned empty so the UI self-hides them.
+ * and transcript chapters. Decisions logged from the meeting
+ * (`decision.listForMeeting`) split into answered decisions and open
+ * questions; key moments have no source yet and stay empty so the UI
+ * self-hides them.
  * @param session The transcription session record from `transcription.getById`.
+ * @param meetingDecisions Decisions logged from this meeting, if loaded.
  * @returns The derived {@link MeetingViewModel}.
  */
-export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel {
+export function buildMeetingViewModel(
+  session: MeetingSession,
+  meetingDecisions: MeetingDecisionInput[] = [],
+): MeetingViewModel {
   const firefliesSummary = parseFirefliesSummary(session.summary);
   const hasRichSummary =
     firefliesSummary !== null && !isEmptyFirefliesSummary(firefliesSummary);
@@ -212,6 +252,17 @@ export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel
     (c) => ({ title: c.title, startTime: c.start_time, endTime: c.end_time }),
   );
 
+  const workspaceSlug = session.workspace?.slug ?? null;
+  const allDecisions: MeetingDecision[] = meetingDecisions.map((d) => ({
+    id: d.id,
+    label: d.label,
+    statement: d.statement,
+    status: d.status,
+    decidedAt: d.decidedAt,
+    evidenceCount: d.evidenceCount,
+    href: workspaceSlug ? `/w/${workspaceSlug}/decisions/d/${d.id}` : null,
+  }));
+
   return {
     meetingType,
     firefliesSummary: hasRichSummary ? firefliesSummary : null,
@@ -220,8 +271,8 @@ export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel
     participants,
     chapters,
     keyMoments: [],
-    decisions: [],
-    questions: [],
+    decisions: allDecisions.filter((d) => d.status !== "OPEN"),
+    questions: allDecisions.filter((d) => d.status === "OPEN"),
     hasVideo: Boolean(session.videoUrl),
     captureCount: session.screenshots.length,
     transcriptCount: countTranscriptTurns(session.transcription, session.sentencesJson),

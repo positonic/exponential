@@ -44,7 +44,8 @@ export type ActivityEntityType =
   | "meeting"
   | "time_entry"
   | "channel_summary"
-  | "ticket_sync_run";
+  | "ticket_sync_run"
+  | "decision";
 
 export interface RecordActivityInput {
   workspaceId: string;
