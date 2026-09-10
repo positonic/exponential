@@ -117,6 +117,64 @@ export const decisionDetailInclude = {
   },
 } satisfies Prisma.DecisionInclude;
 
+/** The scope columns a decision can point at; each must live in the workspace. */
+export interface DecisionScopeInput {
+  productId?: string | null;
+  projectId?: string | null;
+  goalId?: number | null;
+  keyResultId?: string | null;
+  adrDocumentId?: string | null;
+}
+
+/**
+ * Refuse scope ids from outside the workspace. Only ids actually supplied
+ * are checked (null clears, undefined leaves alone), so a meeting's own
+ * project — already workspace-bound — never round-trips.
+ */
+export async function assertScopeInWorkspace(
+  db: PrismaClient,
+  workspaceId: string,
+  scope: DecisionScopeInput,
+) {
+  const missing = (what: string) =>
+    new TRPCError({ code: "NOT_FOUND", message: `${what} not found in this workspace` });
+  if (scope.productId) {
+    const row = await db.product.findFirst({
+      where: { id: scope.productId, workspaceId },
+      select: { id: true },
+    });
+    if (!row) throw missing("Product");
+  }
+  if (scope.projectId) {
+    const row = await db.project.findFirst({
+      where: { id: scope.projectId, workspaceId },
+      select: { id: true },
+    });
+    if (!row) throw missing("Project");
+  }
+  if (scope.goalId !== undefined && scope.goalId !== null) {
+    const row = await db.goal.findFirst({
+      where: { id: scope.goalId, workspaceId },
+      select: { id: true },
+    });
+    if (!row) throw missing("Objective");
+  }
+  if (scope.keyResultId) {
+    const row = await db.keyResult.findFirst({
+      where: { id: scope.keyResultId, goal: { workspaceId } },
+      select: { id: true },
+    });
+    if (!row) throw missing("Key result");
+  }
+  if (scope.adrDocumentId) {
+    const row = await db.adrDocument.findFirst({
+      where: { id: scope.adrDocumentId, repository: { workspaceId } },
+      select: { id: true },
+    });
+    if (!row) throw missing("ADR");
+  }
+}
+
 /**
  * Create a confirmed decision. For a meeting-linked decision the meeting
  * supplies the defaults the PRD asks for: decided-at = meeting date,
@@ -131,6 +189,8 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
   let occurrenceId = input.occurrenceId ?? null;
   let projectId = input.projectId ?? null;
   let source: DecisionSource = input.source ?? "MANUAL";
+
+  await assertScopeInWorkspace(db, input.workspaceId, input);
 
   if (input.transcriptionSessionId) {
     const meeting = await db.transcriptionSession.findUnique({
@@ -391,14 +451,17 @@ export interface UpdateDecisionPatch {
   projectId?: string | null;
   goalId?: number | null;
   keyResultId?: string | null;
+  /** "Formalised as": the git-projected ADR this decision became (ADR-0060). */
+  adrDocumentId?: string | null;
 }
 
 /** Edit a decision's content and scope. Status has its own path (`setStatus`). */
 export async function updateDecision(
   db: PrismaClient,
-  input: { decisionId: string; userId: string; patch: UpdateDecisionPatch },
+  input: { decisionId: string; workspaceId: string; userId: string; patch: UpdateDecisionPatch },
 ) {
   const { patch } = input;
+  await assertScopeInWorkspace(db, input.workspaceId, patch);
   const decision = await db.decision.update({
     where: { id: input.decisionId },
     data: {
@@ -410,6 +473,7 @@ export async function updateDecision(
       ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
       ...(patch.goalId !== undefined ? { goalId: patch.goalId } : {}),
       ...(patch.keyResultId !== undefined ? { keyResultId: patch.keyResultId } : {}),
+      ...(patch.adrDocumentId !== undefined ? { adrDocumentId: patch.adrDocumentId } : {}),
     },
     include: decisionDetailInclude,
   });
@@ -618,4 +682,72 @@ export async function deleteDraft(db: PrismaClient, input: { decisionId: string 
   }
   await db.decision.delete({ where: { id: current.id } });
   return { id: current.id };
+}
+
+export interface LinkEntityInput {
+  decisionId: string;
+  userId: string;
+  ticketId?: string | null;
+  featureId?: string | null;
+}
+
+/**
+ * "Implemented by": link a ticket or feature to a decision (DecisionLink
+ * mirrors AdrTicketLink). Idempotent — an existing link is returned, and a
+ * race past the findFirst is settled by the DB unique.
+ */
+export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
+  const where = {
+    decisionId: input.decisionId,
+    ticketId: input.ticketId ?? null,
+    featureId: input.featureId ?? null,
+  };
+  const existing = await db.decisionLink.findFirst({ where });
+  if (existing) return existing;
+  try {
+    return await db.decisionLink.create({
+      data: { ...where, createdById: input.userId },
+    });
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2002"
+    ) {
+      const raced = await db.decisionLink.findFirst({ where });
+      if (raced) return raced;
+    }
+    throw error;
+  }
+}
+
+/** Remove one implemented-by link. */
+export async function unlinkEntity(db: PrismaClient, input: { linkId: string }) {
+  await db.decisionLink.delete({ where: { id: input.linkId } });
+  return { deleted: true };
+}
+
+/**
+ * Decisions formalised as one ADR ("Decided in" on the ADR page). Goes
+ * through the caller's resolver clause like every other bulk read.
+ */
+export async function listForAdr(
+  db: PrismaClient,
+  accessWhere: Prisma.DecisionWhereInput,
+  adrDocumentId: string,
+) {
+  const rows = await db.decision.findMany({
+    where: { AND: [accessWhere, { adrDocumentId }] },
+    select: decisionListSelect,
+    orderBy: [{ number: "asc" }],
+  });
+  return rows.map((row) => ({
+    ...row,
+    label: formatDecisionLabel(row.number),
+    evidenceCount: Array.isArray(row.evidence) ? row.evidence.length : 0,
+    supersededBy: row.supersededBy
+      ? { id: row.supersededBy.id, label: formatDecisionLabel(row.supersededBy.number) }
+      : null,
+  }));
 }

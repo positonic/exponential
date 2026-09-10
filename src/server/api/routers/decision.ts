@@ -17,10 +17,13 @@ import {
   createDecision,
   decisionDetailInclude,
   deleteDraft,
+  linkEntity,
+  listForAdr,
   listForMeeting,
   listForWorkspace,
   rejectDraft,
   setStatus,
+  unlinkEntity,
   updateDecision,
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
@@ -302,6 +305,7 @@ export const decisionRouter = createTRPCRouter({
         projectId: z.string().nullable().optional(),
         goalId: z.number().int().nullable().optional(),
         keyResultId: z.string().nullable().optional(),
+        adrDocumentId: z.string().nullable().optional(),
       }),
     )
     .use(requireWorkspaceMembership("edit"))
@@ -311,10 +315,82 @@ export const decisionRouter = createTRPCRouter({
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
       const decision = await updateDecision(ctx.db, {
         decisionId: subject.id,
+        workspaceId,
         userId: ctx.session.user.id,
         patch,
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
+    }),
+
+  /** Decisions formalised as one ADR, for the ADR page's "Decided in" row. */
+  listForAdr: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), adrDocumentId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      return listForAdr(
+        ctx.db,
+        buildDecisionAccessWhere(ctx.session.user.id, input.workspaceId),
+        input.adrDocumentId,
+      );
+    }),
+
+  /** "Implemented by": link a ticket from this workspace's products. */
+  linkTicket: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string(), ticketId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      const ticket = await ctx.db.ticket.findFirst({
+        where: { id: input.ticketId, product: { workspaceId: input.workspaceId } },
+        select: { id: true },
+      });
+      if (!ticket) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+      return linkEntity(ctx.db, {
+        decisionId: subject.id,
+        userId: ctx.session.user.id,
+        ticketId: ticket.id,
+      });
+    }),
+
+  /** "Implemented by": link a feature from this workspace's products. */
+  linkFeature: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string(), featureId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      const feature = await ctx.db.feature.findFirst({
+        where: { id: input.featureId, product: { workspaceId: input.workspaceId } },
+        select: { id: true },
+      });
+      if (!feature) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+      }
+      return linkEntity(ctx.db, {
+        decisionId: subject.id,
+        userId: ctx.session.user.id,
+        featureId: feature.id,
+      });
+    }),
+
+  /** Remove one implemented-by link. */
+  unlink: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), linkId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const link = await ctx.db.decisionLink.findFirst({
+        where: { id: input.linkId, decision: { workspaceId: input.workspaceId } },
+        select: { id: true, decisionId: true },
+      });
+      if (!link) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Link not found" });
+      }
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, link.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      return unlinkEntity(ctx.db, { linkId: link.id });
     }),
 
   /**

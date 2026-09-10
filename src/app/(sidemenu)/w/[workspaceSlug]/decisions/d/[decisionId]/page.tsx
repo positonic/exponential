@@ -15,6 +15,8 @@ import {
 import { IconArrowLeft, IconMicrophone, IconPencil, IconQuote } from "@tabler/icons-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { DecisionLinksPanel } from "~/app/_components/decisions/DecisionLinksPanel";
+import { DecisionScopePanel } from "~/app/_components/decisions/DecisionScopePanel";
 import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import {
@@ -273,28 +275,21 @@ export default function DecisionPage() {
         </>
       ) : null}
 
-      {decision.links.length > 0 ? (
-        <>
-          <Divider my="lg" />
-          <Title order={5} className="text-text-secondary" mb="xs">
-            Implemented by
-          </Title>
-          <Stack gap={4}>
-            {decision.links.map((l) => (
-              <Group key={l.id} gap="xs" wrap="nowrap">
-                <Badge variant="light" color={l.ticket ? "blue" : "grape"}>
-                  {l.ticket ? "ticket" : "feature"}
-                </Badge>
-                <Text size="sm" className="min-w-0 flex-1 truncate">
-                  {l.ticket
-                    ? `${l.ticket.shortId ?? `#${l.ticket.number}`} — ${l.ticket.title}`
-                    : (l.feature?.name ?? "—")}
-                </Text>
-              </Group>
-            ))}
-          </Stack>
-        </>
-      ) : null}
+      <Divider my="lg" />
+      <DecisionScopePanel
+        workspaceId={workspace.id}
+        workspaceSlug={workspace.slug}
+        decision={decision}
+        canEdit={decision.canEdit}
+      />
+
+      <Divider my="lg" />
+      <DecisionLinksPanel
+        workspaceId={workspace.id}
+        decisionId={decision.id}
+        links={decision.links}
+        canEdit={decision.canEdit}
+      />
 
       {decision.body ? (
         <>

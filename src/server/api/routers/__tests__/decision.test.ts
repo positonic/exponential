@@ -579,6 +579,138 @@ describe("decision router", () => {
     });
   });
 
+  describe("links and scope", () => {
+    function withConfirmedDecision() {
+      const row = {
+        id: "dec-1",
+        workspaceId: WORKSPACE_ID,
+        number: 1,
+        statement: "Use tRPC",
+        status: "ACCEPTED",
+        reviewState: "CONFIRMED",
+        transcriptionSession: null,
+        projectId: null,
+      };
+      db.decision.findFirst.mockResolvedValue(row as never);
+      return row;
+    }
+
+    it("linkTicket refuses a ticket outside the workspace", async () => {
+      withWorkspaceRole(db, "member");
+      withConfirmedDecision();
+      db.ticket.findFirst.mockResolvedValue(null);
+      await expect(
+        caller(db).decision.linkTicket({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          ticketId: "t-elsewhere",
+        }),
+      ).rejects.toThrow(/ticket not found/i);
+      expect(db.decisionLink.create).not.toHaveBeenCalled();
+      // The lookup is workspace-scoped through the product relation.
+      expect(db.ticket.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "t-elsewhere", product: { workspaceId: WORKSPACE_ID } },
+        }),
+      );
+    });
+
+    it("linkTicket creates the link once and returns the existing one after", async () => {
+      withWorkspaceRole(db, "member");
+      withConfirmedDecision();
+      db.ticket.findFirst.mockResolvedValue({ id: "t-1" } as never);
+      db.decisionLink.findFirst.mockResolvedValueOnce(null);
+      db.decisionLink.create.mockResolvedValue({ id: "link-1", decisionId: "dec-1", ticketId: "t-1" } as never);
+
+      const first = await caller(db).decision.linkTicket({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        ticketId: "t-1",
+      });
+      expect(first.id).toBe("link-1");
+      expect(db.decisionLink.create).toHaveBeenCalledWith({
+        data: { decisionId: "dec-1", ticketId: "t-1", featureId: null, createdById: USER_ID },
+      });
+
+      db.decisionLink.findFirst.mockResolvedValueOnce({ id: "link-1" } as never);
+      const second = await caller(db).decision.linkTicket({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        ticketId: "t-1",
+      });
+      expect(second.id).toBe("link-1");
+      expect(db.decisionLink.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("a viewer may not link", async () => {
+      withWorkspaceRole(db, "viewer");
+      withConfirmedDecision();
+      await expect(
+        caller(db).decision.linkFeature({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          featureId: "f-1",
+        }),
+      ).rejects.toThrow();
+      expect(db.decisionLink.create).not.toHaveBeenCalled();
+    });
+
+    it("unlink refuses a link that belongs to another workspace's decision", async () => {
+      withWorkspaceRole(db, "member");
+      db.decisionLink.findFirst.mockResolvedValue(null);
+      await expect(
+        caller(db).decision.unlink({ workspaceId: WORKSPACE_ID, linkId: "link-x" }),
+      ).rejects.toThrow(/link not found/i);
+      expect(db.decisionLink.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "link-x", decision: { workspaceId: WORKSPACE_ID } },
+        }),
+      );
+      expect(db.decisionLink.delete).not.toHaveBeenCalled();
+    });
+
+    it("update refuses a product from another workspace, and accepts an in-workspace ADR", async () => {
+      withWorkspaceRole(db, "member");
+      const row = withConfirmedDecision();
+      db.product.findFirst.mockResolvedValue(null);
+      await expect(
+        caller(db).decision.update({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          productId: "prod-elsewhere",
+        }),
+      ).rejects.toThrow(/product not found/i);
+      expect(db.decision.update).not.toHaveBeenCalled();
+
+      db.adrDocument.findFirst.mockResolvedValue({ id: "adr-1" } as never);
+      db.decision.update.mockResolvedValue({ ...row, adrDocumentId: "adr-1", supersededBy: null, supersedes: [] } as never);
+      await caller(db).decision.update({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        adrDocumentId: "adr-1",
+      });
+      expect(db.adrDocument.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "adr-1", repository: { workspaceId: WORKSPACE_ID } },
+        }),
+      );
+      const data = (db.decision.update.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data).toEqual({ adrDocumentId: "adr-1" });
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: "updated" }) }),
+      );
+    });
+
+    it("listForAdr filters through the resolver and by the ADR", async () => {
+      withWorkspaceRole(db, "viewer");
+      db.decision.findMany.mockResolvedValue([] as never);
+      await caller(db).decision.listForAdr({ workspaceId: WORKSPACE_ID, adrDocumentId: "adr-1" });
+      const where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: Array<Record<string, unknown>> };
+      expect(where.AND[0]).toMatchObject({ workspaceId: WORKSPACE_ID, reviewState: "CONFIRMED" });
+      expect(where.AND[1]).toEqual({ adrDocumentId: "adr-1" });
+    });
+  });
+
   describe("listForMeeting", () => {
     it("includes drafts only for people who may edit the meeting", async () => {
       withWorkspaceRole(db, "member");
