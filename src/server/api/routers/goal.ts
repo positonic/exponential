@@ -55,6 +55,10 @@ export const goalRouter = createTRPCRouter({
       // OKR period, a free-form string ("Q3-2026", "Annual-2026") — not an enum.
       period: z.string().optional(),
       status: z.enum(["planned", "active", "completed", "archived", "on-hold"]).optional(),
+      // Workspace-scoped only: keep just the goals the caller is the DRI on
+      // (directly, or via one of their key results). Ignored without a
+      // workspaceId, where the list is already the caller's own goals.
+      onlyMine: z.boolean().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       // When workspace-scoped, validate membership and show all workspace goals
@@ -75,6 +79,16 @@ export const goalRouter = createTRPCRouter({
             : { userId: ctx.session.user.id }),
           ...(input?.period ? { period: input.period } : {}),
           ...(input?.status ? { status: input.status } : {}),
+          // Same DRI-only rule as the OKR dashboard's "mine" filter
+          // (keyResult.getByObjective): having created the goal is not enough.
+          ...(workspaceId && input?.onlyMine
+            ? {
+                OR: [
+                  { driUserId: ctx.session.user.id },
+                  { keyResults: { some: { driUserId: ctx.session.user.id } } },
+                ],
+              }
+            : {}),
         },
         include: {
           lifeDomain: true,
@@ -88,6 +102,9 @@ export const goalRouter = createTRPCRouter({
             select: {
               id: true,
               status: true,
+              // ADR-0004: effective status is `override ?? auto`, reconciled at
+              // read. Without this the client can only see the auto value.
+              statusOverride: true,
               startValue: true,
               currentValue: true,
               targetValue: true,

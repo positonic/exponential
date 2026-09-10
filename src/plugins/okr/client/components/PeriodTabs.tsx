@@ -1,10 +1,10 @@
 "use client";
 
 import { Tabs, Text } from "@mantine/core";
-import { IconTimeline } from "@tabler/icons-react";
 import { clamp01 } from "../utils/okrDashboardUtils";
+import { isOkrPeriodTab, type OkrPeriodTab } from "../utils/periodUtils";
 
-export type OkrPeriodTab = "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline";
+export type { OkrPeriodTab } from "../utils/periodUtils";
 
 interface PeriodTabsProps {
   selectedPeriod: OkrPeriodTab;
@@ -86,8 +86,8 @@ export function PeriodTabs({
     <Tabs
       value={selectedPeriod}
       onChange={(value) => {
-        if (value) {
-          onPeriodChange(value as OkrPeriodTab);
+        if (isOkrPeriodTab(value)) {
+          onPeriodChange(value);
         }
       }}
       variant="default"
@@ -139,31 +139,6 @@ export function PeriodTabs({
             </Tabs.Tab>
           );
         })}
-
-        <Tabs.Tab value="Timeline" aria-label="Timeline view">
-          <span className="inline-flex items-center gap-2">
-            <IconTimeline
-              size={16}
-              style={{
-                color:
-                  selectedPeriod === "Timeline"
-                    ? "var(--color-brand-primary)"
-                    : "var(--color-text-muted)",
-              }}
-            />
-            <Text
-              size="sm"
-              fw={selectedPeriod === "Timeline" ? 600 : 500}
-              className={
-                selectedPeriod === "Timeline"
-                  ? "text-text-primary"
-                  : "text-text-secondary"
-              }
-            >
-              Timeline
-            </Text>
-          </span>
-        </Tabs.Tab>
       </Tabs.List>
     </Tabs>
   );
