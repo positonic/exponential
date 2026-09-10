@@ -1,11 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionIcon, Menu } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconCopy, IconDots, IconTrash } from "@tabler/icons-react";
+import {
+  IconCopy,
+  IconDots,
+  IconExternalLink,
+  IconLink,
+  IconTrash,
+} from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { PageDeleteDialog } from "./PageDeleteDialog";
 
 interface PageActionsMenuProps {
@@ -36,6 +44,21 @@ export function PageActionsMenu({
   const onError = (error: { message: string }, title: string) =>
     notifications.show({ color: "red", title, message: error.message });
 
+  // The *internal* editor path, never the public /p/... URL: this is the link
+  // you send a colleague, and it has to keep working whether or not the page
+  // is published. Sharing the public URL is the Share popover's job.
+  const editorPath = buildPageEditorPath(workspaceSlug, pageId);
+
+  const copyLink = async () => {
+    const url = `${window.location.origin}${editorPath}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      notifications.show({ message: "Link copied" });
+    } catch (e) {
+      onError(e as { message: string }, "Could not copy the link");
+    }
+  };
+
   // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
   const children = api.page.children.useQuery({ id: pageId });
   const hasSubpages = (children.data?.length ?? 0) > 0;
@@ -49,10 +72,6 @@ export function PageActionsMenu({
     onError: (e) => onError(e, "Could not duplicate page"),
   });
 
-  // Every item so far requires edit access; viewers get their own read-only
-  // items in a later slice, so until then there is nothing to open.
-  if (!canEdit) return null;
-
   return (
     <>
       <Menu position="bottom-end" shadow="md" width={240}>
@@ -63,31 +82,51 @@ export function PageActionsMenu({
         </Menu.Target>
         <Menu.Dropdown>
           <Menu.Item
-            leftSection={<IconCopy size={14} />}
-            disabled={duplicate.isPending}
-            onClick={() => duplicate.mutate({ id: pageId })}
+            leftSection={<IconLink size={14} />}
+            onClick={() => void copyLink()}
           >
-            Duplicate
+            Copy link
           </Menu.Item>
-          {hasSubpages ? (
-            <Menu.Item
-              leftSection={<IconCopy size={14} />}
-              disabled={duplicate.isPending}
-              onClick={() =>
-                duplicate.mutate({ id: pageId, withSubpages: true })
-              }
-            >
-              Duplicate with sub-pages
-            </Menu.Item>
-          ) : null}
-          <Menu.Divider />
           <Menu.Item
-            color="red"
-            leftSection={<IconTrash size={14} />}
-            onClick={() => setDeleteOpen(true)}
+            component={Link}
+            href={editorPath}
+            target="_blank"
+            rel="noopener noreferrer"
+            leftSection={<IconExternalLink size={14} />}
           >
-            Delete
+            Open in new tab
           </Menu.Item>
+          {canEdit ? (
+            <>
+              <Menu.Divider />
+              <Menu.Item
+                leftSection={<IconCopy size={14} />}
+                disabled={duplicate.isPending}
+                onClick={() => duplicate.mutate({ id: pageId })}
+              >
+                Duplicate
+              </Menu.Item>
+              {hasSubpages ? (
+                <Menu.Item
+                  leftSection={<IconCopy size={14} />}
+                  disabled={duplicate.isPending}
+                  onClick={() =>
+                    duplicate.mutate({ id: pageId, withSubpages: true })
+                  }
+                >
+                  Duplicate with sub-pages
+                </Menu.Item>
+              ) : null}
+              <Menu.Divider />
+              <Menu.Item
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                onClick={() => setDeleteOpen(true)}
+              >
+                Delete
+              </Menu.Item>
+            </>
+          ) : null}
         </Menu.Dropdown>
       </Menu>
 

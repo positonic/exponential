@@ -31,6 +31,29 @@ async function createScratchPage(
   return title;
 }
 
+test("Copy link copies the internal editor URL, not the public one", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/w/dev-fixture/pages");
+  await page.getByRole("link", { name: /Cycle 12 retro notes/ }).first().click();
+  await expect(page.getByLabel("Page actions")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  const pageUrl = page.url();
+
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Copy link" }).click();
+
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toBe(pageUrl);
+  expect(copied).toContain("/w/dev-fixture/pages/");
+  // The public render lives under /p/<slug>-<publicId>; Copy link never points
+  // there, published or not.
+  expect(copied).not.toContain("/p/");
+});
+
 test("Delete states the impact and requires the title to be typed", async ({
   page,
 }) => {
