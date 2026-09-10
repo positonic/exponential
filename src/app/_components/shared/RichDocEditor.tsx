@@ -414,6 +414,9 @@ export function RichDocEditor({
             <RichTextEditor.ControlsGroup>
               <RichTextEditor.Bold />
               <RichTextEditor.Italic />
+              <RichTextEditor.Underline />
+              <RichTextEditor.Strikethrough />
+              <RichTextEditor.Highlight />
               <RichTextEditor.Code />
               <RichTextEditor.Link />
               <RichTextEditor.H1 />

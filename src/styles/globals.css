@@ -2169,6 +2169,28 @@ body {
   margin: 0.5rem 0;
 }
 
+/* Underline, strike and highlight (the bubble menu's three extra marks).
+   Preflight leaves `u`/`s` decorations alone, but `mark`'s UA yellow is
+   unreadable in dark mode and ignores the theme — so it gets a token-derived
+   wash instead, the same treatment the comment highlight gets above. */
+.prd-document u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prd-document s {
+  text-decoration: line-through;
+}
+.prd-document mark {
+  background-color: color-mix(
+    in srgb,
+    var(--color-brand-warning) 28%,
+    transparent
+  );
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+
 /* PRD body lists - visible markers + Linear-style spacing.
    The editor sets `prose prose-invert`, but @tailwindcss/typography isn't
    installed, so those classes are inert and Tailwind Preflight strips list

@@ -84,6 +84,38 @@ test("the block menu filters mid-title and says so when nothing matches", async 
   await expect(page.getByText("No matches")).toBeHidden();
 });
 
+test("the bubble menu applies underline, strike and highlight, and they persist", async ({
+  page,
+}) => {
+  await createScratchPage(page, `Scratch marks ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  await page.keyboard.type("Mark me");
+  // Select the line, which opens the bubble menu.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+
+  for (const label of ["Underline", "Strikethrough", "Highlight"]) {
+    await page.getByRole("button", { name: label }).click();
+  }
+  await expect(body.locator("u")).toHaveCount(1);
+  await expect(body.locator("s")).toHaveCount(1);
+  await expect(body.locator("mark")).toHaveCount(1);
+
+  await page.waitForResponse(
+    (r) => r.url().includes("/api/trpc/") && r.url().includes("page.update"),
+  );
+
+  // The three marks survive the ProseMirror -> Markdown -> reload trip.
+  await page.reload();
+  await expect(page.locator(".ProseMirror u")).toHaveCount(1, {
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page.locator(".ProseMirror s")).toHaveCount(1);
+  await expect(page.locator(".ProseMirror mark")).toHaveCount(1);
+});
+
 /** The smallest valid PNG: 1x1, transparent. */
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
