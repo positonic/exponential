@@ -23,6 +23,8 @@ import { createTicketWithNumber } from "~/plugins/product/server/services/create
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
+import { tokenizeTitle } from "~/lib/meetings/titleTokens";
+import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
@@ -50,76 +52,6 @@ import { createHash } from "crypto";
 const transcriptionStore: Record<string, string[]> = {};
 
 // ────────────────────────────────────────────────────────────────────
-// Title-token stopwords for `findRelated` matching.
-//
-// Tokens that appear in nearly every meeting title carry no signal, so we
-// strip them before computing overlap. The list is intentionally narrow
-// (meeting-pattern words + common articles/prepositions); domain-specific
-// vocabulary like project names or topics MUST pass through.
-// ────────────────────────────────────────────────────────────────────
-const TITLE_STOPWORDS: ReadonlySet<string> = new Set([
-  // meeting-pattern words
-  "meeting",
-  "call",
-  "sync",
-  "weekly",
-  "daily",
-  "monthly",
-  "quarterly",
-  "standup",
-  "checkin",
-  "check-in",
-  "review",
-  "1:1",
-  "1-1",
-  "1on1",
-  "one-on-one",
-  "discussion",
-  "session",
-  "huddle",
-  "catchup",
-  "catch-up",
-  // common articles / prepositions
-  "the",
-  "a",
-  "an",
-  "and",
-  "or",
-  "with",
-  "at",
-  "of",
-  "to",
-  "for",
-  "in",
-  "on",
-  "by",
-  "vs",
-  "via",
-  "re",
-]);
-
-/**
- * Tokenize a meeting title for related-meeting matching: lowercase, split
- * on non-alphanumeric, drop empty + stopwords. Returns a unique-token list
- * (caller wraps in Set if needed).
- */
-function tokenizeTitle(title: string): string[] {
-  const raw = title
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 0 && !TITLE_STOPWORDS.has(t));
-  // Dedupe while preserving order — score denominator should count each
-  // distinct token once even if the user repeats a word in the title.
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const t of raw) {
-    if (!seen.has(t)) {
-      seen.add(t);
-      out.push(t);
-    }
-  }
-  return out;
-}
 
 /**
  * Throwing wrapper around the centralized transcription access resolver
@@ -437,6 +369,11 @@ export const transcriptionRouter = createTRPCRouter({
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
 
+      // Ceremony auto-attach (ADR-0059). A device session is usually untitled
+      // at creation, in which case this is a no-op; a titled one recorded
+      // during an occurrence attaches immediately. Never throws.
+      await attachMeetingToOccurrence(ctx.db, { ...session, meetingDate: session.meetingDate ?? new Date() });
+
       // NOTE: no activity event here. A device session is created empty (no
       // transcript, title usually null) and may be abandoned, so emitting at
       // start would render "had a meeting <CUID>" and log non-meetings. Device
@@ -633,6 +570,14 @@ export const transcriptionRouter = createTRPCRouter({
               name: true,
               taskManagementTool: true,
               taskManagementConfig: true,
+            },
+          },
+          // The ceremony occurrence this recording captured (ADR-0059).
+          occurrence: {
+            select: {
+              id: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true } },
             },
           },
         },
@@ -950,6 +895,10 @@ export const transcriptionRouter = createTRPCRouter({
         { timeout: 20000 },
       );
 
+      // Ceremony auto-attach (ADR-0059): manual meetings carry a title and
+      // usually a date, so alias matching applies right away. Never throws.
+      await attachMeetingToOccurrence(ctx.db, session);
+
       // Record a workspace activity event when a meeting lands (ADR-0018): one
       // write surfaces it in the workspace feed, the aggregated /activity feed,
       // and the weekly work digest. Skipped for personal (no-workspace) meetings
@@ -1160,6 +1109,9 @@ export const transcriptionRouter = createTRPCRouter({
           meetingType: z
             .enum(["all", "mine", "one_on_one", "customer", "internal"])
             .optional(),
+          // Ceremony filter (ADR-0059): only meetings attached to an
+          // occurrence of this ceremony.
+          ceremonyId: z.string().optional(),
         })
         .optional(),
     )
@@ -1197,6 +1149,10 @@ export const transcriptionRouter = createTRPCRouter({
 
       if (input?.meetingType === "one_on_one") {
         filters.push({ participantCount: 2 });
+      }
+
+      if (input?.ceremonyId) {
+        filters.push({ occurrence: { ceremonyId: input.ceremonyId } });
       }
 
       if (input?.meetingType === "mine") {
@@ -1250,6 +1206,16 @@ export const transcriptionRouter = createTRPCRouter({
               name: true,
               user: { select: { id: true, name: true, image: true } },
               contact: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+          // The ceremony occurrence this meeting captured (ADR-0059), for
+          // the list's ceremony filter and chip.
+          occurrence: {
+            select: {
+              id: true,
+              ceremonyId: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true } },
             },
           },
         },

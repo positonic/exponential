@@ -17,7 +17,12 @@ import {
   MeetingProjectPicker,
   type MeetingProjectOption,
 } from "./MeetingProjectPicker";
-import type { MeetingParticipant } from "~/lib/meeting-view-model";
+import {
+  MeetingOccurrencePicker,
+  formatOccurrenceWhen,
+  type MeetingOccurrenceOption,
+} from "./MeetingOccurrencePicker";
+import type { MeetingOccurrenceRef, MeetingParticipant } from "~/lib/meeting-view-model";
 
 interface ContextRailProps {
   participants: MeetingParticipant[];
@@ -38,6 +43,13 @@ interface ContextRailProps {
   onProjectChange: (projectId: string | null) => void;
   /** Read-only workspace label, derived from the placed project. */
   workspaceName: string | null;
+  /** The ceremony occurrence this meeting captured (ADR-0059), if any. */
+  occurrence: MeetingOccurrenceRef | null;
+  occurrenceHref: string | null;
+  /** Candidate occurrences around the meeting date (workspace-scoped). */
+  occurrenceOptions: MeetingOccurrenceOption[];
+  /** Link the meeting to an occurrence (null unlinks). Absent → read-only row. */
+  onOccurrenceChange?: (occurrenceId: string | null) => void;
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
@@ -65,6 +77,10 @@ export function ContextRail({
   assignableProjects,
   onProjectChange,
   workspaceName,
+  occurrence,
+  occurrenceHref,
+  occurrenceOptions,
+  onOccurrenceChange,
   onShare,
   onExportTranscript,
   canExport,
@@ -162,6 +178,50 @@ export function ContextRail({
             className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-brand-400"
           >
             <IconExternalLink size={12} /> Open project
+          </Link>
+        )}
+        {/* "Part of": the ceremony occurrence this recording captured
+            (ADR-0059). Needs a workspace, since ceremonies are workspace-owned. */}
+        <MeetingOccurrencePicker
+          occurrences={occurrenceOptions}
+          value={occurrence?.id ?? null}
+          onChange={(id) => onOccurrenceChange?.(id)}
+          disabled={!onOccurrenceChange}
+        >
+          {({ toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              className="mp-linkrow mt-1.5"
+              style={{ width: "100%", textAlign: "left", cursor: onOccurrenceChange ? "pointer" : "default" }}
+              disabled={!onOccurrenceChange}
+              aria-label="Part of ceremony"
+              data-testid="meeting-part-of"
+            >
+              <span className="mp-linkrow__glyph mp-linkrow__glyph--ritual">
+                {occurrence ? occurrence.ceremonyName.charAt(0).toUpperCase() : "+"}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">
+                  {occurrence ? `Part of: ${occurrence.ceremonyName}` : "Part of a ceremony?"}
+                </div>
+                <div className="mp-linkrow__sub">
+                  {occurrence
+                    ? formatOccurrenceWhen(occurrence.scheduledStart)
+                    : onOccurrenceChange
+                      ? "Link to an occurrence"
+                      : "Assign to a workspace first"}
+                </div>
+              </div>
+            </button>
+          )}
+        </MeetingOccurrencePicker>
+        {occurrence && occurrenceHref && (
+          <Link
+            href={occurrenceHref}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-brand-400"
+          >
+            <IconExternalLink size={12} /> Open ceremony
           </Link>
         )}
       </div>

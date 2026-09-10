@@ -107,6 +107,9 @@ const TICKETS: TicketSpec[] = [
   { number: 6, title: "Scope-only ticket (must NOT appear in the feature accordion)", status: "BACKLOG", priority: null, assign: false, scopeOnly: true },
 ];
 
+/** Weekdays at 09:00 in the fixture zone; the seeded occurrence sits on this tick. */
+const FIXTURE_CADENCE_RULE = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0";
+
 export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   const user = await db.user.upsert({
     where: { email: FIXTURE.userEmail },
@@ -417,7 +420,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // every seed the same way the OKR rows above are.
   const ceremony = await db.ceremony.upsert({
     where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.ceremonySlug } },
-    update: { ownerId: user.id, isActive: true },
+    update: { ownerId: user.id, isActive: true, cadenceRule: FIXTURE_CADENCE_RULE },
     create: {
       workspaceId: workspace.id,
       slug: FIXTURE.ceremonySlug,
@@ -428,7 +431,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       notFor: "Prioritisation debates - park them for the prioritisation ceremony.",
       inputs: "Yesterday's completed Actions and anything flagged as blocked.",
       outputs: "Blockers assigned an owner; parking-lot items carried to the next occurrence.",
-      cadenceRule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+      cadenceRule: FIXTURE_CADENCE_RULE,
       timezone: "Europe/Berlin",
       startsOn: new Date("2026-09-01T00:00:00.000Z"),
       durationMinutes: 15,

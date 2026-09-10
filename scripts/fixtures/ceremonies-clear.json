@@ -1,0 +1,127 @@
+{
+  "$comment": "CLEAR's operating rhythm as ceremony definitions (ADR-0059): the six meetings from the 'Meeting Culture & Operating Rhythm' page, names only, no ids and no secrets. Import through Settings → Ceremonies → Import JSON (owner/admin), then run 'Backfill attachments' as a dry run before committing. Owner/participant names resolve against workspace members; an unresolved name falls back to the importer. Cadences are the best reading of the inventory and the recorded evidence (Cycle 14 planning on Thu 20 Aug 2026); edit before importing if the calendar says otherwise.",
+  "timezone": "Europe/Berlin",
+  "startsOn": "2026-06-01",
+  "definitions": [
+    {
+      "slug": "daily-standup",
+      "name": "Daily Standup",
+      "kind": "STANDUP",
+      "ownerName": "Andi Stanner",
+      "aliases": ["Daily Standup", "Standup", "Daily"],
+      "purpose": "Surface blockers and align on today's priorities in fifteen minutes.",
+      "notFor": "- Prioritisation debates: they belong in Product Prioritisation\n- Design discussions\n- Status reports for their own sake",
+      "inputs": "- Each participant's Actions completed since the last standup\n- Anything flagged as blocked",
+      "outputs": "- Every blocker has an owner\n- Parking-lot topics carried to the right ceremony",
+      "cadenceRule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=30",
+      "durationMinutes": 15,
+      "leadTimeHours": 12,
+      "agendaTemplate": [
+        { "key": "blockers", "type": "blockers", "title": "Blockers", "minutes": 5 },
+        { "key": "carried_over", "type": "carried_over", "title": "Carried over", "minutes": 5 },
+        { "key": "free_text", "type": "free_text", "title": "Anything else", "minutes": 5 }
+      ]
+    },
+    {
+      "slug": "product-prioritisation",
+      "name": "Product Prioritisation",
+      "kind": "PRIORITISATION",
+      "ownerName": "Zineb",
+      "aliases": ["Prioritisation", "Prioritization", "Product Prioritisation", "Backlog Review"],
+      "purpose": "Decide what the team works on next, with the evidence in the room, so standups stop turning into this meeting.",
+      "notFor": "- Detailed estimation\n- Solution design",
+      "inputs": "- Open and proposed Decisions\n- Objectives and key results at risk\n- Candidate features and insights",
+      "outputs": "- An ordered backlog for the next planning\n- Decisions logged, with rationale",
+      "cadenceRule": "FREQ=WEEKLY;BYDAY=WE;BYHOUR=14;BYMINUTE=0",
+      "durationMinutes": 60,
+      "leadTimeHours": 24,
+      "agendaTemplate": [
+        { "key": "okr_review", "type": "okr_review", "title": "Objectives and key results", "minutes": 15 },
+        { "key": "decisions_pending", "type": "decisions_pending", "title": "Decisions pending", "minutes": 20 },
+        { "key": "carried_over", "type": "carried_over", "title": "Carried over", "minutes": 10 },
+        { "key": "free_text", "type": "free_text", "title": "Candidates", "minutes": 15 }
+      ]
+    },
+    {
+      "slug": "cycle-planning",
+      "name": "Cycle Planning",
+      "kind": "PLANNING",
+      "ownerName": "Zineb",
+      "aliases": ["Planning Meeting", "Cycle Planning", "Sprint Planning", "Planning"],
+      "purpose": "Commit the team to a realistic scope for the next cycle from an already-prioritised backlog.",
+      "notFor": "- Discovering priorities (Product Prioritisation)\n- Estimating everything in the backlog",
+      "inputs": "- Prioritised backlog\n- Capacity for the cycle\n- Carry-over from the last cycle",
+      "outputs": "- A committed cycle with owners on every ticket\n- Explicit deferrals",
+      "cadenceRule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=TH;BYHOUR=11;BYMINUTE=0",
+      "startsOn": "2026-08-20",
+      "durationMinutes": 60,
+      "leadTimeHours": 24,
+      "agendaTemplate": [
+        { "key": "cycle_progress", "type": "cycle_progress", "title": "Last cycle", "minutes": 10 },
+        { "key": "carried_over", "type": "carried_over", "title": "Carry-over", "minutes": 10 },
+        { "key": "decisions_pending", "type": "decisions_pending", "title": "Open decisions that block planning", "minutes": 10 },
+        { "key": "free_text", "type": "free_text", "title": "Scope for this cycle", "minutes": 30 }
+      ]
+    },
+    {
+      "slug": "review-and-demo",
+      "name": "Review & Demo",
+      "kind": "REVIEW",
+      "ownerName": "Zineb",
+      "aliases": ["Review", "Demo", "Sprint Review", "Review & Demo"],
+      "purpose": "Show what shipped, against what was committed, to the people who asked for it.",
+      "notFor": "- Retrospective discussion of how the work went\n- Planning the next cycle",
+      "inputs": "- Tickets closed this cycle\n- Working software to demo",
+      "outputs": "- Feedback captured as Actions or tickets\n- Acceptance or rework decisions",
+      "cadenceRule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=WE;BYHOUR=15;BYMINUTE=0",
+      "startsOn": "2026-08-19",
+      "durationMinutes": 45,
+      "leadTimeHours": 24,
+      "agendaTemplate": [
+        { "key": "cycle_progress", "type": "cycle_progress", "title": "Committed vs shipped", "minutes": 10 },
+        { "key": "free_text", "type": "free_text", "title": "Demos", "minutes": 30 },
+        { "key": "decisions_pending", "type": "decisions_pending", "title": "Decisions for the room", "minutes": 5 }
+      ]
+    },
+    {
+      "slug": "retrospective",
+      "name": "Retrospective",
+      "kind": "RETROSPECTIVE",
+      "ownerName": "Andi Stanner",
+      "aliases": ["Retro", "Retrospective"],
+      "purpose": "Improve how the team works by turning last cycle's friction into a few owned actions.",
+      "notFor": "- Blame\n- Re-litigating product decisions",
+      "inputs": "- Actions from the previous retrospective, with status\n- Cycle metrics",
+      "outputs": "- At most three improvement Actions, each with an owner and a date",
+      "cadenceRule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=WE;BYHOUR=16;BYMINUTE=0",
+      "startsOn": "2026-08-19",
+      "durationMinutes": 45,
+      "leadTimeHours": 24,
+      "agendaTemplate": [
+        { "key": "retro_actions", "type": "retro_actions", "title": "Last retro's actions", "minutes": 10 },
+        { "key": "cycle_progress", "type": "cycle_progress", "title": "The cycle in numbers", "minutes": 5 },
+        { "key": "free_text", "type": "free_text", "title": "Went well / went poorly", "minutes": 20 },
+        { "key": "free_text_actions", "type": "free_text", "title": "Actions", "minutes": 10 }
+      ]
+    },
+    {
+      "slug": "all-hands",
+      "name": "All Hands",
+      "kind": "ALL_HANDS",
+      "ownerName": "Zineb",
+      "aliases": ["All Hands", "All-Hands", "Town Hall"],
+      "purpose": "Keep everyone aligned on direction, progress and what changed since last time.",
+      "notFor": "- Team-level detail\n- Decisions that need a smaller room",
+      "inputs": "- Objective progress\n- Decisions made since the last all-hands",
+      "outputs": "- Questions captured and answered or owned",
+      "cadenceRule": "FREQ=MONTHLY;BYDAY=1TH;BYHOUR=16;BYMINUTE=0",
+      "durationMinutes": 45,
+      "leadTimeHours": 48,
+      "agendaTemplate": [
+        { "key": "okr_review", "type": "okr_review", "title": "Where we are against the objectives", "minutes": 15 },
+        { "key": "decisions_pending", "type": "decisions_pending", "title": "Decisions since last time", "minutes": 10 },
+        { "key": "free_text", "type": "free_text", "title": "Questions", "minutes": 20 }
+      ]
+    }
+  ]
+}

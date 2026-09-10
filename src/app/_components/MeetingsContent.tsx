@@ -23,6 +23,7 @@ import {
   Skeleton,
   Tooltip,
   Kbd,
+  Select,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -519,6 +520,14 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<TabValue>("all");
+  // Ceremony filter (ADR-0059): narrows every tab to meetings attached to an
+  // occurrence of the chosen ceremony. Client-side over the cached list, like
+  // the integration filter, so the tab counts stay in step.
+  const [selectedCeremonyId, setSelectedCeremonyId] = useState<string | null>(null);
+  const { data: ceremonies = [] } = api.ceremony.list.useQuery(
+    { workspaceId: workspaceId ?? "", includeInactive: true },
+    { enabled: Boolean(workspaceId) },
+  );
   const [_successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message (kept for future sync-status UI)
   const [_syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
   
@@ -979,6 +988,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       );
     }
 
+    if (selectedCeremonyId) {
+      filtered = filtered.filter((session) => session.occurrence?.ceremonyId === selectedCeremonyId);
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       filtered = filtered.filter(session => {
@@ -1152,6 +1165,21 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 })}
               </Tabs.List>
               <Group gap={6} wrap="nowrap" className="shrink-0">
+                {workspaceId && ceremonies.length > 0 && (
+                  <Select
+                    size="xs"
+                    className="w-[200px]"
+                    styles={{ input: { height: 30, minHeight: 30 } }}
+                    placeholder="All ceremonies"
+                    aria-label="Filter by ceremony"
+                    data-testid="ceremony-filter"
+                    data={ceremonies.map((c) => ({ value: c.id, label: c.name }))}
+                    value={selectedCeremonyId}
+                    onChange={setSelectedCeremonyId}
+                    clearable
+                    searchable
+                  />
+                )}
                 <TextInput
                   leftSection={<IconSearch size={14} />}
                   placeholder="Search transcripts, people, topics..."
