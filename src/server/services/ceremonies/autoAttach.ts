@@ -97,6 +97,8 @@ export interface AttachOutcome {
   match: OccurrenceMatch | null;
   /** Set when the meeting had no workspace and inherited the occurrence's. */
   workspaceAssigned?: string;
+  /** True when an alias matched in more than one of the user's workspaces, so nothing was attached. */
+  ambiguousWorkspaces?: boolean;
 }
 
 /**
@@ -114,6 +116,16 @@ export async function attachMeetingToOccurrence(
     const match = matchOccurrence(meeting, candidates);
     if (!match) return { meetingId: meeting.id, match: null };
     const winner = candidates.find((c) => c.id === match.occurrenceId)!;
+    // A workspace-less import may only be filed by alias when exactly one of
+    // the user's workspaces claims it; an alias hit in a second workspace
+    // makes the placement a guess, so leave it unattached for a person.
+    if (!meeting.workspaceId && match.reason === "alias") {
+      const elsewhere = matchOccurrence(
+        meeting,
+        candidates.filter((c) => c.workspaceId !== winner.workspaceId),
+      );
+      if (elsewhere) return { meetingId: meeting.id, match: null, ambiguousWorkspaces: true };
+    }
     const workspaceAssigned = meeting.workspaceId ? undefined : winner.workspaceId;
     if (!opts.dryRun) {
       await db.transcriptionSession.update({
@@ -183,12 +195,45 @@ export async function backfillWorkspaceAttachments(
     select: { id: true, title: true, meetingDate: true, createdAt: true, workspaceId: true, userId: true },
   });
 
-  const ceremonyNames = new Map<string, { name: string; scheduledStart: Date }>();
   const rows: BackfillRow[] = [];
-  for (const meeting of meetings) {
-    const anchorDate = backfillAnchorDate(meeting);
+  if (meetings.length === 0) return rows;
+
+  // One occurrence load per workspace covering every anchor (plus the match
+  // band), matched in memory — not one query per recording.
+  const anchors = meetings.map((m) => backfillAnchorDate(m));
+  const minAnchor = new Date(Math.min(...anchors.map((a) => a.getTime())) - BACKFILL_CANDIDATE_WINDOW_MS);
+  const maxAnchor = new Date(Math.max(...anchors.map((a) => a.getTime())) + BACKFILL_CANDIDATE_WINDOW_MS);
+  const occurrenceRows = await db.ceremonyOccurrence.findMany({
+    where: {
+      workspaceId,
+      ceremony: { isActive: true },
+      scheduledStart: { gte: minAnchor, lte: maxAnchor },
+    },
+    select: {
+      id: true,
+      workspaceId: true,
+      scheduledStart: true,
+      ceremony: { select: { name: true, timezone: true, aliases: true, durationMinutes: true } },
+      scheduledMeeting: { select: { icalUid: true } },
+    },
+  });
+  const all = occurrenceRows.map((r) => ({
+    id: r.id,
+    workspaceId: r.workspaceId,
+    scheduledStart: r.scheduledStart,
+    durationMinutes: r.ceremony.durationMinutes,
+    aliases: r.ceremony.aliases,
+    ceremonyName: r.ceremony.name,
+    timezone: r.ceremony.timezone,
+    scheduledMeetingIcalUid: r.scheduledMeeting?.icalUid ?? null,
+  }));
+
+  for (const [index, meeting] of meetings.entries()) {
+    const anchorDate = anchors[index]!;
     const probe = { ...meeting, workspaceId, meetingDate: anchorDate };
-    const candidates = await loadOccurrenceCandidates(db, probe, { windowMs: BACKFILL_CANDIDATE_WINDOW_MS });
+    const lo = anchorDate.getTime() - BACKFILL_CANDIDATE_WINDOW_MS;
+    const hi = anchorDate.getTime() + BACKFILL_CANDIDATE_WINDOW_MS;
+    const candidates = all.filter((c) => c.scheduledStart.getTime() >= lo && c.scheduledStart.getTime() <= hi);
     const match = matchOccurrence(probe, candidates, { slackMs: BACKFILL_SLACK_MS });
     if (!match) {
       rows.push({
@@ -203,15 +248,6 @@ export async function backfillWorkspaceAttachments(
       continue;
     }
     const winner = candidates.find((c) => c.id === match.occurrenceId)!;
-    let named = ceremonyNames.get(winner.id);
-    if (!named) {
-      const occ = await db.ceremonyOccurrence.findUnique({
-        where: { id: winner.id },
-        select: { scheduledStart: true, ceremony: { select: { name: true } } },
-      });
-      named = { name: occ?.ceremony.name ?? "?", scheduledStart: occ?.scheduledStart ?? winner.scheduledStart };
-      ceremonyNames.set(winner.id, named);
-    }
     if (!opts.dryRun) {
       await db.transcriptionSession.update({
         where: { id: meeting.id },
@@ -236,8 +272,8 @@ export async function backfillWorkspaceAttachments(
       title: meeting.title,
       anchorDate,
       occurrenceId: match.occurrenceId,
-      ceremonyName: named.name,
-      scheduledStart: named.scheduledStart,
+      ceremonyName: winner.ceremonyName,
+      scheduledStart: winner.scheduledStart,
       reason: match.reason === "calendar" ? "calendar recurrence id" : `alias "${match.alias}"${meeting.meetingDate ? "" : " (anchored on title date or import date)"}`,
     });
   }

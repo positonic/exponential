@@ -91,9 +91,14 @@ const importDefinitionSchema = ceremonyFieldsSchema
     slug: z.string().min(1).max(60),
     timezone: z.string().min(1).max(64).optional(),
     startsOn: z.coerce.date().optional(),
-    /** Resolved against workspace members by exact name or email; the importer otherwise. */
+    /**
+     * Resolved against workspace members by exact name or email. Unresolved
+     * or absent: a new ceremony is owned by the importer; an existing one
+     * keeps its owner.
+     */
     ownerName: z.string().optional(),
-    participantNames: z.array(z.string()).default([]),
+    /** Replaces the participant set when present; absent leaves it untouched. */
+    participantNames: z.array(z.string()).optional(),
   });
 
 const ceremonySummarySelect = {
@@ -392,10 +397,10 @@ export const ceremonyRouter = createTRPCRouter({
         const unresolved: string[] = [];
         const ownerId = resolve(def.ownerName);
         if (def.ownerName && !ownerId) unresolved.push(def.ownerName);
-        const participantIds = new Set<string>();
-        for (const name of def.participantNames) {
+        const participantIds = def.participantNames ? new Set<string>() : null;
+        for (const name of def.participantNames ?? []) {
           const id = resolve(name);
-          if (id) participantIds.add(id);
+          if (id) participantIds!.add(id);
           else unresolved.push(name);
         }
         const { ownerName: _o, participantNames: _p, slug: _s, timezone: _t, startsOn: _d, agendaTemplate, ...fields } = def;
@@ -403,19 +408,24 @@ export const ceremonyRouter = createTRPCRouter({
           ...fields,
           timezone,
           startsOn,
-          ownerId: ownerId ?? userId,
           agendaTemplate: agendaTemplate as Prisma.InputJsonValue,
         };
         const existing = await ctx.db.ceremony.findUnique({
           where: { workspaceId_slug: { workspaceId: input.workspaceId, slug } },
           select: { id: true },
         });
+        // Re-imports never silently reassign an owner or wipe participants: the
+        // owner changes only when the name resolved, the participant set only
+        // when the file carries one.
         const ceremony = existing
           ? await ctx.db.ceremony.update({
               where: { id: existing.id },
               data: {
                 ...data,
-                participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) },
+                ...(ownerId ? { ownerId } : {}),
+                ...(participantIds
+                  ? { participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) } }
+                  : {}),
               },
             })
           : await ctx.db.ceremony.create({
@@ -423,8 +433,9 @@ export const ceremonyRouter = createTRPCRouter({
                 ...data,
                 slug,
                 workspaceId: input.workspaceId,
+                ownerId: ownerId ?? userId,
                 createdById: userId,
-                participants: { create: Array.from(participantIds).map((id) => ({ userId: id })) },
+                participants: { create: Array.from(participantIds ?? []).map((id) => ({ userId: id })) },
               },
             });
         const occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);

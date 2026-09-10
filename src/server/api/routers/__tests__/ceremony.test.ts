@@ -344,6 +344,27 @@ describe("ceremony router", () => {
       expect(data.participants).toEqual({ create: [] });
     });
 
+    it("re-import keeps the owner and participants unless the file resolves them", async () => {
+      withWorkspaceRole(db, "admin");
+      db.workspaceUser.findMany.mockResolvedValue([] as never);
+      db.ceremony.findUnique.mockResolvedValue({ id: "cer-1" } as never);
+      db.ceremony.update.mockResolvedValue({ id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", startsOn: new Date("2026-06-01"), cadenceRule: cadence.cadenceRule, timezone: "Europe/Berlin", durationMinutes: 15 } as never);
+      db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 0 });
+
+      const res = await caller(db).ceremony.importDefinitions({
+        workspaceId: WORKSPACE_ID,
+        definitions: [{ ...definition, ownerName: "Nobody", participantNames: undefined }],
+        timezone: "Europe/Berlin",
+        startsOn: new Date("2026-06-01"),
+      });
+
+      expect(res[0]).toMatchObject({ action: "updated", unresolved: ["Nobody"] });
+      const data = db.ceremony.update.mock.calls[0]![0].data as Record<string, unknown>;
+      expect(data).not.toHaveProperty("ownerId");
+      expect(data).not.toHaveProperty("participants");
+      expect(db.ceremony.create).not.toHaveBeenCalled();
+    });
+
     it("dry-run backfill reports matches without writing", async () => {
       withWorkspaceRole(db, "owner");
       db.ceremony.findMany.mockResolvedValue([]);
@@ -351,11 +372,12 @@ describe("ceremony router", () => {
         { id: "m-1", title: "Daily Standup", meetingDate: null, createdAt: new Date("2026-09-08T10:00:00Z"), workspaceId: WORKSPACE_ID, userId: USER_ID },
       ] as never);
       db.ceremonyOccurrence.findMany.mockResolvedValue([
-        { id: "occ-1", workspaceId: WORKSPACE_ID, scheduledStart: new Date("2026-09-08T07:30:00Z"), ceremony: { aliases: ["Daily Standup"], durationMinutes: 15 }, scheduledMeeting: null },
+        { id: "occ-1", workspaceId: WORKSPACE_ID, scheduledStart: new Date("2026-09-08T07:30:00Z"), ceremony: { name: "Daily Standup", timezone: "Europe/Berlin", aliases: ["Daily Standup"], durationMinutes: 15 }, scheduledMeeting: null },
       ] as never);
-      db.ceremonyOccurrence.findUnique.mockResolvedValue({ scheduledStart: new Date("2026-09-08T07:30:00Z"), ceremony: { name: "Daily Standup" } } as never);
-
       const res = await caller(db).ceremony.backfillAttachments({ workspaceId: WORKSPACE_ID, dryRun: true });
+
+      // One occurrence load for the whole workspace, not one per recording.
+      expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledTimes(1);
 
       expect(res.dryRun).toBe(true);
       expect(res.matched).toBe(1);

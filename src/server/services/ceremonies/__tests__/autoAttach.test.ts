@@ -81,6 +81,24 @@ describe("attachMeetingToOccurrence", () => {
     });
   });
 
+  it("leaves a workspace-less import unattached when the alias matches in two workspaces", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.ceremonyOccurrence.findMany.mockResolvedValue([
+      occurrenceRow,
+      { ...occurrenceRow, id: "occ-other", workspaceId: "ws-2", scheduledStart: new Date("2026-09-08T07:05:00.000Z") },
+    ] as never);
+    const outcome = await attachMeetingToOccurrence(db, {
+      id: "m-9",
+      title: "Daily Standup",
+      meetingDate: new Date("2026-09-08T07:00:00.000Z"),
+      workspaceId: null,
+      userId: "u-1",
+    });
+    expect(outcome.match).toBeNull();
+    expect(outcome.ambiguousWorkspaces).toBe(true);
+    expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+  });
+
   it("does nothing for an undated, untitled device session and never queries", async () => {
     const db = mockDeep<PrismaClient>();
     const outcome = await attachMeetingToOccurrence(db, { id: "m-3", title: null, meetingDate: null, workspaceId: "ws-1", userId: "u-1" });
