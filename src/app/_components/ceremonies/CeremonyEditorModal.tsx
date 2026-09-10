@@ -65,6 +65,11 @@ interface FormState {
   isActive: boolean;
 }
 
+/** Empty prose is stored as null, never as "". */
+function orNull(value: string): string | null {
+  return value.trim() === "" ? null : value;
+}
+
 function browserTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -269,10 +274,10 @@ export function CeremonyEditorModal({
       name: form.name.trim(),
       kind: form.kind,
       aliases: form.aliases,
-      purpose: form.purpose || null,
-      notFor: form.notFor || null,
-      inputs: form.inputs || null,
-      outputs: form.outputs || null,
+      purpose: orNull(form.purpose),
+      notFor: orNull(form.notFor),
+      inputs: orNull(form.inputs),
+      outputs: orNull(form.outputs),
       cadenceRule: form.cadenceRule.trim(),
       timezone: form.timezone,
       startsOn: form.startsOn,

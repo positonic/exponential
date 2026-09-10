@@ -214,7 +214,7 @@ export default function CeremonyPage() {
                 </div>
               )}
             </Group>
-            {(ceremony.purpose ?? ceremony.notFor ?? ceremony.inputs ?? ceremony.outputs) && <Divider />}
+            {[ceremony.purpose, ceremony.notFor, ceremony.inputs, ceremony.outputs].some(Boolean) && <Divider />}
             <ProseBlock title="Purpose" content={ceremony.purpose} />
             <ProseBlock title="Not for" content={ceremony.notFor} />
             <Group grow align="flex-start">
