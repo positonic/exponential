@@ -381,6 +381,7 @@ export function EditKeyResultModal({
               name: project.name,
               status: project.status,
               slug: project.slug,
+              type: project.type,
             },
           },
         ];
