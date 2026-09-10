@@ -11,6 +11,7 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { formatOccurrenceLabel } from "../activity";
 import { generateAgenda, type GenerateAgendaResult } from "./generateAgenda";
+import { postAgendaToMatrix } from "./postAgendaToMatrix";
 
 export async function circulateAgenda(
   db: PrismaClient,
@@ -27,7 +28,7 @@ export async function circulateAgenda(
       scheduledStart: true,
       agenda: true,
       agendaCirculatedAt: true,
-      ceremony: { select: { id: true, name: true, timezone: true } },
+      ceremony: { select: { id: true, name: true, timezone: true, matrixRoomId: true } },
     },
   });
   if (!occurrence?.agenda) return { circulated: false };
@@ -46,6 +47,14 @@ export async function circulateAgenda(
       ...(occurrence.status === "PLANNED" ? { status: "AGENDA_CIRCULATED" } : {}),
     },
   });
+  // The ceremony's Matrix room, when it has one, gets the agenda too. A
+  // failed post is reported inside and never fails the circulation.
+  if (occurrence.ceremony.matrixRoomId) {
+    const posted = await postAgendaToMatrix(db, { occurrenceId: occurrence.id, actorUserId: opts.actorUserId, confirmRepost: opts.force });
+    if (posted.kind === "failed" || posted.kind === "no-server") {
+      console.error("[ceremonies] agenda Matrix post skipped:", posted.reason);
+    }
+  }
   await recordActivity(db, {
     workspaceId: occurrence.workspaceId,
     userId: opts.actorUserId,

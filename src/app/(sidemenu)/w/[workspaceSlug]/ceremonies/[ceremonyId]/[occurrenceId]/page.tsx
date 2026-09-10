@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge, Button, Container, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { IconArrowLeft, IconSend, IconSparkles } from "@tabler/icons-react";
+import { IconArrowLeft, IconBrandMatrix, IconSend, IconSparkles } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -54,6 +54,16 @@ export default function OccurrencePage() {
   const reorder = api.ceremony.reorderAgendaItems.useMutation({
     onSuccess: invalidate,
     onError: (e) => notifications.show({ title: "Couldn't reorder", message: e.message, color: "red" }),
+  });
+  const postToMatrix = api.ceremony.postAgendaToMatrix.useMutation({
+    onSuccess: async (res) => {
+      if (res.kind === "posted") notifications.show({ title: "Agenda posted to Matrix", message: res.roomId, color: "green" });
+      else if (res.kind === "already-posted") {
+        notifications.show({ title: "Already posted", message: `Posted ${new Date(res.postedAt).toLocaleString()}. Post again to send a second copy.`, color: "yellow" });
+      } else notifications.show({ title: "Not posted", message: "reason" in res ? res.reason : res.kind.replace(/-/g, " "), color: "red" });
+      await invalidate();
+    },
+    onError: (e) => notifications.show({ title: "Couldn't post to Matrix", message: e.message, color: "red" }),
   });
   const resolveItem = api.ceremony.resolveAgendaItem.useMutation({
     onSuccess: async () => {
@@ -121,6 +131,17 @@ export default function OccurrencePage() {
               >
                 {occurrence.agenda ? "Regenerate agenda" : "Generate agenda"}
               </Button>
+              {occurrence.ceremony.matrixRoomId && occurrence.agenda && (
+                <Button
+                  variant="default"
+                  leftSection={<IconBrandMatrix size={14} />}
+                  loading={postToMatrix.isPending}
+                  onClick={() => postToMatrix.mutate({ workspaceId, occurrenceId: occurrence.id, confirmRepost: postToMatrix.data?.kind === "already-posted" })}
+                  data-testid="post-agenda-matrix"
+                >
+                  Post to Matrix
+                </Button>
+              )}
               <Button
                 leftSection={<IconSend size={14} />}
                 loading={generate.isPending && Boolean(generate.variables?.circulate)}

@@ -39,6 +39,13 @@ vi.mock("openai", () => ({
   },
 }));
 
+// Agenda generation narrates through ChatOpenAI; unit tests never call the model.
+vi.mock("@langchain/openai", () => ({
+  ChatOpenAI: class {
+    invoke = () => Promise.resolve({ content: "## Narrative" });
+  },
+}));
+
 vi.mock("next-auth", () => ({
   default: () => ({ auth: () => null, handlers: {}, signIn: vi.fn(), signOut: vi.fn() }),
 }));

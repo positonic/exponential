@@ -16,6 +16,7 @@ import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/s
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
+import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -284,6 +285,7 @@ export const ceremonyRouter = createTRPCRouter({
               durationMinutes: true,
               leadTimeHours: true,
               ownerId: true,
+              matrixRoomId: true,
               agendaTemplate: true,
               owner: { select: { id: true, name: true, email: true } },
             },
@@ -397,6 +399,29 @@ export const ceremonyRouter = createTRPCRouter({
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       const agenda = await reorderAgendaItems(ctx.db, occurrence.id, { sectionKey: input.sectionKey, itemIds: input.itemIds });
       return { occurrenceId: occurrence.id, agenda };
+    }),
+
+  /** Post the agenda to the ceremony's Matrix room by hand (owner, or workspace owner/admin). */
+  postAgendaToMatrix: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), confirmRepost: z.boolean().optional() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (occurrence.ceremony.ownerId !== userId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
+          select: { role: true },
+        });
+        if (membership?.role !== "owner" && membership?.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can post its agenda" });
+        }
+      }
+      return postAgendaToMatrix(ctx.db, { occurrenceId: occurrence.id, actorUserId: userId, confirmRepost: input.confirmRepost });
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */

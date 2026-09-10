@@ -8,6 +8,8 @@ const generateAgenda = vi.hoisted(() => vi.fn());
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({ emitNotification }));
 vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity }));
 vi.mock("../generateAgenda", () => ({ generateAgenda }));
+const postAgendaToMatrix = vi.hoisted(() => vi.fn(async () => ({ kind: "no-room" })));
+vi.mock("../postAgendaToMatrix", () => ({ postAgendaToMatrix }));
 
 import { circulateAgenda, sweepDueAgendas } from "../circulateAgenda";
 
