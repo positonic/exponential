@@ -21,7 +21,7 @@ import type {
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { formatDecisionLabel } from "~/lib/decision-label";
-import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
+import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -702,9 +702,111 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
 }
 
 /**
+ * Confirm a resolution draft: the extractor found that the meeting settled
+ * an OPEN or PROPOSED decision, so the draft carries the target on
+ * `supersededById`. Confirming applies the status change to that decision
+ * — accepted, with the draft's statement and quotes folded into its body
+ * and (same meeting) its evidence — and removes the draft row, so the log
+ * gains an answer, not a duplicate (ADR-0060 decision 4). A target that is
+ * no longer open keeps its status; the draft is still absorbed.
+ */
+async function applyDraftResolution(
+  db: PrismaClient,
+  draft: {
+    id: string;
+    workspaceId: string;
+    number: number;
+    statement: string;
+    body: string | null;
+    decidedAt: Date | null;
+    supersededById: string;
+    transcriptionSessionId: string | null;
+    evidence: Prisma.JsonValue;
+  },
+  userId: string,
+) {
+  const target = await db.decision.findFirst({
+    where: { id: draft.supersededById, workspaceId: draft.workspaceId, reviewState: "CONFIRMED" },
+    select: {
+      id: true,
+      number: true,
+      statement: true,
+      status: true,
+      body: true,
+      decidedAt: true,
+      transcriptionSessionId: true,
+      evidence: true,
+    },
+  });
+  if (!target) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "The decision this draft resolves is no longer available — reject the draft or log it by hand",
+    });
+  }
+
+  const draftEvidence = parseEvidence(draft.evidence);
+  const sameMeeting =
+    draft.transcriptionSessionId !== null && draft.transcriptionSessionId === target.transcriptionSessionId;
+  const evidence = sameMeeting
+    ? parseEvidence([...parseEvidence(target.evidence), ...draftEvidence])
+    : parseEvidence(target.evidence);
+
+  // The answer goes into the body under its own heading. Quotes from another
+  // meeting cannot become evidence rows (they would deep-link into the wrong
+  // transcript), so they ride along as blockquotes.
+  const resolution = [
+    "## Resolution",
+    draft.statement,
+    draft.body?.trim() ? `\n${draft.body.trim()}` : "",
+    !sameMeeting && draftEvidence.length > 0
+      ? `\n${draftEvidence.map((t) => `> ${t.text}${t.speaker ? ` — ${t.speaker}` : ""}`).join("\n")}`
+      : "",
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n");
+  const body = target.body?.trim() ? `${target.body.trim()}\n\n${resolution}` : resolution;
+
+  const resolves = target.status === "OPEN" || target.status === "PROPOSED";
+  const decision = await db.$transaction(async (tx) => {
+    const updated = await tx.decision.update({
+      where: { id: target.id, workspaceId: draft.workspaceId },
+      data: {
+        ...(resolves ? { status: "ACCEPTED" } : {}),
+        body,
+        decidedAt: target.decidedAt ?? draft.decidedAt ?? new Date(),
+        evidence: evidence as unknown as Prisma.InputJsonValue,
+      },
+      include: decisionDetailInclude,
+    });
+    await tx.decision.delete({ where: { id: draft.id, workspaceId: draft.workspaceId } });
+    return updated;
+  });
+
+  await recordActivity(db, {
+    workspaceId: draft.workspaceId,
+    userId,
+    entityType: "decision",
+    entityId: decision.id,
+    action: resolves ? "accepted" : "updated",
+    metadata: {
+      title: activityTitle(decision),
+      label: formatDecisionLabel(decision.number),
+      from: target.status,
+      to: decision.status,
+      resolvedFromDraft: formatDecisionLabel(draft.number),
+      transcriptionSessionId: draft.transcriptionSessionId,
+    },
+  });
+  return decision;
+}
+
+/**
  * Publish a draft (V2 extraction writes drafts; V1 only exposes the seam).
  * Idempotent: confirming a confirmed row returns it unchanged and records
- * nothing.
+ * nothing. A draft that resolves an open decision is applied to that
+ * decision instead of being published as a new row (see
+ * {@link applyDraftResolution}).
  */
 export async function confirmDraft(
   db: PrismaClient,
@@ -712,7 +814,7 @@ export async function confirmDraft(
 ) {
   const current = await db.decision.findFirst({
     where: { id: input.decisionId, workspaceId: input.workspaceId },
-    select: transitionSelect,
+    select: { ...transitionSelect, body: true, evidence: true },
   });
   if (!current) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
@@ -722,6 +824,9 @@ export async function confirmDraft(
       where: { id: current.id },
       include: decisionDetailInclude,
     });
+  }
+  if (current.supersededById) {
+    return applyDraftResolution(db, { ...current, supersededById: current.supersededById }, input.userId);
   }
   const decision = await db.decision.update({
     where: { id: current.id },

@@ -800,6 +800,111 @@ describe("decision router", () => {
     });
   });
 
+  describe("confirmDraft", () => {
+    const DRAFT = {
+      id: "draft-1",
+      workspaceId: WORKSPACE_ID,
+      number: 9,
+      statement: "The peek drawer ships first",
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      decidedAt: new Date("2026-09-08T07:00:00.000Z"),
+      supersededById: null as string | null,
+      source: "MEETING",
+      transcriptionSessionId: MEETING_ID,
+      transcriptionSession: { id: MEETING_ID, userId: USER_ID, projectId: null, workspaceId: WORKSPACE_ID },
+      projectId: null,
+      body: "## Context\nsaid so",
+      evidence: [{ turnIndex: 3, speaker: "Pat", startTime: null, text: "park it" }],
+    };
+    const OPEN_TARGET = {
+      id: "open-1",
+      number: 2,
+      statement: "Should the peek drawer ship first?",
+      status: "OPEN",
+      body: "## Context\nraised",
+      decidedAt: null,
+      transcriptionSessionId: MEETING_ID,
+      evidence: [{ turnIndex: 2, speaker: "Dev", startTime: null, text: "should it?" }],
+    };
+
+    beforeEach(() => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      // The draft's meeting is owned by the caller, so meeting edit access holds.
+      db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
+    });
+
+    it("publishes a plain draft in place and records `confirmed`", async () => {
+      db.decision.findFirst.mockResolvedValue(DRAFT as never);
+      db.decision.update.mockResolvedValue({ ...DRAFT, reviewState: "CONFIRMED", supersededBy: null } as never);
+
+      const result = await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" });
+
+      expect(result.label).toBe("D-0009");
+      expect(db.decision.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "draft-1" },
+          data: expect.objectContaining({ reviewState: "CONFIRMED", confirmedById: USER_ID }),
+        }),
+      );
+      expect(db.decision.delete).not.toHaveBeenCalled();
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: "confirmed", entityId: "draft-1" }) }),
+      );
+    });
+
+    it("applies a resolution draft as a status change on the open decision and removes the draft", async () => {
+      db.decision.findFirst
+        .mockResolvedValueOnce(DRAFT as never) // router subject load
+        .mockResolvedValueOnce({ ...DRAFT, supersededById: "open-1" } as never) // service transition load
+        .mockResolvedValueOnce(OPEN_TARGET as never); // the target
+      db.decision.update.mockResolvedValue({
+        ...OPEN_TARGET,
+        workspaceId: WORKSPACE_ID,
+        status: "ACCEPTED",
+        supersededBy: null,
+      } as never);
+      db.decision.delete.mockResolvedValue({} as never);
+
+      const result = await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" });
+
+      // The returned row is the target, now accepted — not a new decision.
+      expect(result.id).toBe("open-1");
+      expect(result.label).toBe("D-0002");
+      const update = db.decision.update.mock.calls[0]![0];
+      expect(update.where).toEqual({ id: "open-1", workspaceId: WORKSPACE_ID });
+      expect(update.data).toMatchObject({ status: "ACCEPTED", decidedAt: DRAFT.decidedAt });
+      expect(update.data.body).toBe("## Context\nraised\n\n## Resolution\nThe peek drawer ships first\n\n## Context\nsaid so");
+      // Same meeting: the draft's quote joins the target's evidence.
+      expect(update.data.evidence).toEqual([...OPEN_TARGET.evidence, ...DRAFT.evidence]);
+      expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "draft-1", workspaceId: WORKSPACE_ID } });
+      expect(db.decision.create).not.toHaveBeenCalled();
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: "accepted",
+            entityId: "open-1",
+            metadata: expect.objectContaining({ from: "OPEN", to: "ACCEPTED", resolvedFromDraft: "D-0009" }),
+          }),
+        }),
+      );
+    });
+
+    it("refuses a resolution draft whose target is gone, leaving the draft untouched", async () => {
+      db.decision.findFirst
+        .mockResolvedValueOnce(DRAFT as never)
+        .mockResolvedValueOnce({ ...DRAFT, supersededById: "open-gone" } as never)
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" }),
+      ).rejects.toThrow(/no longer available/i);
+      expect(db.decision.update).not.toHaveBeenCalled();
+      expect(db.decision.delete).not.toHaveBeenCalled();
+    });
+  });
+
   describe("listForMeeting", () => {
     it("includes drafts only for people who may edit the meeting", async () => {
       withWorkspaceRole(db, "member");
