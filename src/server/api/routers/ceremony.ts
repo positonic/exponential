@@ -13,6 +13,8 @@ import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
+import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
+import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -260,6 +262,85 @@ export const ceremonyRouter = createTRPCRouter({
           ceremony: { select: { id: true, name: true, kind: true } },
         },
       });
+    }),
+
+  /** One occurrence with its agenda snapshot, ceremony summary and visible recordings. */
+  getOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        include: {
+          ceremony: {
+            select: {
+              id: true,
+              name: true,
+              kind: true,
+              timezone: true,
+              durationMinutes: true,
+              leadTimeHours: true,
+              ownerId: true,
+              agendaTemplate: true,
+              owner: { select: { id: true, name: true, email: true } },
+            },
+          },
+          recordedMeetings: { select: { id: true } },
+        },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const meetingIds = occurrence.recordedMeetings.map((m) => m.id);
+      const visible = meetingIds.length
+        ? await ctx.db.transcriptionSession.findMany({
+            where: { id: { in: meetingIds }, ...buildTranscriptionAccessWhere(userId) },
+            select: { id: true, title: true, meetingDate: true },
+          })
+        : [];
+      const visibleById = new Map(visible.map((m) => [m.id, m]));
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
+        select: { role: true },
+      });
+      const canGenerate =
+        occurrence.ceremony.ownerId === userId || membership?.role === "owner" || membership?.role === "admin";
+      return {
+        ...occurrence,
+        agenda: readAgendaSnapshot(occurrence.agenda),
+        canGenerate,
+        recordedMeetings: occurrence.recordedMeetings.map((m) => {
+          const v = visibleById.get(m.id);
+          return v
+            ? { id: v.id, exists: true as const, title: v.title, meetingDate: v.meetingDate }
+            : { id: m.id, exists: true as const, title: null, meetingDate: null };
+        }),
+      };
+    }),
+
+  /**
+   * Generate or regenerate an occurrence's agenda on demand. The ceremony
+   * owner (or a workspace owner/admin) only; runs inside the request.
+   */
+  generateAgenda: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (occurrence.ceremony.ownerId !== userId) {
+        const membership = await ctx.db.workspaceUser.findUnique({
+          where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
+          select: { role: true },
+        });
+        if (membership?.role !== "owner" && membership?.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can generate its agenda" });
+        }
+      }
+      return generateAgenda(ctx.db, occurrence.id);
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */

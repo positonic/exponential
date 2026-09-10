@@ -410,4 +410,49 @@ describe("ceremony router", () => {
       expect(db.transcriptionSession.update).not.toHaveBeenCalled();
     });
   });
+
+  describe("generateAgenda gates on the ceremony owner (or workspace owner/admin)", () => {
+    it("denies a plain member who does not own the ceremony", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-1", ceremony: { ownerId: "someone-else" } } as never);
+      await expect(
+        caller(db).ceremony.generateAgenda({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner generate: runs the template sections and stores the snapshot", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst
+        .mockResolvedValueOnce({ id: "occ-1", ceremony: { ownerId: USER_ID } } as never) // gate
+        .mockResolvedValueOnce(null as never); // previous occurrence
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({
+        id: "occ-1",
+        scheduledStart: new Date("2026-09-11T07:00:00Z"),
+        agenda: null,
+        ceremony: {
+          id: "cer-1",
+          workspaceId: WORKSPACE_ID,
+          teamId: null,
+          projectId: null,
+          productId: null,
+          agendaTemplate: [{ key: "okr", type: "okr_review", title: "OKRs" }, { key: "free", type: "free_text", title: "Else" }],
+          participants: [],
+          workspace: { slug: "ws" },
+        },
+      } as never);
+      db.keyResult.findMany.mockResolvedValue([
+        { id: "kr-1", title: "KR", status: "on-track", statusOverride: null, statusOverrideAt: null, currentValue: 0, targetValue: 1, unit: "count", goalId: 1, goal: { id: 1, title: "G" }, checkIns: [] },
+      ] as never);
+      db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+
+      const res = await caller(db).ceremony.generateAgenda({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      expect(res.itemCount).toBe(1);
+      expect(res.agenda.sections.map((s) => [s.key, s.items.length])).toEqual([["okr", 1], ["free", 0]]);
+      const data = db.ceremonyOccurrence.update.mock.calls[0]![0].data as { agendaGeneratedAt: Date; agenda: { sections: unknown[] } };
+      expect(data.agendaGeneratedAt).toBeInstanceOf(Date);
+      expect(data.agenda.sections).toHaveLength(2);
+    });
+  });
 });
