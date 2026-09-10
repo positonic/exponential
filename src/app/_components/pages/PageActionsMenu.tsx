@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionIcon, Menu, Switch } from "@mantine/core";
+import { useLocalStorage } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import {
   IconCopy,
@@ -11,6 +12,7 @@ import {
   IconDownload,
   IconExternalLink,
   IconFolderShare,
+  IconViewportWide,
   IconPrinter,
   IconLink,
   IconMarkdown,
@@ -23,6 +25,13 @@ import { slugifyPageTitle } from "~/lib/pages/public-url";
 import { docToMarkdown } from "~/lib/prd/codec";
 import { PageDeleteDialog } from "./PageDeleteDialog";
 import { PageMoveDialog } from "./PageMoveDialog";
+
+/** Reading-column width preference. Pages default to the same centred column
+ * the published (/p/...) render uses; "Full width" is the opt-in. Stored per
+ * browser (not on the page) so it stays a reader-side view preference rather
+ * than something one editor imposes on everyone. Exported for the route,
+ * which reads the same key to pick its column class. */
+export const FULL_WIDTH_STORAGE_KEY = "pages:full-width";
 
 interface PageActionsMenuProps {
   pageId: string;
@@ -61,6 +70,10 @@ export function PageActionsMenu({
   const utils = api.useUtils();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [fullWidth, setFullWidth] = useLocalStorage({
+    key: FULL_WIDTH_STORAGE_KEY,
+    defaultValue: false,
+  });
 
   const onError = (error: { message: string }, title: string) =>
     notifications.show({ color: "red", title, message: error.message });
@@ -148,6 +161,34 @@ export function PageActionsMenu({
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
+          {/* Full width is only a browser-side view preference, but the
+              viewer menu is specified as the four read-only items and nothing
+              else, so it sits above the canEdit fence with the rest. */}
+          {canEdit ? (
+            <>
+              <Menu.Item
+                closeMenuOnClick={false}
+                leftSection={<IconViewportWide size={14} />}
+                // Value form, not the updater form: Mantine's setter writes
+                // to localStorage *inside* the state updater, and React
+                // replays updaters, which would persist the toggle a second
+                // time and land back on the old value.
+                onClick={() => setFullWidth(!fullWidth)}
+                rightSection={
+                  <Switch
+                    size="xs"
+                    checked={fullWidth}
+                    aria-label="Full width"
+                    readOnly
+                    tabIndex={-1}
+                  />
+                }
+              >
+                Full width
+              </Menu.Item>
+              <Menu.Divider />
+            </>
+          ) : null}
           <Menu.Item
             leftSection={<IconLink size={14} />}
             onClick={() => void copyLink()}

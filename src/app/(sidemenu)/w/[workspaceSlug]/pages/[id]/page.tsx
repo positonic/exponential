@@ -2,14 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ActionIcon, Skeleton, Text, TextInput, Tooltip } from '@mantine/core';
+import { Skeleton, Text, TextInput } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
-import { PageActionsMenu } from '~/app/_components/pages/PageActionsMenu';
+import {
+  PageActionsMenu,
+  FULL_WIDTH_STORAGE_KEY,
+} from '~/app/_components/pages/PageActionsMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
@@ -93,12 +95,6 @@ function PageTitle({
   );
 }
 
-/** Reading-column width preference. Pages default to the same centred column
- * the published (/p/...) render uses; "Full width" is the opt-in. Stored per
- * browser (not on the page) so it stays a reader-side view preference rather
- * than something one editor imposes on everyone. */
-const FULL_WIDTH_STORAGE_KEY = 'pages:full-width';
-
 function PageEditorContent({
   pageId,
   workspaceSlug,
@@ -107,7 +103,9 @@ function PageEditorContent({
   workspaceSlug: string;
 }) {
   const { data: page, isLoading, error } = api.page.get.useQuery({ id: pageId });
-  const [fullWidth, setFullWidth] = useLocalStorage({
+  // Read-only here: the toggle itself lives in the Page actions menu, which
+  // writes the same key.
+  const [fullWidth] = useLocalStorage({
     key: FULL_WIDTH_STORAGE_KEY,
     defaultValue: false,
   });
@@ -173,25 +171,6 @@ function PageEditorContent({
         </div>
         {/* Chrome, not content: Print / Save as PDF drops this row. */}
         <div className="flex items-center gap-2" data-print="hide">
-          <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              aria-label={fullWidth ? 'Use narrow width' : 'Use full width'}
-              aria-pressed={fullWidth}
-              // Value form, not the updater form: Mantine's setter writes to
-              // localStorage *inside* the state updater, and React replays
-              // updaters, which would persist the toggle a second time and
-              // land back on the old value.
-              onClick={() => setFullWidth(!fullWidth)}
-            >
-              {fullWidth ? (
-                <IconViewportNarrow size={18} />
-              ) : (
-                <IconViewportWide size={18} />
-              )}
-            </ActionIcon>
-          </Tooltip>
           <FavoriteButton
             entityType="page"
             entityId={`pages/${page.id}`}

@@ -38,6 +38,59 @@ async function createScratchPage(
   return title;
 }
 
+test("the menu lists every action in the documented order", async ({ page }) => {
+  await page.goto("/w/dev-fixture/pages");
+  await page.getByRole("link", { name: /Cycle 12 retro notes/ }).first().click();
+  await expect(page.getByLabel("Page actions")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  await page.getByLabel("Page actions").click();
+  const labels = await page.getByRole("menuitem").allInnerTexts();
+  // The seeded page has no sub-pages, so "Duplicate with sub-pages" is absent.
+  expect(labels.map((l) => l.trim())).toEqual([
+    "Full width",
+    "Copy link",
+    "Open in new tab",
+    "Copy markdown",
+    "Markdown",
+    "Print / Save as PDF",
+    "Move to project…",
+    "Include in search",
+    "Duplicate",
+    "Delete",
+  ]);
+});
+
+test("Full width widens the reading column and persists", async ({ page }) => {
+  await page.goto("/w/dev-fixture/pages");
+  await page.getByRole("link", { name: /Cycle 12 retro notes/ }).first().click();
+  const column = page.locator('[data-print="column"]');
+  await expect(page.getByLabel("Page actions")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  const narrow = (await column.boundingBox())!.width;
+
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Full width" }).click();
+  await page.keyboard.press("Escape");
+  await expect
+    .poll(async () => (await column.boundingBox())!.width)
+    .toBeGreaterThan(narrow);
+
+  // Stored per browser, so it survives a reload.
+  await page.reload();
+  await expect(page.getByLabel("Page actions")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  expect((await column.boundingBox())!.width).toBeGreaterThan(narrow);
+
+  // Leave the shared browser profile as we found it.
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Full width" }).click();
+  await page.keyboard.press("Escape");
+});
+
 test("Copy link copies the internal editor URL, not the public one", async ({
   page,
   context,
