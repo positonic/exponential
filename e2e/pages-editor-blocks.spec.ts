@@ -62,6 +62,28 @@ test("/text turns a heading back into a paragraph", async ({ page }) => {
   await expect(body.locator("p").first()).toContainText("Shouting");
 });
 
+test("the block menu filters mid-title and says so when nothing matches", async ({
+  page,
+}) => {
+  await createScratchPage(page, `Scratch filter ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  // Mid-title: a prefix filter would have found neither of these.
+  await page.keyboard.type("/list");
+  await expect(page.getByText("Bullet list", { exact: true })).toBeVisible();
+  await expect(page.getByText("Task list", { exact: true })).toBeVisible();
+  await expect(page.getByText("Heading 1", { exact: true })).toBeHidden();
+
+  // No match keeps the menu open and says why, rather than vanishing.
+  await page.keyboard.type("zzz");
+  await expect(page.getByText("No matches")).toBeVisible();
+
+  // Escape closes it and the typed text stays in the doc.
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("No matches")).toBeHidden();
+});
+
 /** The smallest valid PNG: 1x1, transparent. */
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",

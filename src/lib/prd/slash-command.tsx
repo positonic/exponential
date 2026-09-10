@@ -158,6 +158,24 @@ function imageCommand(upload: UploadImage): SlashCommandItem {
   };
 }
 
+/**
+ * Narrow the block list to what the user has typed after `/`.
+ *
+ * Substring, not prefix: "list" should reach "Bullet list" and "Task list",
+ * and "div" should reach "Divider" — a prefix match makes you know the first
+ * word of a block's name before you can find it. Case-insensitive both ways.
+ *
+ * Exported for its unit test; the extension is the only production caller.
+ */
+export function filterSlashCommands(
+  items: SlashCommandItem[],
+  query: string,
+): SlashCommandItem[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return items;
+  return items.filter((item) => item.title.toLowerCase().includes(needle));
+}
+
 interface SlashCommandListProps {
   items: SlashCommandItem[];
   command: (item: SlashCommandItem) => void;
@@ -175,6 +193,11 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
+        // Nothing to move through or run, but the menu is still open on
+        // "No matches" — swallow navigation rather than modulo by zero.
+        if (items.length === 0) {
+          return ["ArrowUp", "ArrowDown", "Enter"].includes(event.key);
+        }
         if (event.key === "ArrowUp") {
           setSelected((s) => (s + items.length - 1) % items.length);
           return true;
@@ -186,13 +209,13 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
         if (event.key === "Enter") {
           const item = items[selected];
           if (item) command(item);
+          // Swallow Enter even with nothing to run, so it can't break the
+          // line under an open menu that is showing "No matches".
           return true;
         }
         return false;
       },
     }));
-
-    if (items.length === 0) return null;
 
     return (
       <Paper
@@ -202,6 +225,14 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
         p={4}
         className="bg-surface-secondary max-h-72 w-72 overflow-y-auto"
       >
+        {/* An empty list used to unmount the popup, which read as "the menu
+            closed" — indistinguishable from a typo having cancelled it.
+            Saying so keeps the `/` mode visible until Escape or a match. */}
+        {items.length === 0 ? (
+          <Text size="sm" className="text-text-muted px-2 py-1.5">
+            No matches
+          </Text>
+        ) : null}
         {items.map((item, index) => {
           const Icon = item.icon;
           return (
@@ -305,14 +336,13 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
         ...suggestion,
         items: ({ query }) => {
           const upload = this.options.uploadImage;
-          const all = [
-            ...COMMANDS,
-            ...(upload ? [imageCommand(upload)] : []),
-            ...this.options.extraCommands,
-          ];
-          const needle = query.toLowerCase();
-          return all.filter((item) =>
-            item.title.toLowerCase().startsWith(needle),
+          return filterSlashCommands(
+            [
+              ...COMMANDS,
+              ...(upload ? [imageCommand(upload)] : []),
+              ...this.options.extraCommands,
+            ],
+            query,
           );
         },
       }),
