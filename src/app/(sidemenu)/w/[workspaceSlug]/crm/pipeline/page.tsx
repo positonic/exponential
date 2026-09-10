@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Group,
   Button,
@@ -21,13 +22,16 @@ import { DealDetailDrawer } from "~/app/_components/pipeline/DealDetailDrawer";
 import { PipelineStats } from "~/app/_components/pipeline/PipelineStats";
 import { PipelineSettingsModal } from "~/app/_components/pipeline/PipelineSettingsModal";
 
-export default function PipelinePage() {
+function PipelineBoard() {
   const { workspace, workspaceId } = useWorkspace();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  // `?pipeline=<id>` pre-selects a pipeline (deep links from a key result's
+  // "Executing work" list); otherwise the first pipeline wins below.
+  const searchParams = useSearchParams();
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(
-    null,
+    () => searchParams.get("pipeline"),
   );
   const [newPipelineOpen, setNewPipelineOpen] = useState(false);
   const [newPipelineName, setNewPipelineName] = useState("");
@@ -268,5 +272,15 @@ export default function PipelinePage() {
         </Stack>
       </Modal>
     </Stack>
+  );
+}
+
+// useSearchParams needs a Suspense boundary above it (same shape as the
+// goals / okrs / workspace pages).
+export default function PipelinePage() {
+  return (
+    <Suspense fallback={null}>
+      <PipelineBoard />
+    </Suspense>
   );
 }
