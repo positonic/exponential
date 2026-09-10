@@ -1,27 +1,12 @@
 "use client";
 
 import { Suspense } from "react";
-import { Skeleton, Container, Stack, Text, Tabs } from "@mantine/core";
-import { IconTarget, IconChartBar } from "@tabler/icons-react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
-import { OkrDashboard } from "~/plugins/okr/client/components/OkrDashboard";
+import { Skeleton, Container, Stack, Text } from "@mantine/core";
+import { GoalsWorkspaceTabs } from "~/app/_components/goals/GoalsWorkspaceTabs";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 function GoalsPageContent() {
   const { workspace, isLoading } = useWorkspace();
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const activeTab = searchParams.get("tab") ?? "goals";
-
-  const handleTabChange = (value: string | null) => {
-    if (!value) return;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", value);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
 
   if (isLoading) {
     return (
@@ -40,30 +25,7 @@ function GoalsPageContent() {
     );
   }
 
-  return (
-    <Tabs
-      value={activeTab}
-      onChange={handleTabChange}
-      className="w-full"
-    >
-      <Tabs.List className="px-10 border-b border-border-primary">
-        <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>
-          Goals
-        </Tabs.Tab>
-        <Tabs.Tab value="okrs" leftSection={<IconChartBar size={16} />}>
-          OKRs
-        </Tabs.Tab>
-      </Tabs.List>
-
-      <Tabs.Panel value="goals">
-        <InitiativeDashboard />
-      </Tabs.Panel>
-
-      <Tabs.Panel value="okrs">
-        <OkrDashboard />
-      </Tabs.Panel>
-    </Tabs>
-  );
+  return <GoalsWorkspaceTabs />;
 }
 
 export default function GoalsPage() {

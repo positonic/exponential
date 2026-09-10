@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { keepPreviousData } from "@tanstack/react-query";
 import {
   Container,
   Title,
@@ -48,6 +49,9 @@ import { FilterBar } from "~/app/_components/filters";
 import { hasActiveFilters } from "~/types/filter";
 import type { FilterBarConfig, FilterMember, FilterState } from "~/types/filter";
 import Link from "next/link";
+import { OkrTimeline } from "~/plugins/okr/client/components/OkrTimeline";
+import type { GoalsView } from "~/app/_components/goals/useGoalsViewParams";
+import { buildGoalTimelineData, type TimelineGoalInput } from "./goalTimelineData";
 import styles from "./InitiativeDashboard.module.css";
 
 type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
@@ -163,6 +167,9 @@ interface GoalRow {
   parentGoalId: number | null;
   driUserId: string | null;
   driUser?: { id: string; name: string | null; image: string | null } | null;
+  /** Override-aware progress (0–100) from goal.getAllMyGoals; absent on the project-goals query. */
+  resolvedProgress?: number;
+  keyResults?: { status: string }[];
   icon: string | null;
   iconColor: string | null;
   projects: GoalProject[];
@@ -233,6 +240,35 @@ function buildGoalTree(goals: GoalRow[]): GoalTreeNode[] {
 type VisibleRow =
   | { kind: "goal"; node: GoalTreeNode }
   | { kind: "project"; project: GoalProject; parentGoal: GoalRow; depth: number };
+
+/**
+ * Regroup the flattened rows into goals with the projects rendered directly
+ * beneath them, in on-screen order — the timeline draws a project as a
+ * sub-row of the goal it sits under, exactly as the table does.
+ */
+function rowsToTimelineGoals(rows: VisibleRow[]): TimelineGoalInput[] {
+  const out: TimelineGoalInput[] = [];
+  for (const row of rows) {
+    if (row.kind === "goal") {
+      const goal = row.node.goal;
+      out.push({
+        id: goal.id,
+        title: goal.title,
+        period: goal.period,
+        dueDate: goal.dueDate,
+        health: goal.health,
+        keyResultStatuses: goal.keyResults?.map((kr) => kr.status),
+        progress: goal.resolvedProgress ?? 0,
+        depth: row.node.depth,
+        owner: goal.driUser ?? null,
+        projects: [],
+      });
+    } else {
+      out[out.length - 1]?.projects.push(row.project);
+    }
+  }
+  return out;
+}
 
 /**
  * Depth-first flatten, skipping the children of collapsed rows. `emitted`
@@ -552,12 +588,26 @@ function ProjectSubRow({
   );
 }
 
-export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) {
+interface InitiativeDashboardProps {
+  /** Project detail reuse: the project's goals instead of the workspace's. */
+  projectId?: string;
+  /** Only goals the current user is the DRI on (directly or via a KR). */
+  onlyMine?: boolean;
+  /** Gantt of the filtered rows instead of the table. */
+  view?: GoalsView;
+}
+
+export function InitiativeDashboard({
+  projectId,
+  onlyMine = false,
+  view = "list",
+}: InitiativeDashboardProps = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [collapsedIds, setCollapsedIds] = useState<Set<number>>(() => new Set());
   const { workspace, workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
   const pathname = usePathname();
+  const router = useRouter();
 
   const searchRef = useRef<HTMLInputElement>(null);
   const {
@@ -583,8 +633,10 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
   );
 
   const { data: allGoals, isLoading: workspaceGoalsLoading } = api.goal.getAllMyGoals.useQuery(
-    { workspaceId: workspaceId ?? undefined },
-    { enabled: !projectId && !!workspaceId },
+    { workspaceId: workspaceId ?? undefined, onlyMine },
+    // Flipping "mine" keeps the previous list on screen rather than dropping
+    // to a skeleton for a toggle that usually just removes a few rows.
+    { enabled: !projectId && !!workspaceId, placeholderData: keepPreviousData },
   );
 
   const isLoading = projectId ? projectGoalsLoading : workspaceGoalsLoading;
@@ -608,6 +660,11 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
   const visibleRows = useMemo(
     () => flattenGoalTree(goalTree, collapsedIds),
     [goalTree, collapsedIds],
+  );
+  const isTimelineView = view === "timeline";
+  const timeline = useMemo(
+    () => (isTimelineView ? buildGoalTimelineData(rowsToTimelineGoals(visibleRows)) : null),
+    [isTimelineView, visibleRows],
   );
 
   // Target options come from the periods actually in use, so the filter never
@@ -785,6 +842,29 @@ export function InitiativeDashboard({ projectId }: { projectId?: string } = {}) 
             <Skeleton height={50} />
             <Skeleton height={50} />
           </Stack>
+        ) : filteredGoals.length > 0 && timeline ? (
+          <OkrTimeline
+            objectives={timeline.objectives}
+            getUser={(id) => timeline.users.get(id)}
+            weekCount={timeline.axis?.weekCount}
+            weekLabels={timeline.axis?.weekLabels}
+            monthStarts={timeline.axis?.monthStarts}
+            monthLabels={timeline.axis?.monthLabels}
+            todayFrac={timeline.axis?.todayFrac}
+            onObjectiveClick={(o) =>
+              router.push(`/w/${workspaceSlug ?? ""}/goals/${o.id}`)
+            }
+            onKeyResultClick={(kr) => {
+              const project = goalsSource
+                .flatMap((g) => (g as unknown as GoalRow).projects)
+                .find((p) => `project-${p.id}` === kr.id);
+              if (project) {
+                router.push(
+                  `/w/${workspaceSlug ?? ""}/projects/${slugify(project.name)}-${project.id}`,
+                );
+              }
+            }}
+          />
         ) : filteredGoals.length > 0 ? (
           <Table verticalSpacing="sm" highlightOnHover={false}>
             <Table.Thead>

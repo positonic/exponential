@@ -42,11 +42,9 @@ import {
   buildTimelineData,
   computeTimelineAxis,
 } from "../utils/okrTimelineData";
-import {
-  extractYearsFromPeriods,
-  getCurrentQuarterType,
-} from "../utils/periodUtils";
+import { extractYearsFromPeriods } from "../utils/periodUtils";
 import { useOkrSearchParams } from "../hooks/useOkrSearchParams";
+import type { GoalsView } from "~/app/_components/goals/useGoalsViewParams";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
@@ -132,9 +130,17 @@ function buildKeyResultDrawerItem(kr: ObjectiveCardKeyResult): DrawerItem {
   };
 }
 
+interface OkrDashboardProps {
+  /** Only objectives the current user is the DRI on (directly or via a KR). */
+  onlyMine?: boolean;
+  /** Gantt of the selected period instead of the card list. */
+  view?: GoalsView;
+}
+
 export function OkrDashboard({
-  scope = "workspace",
-}: { scope?: "workspace" | "mine" } = {}) {
+  onlyMine = false,
+  view = "list",
+}: OkrDashboardProps = {}) {
   const { workspaceId, workspaceSlug } = useWorkspace();
   const {
     year: selectedYear,
@@ -147,14 +153,10 @@ export function OkrDashboard({
   } = useOkrSearchParams();
   const searchParams = useSearchParams();
 
-  const onlyMine = scope === "mine";
-
-  // Both the OKRs and My Goals tabs mount an OkrDashboard simultaneously
-  // (Mantine keeps inactive Tabs.Panels mounted). Gate URL-driven drawer
-  // opening to the active panel so a `drawer=` param opens only one drawer.
+  // Gate URL-driven drawer opening to the OKRs tab so a `drawer=` param on
+  // the Goals tab never opens an OKR drawer from a panel the user can't see.
   const activeTab = searchParams.get("tab") ?? "goals";
-  const isActivePanel =
-    scope === "mine" ? activeTab === "my-goals" : activeTab === "okrs";
+  const isActivePanel = activeTab === "okrs";
 
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] =
     useDisclosure(false);
@@ -196,22 +198,11 @@ export function OkrDashboard({
 
   const utils = api.useUtils();
 
-  const isTimelineView = selectedPeriod === "Timeline";
+  // Timeline is a rendering of the selected period, not a period of its own:
+  // the gantt axis is the quarter (or year) the period tabs point at.
+  const isTimelineView = view === "timeline";
 
-  // When the Timeline tab is active it's a view mode, not a period. Pick the
-  // quarter matching today's date (or Q1 of the selected year for past/future
-  // years) so the gantt axis has a concrete range of weeks to lay out.
-  const timelineTargetQuarter = useMemo(() => {
-    const now = new Date();
-    const thisYear = now.getFullYear().toString();
-    if (selectedYear === thisYear) return getCurrentQuarterType();
-    return "Q1" as const;
-  }, [selectedYear]);
-
-  const effectivePeriod = useMemo(() => {
-    if (isTimelineView) return `${timelineTargetQuarter}-${selectedYear}`;
-    return `${selectedPeriod}-${selectedYear}`;
-  }, [isTimelineView, timelineTargetQuarter, selectedYear, selectedPeriod]);
+  const effectivePeriod = `${selectedPeriod}-${selectedYear}`;
 
   useEffect(() => {
     setFormData((prev) => ({ ...prev, period: effectivePeriod }));
@@ -530,11 +521,12 @@ export function OkrDashboard({
   };
 
   // Copy an absolute deep link that reopens this exact drawer (?drawer=type:id)
-  // on the panel that matches this dashboard's scope. Used by the Share CTA.
+  // on the OKRs tab, keeping the "mine" toggle the sharer had on. Used by the
+  // Share CTA.
   const handleShare = (type: "objective" | "keyResult", id: number | string) => {
-    const tab = scope === "mine" ? "my-goals" : "okrs";
     const path = workspaceSlug ? `/w/${workspaceSlug}/goals` : "/goals";
-    const url = `${window.location.origin}${path}?tab=${tab}&drawer=${type}:${id}`;
+    const mine = onlyMine ? "&mine=1" : "";
+    const url = `${window.location.origin}${path}?tab=okrs${mine}&drawer=${type}:${id}`;
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(url).then(
         () => notifications.show({ message: "Link copied", color: "green" }),
