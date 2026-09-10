@@ -30,6 +30,8 @@ export interface DailySummaryActionItem {
 export interface DailySummaryTicketRef {
   /** Product-aware display id plus title, e.g. `C-154 Specify a pipeline testing thunderdome`. */
   label: string;
+  /** The bare ticket title (no display id) — what a spoken rendering reads out. */
+  title: string;
   url: string;
 }
 
@@ -67,6 +69,12 @@ export interface DailySummaryDigest {
   todayMeetings: DailySummaryMeetingItem[];
   /** Exactly the `todays` bucket of `partitionActions`, cross-workspace (ADR-0034). */
   todaysActions: DailySummaryActionItem[];
+  /**
+   * Exactly the `overdue` bucket of `partitionActions`, in its order (priority
+   * first, then oldest debt first). `overdueCount` is its length, kept as a
+   * field because the channel renderers only ever print the number.
+   */
+  overdueActions: DailySummaryActionItem[];
   overdueCount: number;
   /** Absolute URL of `/today`. */
   todayUrl: string;

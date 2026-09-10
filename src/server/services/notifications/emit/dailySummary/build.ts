@@ -76,7 +76,8 @@ const defaultCalendarReader: CalendarReader = async (userId, timeMin, timeMax) =
  * Today's actions for the digest: exactly the `todays` bucket of the shared
  * `partitionActions` (ADR-0034) over the same ownership set as
  * `action.getTodaysActions` — created-by-me-with-no-assignees OR assigned-to-me,
- * `ACTIVE`, across every workspace — plus the overdue count.
+ * `ACTIVE`, across every workspace — plus the `overdue` bucket (names and
+ * count).
  *
  * `partitionActions` buckets by server-local calendar day. Shifting every
  * instant into the user's timezone frame first (`toZonedTime`, the same shift
@@ -88,7 +89,11 @@ async function loadTodaysActions(
   userId: string,
   localNow: Date,
   tz: string,
-): Promise<{ todaysActions: DailySummaryActionItem[]; overdueCount: number }> {
+): Promise<{
+  todaysActions: DailySummaryActionItem[];
+  overdueActions: DailySummaryActionItem[];
+  overdueCount: number;
+}> {
   const actions = await db.action.findMany({
     where: {
       OR: [
@@ -122,6 +127,7 @@ async function loadTodaysActions(
 
   return {
     todaysActions: partition.todays.map((a) => ({ name: a.name })),
+    overdueActions: partition.overdue.map((a) => ({ name: a.name })),
     overdueCount: partition.overdue.length,
   };
 }
@@ -274,11 +280,16 @@ async function loadCycleBlocks(
       inFlight: mine
         .filter((t) => IN_FLIGHT_STATUSES.has(t.status))
         .sort((a, b) => statusRank(a.status) - statusRank(b.status))
-        .map((t) => ({ label: label(t), status: t.status, url: ticketUrl(t) })),
+        .map((t) => ({
+          label: label(t),
+          title: t.title,
+          status: t.status,
+          url: ticketUrl(t),
+        })),
       upNext: mine
         .filter((t) => t.status === UP_NEXT_STATUS)
         .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-        .map((t) => ({ label: label(t), url: ticketUrl(t) })),
+        .map((t) => ({ label: label(t), title: t.title, url: ticketUrl(t) })),
       unrefinedCount: mine.filter((t) => UNREFINED_STATUSES.has(t.status)).length,
     };
   };
@@ -339,12 +350,13 @@ export async function buildDailySummary(
     });
     return [];
   });
-  const [events, recordings, { todaysActions, overdueCount }, cycles] = await Promise.all([
-    readCalendarSafely,
-    loadYesterdayRecordings(db, userId, scope?.workspaceId ?? null, window),
-    loadTodaysActions(db, userId, localNow, tz),
-    scope ? loadCycleBlocks(db, userId, scope, now, tz, baseUrl) : Promise.resolve([]),
-  ]);
+  const [events, recordings, { todaysActions, overdueActions, overdueCount }, cycles] =
+    await Promise.all([
+      readCalendarSafely,
+      loadYesterdayRecordings(db, userId, scope?.workspaceId ?? null, window),
+      loadTodaysActions(db, userId, localNow, tz),
+      scope ? loadCycleBlocks(db, userId, scope, now, tz, baseUrl) : Promise.resolve([]),
+    ]);
 
   const yesterdayEvents = eventsOnLocalDay(events, window.yesterdayKey, tz);
   const todayEvents = eventsOnLocalDay(events, window.todayKey, tz);
@@ -376,6 +388,7 @@ export async function buildDailySummary(
     yesterday,
     todayMeetings: todayEvents.map((e) => ({ startLocal: e.startLocal, title: e.title })),
     todaysActions,
+    overdueActions,
     overdueCount,
     todayUrl: `${baseUrl}/today`,
     cycles,

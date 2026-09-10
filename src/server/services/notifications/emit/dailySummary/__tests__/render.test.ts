@@ -32,6 +32,7 @@ export const fullDigest: DailySummaryDigest = {
     { startLocal: null, title: "Public holiday" },
   ],
   todaysActions: [{ name: "Gather medical bills" }, { name: "Pay Malte" }],
+  overdueActions: Array.from({ length: 32 }, (_, i) => ({ name: `Overdue thing ${i + 1}` })),
   overdueCount: 32,
   todayUrl: `${BASE}/today`,
   cycles: [
@@ -49,6 +50,7 @@ export const fullDigest: DailySummaryDigest = {
       inFlight: [
         {
           label: "C-532 x.com signals - poc",
+          title: "x.com signals - poc",
           status: "IN_PROGRESS",
           url: `${BASE}/w/acme/products/clear/tickets/t532`,
         },
@@ -56,10 +58,12 @@ export const fullDigest: DailySummaryDigest = {
       upNext: [
         {
           label: "C-154 Specify a pipeline testing thunderdome",
+          title: "Specify a pipeline testing thunderdome",
           url: `${BASE}/w/acme/products/clear/tickets/t154`,
         },
         {
           label: "C-470 Define delivery playbook",
+          title: "Define delivery playbook",
           url: `${BASE}/w/acme/products/clear/tickets/t470`,
         },
       ],
@@ -73,6 +77,7 @@ export const emptyDigest: DailySummaryDigest = {
   yesterday: [],
   todayMeetings: [],
   todaysActions: [],
+  overdueActions: [],
   overdueCount: 0,
   todayUrl: `${BASE}/today`,
   cycles: [],
