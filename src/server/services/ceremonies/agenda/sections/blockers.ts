@@ -11,16 +11,24 @@ const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
 export const blockersSection: SectionModule = {
   type: "blockers",
   async run(ctx, section) {
-    const participantFilter = ctx.participantUserIds.length
-      ? { OR: [{ assignees: { some: { userId: { in: ctx.participantUserIds } } } }, { createdById: { in: ctx.participantUserIds } }] }
-      : {};
+    // Narrowed to the participants when the ceremony has any — plus actions
+    // nobody owns, which the standup exists to give an owner (see the module
+    // docstring). Without that third branch an unassigned action created by a
+    // non-participant never reaches the agenda.
+    const participantOr = ctx.participantUserIds.length
+      ? [
+          { assignees: { some: { userId: { in: ctx.participantUserIds } } } },
+          { createdById: { in: ctx.participantUserIds } },
+          { assignees: { none: {} } },
+        ]
+      : null;
     const actions = await ctx.db.action.findMany({
       where: {
         status: "ACTIVE",
         workspaceId: ctx.workspaceId,
         ...(ctx.ceremony.projectId ? { projectId: ctx.ceremony.projectId } : {}),
         OR: [{ dueDate: { lt: ctx.now } }, { blockedByIds: { isEmpty: false } }],
-        ...(participantFilter.OR ? { AND: [participantFilter] } : {}),
+        ...(participantOr ? { AND: [{ OR: participantOr }] } : {}),
       },
       select: {
         id: true,

@@ -76,6 +76,30 @@ describe("carried_over section", () => {
     expect(items[1]!.detail).toBe("carried again");
   });
 
+  it("emits one item per record when the same record is unresolved in two previous sections, keeping the higher carry count", async () => {
+    const db = mockDeep<PrismaClient>();
+    const previous = {
+      id: "occ-0",
+      scheduledStart: new Date("2026-09-09T08:00:00Z"),
+      agenda: {
+        version: 1,
+        generatedAt: "x",
+        sections: [
+          { key: "dec", type: "decisions_pending", title: "Decisions", items: [
+            { id: "dec:decision:d-1", sectionKey: "dec", title: "D-0001", refType: "decision", refId: "d-1", order: 0 },
+          ] },
+          { key: "carry", type: "carried_over", title: "Carried over", items: [
+            { id: "carry:carried:decision:d-1", sectionKey: "carry", title: "D-0001", refType: "decision", refId: "d-1", order: 0, carryCount: 3 },
+          ] },
+        ],
+      },
+    } as unknown as CeremonyOccurrence;
+    const items = await carriedOverSection.run(ctx(db, { previousOccurrence: previous }), { key: "carry", type: "carried_over", title: "Carried over" });
+    expect(items.map((i) => i.id)).toEqual(["carry:carried:decision:d-1"]);
+    expect(items[0]!.carryCount).toBe(4);
+    expect(items[0]!.order).toBe(0);
+  });
+
   it("is empty without a previous agenda", async () => {
     const db = mockDeep<PrismaClient>();
     expect(await carriedOverSection.run(ctx(db), { key: "c", type: "carried_over", title: "C" })).toEqual([]);
