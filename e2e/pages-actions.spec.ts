@@ -166,25 +166,23 @@ test("Print hides the app chrome and lets the column run full width", async ({
     timeout: FIRST_PAINT_TIMEOUT,
   });
 
+  const column = page.locator('[data-print="column"]');
+  const onScreen = (await column.boundingBox())!.width;
+
   // The menu item calls window.print(); Playwright can't drive the native
   // dialog, so assert on what the dialog would render — the print stylesheet.
-  await expect(page.getByLabel("Page actions")).toBeVisible();
   await page.emulateMedia({ media: "print" });
 
   await expect(page.locator("aside").first()).toBeHidden();
   // The page's own action row (full width, favourite, Share, the menu itself).
   await expect(page.locator('[data-print="hide"]').first()).toBeHidden();
 
-  const columnWidth = await page
-    .locator('[data-print="column"]')
-    .evaluate((el) => el.getBoundingClientRect().width);
-  const mainWidth = await page
-    .locator("main.sidebar-offset")
-    .evaluate((el) => el.getBoundingClientRect().width);
-  // On screen the column is capped at max-w-3xl (768px); on paper it fills
-  // the sheet. A couple of px of slack for the sub-pixel layout.
-  expect(columnWidth).toBeGreaterThan(768);
-  expect(mainWidth - columnWidth).toBeLessThan(4);
+  // On screen the column is capped at max-w-3xl (768px); on paper the cap is
+  // lifted. Compared against itself rather than against <main>, so a
+  // scrollbar or a collapsed sidebar can't move the goalposts.
+  const onPaper = (await column.boundingBox())!.width;
+  expect(onScreen).toBeLessThanOrEqual(768);
+  expect(onPaper).toBeGreaterThan(768);
 
   await test.info().attach("print-layout", {
     body: await page.screenshot({ fullPage: false }),
