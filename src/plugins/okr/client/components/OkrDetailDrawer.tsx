@@ -1987,7 +1987,12 @@ export function OkrDetailDrawer({
                       // rendering.
                       ...view.projects.map((p) => ({
                         key: `project-${p.project.id}`,
-                        typeLabel: "Project" as const,
+                        // A CRM pipeline is a Project with type "pipeline";
+                        // same link edge, its own chip.
+                        typeLabel:
+                          p.project.type === "pipeline"
+                            ? ("Pipeline" as const)
+                            : ("Project" as const),
                         name: p.project.name,
                         status: p.project.status,
                         href: null as string | null,

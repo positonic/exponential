@@ -11,6 +11,7 @@ import {
   IconMessageCircle,
   IconBriefcase,
   IconBulb,
+  IconLayoutKanban,
 } from "@tabler/icons-react";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -50,6 +51,10 @@ interface LinkedProject {
     name: string;
     status: string;
     slug: string;
+    // "standard" | "pipeline" — a CRM pipeline is a Project (type = "pipeline")
+    // and links to a KR through the ordinary project edge; the row just wears
+    // a different chip.
+    type?: string;
   };
 }
 
@@ -70,10 +75,24 @@ interface LinkedFeature {
   };
 }
 
-/** One row in a KR's "executing work" list — a Project or a Feature. */
+/** One row in a KR's "executing work" list — a Project, Pipeline or Feature. */
+type LinkedWorkKind = "project" | "pipeline" | "feature";
+
+const LINKED_WORK_LABEL: Record<LinkedWorkKind, string> = {
+  project: "Project",
+  pipeline: "Pipeline",
+  feature: "Feature",
+};
+
+const LINKED_WORK_ICON: Record<LinkedWorkKind, typeof IconBriefcase> = {
+  project: IconBriefcase,
+  pipeline: IconLayoutKanban,
+  feature: IconBulb,
+};
+
 interface LinkedWorkRow {
   key: string;
-  kind: "project" | "feature";
+  kind: LinkedWorkKind;
   name: string;
   status: string;
   href: string | null;
@@ -321,7 +340,7 @@ function KrLine({
   const linkedWork: LinkedWorkRow[] = [
     ...projects.map(({ project }) => ({
       key: `project-${project.id}`,
-      kind: "project" as const,
+      kind: (project.type === "pipeline" ? "pipeline" : "project") as LinkedWorkKind,
       name: project.name,
       status: project.status,
       href: workspaceSlug
@@ -520,7 +539,7 @@ function KrLine({
         <div className="space-y-1 pb-3 pl-7 pr-7 pt-1">
           {hasLinkedWork ? (
             linkedWork.map((row) => {
-              const RowIcon = row.kind === "feature" ? IconBulb : IconBriefcase;
+              const RowIcon = LINKED_WORK_ICON[row.kind];
               const rowClass =
                 "group/link flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover";
               const content = (
@@ -540,7 +559,7 @@ function KrLine({
                     </span>
                   )}
                   <span className="ml-auto flex-shrink-0 rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
-                    {row.kind === "feature" ? "Feature" : "Project"}
+                    {LINKED_WORK_LABEL[row.kind]}
                   </span>
                 </>
               );
