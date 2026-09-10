@@ -959,11 +959,14 @@ export function OkrDashboard({
               className="mx-auto mb-4 text-text-muted"
             />
             <h3 className="mb-2 text-lg font-semibold text-text-primary">
-              No OKRs yet for this period
+              {onlyMine
+                ? "None of this period's OKRs are yours"
+                : "No OKRs yet for this period"}
             </h3>
             <Text className="mb-4 text-text-muted">
-              Create a new objective, or add a Key Result to an existing one to
-              start tracking progress.
+              {onlyMine
+                ? "You're not the DRI on any objective or key result this period. Turn off Mine to see the whole workspace."
+                : "Create a new objective, or add a Key Result to an existing one to start tracking progress."}
             </Text>
             <Group justify="center" gap="md">
               <Button component={Link} href={goalsPath} variant="light">
