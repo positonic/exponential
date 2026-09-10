@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Group,
   Button,
@@ -26,8 +27,11 @@ export default function PipelinePage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+  // `?pipeline=<id>` pre-selects a pipeline (deep links from a key result's
+  // "Executing work" list); otherwise the first pipeline wins below.
+  const searchParams = useSearchParams();
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(
-    null,
+    () => searchParams.get("pipeline"),
   );
   const [newPipelineOpen, setNewPipelineOpen] = useState(false);
   const [newPipelineName, setNewPipelineName] = useState("");

@@ -14,6 +14,12 @@ import {
   IconLayoutKanban,
 } from "@tabler/icons-react";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import {
+  LINKED_WORK_LABEL,
+  linkedProjectKind,
+  pipelineBoardHref,
+  type LinkedWorkKind,
+} from "../utils/linkedWork";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import {
   clamp01,
@@ -76,14 +82,6 @@ interface LinkedFeature {
 }
 
 /** One row in a KR's "executing work" list — a Project, Pipeline or Feature. */
-type LinkedWorkKind = "project" | "pipeline" | "feature";
-
-const LINKED_WORK_LABEL: Record<LinkedWorkKind, string> = {
-  project: "Project",
-  pipeline: "Pipeline",
-  feature: "Feature",
-};
-
 const LINKED_WORK_ICON: Record<LinkedWorkKind, typeof IconBriefcase> = {
   project: IconBriefcase,
   pipeline: IconLayoutKanban,
@@ -338,16 +336,25 @@ function KrLine({
   // One merged "executing work" list: linked Projects and linked Features,
   // each row tagged with its type (ADR-0050) — mirrors the detail drawer.
   const linkedWork: LinkedWorkRow[] = [
-    ...projects.map(({ project }) => ({
-      key: `project-${project.id}`,
-      kind: (project.type === "pipeline" ? "pipeline" : "project") as LinkedWorkKind,
-      name: project.name,
-      status: project.status,
-      href: workspaceSlug
-        ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
-        : `/projects/${project.slug}-${project.id}`,
-      ticketProgress: null,
-    })),
+    ...projects.map(({ project }) => {
+      const kind = linkedProjectKind(project.type);
+      return {
+        key: `project-${project.id}`,
+        kind,
+        name: project.name,
+        status: project.status,
+        // A pipeline row opens the CRM board, not the project page.
+        href:
+          kind === "pipeline"
+            ? workspaceSlug
+              ? pipelineBoardHref(workspaceSlug, project.id)
+              : null
+            : workspaceSlug
+              ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+              : `/projects/${project.slug}-${project.id}`,
+        ticketProgress: null,
+      };
+    }),
     ...features.map(({ feature }) => ({
       key: `feature-${feature.id}`,
       kind: "feature" as const,

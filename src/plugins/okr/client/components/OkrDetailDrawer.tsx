@@ -28,6 +28,11 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useFavorite } from "~/app/_components/shared/useFavorite";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import {
+  LINKED_WORK_LABEL,
+  linkedProjectKind,
+  pipelineBoardHref,
+} from "../utils/linkedWork";
+import {
   clamp01,
   effectiveConfidence,
   effectiveStatus,
@@ -1985,22 +1990,25 @@ export function OkrDetailDrawer({
                       // (ADR-0050). Feature rows deep-link into the products
                       // area; project rows keep their current (non-link)
                       // rendering.
-                      ...view.projects.map((p) => ({
-                        key: `project-${p.project.id}`,
-                        // A CRM pipeline is a Project with type "pipeline";
-                        // same link edge, its own chip.
-                        typeLabel:
-                          p.project.type === "pipeline"
-                            ? ("Pipeline" as const)
-                            : ("Project" as const),
-                        name: p.project.name,
-                        status: p.project.status,
-                        href: null as string | null,
-                        progress: null as { done: number; total: number } | null,
-                      })),
+                      ...view.projects.map((p) => {
+                        const kind = linkedProjectKind(p.project.type);
+                        return {
+                          key: `project-${p.project.id}`,
+                          typeLabel: LINKED_WORK_LABEL[kind],
+                          name: p.project.name,
+                          status: p.project.status,
+                          // Pipeline rows open the CRM board; plain project
+                          // rows keep their current (non-link) rendering.
+                          href:
+                            kind === "pipeline" && workspace?.slug
+                              ? pipelineBoardHref(workspace.slug, p.project.id)
+                              : (null as string | null),
+                          progress: null as { done: number; total: number } | null,
+                        };
+                      }),
                       ...view.features.map((f) => ({
                         key: `feature-${f.feature.id}`,
-                        typeLabel: "Feature" as const,
+                        typeLabel: LINKED_WORK_LABEL.feature,
                         name: f.feature.name,
                         status: f.feature.status,
                         href: workspace?.slug
