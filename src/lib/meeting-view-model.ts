@@ -232,6 +232,31 @@ export function assignParticipantFlavors<
 }
 
 /**
+ * The DRAFT subset of `decision.listForMeeting` rows as the review surfaces
+ * (summary tab block, Zoe drawer card) render them. Shared so both show the
+ * same drafts with the same evidence and resolution target.
+ */
+export function meetingDraftsFromRows(rows: MeetingDecisionInput[]): MeetingDraftDecision[] {
+  return rows
+    .filter((d) => d.reviewState === "DRAFT")
+    .map((d) => ({
+      id: d.id,
+      label: d.label,
+      statement: d.statement,
+      status: d.status,
+      decidedAt: d.decidedAt,
+      evidenceCount: d.evidenceCount,
+      // A draft has no detail page: it is reviewed where it was extracted.
+      href: null,
+      body: d.body ?? null,
+      evidence: parseEvidence(d.evidence),
+      resolves: d.supersededBy
+        ? { id: d.supersededBy.id, label: d.supersededBy.label, statement: d.supersededBy.statement ?? "" }
+        : null,
+    }));
+}
+
+/**
  * Map a `TranscriptionSession` (+ parsed Fireflies summary/analytics) into the
  * view model the meeting-detail UI consumes. Derives meeting type, summary
  * (rich Fireflies object or plain text), duration, participants with talk-time,
@@ -297,18 +322,7 @@ export function buildMeetingViewModel(
   const allDecisions: MeetingDecision[] = meetingDecisions
     .filter((d) => d.reviewState !== "DRAFT")
     .map(toDecision);
-  const drafts: MeetingDraftDecision[] = meetingDecisions
-    .filter((d) => d.reviewState === "DRAFT")
-    .map((d) => ({
-      ...toDecision(d),
-      // A draft has no detail page: it is reviewed where it was extracted.
-      href: null,
-      body: d.body ?? null,
-      evidence: parseEvidence(d.evidence),
-      resolves: d.supersededBy
-        ? { id: d.supersededBy.id, label: d.supersededBy.label, statement: d.supersededBy.statement ?? "" }
-        : null,
-    }));
+  const drafts = meetingDraftsFromRows(meetingDecisions);
 
   return {
     meetingType,

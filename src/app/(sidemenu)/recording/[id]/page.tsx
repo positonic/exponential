@@ -189,11 +189,25 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         });
         return;
       }
-      notifications.show({
-        title: result.alreadyDrafted ? "Drafts ready for review" : "Draft decisions extracted",
-        message: `${result.draftCount} draft ${result.draftCount === 1 ? "decision" : "decisions"} to review in the Decisions block.`,
-        color: "blue",
+      // Review card in the Zoe drawer, same as draft Actions: self-contained
+      // by meeting id, so it survives a reload and mirrors the summary tab.
+      const transcriptionId = session.id;
+      setMessages((prev) => {
+        const alreadyHasCard = prev.some(
+          (m) => m.card?.kind === "draft-decisions" && m.card.transcriptionId === transcriptionId,
+        );
+        if (alreadyHasCard) return prev;
+        const cardMessage: ChatMessage = {
+          type: "ai",
+          agentName: "Zoe",
+          content: result.alreadyDrafted
+            ? "Here are the draft decisions from this meeting — confirm the ones that were really made."
+            : `I found ${result.draftCount} draft ${result.draftCount === 1 ? "decision" : "decisions"} in this meeting — each quotes the transcript. Confirm the ones that were really made.`,
+          card: { kind: "draft-decisions", transcriptionId },
+        };
+        return [...prev, cardMessage];
       });
+      openModal();
     },
     onError: (error) => {
       notifications.show({

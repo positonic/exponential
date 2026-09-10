@@ -303,14 +303,19 @@ export function SummaryTab({
               <span className="mp-sec__count">{vm.decisions.length + vm.questions.length}</span>
             )}
             <span className="mp-sec__rule" />
-            {canLogDecision && hasTranscript && onExtractDecisions && vm.drafts.length === 0 && (
+            {canLogDecision && hasTranscript && onExtractDecisions && (
               <button
                 className="mp-chipbtn"
                 onClick={onExtractDecisions}
                 type="button"
                 disabled={isExtractingDecisions}
               >
-                <IconSparkles size={11} /> {isExtractingDecisions ? "Extracting…" : "Extract decisions"}
+                <IconSparkles size={11} />{" "}
+                {isExtractingDecisions
+                  ? "Extracting…"
+                  : vm.drafts.length > 0
+                    ? "Review drafts with Zoe"
+                    : "Extract decisions"}
               </button>
             )}
             {canLogDecision && (
@@ -319,7 +324,11 @@ export function SummaryTab({
               </button>
             )}
           </div>
-          {vm.drafts.length > 0 && draftsPanel}
+          {vm.drafts.length > 0 && draftsPanel && (
+            <div className="mp-card" data-testid="summary-draft-decisions">
+              {draftsPanel}
+            </div>
+          )}
           <div className="mp-twocard">
             <div className="mp-card">
               <div className="mp-card__label mp-card__label--decision">

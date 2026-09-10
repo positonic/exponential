@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconCheck, IconGavel, IconX } from "@tabler/icons-react";
+import { IconCheck, IconGavel, IconPencil, IconX } from "@tabler/icons-react";
 import Link from "next/link";
 import { api } from "~/trpc/react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { evidenceHref, formatEvidenceTime } from "~/lib/decision-evidence";
 import type { MeetingDraftDecision } from "~/lib/meeting-view-model";
+import { EditDraftDecisionModal } from "./EditDraftDecisionModal";
 
 interface DraftDecisionReviewListProps {
   transcriptionSessionId: string;
@@ -33,6 +34,7 @@ export function DraftDecisionReviewList({
   variant = "default",
 }: DraftDecisionReviewListProps) {
   const utils = api.useUtils();
+  const [editing, setEditing] = useState<MeetingDraftDecision | null>(null);
 
   const invalidate = useCallback(async () => {
     await Promise.all([
@@ -137,6 +139,15 @@ export function DraftDecisionReviewList({
               <Button
                 size="xs"
                 variant="subtle"
+                leftSection={<IconPencil size={12} />}
+                disabled={busy}
+                onClick={() => setEditing(draft)}
+              >
+                Edit
+              </Button>
+              <Button
+                size="xs"
+                variant="subtle"
                 color="red"
                 leftSection={<IconX size={12} />}
                 disabled={busy}
@@ -158,6 +169,16 @@ export function DraftDecisionReviewList({
           </Stack>
         </Paper>
       ))}
+      <EditDraftDecisionModal
+        draft={editing}
+        workspaceId={workspaceId}
+        opened={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        onSaved={async () => {
+          setEditing(null);
+          await invalidate();
+        }}
+      />
     </Stack>
   );
 }

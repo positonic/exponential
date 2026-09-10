@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { assignParticipantFlavors } from "../meeting-view-model";
+import { assignParticipantFlavors, meetingDraftsFromRows } from "../meeting-view-model";
 
 describe("assignParticipantFlavors", () => {
   it("marks the owner-by-userId as me and rotates the rest by order", () => {
@@ -102,5 +102,34 @@ describe("assignParticipantFlavors", () => {
       { userId: null, email: null },
     );
     expect(flavors).toEqual(["them", "alt"]);
+  });
+});
+
+describe("meetingDraftsFromRows", () => {
+  it("keeps only DRAFT rows, parses evidence, and names the resolved decision", () => {
+    const drafts = meetingDraftsFromRows([
+      { id: "c", label: "D-0001", statement: "Confirmed", status: "ACCEPTED", decidedAt: null, evidenceCount: 0, reviewState: "CONFIRMED" },
+      {
+        id: "d",
+        label: "D-0002",
+        statement: "Draft",
+        status: "ACCEPTED",
+        decidedAt: null,
+        evidenceCount: 1,
+        reviewState: "DRAFT",
+        body: "## Context\nwhy",
+        evidence: [{ turnIndex: 3, speaker: "Pat", startTime: 44, text: "park it" }, { bogus: true }],
+        supersededBy: { id: "o", label: "D-0000", statement: "Open one?" },
+      },
+      { id: "r", label: "D-0003", statement: "Rejected", status: "ACCEPTED", decidedAt: null, evidenceCount: 0, reviewState: "REJECTED" },
+    ]);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      id: "d",
+      href: null,
+      body: "## Context\nwhy",
+      evidence: [{ turnIndex: 3, speaker: "Pat", startTime: 44, text: "park it" }],
+      resolves: { id: "o", label: "D-0000", statement: "Open one?" },
+    });
   });
 });

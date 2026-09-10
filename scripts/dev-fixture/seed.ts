@@ -616,6 +616,17 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       deciders: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }],
     },
   ] as const;
+  // A draft edited in a dev session or a spec no longer matches its declared
+  // statement, so it would be duplicated on re-seed; drafts and rejected rows
+  // are the only decisions that may be hard-deleted (ADR-0060), so clear the
+  // strays first. Confirmed rows are left alone.
+  await db.decision.deleteMany({
+    where: {
+      transcriptionSessionId: meeting.id,
+      reviewState: { in: ["DRAFT", "REJECTED"] },
+      statement: { notIn: draftSpecs.map((spec) => spec.statement) },
+    },
+  });
   for (const spec of draftSpecs) {
     const draftState = {
       body: "## Context\nExtracted from the standup transcript.",
