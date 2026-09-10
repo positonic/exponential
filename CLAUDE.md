@@ -641,8 +641,11 @@ Copy the prompt content into a new Claude session, then provide your inputs. See
 ## Task Tracking
 
 **Exponential is the single source of truth for work items** (features, bugs, PRDs, tickets) —
-workspace `syntrofi` / product `exponential`, via the `exponential` CLI and the `/to-expo`,
-`/start-ticket`, `/ship-ticket` skills. See the **Issue tracker** section below.
+workspace `syntrofi` / product `exponential`, via the `exponential` CLI and the `/to-prd`,
+`/to-robo-prd`, `/to-tickets`, `/start-ticket`, `/ship-ticket` skills. Feature work goes
+`/to-prd` → `/to-robo-prd` → `/to-tickets` (one ticket per scope, slices as ordered actions)
+so the backlog stays human-readable; `/to-expo` is manual-only and reserved for loose plans
+outside the feature registry, because it files many thin tickets. See the **Issue tracker** section below.
 
 ### Tracking inside a session
 
@@ -665,7 +668,7 @@ Exponential. Until that's done:
 
 ## Agent skills
 
-Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-issues`, `/to-prd`, `/to-expo`, `/qa`, `/improve-codebase-architecture`, `/diagnose`, `/tdd`, `/grill-with-docs`, …).
+Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-prd`, `/to-robo-prd`, `/to-tickets`, `/to-expo`, `/qa`, `/improve-codebase-architecture`, `/diagnose`, `/tdd`, `/grill-with-docs`, …).
 
 ### Issue tracker
 
