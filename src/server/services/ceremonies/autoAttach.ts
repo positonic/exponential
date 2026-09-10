@@ -9,6 +9,7 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { recordOccurrenceCaptured } from "./activity";
 import {
   BACKFILL_SLACK_MS,
   backfillAnchorDate,
@@ -18,6 +19,11 @@ import {
 } from "./matchOccurrence";
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/** A transaction client has no `$transaction`; the root client does. */
+function isRootClient(db: Db): db is PrismaClient {
+  return typeof (db as PrismaClient).$transaction === "function";
+}
 
 export interface AttachableMeeting {
   id: string;
@@ -45,7 +51,7 @@ export async function loadOccurrenceCandidates(
   db: Db,
   meeting: AttachableMeeting,
   opts: { windowMs?: number } = {},
-): Promise<Array<OccurrenceCandidate & { workspaceId: string }>> {
+): Promise<Array<OccurrenceCandidate & { workspaceId: string; ceremonyName: string; timezone: string }>> {
   if (!meeting.meetingDate && !meeting.calendarExternalId) return [];
   if (!meeting.workspaceId && !meeting.userId) return [];
   const windowMs = opts.windowMs ?? CANDIDATE_WINDOW_MS;
@@ -69,7 +75,7 @@ export async function loadOccurrenceCandidates(
       id: true,
       workspaceId: true,
       scheduledStart: true,
-      ceremony: { select: { aliases: true, durationMinutes: true } },
+      ceremony: { select: { name: true, timezone: true, aliases: true, durationMinutes: true } },
       scheduledMeeting: { select: { icalUid: true } },
     },
     take: 200,
@@ -80,6 +86,8 @@ export async function loadOccurrenceCandidates(
     scheduledStart: r.scheduledStart,
     durationMinutes: r.ceremony.durationMinutes,
     aliases: r.ceremony.aliases,
+    ceremonyName: r.ceremony.name,
+    timezone: r.ceremony.timezone,
     scheduledMeetingIcalUid: r.scheduledMeeting?.icalUid ?? null,
   }));
 }
@@ -99,7 +107,7 @@ export interface AttachOutcome {
 export async function attachMeetingToOccurrence(
   db: Db,
   meeting: AttachableMeeting,
-  opts: { dryRun?: boolean } = {},
+  opts: { dryRun?: boolean; via?: string } = {},
 ): Promise<AttachOutcome> {
   try {
     const candidates = await loadOccurrenceCandidates(db, meeting);
@@ -115,6 +123,21 @@ export async function attachMeetingToOccurrence(
           ...(workspaceAssigned ? { workspaceId: workspaceAssigned } : {}),
         },
       });
+      // recordActivity needs the root client; inside a transaction the
+      // caller records instead (attach is never called inside one today).
+      if (isRootClient(db)) {
+        await recordOccurrenceCaptured(db, {
+          workspaceId: winner.workspaceId,
+          occurrenceId: winner.id,
+          ceremonyName: winner.ceremonyName,
+          scheduledStart: winner.scheduledStart,
+          timezone: winner.timezone,
+          meetingId: meeting.id,
+          meetingTitle: meeting.title,
+          actorUserId: meeting.userId,
+          via: opts.via ?? "ingestion",
+        });
+      }
     }
     return { meetingId: meeting.id, match, workspaceAssigned };
   } catch (error) {
@@ -146,7 +169,7 @@ export interface BackfillRow {
 export async function backfillWorkspaceAttachments(
   db: Db,
   workspaceId: string,
-  opts: { dryRun: boolean; limit?: number },
+  opts: { dryRun: boolean; limit?: number; actorUserId?: string | null },
 ): Promise<BackfillRow[]> {
   const meetings = await db.transcriptionSession.findMany({
     where: {
@@ -194,6 +217,19 @@ export async function backfillWorkspaceAttachments(
         where: { id: meeting.id },
         data: { occurrenceId: match.occurrenceId, ...(meeting.workspaceId ? {} : { workspaceId }) },
       });
+      if (isRootClient(db)) {
+        await recordOccurrenceCaptured(db, {
+          workspaceId,
+          occurrenceId: winner.id,
+          ceremonyName: winner.ceremonyName,
+          scheduledStart: winner.scheduledStart,
+          timezone: winner.timezone,
+          meetingId: meeting.id,
+          meetingTitle: meeting.title,
+          actorUserId: opts.actorUserId ?? null,
+          via: "backfill",
+        });
+      }
     }
     rows.push({
       meetingId: meeting.id,

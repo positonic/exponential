@@ -236,6 +236,22 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "updated",
   },
 
+  // Ceremony occurrences (ADR-0059). "created" is emitted once per expansion
+  // that inserted rows (not once per row — a weekday standup would otherwise
+  // flood the feed); metadata.name carries "N occurrences of <ceremony>" or
+  // the single upcoming date. "captured" fires when a recorded meeting is
+  // linked to an occurrence, by hand, on ingestion or by backfill;
+  // metadata.name carries "<ceremony> · <date>" and metadata.meetingId the
+  // recording.
+  [key("ceremony_occurrence", "created")]: {
+    template: "{actor} scheduled {entityRef}",
+    iconKind: "created",
+  },
+  [key("ceremony_occurrence", "captured")]: {
+    template: "{actor} linked a recording to {entityRef}",
+    iconKind: "milestone",
+  },
+
   // Time recordings — one event per stopped timer (TimeEntryService, incl. the
   // silent auto-stop when a new timer starts). The tracked Action's name rides
   // in metadata so {entityRef} renders the task, not the action CUID; the

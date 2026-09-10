@@ -12,6 +12,7 @@ import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
+import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -269,6 +270,7 @@ export const ceremonyRouter = createTRPCRouter({
       });
 
       const created = await ensureOccurrences(ctx.db, ceremony);
+      await recordOccurrencesScheduled(ctx.db, ceremony, created, userId);
       return { ceremony, occurrencesCreated: created };
     }),
 
@@ -342,6 +344,7 @@ export const ceremonyRouter = createTRPCRouter({
       let occurrencesCreated = 0;
       if (ceremony.isActive && (cadenceChanged || input.isActive === true)) {
         occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
+        await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, ctx.session.user.id);
       }
       return { ceremony, occurrencesCreated };
     }),
@@ -425,6 +428,7 @@ export const ceremonyRouter = createTRPCRouter({
               },
             });
         const occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
+        await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, userId);
         results.push({ slug, action: existing ? "updated" : "created", occurrencesCreated, unresolved });
       }
       return results;
@@ -442,8 +446,15 @@ export const ceremonyRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const ceremonies = await ctx.db.ceremony.findMany({ where: { workspaceId: input.workspaceId, isActive: true } });
       let occurrencesCreated = 0;
-      for (const ceremony of ceremonies) occurrencesCreated += await ensureOccurrences(ctx.db, ceremony);
-      const rows = await backfillWorkspaceAttachments(ctx.db, input.workspaceId, { dryRun: input.dryRun });
+      for (const ceremony of ceremonies) {
+        const inserted = await ensureOccurrences(ctx.db, ceremony);
+        occurrencesCreated += inserted;
+        await recordOccurrencesScheduled(ctx.db, ceremony, inserted, ctx.session.user.id);
+      }
+      const rows = await backfillWorkspaceAttachments(ctx.db, input.workspaceId, {
+        dryRun: input.dryRun,
+        actorUserId: ctx.session.user.id,
+      });
       return {
         dryRun: input.dryRun,
         occurrencesCreated,
@@ -469,7 +480,12 @@ export const ceremonyRouter = createTRPCRouter({
       }
       const occurrence = await ctx.db.ceremonyOccurrence.findUnique({
         where: { id: input.occurrenceId },
-        select: { id: true, workspaceId: true },
+        select: {
+          id: true,
+          workspaceId: true,
+          scheduledStart: true,
+          ceremony: { select: { name: true, timezone: true } },
+        },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       if (!meeting.workspaceId || occurrence.workspaceId !== meeting.workspaceId) {
@@ -478,9 +494,21 @@ export const ceremonyRouter = createTRPCRouter({
           message: "The occurrence must belong to the meeting's workspace",
         });
       }
-      await ctx.db.transcriptionSession.update({
+      const updated = await ctx.db.transcriptionSession.update({
         where: { id: meeting.id },
         data: { occurrenceId: occurrence.id },
+        select: { title: true },
+      });
+      await recordOccurrenceCaptured(ctx.db, {
+        workspaceId: occurrence.workspaceId,
+        occurrenceId: occurrence.id,
+        ceremonyName: occurrence.ceremony.name,
+        scheduledStart: occurrence.scheduledStart,
+        timezone: occurrence.ceremony.timezone,
+        meetingId: meeting.id,
+        meetingTitle: updated.title,
+        actorUserId: userId,
+        via: "manual",
       });
       return { meetingId: meeting.id, occurrenceId: occurrence.id };
     }),

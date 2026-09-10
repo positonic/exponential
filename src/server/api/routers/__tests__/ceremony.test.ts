@@ -175,11 +175,25 @@ describe("ceremony router", () => {
           agendaTemplate: [],
         })) as never);
       db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 2 });
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-next", scheduledStart: new Date("2026-09-14T07:00:00Z") } as never);
+      db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
 
       const result = await caller(db).ceremony.create(input);
 
       expect(result.ceremony.slug).toBe("daily-standup");
       expect(result.occurrencesCreated).toBe(2);
+      // One `ceremony_occurrence`/`created` event per expansion, not per row.
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledTimes(1);
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: WORKSPACE_ID,
+          userId: USER_ID,
+          entityType: "ceremony_occurrence",
+          entityId: "occ-next",
+          action: "created",
+          metadata: expect.objectContaining({ name: "2 occurrences of Daily Standup", count: 2 }),
+        }),
+      });
       const createArgs = db.ceremony.create.mock.calls[0]![0];
       expect(createArgs.data.ownerId).toBe(USER_ID);
       expect(createArgs.data.createdById).toBe(USER_ID);
@@ -241,7 +255,7 @@ describe("ceremony router", () => {
       db.transcriptionSession.findUnique.mockResolvedValue({ ...meeting, userId: USER_ID } as never);
       db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
       withWorkspaceRole(db, "member");
-      db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", workspaceId: "ws-other" } as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", workspaceId: "ws-other", scheduledStart: new Date(), ceremony: { name: "Daily Standup", timezone: "Europe/Berlin" } } as never);
       await expect(
         caller(db).ceremony.attachMeeting({ meetingId: "m-1", occurrenceId: "occ-1" }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
@@ -252,18 +266,33 @@ describe("ceremony router", () => {
       db.transcriptionSession.findUnique.mockResolvedValue({ ...meeting, userId: USER_ID } as never);
       db.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
       withWorkspaceRole(db, "member");
-      db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", workspaceId: WORKSPACE_ID } as never);
-      db.transcriptionSession.update.mockResolvedValue({} as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({
+        id: "occ-1",
+        workspaceId: WORKSPACE_ID,
+        scheduledStart: new Date("2026-09-08T07:00:00Z"),
+        ceremony: { name: "Daily Standup", timezone: "Europe/Berlin" },
+      } as never);
+      db.transcriptionSession.update.mockResolvedValue({ title: "Standup" } as never);
+      db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
 
       const c = caller(db);
       await expect(c.ceremony.attachMeeting({ meetingId: "m-1", occurrenceId: "occ-1" })).resolves.toEqual({
         meetingId: "m-1",
         occurrenceId: "occ-1",
       });
-      expect(db.transcriptionSession.update).toHaveBeenLastCalledWith({
-        where: { id: "m-1" },
-        data: { occurrenceId: "occ-1" },
+      // Manual attach emits `captured` against the occurrence, naming the meeting.
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          entityType: "ceremony_occurrence",
+          entityId: "occ-1",
+          action: "captured",
+          userId: USER_ID,
+          metadata: expect.objectContaining({ meetingId: "m-1", meetingTitle: "Standup", via: "manual" }),
+        }),
       });
+      expect(db.transcriptionSession.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ where: { id: "m-1" }, data: { occurrenceId: "occ-1" } }),
+      );
       await c.ceremony.detachMeeting({ meetingId: "m-1" });
       expect(db.transcriptionSession.update).toHaveBeenLastCalledWith({
         where: { id: "m-1" },

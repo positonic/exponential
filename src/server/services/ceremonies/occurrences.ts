@@ -9,6 +9,7 @@ import {
   nextOccurrence,
   occurrenceWindow,
 } from "./expandOccurrences";
+import { recordOccurrencesScheduled } from "./activity";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -88,7 +89,11 @@ export async function expandActiveCeremonies(db: Db, now = new Date()): Promise<
   const result: OccurrenceSweepResult = { ceremonies: ceremonies.length, created: 0, errors: [] };
   for (const ceremony of ceremonies) {
     try {
-      result.created += await ensureOccurrences(db, ceremony, { now });
+      const inserted = await ensureOccurrences(db, ceremony, { now });
+      result.created += inserted;
+      if (typeof (db as PrismaClient).$transaction === "function") {
+        await recordOccurrencesScheduled(db as PrismaClient, ceremony, inserted, null, now);
+      }
     } catch (err) {
       result.errors.push({
         ceremonyId: ceremony.id,

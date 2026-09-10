@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Ceremony, PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
+
+const recordActivity = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity }));
 import { ensureOccurrences, expandActiveCeremonies, snapshotCeremony } from "../occurrences";
 
 function ceremony(overrides: Partial<Ceremony> = {}): Ceremony {
@@ -95,6 +98,22 @@ describe("expandActiveCeremonies", () => {
     expect(result.created).toBe(2);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]!.ceremonyId).toBe("cer-bad");
+  });
+
+  it("emits one system-actor `created` event per ceremony that gained rows", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.ceremony.findMany.mockResolvedValue([ceremony()]);
+    db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 3 });
+    db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-next", scheduledStart: new Date("2026-09-10T07:00:00Z") } as never);
+    recordActivity.mockClear();
+
+    await expandActiveCeremonies(db, new Date("2026-09-09T12:00:00.000Z"));
+
+    expect(recordActivity).toHaveBeenCalledTimes(1);
+    expect(recordActivity).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ userId: null, entityType: "ceremony_occurrence", entityId: "occ-next", action: "created" }),
+    );
   });
 });
 

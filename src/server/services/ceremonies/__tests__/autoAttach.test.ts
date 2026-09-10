@@ -4,6 +4,8 @@ import { mockDeep } from "vitest-mock-extended";
 
 const report = vi.hoisted(() => vi.fn());
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: report }));
+const recordActivity = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity }));
 
 import { attachMeetingToOccurrence, attachUnlinkedMeetings } from "../autoAttach";
 
@@ -11,12 +13,15 @@ const occurrenceRow = {
   id: "occ-1",
   workspaceId: "ws-1",
   scheduledStart: new Date("2026-09-08T07:00:00.000Z"),
-  ceremony: { aliases: ["Daily Standup"], durationMinutes: 15 },
+  ceremony: { name: "Daily Standup", timezone: "Europe/Berlin", aliases: ["Daily Standup"], durationMinutes: 15 },
   scheduledMeeting: null,
 };
 
 describe("attachMeetingToOccurrence", () => {
-  beforeEach(() => report.mockReset());
+  beforeEach(() => {
+    report.mockReset();
+    recordActivity.mockClear();
+  });
 
   it("loads candidates from the meeting's workspace and persists the match", async () => {
     const db = mockDeep<PrismaClient>();
@@ -40,6 +45,18 @@ describe("attachMeetingToOccurrence", () => {
       where: { id: "m-1" },
       data: { occurrenceId: "occ-1" },
     });
+    // Ingestion attach emits `captured` with the recording user as actor.
+    expect(recordActivity).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        workspaceId: "ws-1",
+        userId: "u-1",
+        entityType: "ceremony_occurrence",
+        entityId: "occ-1",
+        action: "captured",
+        metadata: expect.objectContaining({ meetingId: "m-1", meetingTitle: "Daily Standup", via: "ingestion" }),
+      }),
+    );
   });
 
   it("falls back to the user's workspaces for a workspace-less import and assigns the workspace", async () => {
@@ -82,6 +99,7 @@ describe("attachMeetingToOccurrence", () => {
     );
     expect(outcome.match).toBeNull(); // "Standup" alone is not an alias here
     expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    expect(recordActivity).not.toHaveBeenCalled();
   });
 
   it("reports and swallows errors so ingestion continues", async () => {
