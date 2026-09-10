@@ -200,6 +200,43 @@ describe("decision router", () => {
     });
   });
 
+  describe("list filters", () => {
+    it("search covers statement and body, case-insensitively", async () => {
+      withWorkspaceRole(db, "member");
+      db.decision.findMany.mockResolvedValue([] as never);
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID, search: "Consequences" });
+      const where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: unknown[] };
+      expect(where.AND).toContainEqual({
+        OR: [
+          { statement: { contains: "Consequences", mode: "insensitive" } },
+          { body: { contains: "Consequences", mode: "insensitive" } },
+        ],
+      });
+    });
+
+    it("the product lens folds workspace-wide (null-product) decisions into a product scope", async () => {
+      withWorkspaceRole(db, "member");
+      db.decision.findMany.mockResolvedValue([] as never);
+      await caller(db).decision.list({
+        workspaceId: WORKSPACE_ID,
+        productId: "prod-1",
+        includeWorkspaceWide: true,
+      });
+      let where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: unknown[] };
+      expect(where.AND).toContainEqual({ OR: [{ productId: "prod-1" }, { productId: null }] });
+
+      // The workspace page keeps a product scope exact, and "workspace" means null-product only.
+      db.decision.findMany.mockClear();
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID, productId: "prod-1" });
+      where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: unknown[] };
+      expect(where.AND).toContainEqual({ productId: "prod-1" });
+      db.decision.findMany.mockClear();
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID, productId: "workspace" });
+      where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: unknown[] };
+      expect(where.AND).toContainEqual({ productId: null });
+    });
+  });
+
   describe("create", () => {
     it("advances Workspace.decisionCounter inside the transaction and uses the returned number", async () => {
       withWorkspaceRole(db, "member");

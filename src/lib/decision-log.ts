@@ -123,6 +123,16 @@ export function decisionToLogRow(decision: DecisionRowInput, workspaceSlug: stri
   };
 }
 
+/**
+ * Product-lens marking: a row with no product applies workspace-wide — a
+ * workspace-global decision applies to every product until proven
+ * otherwise, so the lens folds it in and labels it. Same rule for ADRs
+ * (repository without a product) and Decisions (null productId).
+ */
+export function isWorkspaceWide(row: Pick<LogRow, "productId">): boolean {
+  return row.productId === null;
+}
+
 export interface LogFilters {
   source: LogSource | "all";
   status: LogStatus | "all";

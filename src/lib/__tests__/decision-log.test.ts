@@ -12,6 +12,7 @@ import {
   decisionToLogRow,
   filterLogRows,
   groupLogRows,
+  isWorkspaceWide,
   sortFlat,
   type AdrRowInput,
   type DecisionRowInput,
@@ -116,6 +117,38 @@ describe("filterLogRows", () => {
     expect(
       filterLogRows(rows, { source: "all", status: "all", query: "zzz", bodyMatchIds: new Set(["adr-1"]) }).map((r) => r.id),
     ).toEqual(["adr-1"]);
+  });
+});
+
+describe("search", () => {
+  const rows = [
+    adrToLogRow(adr(), "acme"),
+    decisionToLogRow(decision(), "acme"),
+  ];
+
+  it("matches label and title case-insensitively for both sources", () => {
+    expect(filterLogRows(rows, { source: "all", status: "all", query: "prioritisation" }).map((r) => r.id)).toEqual(["dec-1"]);
+    expect(filterLogRows(rows, { source: "all", status: "all", query: "api-0003" }).map((r) => r.id)).toEqual(["adr-1"]);
+    expect(filterLogRows(rows, { source: "all", status: "all", query: "trpc" }).map((r) => r.id)).toEqual(["adr-1"]);
+  });
+
+  it("unions server-side body matches for decisions too, not just ADRs", () => {
+    expect(
+      filterLogRows(rows, { source: "all", status: "all", query: "consequences", bodyMatchIds: new Set(["dec-1"]) }).map((r) => r.id),
+    ).toEqual(["dec-1"]);
+    // A body match on a row the facet excludes stays excluded.
+    expect(
+      filterLogRows(rows, { source: "code", status: "all", query: "consequences", bodyMatchIds: new Set(["dec-1"]) }),
+    ).toEqual([]);
+  });
+});
+
+describe("product lens marking", () => {
+  it("marks null-product rows workspace-wide, for ADRs and Decisions alike", () => {
+    expect(isWorkspaceWide(adrToLogRow(adr({ productId: null }), "acme"))).toBe(true);
+    expect(isWorkspaceWide(adrToLogRow(adr(), "acme"))).toBe(false);
+    expect(isWorkspaceWide(decisionToLogRow(decision(), "acme"))).toBe(true);
+    expect(isWorkspaceWide(decisionToLogRow(decision({ productId: "prod-1" }), "acme"))).toBe(false);
   });
 });
 

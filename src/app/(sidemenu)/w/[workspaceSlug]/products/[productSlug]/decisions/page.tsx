@@ -8,10 +8,10 @@ import { DecisionsIndex } from "~/app/_components/decisions/DecisionsIndex";
 
 /**
  * Product Decisions lens: the workspace Decision Log with its product scope
- * pre-set to this product, PLUS workspace-level (null-product) ADRs rendered
- * with a "Workspace-wide" marker — a workspace-global decision applies to
- * every product until proven otherwise. The scope chip stays editable and
- * the product graph is one click away.
+ * pre-set to this product, PLUS workspace-level (null-product) ADRs and
+ * Decisions rendered with a "Workspace-wide" marker — a workspace-global
+ * decision applies to every product until proven otherwise. The scope chip
+ * stays editable and the product graph is one click away.
  */
 export default function ProductDecisionsPage() {
   const params = useParams();
@@ -53,8 +53,9 @@ export default function ProductDecisionsPage() {
       graphHref={`/w/${workspace.slug}/products/${productSlug}/decisions/graph`}
       description={
         <>
-          Architectural decisions across {product.name}&apos;s repositories.
-          Read-only — <code>git</code> is the source of truth.
+          Decisions scoped to {product.name} and workspace-wide ones, beside
+          the ADRs of its repositories — those stay read-only, <code>git</code>{" "}
+          is their source of truth.
         </>
       }
     />

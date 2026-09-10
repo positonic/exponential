@@ -28,6 +28,7 @@ import {
   decisionToLogRow,
   filterLogRows,
   groupLogRows,
+  isWorkspaceWide,
   type LogGroup,
   type LogSource,
   type LogStatus,
@@ -257,7 +258,7 @@ function DecisionLogRow({
     const group = decisionGroupOf(decision);
     if (group.kind !== "workspace") meta.push(<span className="dec-meta__ws">{group.name}</span>);
   }
-  if (decision.productId === null) {
+  if (isWorkspaceWide(decision)) {
     meta.push(<span className="dec-meta__ws">Workspace-wide</span>);
   }
   if (decision.supersededBy) {
@@ -851,7 +852,8 @@ export function DecisionsIndex({
         ) : noDecisionsAtAll && !scopeChanged ? (
           <div className="dec-empty">
             <b>No decisions yet</b>
-            Log one from a meeting&apos;s summary tab, or enrol repositories under{" "}
+            {canCreate ? "Log one with New decision or from a meeting's summary tab, " : "Decisions are logged from a meeting's summary tab, "}
+            or enrol repositories under{" "}
             <Link href={`/w/${workspaceSlug}/settings/decisions`}>Settings → Decisions</Link>
             {" "}to sync ADRs.
           </div>
