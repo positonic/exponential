@@ -238,6 +238,18 @@ describe("decision router", () => {
   });
 
   describe("create", () => {
+    it("refuses an owner who is not a member of the workspace (directly or via a team)", async () => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      db.workspaceUser.findFirst.mockResolvedValue(null);
+      db.teamUser.findFirst.mockResolvedValue(null);
+
+      await expect(
+        caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "Use tRPC", ownerId: "outsider" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(db.decision.create).not.toHaveBeenCalled();
+    });
+
     it("advances Workspace.decisionCounter inside the transaction and uses the returned number", async () => {
       withWorkspaceRole(db, "member");
       withTransaction(db);

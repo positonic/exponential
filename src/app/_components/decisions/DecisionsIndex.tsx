@@ -609,12 +609,20 @@ export function DecisionsIndex({
     [decisions],
   );
 
+  // Source counts follow the Status facet (and Status counts follow the
+  // Source facet below), so each chip's number matches the rows on screen.
   const sourceCounts = useMemo(() => {
     const c = new Map<LogSource, number>();
-    c.set("code", adrs?.length ?? 0);
-    for (const row of decisionLogRows) c.set(row.source, (c.get(row.source) ?? 0) + 1);
+    c.set(
+      "code",
+      (adrs ?? []).filter((adr) => statusFilter === "all" || adr.status === statusFilter).length,
+    );
+    for (const row of decisionLogRows) {
+      if (statusFilter !== "all" && row.status !== statusFilter) continue;
+      c.set(row.source, (c.get(row.source) ?? 0) + 1);
+    }
     return c;
-  }, [adrs, decisionLogRows]);
+  }, [adrs, decisionLogRows, statusFilter]);
 
   // Status counts follow the Source facet so the numbers match the list.
   const counts = useMemo(() => {

@@ -131,13 +131,31 @@ export interface DecisionScopeInput {
  * are checked (null clears, undefined leaves alone), so a meeting's own
  * project — already workspace-bound — never round-trips.
  */
+/** A user belongs to the workspace directly or through one of its teams. */
+async function isWorkspaceMember(db: PrismaClient, workspaceId: string, userId: string): Promise<boolean> {
+  const direct = await db.workspaceUser.findFirst({ where: { workspaceId, userId }, select: { id: true } });
+  if (direct) return true;
+  const viaTeam = await db.teamUser.findFirst({ where: { userId, team: { workspaceId } }, select: { id: true } });
+  return Boolean(viaTeam);
+}
+
 export async function assertScopeInWorkspace(
   db: PrismaClient,
   workspaceId: string,
-  scope: DecisionScopeInput,
+  scope: DecisionScopeInput & { ownerId?: string | null; deciders?: DecisionDeciderInput[] | null },
 ) {
   const missing = (what: string) =>
     new TRPCError({ code: "NOT_FOUND", message: `${what} not found in this workspace` });
+  // People are scoped too: an owner or a linked decider must be a member of
+  // the workspace, or the header and owner filters would name outsiders.
+  if (scope.ownerId) {
+    if (!(await isWorkspaceMember(db, workspaceId, scope.ownerId))) throw missing("Owner");
+  }
+  for (const decider of scope.deciders ?? []) {
+    if (decider.userId && !(await isWorkspaceMember(db, workspaceId, decider.userId))) {
+      throw missing("Decider");
+    }
+  }
   if (scope.productId) {
     const row = await db.product.findFirst({
       where: { id: scope.productId, workspaceId },
