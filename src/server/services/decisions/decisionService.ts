@@ -21,7 +21,10 @@ import type {
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { formatDecisionLabel } from "~/lib/decision-label";
-import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
+import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
+// Imported from the resolver module rather than the access barrel: the
+// barrel pulls in the Prisma singleton at module load.
+import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -92,6 +95,9 @@ export const decisionDetailInclude = {
   keyResult: { select: { id: true, title: true } },
   supersededBy: { select: { id: true, number: true, statement: true, status: true } },
   supersedes: {
+    // A resolution draft points at its target through `supersededById`
+    // until confirm; it is not a superseded decision and must not list here.
+    where: { reviewState: "CONFIRMED" },
     select: { id: true, number: true, statement: true, status: true },
     orderBy: { number: "asc" },
   },
@@ -439,7 +445,15 @@ export async function listForMeeting(
       transcriptionSessionId,
       reviewState: opts.includeDrafts ? { in: ["CONFIRMED", "DRAFT"] } : "CONFIRMED",
     },
-    select: { ...decisionListSelect, reviewState: true },
+    select: {
+      ...decisionListSelect,
+      reviewState: true,
+      body: true,
+      // A draft that resolves an open decision points at it through
+      // `supersededById` until confirm applies the status change (V2), so
+      // the review surfaces name the target.
+      supersededBy: { select: { id: true, number: true, statement: true, status: true } },
+    },
     orderBy: [{ number: "asc" }],
   });
   return rows.map((row) => ({
@@ -447,9 +461,105 @@ export async function listForMeeting(
     label: formatDecisionLabel(row.number),
     evidenceCount: Array.isArray(row.evidence) ? row.evidence.length : 0,
     supersededBy: row.supersededBy
-      ? { id: row.supersededBy.id, label: formatDecisionLabel(row.supersededBy.number) }
+      ? {
+          id: row.supersededBy.id,
+          label: formatDecisionLabel(row.supersededBy.number),
+          statement: row.supersededBy.statement,
+          status: row.supersededBy.status,
+        }
       : null,
   }));
+}
+
+export interface CreateDraftDecisionInput {
+  workspaceId: string;
+  createdById: string;
+  transcriptionSessionId: string;
+  statement: string;
+  body?: string | null;
+  status?: DecisionStatus;
+  decidedAt?: Date | null;
+  occurrenceId?: string | null;
+  projectId?: string | null;
+  deciders?: DecisionDeciderInput[];
+  evidence?: DecisionEvidenceTurn[];
+  /**
+   * An OPEN/PROPOSED decision this draft resolves. Stored on `supersededById`
+   * while the row is a draft; `confirmDraft` then applies the status change
+   * to that decision instead of publishing a new one.
+   */
+  resolvesDecisionId?: string | null;
+}
+
+/**
+ * Persist one extracted draft (V2 extraction). Drafts take a label from the
+ * same workspace sequence as confirmed decisions so a confirmed draft keeps
+ * the number it was reviewed under; `reviewState: DRAFT` keeps it out of the
+ * log and every count until a person confirms (ADR-0060). No per-row
+ * activity event: a draft is invisible to everyone but the meeting's
+ * editors, so the feed would leak it — the extraction run records one
+ * meeting-level event instead.
+ */
+export async function createDraftDecision(db: PrismaClient, input: CreateDraftDecisionInput) {
+  return db.$transaction((tx) => createDraftDecisionInTx(tx, input));
+}
+
+/**
+ * The body of {@link createDraftDecision}, taking a transaction client so a
+ * caller that already has one can write several drafts atomically.
+ *
+ * Prisma's `TransactionClient` has no `$transaction` of its own — interactive
+ * transactions do not nest — so a caller inside one MUST use this rather than
+ * passing its `tx` to the wrapper above. A `mockDeep<PrismaClient>()` happily
+ * answers `$transaction` on the mocked `tx`, so that mistake type-checks, runs
+ * green in unit tests, and only fails against a real database.
+ */
+export async function createDraftDecisionInTx(
+  tx: Prisma.TransactionClient,
+  input: CreateDraftDecisionInput,
+) {
+  const deciders = normaliseDeciders(input.deciders ?? []);
+  const evidence = (input.evidence ?? []).map((turn) => ({
+    turnIndex: turn.turnIndex,
+    speaker: turn.speaker ?? null,
+    startTime: turn.startTime ?? null,
+    text: turn.text,
+  }));
+  {
+    const counter = await tx.workspace.update({
+      where: { id: input.workspaceId },
+      data: { decisionCounter: { increment: 1 } },
+      select: { decisionCounter: true },
+    });
+    return tx.decision.create({
+      data: {
+        workspaceId: input.workspaceId,
+        number: counter.decisionCounter,
+        statement: input.statement.trim(),
+        body: input.body?.trim() ? input.body : null,
+        status: input.status ?? "ACCEPTED",
+        reviewState: "DRAFT",
+        source: "MEETING",
+        decidedAt: input.decidedAt ?? null,
+        createdById: input.createdById,
+        transcriptionSessionId: input.transcriptionSessionId,
+        occurrenceId: input.occurrenceId ?? null,
+        projectId: input.projectId ?? null,
+        supersededById: input.resolvesDecisionId ?? null,
+        evidence: evidence as unknown as Prisma.InputJsonValue,
+        deciders: deciders.length
+          ? {
+              create: deciders.map((d) => ({
+                userId: d.userId ?? null,
+                name: d.name,
+                email: d.email ?? null,
+              })),
+            }
+          : undefined,
+      },
+      select: { id: true, number: true, statement: true, supersededById: true },
+    });
+  }
 }
 
 /** Columns a status or draft transition needs before it decides anything. */
@@ -508,18 +618,25 @@ export async function updateDecision(
     },
     include: decisionDetailInclude,
   });
-  await recordActivity(db, {
-    workspaceId: decision.workspaceId,
-    userId: input.userId,
-    entityType: "decision",
-    entityId: decision.id,
-    action: "updated",
-    metadata: {
-      title: activityTitle(decision),
-      label: formatDecisionLabel(decision.number),
-      fields: Object.keys(patch),
-    },
-  });
+  // Only confirmed decisions reach the feed. `createDraftDecision` writes no
+  // event for exactly this reason — the feed is filtered on workspaceId with
+  // no per-entity resolver, so an event here would show an unreviewed (and
+  // possibly hallucinated) statement from a restricted meeting to the whole
+  // workspace, which is what editing a draft before rejecting it does.
+  if (decision.reviewState === "CONFIRMED") {
+    await recordActivity(db, {
+      workspaceId: decision.workspaceId,
+      userId: input.userId,
+      entityType: "decision",
+      entityId: decision.id,
+      action: "updated",
+      metadata: {
+        title: activityTitle(decision),
+        label: formatDecisionLabel(decision.number),
+        fields: Object.keys(patch),
+      },
+    });
+  }
   return decision;
 }
 
@@ -622,9 +739,122 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
 }
 
 /**
+ * Confirm a resolution draft: the extractor found that the meeting settled
+ * an OPEN or PROPOSED decision, so the draft carries the target on
+ * `supersededById`. Confirming applies the status change to that decision
+ * — accepted, with the draft's statement and quotes folded into its body
+ * and (same meeting) its evidence — and removes the draft row, so the log
+ * gains an answer, not a duplicate (ADR-0060 decision 4). A target that is
+ * no longer open keeps its status; the draft is still absorbed.
+ */
+async function applyDraftResolution(
+  db: PrismaClient,
+  draft: {
+    id: string;
+    workspaceId: string;
+    number: number;
+    statement: string;
+    body: string | null;
+    decidedAt: Date | null;
+    supersededById: string;
+    transcriptionSessionId: string | null;
+    evidence: Prisma.JsonValue;
+  },
+  userId: string,
+) {
+  const target = await db.decision.findFirst({
+    where: { id: draft.supersededById, workspaceId: draft.workspaceId, reviewState: "CONFIRMED" },
+    select: {
+      id: true,
+      number: true,
+      statement: true,
+      status: true,
+      body: true,
+      decidedAt: true,
+      transcriptionSessionId: true,
+      evidence: true,
+      // Resolver columns: the caller was authorized against the DRAFT, which
+      // for a meeting-linked draft only proves they can edit that meeting.
+      // The target is a different decision, possibly from a meeting they
+      // cannot open (ADR-0060 decision 5), and this path both rewrites it and
+      // returns its full detail — evidence quotes included.
+      projectId: true,
+      workspaceId: true,
+      reviewState: true,
+      transcriptionSession: { select: { id: true, userId: true, projectId: true, workspaceId: true } },
+    },
+  });
+  // NOT_FOUND either way, so a target the caller may not see is
+  // indistinguishable from one that has been deleted.
+  if (!target || !canEditDecision(await getDecisionAccess(db, userId, target))) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "The decision this draft resolves is no longer available — reject the draft or log it by hand",
+    });
+  }
+
+  const draftEvidence = parseEvidence(draft.evidence);
+  const sameMeeting =
+    draft.transcriptionSessionId !== null && draft.transcriptionSessionId === target.transcriptionSessionId;
+  const evidence = sameMeeting
+    ? parseEvidence([...parseEvidence(target.evidence), ...draftEvidence])
+    : parseEvidence(target.evidence);
+
+  // The answer goes into the body under its own heading. Quotes from another
+  // meeting cannot become evidence rows (they would deep-link into the wrong
+  // transcript), so they ride along as blockquotes.
+  const resolution = [
+    "## Resolution",
+    draft.statement,
+    draft.body?.trim() ? `\n${draft.body.trim()}` : "",
+    !sameMeeting && draftEvidence.length > 0
+      ? `\n${draftEvidence.map((t) => `> ${t.text}${t.speaker ? ` — ${t.speaker}` : ""}`).join("\n")}`
+      : "",
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n");
+  const body = target.body?.trim() ? `${target.body.trim()}\n\n${resolution}` : resolution;
+
+  const resolves = target.status === "OPEN" || target.status === "PROPOSED";
+  const decision = await db.$transaction(async (tx) => {
+    const updated = await tx.decision.update({
+      where: { id: target.id, workspaceId: draft.workspaceId },
+      data: {
+        ...(resolves ? { status: "ACCEPTED" } : {}),
+        body,
+        decidedAt: target.decidedAt ?? draft.decidedAt ?? new Date(),
+        evidence: evidence as unknown as Prisma.InputJsonValue,
+      },
+      include: decisionDetailInclude,
+    });
+    await tx.decision.delete({ where: { id: draft.id, workspaceId: draft.workspaceId } });
+    return updated;
+  });
+
+  await recordActivity(db, {
+    workspaceId: draft.workspaceId,
+    userId,
+    entityType: "decision",
+    entityId: decision.id,
+    action: resolves ? "accepted" : "updated",
+    metadata: {
+      title: activityTitle(decision),
+      label: formatDecisionLabel(decision.number),
+      from: target.status,
+      to: decision.status,
+      resolvedFromDraft: formatDecisionLabel(draft.number),
+      transcriptionSessionId: draft.transcriptionSessionId,
+    },
+  });
+  return decision;
+}
+
+/**
  * Publish a draft (V2 extraction writes drafts; V1 only exposes the seam).
  * Idempotent: confirming a confirmed row returns it unchanged and records
- * nothing.
+ * nothing. A draft that resolves an open decision is applied to that
+ * decision instead of being published as a new row (see
+ * {@link applyDraftResolution}).
  */
 export async function confirmDraft(
   db: PrismaClient,
@@ -632,7 +862,7 @@ export async function confirmDraft(
 ) {
   const current = await db.decision.findFirst({
     where: { id: input.decisionId, workspaceId: input.workspaceId },
-    select: transitionSelect,
+    select: { ...transitionSelect, body: true, evidence: true },
   });
   if (!current) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
@@ -642,6 +872,18 @@ export async function confirmDraft(
       where: { id: current.id },
       include: decisionDetailInclude,
     });
+  }
+  // Rejection is how a reviewer refuses a hallucinated draft, and how the
+  // extractor knows not to propose it again. Confirming past it would undo
+  // that — and on a resolution draft it would silently rewrite the target.
+  if (current.reviewState === "REJECTED") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A rejected draft cannot be confirmed — extract again or log the decision by hand",
+    });
+  }
+  if (current.supersededById) {
+    return applyDraftResolution(db, { ...current, supersededById: current.supersededById }, input.userId);
   }
   const decision = await db.decision.update({
     where: { id: current.id },

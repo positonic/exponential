@@ -49,6 +49,13 @@ export const FIXTURE = {
   meetingSessionId: "dev-fixture-daily-standup-2026-09-08",
   meetingTitle: "Daily Standup",
   decisionStatement: "Park prioritisation debates for the prioritisation ceremony",
+  draftDecisionStatements: {
+    confirm: "Pat takes the accordion review today",
+    reject: "The accordion PR is otherwise clear",
+    resolve: "The peek drawer ships before the hover affordances",
+  },
+  /** An OPEN decision (open question) the `resolve` draft answers. */
+  openQuestionStatement: "Should the peek drawer ship before the hover affordances?",
 } as const;
 
 export interface SeededFixture {
@@ -86,6 +93,14 @@ export interface SeededFixture {
   decisionLabel: string;
   /** App-relative URL of the workspace Decision Log. */
   decisionsUrl: string;
+  /**
+   * Two extracted draft decisions on the same meeting (Decisions V2), one to
+   * confirm and one to reject in the e2e spec. Re-seeding puts both back to
+   * DRAFT so the spec is re-runnable.
+   */
+  draftDecisionStatements: { confirm: string; reject: string; resolve: string };
+  /** The open question the `resolve` draft answers (re-asserted OPEN on every seed). */
+  openQuestionStatement: string;
 }
 
 interface TicketSpec {
@@ -590,6 +605,137 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
         });
       });
 
+  // An open question (a Decision in OPEN status, ADR-0060 decision 3) raised
+  // in the same meeting. The `resolve` draft below answers it; confirming
+  // that draft accepts this row instead of adding a new one, so the seed
+  // re-asserts OPEN and the original body every run.
+  const openQuestionState = {
+    body: "## Context\nRaised in the standup; parked for the prioritisation ceremony.",
+    status: "OPEN",
+    reviewState: "CONFIRMED",
+    source: "MEETING",
+    decidedAt: null,
+    confirmedById: user.id,
+    confirmedAt: occurrenceStart,
+    supersededById: null,
+    transcriptionSessionId: meeting.id,
+    occurrenceId: occurrence.id,
+    productId: product.id,
+    evidence: [
+      { turnIndex: 2, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[2]!.replace(/^Dev Fixture: /, "") },
+    ],
+  } as const;
+  const existingOpenQuestion = await db.decision.findFirst({
+    where: { workspaceId: workspace.id, statement: FIXTURE.openQuestionStatement },
+  });
+  const openQuestion = existingOpenQuestion
+    ? await db.decision.update({ where: { id: existingOpenQuestion.id }, data: openQuestionState })
+    : await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...openQuestionState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: FIXTURE.openQuestionStatement,
+            createdById: user.id,
+            deciders: { create: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }] },
+          },
+        });
+      });
+
+  // Draft decisions (Decisions V2): what the extractor would have produced
+  // from this transcript, persisted as `reviewState: DRAFT` rows so the review
+  // surfaces have something to confirm and reject without a model call.
+  // Re-asserted back to DRAFT on every seed, so a spec that confirmed or
+  // rejected one last run finds it pending again.
+  const draftSpecs = [
+    {
+      statement: FIXTURE.draftDecisionStatements.confirm,
+      evidence: [
+        { turnIndex: 5, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[5]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.reject,
+      evidence: [
+        { turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[1]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.resolve,
+      evidence: [
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+      // A resolution draft: points at the open question until confirm applies it.
+      resolvesId: openQuestion.id,
+    },
+  ] as const;
+  // Converge the meeting's decisions on the declared set: a draft edited or
+  // confirmed by a spec no longer matches its declared statement and would be
+  // duplicated (or shadow it) on re-seed. The fixture workspace is
+  // disposable, so the "confirmed decisions are never deleted" rule
+  // (ADR-0060) does not apply to its strays.
+  await db.decision.deleteMany({
+    where: {
+      transcriptionSessionId: meeting.id,
+      statement: {
+        notIn: [
+          FIXTURE.decisionStatement,
+          FIXTURE.openQuestionStatement,
+          ...draftSpecs.map((spec) => spec.statement),
+        ],
+      },
+    },
+  });
+  for (const spec of draftSpecs) {
+    const draftState = {
+      body: "## Context\nExtracted from the standup transcript.",
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      source: "MEETING",
+      decidedAt: occurrenceStart,
+      confirmedById: null,
+      confirmedAt: null,
+      supersededById: "resolvesId" in spec ? spec.resolvesId : null,
+      transcriptionSessionId: meeting.id,
+      occurrenceId: occurrence.id,
+      productId: product.id,
+      evidence: spec.evidence,
+    } as const;
+    const existingDraft = await db.decision.findFirst({
+      where: { workspaceId: workspace.id, statement: spec.statement },
+    });
+    if (existingDraft) {
+      await db.decision.update({ where: { id: existingDraft.id }, data: draftState });
+    } else {
+      await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...draftState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: spec.statement,
+            createdById: user.id,
+            deciders: { create: spec.deciders.map((d) => ({ ...d })) },
+          },
+        });
+      });
+    }
+  }
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
     ceremonyId: ceremony.id,
@@ -598,6 +744,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     decisionId: decision.id,
     decisionLabel: `D-${String(decision.number).padStart(4, "0")}`,
     decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
+    draftDecisionStatements: FIXTURE.draftDecisionStatements,
+    openQuestionStatement: FIXTURE.openQuestionStatement,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,

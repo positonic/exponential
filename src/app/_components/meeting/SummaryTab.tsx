@@ -55,6 +55,15 @@ interface SummaryTabProps {
   canLogDecision: boolean;
   /** Open the "Log a decision" modal. */
   onLogDecision: () => void;
+  /** Extract draft decisions from the notes and transcript (V2). */
+  onExtractDecisions?: () => void;
+  isExtractingDecisions?: boolean;
+  /**
+   * The draft-decisions review panel, rendered inside the Decisions section
+   * when the meeting has drafts. Owned by the caller so this tab stays
+   * presentational.
+   */
+  draftsPanel?: React.ReactNode;
 }
 
 const DECISION_STATUS_WORD: Record<MeetingDecision["status"], string> = {
@@ -109,6 +118,9 @@ export function SummaryTab({
   onRegenerate,
   canLogDecision,
   onLogDecision,
+  onExtractDecisions,
+  isExtractingDecisions = false,
+  draftsPanel,
 }: SummaryTabProps) {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -291,12 +303,32 @@ export function SummaryTab({
               <span className="mp-sec__count">{vm.decisions.length + vm.questions.length}</span>
             )}
             <span className="mp-sec__rule" />
+            {canLogDecision && hasTranscript && onExtractDecisions && (
+              <button
+                className="mp-chipbtn"
+                onClick={onExtractDecisions}
+                type="button"
+                disabled={isExtractingDecisions}
+              >
+                <IconSparkles size={11} />{" "}
+                {isExtractingDecisions
+                  ? "Extracting…"
+                  : vm.drafts.length > 0
+                    ? "Review drafts with Zoe"
+                    : "Extract decisions"}
+              </button>
+            )}
             {canLogDecision && (
               <button className="mp-chipbtn" onClick={onLogDecision} type="button">
                 <IconGavel size={11} /> Log a decision
               </button>
             )}
           </div>
+          {vm.drafts.length > 0 && draftsPanel && (
+            <div className="mp-card" data-testid="summary-draft-decisions">
+              {draftsPanel}
+            </div>
+          )}
           <div className="mp-twocard">
             <div className="mp-card">
               <div className="mp-card__label mp-card__label--decision">

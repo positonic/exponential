@@ -29,6 +29,14 @@ export async function resolveRecipients(
         Array.from(new Set(input.subject.participantUserIds)),
       );
     case NOTIFICATION_CATEGORIES.MEETING_READY: {
+      // Draft decisions ready (V2 variant) → the meeting owner, who reviews them.
+      if (input.subject.draftDecisionCount !== undefined) {
+        const session = await input.db.transcriptionSession.findUnique({
+          where: { id: input.subject.sessionId },
+          select: { userId: true },
+        });
+        return session?.userId ? [session.userId] : [];
+      }
       // Meeting notes ready → the meeting's team-member (userId) participants.
       // CRM-contact / free-text participants have no User account and are skipped.
       const rows = await input.db.transcriptionSessionParticipant.findMany({
