@@ -56,6 +56,7 @@ test("/text turns a heading back into a paragraph", async ({ page }) => {
 
   await page.keyboard.type(" /text");
   await expect(page.getByText("Plain paragraph")).toBeVisible();
+  await expect(page.getByText("Bullet list", { exact: true })).toBeHidden();
   await page.keyboard.press("Enter");
 
   await expect(body.locator("h1")).toHaveCount(0);
@@ -116,6 +117,39 @@ test("the bubble menu applies underline, strike and highlight, and they persist"
   await expect(page.locator(".ProseMirror mark")).toHaveCount(1);
 });
 
+test("the block-type dropdown names the current block and changes it", async ({
+  page,
+}) => {
+  await createScratchPage(page, `Scratch blocktype ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  await page.keyboard.type("Some prose");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+
+  // It says what the selection *is* — the three H1/H2/H3 icon buttons it
+  // replaced could not.
+  const trigger = page.getByLabel("Block type");
+  await expect(trigger).toHaveText(/Text/);
+
+  await trigger.click();
+  await page.getByRole("menuitem", { name: "Heading 2" }).click();
+  await expect(body.locator("h2")).toHaveText("Some prose");
+
+  // And there is a way back out of a heading, which there was not before.
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await expect(trigger).toHaveText(/Heading 2/);
+  await trigger.click();
+  // The current block is marked, not merely named on the trigger.
+  await expect(
+    page.getByRole("menuitem", { name: "Heading 2" }),
+  ).toHaveAttribute("aria-current", "true");
+  await page.getByRole("menuitem", { name: "Quote" }).click();
+  await expect(body.locator("blockquote")).toContainText("Some prose");
+});
+
 /** The smallest valid PNG: 1x1, transparent. */
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -129,6 +163,10 @@ test("/image uploads the picked file and inserts it", async ({ page }) => {
   await body.click();
   await page.keyboard.type("/image");
   await expect(page.getByText("Upload an image")).toBeVisible();
+  // Wait for the *filtered* list to commit before pressing Enter: the
+  // suggestion plugin pushes new items through a React render, and Enter
+  // arriving first would run whatever was at index 0 of the old list.
+  await expect(page.getByText("Bullet list", { exact: true })).toBeHidden();
 
   // The command builds a native <input type=file> and clicks it.
   const chooser = page.waitForEvent("filechooser");
@@ -152,8 +190,10 @@ test("/divider inserts a rule that survives a reload as ---", async ({ page }) =
   await page.keyboard.type("Above");
   await page.keyboard.press("Enter");
   await page.keyboard.type("/div");
-  // The filter narrows to one item; Enter takes it.
+  // The filter narrows to one item; Enter takes it — but only once the
+  // filtered list has actually rendered (see the /image spec).
   await expect(page.getByText("Horizontal rule")).toBeVisible();
+  await expect(page.getByText("Bullet list", { exact: true })).toBeHidden();
   await page.keyboard.press("Enter");
   await expect(body.locator("hr")).toHaveCount(1);
 

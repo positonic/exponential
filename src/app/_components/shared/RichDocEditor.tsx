@@ -24,6 +24,7 @@ import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { createSaveQueue } from "~/lib/prd/save-queue";
 import { uploadImageFile, type UploadImage } from "~/lib/prd/image-upload";
 import { PageLinkWithView } from "./PageLinkView";
+import { BlockTypeMenu } from "./BlockTypeMenu";
 import "@mantine/tiptap/styles.css";
 
 
@@ -412,6 +413,7 @@ export function RichDocEditor({
             tippyOptions={{ duration: 150 }}
           >
             <RichTextEditor.ControlsGroup>
+              <BlockTypeMenu editor={editor} />
               <RichTextEditor.Bold />
               <RichTextEditor.Italic />
               <RichTextEditor.Underline />
@@ -419,9 +421,6 @@ export function RichDocEditor({
               <RichTextEditor.Highlight />
               <RichTextEditor.Code />
               <RichTextEditor.Link />
-              <RichTextEditor.H1 />
-              <RichTextEditor.H2 />
-              <RichTextEditor.H3 />
               <RichTextEditor.BulletList />
               <RichTextEditor.OrderedList />
               {bubbleExtras}
