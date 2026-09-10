@@ -207,8 +207,12 @@ interface ContactMultiSelectProps {
   workspaceId: string;
   value: string[];
   onChange: (value: string[]) => void;
-  /** Contacts to hide from results — e.g. the ones already on the list. */
-  excludeIds?: string[];
+  /**
+   * Hide contacts already on this Collection. Handed to the server rather than
+   * filtered here: with a well-populated list, its members can fill most of a
+   * search page and leave almost nothing selectable.
+   */
+  excludeCollectionId?: string;
   label?: string;
   placeholder?: string;
   enabled?: boolean;
@@ -224,7 +228,7 @@ export function ContactMultiSelect({
   workspaceId,
   value,
   onChange,
-  excludeIds,
+  excludeCollectionId,
   label = "Add contacts",
   placeholder = "Search contacts…",
   enabled = true,
@@ -238,6 +242,7 @@ export function ContactMultiSelect({
     {
       workspaceId,
       search: debouncedSearch.trim() || undefined,
+      excludeCollectionId,
       limit: SEARCH_LIMIT,
     },
     { enabled, placeholderData: keepPreviousData },
@@ -272,10 +277,7 @@ export function ContactMultiSelect({
   }, [results]);
 
   const options = useMemo(() => {
-    const excluded = new Set(excludeIds ?? []);
-    const rows = results.filter(
-      (o) => !excluded.has(o.value) || value.includes(o.value),
-    );
+    const rows = [...results];
     // Selected contacts the current search doesn't return still need an option
     // to carry their label.
     const present = new Set(rows.map((o) => o.value));
@@ -285,7 +287,7 @@ export function ContactMultiSelect({
       }
     }
     return rows;
-  }, [results, excludeIds, value, labelCache]);
+  }, [results, value, labelCache]);
 
   return (
     <MultiSelect

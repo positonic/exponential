@@ -215,6 +215,14 @@ export const crmContactRouter = createTRPCRouter({
         organizationId: z.string().optional(),
         organizationIds: z.array(z.string()).optional(),
         profileTypes: z.array(z.string()).optional(),
+        /**
+         * Hide contacts already on this Collection. Passed as a collection id
+         * rather than an id list so the wire format stays small no matter how
+         * many members the list has. Exclusion has to happen in the WHERE:
+         * filtering the returned page client-side means a list whose members
+         * dominate the first page leaves almost nothing selectable.
+         */
+        excludeCollectionId: z.string().optional(),
         sortBy: z
           .enum(["lastInteractionAt", "name", "createdAt", "connectionScore"])
           .optional(),
@@ -233,6 +241,7 @@ export const crmContactRouter = createTRPCRouter({
         organizationId,
         organizationIds,
         profileTypes,
+        excludeCollectionId,
         sortBy,
         sortDir,
         limit = 50,
@@ -257,6 +266,18 @@ export const crmContactRouter = createTRPCRouter({
       // Tokenize so "ada lovelace" matches first + last name across columns;
       // a single contains against either column would return nothing.
       // Note: email is encrypted and cannot be searched.
+      // CollectionMember.memberId has no FK to CrmContact (member types are a
+      // convention, not a relation), so there is no relation filter to use --
+      // read the ids and exclude them directly.
+      const excludedIds = excludeCollectionId
+        ? (
+            await ctx.db.collectionMember.findMany({
+              where: { collectionId: excludeCollectionId },
+              select: { memberId: true },
+            })
+          ).map((m) => m.memberId)
+        : [];
+
       const searchTokens = search?.split(/\s+/).filter(Boolean) ?? [];
       const where = {
         workspaceId,
@@ -278,6 +299,7 @@ export const crmContactRouter = createTRPCRouter({
         ...(profileTypes && profileTypes.length > 0
           ? { profileType: { in: profileTypes } }
           : {}),
+        ...(excludedIds.length > 0 ? { id: { notIn: excludedIds } } : {}),
       };
 
       const dir = sortDir ?? "desc";

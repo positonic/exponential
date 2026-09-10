@@ -88,7 +88,6 @@ export default function CrmListDetailPage() {
   if (wsLoading || !workspaceId) return <Loader />;
 
   const members = membersQuery.data ?? [];
-  const memberIdList = members.map((m) => m.memberId);
   const automations = automationsQuery.data ?? [];
   const runs = runsQuery.data ?? [];
 
@@ -176,7 +175,7 @@ export default function CrmListDetailPage() {
             workspaceId={workspaceId}
             value={toAdd}
             onChange={setToAdd}
-            excludeIds={memberIdList}
+            excludeCollectionId={collectionId}
             style={{ flex: 1 }}
           />
           <Button
