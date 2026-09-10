@@ -604,7 +604,7 @@ describe("decision router", () => {
       await expect(
         caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1" }),
       ).resolves.toEqual({ id: "dec-1" });
-      expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "dec-1" } });
+      expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "dec-1", workspaceId: WORKSPACE_ID } });
     });
 
     it("rejectDraft refuses a confirmed decision", async () => {
