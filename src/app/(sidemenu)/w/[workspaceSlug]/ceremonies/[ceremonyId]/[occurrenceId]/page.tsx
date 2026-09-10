@@ -45,6 +45,13 @@ export default function OccurrencePage() {
     onError: (e) => notifications.show({ title: "Couldn't generate agenda", message: e.message, color: "red" }),
   });
 
+  const resolveItem = api.ceremony.resolveAgendaItem.useMutation({
+    onSuccess: async () => {
+      await utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
+    },
+    onError: (e) => notifications.show({ title: "Couldn't update item", message: e.message, color: "red" }),
+  });
+
   if (isLoading || !workspace || !workspaceId || (occLoading && !occurrence)) {
     return (
       <Container size="lg" py="xl">
@@ -117,7 +124,12 @@ export default function OccurrencePage() {
         </Group>
 
         {occurrence.agenda ? (
-          <AgendaView agenda={occurrence.agenda} />
+          <AgendaView
+            agenda={occurrence.agenda}
+            onToggleResolved={(itemId, resolved) =>
+              resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved })
+            }
+          />
         ) : (
           <Paper withBorder radius="md" p="lg">
             <Text size="sm" className="text-text-muted">

@@ -1,15 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Group, Paper, Stack, Text } from "@mantine/core";
+import { Badge, Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
 import type { AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 interface AgendaViewProps {
   agenda: AgendaSnapshot;
+  /** When given, each item gets a resolve checkbox. */
+  onToggleResolved?: (itemId: string, resolved: boolean) => void;
 }
 
 /** Renders an agenda snapshot: sections in order, items with detail and links (ADR-0059). */
-export function AgendaView({ agenda }: AgendaViewProps) {
+export function AgendaView({ agenda, onToggleResolved }: AgendaViewProps) {
   return (
     <Stack gap="md" data-testid="agenda-view">
       {agenda.sections.map((section) => (
@@ -35,7 +37,18 @@ export function AgendaView({ agenda }: AgendaViewProps) {
             <Stack gap={6}>
               {section.items.map((item) => (
                 <div key={item.id} className="flex items-start gap-2" data-testid={`agenda-item-${item.id}`}>
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" aria-hidden />
+                  {onToggleResolved ? (
+                    <Checkbox
+                      size="xs"
+                      mt={3}
+                      checked={Boolean(item.resolvedAt)}
+                      onChange={(e) => onToggleResolved(item.id, e.currentTarget.checked)}
+                      aria-label={item.resolvedAt ? "Reopen item" : "Mark item resolved"}
+                      data-testid={`agenda-item-resolve-${item.id}`}
+                    />
+                  ) : (
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" aria-hidden />
+                  )}
                   <div className="min-w-0">
                     <Text size="sm" td={item.resolvedAt ? "line-through" : undefined}>
                       {item.href ? (

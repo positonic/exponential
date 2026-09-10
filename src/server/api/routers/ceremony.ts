@@ -15,6 +15,7 @@ import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoA
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
+import { setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -354,6 +355,20 @@ export const ceremonyRouter = createTRPCRouter({
         ({ circulated } = await circulateAgenda(ctx.db, occurrence.id, { actorUserId: userId, force: true }));
       }
       return { ...generated, circulated };
+    }),
+
+  /** Mark one agenda item resolved (or reopen it). Any non-viewer member; survives regeneration. */
+  resolveAgendaItem: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), itemId: z.string(), resolved: z.boolean() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const agenda = await setAgendaItemResolved(ctx.db, occurrence.id, input.itemId, input.resolved);
+      return { occurrenceId: occurrence.id, agenda };
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */
