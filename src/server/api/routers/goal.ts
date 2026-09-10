@@ -102,6 +102,9 @@ export const goalRouter = createTRPCRouter({
             select: {
               id: true,
               status: true,
+              // ADR-0004: effective status is `override ?? auto`, reconciled at
+              // read. Without this the client can only see the auto value.
+              statusOverride: true,
               startValue: true,
               currentValue: true,
               targetValue: true,

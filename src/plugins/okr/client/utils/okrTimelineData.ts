@@ -31,7 +31,8 @@ export interface TimelineAxis {
   weekLabels: string[];
   monthStarts: number[];
   monthLabels: string[];
-  todayFrac: number;
+  /** null when today falls outside the axis — the marker is then hidden. */
+  todayFrac: number | null;
 }
 
 function getISOWeek(d: Date): number {
@@ -81,7 +82,12 @@ export function computeTimelineAxisForRange(
     }
   }
 
-  const todayFrac = clamp01((now.getTime() - start.getTime()) / totalMs);
+  // Clamping this would pin TODAY to an edge on an axis that is entirely in
+  // the past or future, reading as "today is the start of this quarter".
+  const inRange = now >= start && now <= end;
+  const todayFrac = inRange
+    ? clamp01((now.getTime() - start.getTime()) / totalMs)
+    : null;
 
   return { weekCount, weekLabels, monthStarts, monthLabels, todayFrac };
 }

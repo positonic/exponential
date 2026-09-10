@@ -49,6 +49,21 @@ describe("goalTimelineRange", () => {
     expect(range.start.getFullYear()).toBe(2025);
     expect(range.end.getFullYear()).toBe(2027);
   });
+
+  // Clamping the start before anchoring used to yield 2025–2026 here, hiding
+  // 2024's goals behind a window one year narrower than it was allowed to be.
+  it("uses the full window when today sits at the end of the data", () => {
+    const range = goalTimelineRange(
+      [
+        goal({ id: 1, period: "Q1-2023" }),
+        goal({ id: 2, period: "Q1-2024" }),
+        goal({ id: 3, period: "Q4-2026" }),
+      ],
+      NOW,
+    );
+    expect(range.start.getFullYear()).toBe(2024);
+    expect(range.end.getFullYear()).toBe(2026);
+  });
 });
 
 describe("buildGoalTimelineData", () => {
@@ -62,7 +77,7 @@ describe("buildGoalTimelineData", () => {
     expect(row!.endFrac).toBeCloseTo(0.75, 1); // 30 Sep
     expect(row!.progress).toBeCloseTo(0.4);
     expect(row!.status).toBe("warn");
-    expect(row!.meta).toBe("40% · Q3-2026");
+    expect(row!.meta).toBe("40% · At risk · Q3-2026");
     expect(row!.code).toBe("");
     expect(axis?.weekCount).toBe(52);
     expect(axis?.monthLabels[0]).toBe("Jan");
@@ -76,7 +91,7 @@ describe("buildGoalTimelineData", () => {
     const [row] = objectives;
     expect(row!.startFrac).toBe(0);
     expect(row!.endFrac).toBeCloseTo(0.5, 1);
-    expect(row!.meta).toBe("100% · due Jun 30, 2026");
+    expect(row!.meta).toBe("100% · On track · due Jun 30, 2026");
     expect(row!.status).toBe("ok");
   });
 
@@ -102,7 +117,7 @@ describe("buildGoalTimelineData", () => {
     );
     const [row] = objectives;
     expect(row!.code).toBe("↳");
-    expect(row!.meta).toBe("0% · Annual-2026 · 2 projects");
+    expect(row!.meta).toBe("0% · No update · Annual-2026 · 2 projects");
     expect(row!.krs).toHaveLength(2);
     const [launch, open] = row!.krs;
     expect(launch!.endFrac).toBeCloseTo(0.25, 1);
@@ -115,16 +130,61 @@ describe("buildGoalTimelineData", () => {
     expect(open!.due).toBeUndefined();
   });
 
-  it("rolls up key result statuses when the goal has no health of its own", () => {
-    const build = (health: string | null, krs?: string[]) =>
-      buildGoalTimelineData([goal({ health, keyResultStatuses: krs })], NOW)
-        .objectives[0]!.status;
+  // ADR-0004: effective status is `override ?? auto`, at every read site.
+  it("resolves status as override-then-auto, falling back to key results", () => {
+    const build = (
+      health: string | null,
+      krs?: { status: string; statusOverride?: string | null }[],
+      healthOverride?: string | null,
+    ) =>
+      buildGoalTimelineData(
+        [goal({ health, healthOverride, keyResults: krs })],
+        NOW,
+      ).objectives[0]!.status;
+
     expect(build(null)).toBe("idle");
-    expect(build(null, ["on-track", "achieved"])).toBe("ok");
-    expect(build(null, ["on-track", "at-risk"])).toBe("warn");
-    expect(build(null, ["off-track", "at-risk"])).toBe("bad");
-    // An explicit health always wins over the KR rollup.
-    expect(build("on-track", ["off-track"])).toBe("ok");
+    expect(build(null, [{ status: "on-track" }, { status: "achieved" }])).toBe("ok");
+    expect(build(null, [{ status: "on-track" }, { status: "at-risk" }])).toBe("warn");
+    expect(build(null, [{ status: "off-track" }, { status: "at-risk" }])).toBe("bad");
+    // A goal's own health beats its key results.
+    expect(build("on-track", [{ status: "off-track" }])).toBe("ok");
+    // A human override beats the auto health.
+    expect(build("on-track", undefined, "off-track")).toBe("bad");
+    // And a key result's override beats its own auto status.
+    expect(
+      build(null, [{ status: "on-track", statusOverride: "off-track" }]),
+    ).toBe("bad");
+  });
+
+  it("names the status in the row meta so colour is not the only signal", () => {
+    const { objectives } = buildGoalTimelineData(
+      [goal({ period: "Q3-2026", progress: 40, health: "at-risk" })],
+      NOW,
+    );
+    expect(objectives[0]!.meta).toBe("40% · At risk · Q3-2026");
+  });
+
+  it("marks a goal that falls outside the clamped window", () => {
+    const { objectives } = buildGoalTimelineData(
+      [
+        goal({ id: 1, period: "Q1-2020" }),
+        goal({ id: 2, period: "Q3-2026" }),
+        goal({ id: 3, period: "Annual-2027" }),
+      ],
+      NOW,
+    );
+    const clipped = objectives.find((o) => o.id === "1");
+    expect(clipped!.meta).toContain("outside this view");
+    expect(objectives.find((o) => o.id === "2")!.meta).not.toContain(
+      "outside this view",
+    );
+  });
+
+  it("hides the TODAY marker when the axis does not contain today", () => {
+    const past = buildGoalTimelineData([goal({ period: "Q1-2020" })], NOW);
+    expect(past.axis?.todayFrac).toBeNull();
+    const current = buildGoalTimelineData([goal({ period: "Q3-2026" })], NOW);
+    expect(current.axis?.todayFrac).toBeGreaterThan(0);
   });
 
   it("registers each goal owner once for the avatar lookup", () => {

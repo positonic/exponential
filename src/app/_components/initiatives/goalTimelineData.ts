@@ -16,8 +16,9 @@ import type {
 } from "~/plugins/okr/client/components/OkrTimeline";
 import {
   clamp01,
+  effectiveStatus,
+  objectiveEffectiveConfidence,
   periodDateRange,
-  statusToConfidence,
 } from "~/plugins/okr/client/utils/okrDashboardUtils";
 import {
   computeTimelineAxisForRange,
@@ -44,8 +45,10 @@ export interface TimelineGoalInput {
   period: string | null;
   dueDate: Date | string | null;
   health: string | null;
-  /** Statuses of the goal's key results, the fallback when health is unset. */
-  keyResultStatuses?: string[];
+  /** Manual health override; wins over `health` per ADR-0004. */
+  healthOverride?: string | null;
+  /** The goal's key results, the fallback when no health is set. */
+  keyResults?: { status: string; statusOverride?: string | null }[];
   /** 0–100 */
   progress: number;
   /** Nesting depth in the goals table; sub-goals get a "↳" marker. */
@@ -71,29 +74,28 @@ function toDate(value: Date | string | null | undefined): Date | null {
 }
 
 /**
- * A goal's own health wins. Without one, roll up its key results the way the
- * OKR timeline does (worst KR wins) so a goal tracked purely through KRs
- * isn't drawn as "no update" while its OKR row is on track.
+ * ADR-0004: effective status is `override ?? auto`, resolved through the one
+ * shared helper the OKR card and drawer already use. Hand-rolling it here
+ * would let the Goals timeline contradict the OKRs timeline one toggle away
+ * — a goal a human marked "At risk" must not draw green.
  */
-function goalStatus(
-  health: string | null,
-  keyResultStatuses: string[] | undefined,
-): OkrStatus {
-  switch (health) {
-    case "on-track":
-      return "ok";
-    case "at-risk":
-      return "warn";
-    case "off-track":
-      return "bad";
-  }
-  if (!keyResultStatuses || keyResultStatuses.length === 0) return "idle";
-  const confs = keyResultStatuses.map(statusToConfidence);
-  if (confs.includes("bad")) return "bad";
-  if (confs.includes("warn")) return "warn";
-  if (confs.every((c) => c === "idle")) return "idle";
-  return "ok";
+function goalStatus(goal: TimelineGoalInput): OkrStatus {
+  return objectiveEffectiveConfidence(
+    goal.healthOverride,
+    goal.health,
+    (goal.keyResults ?? []).map(
+      (kr) => effectiveStatus(kr.statusOverride, kr.status) ?? "",
+    ),
+  );
 }
+
+/** Human-readable label for a resolved status, for the row's meta text. */
+const STATUS_LABEL: Record<OkrStatus, string> = {
+  ok: "On track",
+  warn: "At risk",
+  bad: "Off track",
+  idle: "No update",
+};
 
 function projectStatusToStatus(status: string): OkrStatus {
   switch (status) {
@@ -150,13 +152,16 @@ export function goalTimelineRange(
   }
   if (maxYear - minYear + 1 > MAX_AXIS_YEARS) {
     // Prefer the window around today when today is in range; otherwise keep
-    // the earliest years so nothing is silently cut off the front.
+    // the earliest years so nothing is silently cut off the front. Anchor
+    // before truncating — clamping the start first can leave a window
+    // narrower than MAX_AXIS_YEARS and drop years that would have fit.
     if (thisYear >= minYear && thisYear <= maxYear) {
-      minYear = Math.max(minYear, thisYear - 1);
-      maxYear = Math.min(maxYear, minYear + MAX_AXIS_YEARS - 1);
-    } else {
-      maxYear = minYear + MAX_AXIS_YEARS - 1;
+      minYear = Math.max(
+        minYear,
+        Math.min(thisYear - 1, maxYear - MAX_AXIS_YEARS + 1),
+      );
     }
+    maxYear = Math.min(maxYear, minYear + MAX_AXIS_YEARS - 1);
   }
   return {
     start: new Date(minYear, 0, 1),
@@ -191,7 +196,13 @@ export function buildGoalTimelineData(
     const span = goalSpan(goal) ?? range;
     const startFrac = frac(span.start);
     const endFrac = Math.max(startFrac, frac(span.end));
+    // A goal outside the clamped axis window collapses to a zero-width bar.
+    // Say so in the text rather than drawing a row with an invisible track.
+    const isClipped =
+      span.end.getTime() < range.start.getTime() ||
+      span.start.getTime() > range.end.getTime();
 
+    const status = goalStatus(goal);
     const target = goal.period
       ? goal.period
       : (() => {
@@ -199,10 +210,17 @@ export function buildGoalTimelineData(
           return due ? `due ${format(due, "MMM d, yyyy")}` : "no target";
         })();
     const projectCount = goal.projects.length;
-    const metaParts = [`${Math.round(goal.progress)}%`, target];
+    // Health is also carried by the bar colour; repeating it as text keeps the
+    // row readable for colour-blind and screen-reader users.
+    const metaParts = [
+      `${Math.round(goal.progress)}%`,
+      STATUS_LABEL[status],
+      target,
+    ];
     if (projectCount > 0) {
       metaParts.push(`${projectCount} project${projectCount === 1 ? "" : "s"}`);
     }
+    if (isClipped) metaParts.push("outside this view");
 
     const krs: TimelineKr[] = goal.projects.map((project) => {
       const end = toDate(project.endDate);
@@ -227,7 +245,7 @@ export function buildGoalTimelineData(
       owner: goal.owner?.id ?? "unassigned",
       coOwners: [],
       progress: clamp01(goal.progress / 100),
-      status: goalStatus(goal.health, goal.keyResultStatuses),
+      status,
       startFrac,
       endFrac,
       meta: metaParts.join(" · "),
