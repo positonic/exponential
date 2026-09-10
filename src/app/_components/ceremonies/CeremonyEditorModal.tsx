@@ -203,10 +203,14 @@ export function CeremonyEditorModal({
   // Matrix destination (ADR-0059): the workspace's registered servers and the
   // rooms their bots have joined, the same source the summary picker uses.
   const { data: matrixServers = [] } = api.matrixServer.list.useQuery({ workspaceId }, { enabled: opened });
-  const firstServerId = matrixServers[0]?.id ?? null;
+  // Which server's rooms to browse. A ceremony stores only the room id (the
+  // poster resolves the server), so this is a browse aid — but a workspace
+  // with two servers must still be able to reach the second one's rooms.
+  const [browseServerId, setBrowseServerId] = useState<string | null>(null);
+  const activeServerId = browseServerId ?? matrixServers[0]?.id ?? null;
   const { data: matrixRooms } = api.matrixServer.rooms.useQuery(
-    { workspaceId, serverId: firstServerId ?? "" },
-    { enabled: opened && Boolean(firstServerId), retry: false },
+    { workspaceId, serverId: activeServerId ?? "" },
+    { enabled: opened && Boolean(activeServerId), retry: false },
   );
   const matrixRoomOptions = useMemo(() => {
     const joined = (matrixRooms?.joined ?? []).map((r) => ({ value: r.roomId, label: r.name }));
@@ -218,6 +222,7 @@ export function CeremonyEditorModal({
   useEffect(() => {
     if (!opened) {
       setSeededFor(null);
+      setBrowseServerId(null);
       return;
     }
     const seedKey = ceremonyId ? `edit:${ceremonyId}` : `new:${template?.slug ?? "blank"}`;
@@ -449,6 +454,23 @@ export function CeremonyEditorModal({
               searchable
             />
           </Group>
+
+          {matrixServers.length > 1 && (
+            <Select
+              label="Matrix server"
+              description="Which server's rooms to choose from."
+              data={matrixServers.map((server) => ({ value: server.id, label: server.name }))}
+              value={activeServerId}
+              onChange={(v) => {
+                setBrowseServerId(v);
+                // A room id belongs to one server; switching servers invalidates the pick.
+                set("matrixRoomId", null);
+              }}
+              allowDeselect={false}
+              searchable
+              data-testid="ceremony-matrix-server"
+            />
+          )}
 
           <Select
             label="Matrix room"
