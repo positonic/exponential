@@ -100,6 +100,42 @@ test("Export > Markdown downloads a .md file named after the page", async ({
   );
 });
 
+test("Print hides the app chrome and lets the column run full width", async ({
+  page,
+}) => {
+  await page.goto("/w/dev-fixture/pages");
+  await page.getByRole("link", { name: /Cycle 12 retro notes/ }).first().click();
+  await expect(page.getByLabel("Page actions")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  // The menu item calls window.print(); Playwright can't drive the native
+  // dialog, so assert on what the dialog would render — the print stylesheet.
+  await expect(page.getByLabel("Page actions")).toBeVisible();
+  await page.emulateMedia({ media: "print" });
+
+  await expect(page.locator("aside").first()).toBeHidden();
+  // The page's own action row (full width, favourite, Share, the menu itself).
+  await expect(page.locator('[data-print="hide"]').first()).toBeHidden();
+
+  const columnWidth = await page
+    .locator('[data-print="column"]')
+    .evaluate((el) => el.getBoundingClientRect().width);
+  const mainWidth = await page
+    .locator("main.sidebar-offset")
+    .evaluate((el) => el.getBoundingClientRect().width);
+  // On screen the column is capped at max-w-3xl (768px); on paper it fills
+  // the sheet. A couple of px of slack for the sub-pixel layout.
+  expect(columnWidth).toBeGreaterThan(768);
+  expect(mainWidth - columnWidth).toBeLessThan(4);
+
+  await test.info().attach("print-layout", {
+    body: await page.screenshot({ fullPage: false }),
+    contentType: "image/png",
+  });
+  await page.emulateMedia({ media: "screen" });
+});
+
 test("Delete states the impact and requires the title to be typed", async ({
   page,
 }) => {

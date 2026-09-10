@@ -164,12 +164,15 @@ function PageEditorContent({
   }
 
   return (
-    <div className={`${widthClass} px-6 py-8`}>
+    // The reading column; `data-print="column"` lets the print stylesheet
+    // widen exactly this element without guessing at Tailwind classes.
+    <div className={`${widthClass} px-6 py-8`} data-print="column">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
         </div>
-        <div className="flex items-center gap-2">
+        {/* Chrome, not content: Print / Save as PDF drops this row. */}
+        <div className="flex items-center gap-2" data-print="hide">
           <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>
             <ActionIcon
               variant="subtle"

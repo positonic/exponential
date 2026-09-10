@@ -10,6 +10,7 @@ import {
   IconDots,
   IconDownload,
   IconExternalLink,
+  IconPrinter,
   IconLink,
   IconMarkdown,
   IconTrash,
@@ -153,6 +154,12 @@ export function PageActionsMenu({
             onClick={exportMarkdown}
           >
             Markdown
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconPrinter size={14} />}
+            onClick={() => window.print()}
+          >
+            Print / Save as PDF
           </Menu.Item>
           {canEdit ? (
             <>
