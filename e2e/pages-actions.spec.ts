@@ -11,7 +11,7 @@ const FIRST_PAINT_TIMEOUT = 60_000;
  */
 
 /** Create a throwaway page from the list so a destructive test never touches
- * the seeded fixture pages other specs assert on. Returns its title. */
+ * the seeded fixture pages other specs assert on. Returns its title and URL. */
 async function createScratchPage(
   page: import("@playwright/test").Page,
   title: string,
@@ -35,7 +35,7 @@ async function createScratchPage(
     titleInput.blur(),
   ]);
   await expect(titleInput).toHaveValue(title);
-  return title;
+  return { title, url: page.url() };
 }
 
 test("the menu lists every action in the documented order", async ({ page }) => {
@@ -62,6 +62,14 @@ test("the menu lists every action in the documented order", async ({ page }) => 
   ]);
 });
 
+// `pages:full-width` is per-browser, so a failure mid-test would otherwise
+// leak a widened column into every later test in this worker.
+test.afterEach(async ({ page }) => {
+  await page
+    .evaluate(() => localStorage.removeItem("pages:full-width"))
+    .catch(() => undefined);
+});
+
 test("Full width widens the reading column and persists", async ({ page }) => {
   await page.goto("/w/dev-fixture/pages");
   await page.getByRole("link", { name: /Cycle 12 retro notes/ }).first().click();
@@ -85,10 +93,6 @@ test("Full width widens the reading column and persists", async ({ page }) => {
   });
   expect((await column.boundingBox())!.width).toBeGreaterThan(narrow);
 
-  // Leave the shared browser profile as we found it.
-  await page.getByLabel("Page actions").click();
-  await page.getByRole("menuitem", { name: "Full width" }).click();
-  await page.keyboard.press("Escape");
 });
 
 test("Copy link copies the internal editor URL, not the public one", async ({
@@ -138,7 +142,7 @@ test("Copy markdown serialises the live editor, unsaved edits included", async (
 test("Export > Markdown downloads a .md file named after the page", async ({
   page,
 }) => {
-  const title = await createScratchPage(page, `Scratch export ${Date.now()}`);
+  const { title } = await createScratchPage(page, `Scratch export ${Date.now()}`);
 
   await page.getByLabel("Page actions").click();
   const download = page.waitForEvent("download");
@@ -225,10 +229,47 @@ test("Include in search toggles and survives a reload", async ({ page }) => {
   await expect(page.getByLabel("Include in search")).not.toBeChecked();
 });
 
+test("the reverse-link scan runs, and a pasted URL is not a link", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const { url: targetUrl } = await createScratchPage(
+    page,
+    `Scratch target ${Date.now()}`,
+  );
+  const targetId = targetUrl.split("/").pop()!;
+
+  // Copy the target's own link, then paste it into a second page's body. That
+  // is a `link` mark whose href ends in the target's id, not a `pageLink`
+  // node — exactly the thing a `::text LIKE '%<id>%'` pre-filter would count.
+  // (Pasting rather than typing: a typed "/" opens the block menu.)
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Copy link" }).click();
+
+  await createScratchPage(page, `Scratch mentioner ${Date.now()}`);
+  await page.locator(".ProseMirror").first().click();
+  await page.keyboard.type("see ");
+  await page.keyboard.press("ControlOrMeta+v");
+  await page.keyboard.type(" ");
+  await page.waitForResponse(
+    (r) => r.url().includes("/api/trpc/") && r.url().includes("page.update"),
+  );
+
+  await page.goto(`/w/dev-fixture/pages/${targetId}`);
+  await expect(page.getByLabel("Page actions")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+
+  await expect(page.getByRole("dialog").getByText("0 pages link here")).toBeVisible();
+});
+
 test("Delete states the impact and requires the title to be typed", async ({
   page,
 }) => {
-  const title = await createScratchPage(page, `Scratch delete ${Date.now()}`);
+  const { title } = await createScratchPage(page, `Scratch delete ${Date.now()}`);
 
   await page.getByLabel("Page actions").click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
@@ -236,6 +277,7 @@ test("Delete states the impact and requires the title to be typed", async ({
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText("What this breaks")).toBeVisible();
   await expect(dialog.getByText("0 pages link here")).toBeVisible();
+  await expect(dialog.getByText("Counted across the pages you can see.")).toBeVisible();
   await expect(dialog.getByText("0 sub-pages become top-level")).toBeVisible();
   await expect(dialog.getByText("No public URL is affected")).toBeVisible();
 

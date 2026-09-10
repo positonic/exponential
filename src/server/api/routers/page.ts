@@ -179,44 +179,68 @@ function generatePublicId(): string {
   return id;
 }
 
+/** How many linking pages one scan will look at. The reverse-link scan runs on
+ * every page open (it powers the breadcrumb), so it is bounded; callers that
+ * report a count say so when the bound was hit rather than reporting the bound
+ * as the answer. */
+const LINKER_SCAN_LIMIT = 20;
+
 /**
  * The reverse-link scan: every page in the same workspace whose body links to
- * `pageId` via a `pageLink` node, newest-edited first, restricted to the ones
+ * `page.id` via a `pageLink` node, newest-edited first, restricted to the ones
  * `userId` can view.
  *
  * Sub-pages are soft — there is no stored parent pointer (ADR-0033/0038) — so
  * "what links here" is a scan, and it is deliberately the *only* one: the
  * breadcrumb parent is its first element, the delete-impact count is its
- * length, and the Links panel is the list itself. Two steps keep it cheap: a
- * `::text` LIKE pre-filter capped at 20 rows, then a `collectPageLinkIds`
- * confirmation that rejects incidental text matches (a page that merely
- * mentions the id in prose). View access is pushed into the second query via
- * {@link buildKnowledgePageAccessWhere}, so no per-candidate access
- * resolution — the same one-round-trip shape `children` uses.
+ * length, and the Links panel is the list itself.
+ *
+ * Two steps keep it cheap and correct. The pre-filter is a `jsonb_path_exists`
+ * for a `pageLink` node carrying this id, **not** a `::text LIKE` on the id:
+ * an id appears in a body for reasons that are not links — a pasted internal
+ * URL is a `link` mark whose href ends in the id, and prose can simply mention
+ * it — and with the scan bounded, enough of those crowd real linkers out of
+ * the window entirely, which would have the delete dialog report zero. Then
+ * {@link collectPageLinkIds} confirms each candidate, staying the one
+ * definition of "links here" (it walks `content` only, so it is the narrower
+ * of the two, which is the right way round for a pre-filter).
+ *
+ * View access is pushed into the second query via
+ * {@link buildKnowledgePageAccessWhere} — no per-candidate access resolution,
+ * the same one-round-trip shape `children` uses. It also means the result is
+ * *the caller's* view of the link graph; callers that show it to a user should
+ * say so.
+ *
+ * `capped` is true when the scan filled its window, i.e. there may be more.
  */
 export async function findLinkingPages(
   db: PrismaClient,
   userId: string,
   page: { id: string; workspaceId: string },
-): Promise<{ id: string; title: string; isPublic: boolean }[]> {
-  // Escape LIKE wildcards (`%` `_` `\`) so a pathological id can't broaden the
-  // pre-filter into a full-workspace scan. Postgres LIKE treats `\` as the
-  // escape char by default, so `\%`/`\_`/`\\` match those literals. (Titles
-  // still can't leak: every candidate is view-gated below.)
-  const likePattern = `%${page.id.replace(/[\\%_]/g, "\\$&")}%`;
+): Promise<{
+  pages: { id: string; title: string; isPublic: boolean }[];
+  capped: boolean;
+}> {
+  // One row over the limit, purely to detect that there were more.
   const rows = await db.$queryRaw<{ id: string }[]>`
     SELECT "id" FROM "KnowledgePage"
     WHERE "workspaceId" = ${page.workspaceId}
       AND "id" <> ${page.id}
-      AND "bodyDoc"::text LIKE ${likePattern}
+      AND jsonb_path_exists(
+            "bodyDoc",
+            '$.** ? (@.type == "pageLink" && @.attrs.pageId == $target)',
+            jsonb_build_object('target', ${page.id}::text)
+          )
     ORDER BY "updatedAt" DESC
-    LIMIT 20
+    LIMIT ${LINKER_SCAN_LIMIT + 1}
   `;
-  if (rows.length === 0) return [];
+  const capped = rows.length > LINKER_SCAN_LIMIT;
+  const window = capped ? rows.slice(0, LINKER_SCAN_LIMIT) : rows;
+  if (window.length === 0) return { pages: [], capped: false };
 
   const candidates = await db.knowledgePage.findMany({
     where: {
-      id: { in: rows.map((r) => r.id) },
+      id: { in: window.map((r) => r.id) },
       workspaceId: page.workspaceId,
       ...buildKnowledgePageAccessWhere(userId),
     },
@@ -225,19 +249,19 @@ export async function findLinkingPages(
   const byId = new Map(candidates.map((c) => [c.id, c]));
 
   // Re-emit in the raw query's newest-edited-first order.
-  const linkers: { id: string; title: string; isPublic: boolean }[] = [];
-  for (const { id } of rows) {
+  const pages: { id: string; title: string; isPublic: boolean }[] = [];
+  for (const { id } of window) {
     const candidate = byId.get(id);
     if (!candidate) continue;
     const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
     if (!links.includes(page.id)) continue;
-    linkers.push({
+    pages.push({
       id: candidate.id,
       title: candidate.title,
       isPublic: candidate.isPublic,
     });
   }
-  return linkers;
+  return { pages, capped };
 }
 
 /**
@@ -540,8 +564,8 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
-      const linkers = await findLinkingPages(ctx.db, userId, page);
-      const parent = linkers[0];
+      const { pages } = await findLinkingPages(ctx.db, userId, page);
+      const parent = pages[0];
       return parent ? { id: parent.id, title: parent.title } : null;
     }),
 
@@ -551,6 +575,11 @@ export const pageRouter = createTRPCRouter({
    * pages whose bodies link here (their links go dead), sub-pages that lose
    * their only parent and become top-level, and a public URL that stops
    * resolving. Counts only — the dialog states the scale, not the names.
+   *
+   * Both counts are the *caller's* view of the graph, since both queries carry
+   * the view filter, and both are bounded by {@link LINKER_SCAN_LIMIT}.
+   * `linkedFromCapped` says the bound was hit, so the dialog can say "20+"
+   * rather than presenting a floor as the answer.
    */
   deleteImpact: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -582,7 +611,8 @@ export const pageRouter = createTRPCRouter({
             });
 
       return {
-        linkedFromCount: linkers.length,
+        linkedFromCount: linkers.pages.length,
+        linkedFromCapped: linkers.capped,
         subpageCount,
         isPublic: self.isPublic,
       };

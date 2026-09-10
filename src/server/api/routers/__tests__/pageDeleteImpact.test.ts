@@ -71,6 +71,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 
 const USER_ID = "user-1";
 const WORKSPACE_ID = "ws-1";
@@ -115,6 +116,37 @@ describe("page reverse-link scan (mocked)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+  });
+
+  describe("the pre-filter", () => {
+    it("asks for pageLink nodes, not for the id anywhere in the body", async () => {
+      mockTargetPage(dbMock);
+      dbMock.$queryRaw.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.page.parentCrumb({ id: PAGE_ID });
+
+      // `$queryRaw` is a tagged template: the first argument is the static
+      // fragments, the rest are bind parameters.
+      const fragments = dbMock.$queryRaw.mock.calls[0]?.[0] as
+        | { raw?: string[] }
+        | string[]
+        | undefined;
+      const sql = (Array.isArray(fragments) ? fragments : fragments?.raw ?? [])
+        .join("?")
+        .replace(/\s+/g, " ");
+
+      // The point of the jsonpath: an id also appears in a body as a pasted
+      // internal URL (a `link` mark) or in prose. With the scan bounded,
+      // matching those crowds real linkers out of the window, and the delete
+      // dialog reports zero. A `::text LIKE` on the bare id does exactly that.
+      expect(sql).toContain("jsonb_path_exists");
+      expect(sql).toContain('@.type == "pageLink"');
+      expect(sql).not.toContain("LIKE");
+      // One row past the window, so the caller can tell "20" from "20+".
+      expect(sql).toContain("LIMIT");
+      expect(dbMock.$queryRaw.mock.calls[0]).toContain(21);
+    });
   });
 
   describe("parentCrumb", () => {
@@ -185,12 +217,13 @@ describe("page reverse-link scan (mocked)", () => {
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
       await expect(caller.page.deleteImpact({ id: PAGE_ID })).resolves.toEqual({
         linkedFromCount: 1,
+        linkedFromCapped: false,
         subpageCount: 2,
         isPublic: true,
       });
     });
 
-    it("does not count a candidate the caller cannot view", async () => {
+    it("asks for the candidates with the caller's view filter applied", async () => {
       mockTargetPage(dbMock);
       dbMock.$queryRaw.mockResolvedValue([{ id: "hidden-linker" }] as never);
       // The access WHERE is part of the candidate query, so an unviewable
@@ -200,11 +233,65 @@ describe("page reverse-link scan (mocked)", () => {
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
       await expect(caller.page.deleteImpact({ id: PAGE_ID })).resolves.toEqual({
         linkedFromCount: 0,
+        linkedFromCapped: false,
         subpageCount: 0,
         isPublic: false,
       });
+
+      // Pin the filter itself, not just the empty result: without this the
+      // test passes even if the access clause is deleted outright.
+      const where = dbMock.knowledgePage.findMany.mock.calls[0]?.[0]?.where;
+      expect(where).toMatchObject({ workspaceId: WORKSPACE_ID });
+      expect(where).toEqual(
+        expect.objectContaining(buildKnowledgePageAccessWhere(USER_ID)),
+      );
+
       // No sub-page links in the body, so no count query at all.
       expect(dbMock.knowledgePage.count).not.toHaveBeenCalled();
+    });
+
+    it("counts sub-pages with the same view filter", async () => {
+      mockTargetPage(dbMock, {
+        bodyDoc: {
+          type: "doc",
+          content: [{ type: "pageLink", attrs: { pageId: "child-a" } }],
+        },
+      });
+      dbMock.$queryRaw.mockResolvedValue([] as never);
+      dbMock.knowledgePage.count.mockResolvedValue(1 as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.page.deleteImpact({ id: PAGE_ID });
+
+      const where = dbMock.knowledgePage.count.mock.calls[0]?.[0]?.where;
+      expect(where).toMatchObject({
+        workspaceId: WORKSPACE_ID,
+        id: { in: ["child-a"] },
+      });
+      expect(where).toEqual(
+        expect.objectContaining(buildKnowledgePageAccessWhere(USER_ID)),
+      );
+    });
+
+    it("reports the count as capped when the scan fills its window", async () => {
+      mockTargetPage(dbMock);
+      // 21 rows back from a LIMIT 21 scan means there are more than 20.
+      const rows = Array.from({ length: 21 }, (_, i) => ({ id: `linker-${i}` }));
+      dbMock.$queryRaw.mockResolvedValue(rows as never);
+      dbMock.knowledgePage.findMany.mockResolvedValue(
+        rows.slice(0, 20).map((r) => ({
+          id: r.id,
+          title: r.id,
+          isPublic: false,
+          bodyDoc: docLinkingTo(PAGE_ID),
+        })) as never,
+      );
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      const impact = await caller.page.deleteImpact({ id: PAGE_ID });
+      // The 21st row is only there to detect the overflow; it is not counted.
+      expect(impact.linkedFromCount).toBe(20);
+      expect(impact.linkedFromCapped).toBe(true);
     });
   });
 });

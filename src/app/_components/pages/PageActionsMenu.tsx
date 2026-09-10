@@ -26,6 +26,12 @@ import { docToMarkdown } from "~/lib/prd/codec";
 import { PageDeleteDialog } from "./PageDeleteDialog";
 import { PageMoveDialog } from "./PageMoveDialog";
 
+/** Both export paths read the open editor, so neither can do anything before
+ * it mounts — a rare race, but a silent one without this. */
+const EDITOR_NOT_READY = {
+  message: "The editor is still loading. Try again in a moment.",
+};
+
 /** Reading-column width preference. Pages default to the same centred column
  * the published (/p/...) render uses; "Full width" is the opt-in. Stored per
  * browser (not on the page) so it stays a reader-side view preference rather
@@ -101,7 +107,10 @@ export function PageActionsMenu({
 
   const copyMarkdown = async () => {
     const markdown = liveMarkdown();
-    if (markdown === null) return;
+    if (markdown === null) {
+      onError(EDITOR_NOT_READY, "Could not copy the Markdown");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(markdown);
       notifications.show({ message: "Markdown copied" });
@@ -114,15 +123,23 @@ export function PageActionsMenu({
   // tick — the click has already handed the blob to the browser by then.
   const exportMarkdown = () => {
     const markdown = liveMarkdown();
-    if (markdown === null) return;
+    if (markdown === null) {
+      onError(EDITOR_NOT_READY, "Could not export the page");
+      return;
+    }
     const url = URL.createObjectURL(
       new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
     );
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `${slugifyPageTitle(pageTitle)}.md`;
+    // Attached and clicked, then cleaned up on the next tick. A detached
+    // anchor plus a same-frame revoke works in Chromium and aborts the
+    // download in Firefox and WebKit.
+    document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
@@ -239,6 +256,11 @@ export function PageActionsMenu({
                   stays open while you flip it. */}
               <Menu.Item
                 closeMenuOnClick={false}
+                // The row stays open to be flipped, which invites a second
+                // click before the first has landed. `includeInSearch` only
+                // moves on success, so without this the second click resends
+                // the value the first one already asked for.
+                disabled={setIncludeInSearch.isPending}
                 onClick={() =>
                   setIncludeInSearch.mutate({
                     id: pageId,
