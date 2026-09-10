@@ -7,8 +7,20 @@ import type { SectionModule } from "../types";
 import { okrReviewSection } from "./okr_review";
 import { blockersSection } from "./blockers";
 import { carriedOverSection } from "./carried_over";
+import { cycleProgressSection } from "./cycle_progress";
+import { retroActionsSection } from "./retro_actions";
+import { freeTextSection } from "./free_text";
+import { decisionsPendingSection } from "./decisions_pending";
 
-const MODULES: SectionModule[] = [okrReviewSection, blockersSection, carriedOverSection];
+const MODULES: SectionModule[] = [
+  okrReviewSection,
+  blockersSection,
+  carriedOverSection,
+  cycleProgressSection,
+  retroActionsSection,
+  freeTextSection,
+  decisionsPendingSection,
+];
 
 export const SECTION_REGISTRY: ReadonlyMap<string, SectionModule> = new Map(MODULES.map((m) => [m.type, m]));
 
