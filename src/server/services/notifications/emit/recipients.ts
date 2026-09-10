@@ -46,6 +46,33 @@ export async function resolveRecipients(
         ),
       );
     }
+    case NOTIFICATION_CATEGORIES.AGENDA_READY: {
+      // Agenda ready → the ceremony's explicit participants plus everyone on
+      // its team (ADR-0059); the owner is a participant like any other.
+      const occurrence = await input.db.ceremonyOccurrence.findUnique({
+        where: { id: input.subject.occurrenceId },
+        select: {
+          ceremony: {
+            select: {
+              ownerId: true,
+              teamId: true,
+              participants: { select: { userId: true } },
+            },
+          },
+        },
+      });
+      if (!occurrence) return [];
+      const ids = new Set<string>(occurrence.ceremony.participants.map((p) => p.userId));
+      ids.add(occurrence.ceremony.ownerId);
+      if (occurrence.ceremony.teamId) {
+        const members = await input.db.teamUser.findMany({
+          where: { teamId: occurrence.ceremony.teamId },
+          select: { userId: true },
+        });
+        for (const m of members) ids.add(m.userId);
+      }
+      return Array.from(ids);
+    }
     default:
       return Promise.resolve([]);
   }

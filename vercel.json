@@ -43,6 +43,10 @@
       "schedule": "20 * * * *"
     },
     {
+      "path": "/api/cron/ceremony-agendas",
+      "schedule": "25 * * * *"
+    },
+    {
       "path": "/api/cron/sync-calendars",
       "schedule": "*/15 * * * *"
     }

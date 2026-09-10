@@ -14,6 +14,7 @@ import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
+import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -322,7 +323,14 @@ export const ceremonyRouter = createTRPCRouter({
    * owner (or a workspace owner/admin) only; runs inside the request.
    */
   generateAgenda: protectedProcedure
-    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        /** Also send "agenda ready" to participants (again, if already sent). */
+        circulate: z.boolean().optional(),
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -340,7 +348,12 @@ export const ceremonyRouter = createTRPCRouter({
           throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can generate its agenda" });
         }
       }
-      return generateAgenda(ctx.db, occurrence.id);
+      const generated = await generateAgenda(ctx.db, occurrence.id);
+      let circulated = false;
+      if (input.circulate) {
+        ({ circulated } = await circulateAgenda(ctx.db, occurrence.id, { actorUserId: userId, force: true }));
+      }
+      return { ...generated, circulated };
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */

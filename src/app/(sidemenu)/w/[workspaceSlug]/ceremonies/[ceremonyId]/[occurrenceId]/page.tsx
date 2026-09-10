@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge, Button, Container, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { IconArrowLeft, IconSparkles } from "@tabler/icons-react";
+import { IconArrowLeft, IconSend, IconSparkles } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -36,8 +36,8 @@ export default function OccurrencePage() {
   const generate = api.ceremony.generateAgenda.useMutation({
     onSuccess: async (res) => {
       notifications.show({
-        title: "Agenda generated",
-        message: `${res.itemCount} item${res.itemCount === 1 ? "" : "s"} across ${res.agenda.sections.length} sections.`,
+        title: res.circulated ? "Agenda generated and sent" : "Agenda generated",
+        message: `${res.itemCount} item${res.itemCount === 1 ? "" : "s"} across ${res.agenda.sections.length} sections${res.circulated ? "; participants notified" : ""}.`,
         color: "green",
       });
       await utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
@@ -88,19 +88,31 @@ export default function OccurrencePage() {
               {occurrence.agendaGeneratedAt && (
                 <Text size="xs" className="text-text-muted">
                   agenda generated {new Date(occurrence.agendaGeneratedAt).toLocaleString()}
+                  {occurrence.agendaCirculatedAt ? ` · circulated ${new Date(occurrence.agendaCirculatedAt).toLocaleString()}` : ""}
                 </Text>
               )}
             </Group>
           </div>
           {occurrence.canGenerate && (
-            <Button
-              leftSection={<IconSparkles size={14} />}
-              loading={generate.isPending}
-              onClick={() => generate.mutate({ workspaceId, occurrenceId: occurrence.id })}
-              data-testid="generate-agenda"
-            >
-              {occurrence.agenda ? "Regenerate agenda" : "Generate agenda"}
-            </Button>
+            <Group gap="xs">
+              <Button
+                variant="default"
+                leftSection={<IconSparkles size={14} />}
+                loading={generate.isPending && !generate.variables?.circulate}
+                onClick={() => generate.mutate({ workspaceId, occurrenceId: occurrence.id })}
+                data-testid="generate-agenda"
+              >
+                {occurrence.agenda ? "Regenerate agenda" : "Generate agenda"}
+              </Button>
+              <Button
+                leftSection={<IconSend size={14} />}
+                loading={generate.isPending && Boolean(generate.variables?.circulate)}
+                onClick={() => generate.mutate({ workspaceId, occurrenceId: occurrence.id, circulate: true })}
+                data-testid="circulate-agenda"
+              >
+                {occurrence.agendaCirculatedAt ? "Regenerate & resend" : "Generate & send to participants"}
+              </Button>
+            </Group>
           )}
         </Group>
 

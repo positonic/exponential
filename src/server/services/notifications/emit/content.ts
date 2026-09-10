@@ -155,6 +155,59 @@ export async function buildContent(
         dedupeKey: `meeting_participant_added:${sessionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.AGENDA_READY: {
+      const { occurrenceId } = input.subject;
+      const occurrence = await db.ceremonyOccurrence.findUnique({
+        where: { id: occurrenceId },
+        select: {
+          scheduledStart: true,
+          agenda: true,
+          ceremony: {
+            select: {
+              id: true,
+              name: true,
+              timezone: true,
+              workspace: { select: { id: true, slug: true, name: true } },
+            },
+          },
+        },
+      });
+      if (!occurrence) return null;
+      const { ceremony } = occurrence;
+      const agenda = occurrence.agenda as { sections?: Array<{ items?: unknown[] }> } | null;
+      const itemCount = (agenda?.sections ?? []).reduce((n, s) => n + (s.items?.length ?? 0), 0);
+      let when: string;
+      try {
+        when = occurrence.scheduledStart.toLocaleString("en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: ceremony.timezone,
+        });
+      } catch {
+        when = occurrence.scheduledStart.toISOString();
+      }
+      return {
+        category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+        title: `Agenda ready: ${ceremony.name}`,
+        message: `${when} · ${itemCount} item${itemCount === 1 ? "" : "s"} to cover`,
+        deeplink: `/w/${ceremony.workspace.slug}/ceremonies/${ceremony.id}/${occurrenceId}`,
+        metadata: {
+          occurrenceId,
+          ceremonyId: ceremony.id,
+          ceremonyName: ceremony.name,
+          itemCount,
+          workspaceId: ceremony.workspace.id,
+          workspaceSlug: ceremony.workspace.slug,
+          workspaceName: ceremony.workspace.name,
+        },
+        workspaceId: ceremony.workspace.id,
+        dedupeKey: `agenda_ready:${occurrenceId}:${recipientId}`,
+      };
+    }
+
     case NOTIFICATION_CATEGORIES.MEETING_READY: {
       const { sessionId } = input.subject;
 

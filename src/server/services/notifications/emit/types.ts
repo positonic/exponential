@@ -34,6 +34,15 @@ export interface MeetingReadySubject {
 }
 
 /**
+ * Agenda ready (ADR-0059): a ceremony occurrence whose agenda was just
+ * generated. Recipients are the ceremony's participants plus the members of
+ * its team, resolved by the resolver; the acting user is dropped as always.
+ */
+export interface AgendaReadySubject {
+  occurrenceId: string;
+}
+
+/**
  * Mention (V2): a comment on some target (action / feature / scope), already
  * resolved to its workspace + display name + deep-link. Recipients are parsed
  * from the `@[Name](id)` markup and membership-filtered by the resolver.
@@ -125,6 +134,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.MEETING_READY;
       subject: MeetingReadySubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.AGENDA_READY;
+      subject: AgendaReadySubject;
     }
 );
 
