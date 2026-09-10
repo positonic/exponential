@@ -136,6 +136,7 @@ export default function OccurrencePage() {
         {occurrence.agenda ? (
           <AgendaView
             agenda={occurrence.agenda}
+            goalsHref={`/w/${workspace.slug}/goals?tab=okrs`}
             onToggleResolved={(itemId, resolved) =>
               resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved })
             }

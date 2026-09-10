@@ -28,6 +28,8 @@ export const blockersSection: SectionModule = {
         dueDate: true,
         blockedByIds: true,
         projectId: true,
+        // The action rolls up to its project's objective, when the project has one (goal chip).
+        project: { select: { goals: { select: { id: true, title: true }, take: 1 } } },
         assignees: { select: { user: { select: { id: true, name: true } } } },
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
@@ -38,12 +40,15 @@ export const blockersSection: SectionModule = {
       if (a.dueDate && a.dueDate < ctx.now) reasons.push(`due ${a.dueDate.toLocaleDateString("en-GB", dateFmt)}`);
       if (a.blockedByIds.length > 0) reasons.push(`blocked by ${a.blockedByIds.length} action${a.blockedByIds.length === 1 ? "" : "s"}`);
       const owners = a.assignees.map((x) => x.user.name).filter((n): n is string => Boolean(n));
+      const goal = a.project?.goals[0] ?? null;
       return {
         id: `${section.key}:action:${a.id}`,
         sectionKey: section.key,
         title: a.name,
         refType: "action",
         refId: a.id,
+        goalId: goal?.id ?? null,
+        goalTitle: goal?.title ?? null,
         order: index,
         detail: [reasons.join(", "), owners.length ? owners.join(", ") : "unassigned"].join(" · "),
         href: `${ctx.workspacePath}/actions/${a.id}`,

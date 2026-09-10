@@ -37,7 +37,7 @@ describe("okr_review section", () => {
     expect(items[0]!.detail).toContain("no check-in for 21 days");
     expect(items[1]!.detail).toContain("never checked in");
     expect(items[2]!.detail).toContain("status set to at-risk");
-    expect(items[0]).toMatchObject({ id: "okr:key_result:kr-stale", sectionKey: "okr", refType: "key_result", goalId: 1, keyResultId: "kr-stale", href: "/w/ws/goals?tab=okrs" });
+    expect(items[0]).toMatchObject({ id: "okr:key_result:kr-stale", sectionKey: "okr", refType: "key_result", goalId: 1, keyResultId: "kr-stale", goalTitle: "Grow", keyResultTitle: "Stale", href: "/w/ws/goals?tab=okrs" });
   });
 
   it("honours config.days and ignores status changes without a previous occurrence", async () => {

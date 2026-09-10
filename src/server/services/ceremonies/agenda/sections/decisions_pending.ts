@@ -21,7 +21,16 @@ export const decisionsPendingSection: SectionModule = {
             ? { OR: [{ productId: ctx.ceremony.productId }, { productId: null }] }
             : {}),
       },
-      select: { id: true, number: true, statement: true, status: true, createdAt: true, owner: { select: { name: true } } },
+      select: {
+        id: true,
+        number: true,
+        statement: true,
+        status: true,
+        createdAt: true,
+        owner: { select: { name: true } },
+        goal: { select: { id: true, title: true } },
+        keyResult: { select: { id: true, title: true, goalId: true, goal: { select: { title: true } } } },
+      },
       orderBy: { createdAt: "asc" },
       take: 50,
     });
@@ -45,6 +54,10 @@ export const decisionsPendingSection: SectionModule = {
         title: d.statement,
         refType: "decision",
         refId: d.id,
+        goalId: d.keyResult?.goalId ?? d.goal?.id ?? null,
+        goalTitle: d.keyResult?.goal.title ?? d.goal?.title ?? null,
+        keyResultId: d.keyResult?.id ?? null,
+        keyResultTitle: d.keyResult?.title ?? null,
         order: index,
         detail: parts.filter(Boolean).join(" · "),
         href: `${ctx.workspacePath}/decisions/d/${d.id}`,

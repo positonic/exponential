@@ -44,8 +44,8 @@ describe("retro_actions", () => {
     const db = mockDeep<PrismaClient>();
     db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "retro-1", scheduledStart: new Date("2026-08-27T13:00:00Z") } as never);
     db.action.findMany.mockResolvedValue([
-      { id: "a-1", name: "Write the runbook", status: "ACTIVE", dueDate: null, completedAt: null, assignees: [{ user: { name: "Andi" } }] },
-      { id: "a-2", name: "Shorten standup", status: "COMPLETED", dueDate: null, completedAt: new Date("2026-09-01T00:00:00Z"), assignees: [] },
+      { id: "a-1", name: "Write the runbook", status: "ACTIVE", dueDate: null, completedAt: null, project: null, assignees: [{ user: { name: "Andi" } }] },
+      { id: "a-2", name: "Shorten standup", status: "COMPLETED", dueDate: null, completedAt: new Date("2026-09-01T00:00:00Z"), project: { goals: [] }, assignees: [] },
     ] as never);
     const items = await retroActionsSection.run(ctx(db), { key: "retro", type: "retro_actions", title: "Retro" });
     const where = db.ceremonyOccurrence.findFirst.mock.calls[0]![0]!.where!;
@@ -75,8 +75,8 @@ describe("decisions_pending", () => {
   it("lists confirmed OPEN/PROPOSED decisions in scope, oldest first, with labels and carry counts", async () => {
     const db = mockDeep<PrismaClient>();
     db.decision.findMany.mockResolvedValue([
-      { id: "d-1", number: 3, statement: "Which vendor?", status: "OPEN", createdAt: new Date("2026-08-01"), owner: { name: "Zineb" } },
-      { id: "d-2", number: 7, statement: "Adopt tRPC", status: "PROPOSED", createdAt: new Date("2026-09-01"), owner: null },
+      { id: "d-1", number: 3, statement: "Which vendor?", status: "OPEN", createdAt: new Date("2026-08-01"), owner: { name: "Zineb" }, goal: null, keyResult: { id: "kr-1", title: "100 customers", goalId: 4, goal: { title: "Grow" } } },
+      { id: "d-2", number: 7, statement: "Adopt tRPC", status: "PROPOSED", createdAt: new Date("2026-09-01"), owner: null, goal: null, keyResult: null },
     ] as never);
     const previous = { id: "occ-0", scheduledStart: prevStart, agenda: { version: 1, generatedAt: "x", sections: [{ key: "dec", type: "decisions_pending", title: "D", items: [{ id: "dec:decision:d-1", sectionKey: "dec", title: "Which vendor?", refType: "decision", refId: "d-1", order: 0, detail: "D-0003 · open question · carried 1 time" }] }] } } as unknown as CeremonyOccurrence;
     const items = await decisionsPendingSection.run(ctx(db, { previousOccurrence: previous }), { key: "dec", type: "decisions_pending", title: "Decisions" });
@@ -85,5 +85,7 @@ describe("decisions_pending", () => {
     expect(where.OR).toEqual([{ productId: "prod-1" }, { productId: null }]);
     expect(items[0]).toMatchObject({ id: "dec:decision:d-1", href: "/w/ws/decisions/d/d-1", detail: "D-0003 · open question · owner Zineb · carried 2 times" });
     expect(items[1]!.detail).toBe("D-0007 · proposed");
+    expect(items[0]).toMatchObject({ goalId: 4, goalTitle: "Grow", keyResultId: "kr-1", keyResultTitle: "100 customers" });
+    expect(items[1]).toMatchObject({ goalId: null, keyResultId: null });
   });
 });

@@ -29,6 +29,7 @@ export const retroActionsSection: SectionModule = {
         status: true,
         dueDate: true,
         completedAt: true,
+        project: { select: { goals: { select: { id: true, title: true }, take: 1 } } },
         assignees: { select: { user: { select: { name: true } } } },
       },
       orderBy: { createdAt: "asc" },
@@ -38,12 +39,15 @@ export const retroActionsSection: SectionModule = {
     return actions.map<AgendaItem>((a, index) => {
       const owners = a.assignees.map((x) => x.user.name).filter((n): n is string => Boolean(n));
       const state = a.completedAt || a.status === "COMPLETED" ? "done" : a.status.toLowerCase();
+      const goal = a.project?.goals[0] ?? null;
       return {
         id: `${section.key}:action:${a.id}`,
         sectionKey: section.key,
         title: a.name,
         refType: "action",
         refId: a.id,
+        goalId: goal?.id ?? null,
+        goalTitle: goal?.title ?? null,
         order: index,
         resolvedAt: a.completedAt ? a.completedAt.toISOString() : null,
         detail: [`from the retro on ${when}`, state, owners.length ? owners.join(", ") : "unassigned"].join(" · "),

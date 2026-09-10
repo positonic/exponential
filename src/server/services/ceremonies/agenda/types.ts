@@ -27,6 +27,8 @@ export interface AgendaItem {
   /** Objective / key result the item rolls up to, when known (goal chips). */
   goalId?: number | null;
   keyResultId?: string | null;
+  goalTitle?: string | null;
+  keyResultTitle?: string | null;
   /** Set when the item was copied from a previous occurrence's unresolved list. */
   carriedFromOccurrenceId?: string | null;
   /** Set when a person added the item by hand; hand items survive regeneration. */

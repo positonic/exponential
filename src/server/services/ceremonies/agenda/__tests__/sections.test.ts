@@ -33,8 +33,8 @@ describe("blockers section", () => {
   it("queries participants' active overdue or blocked actions in the workspace (and project) and links them", async () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([
-      { id: "a-1", name: "Fix login", dueDate: new Date("2026-09-08T00:00:00Z"), blockedByIds: [], projectId: "p-1", assignees: [{ user: { id: "u-1", name: "Andi" } }] },
-      { id: "a-2", name: "Ship drawer", dueDate: null, blockedByIds: ["a-9"], projectId: "p-1", assignees: [] },
+      { id: "a-1", name: "Fix login", dueDate: new Date("2026-09-08T00:00:00Z"), blockedByIds: [], projectId: "p-1", project: { goals: [{ id: 9, title: "Launch" }] }, assignees: [{ user: { id: "u-1", name: "Andi" } }] },
+      { id: "a-2", name: "Ship drawer", dueDate: null, blockedByIds: ["a-9"], projectId: "p-1", project: { goals: [] }, assignees: [] },
     ] as never);
     const items = await blockersSection.run(ctx(db, { ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: "p-1", productId: null } as Ceremony }), { key: "blk", type: "blockers", title: "Blockers" });
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
@@ -44,6 +44,8 @@ describe("blockers section", () => {
     expect(items[0]!.detail).toBe("due 8 Sept · Andi");
     expect(items[1]!.detail).toBe("blocked by 1 action · unassigned");
     expect(items[0]!.href).toBe("/w/ws/actions/a-1");
+    expect(items[0]).toMatchObject({ goalId: 9, goalTitle: "Launch" });
+    expect(items[1]).toMatchObject({ goalId: null, goalTitle: null });
   });
 });
 

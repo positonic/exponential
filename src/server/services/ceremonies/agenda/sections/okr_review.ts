@@ -65,6 +65,8 @@ export const okrReviewSection: SectionModule = {
         refId: kr.id,
         goalId: kr.goalId,
         keyResultId: kr.id,
+        goalTitle: kr.goal.title,
+        keyResultTitle: kr.title,
         order: items.length,
         detail: `${kr.goal.title} · ${reasons.join(", ")} · ${kr.currentValue}/${kr.targetValue} ${kr.unit}`,
         href: `${ctx.workspacePath}/goals?tab=okrs`,
