@@ -26,7 +26,14 @@ async function createScratchPage(
   const titleInput = page.getByLabel("Page title");
   await expect(titleInput).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
   await titleInput.fill(title);
-  await titleInput.blur();
+  // Wait for the rename round-trip: the menu reads the title from the cached
+  // `page.get` entry, which the mutation patches on success.
+  await Promise.all([
+    page.waitForResponse(
+      (r) => r.url().includes("/api/trpc/") && r.url().includes("page.update"),
+    ),
+    titleInput.blur(),
+  ]);
   await expect(titleInput).toHaveValue(title);
   return title;
 }
@@ -52,6 +59,45 @@ test("Copy link copies the internal editor URL, not the public one", async ({
   // The public render lives under /p/<slug>-<publicId>; Copy link never points
   // there, published or not.
   expect(copied).not.toContain("/p/");
+});
+
+test("Copy markdown serialises the live editor, unsaved edits included", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const marker = `Unsaved heading ${Date.now()}`;
+  await createScratchPage(page, `Scratch markdown ${Date.now()}`);
+
+  // Type straight into the body and copy immediately — well inside the
+  // autosave debounce, so this is the live doc, not the stored one.
+  const body = page.locator(".ProseMirror").first();
+  await body.click();
+  await page.keyboard.type(`## ${marker}`);
+
+  await page.getByLabel("Page actions").click();
+  await page.getByRole("menuitem", { name: "Copy markdown" }).click();
+
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain(`## ${marker}`);
+});
+
+test("Export > Markdown downloads a .md file named after the page", async ({
+  page,
+}) => {
+  const title = await createScratchPage(page, `Scratch export ${Date.now()}`);
+
+  await page.getByLabel("Page actions").click();
+  const download = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Markdown", exact: true })
+    .click();
+  const file = await download;
+
+  // slugifyPageTitle turns "Scratch export 1234" into "scratch-export-1234".
+  expect(file.suggestedFilename()).toBe(
+    `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`,
+  );
 });
 
 test("Delete states the impact and requires the title to be typed", async ({

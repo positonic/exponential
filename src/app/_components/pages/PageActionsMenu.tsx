@@ -8,12 +8,17 @@ import { notifications } from "@mantine/notifications";
 import {
   IconCopy,
   IconDots,
+  IconDownload,
   IconExternalLink,
   IconLink,
+  IconMarkdown,
   IconTrash,
 } from "@tabler/icons-react";
+import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { slugifyPageTitle } from "~/lib/pages/public-url";
+import { docToMarkdown } from "~/lib/prd/codec";
 import { PageDeleteDialog } from "./PageDeleteDialog";
 
 interface PageActionsMenuProps {
@@ -21,6 +26,10 @@ interface PageActionsMenuProps {
   pageTitle: string;
   workspaceSlug: string;
   canEdit: boolean;
+  /** The *live* editor document, read at click time. Export goes through the
+   * open editor rather than the server so it carries edits the debounced
+   * autosave hasn't written yet. Undefined until the editor mounts. */
+  getDoc?: () => JSONContent | null;
 }
 
 /**
@@ -36,6 +45,7 @@ export function PageActionsMenu({
   pageTitle,
   workspaceSlug,
   canEdit,
+  getDoc,
 }: PageActionsMenuProps) {
   const router = useRouter();
   const utils = api.useUtils();
@@ -57,6 +67,38 @@ export function PageActionsMenu({
     } catch (e) {
       onError(e as { message: string }, "Could not copy the link");
     }
+  };
+
+  /** The live doc as Markdown, or null when the editor hasn't mounted yet. */
+  const liveMarkdown = () => {
+    const doc = getDoc?.() ?? null;
+    return doc ? docToMarkdown(doc) : null;
+  };
+
+  const copyMarkdown = async () => {
+    const markdown = liveMarkdown();
+    if (markdown === null) return;
+    try {
+      await navigator.clipboard.writeText(markdown);
+      notifications.show({ message: "Markdown copied" });
+    } catch (e) {
+      onError(e as { message: string }, "Could not copy the Markdown");
+    }
+  };
+
+  // Client-side download: a Blob URL, no server render. Revoked on the next
+  // tick — the click has already handed the blob to the browser by then.
+  const exportMarkdown = () => {
+    const markdown = liveMarkdown();
+    if (markdown === null) return;
+    const url = URL.createObjectURL(
+      new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
+    );
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${slugifyPageTitle(pageTitle)}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
@@ -95,6 +137,22 @@ export function PageActionsMenu({
             leftSection={<IconExternalLink size={14} />}
           >
             Open in new tab
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconMarkdown size={14} />}
+            onClick={() => void copyMarkdown()}
+          >
+            Copy markdown
+          </Menu.Item>
+          {/* A labelled section rather than a flyout: Mantine 7 has no
+              Menu.Sub (it lands in v8), and a section keeps the items in the
+              same order without a hover-only target. */}
+          <Menu.Label>Export</Menu.Label>
+          <Menu.Item
+            leftSection={<IconDownload size={14} />}
+            onClick={exportMarkdown}
+          >
+            Markdown
           </Menu.Item>
           {canEdit ? (
             <>

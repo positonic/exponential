@@ -208,6 +208,7 @@ function PageEditorContent({
             pageTitle={page.title}
             workspaceSlug={workspaceSlug}
             canEdit={page.canEdit}
+            getDoc={() => editorHandleRef.current?.editor?.getJSON() ?? null}
           />
         </div>
       </div>
