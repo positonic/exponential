@@ -16,7 +16,13 @@ export type ActivityAction =
   | "synced"
   | "reverted"
   | "checked_in"
-  | "deleted";
+  | "deleted"
+  // Decision lifecycle (ADR-0060): each terminal transition is its own
+  // action so the feed reads as a lifecycle rather than "status changed".
+  | "accepted"
+  | "superseded"
+  | "deprecated"
+  | "confirmed";
 
 /**
  * Entity types we currently log activity for. New writers append new values

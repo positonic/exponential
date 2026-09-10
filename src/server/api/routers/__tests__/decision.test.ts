@@ -175,7 +175,11 @@ describe("decision router", () => {
         source: "AGENT",
       });
       expect(result.label).toBe("D-0007");
-      expect(db.user.findUnique).not.toHaveBeenCalled();
+      // The creator lookup (deciders default) may read the user, but never isAgent.
+      for (const call of db.user.findUnique.mock.calls) {
+        const select = (call[0] as { select?: Record<string, unknown> }).select ?? {};
+        expect(select).not.toHaveProperty("isAgent");
+      }
     });
   });
 
@@ -244,6 +248,32 @@ describe("decision router", () => {
           }),
         }),
       );
+    });
+
+    it("manual create: deciders default to the creator when none are named", async () => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      db.user.findUnique.mockResolvedValue({
+        id: USER_ID,
+        name: "Dev Fixture",
+        email: "dev@example.test",
+      } as never);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 2 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-2",
+        number: 2,
+        statement: "x",
+        status: "ACCEPTED",
+        source: "MANUAL",
+        transcriptionSessionId: null,
+      } as never);
+
+      await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x" });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.deciders).toEqual({
+        create: [{ userId: USER_ID, name: "Dev Fixture", email: "dev@example.test" }],
+      });
     });
 
     it("refuses a birth state of SUPERSEDED or DEPRECATED", async () => {
@@ -346,6 +376,206 @@ describe("decision router", () => {
           transcriptionSessionId: MEETING_ID,
         }),
       ).rejects.toThrow(/meeting not found/i);
+    });
+  });
+
+  describe("setStatus", () => {
+    /** A confirmed, meeting-less, project-less decision in the workspace. */
+    function withDecision(
+      overrides: Partial<{
+        id: string;
+        status: string;
+        reviewState: string;
+        decidedAt: Date | null;
+      }> = {},
+    ) {
+      const row = {
+        id: "dec-1",
+        workspaceId: WORKSPACE_ID,
+        number: 1,
+        statement: "Use tRPC",
+        status: "PROPOSED",
+        reviewState: "CONFIRMED",
+        decidedAt: null,
+        supersededById: null,
+        source: "MANUAL",
+        transcriptionSessionId: null,
+        transcriptionSession: null,
+        projectId: null,
+        ...overrides,
+      };
+      // Router subject load (findFirst by id + workspace) and the service's
+      // own re-read (findUnique) see the same row.
+      db.decision.findFirst.mockImplementation(((args: { where: { id: string } }) =>
+        Promise.resolve(args.where.id === row.id ? row : null)) as never);
+      db.decision.findUnique.mockResolvedValue(row as never);
+      db.decision.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({ ...row, ...args.data, supersededBy: null })) as never);
+      return row;
+    }
+
+    it("a viewer may not change status (workspace edit gate)", async () => {
+      withWorkspaceRole(db, "viewer");
+      withDecision();
+      await expect(
+        caller(db).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          status: "ACCEPTED",
+        }),
+      ).rejects.toThrow();
+      expect(db.decision.update).not.toHaveBeenCalled();
+    });
+
+    it("accepting stamps decided-at when unset and records an `accepted` event", async () => {
+      withWorkspaceRole(db, "member");
+      withDecision({ decidedAt: null });
+
+      const result = await caller(db).decision.setStatus({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        status: "ACCEPTED",
+      });
+
+      const data = (db.decision.update.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.status).toBe("ACCEPTED");
+      expect(data.supersededById).toBeNull();
+      expect(data.decidedAt).toBeInstanceOf(Date);
+      expect(result.label).toBe("D-0001");
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ entityType: "decision", action: "accepted" }),
+        }),
+      );
+    });
+
+    it("SUPERSEDED requires a successor", async () => {
+      withWorkspaceRole(db, "member");
+      withDecision();
+      await expect(
+        caller(db).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          status: "SUPERSEDED",
+        }),
+      ).rejects.toThrow(/choose the decision/i);
+      expect(db.decision.update).not.toHaveBeenCalled();
+    });
+
+    it("SUPERSEDED refuses a successor outside the workspace (or the caller's sight)", async () => {
+      withWorkspaceRole(db, "member");
+      withDecision();
+      // findFirst is scoped by workspaceId, so an unknown/foreign id is not found.
+      await expect(
+        caller(db).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          status: "SUPERSEDED",
+          supersededById: "dec-elsewhere",
+        }),
+      ).rejects.toThrow(/decision not found/i);
+      expect(db.decision.update).not.toHaveBeenCalled();
+    });
+
+    it("SUPERSEDED links the successor and records a `superseded` event", async () => {
+      withWorkspaceRole(db, "member");
+      const row = withDecision({ status: "ACCEPTED" });
+      const successor = { ...row, id: "dec-2", number: 2, statement: "Use REST" };
+      db.decision.findFirst.mockImplementation(((args: { where: { id: string } }) =>
+        Promise.resolve(
+          args.where.id === row.id ? row : args.where.id === successor.id ? successor : null,
+        )) as never);
+
+      await caller(db).decision.setStatus({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        status: "SUPERSEDED",
+        supersededById: "dec-2",
+      });
+
+      const data = (db.decision.update.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data).toMatchObject({ status: "SUPERSEDED", supersededById: "dec-2" });
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            action: "superseded",
+            metadata: expect.objectContaining({ from: "ACCEPTED", to: "SUPERSEDED" }),
+          }),
+        }),
+      );
+    });
+
+    it("leaving SUPERSEDED clears the successor; deprecating records `deprecated`", async () => {
+      withWorkspaceRole(db, "member");
+      withDecision({ status: "SUPERSEDED" });
+
+      await caller(db).decision.setStatus({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        status: "DEPRECATED",
+      });
+
+      const data = (db.decision.update.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data).toMatchObject({ status: "DEPRECATED", supersededById: null });
+      expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: "deprecated" }) }),
+      );
+    });
+
+    it("a draft cannot change status until it is confirmed", async () => {
+      withWorkspaceRole(db, "member");
+      // A meeting-less draft is a V2 shape, but the rule is the service's, not the resolver's.
+      withDecision({ reviewState: "DRAFT", status: "PROPOSED" });
+      withMeeting(db);
+      await expect(
+        caller(db).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          status: "ACCEPTED",
+        }),
+      ).rejects.toThrow();
+      expect(db.decision.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("deleteDraft", () => {
+    function withRow(reviewState: string) {
+      const row = {
+        id: "dec-1",
+        workspaceId: WORKSPACE_ID,
+        reviewState,
+        transcriptionSession: null,
+        projectId: null,
+      };
+      db.decision.findFirst.mockResolvedValue(row as never);
+      db.decision.findUnique.mockResolvedValue(row as never);
+      db.decision.delete.mockResolvedValue(row as never);
+    }
+
+    it("refuses to delete a confirmed decision — deprecate or supersede instead", async () => {
+      withWorkspaceRole(db, "member");
+      withRow("CONFIRMED");
+      await expect(
+        caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1" }),
+      ).rejects.toThrow(/never deleted/i);
+      expect(db.decision.delete).not.toHaveBeenCalled();
+    });
+
+    it("deletes a rejected row", async () => {
+      withWorkspaceRole(db, "member");
+      withRow("REJECTED");
+      await expect(
+        caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1" }),
+      ).resolves.toEqual({ id: "dec-1" });
+      expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "dec-1" } });
+    });
+
+    it("rejectDraft refuses a confirmed decision", async () => {
+      withWorkspaceRole(db, "member");
+      withRow("CONFIRMED");
+      await expect(
+        caller(db).decision.rejectDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1" }),
+      ).rejects.toThrow(/cannot be rejected/i);
     });
   });
 

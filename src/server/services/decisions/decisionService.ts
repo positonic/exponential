@@ -166,6 +166,20 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
     );
   }
 
+  // A decision logged by hand with no deciders named is the creator's own
+  // call; Zoe logs on the session user's behalf, so the same default holds.
+  if (!input.transcriptionSessionId && deciders === null) {
+    const creator = await db.user.findUnique({
+      where: { id: input.createdById },
+      select: { id: true, name: true, email: true },
+    });
+    deciders = creator
+      ? normaliseDeciders([
+          { userId: creator.id, name: creator.name ?? creator.email ?? "Unknown", email: creator.email },
+        ])
+      : [];
+  }
+
   const evidence = (input.evidence ?? []).map((turn) => ({
     turnIndex: turn.turnIndex,
     speaker: turn.speaker ?? null,
@@ -348,4 +362,260 @@ export async function listForMeeting(
       ? { id: row.supersededBy.id, label: formatDecisionLabel(row.supersededBy.number) }
       : null,
   }));
+}
+
+/** Columns a status or draft transition needs before it decides anything. */
+const transitionSelect = {
+  id: true,
+  workspaceId: true,
+  number: true,
+  statement: true,
+  status: true,
+  reviewState: true,
+  decidedAt: true,
+  supersededById: true,
+  source: true,
+  transcriptionSessionId: true,
+} satisfies Prisma.DecisionSelect;
+
+function activityTitle(decision: { number: number; statement: string }): string {
+  return `${formatDecisionLabel(decision.number)} ${decision.statement}`;
+}
+
+export interface UpdateDecisionPatch {
+  statement?: string;
+  body?: string | null;
+  decidedAt?: Date | null;
+  ownerId?: string | null;
+  productId?: string | null;
+  projectId?: string | null;
+  goalId?: number | null;
+  keyResultId?: string | null;
+}
+
+/** Edit a decision's content and scope. Status has its own path (`setStatus`). */
+export async function updateDecision(
+  db: PrismaClient,
+  input: { decisionId: string; userId: string; patch: UpdateDecisionPatch },
+) {
+  const { patch } = input;
+  const decision = await db.decision.update({
+    where: { id: input.decisionId },
+    data: {
+      ...(patch.statement !== undefined ? { statement: patch.statement.trim() } : {}),
+      ...(patch.body !== undefined ? { body: patch.body?.trim() ? patch.body : null } : {}),
+      ...(patch.decidedAt !== undefined ? { decidedAt: patch.decidedAt } : {}),
+      ...(patch.ownerId !== undefined ? { ownerId: patch.ownerId } : {}),
+      ...(patch.productId !== undefined ? { productId: patch.productId } : {}),
+      ...(patch.projectId !== undefined ? { projectId: patch.projectId } : {}),
+      ...(patch.goalId !== undefined ? { goalId: patch.goalId } : {}),
+      ...(patch.keyResultId !== undefined ? { keyResultId: patch.keyResultId } : {}),
+    },
+    include: decisionDetailInclude,
+  });
+  await recordActivity(db, {
+    workspaceId: decision.workspaceId,
+    userId: input.userId,
+    entityType: "decision",
+    entityId: decision.id,
+    action: "updated",
+    metadata: {
+      title: activityTitle(decision),
+      label: formatDecisionLabel(decision.number),
+      fields: Object.keys(patch),
+    },
+  });
+  return decision;
+}
+
+export interface SetStatusInput {
+  decisionId: string;
+  userId: string;
+  status: DecisionStatus;
+  /** Required for SUPERSEDED: the confirmed decision in the same workspace that replaces this one. */
+  supersededById?: string | null;
+}
+
+/**
+ * Move a confirmed decision along its lifecycle. SUPERSEDED needs the
+ * successor (same workspace, confirmed, not itself) and is the only status
+ * that keeps `supersededById`; leaving SUPERSEDED clears it. Accepting a
+ * decision that has no date stamps it now. Each terminal transition records
+ * its own activity action (accepted / superseded / deprecated) so the feed
+ * reads as a lifecycle; OPEN and PROPOSED are a plain status change.
+ */
+export async function setStatus(db: PrismaClient, input: SetStatusInput) {
+  const current = await db.decision.findUnique({
+    where: { id: input.decisionId },
+    select: transitionSelect,
+  });
+  if (!current) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+  }
+  if (current.reviewState !== "CONFIRMED") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Confirm the draft before changing its status",
+    });
+  }
+
+  let supersededById: string | null = null;
+  if (input.status === "SUPERSEDED") {
+    if (!input.supersededById) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Choose the decision that supersedes this one",
+      });
+    }
+    if (input.supersededById === current.id) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A decision cannot supersede itself",
+      });
+    }
+    const successor = await db.decision.findFirst({
+      where: {
+        id: input.supersededById,
+        workspaceId: current.workspaceId,
+        reviewState: "CONFIRMED",
+      },
+      select: { id: true, number: true },
+    });
+    if (!successor) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Superseding decision not found" });
+    }
+    supersededById = successor.id;
+  }
+
+  const decision = await db.decision.update({
+    where: { id: current.id },
+    data: {
+      status: input.status,
+      supersededById,
+      ...(input.status === "ACCEPTED" && !current.decidedAt ? { decidedAt: new Date() } : {}),
+    },
+    include: decisionDetailInclude,
+  });
+
+  const action =
+    input.status === "ACCEPTED"
+      ? "accepted"
+      : input.status === "SUPERSEDED"
+        ? "superseded"
+        : input.status === "DEPRECATED"
+          ? "deprecated"
+          : "status_changed";
+  await recordActivity(db, {
+    workspaceId: decision.workspaceId,
+    userId: input.userId,
+    entityType: "decision",
+    entityId: decision.id,
+    action,
+    metadata: {
+      title: activityTitle(decision),
+      label: formatDecisionLabel(decision.number),
+      from: current.status,
+      to: decision.status,
+      supersededById,
+      supersededByLabel: decision.supersededBy
+        ? formatDecisionLabel(decision.supersededBy.number)
+        : null,
+    },
+  });
+  return decision;
+}
+
+/**
+ * Publish a draft (V2 extraction writes drafts; V1 only exposes the seam).
+ * Idempotent: confirming a confirmed row returns it unchanged and records
+ * nothing.
+ */
+export async function confirmDraft(
+  db: PrismaClient,
+  input: { decisionId: string; userId: string },
+) {
+  const current = await db.decision.findUnique({
+    where: { id: input.decisionId },
+    select: transitionSelect,
+  });
+  if (!current) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+  }
+  if (current.reviewState === "CONFIRMED") {
+    return db.decision.findUniqueOrThrow({
+      where: { id: current.id },
+      include: decisionDetailInclude,
+    });
+  }
+  const decision = await db.decision.update({
+    where: { id: current.id },
+    data: {
+      reviewState: "CONFIRMED",
+      confirmedById: input.userId,
+      confirmedAt: new Date(),
+    },
+    include: decisionDetailInclude,
+  });
+  await recordActivity(db, {
+    workspaceId: decision.workspaceId,
+    userId: input.userId,
+    entityType: "decision",
+    entityId: decision.id,
+    action: "confirmed",
+    metadata: {
+      title: activityTitle(decision),
+      label: formatDecisionLabel(decision.number),
+      status: decision.status,
+      source: decision.source,
+    },
+  });
+  return decision;
+}
+
+/** Reject a draft. A confirmed decision is never rejected — deprecate it. */
+export async function rejectDraft(
+  db: PrismaClient,
+  input: { decisionId: string; userId: string },
+) {
+  const current = await db.decision.findUnique({
+    where: { id: input.decisionId },
+    select: { id: true, reviewState: true },
+  });
+  if (!current) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+  }
+  if (current.reviewState === "CONFIRMED") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A confirmed decision cannot be rejected — deprecate or supersede it",
+    });
+  }
+  return db.decision.update({
+    where: { id: current.id },
+    data: { reviewState: "REJECTED" },
+    select: { id: true, reviewState: true },
+  });
+}
+
+/**
+ * Hard-delete a draft or rejected row. Confirmed decisions are never
+ * deleted (ADR-0060): they are deprecated or superseded so the log keeps
+ * its history.
+ */
+export async function deleteDraft(db: PrismaClient, input: { decisionId: string }) {
+  const current = await db.decision.findUnique({
+    where: { id: input.decisionId },
+    select: { id: true, reviewState: true },
+  });
+  if (!current) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+  }
+  if (current.reviewState === "CONFIRMED") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Confirmed decisions are never deleted — deprecate or supersede instead",
+    });
+  }
+  await db.decision.delete({ where: { id: current.id } });
+  return { id: current.id };
 }

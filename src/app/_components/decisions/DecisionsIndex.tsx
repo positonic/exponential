@@ -14,6 +14,7 @@ import {
   IconMicrophone,
   IconPaperclip,
   IconPencil,
+  IconPlus,
   IconQuote,
   IconSearch,
   IconX,
@@ -21,6 +22,8 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { LogDecisionModal } from "./LogDecisionModal";
 import {
   decisionToLogRow,
   filterLogRows,
@@ -522,6 +525,12 @@ export function DecisionsIndex({
   const [productFilter, setProductFilter] = useState<string | null>(
     defaultProductId ?? null,
   );
+  // "New decision" is the manual create path (ADR-0060). Viewers and guests
+  // read the log but the create mutation gates at workspace edit, so the
+  // button hides for them rather than failing on click.
+  const { userRole } = useWorkspace();
+  const canCreate = userRole !== null && userRole !== "viewer" && userRole !== "guest";
+  const [newDecisionOpen, setNewDecisionOpen] = useState(false);
 
   const query = search.trim();
   const q = query.toLowerCase();
@@ -715,7 +724,26 @@ export function DecisionsIndex({
             <IconAffiliate size={14} stroke={1.75} />
             Open graph
           </Link>
+          {canCreate ? (
+            <button
+              type="button"
+              className="dec-primary"
+              onClick={() => setNewDecisionOpen(true)}
+            >
+              <IconPlus size={14} stroke={1.75} />
+              New decision
+            </button>
+          ) : null}
         </div>
+        {canCreate ? (
+          <LogDecisionModal
+            opened={newDecisionOpen}
+            onClose={() => setNewDecisionOpen(false)}
+            workspaceId={workspaceId}
+            workspaceSlug={workspaceSlug}
+            productId={defaultProductId ?? null}
+          />
+        ) : null}
 
         <div className="dec-bar">
           <label className="dec-search">

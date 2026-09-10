@@ -15,6 +15,7 @@ import {
 import { IconArrowLeft, IconMicrophone, IconPencil, IconQuote } from "@tabler/icons-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import {
   evidenceHref,
@@ -182,6 +183,12 @@ export default function DecisionPage() {
             ) : null}
           </Group>
         </div>
+        {decision.canEdit ? (
+          <DecisionStatusMenu
+            workspaceId={workspace.id}
+            decision={{ id: decision.id, label: decision.label, status: decision.status }}
+          />
+        ) : null}
       </Group>
 
       <Stack gap={4} mt="md">

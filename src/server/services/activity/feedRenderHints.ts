@@ -275,8 +275,20 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} changed status on decision {entityRef}",
     iconKind: "status_changed",
   },
-  [key("decision", "completed")]: {
+  [key("decision", "accepted")]: {
     template: "{actor} accepted decision {entityRef}",
+    iconKind: "completed",
+  },
+  [key("decision", "superseded")]: {
+    template: "{actor} superseded decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "deprecated")]: {
+    template: "{actor} deprecated decision {entityRef}",
+    iconKind: "deleted",
+  },
+  [key("decision", "confirmed")]: {
+    template: "{actor} confirmed decision {entityRef}",
     iconKind: "completed",
   },
 

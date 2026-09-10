@@ -48,6 +48,8 @@ interface LogDecisionModalProps {
   /** For the "View" link in the success notification; null hides it. */
   workspaceSlug: string | null;
   meeting?: LogDecisionMeetingContext;
+  /** Product scope for a decision logged from the product lens. */
+  productId?: string | null;
   evidence?: DecisionEvidenceTurn[];
   onRemoveEvidence?: (turnIndex: number) => void;
   onCreated?: (decision: { id: string; label: string }) => void;
@@ -59,6 +61,7 @@ export function LogDecisionModal({
   workspaceId,
   workspaceSlug,
   meeting,
+  productId = null,
   evidence = [],
   onRemoveEvidence,
   onCreated,
@@ -125,6 +128,7 @@ export function LogDecisionModal({
       status,
       decidedAt,
       transcriptionSessionId: meeting?.id ?? null,
+      productId,
       deciders,
       evidence: meeting ? evidence : undefined,
     });

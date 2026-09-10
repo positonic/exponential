@@ -13,10 +13,15 @@ import {
   requireWorkspaceMembership,
 } from "~/server/services/access";
 import {
+  confirmDraft,
   createDecision,
   decisionDetailInclude,
+  deleteDraft,
   listForMeeting,
   listForWorkspace,
+  rejectDraft,
+  setStatus,
+  updateDecision,
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
 
@@ -281,5 +286,105 @@ export const decisionRouter = createTRPCRouter({
         createdById: ctx.session.user.id,
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
+    }),
+
+  /** Edit content and scope. Status changes go through `setStatus`. */
+  update: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        decisionId: z.string(),
+        statement: z.string().trim().min(1).max(500).optional(),
+        body: z.string().max(20_000).nullable().optional(),
+        decidedAt: z.coerce.date().nullable().optional(),
+        ownerId: z.string().nullable().optional(),
+        productId: z.string().nullable().optional(),
+        projectId: z.string().nullable().optional(),
+        goalId: z.number().int().nullable().optional(),
+        keyResultId: z.string().nullable().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const { workspaceId, decisionId, ...patch } = input;
+      const subject = await loadDecisionSubject(ctx.db, workspaceId, decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      const decision = await updateDecision(ctx.db, {
+        decisionId: subject.id,
+        userId: ctx.session.user.id,
+        patch,
+      });
+      return { ...decision, label: formatDecisionLabel(decision.number) };
+    }),
+
+  /**
+   * Lifecycle transition. SUPERSEDED requires `supersededById`, which must
+   * be a decision the caller may read in the same workspace.
+   */
+  setStatus: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        decisionId: z.string(),
+        status: decisionStatusSchema,
+        supersededById: z.string().nullable().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      if (input.status === "SUPERSEDED" && input.supersededById) {
+        const successor = await loadDecisionSubject(
+          ctx.db,
+          input.workspaceId,
+          input.supersededById,
+        );
+        await ensureDecisionAccess(ctx.db, ctx.session.user.id, successor, "view");
+      }
+      const decision = await setStatus(ctx.db, {
+        decisionId: subject.id,
+        userId: ctx.session.user.id,
+        status: input.status,
+        supersededById: input.supersededById ?? null,
+      });
+      return { ...decision, label: formatDecisionLabel(decision.number) };
+    }),
+
+  /** Publish a draft into the log (the seam V2's review card will call). */
+  confirmDraft: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      const decision = await confirmDraft(ctx.db, {
+        decisionId: subject.id,
+        userId: ctx.session.user.id,
+      });
+      return { ...decision, label: formatDecisionLabel(decision.number) };
+    }),
+
+  /** Reject a draft. Confirmed decisions are deprecated, never rejected. */
+  rejectDraft: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      return rejectDraft(ctx.db, { decisionId: subject.id, userId: ctx.session.user.id });
+    }),
+
+  /**
+   * Hard-delete a draft or rejected row only. A confirmed decision is never
+   * deleted (ADR-0060) — the service refuses.
+   */
+  deleteDraft: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      return deleteDraft(ctx.db, { decisionId: subject.id });
     }),
 });
