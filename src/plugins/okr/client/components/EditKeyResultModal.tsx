@@ -472,13 +472,12 @@ export function EditKeyResultModal({
       // be mistaken for "unlink everything".
       const knownProjectIds = linkedProjectIdsOf(currentKeyResult.projects);
       const knownFeatureIds = linkedFeatureIdsOf(currentKeyResult.features);
-      const hasLinkBaseline =
-        currentKeyResult.projects !== undefined ||
-        currentKeyResult.features !== undefined;
       const projectsChanged =
-        hasLinkBaseline && !sameIdSet(knownProjectIds, selectedProjectIds);
+        currentKeyResult.projects !== undefined &&
+        !sameIdSet(knownProjectIds, selectedProjectIds);
       const featuresChanged =
-        hasLinkBaseline && !sameIdSet(knownFeatureIds, selectedFeatureIds);
+        currentKeyResult.features !== undefined &&
+        !sameIdSet(knownFeatureIds, selectedFeatureIds);
 
       // Close now; the mutations and the refresh run behind the modal.
       onClose();
