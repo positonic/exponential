@@ -76,6 +76,26 @@ describe("PRD document codec", () => {
       expect(docToMarkdown(doc)).toBe("![shot](https://blob.example/shot.png)");
     });
 
+    it("a divider round-trips as a thematic break", () => {
+      const md = "Above\n\n---\n\nBelow";
+      const out = roundTrip(md);
+      expect(out).toContain("Above");
+      expect(out).toContain("Below");
+      expect(out).toMatch(/\n-{3,}\n/);
+      // And a doc-authored horizontalRule node serialises to the same break,
+      // which is what the `/divider` slash command inserts.
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Above" }] },
+          { type: "horizontalRule" },
+          { type: "paragraph", content: [{ type: "text", text: "Below" }] },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe(out);
+      expect(roundTrip(out)).toBe(out);
+    });
+
     it("nested lists survive and serialise stably", () => {
       const md = ["- Parent", "  - Child", "  - Child 2", "- Sibling"].join("\n");
       const out = roundTrip(md);

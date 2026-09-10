@@ -19,6 +19,7 @@ import {
   IconListNumbers,
   IconCode,
   IconQuote,
+  IconSeparator,
   IconTable,
   type TablerIcon,
 } from "@tabler/icons-react";
@@ -94,6 +95,13 @@ const COMMANDS: SlashCommandItem[] = [
     icon: IconQuote,
     run: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
+  },
+  {
+    title: "Divider",
+    description: "Horizontal rule",
+    icon: IconSeparator,
+    run: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
   },
   {
     title: "Table",
