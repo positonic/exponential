@@ -34,6 +34,62 @@ async function createScratchPage(
   return page.url();
 }
 
+test("the block menu offers Text, Divider and Image", async ({ page }) => {
+  await createScratchPage(page, `Scratch blocks ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  await page.keyboard.type("/");
+  // The menu is a tippy popup on <body>, not inside the editor.
+  for (const label of ["Text", "Divider", "Image"]) {
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+  }
+});
+
+test("/text turns a heading back into a paragraph", async ({ page }) => {
+  await createScratchPage(page, `Scratch text ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  await page.keyboard.type("# Shouting");
+  await expect(body.locator("h1")).toHaveText("Shouting");
+
+  await page.keyboard.type(" /text");
+  await expect(page.getByText("Plain paragraph")).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  await expect(body.locator("h1")).toHaveCount(0);
+  await expect(body.locator("p").first()).toContainText("Shouting");
+});
+
+/** The smallest valid PNG: 1x1, transparent. */
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("/image uploads the picked file and inserts it", async ({ page }) => {
+  await createScratchPage(page, `Scratch image ${Date.now()}`);
+  const body = page.locator(".ProseMirror").first();
+
+  await body.click();
+  await page.keyboard.type("/image");
+  await expect(page.getByText("Upload an image")).toBeVisible();
+
+  // The command builds a native <input type=file> and clicks it.
+  const chooser = page.waitForEvent("filechooser");
+  await page.keyboard.press("Enter");
+  await (await chooser).setFiles({
+    name: "tiny.png",
+    mimeType: "image/png",
+    buffer: TINY_PNG,
+  });
+
+  await expect(body.locator("img")).toHaveCount(1, { timeout: 30_000 });
+  // The "/image" text is gone — the range is deleted before the dialog opens.
+  await expect(body).not.toContainText("/image");
+});
+
 test("/divider inserts a rule that survives a reload as ---", async ({ page }) => {
   await createScratchPage(page, `Scratch divider ${Date.now()}`);
   const body = page.locator(".ProseMirror").first();

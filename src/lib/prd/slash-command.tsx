@@ -18,12 +18,19 @@ import {
   IconListCheck,
   IconListNumbers,
   IconCode,
+  IconPhoto,
   IconQuote,
   IconSeparator,
   IconTable,
+  IconTypography,
   type TablerIcon,
 } from "@tabler/icons-react";
 import tippy, { type Instance, type GetReferenceClientRect } from "tippy.js";
+import {
+  pickImageFile,
+  uploadImageFile,
+  type UploadImage,
+} from "./image-upload";
 
 /**
  * `/` slash-command block menu for the PRD editor (ADR-0024 Tier B). Built on
@@ -40,6 +47,13 @@ export interface SlashCommandItem {
 }
 
 const COMMANDS: SlashCommandItem[] = [
+  {
+    title: "Text",
+    description: "Plain paragraph",
+    icon: IconTypography,
+    run: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setParagraph().run(),
+  },
   {
     title: "Heading 1",
     description: "Big section heading",
@@ -116,6 +130,33 @@ const COMMANDS: SlashCommandItem[] = [
         .run(),
   },
 ];
+
+/**
+ * The `/image` block: pick a file, push it through the host's uploader, drop
+ * the returned URL in as an `image` node. Only offered when the host supplied
+ * an uploader — without one the command would have nowhere to put the bytes.
+ *
+ * The range is deleted up front so the `/image` text doesn't sit in the doc
+ * while the file dialog is open; the insert lands at whatever the selection
+ * is when the upload returns.
+ */
+function imageCommand(upload: UploadImage): SlashCommandItem {
+  return {
+    title: "Image",
+    description: "Upload an image",
+    icon: IconPhoto,
+    run: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      void (async () => {
+        const file = await pickImageFile();
+        if (!file) return;
+        const url = await uploadImageFile(file, upload);
+        if (!url) return;
+        editor.chain().focus().setImage({ src: url }).run();
+      })();
+    },
+  };
+}
 
 interface SlashCommandListProps {
   items: SlashCommandItem[];
@@ -248,6 +289,8 @@ const suggestion: Omit<SuggestionOptions<SlashCommandItem>, "editor" | "items"> 
 export interface SlashCommandOptions {
   /** Host-injected commands appended after the built-in block commands. */
   extraCommands: SlashCommandItem[];
+  /** Enables the `/image` block. Same uploader the paste/drop path uses. */
+  uploadImage?: UploadImage;
 }
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -260,10 +303,18 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
       Suggestion({
         editor: this.editor,
         ...suggestion,
-        items: ({ query }) =>
-          [...COMMANDS, ...this.options.extraCommands].filter((item) =>
-            item.title.toLowerCase().startsWith(query.toLowerCase()),
-          ),
+        items: ({ query }) => {
+          const upload = this.options.uploadImage;
+          const all = [
+            ...COMMANDS,
+            ...(upload ? [imageCommand(upload)] : []),
+            ...this.options.extraCommands,
+          ];
+          const needle = query.toLowerCase();
+          return all.filter((item) =>
+            item.title.toLowerCase().startsWith(needle),
+          );
+        },
       }),
     ];
   },
