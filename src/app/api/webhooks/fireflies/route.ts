@@ -3,6 +3,7 @@ import { createHmac } from 'crypto';
 import { safeSignatureEquals } from '~/server/utils/webhookSignature';
 import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
+import { attachMeetingToOccurrence } from '~/server/services/ceremonies/autoAttach';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
 import { decryptFromBase64 } from '~/server/utils/encryption';
