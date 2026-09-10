@@ -491,6 +491,23 @@ export interface CreateDraftDecisionInput {
  * meeting-level event instead.
  */
 export async function createDraftDecision(db: PrismaClient, input: CreateDraftDecisionInput) {
+  return db.$transaction((tx) => createDraftDecisionInTx(tx, input));
+}
+
+/**
+ * The body of {@link createDraftDecision}, taking a transaction client so a
+ * caller that already has one can write several drafts atomically.
+ *
+ * Prisma's `TransactionClient` has no `$transaction` of its own — interactive
+ * transactions do not nest — so a caller inside one MUST use this rather than
+ * passing its `tx` to the wrapper above. A `mockDeep<PrismaClient>()` happily
+ * answers `$transaction` on the mocked `tx`, so that mistake type-checks, runs
+ * green in unit tests, and only fails against a real database.
+ */
+export async function createDraftDecisionInTx(
+  tx: Prisma.TransactionClient,
+  input: CreateDraftDecisionInput,
+) {
   const deciders = normaliseDeciders(input.deciders ?? []);
   const evidence = (input.evidence ?? []).map((turn) => ({
     turnIndex: turn.turnIndex,
@@ -498,7 +515,7 @@ export async function createDraftDecision(db: PrismaClient, input: CreateDraftDe
     startTime: turn.startTime ?? null,
     text: turn.text,
   }));
-  return db.$transaction(async (tx) => {
+  {
     const counter = await tx.workspace.update({
       where: { id: input.workspaceId },
       data: { decisionCounter: { increment: 1 } },
@@ -532,7 +549,7 @@ export async function createDraftDecision(db: PrismaClient, input: CreateDraftDe
       },
       select: { id: true, number: true, statement: true, supersededById: true },
     });
-  });
+  }
 }
 
 /** Columns a status or draft transition needs before it decides anything. */

@@ -105,7 +105,22 @@ describe("generateDraftDecisions", () => {
 
     db.transcriptionSession.findUnique.mockResolvedValue(MEETING as never);
     db.decision.findMany.mockResolvedValue([] as never);
-    db.$transaction.mockImplementation(async (fn: unknown) => (fn as (tx: PrismaClient) => Promise<unknown>)(db));
+    // Hand the callback a client WITHOUT `$transaction`, the way Prisma does:
+    // `Prisma.TransactionClient` omits it because interactive transactions do
+    // not nest. A plain `mockDeep` tx answers `$transaction` happily, which
+    // lets a nested-transaction bug type-check and pass while failing against
+    // a real database — this proxy makes that mistake fail here instead.
+    const txClient = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "$transaction") {
+          throw new Error("tx.$transaction is not a function — interactive transactions do not nest");
+        }
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    db.$transaction.mockImplementation(async (fn: unknown) =>
+      (fn as (tx: PrismaClient) => Promise<unknown>)(txClient as unknown as PrismaClient),
+    );
     db.workspace.update.mockImplementation((() => {
       counter++;
       return Promise.resolve({ decisionCounter: counter });

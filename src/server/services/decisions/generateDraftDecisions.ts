@@ -26,7 +26,7 @@ import {
   type DecisionCandidate,
   type OpenDecisionRef,
 } from "~/server/services/DecisionExtractionService";
-import { createDraftDecision, type DecisionDeciderInput } from "./decisionService";
+import { createDraftDecisionInTx, type DecisionDeciderInput } from "./decisionService";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
@@ -355,7 +355,7 @@ export async function generateDraftDecisions(
     if (candidates.length > 0) {
       await db.$transaction(async (tx) => {
         for (const candidate of candidates) {
-          const draft = await createDraftDecision(tx as unknown as PrismaClient, {
+          const draft = await createDraftDecisionInTx(tx, {
             workspaceId,
             createdById: userId,
             transcriptionSessionId: meeting.id,
