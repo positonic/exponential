@@ -1109,6 +1109,9 @@ export const transcriptionRouter = createTRPCRouter({
           meetingType: z
             .enum(["all", "mine", "one_on_one", "customer", "internal"])
             .optional(),
+          // Ceremony filter (ADR-0059): only meetings attached to an
+          // occurrence of this ceremony.
+          ceremonyId: z.string().optional(),
         })
         .optional(),
     )
@@ -1146,6 +1149,10 @@ export const transcriptionRouter = createTRPCRouter({
 
       if (input?.meetingType === "one_on_one") {
         filters.push({ participantCount: 2 });
+      }
+
+      if (input?.ceremonyId) {
+        filters.push({ occurrence: { ceremonyId: input.ceremonyId } });
       }
 
       if (input?.meetingType === "mine") {
@@ -1199,6 +1206,16 @@ export const transcriptionRouter = createTRPCRouter({
               name: true,
               user: { select: { id: true, name: true, image: true } },
               contact: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+          // The ceremony occurrence this meeting captured (ADR-0059), for
+          // the list's ceremony filter and chip.
+          occurrence: {
+            select: {
+              id: true,
+              ceremonyId: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true } },
             },
           },
         },
