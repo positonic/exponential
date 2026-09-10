@@ -1114,11 +1114,10 @@ export function OkrDashboard({
           setEditingKeyResult(null);
         }}
         onSuccess={() => {
-          void utils.okr.getByObjective.invalidate();
-          void utils.okr.getStats.invalidate();
-          void utils.okr.getCountsByYear.invalidate();
-          // Refresh the objective drawer (goal.getById) so a KR check-in made
-          // via its "Update progress" picker reflects immediately.
+          // The modal already refreshed every okr.* query once its mutations
+          // settled — repeating those here would abort and re-issue that
+          // refetch. Only the objective drawer (goal.getById) is ours, so a
+          // KR check-in made via its "Update progress" picker reflects.
           void utils.goal.getById.invalidate();
         }}
       />

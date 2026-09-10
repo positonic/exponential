@@ -45,6 +45,11 @@ function GoalsPageContent() {
       value={activeTab}
       onChange={handleTabChange}
       className="w-full"
+      // Mantine keeps inactive panels mounted by default, which had all
+      // three dashboards fetching at once: two OkrDashboards (each with its
+      // own getByObjective, the page's heaviest query, refetched on every
+      // save) plus the Goals tab's getAllMyGoals, none of it visible.
+      keepMounted={false}
     >
       <Tabs.List className="px-10 border-b border-border-primary">
         <Tabs.Tab value="goals" fz="xs" leftSection={<IconTarget size={16} />}>
