@@ -71,7 +71,8 @@ describe("carried_over section", () => {
     } as unknown as CeremonyOccurrence;
     const items = await carriedOverSection.run(ctx(db, { previousOccurrence: previous }), { key: "carry", type: "carried_over", title: "Carried over" });
     expect(items.map((i) => i.id)).toEqual(["carry:carried:action:a-1", "carry:carried:key_result:kr-1"]);
-    expect(items[0]).toMatchObject({ sectionKey: "carry", carriedFromOccurrenceId: "occ-0", resolvedAt: null, detail: "due 8 Sept · from Blockers" });
+    expect(items[0]).toMatchObject({ sectionKey: "carry", carriedFromOccurrenceId: "occ-0", carryCount: 1, resolvedAt: null, detail: "due 8 Sept · from Blockers" });
+    expect(items[1]!.carryCount).toBe(1);
     expect(items[1]!.detail).toBe("carried again");
   });
 

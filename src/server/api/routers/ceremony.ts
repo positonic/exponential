@@ -17,6 +17,7 @@ import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgen
 import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
+import { canManageCeremony } from "~/server/services/ceremonies/access";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -226,8 +227,8 @@ export const ceremonyRouter = createTRPCRouter({
           recordedMeetings: o.recordedMeetings.map((m) => {
             const v = visibleById.get(m.id);
             return v
-              ? { id: v.id, exists: true as const, title: v.title, meetingDate: v.meetingDate, processedAt: v.processedAt }
-              : { id: m.id, exists: true as const, title: null, meetingDate: null, processedAt: null };
+              ? { id: v.id, visible: true as const, title: v.title, meetingDate: v.meetingDate, processedAt: v.processedAt }
+              : { id: m.id, visible: false as const, title: null, meetingDate: null, processedAt: null };
           }),
         })),
       };
@@ -302,12 +303,7 @@ export const ceremonyRouter = createTRPCRouter({
           })
         : [];
       const visibleById = new Map(visible.map((m) => [m.id, m]));
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
-        select: { role: true },
-      });
-      const canGenerate =
-        occurrence.ceremony.ownerId === userId || membership?.role === "owner" || membership?.role === "admin";
+      const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       return {
         ...occurrence,
         agenda: readAgendaSnapshot(occurrence.agenda),
@@ -315,8 +311,8 @@ export const ceremonyRouter = createTRPCRouter({
         recordedMeetings: occurrence.recordedMeetings.map((m) => {
           const v = visibleById.get(m.id);
           return v
-            ? { id: v.id, exists: true as const, title: v.title, meetingDate: v.meetingDate }
-            : { id: m.id, exists: true as const, title: null, meetingDate: null };
+            ? { id: v.id, visible: true as const, title: v.title, meetingDate: v.meetingDate }
+            : { id: m.id, visible: false as const, title: null, meetingDate: null };
         }),
       };
     }),
@@ -342,14 +338,8 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true, ceremony: { select: { ownerId: true } } },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      if (occurrence.ceremony.ownerId !== userId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
-          select: { role: true },
-        });
-        if (membership?.role !== "owner" && membership?.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can generate its agenda" });
-        }
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can generate its agenda" });
       }
       const generated = await generateAgenda(ctx.db, occurrence.id);
       let circulated = false;
@@ -412,14 +402,8 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true, ceremony: { select: { ownerId: true } } },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      if (occurrence.ceremony.ownerId !== userId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
-          select: { role: true },
-        });
-        if (membership?.role !== "owner" && membership?.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can post its agenda" });
-        }
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can post its agenda" });
       }
       return postAgendaToMatrix(ctx.db, { occurrenceId: occurrence.id, actorUserId: userId, confirmRepost: input.confirmRepost });
     }),

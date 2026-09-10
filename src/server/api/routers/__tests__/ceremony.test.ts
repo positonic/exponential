@@ -235,8 +235,8 @@ describe("ceremony router", () => {
       const res = await caller(db).ceremony.get({ workspaceId: WORKSPACE_ID, id: "cer-1" });
 
       expect(res.occurrences[0]!.recordedMeetings).toEqual([
-        expect.objectContaining({ id: "m-visible", exists: true, title: "Standup" }),
-        { id: "m-hidden", exists: true, title: null, meetingDate: null, processedAt: null },
+        expect.objectContaining({ id: "m-visible", visible: true, title: "Standup" }),
+        { id: "m-hidden", visible: false, title: null, meetingDate: null, processedAt: null },
       ]);
       // Past and upcoming are fetched separately so neither can crowd out the other.
       expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledTimes(2);

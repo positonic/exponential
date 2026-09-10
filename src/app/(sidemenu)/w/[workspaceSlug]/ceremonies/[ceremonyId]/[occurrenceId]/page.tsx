@@ -184,7 +184,7 @@ export default function OccurrencePage() {
           ) : (
             <Stack gap={4}>
               {occurrence.recordedMeetings.map((m) =>
-                m.title !== null || m.meetingDate !== null ? (
+                m.visible ? (
                   <Link key={m.id} href={`/recording/${m.id}`} className="text-sm hover:underline">
                     {m.title ?? "Untitled meeting"}
                   </Link>

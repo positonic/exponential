@@ -15,9 +15,15 @@ const agenda = {
 };
 const now = new Date("2026-09-10T08:00:00Z");
 
+/** The helpers run inside a serializable transaction; in unit tests the callback just gets the mock. */
+function withTx(db: ReturnType<typeof mockDeep<PrismaClient>>) {
+  db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => Promise<unknown>) => fn(db)) as never);
+  return db;
+}
+
 describe("setAgendaItemResolved", () => {
   it("stamps resolvedAt on the item and persists the snapshot", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda } as never);
     db.ceremonyOccurrence.update.mockResolvedValue({} as never);
     const next = await setAgendaItemResolved(db, "occ-1", "blk:action:a-1", true, now);
@@ -28,7 +34,7 @@ describe("setAgendaItemResolved", () => {
   });
 
   it("refuses unknown items and agenda-less occurrences", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda } as never);
     await expect(setAgendaItemResolved(db, "occ-1", "nope", true)).rejects.toMatchObject({ code: "NOT_FOUND" });
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: null } as never);
@@ -38,7 +44,7 @@ describe("setAgendaItemResolved", () => {
 
 describe("carryOverToNext", () => {
   it("seeds unresolved items into the next occurrence's carried_over section when it already has an agenda", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", ceremonyId: "cer-1", scheduledStart: now, agenda } as never);
     db.ceremonyOccurrence.findFirst.mockResolvedValue({
       id: "occ-2",
@@ -58,7 +64,7 @@ describe("carryOverToNext", () => {
   });
 
   it("does nothing when the next occurrence has no agenda yet (the section derives it at generation)", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", ceremonyId: "cer-1", scheduledStart: now, agenda } as never);
     db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-2", agenda: null } as never);
     expect(await carryOverToNext(db, "occ-1")).toBe(0);
@@ -68,7 +74,7 @@ describe("carryOverToNext", () => {
 
 describe("markOccurrenceCaptured", () => {
   it("moves only pre-meeting states to CAPTURED and then carries over; never throws", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", ceremonyId: "cer-1", scheduledStart: now, agenda: null } as never);
     expect(await markOccurrenceCaptured(db, "occ-1")).toBe(true);
@@ -85,7 +91,7 @@ describe("markOccurrenceCaptured", () => {
 
 describe("addAgendaItem / reorderAgendaItems", () => {
   it("adds a hand item tagged with the user and reorders a section", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
     db.ceremonyOccurrence.update.mockResolvedValue({} as never);
     const added = await addAgendaItem(db, "occ-1", { sectionKey: "blk", title: "  Talk about hiring ", userId: "u-1" }, now);

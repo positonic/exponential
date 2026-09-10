@@ -78,12 +78,12 @@ describe("decisions_pending", () => {
       { id: "d-1", number: 3, statement: "Which vendor?", status: "OPEN", createdAt: new Date("2026-08-01"), owner: { name: "Zineb" }, goal: null, keyResult: { id: "kr-1", title: "100 customers", goalId: 4, goal: { title: "Grow" } } },
       { id: "d-2", number: 7, statement: "Adopt tRPC", status: "PROPOSED", createdAt: new Date("2026-09-01"), owner: null, goal: null, keyResult: null },
     ] as never);
-    const previous = { id: "occ-0", scheduledStart: prevStart, agenda: { version: 1, generatedAt: "x", sections: [{ key: "dec", type: "decisions_pending", title: "D", items: [{ id: "dec:decision:d-1", sectionKey: "dec", title: "Which vendor?", refType: "decision", refId: "d-1", order: 0, detail: "D-0003 · open question · carried 1 time" }] }] } } as unknown as CeremonyOccurrence;
+    const previous = { id: "occ-0", scheduledStart: prevStart, agenda: { version: 1, generatedAt: "x", sections: [{ key: "dec", type: "decisions_pending", title: "D", items: [{ id: "dec:decision:d-1", sectionKey: "dec", title: "Which vendor?", refType: "decision", refId: "d-1", order: 0, carryCount: 1, detail: "D-0003 · open question · carried 1 time" }] }] } } as unknown as CeremonyOccurrence;
     const items = await decisionsPendingSection.run(ctx(db, { previousOccurrence: previous }), { key: "dec", type: "decisions_pending", title: "Decisions" });
     const where = db.decision.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ workspaceId: "ws-1", reviewState: "CONFIRMED", status: { in: ["OPEN", "PROPOSED"] } });
     expect(where.OR).toEqual([{ productId: "prod-1" }, { productId: null }]);
-    expect(items[0]).toMatchObject({ id: "dec:decision:d-1", href: "/w/ws/decisions/d/d-1", detail: "D-0003 · open question · owner Zineb · carried 2 times" });
+    expect(items[0]).toMatchObject({ id: "dec:decision:d-1", href: "/w/ws/decisions/d/d-1", carryCount: 2, detail: "D-0003 · open question · owner Zineb · carried 2 times" });
     expect(items[1]!.detail).toBe("D-0007 · proposed");
     expect(items[0]).toMatchObject({ goalId: 4, goalTitle: "Grow", keyResultId: "kr-1", keyResultTitle: "100 customers" });
     expect(items[1]).toMatchObject({ goalId: null, keyResultId: null });

@@ -31,6 +31,8 @@ export interface AgendaItem {
   keyResultTitle?: string | null;
   /** Set when the item was copied from a previous occurrence's unresolved list. */
   carriedFromOccurrenceId?: string | null;
+  /** How many occurrences in a row this item has been carried across. */
+  carryCount?: number | null;
   /** Set when a person added the item by hand; hand items survive regeneration. */
   addedByUserId?: string | null;
   resolvedAt?: string | null;

@@ -129,7 +129,7 @@ export default function CeremonyPage() {
           ) : (
             <Stack gap={2}>
               {o.recordedMeetings.map((m) =>
-                m.title !== null || m.meetingDate !== null ? (
+                m.visible ? (
                   <Link key={m.id} href={`/recording/${m.id}`} className="text-sm hover:underline">
                     {m.title ?? "Untitled meeting"}
                   </Link>

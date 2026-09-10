@@ -58,7 +58,8 @@ describe("buildAgenda", () => {
     expect(items.map((i) => i.id)).toEqual(["hand-1", "kr-1", "kr-3"]);
     expect(items[1]!.resolvedAt).toBe("2026-09-09T09:00:00Z");
     expect(items.map((i) => i.order)).toEqual([0, 1, 2]);
-    expect(snap.narrative).toBe("old narrative");
+    // A stale pre-read never rides along; narration is per generation.
+    expect(snap.narrative).toBeNull();
   });
 
   it("keeps carried-over items that no query re-derives", () => {

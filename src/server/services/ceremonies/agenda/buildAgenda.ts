@@ -57,11 +57,14 @@ export function buildAgenda(
     };
   });
 
+  // The narrative belongs to one generation: it is written fresh (or left
+  // empty) by the caller, never carried from a previous snapshot whose
+  // items may no longer match.
   return {
     version: 1,
     generatedAt: now.toISOString(),
     sections,
-    narrative: previous?.narrative ?? null,
-    narratedAt: previous?.narratedAt ?? null,
+    narrative: null,
+    narratedAt: null,
   };
 }

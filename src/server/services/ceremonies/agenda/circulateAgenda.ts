@@ -5,7 +5,7 @@
  * once is never circulated again by the cron; a person may re-circulate on
  * purpose through the mutation.
  */
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -89,7 +89,7 @@ export async function sweepDueAgendas(db: PrismaClient, now = new Date()): Promi
   const rows = await db.ceremonyOccurrence.findMany({
     where: {
       status: "PLANNED",
-      agenda: { equals: null as never },
+      agenda: { equals: Prisma.AnyNull },
       scheduledStart: { gt: now, lte: new Date(now.getTime() + MAX_LEAD_MS) },
       ceremony: { isActive: true },
     },

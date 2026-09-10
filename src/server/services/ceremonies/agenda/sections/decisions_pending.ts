@@ -34,14 +34,13 @@ export const decisionsPendingSection: SectionModule = {
       orderBy: { createdAt: "asc" },
       take: 50,
     });
-    // Carry count: how many times the same decision already appeared on this ceremony's previous agenda.
+    // Carry count: one more than the previous agenda's count for the same decision (a numeric field, not prose).
     const previous = ctx.previousOccurrence ? readAgendaSnapshot(ctx.previousOccurrence.agenda) : null;
     const carried = new Map<string, number>();
     for (const s of previous?.sections ?? []) {
       for (const i of s.items) {
         if (i.refType !== "decision") continue;
-        const n = Number(/carried (\d+)/.exec(i.detail ?? "")?.[1] ?? 0) + 1;
-        carried.set(i.refId, n);
+        carried.set(i.refId, (i.carryCount ?? 0) + 1);
       }
     }
     return decisions.map<AgendaItem>((d, index) => {
@@ -54,6 +53,7 @@ export const decisionsPendingSection: SectionModule = {
         title: d.statement,
         refType: "decision",
         refId: d.id,
+        carryCount: times,
         goalId: d.keyResult?.goalId ?? d.goal?.id ?? null,
         goalTitle: d.keyResult?.goal.title ?? d.goal?.title ?? null,
         keyResultId: d.keyResult?.id ?? null,

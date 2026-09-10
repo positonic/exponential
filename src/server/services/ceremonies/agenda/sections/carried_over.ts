@@ -20,6 +20,7 @@ export const carriedOverSection: SectionModule = {
           id: `${section.key}:carried:${item.refType}:${item.refId}`,
           sectionKey: section.key,
           carriedFromOccurrenceId: ctx.previousOccurrence!.id,
+          carryCount: (item.carryCount ?? 0) + 1,
           resolvedAt: null,
           order: items.length,
           detail: [item.detail, prevSection.key === section.key ? "carried again" : `from ${prevSection.title}`].filter(Boolean).join(" · "),
