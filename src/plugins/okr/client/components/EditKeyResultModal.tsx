@@ -14,6 +14,7 @@ import {
   MultiSelect,
 } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getQueryKey } from "@trpc/react-query";
@@ -77,6 +78,9 @@ const linkedProjectIdsOf = (
 const linkedFeatureIdsOf = (
   links: Array<{ feature: { id: string } }> | undefined,
 ): string[] => links?.map((link) => link.feature.id) ?? [];
+
+const sameIdSet = (a: string[], b: string[]): boolean =>
+  a.length === b.length && a.every((id) => b.includes(id));
 
 type EditKeyResultModalProps = {
   opened: boolean;
@@ -325,9 +329,7 @@ export function EditKeyResultModal({
   // Delete mutation
   const deleteKeyResult = api.okr.delete.useMutation({
     onSuccess: async () => {
-      await utils.okr.getByObjective.invalidate();
-      await utils.okr.getStats.invalidate();
-      await utils.okr.getAll.invalidate();
+      await refreshOkrQueries();
       onSuccess?.();
       onClose();
     },
@@ -463,6 +465,21 @@ export function EditKeyResultModal({
         patchCachedKeyResult(keyResultId, buildOptimisticKeyResult);
       }
 
+      // Only rewrite the link tables when the user actually changed them.
+      // The baseline is the links we know about (fresh fetch, or the
+      // card's own rows); with no baseline at all — an id-only stub opened
+      // before okr.getById returned — an untouched, empty picker must not
+      // be mistaken for "unlink everything".
+      const knownProjectIds = linkedProjectIdsOf(currentKeyResult.projects);
+      const knownFeatureIds = linkedFeatureIdsOf(currentKeyResult.features);
+      const hasLinkBaseline =
+        currentKeyResult.projects !== undefined ||
+        currentKeyResult.features !== undefined;
+      const projectsChanged =
+        hasLinkBaseline && !sameIdSet(knownProjectIds, selectedProjectIds);
+      const featuresChanged =
+        hasLinkBaseline && !sameIdSet(knownFeatureIds, selectedFeatureIds);
+
       // Close now; the mutations and the refresh run behind the modal.
       onClose();
 
@@ -481,23 +498,45 @@ export function EditKeyResultModal({
           driUserId: driUserId ?? currentUser?.id,
           goalId: nextGoalId,
         }),
-        updateLinkedProjects.mutateAsync({
-          keyResultId,
-          projectIds: selectedProjectIds,
-        }),
-        updateLinkedFeatures.mutateAsync({
-          keyResultId,
-          featureIds: selectedFeatureIds,
-        }),
+        ...(projectsChanged
+          ? [
+              updateLinkedProjects.mutateAsync({
+                keyResultId,
+                projectIds: selectedProjectIds,
+              }),
+            ]
+          : []),
+        ...(featuresChanged
+          ? [
+              updateLinkedFeatures.mutateAsync({
+                keyResultId,
+                featureIds: selectedFeatureIds,
+              }),
+            ]
+          : []),
       ]);
 
-      for (const result of results) {
-        if (result.status === "rejected") {
-          reportHandledError(result.reason, {
-            area: "okr-edit-key-result",
-            context: { keyResultId },
-          });
-        }
+      const rejected = results.filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      );
+      for (const result of rejected) {
+        reportHandledError(result.reason, {
+          area: "okr-edit-key-result",
+          context: { keyResultId },
+        });
+      }
+      if (rejected.length > 0) {
+        // The modal is already closed, so this is the only signal the user
+        // gets that the card is about to revert.
+        notifications.show({
+          title: "Key result not saved",
+          message:
+            rejected[0]?.reason instanceof Error
+              ? rejected[0].reason.message
+              : "The server refused part of the change. Reopen it to try again.",
+          color: "red",
+        });
       }
 
       // One refetch: confirms the optimistic paint, or reverts it if a
