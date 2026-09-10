@@ -4,6 +4,7 @@ import {
   selectMeetingsToSummarize,
   type SummarizableMeeting,
 } from "~/server/services/meetings/selectMeetingsToSummarize";
+import { attachUnlinkedMeetings } from "~/server/services/ceremonies/autoAttach";
 
 /**
  * Auto-summarize cron sweep (ADR-0018, royal.raven).
@@ -56,6 +57,8 @@ export interface MeetingSummarySweepResult {
   eventsEmitted: number;
   /** True when summarization is not configured (missing OPENAI_API_KEY). */
   notConfigured: boolean;
+  /** Ceremony catch-up (ADR-0059): recent unattached meetings re-matched. */
+  ceremonyCatchUp: { scanned: number; attached: number };
 }
 
 /**
@@ -77,7 +80,13 @@ export async function runMeetingSummarySweep(
     skipped: 0,
     eventsEmitted: 0,
     notConfigured: false,
+    ceremonyCatchUp: { scanned: 0, attached: 0 },
   };
+
+  // Ceremony catch-up first (cheap, no LLM): rows created before their
+  // ceremony existed get a second chance to attach by alias. Its own errors
+  // are reported inside and never sink the sweep.
+  result.ceremonyCatchUp = await attachUnlinkedMeetings(db, { userId });
 
   // DB-level prefilter mirrors the selector predicate (summary-null +
   // transcript-present) so we only pull rows that could be eligible. Archived
