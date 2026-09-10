@@ -103,7 +103,13 @@ export default function CeremonyPage() {
     rows.map((o) => (
       <Table.Tr key={o.id} data-testid={`occurrence-row-${o.id}`}>
         <Table.Td>
-          <Text size="sm">{new Date(o.scheduledStart).toLocaleString(undefined, whenFmt)}</Text>
+          <Link
+            href={`/w/${workspace.slug}/ceremonies/${ceremony.id}/${o.id}`}
+            className="text-sm hover:underline"
+            data-testid={`occurrence-link-${o.id}`}
+          >
+            {new Date(o.scheduledStart).toLocaleString(undefined, whenFmt)}
+          </Link>
         </Table.Td>
         <Table.Td>
           <Badge size="sm" variant="light" color={STATUS_COLOR[o.status]}>
@@ -123,7 +129,7 @@ export default function CeremonyPage() {
           ) : (
             <Stack gap={2}>
               {o.recordedMeetings.map((m) =>
-                m.title !== null || m.meetingDate !== null ? (
+                m.visible ? (
                   <Link key={m.id} href={`/recording/${m.id}`} className="text-sm hover:underline">
                     {m.title ?? "Untitled meeting"}
                   </Link>

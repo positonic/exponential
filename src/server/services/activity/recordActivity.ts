@@ -24,7 +24,9 @@ export type ActivityAction =
   | "deprecated"
   | "confirmed"
   /** A recorded meeting was linked to a ceremony occurrence (ADR-0059). */
-  | "captured";
+  | "captured"
+  /** An occurrence's agenda was generated and sent to its participants (ADR-0059). */
+  | "agenda_circulated";
 
 /**
  * Entity types we currently log activity for. New writers append new values

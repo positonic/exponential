@@ -39,6 +39,13 @@ vi.mock("openai", () => ({
   },
 }));
 
+// Agenda generation narrates through ChatOpenAI; unit tests never call the model.
+vi.mock("@langchain/openai", () => ({
+  ChatOpenAI: class {
+    invoke = () => Promise.resolve({ content: "## Narrative" });
+  },
+}));
+
 vi.mock("next-auth", () => ({
   default: () => ({ auth: () => null, handlers: {}, signIn: vi.fn(), signOut: vi.fn() }),
 }));
@@ -80,6 +87,16 @@ const WORKSPACE_ID = "ws-1";
 
 function caller(db: DeepMockProxy<PrismaClient>) {
   return createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient });
+}
+
+/**
+ * Agenda writes run inside `withAgendaTransaction`; run the callback against
+ * the same mock so the write is observable.
+ */
+function withAgendaTransactionMock(db: DeepMockProxy<PrismaClient>) {
+  (db.$transaction as unknown as { mockImplementation: (fn: unknown) => void }).mockImplementation(
+    async (fn: (tx: PrismaClient) => Promise<unknown>) => fn(db as unknown as PrismaClient),
+  );
 }
 
 /** Satisfy requireWorkspaceMembership at a given workspace role. */
@@ -228,8 +245,8 @@ describe("ceremony router", () => {
       const res = await caller(db).ceremony.get({ workspaceId: WORKSPACE_ID, id: "cer-1" });
 
       expect(res.occurrences[0]!.recordedMeetings).toEqual([
-        expect.objectContaining({ id: "m-visible", exists: true, title: "Standup" }),
-        { id: "m-hidden", exists: true, title: null, meetingDate: null, processedAt: null },
+        expect.objectContaining({ id: "m-visible", visible: true, title: "Standup" }),
+        { id: "m-hidden", visible: false, title: null, meetingDate: null, processedAt: null },
       ]);
       // Past and upcoming are fetched separately so neither can crowd out the other.
       expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledTimes(2);
@@ -408,6 +425,52 @@ describe("ceremony router", () => {
       expect(res.rows[0]).toMatchObject({ meetingId: "m-1", occurrenceId: "occ-1", ceremonyName: "Daily Standup" });
       expect(res.rows[0]!.reason).toContain("anchored on title date or import date");
       expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("generateAgenda gates on the ceremony owner (or workspace owner/admin)", () => {
+    it("denies a plain member who does not own the ceremony", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-1", ceremony: { ownerId: "someone-else" } } as never);
+      await expect(
+        caller(db).ceremony.generateAgenda({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner generate: runs the template sections and stores the snapshot", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst
+        .mockResolvedValueOnce({ id: "occ-1", ceremony: { ownerId: USER_ID } } as never) // gate
+        .mockResolvedValueOnce(null as never); // previous occurrence
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({
+        id: "occ-1",
+        scheduledStart: new Date("2026-09-11T07:00:00Z"),
+        agenda: null,
+        ceremony: {
+          id: "cer-1",
+          workspaceId: WORKSPACE_ID,
+          teamId: null,
+          projectId: null,
+          productId: null,
+          agendaTemplate: [{ key: "okr", type: "okr_review", title: "OKRs" }, { key: "free", type: "free_text", title: "Else" }],
+          participants: [],
+          workspace: { slug: "ws" },
+        },
+      } as never);
+      db.keyResult.findMany.mockResolvedValue([
+        { id: "kr-1", title: "KR", status: "on-track", statusOverride: null, statusOverrideAt: null, currentValue: 0, targetValue: 1, unit: "count", goalId: 1, goal: { id: 1, title: "G" }, checkIns: [] },
+      ] as never);
+      db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+      withAgendaTransactionMock(db);
+
+      const res = await caller(db).ceremony.generateAgenda({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      expect(res.itemCount).toBe(1);
+      expect(res.agenda.sections.map((s) => [s.key, s.items.length])).toEqual([["okr", 1], ["free", 0]]);
+      const data = db.ceremonyOccurrence.update.mock.calls[0]![0].data as { agendaGeneratedAt: Date; agenda: { sections: unknown[] } };
+      expect(data.agendaGeneratedAt).toBeInstanceOf(Date);
+      expect(data.agenda.sections).toHaveLength(2);
     });
   });
 });

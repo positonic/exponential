@@ -33,6 +33,7 @@ interface SweepMeeting extends SummarizableMeeting {
   title: string | null;
   workspaceId: string | null;
   userId: string | null;
+  occurrenceId: string | null;
 }
 
 export interface MeetingSummarySweepOptions {
@@ -107,6 +108,7 @@ export async function runMeetingSummarySweep(
       summary: true,
       workspaceId: true,
       userId: true,
+      occurrenceId: true,
     },
   });
 

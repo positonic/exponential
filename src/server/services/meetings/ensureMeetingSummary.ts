@@ -6,6 +6,7 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { markOccurrenceCaptured } from "~/server/services/ceremonies/agenda/items";
 import {
   extractReadableTranscript,
   MAX_SUMMARY_TRANSCRIPT_CHARS,
@@ -35,6 +36,8 @@ export interface SummarizableMeetingRow {
   summary: string | null;
   workspaceId: string | null;
   userId: string | null;
+  /** The ceremony occurrence this recording captured (ADR-0059), when known. */
+  occurrenceId?: string | null;
 }
 
 export type EnsureMeetingSummaryStatus =
@@ -161,6 +164,13 @@ export async function summarizeMeetingRow(
     });
   }
 
+  // A summarised recording means its ceremony occurrence was captured
+  // (ADR-0059): move the occurrence on and carry unresolved agenda items
+  // into the next one. Same first-summary transition, so it never repeats.
+  if (meeting.occurrenceId) {
+    await markOccurrenceCaptured(db, meeting.occurrenceId);
+  }
+
   return { status: "created", summary: summaryJson, eventEmitted };
 }
 
@@ -183,6 +193,7 @@ export async function ensureMeetingSummary(
       summary: true,
       workspaceId: true,
       userId: true,
+      occurrenceId: true,
     },
   });
 

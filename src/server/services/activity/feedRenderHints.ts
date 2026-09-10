@@ -251,6 +251,11 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} linked a recording to {entityRef}",
     iconKind: "milestone",
   },
+  // Circulation is usually the hourly cron (system actor, rendered as such).
+  [key("ceremony_occurrence", "agenda_circulated")]: {
+    template: "{actor} circulated the agenda for {entityRef}",
+    iconKind: "updated",
+  },
 
   // Time recordings — one event per stopped timer (TimeEntryService, incl. the
   // silent auto-stop when a new timer starts). The tracked Action's name rides

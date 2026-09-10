@@ -13,6 +13,12 @@ import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
+import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
+import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
+import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
+import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
+import { canManageCeremony } from "~/server/services/ceremonies/access";
+import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -221,8 +227,8 @@ export const ceremonyRouter = createTRPCRouter({
           recordedMeetings: o.recordedMeetings.map((m) => {
             const v = visibleById.get(m.id);
             return v
-              ? { id: v.id, exists: true as const, title: v.title, meetingDate: v.meetingDate, processedAt: v.processedAt }
-              : { id: m.id, exists: true as const, title: null, meetingDate: null, processedAt: null };
+              ? { id: v.id, visible: true as const, title: v.title, meetingDate: v.meetingDate, processedAt: v.processedAt }
+              : { id: m.id, visible: false as const, title: null, meetingDate: null, processedAt: null };
           }),
         })),
       };
@@ -260,6 +266,146 @@ export const ceremonyRouter = createTRPCRouter({
           ceremony: { select: { id: true, name: true, kind: true } },
         },
       });
+    }),
+
+  /** One occurrence with its agenda snapshot, ceremony summary and visible recordings. */
+  getOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        include: {
+          ceremony: {
+            select: {
+              id: true,
+              name: true,
+              kind: true,
+              timezone: true,
+              durationMinutes: true,
+              leadTimeHours: true,
+              ownerId: true,
+              matrixRoomId: true,
+              agendaTemplate: true,
+              owner: { select: { id: true, name: true, email: true } },
+            },
+          },
+          recordedMeetings: { select: { id: true } },
+        },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const meetingIds = occurrence.recordedMeetings.map((m) => m.id);
+      const visible = meetingIds.length
+        ? await ctx.db.transcriptionSession.findMany({
+            where: { id: { in: meetingIds }, ...buildTranscriptionAccessWhere(userId) },
+            select: { id: true, title: true, meetingDate: true },
+          })
+        : [];
+      const visibleById = new Map(visible.map((m) => [m.id, m]));
+      const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
+      return {
+        ...occurrence,
+        agenda: readAgendaSnapshot(occurrence.agenda),
+        canGenerate,
+        recordedMeetings: occurrence.recordedMeetings.map((m) => {
+          const v = visibleById.get(m.id);
+          return v
+            ? { id: v.id, visible: true as const, title: v.title, meetingDate: v.meetingDate }
+            : { id: m.id, visible: false as const, title: null, meetingDate: null };
+        }),
+      };
+    }),
+
+  /**
+   * Generate or regenerate an occurrence's agenda on demand. The ceremony
+   * owner (or a workspace owner/admin) only; runs inside the request.
+   */
+  generateAgenda: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        /** Also send "agenda ready" to participants (again, if already sent). */
+        circulate: z.boolean().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can generate its agenda" });
+      }
+      const generated = await generateAgenda(ctx.db, occurrence.id);
+      let circulated = false;
+      if (input.circulate) {
+        ({ circulated } = await circulateAgenda(ctx.db, occurrence.id, { actorUserId: userId, force: true }));
+      }
+      return { ...generated, circulated };
+    }),
+
+  /** Mark one agenda item resolved (or reopen it). Any non-viewer member; survives regeneration. */
+  resolveAgendaItem: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), itemId: z.string(), resolved: z.boolean() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const agenda = await setAgendaItemResolved(ctx.db, occurrence.id, input.itemId, input.resolved);
+      return { occurrenceId: occurrence.id, agenda };
+    }),
+
+  /** Add an item by hand to a section; kept across regeneration. */
+  addAgendaItem: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), title: z.string().trim().min(1).max(300), detail: z.string().max(500).nullish() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const agenda = await addAgendaItem(ctx.db, occurrence.id, { sectionKey: input.sectionKey, title: input.title, detail: input.detail, userId: ctx.session.user.id });
+      return { occurrenceId: occurrence.id, agenda };
+    }),
+
+  /** Reorder a section's items; the order is kept across regeneration. */
+  reorderAgendaItems: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), itemIds: z.array(z.string()).max(200) }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const agenda = await reorderAgendaItems(ctx.db, occurrence.id, { sectionKey: input.sectionKey, itemIds: input.itemIds });
+      return { occurrenceId: occurrence.id, agenda };
+    }),
+
+  /** Post the agenda to the ceremony's Matrix room by hand (owner, or workspace owner/admin). */
+  postAgendaToMatrix: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), confirmRepost: z.boolean().optional() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can post its agenda" });
+      }
+      return postAgendaToMatrix(ctx.db, { occurrenceId: occurrence.id, actorUserId: userId, confirmRepost: input.confirmRepost });
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */
